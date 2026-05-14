@@ -46,7 +46,9 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             canLoadDatasource: self.canLoadDatasource,
             gestureTranslationY: scrollView.panGestureRecognizer.translation(in: scrollView).y,
             boundaryContext: boundaryContext,
-            currentPageMinIndex: self.currentPage.minIndex
+            currentPageMinIndex: self.currentPage.minIndex,
+            currentPageMaxIndex: self.currentPage.maxIndex,
+            totalCount: self.messagesObserver?.count ?? 0
         ) else {
             return
         }
@@ -62,7 +64,9 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             canLoadDatasource: self.canLoadDatasource,
             gestureTranslationY: scrollView.panGestureRecognizer.translation(in: scrollView).y,
             boundaryContext: boundaryContext,
-            currentPageMinIndex: self.currentPage.minIndex
+            currentPageMinIndex: self.currentPage.minIndex,
+            currentPageMaxIndex: self.currentPage.maxIndex,
+            totalCount: self.messagesObserver?.count ?? 0
         ) else {
             return
         }

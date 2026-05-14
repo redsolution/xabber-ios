@@ -17,6 +17,17 @@ import RxCocoa
 import RxRealm
 
 class LeftMenuViewController: UIViewController {
+    private enum ExperimentLayout {
+        static let menuSurfaceHorizontalInset: CGFloat = 16
+        static let menuSurfaceBottomInset: CGFloat = 16
+        static let menuSurfaceMinimumTopInset: CGFloat = 0
+        static let menuSurfaceSafeAreaTopOffset: CGFloat = 2
+        static let tableHeaderHeight: CGFloat = 112
+        static let titleSafeAreaTopOffset: CGFloat = 8
+        static let titleHeight: CGFloat = 28
+        static let titleHorizontalInset: CGFloat = 16
+    }
+
     
     class AccountView: UIView {
         
@@ -172,16 +183,46 @@ class LeftMenuViewController: UIViewController {
     var savedMessagesChatsVc: LastChatsViewController? = nil
     
     private let tableView: UITableView = {
-        let view = UITableView(frame: .zero, style: .grouped)
+        let style: UITableView.Style = ContinuousSplitBackgroundExperiment.isActive ? .insetGrouped : .grouped
+        let view = UITableView(frame: .zero, style: style)
         
         view.register(MenuItemTableCell.self, forCellReuseIdentifier: MenuItemTableCell.cellName)
 //        view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
-        view.separatorStyle = .none
+        view.applyContinuousSplitInsetGroupedAppearance()
+        if !ContinuousSplitBackgroundExperiment.isActive {
+            view.separatorStyle = .none
+        }
         view.isScrollEnabled = false
         
         return view
     }()
-    
+
+    private let menuSurfaceView: UIVisualEffectView = {
+        let view = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+
+        view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.28)
+        view.layer.cornerRadius = 24
+        view.layer.cornerCurve = .continuous
+        view.clipsToBounds = true
+        view.isUserInteractionEnabled = false
+
+        return view
+    }()
+
+    private let menuTitleLabel: UILabel = {
+        let label = UILabel()
+        let font = UIFont.systemFont(ofSize: 20, weight: .semibold)
+
+        label.font = UIFontMetrics(forTextStyle: .title3).scaledFont(for: font)
+        label.adjustsFontForContentSizeCategory = true
+        label.textAlignment = .center
+        label.textColor = .label
+        label.backgroundColor = .clear
+        label.isUserInteractionEnabled = false
+
+        return label
+    }()
+
     internal let accountButton: UIButton = {
         let button = UIButton(frame: .zero)
         
@@ -333,10 +374,11 @@ class LeftMenuViewController: UIViewController {
                 .skip(1)
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe { results in
-                    if let index = self.datasource[section].firstIndex(where: { $0.key == "chat" }) {
-                        self.datasource[section][index].subtitle = "\(results.compactMap({ $0.unread }).reduce(0, +))"
-                        self.tableView.reloadRows(at: [IndexPath(row: index, section: section)], with: .none)
-                    }
+                    self.updateDatasourceSubtitle(
+                        for: "chat",
+                        section: section,
+                        subtitle: "\(results.compactMap({ $0.unread }).reduce(0, +))"
+                    )
                     
                 } onError: { _ in
                     
@@ -352,10 +394,11 @@ class LeftMenuViewController: UIViewController {
                 .skip(1)
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe { results in
-                    if let index = self.datasource[section].firstIndex(where: { $0.key == "archive" }) {
-                        self.datasource[section][index].subtitle = "\(results.compactMap({ $0.unread }).reduce(0, +))"
-                        self.tableView.reloadRows(at: [IndexPath(row: index, section: section)], with: .none)
-                    }
+                    self.updateDatasourceSubtitle(
+                        for: "archive",
+                        section: section,
+                        subtitle: "\(results.compactMap({ $0.unread }).reduce(0, +))"
+                    )
                     
                 } onError: { _ in
                     
@@ -371,10 +414,7 @@ class LeftMenuViewController: UIViewController {
                 .skip(1)
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe { results in
-                    if let index = self.datasource[section].firstIndex(where: { $0.key == "calls" }) {
-                        self.datasource[section][index].subtitle = "\(results.count)"
-                        self.tableView.reloadRows(at: [IndexPath(row: index, section: section)], with: .none)
-                    }
+                    self.updateDatasourceSubtitle(for: "calls", section: section, subtitle: "\(results.count)")
                     
                 } onError: { _ in
                     
@@ -390,10 +430,7 @@ class LeftMenuViewController: UIViewController {
                 .skip(1)
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe { results in
-                    if let index = self.datasource[section].firstIndex(where: { $0.key == "contacts" }) {
-                        self.datasource[section][index].subtitle = "\(results.count)"
-                        self.tableView.reloadRows(at: [IndexPath(row: index, section: section)], with: .none)
-                    }
+                    self.updateDatasourceSubtitle(for: "contacts", section: section, subtitle: "\(results.count)")
                     
                 } onError: { _ in
                     
@@ -409,10 +446,7 @@ class LeftMenuViewController: UIViewController {
                 .skip(1)
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe { results in
-                    if let index = self.datasource[section].firstIndex(where: { $0.key == "groups" }) {
-                        self.datasource[section][index].subtitle = "\(results.count)"
-                        self.tableView.reloadRows(at: [IndexPath(row: index, section: section)], with: .none)
-                    }
+                    self.updateDatasourceSubtitle(for: "groups", section: section, subtitle: "\(results.count)")
                     
                 } onError: { _ in
                     
@@ -428,10 +462,7 @@ class LeftMenuViewController: UIViewController {
                 .skip(1)
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe { results in
-                    if let index = self.datasource[section].firstIndex(where: { $0.key == "notifications" }) {
-                        self.datasource[section][index].subtitle = "\(results.count)"
-                        self.tableView.reloadRows(at: [IndexPath(row: index, section: section)], with: .none)
-                    }
+                    self.updateDatasourceSubtitle(for: "notifications", section: section, subtitle: "\(results.count)")
                     
                 } onError: { _ in
                     
@@ -450,6 +481,35 @@ class LeftMenuViewController: UIViewController {
     func unsubscribe() {
         self.bag = DisposeBag()
     }
+
+    private func updateDatasourceSubtitle(for key: String, section: Int = 0, subtitle: String) {
+        guard datasource.indices.contains(section),
+              let index = datasource[section].firstIndex(where: { $0.key == key }) else {
+            return
+        }
+
+        datasource[section][index].subtitle = subtitle
+        reloadMenuRowIfPossible(at: IndexPath(row: index, section: section))
+    }
+
+    private func reloadMenuRowIfPossible(at indexPath: IndexPath) {
+        UIView.performWithoutAnimation {
+            guard tableView.window != nil else {
+                tableView.reloadData()
+                return
+            }
+
+            let tableSections = tableView.numberOfSections
+            guard tableSections == datasource.count,
+                  indexPath.section < tableSections,
+                  indexPath.row < tableView.numberOfRows(inSection: indexPath.section) else {
+                tableView.reloadData()
+                return
+            }
+
+            tableView.reloadRows(at: [indexPath], with: .none)
+        }
+    }
     
 //    internal let bottomBar: AccountView = {
 //        let view = AccountView()
@@ -458,7 +518,15 @@ class LeftMenuViewController: UIViewController {
 //    }()
     
     public func configure() {
-        self.title = CommonConfigManager.shared.config.app_name.capitalized
+        let title = CommonConfigManager.shared.config.app_name.capitalized
+        if ContinuousSplitBackgroundExperiment.isActive {
+            self.title = nil
+            navigationItem.title = nil
+            menuTitleLabel.text = title
+        } else {
+            self.title = title
+        }
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
 
         navigationItem.largeTitleDisplayMode = .automatic
         navigationController?.navigationBar.prefersLargeTitles = true
@@ -470,8 +538,11 @@ class LeftMenuViewController: UIViewController {
 //        }
 //        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
 
+        configureMenuSurfaceIfNeeded()
         view.addSubview(tableView)
         tableView.fillSuperview()
+        tableView.applyContinuousSplitInsetGroupedAppearance()
+        configureExperimentTitleIfNeeded()
         tableView.delegate = self
         tableView.dataSource = self
         loadDatasource()
@@ -481,6 +552,77 @@ class LeftMenuViewController: UIViewController {
         tapGesture.cancelsTouchesInView = false
 //        tableView.addGestureRecognizer(tapGesture)
 
+    }
+
+    private func configureMenuSurfaceIfNeeded() {
+        guard ContinuousSplitBackgroundExperiment.isActive else { return }
+        guard menuSurfaceView.superview == nil else { return }
+
+        view.insertSubview(menuSurfaceView, at: 0)
+        configureExperimentTableHeaderIfNeeded()
+        layoutMenuSurfaceIfNeeded()
+    }
+
+    private func configureExperimentTitleIfNeeded() {
+        guard ContinuousSplitBackgroundExperiment.isActive else { return }
+        guard menuTitleLabel.superview == nil else {
+            view.bringSubviewToFront(menuTitleLabel)
+            return
+        }
+
+        view.addSubview(menuTitleLabel)
+        layoutMenuTitleIfNeeded()
+    }
+
+    private func configureExperimentTableHeaderIfNeeded() {
+        guard ContinuousSplitBackgroundExperiment.isActive else { return }
+        let headerFrame = CGRect(
+            x: 0,
+            y: 0,
+            width: max(tableView.bounds.width, view.bounds.width),
+            height: ExperimentLayout.tableHeaderHeight
+        )
+
+        if let headerView = tableView.tableHeaderView {
+            guard headerView.frame != headerFrame else { return }
+            headerView.frame = headerFrame
+            tableView.tableHeaderView = headerView
+            return
+        }
+
+        let headerView = UIView(frame: headerFrame)
+        headerView.backgroundColor = .clear
+        headerView.isUserInteractionEnabled = false
+        tableView.tableHeaderView = headerView
+    }
+
+    private func layoutMenuSurfaceIfNeeded() {
+        guard ContinuousSplitBackgroundExperiment.isActive else { return }
+        let topSafeAreaInset = view.window?.safeAreaInsets.top ?? view.safeAreaInsets.top
+        let topInset = max(
+            ExperimentLayout.menuSurfaceMinimumTopInset,
+            topSafeAreaInset + ExperimentLayout.menuSurfaceSafeAreaTopOffset
+        )
+        let surfaceFrame = CGRect(
+            x: ExperimentLayout.menuSurfaceHorizontalInset,
+            y: topInset,
+            width: max(0, view.bounds.width - ExperimentLayout.menuSurfaceHorizontalInset * 2),
+            height: max(0, view.bounds.height - topInset - ExperimentLayout.menuSurfaceBottomInset)
+        )
+
+        menuSurfaceView.frame = surfaceFrame
+    }
+
+    private func layoutMenuTitleIfNeeded() {
+        guard ContinuousSplitBackgroundExperiment.isActive else { return }
+        let topSafeAreaInset = view.window?.safeAreaInsets.top ?? view.safeAreaInsets.top
+        let surfaceFrame = menuSurfaceView.frame
+        menuTitleLabel.frame = CGRect(
+            x: surfaceFrame.minX + ExperimentLayout.titleHorizontalInset,
+            y: topSafeAreaInset + ExperimentLayout.titleSafeAreaTopOffset,
+            width: max(0, surfaceFrame.width - ExperimentLayout.titleHorizontalInset * 2),
+            height: ExperimentLayout.titleHeight
+        )
     }
 
     private func updatePremiumBarButton() {
@@ -529,7 +671,7 @@ class LeftMenuViewController: UIViewController {
         configure()
         subscribe()
     }
-    
+
     private func observer() {
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(languageChanged),
@@ -569,6 +711,14 @@ class LeftMenuViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
     }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        configureExperimentTableHeaderIfNeeded()
+        layoutMenuSurfaceIfNeeded()
+        layoutMenuTitleIfNeeded()
+    }
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
     }
@@ -597,6 +747,7 @@ extension LeftMenuViewController: UITableViewDataSource {
         } else {
             cell.badgeView.backgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
         }
+        cell.applyContinuousSplitSystemBackground()
         cell.selectionStyle = .none
         return cell
     }
@@ -923,7 +1074,10 @@ extension LeftMenuViewController: UITableViewDelegate {
             return
         }
         
-        splitVC.setViewController(UINavigationController(rootViewController: vc), for: .supplementary)
+        let nvc = UINavigationController(rootViewController: vc)
+        nvc.applyTransparentSplitAppearance()
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(vc)
+        splitVC.setViewController(nvc, for: .supplementary)
         splitVC.setViewController(svc, for: .secondary)
         splitVC.show(.supplementary)
         splitVC.hide(.primary)
@@ -955,6 +1109,8 @@ extension LeftMenuViewController: UITableViewDelegate {
         }
         (svc as? EmptyChatViewController)?.kind = kind
         let nsvc = UINavigationController(rootViewController: svc)
+        nsvc.applyTransparentSplitAppearance()
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(vc)
         self.splitViewController?.viewControllers = [self, vc, nsvc]
         if UIDevice.current.userInterfaceIdiom == .pad {
             self.splitViewController?.hide(.primary)

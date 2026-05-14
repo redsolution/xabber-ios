@@ -147,7 +147,11 @@ extension LastChatsViewController {
             
             separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 74, right: 0)
             
-            contentView.backgroundColor = MDCPalette.grey.tint100
+            if ContinuousSplitBackgroundExperiment.isActive {
+                applyContinuousSplitGlassBackground()
+            } else {
+                contentView.backgroundColor = MDCPalette.grey.tint100
+            }
             
             activateConstraints()
         }

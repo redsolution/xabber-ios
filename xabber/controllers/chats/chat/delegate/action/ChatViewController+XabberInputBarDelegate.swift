@@ -57,7 +57,7 @@ extension ChatViewController: XabberInputBarDelegate {
     
     func didReceiveRecordButtonPositionChange(to point: CGPoint) {
         print(#function, point)
-        var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight + self.xabberInputView.keyboardHeight
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
@@ -89,7 +89,7 @@ extension ChatViewController: XabberInputBarDelegate {
             initialSpringVelocity: 0.3,
             options: [.curveEaseInOut]) {
                 self.recordLockIndicator.setImage(imageLiteral("stop.fill"), for: .normal)
-                var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+                var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight + self.xabberInputView.keyboardHeight
                 if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
                     inputHeight += bottomInset
                 }
@@ -137,7 +137,7 @@ extension ChatViewController: XabberInputBarDelegate {
         self.hideSharedAudioPanel()
         self.sharedPlayerPaneldelegae?.shouldHide()
         self.recordLockIndicator.isHidden = true
-        var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight + self.xabberInputView.keyboardHeight
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
@@ -222,7 +222,7 @@ extension ChatViewController: XabberInputBarDelegate {
     
     func onAudioMessageDidStop() {
         self.recordLockIndicator.isHidden = true
-        var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight + self.xabberInputView.keyboardHeight
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
@@ -242,7 +242,7 @@ extension ChatViewController: XabberInputBarDelegate {
         do { try AudioRecorder.shared.stopRecording(cancel: true, shouldSend: false) } catch {  }
         self.xabberInputView.cancelRecord()
         self.recordLockIndicator.isHidden = true
-        var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight + self.xabberInputView.keyboardHeight
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
@@ -276,7 +276,7 @@ extension ChatViewController: XabberInputBarDelegate {
             self.resetRecordState()
         }
         func updateRecordLockFrame() {
-            var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+            var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight + self.xabberInputView.keyboardHeight
             if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
                 inputHeight += bottomInset
             }
@@ -416,18 +416,21 @@ extension ChatViewController: XabberInputBarDelegate {
     
     func sendAudioMessage(_ reference: MessageReferenceStorageItem) {
         let forwarded: [String] = self.attachedMessagesIds.value
+        let shouldAutoScroll = self.isNearBottom()
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             user.messages.sendMediaMessage([reference], to: self.jid, forwarded: forwarded, conversationType: self.conversationType)
             self.recordedReferenceObject = nil
             DispatchQueue.main.async {
-                if let primary = self.messagesObserver?.first?.primary {
+                if let primary = self.messagesObserver?.last?.primary {
                     (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
                         .invalidateLastMessageCachedSize(primary: primary)
                 }
                 FeedbackManager.shared.generate(feedback: .success)
                 self.clearAttachments()
                 self.unreadMessagePositionId = nil
-                self.scrollToLastOrUnreadItem()
+                if shouldAutoScroll {
+                    self.scrollToLastOrUnreadItem()
+                }
             }
         })
     }
@@ -438,7 +441,7 @@ extension ChatViewController: XabberInputBarDelegate {
         print("panGestureRecognizerSelector", #function)
         self.xabberInputView.resetStateAfterRecord()
         self.recordLockIndicator.isHidden = true
-        var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight + self.xabberInputView.keyboardHeight
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
@@ -463,7 +466,7 @@ extension ChatViewController: XabberInputBarDelegate {
         print("panGestureRecognizerSelector", #function)
         self.xabberInputView.recordPanel.done()
         self.recordLockIndicator.isHidden = true
-        var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight + self.xabberInputView.keyboardHeight
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
@@ -506,13 +509,17 @@ extension ChatViewController: XabberInputBarDelegate {
     }
     
     func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat) {
-//        print("self.messagesCollectionView.contentOffset.y", self.messagesCollectionView.contentOffset.y)
-        if self.messagesCollectionView.contentOffset.y < 0 { // -340
-            self.messagesCollectionView.contentOffset.y = -height - 8
-        }
-        self.messagesCollectionView.contentInset = UIEdgeInsets(top: height + 8, left: 0, bottom: 0, right: 0)
-        self.messagesCollectionView.scrollIndicatorInsets = self.messagesCollectionView.contentInset
+        let wasNearBottom = self.isNearBottom()
+        let visibleAnchor = wasNearBottom ? nil : self.capturePagingAnchorIfNeeded(direction: .older)
+        self.updateChatCollectionInsets(inputHeight: height)
         self.updateInitialMessageOverlayFrame()
+        self.messagesCollectionView.layoutIfNeeded()
+        self.updateChatCollectionInsets(inputHeight: height)
+        if wasNearBottom {
+            self.scrollToBottom(animated: false)
+        } else if let visibleAnchor {
+            self.restorePagingAnchor(visibleAnchor)
+        }
 //        let offset = messagesCollectionView.contentOffset.y
 //        messageCollectionViewTopInset = height + 4 //offset - height + barHeight
 //        messagesCollectionView.setContentOffset(CGPoint(x: 0, y: -height), animated: true)
@@ -803,6 +810,7 @@ extension ChatViewController: XabberInputBarDelegate {
     
     func sendButtonTouchUp( with text: String) {
         let payload = self.xabberInputView.currentPayload()
+        let shouldAutoScroll = self.isNearBottom()
         func sendMessage(_ payload: ComposerMessagePayload) {
             if self.recordedReferenceObject != nil {
                 self.onSendButtonTouchUpInsideWhenAudioWasRecorded()
@@ -839,7 +847,7 @@ extension ChatViewController: XabberInputBarDelegate {
                             conversationType: self.conversationType,
                             references: payload.references
                         )
-                        if let primary = self.messagesObserver?.first?.primary {
+                        if let primary = self.messagesObserver?.last?.primary {
                             (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
                                 .invalidateLastMessageCachedSize(primary: primary)
                         }
@@ -847,7 +855,9 @@ extension ChatViewController: XabberInputBarDelegate {
                 }
                 self.clearAttachments()
                 self.unreadMessagePositionId = nil
-                self.scrollToLastOrUnreadItem()
+                if shouldAutoScroll {
+                    self.scrollToLastOrUnreadItem()
+                }
             }
         }
         if showSkeletonObserver.value {

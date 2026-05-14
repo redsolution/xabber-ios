@@ -141,19 +141,22 @@ extension ChatViewController {
         let options = curveValue
             .map { UIView.AnimationOptions(rawValue: $0 << 16).union(.beginFromCurrentState) }
             ?? [.beginFromCurrentState, .curveEaseInOut]
+        let wasNearBottom = self.isNearBottom()
+        let visibleAnchor = wasNearBottom ? nil : self.capturePagingAnchorIfNeeded(direction: .older)
 
         let updates = {
             inputView.update(screenHeight: self.view.bounds.height, keyboardHeight: keyboardVisibleHeight)
             let inputHeight = inputView.bounds.height
-            self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 0, right: 0)
-            self.messagesCollectionView.scrollIndicatorInsets = self.messagesCollectionView.contentInset
-
-            if keyboardVisibleHeight > 0, self.messagesCollectionView.contentOffset.y < 100 {
-                self.messagesCollectionView.contentOffset.y = -inputHeight - 8
-            }
+            self.updateChatCollectionInsets(inputHeight: inputHeight)
 
             self.updateInitialMessageOverlayFrame()
             self.view.layoutIfNeeded()
+            self.updateChatCollectionInsets(inputHeight: inputHeight)
+            if wasNearBottom {
+                self.scrollToBottom(animated: false)
+            } else if let visibleAnchor {
+                self.restorePagingAnchor(visibleAnchor)
+            }
         }
 
         if duration > 0 {

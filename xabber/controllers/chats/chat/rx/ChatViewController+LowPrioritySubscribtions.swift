@@ -85,7 +85,6 @@ extension ChatViewController {
                                 let attrib = layout.layoutAttributesForItem(at: path)
                                 guard let frame = attrib?.frame else { return nil }
                                 var convertedPoint = self.messagesCollectionView.convert(frame.origin, to: self.view)
-                                convertedPoint.y = convertedPoint.y - frame.height
                                 let newFrame = CGRect(origin: convertedPoint, size: frame.size)
                                 print(newFrame)
                                 return newFrame
@@ -186,7 +185,8 @@ extension ChatViewController {
                                )
                                self.xabberInputView.setComposerBody(item.body, references: item.references.toArray())
                                self.xabberInputView.textViewDidChange(force: true)
-                               self.xabberInputView.showEditPanel()
+                               self.xabberInputView.editPanel.configureForEdit()
+                               self.showMessagePanelBubble(self.xabberInputView.editPanel)
                            }
 
                        } else {
@@ -201,7 +201,9 @@ extension ChatViewController {
                        return
                    }
                 } else {
-                    self.xabberInputView.hideEditPanel()
+                    if self.attachedMessagesIds.value.isEmpty {
+                        self.hideMessagePanelBubble()
+                    }
                 }
             })
             .disposed(by: bag)
@@ -213,7 +215,9 @@ extension ChatViewController {
             .subscribe(onNext: { (results) in
                 do {
                     if results.isEmpty {
-                        self.xabberInputView.hideForwardPanel()
+                        if self.editMessageId.value == nil {
+                            self.hideMessagePanelBubble()
+                        }
                     } else if results.count == 1 {
                         let realm = try WRealm.safe()
                         if let primary = results.first,
@@ -236,7 +240,8 @@ extension ChatViewController {
                                 title: "Reply to \(title)",
                                 attributed: message
                             )
-                            self.xabberInputView.showForwardPanel()
+                            self.xabberInputView.forwardPanel.configureForForward()
+                            self.showMessagePanelBubble(self.xabberInputView.forwardPanel)
                         } else {
                             return
                         }
@@ -271,7 +276,8 @@ extension ChatViewController {
                             title: nicknames.joined(separator: ", "),
                             attributed: message
                         )
-                        self.xabberInputView.showForwardPanel()
+                        self.xabberInputView.forwardPanel.configureForForward()
+                        self.showMessagePanelBubble(self.xabberInputView.forwardPanel)
                     }
                 } catch {
                     DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")

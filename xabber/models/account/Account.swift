@@ -142,6 +142,18 @@ final class AccountStreamLifecycleGate {
         lock.unlock()
     }
 
+    func resetIfBlockedByDisconnectedStream() -> AccountStreamLifecyclePhase? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !phase.allowsNewConnect else { return nil }
+
+        let stalePhase = phase
+        phase = .idle
+        activeAttemptID = nil
+        return stalePhase
+    }
+
     func markFailed() {
         lock.lock()
         phase = .failed
@@ -379,6 +391,7 @@ final class Account: NSObject {
         self.xmppStream.removeDelegate(self, delegateQueue: self.queue)
         self.xmppStream.removeDelegate(self)
         self.xmppStream.addDelegate(self, delegateQueue: self.queue)
+        DDLogDebug("configured primary stream jid=\(self.jid) resource=\(self.xmppStream.myJID?.resource ?? "none") delegateAssigned=true streamState=\(self.streamStateDescription)")
     }
     
     func resetStream() {
@@ -530,6 +543,9 @@ final class Account: NSObject {
             DDLogDebug("skip duplicate account connect jid=\(self.jid) trigger=\(trigger.rawValue) phase=\(snapshot.phase.rawValue) attempt=\(snapshot.activeAttemptID.map(String.init) ?? "none") streamState=\(self.streamStateDescription)")
             return false
         }
+        if !forceReset {
+            self.resetStaleConnectionGateIfNeeded(trigger: trigger)
+        }
 
         switch self.connectionGate.beginConnect(trigger: trigger, force: forceReset) {
         case .start(let attemptID):
@@ -540,6 +556,13 @@ final class Account: NSObject {
             DDLogDebug("skip duplicate account connect jid=\(self.jid) trigger=\(trigger.rawValue) phase=\(phase.rawValue) attempt=\(activeAttemptID.map(String.init) ?? "none") streamState=\(self.streamStateDescription)")
             return false
         }
+    }
+
+    private func resetStaleConnectionGateIfNeeded(trigger: AccountConnectTrigger) {
+        guard self.xmppStream.isDisconnected else { return }
+        guard let stalePhase = self.connectionGate.resetIfBlockedByDisconnectedStream() else { return }
+
+        DDLogDebug("reset stale account connection gate jid=\(self.jid) trigger=\(trigger.rawValue) stalePhase=\(stalePhase.rawValue) streamState=\(self.streamStateDescription)")
     }
 
     @objc
@@ -588,7 +611,7 @@ final class Account: NSObject {
 //            Account§Manager.shared.markAsConnecting(jid: self.jid)
         }
         do {
-            DDLogDebug("primary stream connect jid=\(self.jid) trigger=\(trigger.rawValue) attempt=\(attemptID) resource=\(self.xmppStream.myJID?.resource ?? "none")")
+            DDLogDebug("primary stream connect jid=\(self.jid) trigger=\(trigger.rawValue) attempt=\(attemptID) resource=\(self.xmppStream.myJID?.resource ?? "none") manualHost=\(self.manuallySetHost) hostPresent=\(self.xmppStream.hostName?.isEmpty == false) port=\(self.xmppStream.hostPort) streamState=\(self.streamStateDescription)")
             AccountManager.shared.markAsConnecting(jid: self.jid)
             try self.xmppStream.connect(withTimeout: 15)
         } catch {
@@ -648,7 +671,7 @@ final class Account: NSObject {
     }
 
     private var streamStateDescription: String {
-        return "connected=\(self.xmppStream.isConnected),connecting=\(self.xmppStream.isConnecting),authenticating=\(self.xmppStream.isAuthenticating),authenticated=\(self.xmppStream.isAuthenticated)"
+        return "disconnected=\(self.xmppStream.isDisconnected),connected=\(self.xmppStream.isConnected),connecting=\(self.xmppStream.isConnecting),authenticating=\(self.xmppStream.isAuthenticating),authenticated=\(self.xmppStream.isAuthenticated)"
     }
     
 /**
@@ -656,6 +679,7 @@ final class Account: NSObject {
  **/
     func asyncConnect(shouldReregisterDFevice: Bool = false, trigger: AccountConnectTrigger = .initialLoad) {
         let connectTrigger: AccountConnectTrigger = shouldReregisterDFevice ? .deviceReregister : trigger
+        DDLogDebug("account async connect jid=\(self.jid) trigger=\(connectTrigger.rawValue) reregisterDevice=\(shouldReregisterDFevice) deviceIdPresent=\(self.devices.deviceId?.isEmpty == false) manualHost=\(self.manuallySetHost) hostPresent=\(self.host.isEmpty == false) port=\(self.port) resourcePresent=\(self.resource.isEmpty == false) phase=\(self.connectionGate.snapshot().phase.rawValue) streamState=\(self.streamStateDescription)")
         if shouldReregisterDFevice {
             if let deviceId = self.devices.deviceId {
                 self.resetStream()
@@ -674,18 +698,26 @@ final class Account: NSObject {
  *    if @hard is true, session close without sending unavailable presence to server
  **/
     func disconnect(hard: Bool = false) {
-        print(#function)
+        let wasDisconnected = self.xmppStream.isDisconnected
+        DDLogDebug("account disconnect requested jid=\(self.jid) hard=\(hard) phase=\(self.connectionGate.snapshot().phase.rawValue) streamState=\(self.streamStateDescription)")
         self.cancelDelayedConnectTimer()
-        self.connectionGate.markDisconnecting()
+        if wasDisconnected {
+            self.connectionGate.markDisconnected()
+            DDLogDebug("account disconnect completed locally jid=\(self.jid) hard=\(hard) reason=streamAlreadyDisconnected")
+        } else {
+            self.connectionGate.markDisconnecting()
+        }
         self.statusState.accept(.offline)
         self.statusMessage.accept(RosterUtils.shared.convertStatus(.offline))
         self.resetModules()
         XMPPUIActionManager.shared.close(disconnect: true)
         if hard {
+            guard !wasDisconnected else { return }
             self.xmppStream.disconnect()
 //            self.xmppStream.asyncSocket.disconnect()
         } else {
             self.reconnect.autoReconnect = false
+            guard !wasDisconnected else { return }
             self.xmppStream.send(XMPPPresence(type: .unavailable))
             self.xmppStream.disconnectAfterSending()
 //            self.xmppStream.asyncSocket.disconnectAfterReadingAndWriting()

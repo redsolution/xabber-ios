@@ -279,7 +279,7 @@ extension ChatViewController {
             .observe(on: MainScheduler.asyncInstance)
             .subscribe { value in
 //                self.showFloatingDateObserver.accept(false)
-                if self.isShowingNewestMessage() {
+                if self.isNearBottom() {
                     if self.shouldShowScrollDownButton.value {
                         self.shouldShowScrollDownButton.accept(false)
                     }
@@ -315,7 +315,7 @@ extension ChatViewController {
             .subscribe { state in
                 switch state {
                     case .none:
-                        (self.navigationController as? NavBarController)?.clearAdditionalPanel()
+                        self.hideTopPanelBubble(animated: false)
                     case .pinnedMessage:
                         self.applyPinMessagePanel()
                     case .addContact:
@@ -335,13 +335,8 @@ extension ChatViewController {
                     case .acceptedVerification:
                         self.applyAcceptedVerification()
                     case .audioPlayer:
+                        self.hideTopPanelBubble(animated: false)
                         self.applyAudioPlayerPanel()
-                }
-                switch state {
-                    case .none:
-                        (self.navigationController as? NavBarController)?.hideAdditionalPanel(animated: false)
-                    default:
-                        (self.navigationController as? NavBarController)?.showAdditionalPanel(animated: false)
                 }
             }.disposed(by: bag)
 

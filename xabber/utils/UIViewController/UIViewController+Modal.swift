@@ -63,6 +63,7 @@ public func showStacked(_ vc: UIViewController, in presenter: UIViewController) 
         case .split:
 //            presenter.splitViewController?.showDetailViewController(vc, sender: presenter)
             let nvc = UINavigationController(rootViewController: vc)
+            nvc.applyTransparentSplitAppearance()
 //            nvc.setNavigationBarHidden(false, animated: false)
 //            nvc.setToolbarHidden(false, animated: false)
             

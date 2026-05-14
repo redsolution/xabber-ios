@@ -27,6 +27,12 @@ import SwiftKeychainWrapper
 import Curve25519Kit
 //import Realm
 
+private func credentialsDebugLog(_ message: String) {
+    #if DEBUG
+    NSLog("%@", message)
+    #endif
+}
+
 class CredentialsManager: NSObject {
     private static var testDataStore: [String: Data] = [:]
     private static var testIntStore: [String: Int] = [:]
@@ -115,8 +121,9 @@ class CredentialsManager: NSObject {
         
         var creditionalString: String? {
             get {
-                print("\(self.kind.rawValue):", self.retrieveCreditionals(for: [jid, kind.rawValue].prp()))
-                return self.retrieveCreditionals(for: [jid, kind.rawValue].prp())
+                let credential = self.retrieveCreditionals(for: [jid, kind.rawValue].prp())
+                credentialsDebugLog("CredentialsManager: credential lookup jid=\(jid) kind=\(kind.rawValue) present=\(credential != nil)")
+                return credential
             }
             set {
                 if let value = newValue {
@@ -139,7 +146,7 @@ class CredentialsManager: NSObject {
         private let lock = NSRecursiveLock()
         var isFirstTokenIssued: Bool = false {
             didSet {
-                print("Token fpr \(jid) firstIssued: \(isFirstTokenIssued)")
+                credentialsDebugLog("CredentialsManager: credential first token state jid=\(jid) firstIssued=\(isFirstTokenIssued)")
             }
         }
         
@@ -168,10 +175,10 @@ class CredentialsManager: NSObject {
         }
         
         public final func updateKind(to predefinedKind: Kind? = nil) {
-            print(#function)
             withLock {
                 if let kind = predefinedKind {
                     self.kind = kind
+                    credentialsDebugLog("CredentialsManager: credential kind updated jid=\(jid) kind=\(kind.rawValue) predefined=true")
                     return
                 }
                 self.kind = .password
@@ -181,6 +188,7 @@ class CredentialsManager: NSObject {
                 if self.retrieveCreditionals(for: [jid, Kind.secret.rawValue].prp()) != nil {
                     self.kind = .secret
                 }
+                credentialsDebugLog("CredentialsManager: credential kind updated jid=\(jid) kind=\(self.kind.rawValue) predefined=false")
             }
         }
         
@@ -189,7 +197,7 @@ class CredentialsManager: NSObject {
         }
         
         public final func use(_ callback: @escaping ((Bool, Storage) -> Void)) {
-            print("USE SECRET")
+            credentialsDebugLog("CredentialsManager: credential use requested jid=\(jid) kind=\(kind.rawValue) blocked=\(isBlocked)")
             let callbackToRun: (() -> Void)? = withLock {
                 if isBlocked {
                     callbacks.append(SynchronizedArrayCallbackItem({
@@ -217,7 +225,7 @@ class CredentialsManager: NSObject {
         }
         
         public final func release(_ outcome: ReleaseOutcome) {
-            print("RELEASE SECRET FOR \(self.jid)")
+            credentialsDebugLog("CredentialsManager: credential release jid=\(jid) kind=\(kind.rawValue) outcome=\(outcome)")
             let callbackToRun: (() -> Void)? = withLock {
                 switch outcome {
                 case .authSucceeded:
@@ -241,8 +249,6 @@ class CredentialsManager: NSObject {
         }
         
         public func incrementCounter() {
-            print(#function)
-
             withLock {
                 let newCounter = self.currentCounter() + 1
                 self.counter = newCounter
@@ -252,7 +258,6 @@ class CredentialsManager: NSObject {
         }
         
         public func decrementCounter() {
-            print(#function)
             withLock {
                 if let counterRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
                    let counter = UInt64(counterRaw) {
@@ -263,15 +268,16 @@ class CredentialsManager: NSObject {
                         self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
                     }
                 } else {
-                    print("FATAL ERROR", #function)
+                    credentialsDebugLog("CredentialsManager: credential counter missing on decrement jid=\(jid) kind=\(kind.rawValue)")
                 }
             }
             
         }
         
         public final func getSecret() -> String? {
-            print(#function)
-            return self.retrieveCreditionals(for: [jid, Kind.secret.rawValue].prp())
+            let secret = self.retrieveCreditionals(for: [jid, Kind.secret.rawValue].prp())
+            credentialsDebugLog("CredentialsManager: credential secret lookup jid=\(jid) present=\(secret != nil)")
+            return secret
         }
 
         public final func currentCounter() -> UInt64 {
@@ -312,7 +318,6 @@ class CredentialsManager: NSObject {
         }
         
         public func storeToken(_ value: String) {
-            print(#function)
             withLock {
                 self.isFirstTokenIssued = true
                 self.counter = 1
@@ -326,7 +331,6 @@ class CredentialsManager: NSObject {
         }
         
         public func storePassword(_ value: String, keepSecret: Bool = false) {
-            print(#function)
             withLock {
                 self.kind = .password
                 self.storeCreditionals(for: [jid, Kind.password.rawValue].prp(), value: value)
@@ -345,22 +349,19 @@ class CredentialsManager: NSObject {
         }
         
         private func storeCreditionals(for key: String, value: String) {
-            print(#function)
             let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
                                            accessGroup: CredentialsManager.uniqueAccessGroup())
             let result = keychain.set(value, forKey: key, withAccessibility: .alwaysThisDeviceOnly)
-            print(result)
+            credentialsDebugLog("CredentialsManager: credential store jid=\(jid) kind=\(kind.rawValue) success=\(result)")
         }
         
         private func retrieveCreditionals(for key: String) -> String? {
-            print(#function)
             let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
                                            accessGroup: CredentialsManager.uniqueAccessGroup())
             return keychain.string(forKey: key)
         }
         
         private func removeCreditionals(for key: String) {
-            print(#function)
             let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
                                            accessGroup: CredentialsManager.uniqueAccessGroup())
 
@@ -561,9 +562,9 @@ class CredentialsManager: NSObject {
             isSynchronizable: false
         )
         if didStoreFallback {
-            NSLog("CredentialsManager: stored secure data with fallback keychain service")
+            credentialsDebugLog("CredentialsManager: stored secure data with fallback keychain service")
         } else {
-            NSLog("CredentialsManager: failed to store secure data")
+            credentialsDebugLog("CredentialsManager: failed to store secure data")
         }
     }
     
@@ -649,9 +650,9 @@ class CredentialsManager: NSObject {
         if !primaryKeychain().set(deviceId, forKey: key, withAccessibility: .always) {
             let didStoreFallback = fallbackKeychain().set(deviceId, forKey: key, withAccessibility: .always)
             if didStoreFallback {
-                NSLog("CredentialsManager: stored device id with fallback keychain service")
+                credentialsDebugLog("CredentialsManager: stored device id with fallback keychain service")
             } else {
-                NSLog("CredentialsManager: failed to store device id")
+                credentialsDebugLog("CredentialsManager: failed to store device id")
             }
         }
     }
@@ -662,9 +663,9 @@ class CredentialsManager: NSObject {
         if !primaryKeychain().set(registrationId, forKey: key, withAccessibility: .always) {
             let didStoreFallback = fallbackKeychain().set(registrationId, forKey: key, withAccessibility: .always)
             if didStoreFallback {
-                NSLog("CredentialsManager: stored registration id with fallback keychain service")
+                credentialsDebugLog("CredentialsManager: stored registration id with fallback keychain service")
             } else {
-                NSLog("CredentialsManager: failed to store registration id")
+                credentialsDebugLog("CredentialsManager: failed to store registration id")
             }
         }
     }
@@ -850,7 +851,7 @@ class CredentialsManager: NSObject {
 
         let json = String(data: data, encoding: .utf8)
         if let json = json {
-            print(json)
+            credentialsDebugLog("CredentialsManager: push credential stored node=\(node) jid=\(jid) hostPresent=\(host.isEmpty == false) servicePresent=\(service.isEmpty == false)")
             keychain.set(json, forKey: node, withAccessibility: .always)
         }
     }

@@ -46,6 +46,15 @@ class EmptyChatViewController: UIViewController {
         
         return label
     }()
+
+    private let titleBubbleView: UIVisualEffectView = {
+        let view = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+        view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.18)
+        view.layer.cornerRadius = 18
+        view.clipsToBounds = true
+
+        return view
+    }()
     
     let newChatButton: UIButton = {
         let button = UIButton()
@@ -68,13 +77,17 @@ class EmptyChatViewController: UIViewController {
     open var kind: Kind = .emptyChat
     
     open func configure() {
-        self.view.backgroundColor = .systemBackground
+        self.view.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
         self.view.addSubview(stack)
         stack.fillSuperview()
         stack.addArrangedSubview(UIStackView())
         stack.addArrangedSubview(centerStack)
         stack.addArrangedSubview(UIStackView())
-        centerStack.addArrangedSubview(titleLabel)
+        if ContinuousSplitBackgroundExperiment.isActive {
+            configureTitleBubble()
+        } else {
+            centerStack.addArrangedSubview(titleLabel)
+        }
 //            centerStack.addArrangedSubview(newChatButton)
         switch kind {
             case .emptyChat:
@@ -88,6 +101,19 @@ class EmptyChatViewController: UIViewController {
         newChatButton.titleLabel?.numberOfLines = 0
         newChatButton.titleLabel?.textAlignment = .center
         activaateConstraints()
+    }
+
+    private func configureTitleBubble() {
+        titleLabel.font = UIFont.preferredFont(forTextStyle: .subheadline)
+        titleLabel.textColor = .secondaryLabel
+        titleLabel.numberOfLines = 0
+        titleLabel.textAlignment = .center
+
+        centerStack.addArrangedSubview(titleBubbleView)
+        titleBubbleView.contentView.addSubview(titleLabel)
+        titleLabel.fillSuperviewWithOffset(top: 8, bottom: 8, left: 16, right: 16)
+        titleBubbleView.widthAnchor.constraint(lessThanOrEqualTo: view.readableContentGuide.widthAnchor).isActive = true
+        titleBubbleView.heightAnchor.constraint(greaterThanOrEqualToConstant: 36).isActive = true
     }
     
     

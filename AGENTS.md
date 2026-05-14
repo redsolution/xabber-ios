@@ -2,13 +2,15 @@
 
 ## Mission
 
-Build, test, and maintain the Xabber iOS codebase with a strong bias toward safe, reviewable changes and durable project memory in the Obsidian vault.
+Build, test, and maintain the Xabber iOS codebase with a strong bias toward safe, reviewable changes, test-driven implementation, and durable project memory in the knowledge base and Obsidian vault.
 
 ## Project identity
 
 - Product: Xabber iOS XMPP client
 - Repo root: `/Users/igor.boldin/projects/xabber/fabric/xabber/xabber_ios_whitelabel/xabber/xabber_ios_core`
-- Vault root: `/Users/igor.boldin/projects/xabber/xabber`
+- Knowledge base root: `/Users/igor.boldin/projects/xabber/xabber-knowledge`
+- Obsidian vault root: `/Users/igor.boldin/projects/xabber/xabber`
+- Obsidian project root: `/Users/igor.boldin/projects/xabber/xabber/projects/xabber`
 - Main targets:
   - `xabber`
   - `xabber-push-extension`
@@ -22,7 +24,9 @@ Build, test, and maintain the Xabber iOS codebase with a strong bias toward safe
 - Keep changes small, compile-oriented, and easy to review.
 - Match the repository's existing architecture before introducing a new pattern.
 - Do not add third-party dependencies unless the user explicitly asks or the repo already uses them.
-- When changing app behavior, add or update tests unless it is impossible in the current codebase.
+- Use test-driven development for code-changing tasks: write or update the relevant XCTest coverage first, then implement the production change.
+- Prefer a dedicated XCTest file per task when practical; if that is not practical, keep the new cases tightly scoped in the closest existing test file.
+- When changing app behavior, add or update tests unless it is impossible in the current codebase, and record the reason when tests cannot be added.
 - Prefer modern concurrency (`async/await`) over callback pyramids when practical.
 - Use platform availability checks for APIs that may not exist on the deployment target.
 - Preserve accessibility identifiers when editing UI under test.
@@ -51,32 +55,47 @@ Build, test, and maintain the Xabber iOS codebase with a strong bias toward safe
 - Tests:
   - `xabberTests`
 
-## Obsidian vault workflow
+## Knowledge and vault workflow
 
-Obsidian is not optional documentation.  
-It is the shared operational memory of the agent system.  
-Every meaningful task, decision, handoff, blocker, and stable result must be reflected there.
+The knowledge base and Obsidian project vault are not optional documentation.
+The knowledge base is the product, protocol, and long-lived reference memory.
+The Obsidian project vault is the shared operational memory of the agent system.
+Every meaningful task, decision, handoff, blocker, and stable result must be reflected in the appropriate place.
 
-Codex should not wait for the user to explicitly ask for vault updates.
-For any non-trivial bug fix, feature, refactor, investigation, or multi-file change, vault updates are part of the work.
+Codex should not wait for the user to explicitly ask for knowledge or vault checks and updates.
+For any non-trivial bug fix, feature, refactor, investigation, or multi-file change, knowledge-base review and vault updates are part of the work.
+
+### Knowledge base intake
+
+Before starting any meaningful task, check `/Users/igor.boldin/projects/xabber/xabber-knowledge/` for relevant product, architecture, protocol, testing, and operations context.
+
+Start with these files when applicable:
+- `/Users/igor.boldin/projects/xabber/xabber-knowledge/README.md`
+- `/Users/igor.boldin/projects/xabber/xabber-knowledge/CONVENTIONS.md`
+- `/Users/igor.boldin/projects/xabber/xabber-knowledge/GLOSSARY.md`
+- `/Users/igor.boldin/projects/xabber/xabber-knowledge/architecture/README.md`
+- `/Users/igor.boldin/projects/xabber/xabber-knowledge/protocols/README.md`
+- `/Users/igor.boldin/projects/xabber/xabber-knowledge/ops/README.md`
+
+Then search or read the specific `architecture/`, `protocols/`, `behavioral-specs/`, `ops/`, or `inbox/` notes that match the task area. Treat the knowledge base as reference material, and call out conflicts when it disagrees with current repository behavior or the user's latest instruction.
 
 ### Canonical vault files
 
 Read these before major work:
-- `/Users/igor.boldin/projects/xabber/xabber/README.md`
-- `/Users/igor.boldin/projects/xabber/xabber/architecture.md`
-- `/Users/igor.boldin/projects/xabber/xabber/shared/interfaces.md`
-- `/Users/igor.boldin/projects/xabber/xabber/shared/dependencies.md`
-- `/Users/igor.boldin/projects/xabber/xabber/shared/integration-map.md`
+- `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/README.md`
+- `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/architecture.md`
+- `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/shared/interfaces.md`
+- `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/shared/dependencies.md`
+- `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/shared/integration-map.md`
 
 Then read the relevant agent context:
-- Lead: `/Users/igor.boldin/projects/xabber/xabber/agents/lead/context.md`
-- UI: `/Users/igor.boldin/projects/xabber/xabber/agents/ui/context.md`
-- XMPP: `/Users/igor.boldin/projects/xabber/xabber/agents/xmpp/context.md`
-- Business logic: `/Users/igor.boldin/projects/xabber/xabber/agents/business-logic/context.md`
-- Push: `/Users/igor.boldin/projects/xabber/xabber/agents/push/context.md`
-- Calls: `/Users/igor.boldin/projects/xabber/xabber/agents/calls/context.md`
-- Tests: `/Users/igor.boldin/projects/xabber/xabber/agents/tests/context.md`
+- Lead: `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/agents/lead/context.md`
+- UI: `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/agents/ui/context.md`
+- XMPP: `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/agents/xmpp/context.md`
+- Business logic: `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/agents/business-logic/context.md`
+- Push: `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/agents/push/context.md`
+- Calls: `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/agents/calls/context.md`
+- Tests: `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/agents/tests/context.md`
 
 ### Agent mapping
 
@@ -91,37 +110,39 @@ Map work to the vault agents like this:
 
 ### Required behavior during work
 
-- Before major work, read the shared docs and the relevant agent `context.md`.
+- Before major work, read the relevant knowledge-base notes, shared vault docs, and agent `context.md`.
 - During active work, record findings and temporary reasoning in the relevant agent `notes.md`.
 - For any non-trivial request, create or update a standalone task note under:
-  - `/Users/igor.boldin/projects/xabber/xabber/tasks/open/`
-  - `/Users/igor.boldin/projects/xabber/xabber/tasks/in-progress/`
-  - `/Users/igor.boldin/projects/xabber/xabber/tasks/blocked/`
-  - `/Users/igor.boldin/projects/xabber/xabber/tasks/done/`
+  - `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/tasks/open/`
+  - `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/tasks/in-progress/`
+  - `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/tasks/blocked/`
+  - `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/tasks/done/`
 - When work crosses agent boundaries, create or update a standalone handoff note under:
-  - `/Users/igor.boldin/projects/xabber/xabber/handoffs/outgoing/`
-  - `/Users/igor.boldin/projects/xabber/xabber/handoffs/incoming/`
+  - `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/handoffs/outgoing/`
+  - `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/handoffs/incoming/`
 - When a durable architectural or behavioral decision is made, record it in the relevant agent `decisions.md` and update shared docs if multiple areas are affected.
 - When a topic becomes stable and broadly useful, move it out of `notes.md` into:
-  - `/Users/igor.boldin/projects/xabber/xabber/docs/`
+  - `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/docs/`
   - or an agent `decisions.md`
-  - or `/Users/igor.boldin/projects/xabber/xabber/shared/` when it is a cross-agent contract
+  - or `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/shared/` when it is a cross-agent contract
 
 ### Automatic workflow for non-trivial requests
 
 For any bug fix, feature, refactor, or investigation that is more than a trivial one-file edit, Codex must do all of the following automatically:
 
-1. Read the shared vault docs and the relevant agent context files.
+1. Read the relevant knowledge-base notes, shared vault docs, and relevant agent context files.
 2. Identify the owner agent and any affected secondary agents.
-3. Create or update a standalone task note under `projects/xabber/tasks/`.
+3. Create or update a standalone task note under `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/tasks/`.
 4. Update the owner agent `inbox.md` and `tasks.md`.
 5. Record investigation notes in the owner agent `notes.md` while working.
-6. If another agent area owns part of the problem, create a standalone handoff note under `projects/xabber/handoffs/`.
-7. Implement the code change.
-8. Run the narrowest relevant verification.
-9. At the end of the task, run a build for the affected target or scheme and check the build output for errors before closing the work.
-10. Update `decisions.md`, `shared/`, or `docs/` when the result is durable.
-11. Move the task note to the correct final state and record verification.
+6. If another agent area owns part of the problem, create a standalone handoff note under `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/handoffs/`.
+7. For code-changing tasks, write or update XCTest coverage before production code, preferably in a task-specific XCTest file.
+8. Run the new or affected tests first when practical; confirm the test protects the intended behavior before implementation when the current code can expose the failure.
+9. Implement the code change.
+10. Run the narrowest relevant verification.
+11. At the end of the task, run a build for the affected target or scheme on a connected device when available, falling back to simulator only when device execution is blocked, and check the build output for errors before closing the work.
+12. Update `decisions.md`, `shared/`, or `docs/` when the result is durable.
+13. Move the task note to the correct final state and record verification.
 
 If the task is cross-cutting and no single specialist clearly owns the entire change, start from `xabber-lead` and delegate through vault task and handoff notes.
 
@@ -137,10 +158,10 @@ If the task is cross-cutting and no single specialist clearly owns the entire ch
 When the user provides external documentation, pasted markdown, exported notes, bug reports, specs, or other `.md` content that should remain useful beyond the current chat, Codex should store it in the vault in a suitable location instead of leaving it only in conversation history.
 
 Use these destinations:
-- `projects/xabber/specs/` for feature specs, requirements, and proposed behavior
-- `projects/xabber/research/` for exploratory or temporary imported material
-- `projects/xabber/docs/` for curated documentation that has been normalized for long-term use
-- `projects/xabber/debug/` for imported bug reports, investigation logs, or reproduction notes
+- `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/specs/` for feature specs, requirements, and proposed behavior
+- `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/research/` for exploratory or temporary imported material
+- `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/docs/` for curated documentation that has been normalized for long-term use
+- `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/debug/` for imported bug reports, investigation logs, or reproduction notes
 
 Rules for imported markdown:
 - Preserve the original meaning, but normalize titles, links, and structure so the note fits the vault.
@@ -172,11 +193,14 @@ Rules for imported markdown:
 ## Build and test policy
 
 - After Swift or Objective-C changes, prefer running the narrowest relevant verification first.
+- For code changes, follow TDD by default: add or update the focused XCTest first, then make the implementation pass.
+- Prefer one dedicated XCTest file per task when practical, especially for new behavior or regressions; reuse an existing file only when that keeps the scenario clearer.
 - If a package-based module exists, prefer `swift test` for package-local logic.
-- For app targets, prefer `xcodebuild` with a concrete scheme and simulator destination.
+- For app targets, prefer `xcodebuild` with a concrete scheme and a connected physical device destination.
+- Use a simulator destination only when no suitable device is connected, signing blocks device builds, the target cannot run on device, or the user explicitly asks for simulator verification.
 - For any completed implementation task, run at least one build for the affected target before finishing, even if narrower tests were already run.
 - Always inspect the build output for actual compiler or linker errors and report the first meaningful failure if the build does not pass.
-- If a build cannot be run because of environment, signing, dependency, or simulator limitations, state that explicitly and record the blocker in the task note or vault notes.
+- If a build cannot be run because of environment, signing, dependency, device, or simulator limitations, state that explicitly and record the blocker in the task note or vault notes.
 - When a test fails, diagnose the first meaningful failure before making broad refactors.
 - Report what was run, what passed, and what remains unverified.
 

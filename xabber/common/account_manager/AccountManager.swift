@@ -232,13 +232,15 @@ public class AccountManager: NSObject {
     func load(_ autoConnect: Bool = true) {
         do {
             let realm = try WRealm.safe()
-            realm
+            let jids = realm
                 .objects(AccountStorageItem.self)
                 .filter("enabled == %@", true)
                 .toArray()
                 .compactMap { return $0.jid }
+            DDLogDebug("account manager load enabledCount=\(jids.count) autoConnect=\(autoConnect) existingUsers=\(self.users.count)")
+            jids
                 .forEach {
-                    DDLogDebug("Add account \($0), autoconnect \(autoConnect)")
+                    DDLogDebug("account manager load account jid=\($0) autoConnect=\(autoConnect) alreadyLoaded=\(self.find(for: $0) != nil)")
                     self.add(withJid: $0, autoConnect: autoConnect)
                 }
         } catch {

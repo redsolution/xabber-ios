@@ -29,6 +29,7 @@ extension LastChatsViewController: UITableViewDataSource {
             guard let cell = tableView.dequeueReusableCell(withIdentifier: SkeletonCell.cellName, for: indexPath) as? SkeletonCell else {
                 fatalError()
             }
+            cell.applyContinuousSplitGlassBackground()
             return cell
         }
 
@@ -73,9 +74,14 @@ extension LastChatsViewController: UITableViewDataSource {
                 )
                 cell.setMask()
                 
-                let view = UIView()
-                view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50 | AccountColorManager.shared.palette(for: item.owner).tint900
-                cell.selectedBackgroundView = view
+                let selectionColor = AccountColorManager.shared.palette(for: item.owner).tint50 | AccountColorManager.shared.palette(for: item.owner).tint900
+                if ContinuousSplitBackgroundExperiment.isActive {
+                    cell.applyContinuousSplitGlassBackground(selectedColor: selectionColor)
+                } else {
+                    let view = UIView()
+                    view.backgroundColor = selectionColor
+                    cell.selectedBackgroundView = view
+                }
             
                 return cell
             case .contact:
@@ -91,6 +97,7 @@ extension LastChatsViewController: UITableViewDataSource {
                     key: "contact"
                 )
                 cell.closeCallback = onCloseNotificationCallback
+                cell.applyContinuousSplitGlassBackground()
                 return cell
             case .invite:
                 guard let cell = tableView.dequeueReusableCell(withIdentifier: SpecialMessageTableViewCell.cellName, for: indexPath) as? SpecialMessageTableViewCell else {
@@ -106,6 +113,7 @@ extension LastChatsViewController: UITableViewDataSource {
                     key: "invite"
                 )
                 cell.closeCallback = onCloseNotificationCallback
+                cell.applyContinuousSplitGlassBackground()
                 return cell
         }
     }

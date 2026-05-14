@@ -112,10 +112,12 @@ class MessagesCollectionView: UICollectionView {
     }
 
     func scrollToBottom(animated: Bool = false) {
-        let collectionViewContentHeight = collectionViewLayout.collectionViewContentSize.height
-
+        let lastSection = numberOfSections - 1
+        guard lastSection >= 0, numberOfItems(inSection: lastSection) > 0 else {
+            return
+        }
         performBatchUpdates(nil) { _ in
-            self.scrollRectToVisible(CGRect(0.0, collectionViewContentHeight - 1.0, 1.0, 1.0), animated: animated)
+            self.scrollToItem(at: IndexPath(item: 0, section: lastSection), at: .bottom, animated: animated)
         }
     }
     

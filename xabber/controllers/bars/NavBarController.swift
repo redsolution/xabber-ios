@@ -73,10 +73,15 @@ class NavBarController: UINavigationController, UINavigationControllerDelegate {
 //        appearance.titleTextAttributes = [.foregroundColor: UIColor.lightText] // With a red background, make the title more readable.
         
         let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
+        if ContinuousSplitBackgroundExperiment.isActive {
+            appearance.configureWithTransparentBackground()
+        } else {
+            appearance.configureWithDefaultBackground()
+        }
         navigationItem.standardAppearance = appearance
         navigationItem.scrollEdgeAppearance = appearance
         navigationItem.compactAppearance = appearance
+        applyTransparentSplitAppearance()
         
 //        self.navigationItem.standardAppearance = UINavigationBarAppearance(idiom: UIDevice.current.userInterfaceIdiom)
 //        self.navigationItem.scrollEdgeAppearance = UINavigationBarAppearance(idiom: UIDevice.current.userInterfaceIdiom)

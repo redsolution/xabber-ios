@@ -46,10 +46,134 @@ protocol SendButtonDelegate {
 }
 
 class ModernXabberInputView: UIView {
-    
+    static let edgeHorizontalInset: CGFloat = 8
+    static let minimumComposerHeight: CGFloat = 44
+    static let defaultBarHeight: CGFloat = 55
+
+    private enum LiquidGlassMetrics {
+        static let usesNativeGlassEffect = true
+        static let composerHorizontalInset: CGFloat = 0
+        static let composerVerticalInset: CGFloat = 0
+        static let composerCornerRadius: CGFloat = 22
+        static let buttonSize: CGFloat = 44
+        static let verticalReserve: CGFloat = ModernXabberInputView.defaultBarHeight - ModernXabberInputView.minimumComposerHeight
+        static let contentTopOffset: CGFloat = 6
+        static let previewHorizontalInset: CGFloat = 8
+        static let previewCornerRadius: CGFloat = 20
+        static let borderWidth: CGFloat = 1.0 / UIScreen.main.scale
+        static let toolbarBorderAlpha: CGFloat = 0.34
+    }
+
+    private static func makeGlassEffect(
+        interactive: Bool = false,
+        tintAlpha: CGFloat = 0.16,
+        fallbackStyle: UIBlurEffect.Style = .systemMaterial,
+        prefersNativeGlass: Bool = true
+    ) -> UIVisualEffect {
+        if LiquidGlassMetrics.usesNativeGlassEffect, prefersNativeGlass, #available(iOS 26.0, *) {
+            let effect = UIGlassEffect(style: .regular)
+            effect.isInteractive = interactive
+            return effect
+        } else {
+            return UIBlurEffect(style: fallbackStyle)
+        }
+    }
+
+    private static func makeGlassEffectView(
+        interactive: Bool = false,
+        tintAlpha: CGFloat = 0.16,
+        fallbackStyle: UIBlurEffect.Style = .systemMaterial,
+        prefersNativeGlass: Bool = true
+    ) -> UIVisualEffectView {
+        let view = UIVisualEffectView(
+            effect: makeGlassEffect(
+                interactive: interactive,
+                tintAlpha: tintAlpha,
+                fallbackStyle: fallbackStyle,
+                prefersNativeGlass: prefersNativeGlass
+            )
+        )
+        view.isUserInteractionEnabled = false
+        view.clipsToBounds = true
+        return view
+    }
+
+    private static func makeGlassTintView() -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.clipsToBounds = true
+        return view
+    }
+
+    private static func applyGlassLayer(
+        to view: UIView,
+        cornerRadius: CGFloat,
+        borderAlpha: CGFloat = 0.28
+    ) {
+        view.layer.cornerRadius = cornerRadius
+        view.layer.cornerCurve = .continuous
+        view.layer.borderWidth = LiquidGlassMetrics.borderWidth
+        view.layer.borderColor = UIColor.separator.withAlphaComponent(borderAlpha).cgColor
+    }
+
+    private static func applyToolbarGlassLayer(to view: UIVisualEffectView) {
+        view.clipsToBounds = true
+        let radius = LiquidGlassMetrics.composerCornerRadius
+        view.layer.cornerRadius = radius
+        view.layer.cornerCurve = .continuous
+        if #available(iOS 26.0, *) {
+            view.cornerConfiguration = .uniformCorners(radius: .fixed(Double(radius)))
+        }
+        view.layer.borderWidth = LiquidGlassMetrics.borderWidth
+        view.layer.borderColor = UIColor.separator.withAlphaComponent(LiquidGlassMetrics.toolbarBorderAlpha).cgColor
+    }
+
+    private static func removeChrome(from button: UIButton) {
+        button.configuration = nil
+        button.backgroundColor = .clear
+        button.layer.borderWidth = 0
+        button.layer.borderColor = UIColor.clear.cgColor
+    }
+
+    private static func applyGlassShadow(
+        to view: UIView,
+        opacity: Float = 0.16,
+        radius: CGFloat = 18,
+        yOffset: CGFloat = 8
+    ) {
+        view.backgroundColor = .clear
+        view.layer.shadowColor = UIColor.black.cgColor
+        view.layer.shadowOpacity = opacity
+        view.layer.shadowRadius = radius
+        view.layer.shadowOffset = CGSize(width: 0, height: yOffset)
+        view.layer.masksToBounds = false
+    }
+
     class MessagesPanel: UIView {
         
         open var delegate: ChatViewMessagesPanelDelegate? = nil
+
+        private let glassShadowView: UIView = {
+            let view = UIView()
+            view.isUserInteractionEnabled = false
+            ModernXabberInputView.applyGlassShadow(to: view, opacity: 0.12, radius: 14, yOffset: 6)
+            return view
+        }()
+
+        private let glassEffectView: UIVisualEffectView = {
+            let view = ModernXabberInputView.makeGlassEffectView(
+                interactive: false,
+                tintAlpha: 0.14,
+                fallbackStyle: .systemThinMaterial,
+                prefersNativeGlass: false
+            )
+            ModernXabberInputView.applyGlassLayer(
+                to: view,
+                cornerRadius: LiquidGlassMetrics.previewCornerRadius,
+                borderAlpha: 0.30
+            )
+            return view
+        }()
         
         let indicatorButton: UIButton = {
             let button = UIButton(frame: .zero)
@@ -129,6 +253,9 @@ class ModernXabberInputView: UIView {
         }
         
         private func setup() {
+            self.backgroundColor = .clear
+            self.addSubview(glassShadowView)
+            self.glassShadowView.addSubview(glassEffectView)
             self.addSubview(indicatorButton)
             self.addSubview(verticalLine)
             self.addSubview(titleLabel)
@@ -139,24 +266,42 @@ class ModernXabberInputView: UIView {
         }
         
         public func update() {
+            let horizontalInset = LiquidGlassMetrics.previewHorizontalInset
+            self.glassShadowView.frame = CGRect(
+                x: horizontalInset,
+                y: 0,
+                width: max(0, bounds.width - horizontalInset * 2),
+                height: bounds.height
+            )
+            self.glassEffectView.frame = self.glassShadowView.bounds
+            ModernXabberInputView.applyGlassLayer(
+                to: self.glassEffectView,
+                cornerRadius: LiquidGlassMetrics.previewCornerRadius,
+                borderAlpha: 0.30
+            )
+            self.glassShadowView.layer.shadowPath = UIBezierPath(
+                roundedRect: self.glassShadowView.bounds,
+                cornerRadius: LiquidGlassMetrics.previewCornerRadius
+            ).cgPath
             self.indicatorButton.frame = CGRect(
-                origin: CGPoint(x: 0, y: 0),
+                origin: CGPoint(x: horizontalInset, y: 0),
                 size: CGSize(width: 44, height: 40)
             )
             self.verticalLine.frame = CGRect(
-                origin: CGPoint(x: 50, y: 2),
-                size: CGSize(width: 1, height: 42)
+                origin: CGPoint(x: horizontalInset + 50, y: 8),
+                size: CGSize(width: 2, height: max(0, bounds.height - 16))
             )
+            self.verticalLine.layer.cornerRadius = 1
             self.titleLabel.frame = CGRect(
-                origin: CGPoint(x: 56, y: 2),
-                size: CGSize(width: bounds.width - 96, height: 20)
+                origin: CGPoint(x: horizontalInset + 58, y: 3),
+                size: CGSize(width: bounds.width - horizontalInset * 2 - 104, height: 19)
             )
             self.messageLabel.frame = CGRect(
-                origin: CGPoint(x: 56, y: 20),
-                size: CGSize(width: bounds.width - 96, height: 20)
+                origin: CGPoint(x: horizontalInset + 58, y: 21),
+                size: CGSize(width: bounds.width - horizontalInset * 2 - 104, height: 18)
             )
             self.closeButton.frame = CGRect(
-                origin: CGPoint(x: bounds.width - 40, y: 0),
+                origin: CGPoint(x: bounds.width - horizontalInset - 40, y: 0),
                 size: CGSize(width: 40, height: 40)
             )
             self.layoutSubviews()
@@ -795,6 +940,24 @@ class ModernXabberInputView: UIView {
 
     class RecordAndPlayPanel: UIView {
         let recordIndicatorSize: CGFloat = 8
+
+        private let glassShadowView: UIView = {
+            let view = UIView()
+            view.isUserInteractionEnabled = false
+            ModernXabberInputView.applyGlassShadow(to: view, opacity: 0.10, radius: 12, yOffset: 5)
+            return view
+        }()
+
+        private let glassEffectView: UIVisualEffectView = {
+            let view = ModernXabberInputView.makeGlassEffectView(
+                interactive: false,
+                tintAlpha: 0.12,
+                fallbackStyle: .systemThinMaterial,
+                prefersNativeGlass: false
+            )
+            ModernXabberInputView.applyGlassLayer(to: view, cornerRadius: 19, borderAlpha: 0.24)
+            return view
+        }()
         
         let deleteButton: UIButton = {
             let button = UIButton(frame: CGRect(width: 44, height: 38))
@@ -869,6 +1032,9 @@ class ModernXabberInputView: UIView {
         internal var delegate: XabberInputBarDelegate? = nil
         
         internal func setup() {
+            self.backgroundColor = .clear
+            self.addSubview(glassShadowView)
+            self.glassShadowView.addSubview(glassEffectView)
             self.addSubview(deleteButton)
             self.addSubview(backghroundWaveform)
             self.backghroundWaveform.addSubview(playButton)
@@ -927,11 +1093,24 @@ class ModernXabberInputView: UIView {
         var palette: MDCPalette = .amber
         
         final func update() {
-            self.backghroundWaveform.backgroundColor = palette.tint500
+            self.glassShadowView.frame = self.bounds
+            self.glassEffectView.frame = self.glassShadowView.bounds
+            ModernXabberInputView.applyGlassLayer(to: self.glassEffectView, cornerRadius: 19, borderAlpha: 0.24)
+            self.glassShadowView.layer.shadowPath = UIBezierPath(
+                roundedRect: self.glassShadowView.bounds,
+                cornerRadius: 19
+            ).cgPath
+            self.backghroundWaveform.backgroundColor = palette.tint500.withAlphaComponent(0.82)
+            self.backghroundWaveform.layer.borderWidth = LiquidGlassMetrics.borderWidth
+            self.backghroundWaveform.layer.borderColor = UIColor.white.withAlphaComponent(0.22).cgColor
+            self.backghroundWaveform.layer.cornerCurve = .continuous
             self.deleteButton.frame = CGRect(
                 origin: CGPoint(x: 0, y: 0),
                 size: CGSize(width: 44, height: 38)
             )
+            self.deleteButton.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.10)
+            self.deleteButton.layer.cornerRadius = 19
+            self.deleteButton.layer.cornerCurve = .continuous
             self.backghroundWaveform.frame = CGRect(
                 origin: CGPoint(x: 52, y: 0),
                 size: CGSize(width: self.frame.width - 60, height: 38)
@@ -1007,6 +1186,24 @@ class ModernXabberInputView: UIView {
         let recordIndicatorSize: CGFloat = 8
         
         var palette: MDCPalette = .amber
+
+        private let glassShadowView: UIView = {
+            let view = UIView()
+            view.isUserInteractionEnabled = false
+            ModernXabberInputView.applyGlassShadow(to: view, opacity: 0.10, radius: 12, yOffset: 5)
+            return view
+        }()
+
+        private let glassEffectView: UIVisualEffectView = {
+            let view = ModernXabberInputView.makeGlassEffectView(
+                interactive: false,
+                tintAlpha: 0.12,
+                fallbackStyle: .systemThinMaterial,
+                prefersNativeGlass: false
+            )
+            ModernXabberInputView.applyGlassLayer(to: view, cornerRadius: 19, borderAlpha: 0.24)
+            return view
+        }()
         
         let recordIndicator: UIView = {
             let view = UIView()
@@ -1065,6 +1262,9 @@ class ModernXabberInputView: UIView {
         internal var delegate: XabberInputBarDelegate? = nil
         
         internal func setup() {
+            self.backgroundColor = .clear
+            self.addSubview(glassShadowView)
+            self.glassShadowView.addSubview(glassEffectView)
             self.addSubview(recordIndicator)
             self.addSubview(timeLabel)
             self.addSubview(slideToCancelButton)
@@ -1084,11 +1284,19 @@ class ModernXabberInputView: UIView {
         }
         
         final func update() {
+            self.glassShadowView.frame = self.bounds
+            self.glassEffectView.frame = self.glassShadowView.bounds
+            ModernXabberInputView.applyGlassLayer(to: self.glassEffectView, cornerRadius: 19, borderAlpha: 0.24)
+            self.glassShadowView.layer.shadowPath = UIBezierPath(
+                roundedRect: self.glassShadowView.bounds,
+                cornerRadius: 19
+            ).cgPath
             self.recordIndicator.frame = CGRect(
                 origin: CGPoint(x: 2, y: 15),
                 size: CGSize(square: recordIndicatorSize)
             )
             self.recordIndicator.layer.cornerRadius = recordIndicatorSize / 2
+            self.timeLabel.textColor = .label
             self.timeLabel.frame = CGRect(
                 origin: CGPoint(x: 24, y: 2),
                 size: CGSize(width: 74, height: 34)
@@ -1246,6 +1454,22 @@ class ModernXabberInputView: UIView {
         case record
         case recordAndPlay
     }
+
+    private struct LiquidGlassLayoutState: Equatable {
+        let bounds: CGRect
+        let contentFrame: CGRect
+        let textFieldFrame: CGRect
+        let attachButtonFrame: CGRect
+        let timerButtonFrame: CGRect
+        let sendButtonFrame: CGRect
+        let state: InputBarState
+        let isTextFieldHidden: Bool
+        let isAttachHidden: Bool
+        let isTimerHidden: Bool
+        let isSendHidden: Bool
+    }
+
+    private var lastLiquidGlassLayoutState: LiquidGlassLayoutState?
     
     private var textViewHeightAnchor: NSLayoutConstraint?
     /// The maximum height that the InputTextView can reach
@@ -1262,11 +1486,12 @@ class ModernXabberInputView: UIView {
     
     public var requiredInputTextViewHeight: CGFloat {
         if isSelectionPanelShowed {
-            return 38.0
+            return ModernXabberInputView.minimumComposerHeight
         }
-        let maxTextViewSize = CGSize(width: textField.bounds.width, height: .greatestFiniteMagnitude)
+        let fittingWidth = textField.bounds.width > 0 ? textField.bounds.width : inputTextViewMaxWidth
+        let maxTextViewSize = CGSize(width: fittingWidth, height: .greatestFiniteMagnitude)
 //        print("maxTextViewSize", maxTextViewSize, textField.sizeThatFits(maxTextViewSize).height.rounded(.down))
-        return max(32, textField.sizeThatFits(maxTextViewSize).height.rounded(.down))
+        return max(ModernXabberInputView.minimumComposerHeight, textField.sizeThatFits(maxTextViewSize).height.rounded(.down))
     }
     
     let blurredEffectView: UIVisualEffectView = {
@@ -1275,17 +1500,67 @@ class ModernXabberInputView: UIView {
         
         return blurredEffectView
     }()
+
+    private let mainInputShadowView: UIView = {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        ModernXabberInputView.applyGlassShadow(to: view)
+        return view
+    }()
+
+    private let mainInputGlassView: UIVisualEffectView = {
+        let view = ModernXabberInputView.makeGlassEffectView(
+            interactive: true,
+            fallbackStyle: .systemMaterial
+        )
+        ModernXabberInputView.applyToolbarGlassLayer(to: view)
+        return view
+    }()
+
+    private let textFieldGlassView: UIView = {
+        let view = ModernXabberInputView.makeGlassTintView()
+        view.isHidden = true
+        view.layer.borderWidth = 0
+        view.backgroundColor = .clear
+        return view
+    }()
+
+    private let attachButtonGlassView: UIView = {
+        let view = ModernXabberInputView.makeGlassTintView()
+        view.isHidden = true
+        view.layer.borderWidth = 0
+        view.backgroundColor = .clear
+        return view
+    }()
+
+    private let timerButtonGlassView: UIView = {
+        let view = ModernXabberInputView.makeGlassTintView()
+        view.isHidden = true
+        view.layer.borderWidth = 0
+        view.backgroundColor = .clear
+        return view
+    }()
+
+    private let sendButtonGlassView: UIView = {
+        let view = ModernXabberInputView.makeGlassTintView()
+        view.isHidden = true
+        view.layer.borderWidth = 0
+        view.backgroundColor = .clear
+        return view
+    }()
         
     let textField: InputTextView = {
         let field = InputTextView(frame: .zero)
         
         field.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         field.setContentHuggingPriority(UILayoutPriority(249), for: .horizontal)
-        field.backgroundColor = .white
-        field.layer.cornerRadius = 18
-        field.layer.masksToBounds = true
-        
-        field.alpha = 0.79
+        field.backgroundColor = .clear
+        field.layer.cornerRadius = 0
+        field.layer.borderWidth = 0
+        field.layer.borderColor = UIColor.clear.cgColor
+        field.layer.masksToBounds = false
+        field.placeholderTextColor = .secondaryLabel
+        field.alpha = 1.0
         
         return field
     }()
@@ -1382,29 +1657,32 @@ class ModernXabberInputView: UIView {
     }
     
     let sendButton: SendButton = {
-        let button = SendButton(frame: CGRect(width: 44, height: 38))
+        let button = SendButton(frame: CGRect(square: ModernXabberInputView.LiquidGlassMetrics.buttonSize))
         
         button.setImage(imageLiteral("mic", dimension: 24), for: .normal)
         button.tintColor = .secondaryLabel
+        ModernXabberInputView.removeChrome(from: button)
                         
         return button
     }()
    
     let attachButton: UIButton = {
-        let button = UIButton(frame: CGRect(width: 44, height: 38))
+        let button = UIButton(frame: CGRect(square: ModernXabberInputView.LiquidGlassMetrics.buttonSize))
         
         button.setImage(imageLiteral("paperclip", dimension: 24), for: .normal)
         button.tintColor = .secondaryLabel
+        ModernXabberInputView.removeChrome(from: button)
         
         return button
     }()
     
     let timerButton: UIButton = {
-        let button = UIButton(frame: CGRect(width: 44, height: 38))
+        let button = UIButton(frame: CGRect(square: ModernXabberInputView.LiquidGlassMetrics.buttonSize))
         
         button.setImage(imageLiteral("stopwatch", dimension: 24), for: .normal)
         button.tintColor = .secondaryLabel
         button.isEnabled = true
+        ModernXabberInputView.removeChrome(from: button)
 //        button.isHidden = true
         
         return button
@@ -1422,7 +1700,9 @@ class ModernXabberInputView: UIView {
         button.backgroundColor = .clear
         button.titleLabel?.textAlignment = .center
         button.titleLabel?.textColor = .systemBlue
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
         button.isHidden = true
+        ModernXabberInputView.removeChrome(from: button)
         
         return button
     }()
@@ -1498,7 +1778,7 @@ class ModernXabberInputView: UIView {
     private var isMentionUsersReloadInFlight: Bool = false
     private var isApplyingComposerMutation: Bool = false
     
-    public var barHeight: CGFloat = 49
+    public var barHeight: CGFloat = ModernXabberInputView.defaultBarHeight
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1565,49 +1845,63 @@ class ModernXabberInputView: UIView {
             name: UITextView.textDidChangeNotification, object: textField
         )
     }
-    
+
+    private func layoutComposerControls(contentHeight: CGFloat) {
+        let buttonSize = LiquidGlassMetrics.buttonSize
+        let buttonY = max(0, contentHeight - buttonSize)
+        let width = max(0, self.bounds.width)
+        let trailingTimerWidth = self.timerButton.isHidden ? 0 : buttonSize
+        let textMinX = buttonSize
+        let textMaxX = max(textMinX, width - buttonSize - trailingTimerWidth)
+
+        self.attachButton.frame = CGRect(
+            origin: CGPoint(x: 0, y: buttonY),
+            size: CGSize(square: buttonSize)
+        )
+        self.textField.frame = CGRect(
+            origin: CGPoint(x: textMinX, y: 0),
+            size: CGSize(width: max(0, textMaxX - textMinX), height: contentHeight)
+        )
+        self.timerButton.frame = CGRect(
+            origin: CGPoint(x: max(0, width - buttonSize * 2), y: buttonY),
+            size: CGSize(square: buttonSize)
+        )
+        self.sendButton.frame = CGRect(
+            origin: CGPoint(x: max(0, width - buttonSize), y: buttonY),
+            size: CGSize(square: buttonSize)
+        )
+        self.startPositionSendButton = self.sendButton.center
+    }
+
     public func setupFrames(_ frame: CGRect) {
         self.frame = frame
-        let attachButtonFrame = CGRect(
-            origin: CGPoint(x: 0, y: 0),
-            size: CGSize(width: 40, height: 38)
-        )
-        let textFieldFrame = CGRect(
-            origin: CGPoint(x: 40, y: 0),
-            size: CGSize(width: self.frame.width - 84, height: 38)
-        )
-        let timerButtonFrame = CGRect(
-            origin: CGPoint(x: self.frame.width - 84, y: 0),
-            size: CGSize(width: 44, height: 38)
-        )
-        let sendButtonFrame = CGRect(
-            origin: CGPoint(x: self.frame.width - 44, y: 0),
-            size: CGSize(width: 44, height: 38)
-        )
-        
-        self.attachButton.frame = attachButtonFrame
-        self.textField.frame = textFieldFrame
-        self.timerButton.frame = timerButtonFrame
-        self.sendButton.frame = sendButtonFrame
+        let contentHeight = max(ModernXabberInputView.minimumComposerHeight, self.cachedIntrinsicContentSize.height)
         self.contentView.frame = CGRect(
-            origin: CGPoint(x: 0, y: 6),
-            size: CGSize(width: self.bounds.width, height: 38)
+            origin: CGPoint(x: 0, y: LiquidGlassMetrics.contentTopOffset),
+            size: CGSize(width: self.bounds.width, height: contentHeight)
         )
+        self.layoutComposerControls(contentHeight: contentHeight)
         
 //        blurredEffectView.frame = self.bounds
-        self.backgroundColor = .systemBackground
+        self.backgroundColor = .clear
         self.updateBottomPanels(withOffset: 0)
         self.selectionPanel.update()
         self.recordPanel.update()
         self.recordAndPlayPanel.update()
-        self.startPositionSendButton = self.sendButton.center
     }
     
     final func setup() {
         
         
 //        self.addSubview(self.blurredEffectView)
-        
+        self.backgroundColor = .clear
+        self.addSubview(self.mainInputShadowView)
+        self.mainInputShadowView.addSubview(self.mainInputGlassView)
+        self.contentView.backgroundColor = .clear
+        self.contentView.addSubview(self.textFieldGlassView)
+        self.contentView.addSubview(self.attachButtonGlassView)
+        self.contentView.addSubview(self.timerButtonGlassView)
+        self.contentView.addSubview(self.sendButtonGlassView)
         self.contentView.addSubview(self.attachButton)
         self.contentView.addSubview(self.textField)
         self.contentView.addSubview(self.timerButton)
@@ -1616,6 +1910,15 @@ class ModernXabberInputView: UIView {
         self.addSubview(self.contentView)
         
         self.sendButton.delegate = self
+        [
+            self.attachButton,
+            self.timerButton,
+            self.sendButton,
+            self.stateButton
+        ].forEach { ModernXabberInputView.removeChrome(from: $0) }
+        self.textField.backgroundColor = .clear
+        self.textField.layer.borderWidth = 0
+        self.textField.layer.borderColor = UIColor.clear.cgColor
         
         self.addSubview(self.selectionPanel)
         self.addSubview(self.forwardPanel)
@@ -1841,7 +2144,7 @@ class ModernXabberInputView: UIView {
             self.forwardPanel.update()
             self.forwardPanel.configureForForward()
             self.forwardPanel.isHidden = false
-            self.barHeight = self.cachedIntrinsicContentSize.height + 11
+            self.barHeight = self.cachedIntrinsicContentSize.height + LiquidGlassMetrics.verticalReserve
             var inputHeight: CGFloat = self.barHeight + self.keyboardHeight + self.topInset
             if self.keyboardHeight == 0 {
                 if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
@@ -1862,7 +2165,7 @@ class ModernXabberInputView: UIView {
         self.topInset = 0
         self.update(screenHeight: self.screenHeight, keyboardHeight: self.keyboardHeight, animate: true) {
             self.forwardPanel.isHidden = true
-            self.barHeight = self.cachedIntrinsicContentSize.height + 11
+            self.barHeight = self.cachedIntrinsicContentSize.height + LiquidGlassMetrics.verticalReserve
             var inputHeight: CGFloat = self.barHeight + self.keyboardHeight + self.topInset
             if self.keyboardHeight == 0 {
                 if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
@@ -1890,7 +2193,7 @@ class ModernXabberInputView: UIView {
             self.editPanel.update()
             self.editPanel.configureForEdit()
             self.editPanel.isHidden = false
-            self.barHeight = self.cachedIntrinsicContentSize.height + 11
+            self.barHeight = self.cachedIntrinsicContentSize.height + LiquidGlassMetrics.verticalReserve
             var inputHeight: CGFloat = self.barHeight + self.keyboardHeight + self.topInset
             if self.keyboardHeight == 0 {
                 if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
@@ -1911,7 +2214,7 @@ class ModernXabberInputView: UIView {
         self.topInset = 0
         self.update(screenHeight: self.screenHeight, keyboardHeight: self.keyboardHeight, animate: true) {
             self.editPanel.isHidden = true
-            self.barHeight = self.cachedIntrinsicContentSize.height + 11
+            self.barHeight = self.cachedIntrinsicContentSize.height + LiquidGlassMetrics.verticalReserve
             var inputHeight: CGFloat = self.barHeight + self.keyboardHeight + self.topInset
             if self.keyboardHeight == 0 {
                 if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
@@ -1942,12 +2245,14 @@ class ModernXabberInputView: UIView {
             }
         }
         doAnimate {
+            let contentHeight = max(ModernXabberInputView.minimumComposerHeight, self.cachedIntrinsicContentSize.height)
             self.contentView.frame = CGRect(
-                origin: CGPoint(x: 0, y: self.topInset + 6),
-                size: CGSize(width: self.bounds.width, height: self.cachedIntrinsicContentSize.height)
+                origin: CGPoint(x: 0, y: self.topInset + LiquidGlassMetrics.contentTopOffset),
+                size: CGSize(width: self.bounds.width, height: contentHeight)
             )
+            self.layoutComposerControls(contentHeight: contentHeight)
             let frame = CGRect(
-                origin: CGPoint(x: 0, y: screenHeight - inputHeight),
+                origin: CGPoint(x: self.frame.minX, y: screenHeight - inputHeight),
                 size: CGSize(width: self.bounds.width, height: inputHeight)
             )
             self.frame = frame
@@ -1966,6 +2271,101 @@ class ModernXabberInputView: UIView {
     
     final func activateConstraints() {
         
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        self.layoutLiquidGlassAppearance()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        self.updateLiquidGlassColors()
+    }
+
+    private func layoutLiquidGlassAppearance() {
+        let layoutState = LiquidGlassLayoutState(
+            bounds: self.bounds,
+            contentFrame: self.contentView.frame,
+            textFieldFrame: self.textField.frame,
+            attachButtonFrame: self.attachButton.frame,
+            timerButtonFrame: self.timerButton.frame,
+            sendButtonFrame: self.sendButton.frame,
+            state: self.state,
+            isTextFieldHidden: self.textField.isHidden,
+            isAttachHidden: self.attachButton.isHidden,
+            isTimerHidden: self.timerButton.isHidden,
+            isSendHidden: self.sendButton.isHidden
+        )
+        guard layoutState != self.lastLiquidGlassLayoutState else { return }
+        self.lastLiquidGlassLayoutState = layoutState
+
+        let rawComposerFrame = self.contentView.frame.insetBy(
+            dx: LiquidGlassMetrics.composerHorizontalInset,
+            dy: LiquidGlassMetrics.composerVerticalInset
+        )
+        let composerFrame = CGRect(
+            x: rawComposerFrame.minX,
+            y: rawComposerFrame.minY,
+            width: max(0, rawComposerFrame.width),
+            height: max(0, rawComposerFrame.height)
+        )
+        let composerRadius = LiquidGlassMetrics.composerCornerRadius
+
+        self.mainInputShadowView.isHidden = self.state == .selection || self.state == .search || self.state == .skeleton
+        self.mainInputShadowView.frame = composerFrame
+        self.mainInputGlassView.frame = self.mainInputShadowView.bounds
+        ModernXabberInputView.applyToolbarGlassLayer(to: self.mainInputGlassView)
+        self.mainInputShadowView.layer.shadowPath = UIBezierPath(
+            roundedRect: self.mainInputShadowView.bounds,
+            cornerRadius: composerRadius
+        ).cgPath
+
+        [
+            self.textFieldGlassView,
+            self.attachButtonGlassView,
+            self.timerButtonGlassView,
+            self.sendButtonGlassView
+        ].forEach { glassView in
+            glassView.isHidden = true
+            glassView.backgroundColor = .clear
+            glassView.layer.borderWidth = 0
+            glassView.layer.borderColor = UIColor.clear.cgColor
+        }
+        self.updateLiquidGlassColors()
+    }
+
+    private func layoutButtonGlassView(_ glassView: UIView, behind button: UIButton) {
+        glassView.isHidden = true
+        glassView.backgroundColor = .clear
+        glassView.layer.borderWidth = 0
+        button.layer.borderWidth = 0
+        button.layer.cornerCurve = .continuous
+        button.backgroundColor = .clear
+    }
+
+    private func updateLiquidGlassColors() {
+        self.mainInputShadowView.layer.shadowColor = UIColor.black.cgColor
+        self.mainInputGlassView.layer.borderColor = UIColor.separator.withAlphaComponent(LiquidGlassMetrics.toolbarBorderAlpha).cgColor
+        self.textField.backgroundColor = .clear
+        self.textField.layer.borderWidth = 0
+        self.textField.layer.borderColor = UIColor.clear.cgColor
+        [
+            self.attachButton,
+            self.timerButton,
+            self.sendButton,
+            self.stateButton
+        ].forEach { ModernXabberInputView.removeChrome(from: $0) }
+        [
+            self.textFieldGlassView,
+            self.attachButtonGlassView,
+            self.timerButtonGlassView,
+            self.sendButtonGlassView
+        ].forEach { glassView in
+            glassView.backgroundColor = .clear
+            glassView.layer.borderWidth = 0
+            glassView.layer.borderColor = UIColor.clear.cgColor
+        }
     }
     
     @objc
@@ -2188,7 +2588,8 @@ class ModernXabberInputView: UIView {
             previousIntrinsicContentSize = cachedIntrinsicContentSize
         }
         
-        self.barHeight = self.cachedIntrinsicContentSize.height + 11
+        let contentHeight = max(ModernXabberInputView.minimumComposerHeight, self.cachedIntrinsicContentSize.height)
+        self.barHeight = contentHeight + LiquidGlassMetrics.verticalReserve
         var inputHeight: CGFloat = self.barHeight + keyboardHeight + self.topInset
         if keyboardHeight == 0 {
             if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
@@ -2198,22 +2599,11 @@ class ModernXabberInputView: UIView {
         
         //UIView.animate(withDuration: 0.16, delay: 0.0, options: [.curveEaseIn]) {
         UIView.performWithoutAnimation {
-            self.textField.frame = CGRect(
-                origin: CGPoint(x: 40, y: 0),
-                size: CGSize(width: self.frame.width - 84, height: self.cachedIntrinsicContentSize.height)
-            )
             self.contentView.frame = CGRect(
-                origin: CGPoint(x: 0, y: self.topInset + 6),
-                size: CGSize(width: self.bounds.width, height: self.cachedIntrinsicContentSize.height)
+                origin: CGPoint(x: 0, y: self.topInset + LiquidGlassMetrics.contentTopOffset),
+                size: CGSize(width: self.bounds.width, height: contentHeight)
             )
-            self.attachButton.frame = CGRect(
-                origin: CGPoint(x: 0, y: self.cachedIntrinsicContentSize.height - 38),
-                size: CGSize(width: 44, height: 38)
-            )
-            self.sendButton.frame = CGRect(
-                origin: CGPoint(x: self.frame.width - 44, y: self.cachedIntrinsicContentSize.height - 38),
-                size: CGSize(width: 44, height: 38)
-            )
+            self.layoutComposerControls(contentHeight: contentHeight)
             self.layoutMentionPanel()
             self.delegate?.onHeightChanged(to: inputHeight, bar: 0)
             self.update(screenHeight: self.screenHeight, keyboardHeight: self.keyboardHeight)

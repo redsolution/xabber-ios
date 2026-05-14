@@ -162,7 +162,8 @@ extension LastChatsViewController {
         
         
         func setup() {
-            self.backgroundColor = .systemBackground
+            self.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
+            self.contentView.backgroundColor = .clear
             self.userImageView.frame = CGRect(x: 10, y: 10, width: 64, height: 64)
             self.usernameView.frame = CGRect(
                 origin: CGPoint(x: 96, y: 10),

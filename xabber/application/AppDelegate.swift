@@ -123,6 +123,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
 //        setupRootViewController()
         
+        DDLogDebug("app didFinishLaunching accountAutoConnect=\(!self.isPushKit) pushKit=\(self.isPushKit)")
         AccountManager.shared.load(!self.isPushKit)
         ApplicationStateManager.shared.prepare()
         CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .appLaunch)
@@ -292,7 +293,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         let token = tokenParts.joined()
         APNSManager.shared.receive(deviceToken: token)
-        print("device token: \(token)")
+        DDLogDebug("registered for remote notifications tokenLength=\(token.count)")
     }
     
     func application(_ application: UIApplication,

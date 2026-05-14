@@ -23,7 +23,10 @@ import UIKit
 
 extension ChatViewController: ImagePickerViewDelegate {
     func checkProgress(for messageId: String, total: Int, progress: Int) {
-        let lastIndexPath = IndexPath(item: 0, section: self.messagesObserver!.count - 1)
+        guard let section = self.datasource.lastIndex(where: { $0.messageId == messageId || $0.primary == messageId }) else {
+            return
+        }
+        let lastIndexPath = IndexPath(item: 0, section: section)
         
         if self.messagesCollectionView.indexPathsForVisibleItems.contains(lastIndexPath) {
             self.messagesCollectionView.reloadItems(at: [lastIndexPath])
@@ -32,11 +35,14 @@ extension ChatViewController: ImagePickerViewDelegate {
     
     func onSendMessage() {
         print("Call empty", #function)
+        let shouldAutoScroll = self.isNearBottom()
         DispatchQueue.main.async {
             self.forwardedIds.accept(Set<String>())
             self.attachedMessagesIds.accept([])
             self.unreadMessagePositionId = nil
-            self.scrollToLastOrUnreadItem()
+            if shouldAutoScroll {
+                self.scrollToLastOrUnreadItem()
+            }
         }
     }
     

@@ -25,7 +25,11 @@ import CocoaLumberjack
 
 extension ChatViewController: ChatViewMessagesPanelDelegate {
     func messagesPanelOnClose() {
-        self.attachedMessagesIds.accept([])
+        if self.editMessageId.value != nil {
+            self.editMessageId.accept(nil)
+        } else {
+            self.attachedMessagesIds.accept([])
+        }
     }
     
     func messagesPanelOnIndicatorTouch() {

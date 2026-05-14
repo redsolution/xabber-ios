@@ -196,9 +196,9 @@ enum ChatHistoryPageApplyPolicy {
     static func keepOffset(direction: ChatHistoryPageDirection) -> Bool {
         switch direction {
         case .older:
-            return false
-        case .newer:
             return true
+        case .newer:
+            return false
         }
     }
 }
@@ -291,7 +291,9 @@ enum ChatObserverLookupPolicy {
             if item.archivedId.isNotEmpty {
                 let archivedId = item.archivedId
                 archivedIdIndex[archivedId] = offset
-                oldestArchivedId = archivedId
+                if oldestArchivedId == nil {
+                    oldestArchivedId = archivedId
+                }
             }
             if item.messageId.isNotEmpty {
                 messageIdIndex[item.messageId] = offset
@@ -499,7 +501,7 @@ enum ChatUnreadMentionNavigationPolicy {
         if let leftIndex = lhs.observerIndex,
            let rightIndex = rhs.observerIndex,
            leftIndex != rightIndex {
-            return leftIndex < rightIndex
+            return leftIndex > rightIndex
         }
 
         if lhs.date != rhs.date {
@@ -660,7 +662,7 @@ enum ChatHistoryCursorSelectionPolicy {
         observedArchivedIds: [String],
         persistedCursorId: String?
     ) -> String? {
-        if let observedCursorId = observedArchivedIds.reversed().first(where: { $0.isNotEmpty }) {
+        if let observedCursorId = observedArchivedIds.first(where: { $0.isNotEmpty }) {
             return observedCursorId
         }
 
@@ -674,16 +676,18 @@ enum ChatHistoryCursorSelectionPolicy {
 enum ChatHistoryPagingPolicy {
     private static func boundaryAvailability(
         boundaryContext: ChatHistoryPagingBoundaryContext,
-        currentPageMinIndex: Int
+        currentPageMinIndex: Int,
+        currentPageMaxIndex: Int,
+        totalCount: Int
     ) -> (olderVisible: Bool, newerVisible: Bool) {
         let minVisibleSection = boundaryContext.visibleRealSections.min()
         let maxVisibleSection = boundaryContext.visibleRealSections.max()
 
-        let olderVisible = maxVisibleSection.flatMap { visibleSection in
-            boundaryContext.lastRealSection.map { visibleSection >= $0 }
-        } ?? false
-        let newerVisible = currentPageMinIndex > 0 && (minVisibleSection.flatMap { visibleSection in
+        let olderVisible = currentPageMinIndex > 0 && (minVisibleSection.flatMap { visibleSection in
             boundaryContext.firstRealSection.map { visibleSection <= $0 }
+        } ?? false)
+        let newerVisible = currentPageMaxIndex < totalCount && (maxVisibleSection.flatMap { visibleSection in
+            boundaryContext.lastRealSection.map { visibleSection >= $0 }
         } ?? false)
 
         return (olderVisible, newerVisible)
@@ -716,7 +720,9 @@ enum ChatHistoryPagingPolicy {
         canLoadDatasource: Bool,
         gestureTranslationY: CGFloat,
         boundaryContext: ChatHistoryPagingBoundaryContext,
-        currentPageMinIndex: Int
+        currentPageMinIndex: Int,
+        currentPageMaxIndex: Int,
+        totalCount: Int
     ) -> ChatHistoryPageDirection? {
         guard isUserScrolling,
               canLoadDatasource,
@@ -726,7 +732,9 @@ enum ChatHistoryPagingPolicy {
 
         let boundary = boundaryAvailability(
             boundaryContext: boundaryContext,
-            currentPageMinIndex: currentPageMinIndex
+            currentPageMinIndex: currentPageMinIndex,
+            currentPageMaxIndex: currentPageMaxIndex,
+            totalCount: totalCount
         )
 
         return directionForBoundaryDrag(
@@ -747,7 +755,7 @@ enum ChatHistoryPagingPolicy {
         case .newer:
             return .localOnly
         case .older:
-            guard requestedWindow.maxIndex > totalCount else {
+            guard requestedWindow.minIndex < 0 else {
                 return .localOnly
             }
             return isArchiveEnded ? .endReached : .remoteOlderPage
@@ -758,7 +766,9 @@ enum ChatHistoryPagingPolicy {
         canLoadDatasource: Bool,
         gestureTranslationY: CGFloat,
         boundaryContext: ChatHistoryPagingBoundaryContext,
-        currentPageMinIndex: Int
+        currentPageMinIndex: Int,
+        currentPageMaxIndex: Int,
+        totalCount: Int
     ) -> ChatHistoryPageDirection? {
         guard canLoadDatasource,
               !boundaryContext.visibleRealSections.isEmpty else {
@@ -767,7 +777,9 @@ enum ChatHistoryPagingPolicy {
 
         let boundary = boundaryAvailability(
             boundaryContext: boundaryContext,
-            currentPageMinIndex: currentPageMinIndex
+            currentPageMinIndex: currentPageMinIndex,
+            currentPageMaxIndex: currentPageMaxIndex,
+            totalCount: totalCount
         )
 
         return directionForBoundaryDrag(
@@ -903,7 +915,7 @@ struct ChatDatasetCoordinator {
     }
 
     func initialWindow(totalCount: Int) -> ChatDatasetWindow {
-        clamp(ChatDatasetWindow(minIndex: 0, maxIndex: pageSize), totalCount: totalCount)
+        clamp(ChatDatasetWindow(minIndex: totalCount - pageSize, maxIndex: totalCount), totalCount: totalCount)
     }
 
     func replacementWindow(around index: Int, totalCount: Int) -> ChatDatasetWindow {
@@ -914,9 +926,9 @@ struct ChatDatasetCoordinator {
     func nextWindow(from current: ChatDatasetWindow, direction: ChatHistoryPageDirection) -> ChatDatasetWindow {
         switch direction {
         case .newer:
-            return ChatDatasetWindow(minIndex: current.minIndex - pageSize, maxIndex: current.maxIndex)
-        case .older:
             return ChatDatasetWindow(minIndex: current.minIndex, maxIndex: current.maxIndex + pageSize)
+        case .older:
+            return ChatDatasetWindow(minIndex: current.minIndex - pageSize, maxIndex: current.maxIndex)
         }
     }
 
@@ -987,7 +999,7 @@ extension ChatViewController {
     internal func updateFloatingDate() {
         guard let topVisibleReasonableMessageIndex = self.messagesCollectionView.indexPathsForVisibleItems.compactMap ({
             return $0.section
-        }).max() else {
+        }).min() else {
             return
         }
         let pinnOffset: CGFloat = 0//54
@@ -1066,6 +1078,12 @@ extension ChatViewController {
         let newSnapshot = ChatDatasourceCoordinator.makeSnapshot(items: items)
         let previousSnapshot = datasourceSnapshot
         let containsOnlyFakeMessages = !items.isEmpty && items.allSatisfy(\.isFakeMessage)
+        let shouldAutoScrollToBottom = self.isNearBottom()
+            && !ChatInitialScrollPolicy.shouldDeferDefaultScroll(
+                hasPendingAnchorRequest: self.pendingOpenMessageRequest != nil,
+                isAnchorNavigationInFlight: self.isMessageAnchorNavigationInFlight
+            )
+            && !containsOnlyFakeMessages
         let shouldAnimateApply = animated && !ChatInitialHistoryAppearancePolicy.shouldForceNonAnimatedApplyForInitialPopulation(
             oldItemCount: previousSnapshot.items.count,
             newItemCount: newSnapshot.items.count
@@ -1075,6 +1093,11 @@ extension ChatViewController {
             if invalidateLayout {
                 self.messagesCollectionView.collectionViewLayout.invalidateLayout()
                 self.messagesCollectionView.layoutIfNeeded()
+            }
+            self.messagesCollectionView.layoutIfNeeded()
+            self.updateChatCollectionInsets()
+            if shouldAutoScrollToBottom {
+                self.scrollToBottom(animated: shouldAnimateApply)
             }
             completion?()
             self.refreshUnreadMentionsNavigatorState()
@@ -1673,7 +1696,7 @@ extension ChatViewController {
                 !self.datasource[$0].isFakeMessage
             }
 
-        guard let section = candidateSections.max() else {
+        guard let section = candidateSections.min() else {
             return nil
         }
 
@@ -1891,10 +1914,14 @@ extension ChatViewController {
         self.rebuildUnreadMentionItems()
 
         let previousWindow = self.visibleWindow()
+        let observerCountDelta = max(0, currentCount - context.preLoadObserverCount)
+        let requestedMaxIndex = context.direction == .older
+            ? context.expectedWindowMaxIndex + observerCountDelta
+            : context.expectedWindowMaxIndex
         let requestedWindow = self.datasetCoordinator.clamp(
             ChatDatasetWindow(
                 minIndex: context.requestedWindow.minIndex,
-                maxIndex: context.expectedWindowMaxIndex
+                maxIndex: requestedMaxIndex
             ),
             totalCount: currentCount
         )
@@ -2122,9 +2149,70 @@ extension ChatViewController {
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
+
+        func appendDateSeparatorIfNeeded(before item: MessageStorageItem, at offset: Int) {
+            guard offset == 0 || self.isDateChange(from: dataset[offset - 1].sentDate, to: item.sentDate) else {
+                return
+            }
+            let kind: MessageKind = .date(
+                NSAttributedString(
+                    string: sectionsDateFormatter.string(from: item.sentDate),
+                    attributes: [
+                        .font: UIFont.preferredFont(forTextStyle: .caption1),
+                        .foregroundColor: UIColor.white,
+                    ]
+                )
+            )
+            out.append(Datasource(
+                primary: "\(item.primary) date changed",
+                jid: self.jid,
+                owner: self.owner,
+                outgoing: item.outgoing,
+                sender: item.outgoing ? self.ownerSender : self.opponentSender,
+                messageId: item.messageId,
+                sentDate: item.date,
+                editDate: nil,
+                kind: kind,
+                withAuthor: false,
+                withAvatar: false,
+                error: item.state == .error,
+                errorType: "",
+                canPinMessage: false,
+                canEditMessage: false,
+                canDeleteMessage: false,
+                forwards: [],
+                isOutgoing: item.outgoing,
+                isEdited: false,
+                groupchatAuthorRole: "",
+                groupchatAuthorId: "",
+                groupchatAuthorNickname: "",
+                groupchatAuthorBadge: "",
+                isHasAttachedMessages: false,
+                isDownloaded: true,
+                state: .none,
+                searchString:  "",
+                errorMetadata: nil,
+                burnDate: 0,
+                afterburnInterval: 0,
+                archivedId: "\(item.archivedId) date changed",
+                queryIds: "\(item.queryIds ?? "") date changed",
+                isRead: item.isRead,
+                selectedSearchResultId: nil,
+                isHadHistoryGap: false,
+                isFakeMessage: true,
+                images: [],
+                videos: [],
+                files: [],
+                audios: [],
+                timeMarkerText: NSAttributedString(),
+                indicator: .none,
+                avatarUrl: nil
+            ))
+        }
                 
         dataset.enumerated().forEach {
             (offset, item) in
+            appendDateSeparatorIfNeeded(before: item, at: offset)
 //            let references = Array(item.references.toArray().compactMap { $0.loadModel() })
 //            let inlineForwards = Array(item.inlineForwards.sorted(byKeyPath: "originalDate", ascending: true).toArray().compactMap { $0.loadModel() })
             
@@ -2170,7 +2258,7 @@ extension ChatViewController {
             let prevMessage = offset - 1
             let nextMessage = offset + 1
             
-            if self.avatarVerticalPosition == "bottom" {
+            if self.avatarVerticalPosition == "top" {
                 if prevMessage >= 0 {
                     let prevItem = dataset[prevMessage]
                     if self.conversationType == .group {
@@ -2188,16 +2276,22 @@ extension ChatViewController {
                     }
                 }
             }
-            if nextMessage < dataset.count {
-                let nextItem = dataset[nextMessage]
+            if prevMessage >= 0 {
+                let prevItem = dataset[prevMessage]
                 if self.conversationType == .group {
-                    withAuthor = !(nextItem.groupchatCard?.userId == item.groupchatCard?.userId)
-                    if isDateChange(from: item.date, to: nextItem.date) {
+                    withAuthor = !(prevItem.groupchatCard?.userId == item.groupchatCard?.userId)
+                    if isDateChange(from: item.date, to: prevItem.date) {
                         withAuthor = true
                     }
                 }
+            } else if self.conversationType == .group {
+                withAuthor = true
+            }
+
+            if nextMessage < dataset.count {
+                let nextItem = dataset[nextMessage]
                 
-                if self.avatarVerticalPosition == "top" {
+                if self.avatarVerticalPosition == "bottom" {
                     if self.conversationType == .group {
                         withAvatar = !(nextItem.groupchatCard?.userId == item.groupchatCard?.userId)
                         tailed = !(nextItem.groupchatCard?.userId == item.groupchatCard?.userId)
@@ -2394,66 +2488,6 @@ extension ChatViewController {
                 avatarUrl: withAvatar ? item.groupchatCard?.avatarURI : nil,
                 attributedAuthor: attributedAuthor
             ))
-            if (dataset.count > 1 && (offset + 1) < dataset.count) || (offset + 1 == dataset.count) {
-                
-                if (offset + 1 == dataset.count) || self.isDateChange(from: item.sentDate, to: dataset[offset + 1].sentDate) {
-                    let kind: MessageKind = .date(
-                        NSAttributedString(
-                            string: sectionsDateFormatter.string(from: item.sentDate),
-                            attributes: [
-                                .font: UIFont.preferredFont(forTextStyle: .caption1),
-                                .foregroundColor: UIColor.white,
-                            ]
-                        )
-                    )
-                    out.append(Datasource(
-                        primary: "\(item.primary) date changed",
-                        jid: self.jid,
-                        owner: self.owner,
-                        outgoing: item.outgoing,
-                        sender: item.outgoing ? self.ownerSender : self.opponentSender,
-                        messageId: item.messageId,
-                        sentDate: date,
-                        editDate: nil,
-                        kind: kind,
-                        withAuthor: false,
-                        withAvatar: false,//self.groupchat ? !item.outgoing : false,
-                        error: item.state == .error,
-                        errorType: "",
-                        canPinMessage: false,
-                        canEditMessage: false,
-                        canDeleteMessage: false,
-                        forwards: [],
-                        isOutgoing: item.outgoing,
-                        isEdited: false,
-                        groupchatAuthorRole: "",
-                        groupchatAuthorId: "",
-                        groupchatAuthorNickname: "",
-                        groupchatAuthorBadge: "",
-                        isHasAttachedMessages: false,
-                        isDownloaded: true,
-                        state: .none,
-                        searchString:  "",
-                        errorMetadata: nil,
-                        burnDate: 0,
-                        afterburnInterval: 0,
-                        archivedId: "\(item.archivedId) date changed",
-                        queryIds: "\(item.queryIds ?? "") date changed",
-                        isRead: item.isRead,
-                        selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
-                        isHadHistoryGap: false,
-                        isFakeMessage: true,
-                        images: [],
-                        videos: [],
-                        files: [],
-                        audios: [],
-                        timeMarkerText: NSAttributedString(),
-                        indicator: .none,
-                        avatarUrl: nil
-                    ))
-                }
-                
-            }
         }
         return out
     }
@@ -2666,13 +2700,12 @@ extension ChatViewController {
               let maxIndexRaw = self.observerPrimaryIndexMap[maxPrimary] else {
             return
         }
-        var maxIndex = maxIndexRaw
-        if self.currentPage.minIndex == 0 {
-            if self.messagesObserver.count < self.datasourcePageSize {
-                maxIndex = self.messagesObserver.count
-            }
+        let loadedWindowCount = max(self.visibleWindow().count, self.datasourcePageSize)
+        var maxIndex = maxIndexRaw + 1
+        if self.currentPage.maxIndex >= max(0, self.messagesObserver.count - 1) {
+            maxIndex = self.messagesObserver.count
         }
-        let minIndex = self.currentPage.minIndex
+        let minIndex = max(0, maxIndex - loadedWindowCount)
         let window = self.datasetCoordinator.clamp(ChatDatasetWindow(minIndex: minIndex, maxIndex: maxIndex), totalCount: self.messagesObserver.count)
         self.mapAndApplyWindow(window, mode: .targetedDiff, animated: self.shouldAnimateInitialHistoryAppearance, invalidateLayout: false)
         self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
@@ -2687,34 +2720,35 @@ extension ChatViewController {
             return
         }
         let shouldAnimateScroll = !self.initialHistoryAppearancePending
-        if self.currentPage.minIndex > 0 {
+        let latestWindow = self.datasetCoordinator.initialWindow(totalCount: self.messagesObserver.count)
+        if self.visibleWindow() != latestWindow {
             self.currentPage.setCustomPage(0) {
-                let window = self.datasetCoordinator.initialWindow(totalCount: self.messagesObserver.count)
-                self.syncCurrentPage(with: window)
+                self.syncCurrentPage(with: latestWindow)
                 self.currentPage.unlock()
-                self.mapAndApplyWindow(window, mode: .windowReload(), animated: shouldAnimateScroll, invalidateLayout: true, completion: {
+                self.mapAndApplyWindow(latestWindow, mode: .windowReload(), animated: shouldAnimateScroll, invalidateLayout: true, completion: {
                     if let index = self.unreadMessagePositionId {
                         if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
-                            self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+                            self.scrollToBottom(animated: false)
                         } else {
                             self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: false)
                         }
                     } else {
-                        self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+                        self.scrollToBottom(animated: false)
                     }
                     self.setFloatingDateVisible(true)
                 })
             }
+            return
         }
         if let index = self.unreadMessagePositionId {
             if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
-                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: shouldAnimateScroll)
+                self.scrollToBottom(animated: shouldAnimateScroll)
             } else {
                 self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: shouldAnimateScroll)
             }
         } else {
             if self.datasource.isNotEmpty {
-                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: shouldAnimateScroll)
+                self.scrollToBottom(animated: shouldAnimateScroll)
             }
         }
     }

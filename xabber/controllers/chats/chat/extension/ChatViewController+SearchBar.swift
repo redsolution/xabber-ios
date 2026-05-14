@@ -118,8 +118,8 @@ enum ChatAnchorContextPrefetchPolicy {
         }
 
         let targetContextPerSide = max(1, pageSize / 2)
-        let newerLocalCount = max(0, observerIndex)
-        let olderLocalCount = max(0, totalCount - observerIndex - 1)
+        let olderLocalCount = max(0, observerIndex)
+        let newerLocalCount = max(0, totalCount - observerIndex - 1)
         let newerDeficit = newerLocalCount < targetContextPerSide
             ? min(targetContextPerSide - newerLocalCount, targetContextPerSide)
             : 0

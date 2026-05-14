@@ -118,7 +118,7 @@ extension LastChatsViewController {
         }
         
         open func configure(onAddContactCallback: @escaping (() -> Void)) {
-            backgroundColor = .systemBackground
+            backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
             update(for: .chats)
             callback = onAddContactCallback
         }

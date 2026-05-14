@@ -687,8 +687,9 @@ final class AppRootCoordinator: NSObject {
         return navigationController
     }
 
-    private func makeSplitRoot(userInfo: [AnyHashable: Any]?) -> UISplitViewController {
+    private func makeSplitRoot(userInfo: [AnyHashable: Any]?) -> UIViewController {
         let vc = UISplitViewController(style: .tripleColumn)
+        ContinuousSplitBackgroundExperiment.configureTransparentSplit(vc)
         if CommonConfigManager.shared.config.use_large_title {
             vc.navigationItem.largeTitleDisplayMode = .automatic
         } else {
@@ -724,6 +725,7 @@ final class AppRootCoordinator: NSObject {
         vc.preferredDisplayMode = .oneBesideSecondary
         vc.preferredSplitBehavior = .displace
         vc.primaryBackgroundStyle = .sidebar
+        ContinuousSplitBackgroundExperiment.configureTransparentSplit(vc)
         vc.delegate = self
 
         let chatsNvc = UINavigationController(rootViewController: chatsVc)
@@ -733,14 +735,24 @@ final class AppRootCoordinator: NSObject {
             chatsNvc.navigationItem.largeTitleDisplayMode = .never
         }
         chatsNvc.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+        chatsNvc.applyTransparentSplitAppearance()
+
+        let detailNvc = UINavigationController(rootViewController: chatViewController ?? emptyChatVc)
+        detailNvc.applyTransparentSplitAppearance()
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(primaryVc)
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(chatsVc)
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(chatViewController ?? emptyChatVc)
 
         vc.viewControllers = [
             primaryVc,
             chatsNvc,
-            UINavigationController(rootViewController: chatViewController ?? emptyChatVc)
+            detailNvc
         ]
         splitController = vc
         NotifyManager.shared.leftMenuDelegate = primaryVc
+        if ContinuousSplitBackgroundExperiment.isActive {
+            return BackgroundRootContainerViewController(contentViewController: vc)
+        }
         return vc
     }
 

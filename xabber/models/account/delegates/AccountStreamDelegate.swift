@@ -24,13 +24,45 @@ import UserNotifications
 import Alamofire
 
 extension Account: XMPPStreamDelegate {
-    
-    
+
+    private func streamErrorName(_ error: DDXMLElement) -> String {
+        if let errorName = error
+            .elements(forXmlns: "urn:ietf:params:xml:ns:xmpp-streams")
+            .filter({ $0.name != "text" })
+            .first?
+            .name {
+            return errorName
+        }
+        if let errorName = error
+            .elements(forXmlns: "urn:ietf:params:xml:ns:xmpp-sasl")
+            .filter({ $0.name != "text" })
+            .first?
+            .name {
+            return errorName
+        }
+        return error.name ?? "unknown"
+    }
+
+    private func disconnectErrorDescription(_ error: Error?) -> String {
+        guard let error = error else { return "none" }
+        let nsError = error as NSError
+        return "\(nsError.domain):\(nsError.code):\(nsError.localizedDescription)"
+    }
+
+    func xmppStreamWillConnect(_ sender: XMPPStream) {
+        guard sender === self.xmppStream else {
+            DDLogDebug("ignore stale primary stream willConnect jid=\(self.jid)")
+            return
+        }
+        DDLogDebug("primary stream willConnect jid=\(self.jid) resource=\(sender.myJID?.resource ?? "none") hostPresent=\(sender.hostName?.isEmpty == false) port=\(sender.hostPort) phase=\(self.connectionGate.snapshot().phase.rawValue)")
+    }
+
     func xmppStreamDidConnect(_ stream: XMPPStream) {
         guard stream === self.xmppStream else {
             DDLogDebug("ignore stale primary stream didConnect jid=\(self.jid)")
             return
         }
+        DDLogDebug("primary stream didConnect jid=\(self.jid) resource=\(stream.myJID?.resource ?? "none") phase=\(self.connectionGate.snapshot().phase.rawValue)")
         AccountManager.shared.changeNewUserState(for: self.jid, to: .startConnection)
         func reconnect(_ error: Error) {
             self.statusMessage.accept("Offline")
@@ -72,6 +104,7 @@ extension Account: XMPPStreamDelegate {
                     try stream.authenticate(withPassword: password)
                     AccountManager.shared.changeNewUserState(for: self.jid, to: .connect)
                 } else {
+                    DDLogDebug("missing password credential for primary stream jid=\(self.jid)")
                     invalidate()
                 }
             } catch {
@@ -156,6 +189,7 @@ extension Account: XMPPStreamDelegate {
             DDLogDebug("ignore stale primary stream timeout jid=\(self.jid)")
             return
         }
+        DDLogDebug("primary stream connect timeout jid=\(self.jid) phase=\(self.connectionGate.snapshot().phase.rawValue)")
         self.handleConnectTimeout()
     }
 
@@ -164,6 +198,7 @@ extension Account: XMPPStreamDelegate {
             DDLogDebug("ignore stale primary stream didAuthenticate jid=\(self.jid)")
             return
         }
+        DDLogDebug("primary stream didAuthenticate jid=\(self.jid) resource=\(sender.myJID?.resource ?? "none") phase=\(self.connectionGate.snapshot().phase.rawValue)")
         self.cancelDelayedConnectTimer()
         self.connectionGate.markPostAuthSetup()
         self.didAuthenticate()
@@ -185,11 +220,14 @@ extension Account: XMPPStreamDelegate {
             DDLogDebug("ignore stale primary stream features jid=\(self.jid)")
             return
         }
-        print("Features:", features.prettyXMLString())
-        if features.element(forName: "starttls", xmlns: "urn:ietf:params:xml:ns:xmpp-tls") != nil {
+        let hasStartTLS = features.element(forName: "starttls", xmlns: "urn:ietf:params:xml:ns:xmpp-tls") != nil
+        let hasBind = features.element(forName: "bind", xmlns: "urn:ietf:params:xml:ns:xmpp-bind") != nil
+        let hasDevices = features.element(forName: "devices", xmlns: devices.getPrimaryNamespace()) != nil
+        DDLogDebug("primary stream features jid=\(self.jid) startTLS=\(hasStartTLS) bind=\(hasBind) devices=\(hasDevices)")
+        if hasStartTLS {
             self.connectionGate.markTLSNegotiating()
         }
-        if features.element(forName: "bind", xmlns: "urn:ietf:params:xml:ns:xmpp-bind") != nil {
+        if hasBind {
             self.connectionGate.markBinding()
         }
         syncManager.checkAvailability(features)
@@ -207,6 +245,7 @@ extension Account: XMPPStreamDelegate {
             DDLogDebug("ignore stale primary stream auth failure jid=\(self.jid)")
             return
         }
+        DDLogDebug("primary stream didNotAuthenticate jid=\(self.jid) error=\(self.streamErrorName(error)) phase=\(self.connectionGate.snapshot().phase.rawValue)")
         self.didReceiveError(error)
     }
     
@@ -215,6 +254,7 @@ extension Account: XMPPStreamDelegate {
             DDLogDebug("ignore stale primary stream told-to-disconnect jid=\(self.jid)")
             return
         }
+        DDLogDebug("primary stream toldToDisconnect jid=\(self.jid) phase=\(self.connectionGate.snapshot().phase.rawValue)")
 //        self.statusMessage.accept("Disconnect")
         self.cancelDelayedConnectTimer()
         self.statusMessage.accept("Offline")
@@ -232,6 +272,7 @@ extension Account: XMPPStreamDelegate {
             DDLogDebug("ignore stale primary stream error jid=\(self.jid)")
             return
         }
+        DDLogDebug("primary stream received error jid=\(self.jid) error=\(self.streamErrorName(error)) phase=\(self.connectionGate.snapshot().phase.rawValue)")
         self.didReceiveError(error)
     }
     
@@ -240,6 +281,7 @@ extension Account: XMPPStreamDelegate {
             DDLogDebug("ignore stale primary stream disconnect jid=\(self.jid)")
             return
         }
+        DDLogDebug("primary stream didDisconnect jid=\(self.jid) error=\(self.disconnectErrorDescription(error)) phase=\(self.connectionGate.snapshot().phase.rawValue)")
         self.cancelDelayedConnectTimer()
         CredentialsManager.shared.getItem(for: self.jid).release(.authFailedRecoverable)
         self.statusState.accept(.offline)

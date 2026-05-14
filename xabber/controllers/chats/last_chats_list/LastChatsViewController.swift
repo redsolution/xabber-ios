@@ -442,7 +442,8 @@ class LastChatsViewController: BaseViewController {
     open var leftMenuSelectRootCategoryDelegate: LeftMenuSelectRootScreenDelegate? = nil
     
     internal let tableView: UITableView = {
-        let view = UITableView(frame: .zero, style: .plain)
+        let style: UITableView.Style = ContinuousSplitBackgroundExperiment.isActive ? .insetGrouped : .plain
+        let view = UITableView(frame: .zero, style: style)
         
         view.register(ChatListTableViewCell.self, forCellReuseIdentifier: ChatListTableViewCell.cellName)
         view.register(ArchivedCell.self, forCellReuseIdentifier: ArchivedCell.cellName)
@@ -451,7 +452,10 @@ class LastChatsViewController: BaseViewController {
         view.contentInsetAdjustmentBehavior = .scrollableAxes
         view.tableHeaderView = UIView(frame: .zero)
         view.tableFooterView = UIView(frame: .zero)
-        view.sectionHeaderTopPadding = 0
+        if !ContinuousSplitBackgroundExperiment.isActive {
+            view.sectionHeaderTopPadding = 0
+        }
+        view.applyContinuousSplitInsetGroupedAppearance()
 //        view.allowsMultipleSelection = false
 //        view.allowsMultipleSelectionDuringEditing = false
 //        view.cellLayoutMarginsFollowReadableWidth = false
@@ -530,6 +534,94 @@ class LastChatsViewController: BaseViewController {
         
         return view
     }()
+
+    private let floatingToolbarHeight: CGFloat = 44
+    private let floatingToolbarBottomOffset: CGFloat = 4
+    private let floatingToolbarHorizontalInset: CGFloat = 16
+    private let floatingToolbarContentInset: CGFloat = 10
+    private let floatingToolbarButtonSize: CGFloat = 44
+    private let floatingToolbarIconSize: CGFloat = 20
+    private let floatingToolbarMaxWidth: CGFloat = 360
+
+    private let floatingToolbarContainerView: UIView = {
+        let view = UIView(frame: .zero)
+
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.backgroundColor = .clear
+        view.layer.shadowColor = UIColor.black.cgColor
+        view.layer.shadowOpacity = 0.16
+        view.layer.shadowRadius = 18
+        view.layer.shadowOffset = CGSize(width: 0, height: 8)
+
+        return view
+    }()
+
+    private let floatingToolbarEffectView: UIVisualEffectView = {
+        let effect: UIVisualEffect
+        if #available(iOS 26.0, *) {
+            let glassEffect = UIGlassEffect(style: .regular)
+            glassEffect.isInteractive = true
+            effect = glassEffect
+        } else {
+            effect = UIBlurEffect(style: .systemMaterial)
+        }
+        let view = UIVisualEffectView(effect: effect)
+
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.clipsToBounds = true
+        if #available(iOS 26.0, *) {
+            view.cornerConfiguration = .capsule()
+        } else {
+            view.layer.cornerRadius = 22
+            view.layer.cornerCurve = .continuous
+        }
+        view.layer.borderWidth = 1.0 / UIScreen.main.scale
+        view.layer.borderColor = UIColor.separator.withAlphaComponent(0.34).cgColor
+
+        return view
+    }()
+
+    private let floatingToolbarFilterButton: UIButton = {
+        let button = UIButton(type: .system)
+
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.tintColor = .black
+        button.backgroundColor = .clear
+        button.accessibilityLabel = "Unread chats filter"
+
+        return button
+    }()
+
+    private let floatingToolbarUnreadCounterLabel: UILabel = {
+        let label = UILabel(frame: .zero)
+
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        label.textColor = .label
+        label.textAlignment = .center
+        label.text = CommonConfigManager.shared.config.app_name
+        label.numberOfLines = 1
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.75
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        label.accessibilityLabel = CommonConfigManager.shared.config.app_name
+
+        return label
+    }()
+
+    private let floatingToolbarAddButton: UIButton = {
+        let button = UIButton(type: .system)
+
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.tintColor = .black
+        button.backgroundColor = .clear
+        button.accessibilityLabel = "Add"
+
+        return button
+    }()
+
+    private var unreadCounterBag: DisposeBag = DisposeBag()
     
     internal var isFirstLayout: Bool = false
     internal var isFirstLayoutSearchController: Bool = false
@@ -558,7 +650,7 @@ class LastChatsViewController: BaseViewController {
     internal var activeSwipeActionDatasourceKey: String? = nil
     internal var pendingSwipeActionReloadDatasourceKey: String? = nil
     internal var pendingSwipeActionTableReload: Bool = false
-    
+
     public var archivedMode: Bool = false
     
     internal var showSkeleton: BehaviorRelay<Bool> = BehaviorRelay(value: true)
@@ -799,6 +891,7 @@ class LastChatsViewController: BaseViewController {
             uniquingKeysWith: { _, new in new }
         )
         self.refreshEmptyStateVisibility()
+        self.updateUnreadChatsCounter()
     }
 
     internal static func hasStructuralTableChanges(_ changes: ChangesWithIndexPath) -> Bool {
@@ -1466,29 +1559,6 @@ class LastChatsViewController: BaseViewController {
                     }
                 })
                 .disposed(by: bag)
-            let predicate = NSPredicate(
-                format: "isArchived == %@ AND unread > %@ AND owner IN %@",
-                argumentArray: [
-                    false,
-                    0,
-                    Array(enabledAccounts.value)
-                ]
-            )
-            let unreadCollection = realm.objects(LastChatsStorageItem.self).filter(predicate)
-            Observable
-                .collection(from: unreadCollection)
-                .debounce(.microseconds(50), scheduler: MainScheduler.asyncInstance)
-                .subscribe { results in
-                    self.bottomBar.leftButton.isEnabled = results.count > 0
-                } onError: { _ in
-                    
-                } onCompleted: {
-                    
-                } onDisposed: {
-                    
-                }.disposed(by: bag)
-
-            
         } catch {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
         }
@@ -1531,6 +1601,7 @@ class LastChatsViewController: BaseViewController {
             .asObservable()
             .subscribe(onNext: { (values) in
                 self.filter.accept(self.filter.value)
+                self.subscribeUnreadChatsCounter()
                 do {
                     let realm = try  WRealm.safe()
                     self.archivedChats = realm
@@ -1552,6 +1623,7 @@ class LastChatsViewController: BaseViewController {
                 self.updateTitle(value)
                 self.bottomBar.leftButton.setImage(imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
                 self.updateBottomTitle()
+                self.updateUnreadChatsCounter()
             })
             .disposed(by: bag)
         
@@ -1611,6 +1683,7 @@ class LastChatsViewController: BaseViewController {
     internal func unsubscribe() {
         bag = DisposeBag()
         datasetBag = DisposeBag()
+        unreadCounterBag = DisposeBag()
     }
     
     override func observer() {
@@ -1633,6 +1706,210 @@ class LastChatsViewController: BaseViewController {
 //        print(#function)
         NotifyManager.shared.clearAllNotifications()
     }
+
+    private final func setupFloatingToolbar() {
+        guard self.floatingToolbarContainerView.superview == nil else {
+            self.view.bringSubviewToFront(self.floatingToolbarContainerView)
+            self.updateFloatingToolbarFilterButtonState()
+            self.updateUnreadChatsCounter()
+            self.updateTableInsetsForFloatingToolbar()
+            return
+        }
+
+        self.view.addSubview(self.floatingToolbarContainerView)
+        self.floatingToolbarContainerView.addSubview(self.floatingToolbarEffectView)
+
+        let contentView = self.floatingToolbarEffectView.contentView
+        contentView.addSubview(self.floatingToolbarFilterButton)
+        contentView.addSubview(self.floatingToolbarUnreadCounterLabel)
+        contentView.addSubview(self.floatingToolbarAddButton)
+
+        self.configureFloatingToolbarButton(
+            self.floatingToolbarFilterButton,
+            imageName: "line.3.horizontal.decrease.circle"
+        )
+        self.configureFloatingToolbarButton(self.floatingToolbarAddButton, imageName: "plus")
+        self.floatingToolbarFilterButton.addTarget(
+            self,
+            action: #selector(onFilterButtonTouchUpInside),
+            for: .touchUpInside
+        )
+        self.floatingToolbarAddButton.addTarget(
+            self,
+            action: #selector(onAddButtonTouchUpInside),
+            for: .touchUpInside
+        )
+
+        let fullWidthConstraint = self.floatingToolbarContainerView.widthAnchor.constraint(
+            equalTo: self.view.safeAreaLayoutGuide.widthAnchor,
+            constant: -self.floatingToolbarHorizontalInset * 2
+        )
+        fullWidthConstraint.priority = .defaultHigh
+
+        NSLayoutConstraint.activate([
+            self.floatingToolbarContainerView.centerXAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.centerXAnchor),
+            self.floatingToolbarContainerView.bottomAnchor.constraint(
+                equalTo: self.view.safeAreaLayoutGuide.bottomAnchor,
+                constant: -self.floatingToolbarBottomOffset
+            ),
+            self.floatingToolbarContainerView.leadingAnchor.constraint(
+                greaterThanOrEqualTo: self.view.safeAreaLayoutGuide.leadingAnchor,
+                constant: self.floatingToolbarHorizontalInset
+            ),
+            self.floatingToolbarContainerView.trailingAnchor.constraint(
+                lessThanOrEqualTo: self.view.safeAreaLayoutGuide.trailingAnchor,
+                constant: -self.floatingToolbarHorizontalInset
+            ),
+            fullWidthConstraint,
+            self.floatingToolbarContainerView.widthAnchor.constraint(lessThanOrEqualToConstant: self.floatingToolbarMaxWidth),
+            self.floatingToolbarContainerView.heightAnchor.constraint(equalToConstant: self.floatingToolbarHeight),
+
+            self.floatingToolbarEffectView.topAnchor.constraint(equalTo: self.floatingToolbarContainerView.topAnchor),
+            self.floatingToolbarEffectView.leadingAnchor.constraint(equalTo: self.floatingToolbarContainerView.leadingAnchor),
+            self.floatingToolbarEffectView.trailingAnchor.constraint(equalTo: self.floatingToolbarContainerView.trailingAnchor),
+            self.floatingToolbarEffectView.bottomAnchor.constraint(equalTo: self.floatingToolbarContainerView.bottomAnchor),
+
+            self.floatingToolbarFilterButton.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor,
+                constant: self.floatingToolbarContentInset
+            ),
+            self.floatingToolbarFilterButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            self.floatingToolbarFilterButton.widthAnchor.constraint(equalToConstant: self.floatingToolbarButtonSize),
+            self.floatingToolbarFilterButton.heightAnchor.constraint(equalToConstant: self.floatingToolbarButtonSize),
+
+            self.floatingToolbarAddButton.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor,
+                constant: -self.floatingToolbarContentInset
+            ),
+            self.floatingToolbarAddButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            self.floatingToolbarAddButton.widthAnchor.constraint(equalToConstant: self.floatingToolbarButtonSize),
+            self.floatingToolbarAddButton.heightAnchor.constraint(equalToConstant: self.floatingToolbarButtonSize),
+
+            self.floatingToolbarUnreadCounterLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            self.floatingToolbarUnreadCounterLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            self.floatingToolbarUnreadCounterLabel.leadingAnchor.constraint(
+                greaterThanOrEqualTo: self.floatingToolbarFilterButton.trailingAnchor,
+                constant: 8
+            ),
+            self.floatingToolbarUnreadCounterLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: self.floatingToolbarAddButton.leadingAnchor,
+                constant: -8
+            )
+        ])
+
+        self.view.bringSubviewToFront(self.floatingToolbarContainerView)
+        self.updateFloatingToolbarFilterButtonState()
+        self.updateUnreadChatsCounter()
+        self.updateTableInsetsForFloatingToolbar()
+    }
+
+    private final func updateUnreadChatsCounter(count: Int? = nil) {
+        let unreadChatsCount: Int
+
+        if let count = count {
+            unreadChatsCount = count
+        } else {
+            do {
+                let realm = try WRealm.safe()
+                unreadChatsCount = realm
+                    .objects(LastChatsStorageItem.self)
+                    .filter(
+                        "isArchived == false AND unread > 0 AND owner IN %@",
+                        Array(self.enabledAccounts.value)
+                    )
+                    .count
+            } catch {
+                DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+                unreadChatsCount = 0
+            }
+        }
+
+        let counterText: String
+        if unreadChatsCount == 0 {
+            counterText = CommonConfigManager.shared.config.app_name
+        } else if unreadChatsCount == 1 {
+            counterText = "1 unread chat"
+        } else {
+            counterText = "\(unreadChatsCount) unread chats"
+        }
+
+        self.floatingToolbarUnreadCounterLabel.text = counterText
+        self.floatingToolbarUnreadCounterLabel.accessibilityLabel = counterText
+        self.updateFloatingToolbarFilterButtonState()
+    }
+
+    private final func updateFloatingToolbarFilterButtonState() {
+        let isUnreadFilterActive = self.filter.value == .unread
+        let imageName = isUnreadFilterActive
+            ? "line.3.horizontal.decrease.circle.fill"
+            : "line.3.horizontal.decrease.circle"
+
+        self.configureFloatingToolbarButton(
+            self.floatingToolbarFilterButton,
+            imageName: imageName
+        )
+        self.floatingToolbarFilterButton.accessibilityValue = isUnreadFilterActive ? "On" : "Off"
+        self.floatingToolbarContainerView.isHidden = !self.shouldShowBottomBar || self.filter.value == .saved
+        self.floatingToolbarEffectView.layer.borderColor = UIColor.separator.withAlphaComponent(0.34).cgColor
+    }
+
+    private final func configureFloatingToolbarButton(
+        _ button: UIButton,
+        imageName: String
+    ) {
+        let image = imageLiteral(imageName, dimension: self.floatingToolbarIconSize)
+
+        button.configuration = nil
+        button.setImage(image, for: .normal)
+        button.tintColor = .black
+        button.backgroundColor = .clear
+        button.layer.cornerRadius = 0
+    }
+
+    private final func updateTableInsetsForFloatingToolbar() {
+        let isToolbarVisible = !self.floatingToolbarContainerView.isHidden
+        let bottomInset = isToolbarVisible
+            ? self.floatingToolbarHeight + self.floatingToolbarBottomOffset + 12
+            : 0
+
+        if self.tableView.contentInset.bottom != bottomInset {
+            self.tableView.contentInset.bottom = bottomInset
+        }
+        if self.tableView.verticalScrollIndicatorInsets.bottom != bottomInset {
+            self.tableView.verticalScrollIndicatorInsets.bottom = bottomInset
+        }
+    }
+
+    private final func subscribeUnreadChatsCounter() {
+        self.unreadCounterBag = DisposeBag()
+
+        do {
+            let realm = try WRealm.safe()
+            let unreadCollection = realm
+                .objects(LastChatsStorageItem.self)
+                .filter(
+                    "isArchived == false AND unread > 0 AND owner IN %@",
+                    Array(self.enabledAccounts.value)
+                )
+
+            Observable
+                .collection(from: unreadCollection)
+                .debounce(.microseconds(50), scheduler: MainScheduler.asyncInstance)
+                .subscribe(onNext: { results in
+                    self.bottomBar.leftButton.isEnabled = results.count > 0
+                    self.updateUnreadChatsCounter(count: results.count)
+                }, onError: { error in
+                    DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+                    self.updateUnreadChatsCounter()
+                })
+                .disposed(by: self.unreadCounterBag)
+
+            self.updateUnreadChatsCounter(count: unreadCollection.count)
+        } catch {
+            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+            self.updateUnreadChatsCounter()
+        }
+    }
     
     
     internal func activateConstraints() {
@@ -1642,8 +1919,10 @@ class LastChatsViewController: BaseViewController {
     internal func configure() {
         self.restorationIdentifier = "LastChatsViewController"
         self.restoresFocusAfterTransition = true
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
         view.addSubview(tableView)
         tableView.fillSuperview()
+        tableView.applyContinuousSplitInsetGroupedAppearance()
         tableView.dataSource = self
         tableView.delegate = self
         tableView.prefetchDataSource = self
@@ -1683,6 +1962,7 @@ class LastChatsViewController: BaseViewController {
         } catch {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
         }
+        self.setupFloatingToolbar()
         self.configurePlayerView()
 //        configureNavbar()
     }
@@ -1755,27 +2035,13 @@ class LastChatsViewController: BaseViewController {
                 self.navigationItem.setLeftBarButton(leftBarButton, animated: true)
                 accountNavButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
             case .split:
-                self.bottomBar.splitViewController = self.splitViewController
-//                self.view.addSubview(bottomBar)
-                self.view.bringSubviewToFront(bottomBar)
-                var inputHeight: CGFloat = 49
-                if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                    inputHeight += bottomInset
-                }
-                
-                let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
-                
+                self.bottomBar.isHidden = true
                 self.playerViewToolbar.update(frame: CGRect(0, 0, self.view.frame.width, 44), isHidden: false)
-                bottomBar.updateFrame(to: frame)
                 self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
                 
                 let sidebarButton = UIBarButtonItem(image: imageLiteral("sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
                 self.navigationItem.setHidesBackButton(true, animated: false)
                 self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
-                bottomBar.leftCallback = self.onLeftBarButtonTapped
-                self.bottomBar.leftButton.setImage(imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
-                self.bottomBar.titleCallback = self.onTitleBarButtonTapped
-                self.bottomBar.isHidden = !shouldShowBottomBar
                 
                 let addBarButton = UIBarButtonItem(
                     image: imageLiteral("plus"),//UIImage(systemName: "plus"),
@@ -1791,6 +2057,9 @@ class LastChatsViewController: BaseViewController {
                 self.navigationItem.setRightBarButtonItems([addBarButton, filterButton!], animated: true)
                 
         }
+        self.updateFloatingToolbarFilterButtonState()
+        self.updateUnreadChatsCounter()
+        self.updateTableInsetsForFloatingToolbar()
         
     }
     
@@ -1847,6 +2116,8 @@ class LastChatsViewController: BaseViewController {
                 self.navigationItem.setLeftBarButton(backButton, animated: false)
         }
         bottomBar.titleButton.setTitle(title, for: .normal)
+        self.updateFloatingToolbarFilterButtonState()
+        self.updateTableInsetsForFloatingToolbar()
     }
         
     
@@ -1889,18 +2160,15 @@ class LastChatsViewController: BaseViewController {
         }
         filterButton?.image = imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
         self.bottomBar.leftButton.setImage(UIImage(systemName: self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+        self.updateFloatingToolbarFilterButtonState()
+        self.updateUnreadChatsCounter()
         self.updateBottomTitle()
     }
     
     override func shouldChangeFrame() {
         super.shouldChangeFrame()
-        var inputHeight: CGFloat = 49
-        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
-        }
-        
-        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
-        bottomBar.updateFrame(to: frame)
+        self.updateTableInsetsForFloatingToolbar()
+        self.view.bringSubviewToFront(self.floatingToolbarContainerView)
     }
     
     
@@ -1947,7 +2215,7 @@ class LastChatsViewController: BaseViewController {
 //            ])
         
     }
-    
+
     override func reloadDatasource() {
         reloadTableViewOrDeferForActiveSwipe()
     }

@@ -26,6 +26,72 @@ import MaterialComponents
 import SignalProtocolObjC
 @testable import xabber
 
+final class ChatFloatingHeaderLayoutPolicyTests: XCTestCase {
+    func testCollectionInsetsReserveNavbarAtTopAndComposerAtBottom() {
+        let insets = ChatFloatingHeaderLayoutPolicy.collectionInsets(
+            composerHeight: 56,
+            navigationVisualHeight: 88,
+            floatingBubblesHeight: 0,
+            contentHeight: 600,
+            viewportHeight: 500
+        )
+
+        XCTAssertEqual(insets.top, 88)
+        XCTAssertEqual(insets.bottom, 64)
+        XCTAssertEqual(insets.left, 0)
+        XCTAssertEqual(insets.right, 0)
+    }
+
+    func testVisibleBubblesAddTopReservationWithOuterSpacing() {
+        let stackHeight = ChatFloatingHeaderLayoutPolicy.visibleStackHeight(
+            visibleBubbleHeights: [52, 56],
+            spacing: 8
+        )
+        let insets = ChatFloatingHeaderLayoutPolicy.collectionInsets(
+            composerHeight: 56,
+            navigationVisualHeight: 88,
+            floatingBubblesHeight: stackHeight,
+            contentHeight: 600,
+            viewportHeight: 500
+        )
+
+        XCTAssertEqual(stackHeight, 116)
+        XCTAssertEqual(insets.top, 220)
+        XCTAssertEqual(insets.bottom, 64)
+    }
+
+    func testNoVisibleBubblesDoNotReserveFloatingSpacing() {
+        let stackHeight = ChatFloatingHeaderLayoutPolicy.visibleStackHeight(
+            visibleBubbleHeights: [],
+            spacing: 8
+        )
+        let insets = ChatFloatingHeaderLayoutPolicy.collectionInsets(
+            composerHeight: 49,
+            navigationVisualHeight: 44,
+            floatingBubblesHeight: stackHeight,
+            contentHeight: 600,
+            viewportHeight: 500
+        )
+
+        XCTAssertEqual(stackHeight, 0)
+        XCTAssertEqual(insets.top, 44)
+        XCTAssertEqual(insets.bottom, 57)
+    }
+
+    func testShortConversationAddsExtraTopInsetToBottomAlignMessages() {
+        let insets = ChatFloatingHeaderLayoutPolicy.collectionInsets(
+            composerHeight: 56,
+            navigationVisualHeight: 88,
+            floatingBubblesHeight: 0,
+            contentHeight: 120,
+            viewportHeight: 500
+        )
+
+        XCTAssertEqual(insets.top, 316)
+        XCTAssertEqual(insets.bottom, 64)
+    }
+}
+
 final class CreateNewEntityBotTests: XCTestCase {
     func testBotDefinitionsExposeExpectedRows() {
         XCTAssertEqual(
@@ -1854,6 +1920,27 @@ final class AccountStreamLifecycleGateTests: XCTestCase {
         }
 
         XCTAssertNotEqual(onlineAttemptID, newAttemptID)
+    }
+
+    func testDisconnectedFrameworkStateClearsBlockedConnectGate() {
+        let gate = AccountStreamLifecycleGate()
+
+        guard case .start(let firstAttemptID) = gate.beginConnect(trigger: .initialLoad) else {
+            XCTFail("Expected initial connect to start")
+            return
+        }
+
+        XCTAssertEqual(gate.beginConnect(trigger: .restore), .skip(phase: .connecting, activeAttemptID: firstAttemptID))
+        XCTAssertEqual(gate.resetIfBlockedByDisconnectedStream(), .connecting)
+        XCTAssertEqual(gate.snapshot().phase, .idle)
+        XCTAssertNil(gate.snapshot().activeAttemptID)
+
+        guard case .start(let restoreAttemptID) = gate.beginConnect(trigger: .restore) else {
+            XCTFail("Expected restore to start after disconnected stream reset")
+            return
+        }
+
+        XCTAssertNotEqual(firstAttemptID, restoreAttemptID)
     }
 
     func testDeviceReregisterForceCreatesFreshAttempt() {
@@ -5443,8 +5530,10 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 isUserScrolling: true,
                 canLoadDatasource: true,
                 gestureTranslationY: 48,
-                boundaryContext: boundaryContext(visibleRealSections: [6, 7, 8, 9]),
-                currentPageMinIndex: 0
+                boundaryContext: boundaryContext(visibleRealSections: [0, 1, 2]),
+                currentPageMinIndex: 100,
+                currentPageMaxIndex: 200,
+                totalCount: 300
             ),
             .older
         )
@@ -5456,8 +5545,10 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 isUserScrolling: true,
                 canLoadDatasource: true,
                 gestureTranslationY: -32,
-                boundaryContext: boundaryContext(visibleRealSections: [0, 1, 2]),
-                currentPageMinIndex: 100
+                boundaryContext: boundaryContext(visibleRealSections: [6, 7, 8, 9]),
+                currentPageMinIndex: 0,
+                currentPageMaxIndex: 100,
+                totalCount: 300
             ),
             .newer
         )
@@ -5470,7 +5561,9 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 canLoadDatasource: true,
                 gestureTranslationY: 44,
                 boundaryContext: boundaryContext(visibleRealSections: [2, 3, 4]),
-                currentPageMinIndex: 0
+                currentPageMinIndex: 100,
+                currentPageMaxIndex: 200,
+                totalCount: 300
             )
         )
     }
@@ -5481,8 +5574,10 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 isUserScrolling: false,
                 canLoadDatasource: true,
                 gestureTranslationY: 44,
-                boundaryContext: boundaryContext(visibleRealSections: [6, 7, 8, 9]),
-                currentPageMinIndex: 0
+                boundaryContext: boundaryContext(visibleRealSections: [0, 1, 2]),
+                currentPageMinIndex: 100,
+                currentPageMaxIndex: 200,
+                totalCount: 300
             )
         )
     }
@@ -5493,25 +5588,29 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 isUserScrolling: true,
                 canLoadDatasource: true,
                 gestureTranslationY: -44,
-                boundaryContext: boundaryContext(visibleRealSections: [6, 7, 8, 9]),
-                currentPageMinIndex: 0
+                boundaryContext: boundaryContext(visibleRealSections: [0, 1, 2]),
+                currentPageMinIndex: 100,
+                currentPageMaxIndex: 300,
+                totalCount: 300
             ),
             .older
         )
     }
 
-    func testOlderPagingTriggersWhenLastVisibleRealMessageReachesBoundaryEvenWithTrailingFakeSection() {
+    func testOlderPagingTriggersWhenFirstVisibleRealMessageReachesBoundaryEvenWithLeadingFakeSection() {
         XCTAssertEqual(
             ChatHistoryPagingPolicy.triggerDirection(
                 isUserScrolling: true,
                 canLoadDatasource: true,
                 gestureTranslationY: 32,
                 boundaryContext: boundaryContext(
-                    firstRealSection: 0,
+                    firstRealSection: 1,
                     lastRealSection: 8,
-                    visibleRealSections: [6, 7, 8]
+                    visibleRealSections: [1, 2, 3]
                 ),
-                currentPageMinIndex: 0
+                currentPageMinIndex: 100,
+                currentPageMaxIndex: 200,
+                totalCount: 300
             ),
             .older
         )
@@ -5528,7 +5627,9 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                     lastRealSection: 8,
                     visibleRealSections: []
                 ),
-                currentPageMinIndex: 0
+                currentPageMinIndex: 100,
+                currentPageMaxIndex: 200,
+                totalCount: 300
             )
         )
     }
@@ -5541,7 +5642,7 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 from: ChatDatasetWindow(minIndex: 0, maxIndex: 50),
                 direction: .older
             ),
-            ChatDatasetWindow(minIndex: 0, maxIndex: 150)
+            ChatDatasetWindow(minIndex: -100, maxIndex: 50)
         )
     }
 
@@ -5550,7 +5651,7 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
             ChatHistoryPagingPolicy.loadDecision(
                 direction: .older,
                 currentWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 50),
-                requestedWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 150),
+                requestedWindow: ChatDatasetWindow(minIndex: -100, maxIndex: 50),
                 localWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 50),
                 totalCount: 50,
                 isArchiveEnded: false
@@ -5564,7 +5665,7 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
             ChatHistoryPagingPolicy.loadDecision(
                 direction: .older,
                 currentWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 50),
-                requestedWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 150),
+                requestedWindow: ChatDatasetWindow(minIndex: -100, maxIndex: 50),
                 localWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 50),
                 totalCount: 50,
                 isArchiveEnded: true
@@ -5577,13 +5678,13 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
         XCTAssertEqual(
             ChatHistoryPagingPolicy.loadDecision(
                 direction: .older,
-                currentWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 100),
-                requestedWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 200),
+                currentWindow: ChatDatasetWindow(minIndex: 100, maxIndex: 150),
+                requestedWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 150),
                 localWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 150),
                 totalCount: 150,
                 isArchiveEnded: false
             ),
-            .remoteOlderPage
+            .localOnly
         )
     }
 
@@ -5591,8 +5692,8 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
         XCTAssertEqual(
             ChatHistoryPagingPolicy.loadDecision(
                 direction: .older,
-                currentWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 100),
-                requestedWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 200),
+                currentWindow: ChatDatasetWindow(minIndex: 20, maxIndex: 120),
+                requestedWindow: ChatDatasetWindow(minIndex: -80, maxIndex: 120),
                 localWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 120),
                 totalCount: 120,
                 isArchiveEnded: false
@@ -5609,25 +5710,29 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 boundaryContext: boundaryContext(
                     firstRealSection: 0,
                     lastRealSection: 6,
-                    visibleRealSections: [4, 5, 6]
+                    visibleRealSections: [0, 1, 2]
                 ),
-                currentPageMinIndex: 0
+                currentPageMinIndex: 100,
+                currentPageMaxIndex: 200,
+                totalCount: 300
             ),
             .older
         )
     }
 
-    func testShortContentDragFallbackUsesLastVisibleRealMessageWhenDatasourceEndsWithFakeSection() {
+    func testShortContentDragFallbackUsesFirstVisibleRealMessageWhenDatasourceStartsWithFakeSection() {
         XCTAssertEqual(
             ChatHistoryPagingPolicy.fallbackDirectionForShortContentDrag(
                 canLoadDatasource: true,
                 gestureTranslationY: 52,
                 boundaryContext: boundaryContext(
-                    firstRealSection: 0,
+                    firstRealSection: 1,
                     lastRealSection: 5,
-                    visibleRealSections: [4, 5]
+                    visibleRealSections: [1, 2]
                 ),
-                currentPageMinIndex: 0
+                currentPageMinIndex: 100,
+                currentPageMaxIndex: 200,
+                totalCount: 300
             ),
             .older
         )
@@ -5641,9 +5746,11 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 boundaryContext: boundaryContext(
                     firstRealSection: 0,
                     lastRealSection: 6,
-                    visibleRealSections: [4, 5, 6]
+                    visibleRealSections: [0, 1, 2]
                 ),
-                currentPageMinIndex: 0
+                currentPageMinIndex: 100,
+                currentPageMaxIndex: 300,
+                totalCount: 300
             ),
             .older
         )
@@ -5703,20 +5810,20 @@ final class ChatArchiveEndVerificationPolicyTests: XCTestCase {
 
 final class ChatHistoryCursorSelectionPolicyTests: XCTestCase {
 
-    func testOldestCursorUsesLastObservedArchivedIdWhenTailMessagesHaveArchiveIds() {
+    func testOldestCursorUsesFirstObservedArchivedIdWhenHeadMessagesHaveArchiveIds() {
         XCTAssertEqual(
             ChatHistoryCursorSelectionPolicy.oldestCursorId(
-                observedArchivedIds: ["newest-1", "middle-1", "oldest-1"],
+                observedArchivedIds: ["oldest-1", "middle-1", "newest-1"],
                 persistedCursorId: "persisted-oldest"
             ),
             "oldest-1"
         )
     }
 
-    func testOldestCursorSkipsTailMessagesWithoutArchiveIds() {
+    func testOldestCursorSkipsHeadMessagesWithoutArchiveIds() {
         XCTAssertEqual(
             ChatHistoryCursorSelectionPolicy.oldestCursorId(
-                observedArchivedIds: ["newest-1", "oldest-with-archive", "", ""],
+                observedArchivedIds: ["", "", "oldest-with-archive", "newest-1"],
                 persistedCursorId: "persisted-oldest"
             ),
             "oldest-with-archive"
@@ -5755,15 +5862,15 @@ final class ChatObserverLookupPolicyTests: XCTestCase {
     func testObserverLookupBuildCapturesOldestArchivedIdDuringSinglePass() {
         let lookup = ChatObserverLookupPolicy.build(
             from: [
-                makeMessage(primary: "primary-1", archivedId: "archived-3"),
+                makeMessage(primary: "primary-1", archivedId: "archived-1"),
                 makeMessage(primary: "primary-2", archivedId: ""),
                 makeMessage(primary: "primary-3", archivedId: "archived-2"),
-                makeMessage(primary: "primary-4", archivedId: "archived-1")
+                makeMessage(primary: "primary-4", archivedId: "archived-3")
             ]
         )
 
         XCTAssertEqual(lookup.primaryIndex["primary-2"], 1)
-        XCTAssertEqual(lookup.archivedIdIndex["archived-1"], 3)
+        XCTAssertEqual(lookup.archivedIdIndex["archived-1"], 0)
         XCTAssertEqual(lookup.oldestArchivedId, "archived-1")
     }
 }
@@ -5877,8 +5984,8 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             archivedId: "archived-42"
         )
 
-        XCTAssertEqual(plan.newerPageSize, 45)
-        XCTAssertEqual(plan.olderPageSize, 36)
+        XCTAssertEqual(plan.newerPageSize, 36)
+        XCTAssertEqual(plan.olderPageSize, 45)
         XCTAssertTrue(plan.requiresRemoteFetch)
     }
 
@@ -6460,12 +6567,12 @@ final class ChatHistoryPageCompletionPolicyTests: XCTestCase {
 
 final class ChatHistoryPageApplyPolicyTests: XCTestCase {
 
-    func testOlderPagingDoesNotKeepOffsetInInvertedTimeline() {
-        XCTAssertFalse(ChatHistoryPageApplyPolicy.keepOffset(direction: .older))
+    func testOlderPagingKeepsOffsetForPrependedNaturalTimelineMessages() {
+        XCTAssertTrue(ChatHistoryPageApplyPolicy.keepOffset(direction: .older))
     }
 
-    func testNewerPagingKeepsOffsetInInvertedTimeline() {
-        XCTAssertTrue(ChatHistoryPageApplyPolicy.keepOffset(direction: .newer))
+    func testNewerPagingDoesNotKeepOffsetForBottomAppends() {
+        XCTAssertFalse(ChatHistoryPageApplyPolicy.keepOffset(direction: .newer))
     }
 }
 
@@ -10579,7 +10686,7 @@ final class ChatUnreadMentionsTests: XCTestCase {
         )
 
         XCTAssertEqual(state.currentTarget?.notificationPrimary, "n2")
-        XCTAssertEqual(state.jumpTarget?.notificationPrimary, "n3")
+        XCTAssertEqual(state.jumpTarget?.notificationPrimary, "n1")
     }
 
     func testUnreadMentionNavigationPolicyDoesNotWrapAfterLastVisibleTarget() {
@@ -10589,11 +10696,11 @@ final class ChatUnreadMentionsTests: XCTestCase {
                 ChatUnreadMentionItem(notificationPrimary: "n2", messagePrimary: "m2", archivedId: "a2", messageId: "mid-2", chatPrimary: "chat-1", authorId: "other", date: Date(timeIntervalSince1970: 20), targetMemberId: currentMemberId, groupchatJid: groupchatJid)
             ],
             observerPrimaryIndexMap: ["m1": 0, "m2": 1],
-            visiblePrimaries: ["m2"]
+            visiblePrimaries: ["m1"]
         )
 
-        XCTAssertEqual(state.currentTarget?.notificationPrimary, "n2")
-        XCTAssertEqual(state.jumpTarget?.notificationPrimary, "n2")
+        XCTAssertEqual(state.currentTarget?.notificationPrimary, "n1")
+        XCTAssertEqual(state.jumpTarget?.notificationPrimary, "n1")
     }
 
     func testUnreadMentionNavigatorViewUsesCompactIndicatorWithoutArrowButtons() {

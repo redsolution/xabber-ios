@@ -122,7 +122,6 @@
 //        messagesCollectionView.messageCellDelegate = self
 ////        messagesCollectionView.messagesDisplayDelegate = self
 //        messagesCollectionView.messagesLayoutDelegate = self
-//        messagesCollectionView.transform = CGAffineTransform(scaleX: 1, y: -1)
 //        messagesCollectionView.scrollsToTop = false
 //        scrollsToBottomOnKeybordBeginsEditing = false
 //        maintainPositionOnKeyboardFrameChanged = true

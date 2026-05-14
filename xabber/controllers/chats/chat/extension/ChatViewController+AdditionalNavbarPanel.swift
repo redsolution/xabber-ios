@@ -11,172 +11,178 @@ import UIKit
 import CocoaLumberjack
 
 extension ChatViewController {
+    private func makeFloatingPanel(
+        icon: UIImage?,
+        tintColor: UIColor,
+        contentViews: [UIView],
+        showsCloseButton: Bool = true
+    ) -> ChatFloatingActionPanelView {
+        let panel = ChatFloatingActionPanelView(
+            icon: icon,
+            tintColor: tintColor,
+            showsCloseButton: showsCloseButton
+        )
+        panel.addCloseTarget(self, action: #selector(additionalNavBarPanelCancelButtonTouchUpInside(_:)))
+        panel.setContentViews(contentViews)
+        return panel
+    }
+
+    private func makeFloatingPanelButton(
+        title: String,
+        color: UIColor = .tintColor,
+        action: Selector
+    ) -> UIButton {
+        let button = UIButton(type: .system)
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = title
+        configuration.baseForegroundColor = color
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4)
+        button.configuration = configuration
+        button.titleLabel?.lineBreakMode = .byTruncatingTail
+        button.addTarget(self, action: action, for: .touchUpInside)
+        return button
+    }
+
     internal func applyPinMessagePanel() {
-        (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
-            barVc.indicatorIcon.setImage(UIImage(systemName: "pin.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            barVc.indicatorIcon.tintColor = .tintColor
-        })
+        let label = UILabel()
+        label.text = "Pinned message".localizeString(id: "group_chat__pinned_message", arguments: [])
+        label.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        label.textColor = .label
+        label.lineBreakMode = .byTruncatingTail
+        let panel = makeFloatingPanel(
+            icon: UIImage(systemName: "pin.fill"),
+            tintColor: .tintColor,
+            contentViews: [label]
+        )
+        showTopPanelBubble(with: panel)
     }
     
     internal func applyAudioPlayerPanel() {
-        (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
-            let panel = SharedPlayerView(frame: CGRect(origin: .zero, size: barVc.view.frame.size))
-            panel.configure(title: AudioManager.shared.currentPlayingTitle, subtitle: AudioManager.shared.currentPlayingSubtitle)
-            stack.addArrangedSubview(panel)
-        })
+        configureSharedAudioPanel()
     }
     
     internal func applyAddContactPanel() {
-        (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
-            barVc.indicatorIcon.setImage(UIImage(systemName: "person.fill.badge.plus")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            barVc.indicatorIcon.tintColor = .tintColor
-            let addButton = UIButton()
-            var addConfiguration = UIButton.Configuration.plain()
-            addConfiguration.title = "Add Contact".localizeString(id: "add_contact", arguments: [])
-            addConfiguration.baseForegroundColor = .tintColor
-            addButton.configuration = addConfiguration
-            
-            addButton.addTarget(self, action: #selector(self.onAddContact), for: .touchUpInside)
-            
-            let blockButton = UIButton()
-            var blockConfiguration = UIButton.Configuration.plain()
-            blockConfiguration.title = "Block".localizeString(id: "contact_bar_block", arguments: [])
-            blockConfiguration.baseForegroundColor = .systemRed
-            blockButton.configuration = blockConfiguration
-            
-            blockButton.addTarget(self, action: #selector(self.onBlockContact), for: .touchUpInside)
-            
-            stack.addArrangedSubview(addButton)
-            stack.addArrangedSubview(blockButton)
-        })
+        let addButton = makeFloatingPanelButton(
+            title: "Add Contact".localizeString(id: "add_contact", arguments: []),
+            action: #selector(self.onAddContact)
+        )
+        let blockButton = makeFloatingPanelButton(
+            title: "Block".localizeString(id: "contact_bar_block", arguments: []),
+            color: .systemRed,
+            action: #selector(self.onBlockContact)
+        )
+        let panel = makeFloatingPanel(
+            icon: UIImage(systemName: "person.fill.badge.plus"),
+            tintColor: .tintColor,
+            contentViews: [addButton, blockButton]
+        )
+        showTopPanelBubble(with: panel)
     }
     
     internal func applyRequestSubscribtionPanel() {
-        (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
-            barVc.indicatorIcon.setImage(UIImage(systemName: "person.wave.2.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            barVc.indicatorIcon.tintColor = .tintColor
-            let button = UIButton()
-            var configuration = UIButton.Configuration.plain()
-            configuration.title = "Request subscription".localizeString(id: "request_subscription", arguments: [])
-            configuration.baseForegroundColor = .tintColor
-            button.configuration = configuration
-            
-            button.addTarget(self, action: #selector(onRequestSubscribtion), for: .touchUpInside)
-            
-            stack.addArrangedSubview(button)
-        })
+        let button = makeFloatingPanelButton(
+            title: "Request subscription".localizeString(id: "request_subscription", arguments: []),
+            action: #selector(onRequestSubscribtion)
+        )
+        let panel = makeFloatingPanel(
+            icon: UIImage(systemName: "person.wave.2.fill"),
+            tintColor: .tintColor,
+            contentViews: [button]
+        )
+        showTopPanelBubble(with: panel)
     }
     
     internal func applyAllowSubscribtion() {
-        (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
-            barVc.indicatorIcon.setImage(UIImage(systemName: "person.wave.2.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            barVc.indicatorIcon.tintColor = .tintColor
-            let button = UIButton()
-            var configuration = UIButton.Configuration.plain()
-            configuration.title = "Incoming subscription request".localizeString(id: "incoming_subscription_request", arguments: [])
-            configuration.baseForegroundColor = .tintColor
-            button.configuration = configuration
-            
-            button.addTarget(self, action: #selector(onAllowSubscribtion), for: .touchUpInside)
-            
-            stack.addArrangedSubview(button)
-        })
+        let button = makeFloatingPanelButton(
+            title: "Incoming subscription request".localizeString(id: "incoming_subscription_request", arguments: []),
+            action: #selector(onAllowSubscribtion)
+        )
+        let panel = makeFloatingPanel(
+            icon: UIImage(systemName: "person.wave.2.fill"),
+            tintColor: .tintColor,
+            contentViews: [button]
+        )
+        showTopPanelBubble(with: panel)
     }
     
     internal func applyEnterCodePanel() {
-        (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
-            barVc.indicatorIcon.setImage(UIImage(systemName: "entry.lever.keypad.trianglebadge.exclamationmark.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            barVc.indicatorIcon.tintColor = .systemOrange
-            let button = UIButton()
-            var configuration = UIButton.Configuration.plain()
-            configuration.title = "Enter verification code"
-            configuration.baseForegroundColor = .tintColor
-            button.configuration = configuration
-            
-            stack.addArrangedSubview(button)
-            
-            button.addTarget(self, action: #selector(onEnterCodeVerification), for: .touchUpInside)
-        })
+        let button = makeFloatingPanelButton(
+            title: "Enter verification code",
+            action: #selector(onEnterCodeVerification)
+        )
+        let panel = makeFloatingPanel(
+            icon: UIImage(systemName: "entry.lever.keypad.trianglebadge.exclamationmark.fill"),
+            tintColor: .systemOrange,
+            contentViews: [button]
+        )
+        showTopPanelBubble(with: panel)
     }
     
     internal func applyRequestedVerificationPanel() {
-        (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
-            barVc.indicatorIcon.setImage(UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            barVc.indicatorIcon.tintColor = .systemOrange
-            let button = UIButton()
-            var configuration = UIButton.Configuration.plain()
-            configuration.title = "Outgoing verification request"
-            configuration.baseForegroundColor = .tintColor
-            button.configuration = configuration
-            
-            stack.addArrangedSubview(button)
-            
-            button.addTarget(self, action: #selector(onRequestedVerification), for: .touchUpInside)
-        })
+        let button = makeFloatingPanelButton(
+            title: "Outgoing verification request",
+            action: #selector(onRequestedVerification)
+        )
+        let panel = makeFloatingPanel(
+            icon: UIImage(systemName: "exclamationmark.triangle.fill"),
+            tintColor: .systemOrange,
+            contentViews: [button]
+        )
+        showTopPanelBubble(with: panel)
     }
     
     internal func applyRequestingVerificationPanel() {
-        (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
-            barVc.indicatorIcon.setImage(UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            barVc.indicatorIcon.tintColor = .systemOrange
-            let button = UIButton()
-            var configuration = UIButton.Configuration.plain()
-            configuration.title = "Accept verification request"
-            configuration.baseForegroundColor = .tintColor
-            button.configuration = configuration
-            
-            stack.addArrangedSubview(button)
-            
-            button.addTarget(self, action: #selector(onRequestingVerification), for: .touchUpInside)
-            
-            do {
-                let realm = try WRealm.safe()
-                guard let deviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId() else {
-                    return
-                }
-                let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: deviceId))
-                
-                // if the device doesnt have published bundle, it cant accept the verification request
-                if instance == nil {
-                    button.isEnabled = false
-                }
-                
-            } catch {
-                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        let button = makeFloatingPanelButton(
+            title: "Accept verification request",
+            action: #selector(onRequestingVerification)
+        )
+        do {
+            let realm = try WRealm.safe()
+            guard let deviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId() else {
+                return
             }
-        })
+            let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: deviceId))
+            
+            // if the device doesnt have published bundle, it cant accept the verification request
+            if instance == nil {
+                button.isEnabled = false
+            }
+
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+        let panel = makeFloatingPanel(
+            icon: UIImage(systemName: "exclamationmark.triangle.fill"),
+            tintColor: .systemOrange,
+            contentViews: [button]
+        )
+        showTopPanelBubble(with: panel)
     }
     
     internal func applyShouldRequestVerificationPanel(){
-        (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
-            barVc.indicatorIcon.setImage(UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            barVc.indicatorIcon.tintColor = .systemOrange
-            let button = UIButton()
-            var configuration = UIButton.Configuration.plain()
-            configuration.title = "Verify contact"
-            configuration.baseForegroundColor = .tintColor
-            button.configuration = configuration
-            
-            stack.addArrangedSubview(button)
-            
-            button.addTarget(self, action: #selector(onShouldRequestVerification), for: .touchUpInside)
-        })
+        let button = makeFloatingPanelButton(
+            title: "Verify contact",
+            action: #selector(onShouldRequestVerification)
+        )
+        let panel = makeFloatingPanel(
+            icon: UIImage(systemName: "exclamationmark.triangle.fill"),
+            tintColor: .systemOrange,
+            contentViews: [button]
+        )
+        showTopPanelBubble(with: panel)
     }
     
     internal func applyAcceptedVerification() {
-        (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
-//            barVc.indicatorIcon.setImage(UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
-//            barVc.indicatorIcon.tintColor = .systemOrange
-            let button = UIButton()
-            var configuration = UIButton.Configuration.plain()
-            configuration.title = "Show verification code"
-            configuration.baseForegroundColor = .tintColor
-            button.configuration = configuration
-            
-            stack.addArrangedSubview(button)
-            
-            button.addTarget(self, action: #selector(onAcceptedVerification), for: .touchUpInside)
-        })
+        let button = makeFloatingPanelButton(
+            title: "Show verification code",
+            action: #selector(onAcceptedVerification)
+        )
+        let panel = makeFloatingPanel(
+            icon: UIImage(systemName: "checkmark.shield.fill"),
+            tintColor: .systemGreen,
+            contentViews: [button]
+        )
+        showTopPanelBubble(with: panel)
     }
     
     @objc
@@ -205,6 +211,6 @@ extension ChatViewController {
             case .audioPlayer:
                 break
         }
-        (self.navigationController as? NavBarController)?.hideAdditionalPanel(animated: true)
+        hideTopPanelBubble(animated: true)
     }
 }

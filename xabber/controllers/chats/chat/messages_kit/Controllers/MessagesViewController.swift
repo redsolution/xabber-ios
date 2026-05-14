@@ -186,32 +186,22 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
             case.attributedText, .emoji:
                 let cell = messagesCollectionView.dequeueReusableCell(TextMessageCell.self, for: indexPath)
                 cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-                cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
                 return cell
             case .system(_), .date, .unread, .call(_):
                 let cell = messagesCollectionView.dequeueReusableCell(SystemMessageCell.self, for: indexPath)
                 cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-                cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
                 return cell
-//            case .call(_):
-//                let cell = messagesCollectionView.dequeueReusableCell(VoIPCallMessageCell.self, for: indexPath)
-//                cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-//                cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
-//                return cell
             case .sticker(_):
                 let cell = messagesCollectionView.dequeueReusableCell(StickerMessageCell.self, for: indexPath)
                 cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-                cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
                 return cell
             case .initial(_):
                 let cell = messagesCollectionView.dequeueReusableCell(InitialMessageCell.self, for: indexPath)
                 cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-                cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
                 return cell
             case .skeleton(_):
                 let cell = messagesCollectionView.dequeueReusableCell(SkeletonMessageCell.self, for: indexPath)
                 cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-                cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
                 return cell
         }
     }

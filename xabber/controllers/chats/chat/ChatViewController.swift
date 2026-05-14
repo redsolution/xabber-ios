@@ -61,6 +61,293 @@ struct ChatOpenMessageRequest: Equatable {
     let source: ChatOpenMessageRequestSource
 }
 
+private extension CGRect {
+    func isApproximatelyEqual(to other: CGRect, tolerance: CGFloat = 0.5) -> Bool {
+        abs(origin.x - other.origin.x) <= tolerance
+            && abs(origin.y - other.origin.y) <= tolerance
+            && abs(size.width - other.size.width) <= tolerance
+            && abs(size.height - other.size.height) <= tolerance
+    }
+}
+
+private extension UIEdgeInsets {
+    func isApproximatelyEqual(to other: UIEdgeInsets, tolerance: CGFloat = 0.5) -> Bool {
+        abs(top - other.top) <= tolerance
+            && abs(left - other.left) <= tolerance
+            && abs(bottom - other.bottom) <= tolerance
+            && abs(right - other.right) <= tolerance
+    }
+}
+
+struct ChatFloatingHeaderLayoutPolicy {
+    static let composerMessageSpacing: CGFloat = 8
+    static let floatingStackTopSpacing: CGFloat = 8
+    static let floatingStackBottomSpacing: CGFloat = 8
+
+    static func visibleStackHeight(visibleBubbleHeights: [CGFloat], spacing: CGFloat) -> CGFloat {
+        guard !visibleBubbleHeights.isEmpty else {
+            return 0
+        }
+        return visibleBubbleHeights.reduce(0, +) + CGFloat(visibleBubbleHeights.count - 1) * spacing
+    }
+
+    static func collectionInsets(
+        composerHeight: CGFloat,
+        navigationVisualHeight: CGFloat,
+        floatingBubblesHeight: CGFloat,
+        contentHeight: CGFloat = 0,
+        viewportHeight: CGFloat = 0
+    ) -> UIEdgeInsets {
+        let floatingReservedHeight = floatingBubblesHeight > 0
+            ? floatingStackTopSpacing + floatingBubblesHeight + floatingStackBottomSpacing
+            : 0
+        let baseInsets = UIEdgeInsets(
+            top: navigationVisualHeight + floatingReservedHeight,
+            left: 0,
+            bottom: composerHeight + composerMessageSpacing,
+            right: 0
+        )
+        let extraTopInset = bottomAlignmentExtraTopInset(
+            contentHeight: contentHeight,
+            viewportHeight: viewportHeight,
+            baseInsets: baseInsets
+        )
+        return UIEdgeInsets(
+            top: baseInsets.top + extraTopInset,
+            left: 0,
+            bottom: baseInsets.bottom,
+            right: 0
+        )
+    }
+
+    static func scrollIndicatorInsets(
+        composerHeight: CGFloat,
+        navigationVisualHeight: CGFloat,
+        floatingBubblesHeight: CGFloat
+    ) -> UIEdgeInsets {
+        let floatingReservedHeight = floatingBubblesHeight > 0
+            ? floatingStackTopSpacing + floatingBubblesHeight + floatingStackBottomSpacing
+            : 0
+        return UIEdgeInsets(
+            top: navigationVisualHeight + floatingReservedHeight,
+            left: 0,
+            bottom: composerHeight + composerMessageSpacing,
+            right: 0
+        )
+    }
+
+    static func bottomAlignmentExtraTopInset(
+        contentHeight: CGFloat,
+        viewportHeight: CGFloat,
+        baseInsets: UIEdgeInsets
+    ) -> CGFloat {
+        guard viewportHeight > 0 else {
+            return 0
+        }
+        let availableHeight = viewportHeight - baseInsets.top - baseInsets.bottom
+        guard availableHeight > 0 else {
+            return 0
+        }
+        return max(0, availableHeight - contentHeight)
+    }
+}
+
+final class ChatFloatingGlassBubbleView: UIView {
+    private enum Metrics {
+        static let cornerRadius: CGFloat = 20
+        static let horizontalPadding: CGFloat = 10
+        static let verticalPadding: CGFloat = 6
+        static let borderWidth: CGFloat = 1 / UIScreen.main.scale
+    }
+
+    private let blurView: UIVisualEffectView = {
+        let view = UIVisualEffectView(effect: ChatFloatingGlassBubbleView.makeGlassEffect())
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private var hostedView: UIView?
+    private var heightConstraint: NSLayoutConstraint?
+    private var contentHeight: CGFloat
+
+    init(contentHeight: CGFloat) {
+        self.contentHeight = contentHeight
+        super.init(frame: .zero)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        self.contentHeight = 44
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        translatesAutoresizingMaskIntoConstraints = false
+        backgroundColor = .clear
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.12
+        layer.shadowRadius = 16
+        layer.shadowOffset = CGSize(width: 0, height: 8)
+
+        blurView.clipsToBounds = true
+        blurView.layer.cornerRadius = Metrics.cornerRadius
+        blurView.layer.borderWidth = Metrics.borderWidth
+        blurView.layer.borderColor = UIColor.label.withAlphaComponent(0.12).cgColor
+        if #available(iOS 13.0, *) {
+            blurView.layer.cornerCurve = .continuous
+        }
+
+        addSubview(blurView)
+        NSLayoutConstraint.activate([
+            blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            blurView.topAnchor.constraint(equalTo: topAnchor),
+            blurView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+
+        heightConstraint = heightAnchor.constraint(equalToConstant: contentHeight + Metrics.verticalPadding * 2)
+        heightConstraint?.isActive = true
+        isHidden = true
+    }
+
+    private static func makeGlassEffect() -> UIVisualEffect {
+        if #available(iOS 26.0, *) {
+            let effect = UIGlassEffect(style: .regular)
+            effect.tintColor = UIColor.systemBackground.withAlphaComponent(0.16)
+            effect.isInteractive = false
+            return effect
+        }
+        return UIBlurEffect(style: .systemThinMaterial)
+    }
+
+    func setHostedView(_ view: UIView?, contentHeight: CGFloat) {
+        let newHeight = contentHeight + Metrics.verticalPadding * 2
+        if hostedView === view {
+            self.contentHeight = contentHeight
+            if abs((heightConstraint?.constant ?? newHeight) - newHeight) > 0.5 {
+                heightConstraint?.constant = newHeight
+                setNeedsLayout()
+            }
+            return
+        }
+
+        hostedView?.removeFromSuperview()
+        hostedView = view
+        self.contentHeight = contentHeight
+        heightConstraint?.constant = newHeight
+
+        guard let view else {
+            return
+        }
+        view.translatesAutoresizingMaskIntoConstraints = true
+        view.autoresizingMask = []
+        blurView.contentView.addSubview(view)
+        setNeedsLayout()
+    }
+
+    func measuredHeight() -> CGFloat {
+        heightConstraint?.constant ?? (contentHeight + Metrics.verticalPadding * 2)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: Metrics.cornerRadius).cgPath
+
+        let contentFrame = blurView.contentView.bounds.insetBy(
+            dx: Metrics.horizontalPadding,
+            dy: Metrics.verticalPadding
+        )
+        hostedView?.frame = contentFrame
+
+        if let messagePanel = hostedView as? ModernXabberInputView.MessagesPanel {
+            messagePanel.update()
+        } else if let playerView = hostedView as? SharedPlayerView {
+            playerView.update(frame: contentFrame, isHidden: false)
+            playerView.blurredEffectView.isHidden = true
+            playerView.separatorLine.isHidden = true
+        }
+    }
+}
+
+final class ChatFloatingActionPanelView: UIView {
+    private let iconView: UIImageView = {
+        let imageView = UIImageView(frame: .zero)
+        imageView.contentMode = .scaleAspectFit
+        imageView.tintColor = .tintColor
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
+    }()
+
+    private let contentStack: UIStackView = {
+        let stack = UIStackView(frame: .zero)
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.distribution = .fill
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
+    private let closeButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "xmark"), for: .normal)
+        button.tintColor = .secondaryLabel
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
+
+    init(icon: UIImage?, tintColor: UIColor, showsCloseButton: Bool = true) {
+        super.init(frame: .zero)
+        setup(icon: icon, tintColor: tintColor, showsCloseButton: showsCloseButton)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup(icon: nil, tintColor: .tintColor, showsCloseButton: true)
+    }
+
+    private func setup(icon: UIImage?, tintColor: UIColor, showsCloseButton: Bool) {
+        backgroundColor = .clear
+        iconView.image = icon?.withRenderingMode(.alwaysTemplate)
+        iconView.tintColor = tintColor
+
+        addSubview(iconView)
+        addSubview(contentStack)
+        addSubview(closeButton)
+
+        closeButton.isHidden = !showsCloseButton
+
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 40),
+
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 28),
+            iconView.heightAnchor.constraint(equalToConstant: 28),
+
+            contentStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+            contentStack.topAnchor.constraint(equalTo: topAnchor),
+            contentStack.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            closeButton.leadingAnchor.constraint(equalTo: contentStack.trailingAnchor, constant: 8),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 32),
+            closeButton.heightAnchor.constraint(equalToConstant: 32)
+        ])
+    }
+
+    func addCloseTarget(_ target: Any?, action: Selector) {
+        closeButton.addTarget(target, action: action, for: .touchUpInside)
+    }
+
+    func setContentViews(_ views: [UIView]) {
+        contentStack.removeAllArrangedSubviews()
+        views.forEach { contentStack.addArrangedSubview($0) }
+    }
+}
+
 class ChatViewController: MessagesViewController {
     struct ObserverLookupSignature: Equatable {
         let count: Int
@@ -938,6 +1225,22 @@ class ChatViewController: MessagesViewController {
     
     open var lastChatsDisplayDelegate: LastChatsDisplayDelegate? = nil
     var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
+
+    internal let floatingBubblesStackView: UIStackView = {
+        let stack = UIStackView(frame: .zero)
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.distribution = .fill
+        stack.spacing = ChatFloatingHeaderLayoutPolicy.floatingStackTopSpacing
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.isHidden = true
+        return stack
+    }()
+
+    internal let topPanelBubbleView = ChatFloatingGlassBubbleView(contentHeight: 40)
+    internal let messagePanelBubbleView = ChatFloatingGlassBubbleView(contentHeight: 40)
+    internal let sharedAudioPlayerBubbleView = ChatFloatingGlassBubbleView(contentHeight: 44)
+    internal var floatingBubblesHeight: CGFloat = 0
     
     internal let sharedAudioPlayerPanel: SharedPlayerView? = {
         if UIDevice.current.userInterfaceIdiom == .pad {
@@ -997,7 +1300,7 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func floatingControlsInputHeight() -> CGFloat {
-        var inputHeight: CGFloat = 49
+        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
@@ -1137,17 +1440,29 @@ class ChatViewController: MessagesViewController {
         }
     }
 
-    internal func isShowingNewestMessage(tolerance: CGFloat = 24) -> Bool {
+    internal func isNearBottom(threshold: CGFloat = 80) -> Bool {
         let collectionView = self.messagesCollectionView
         let adjustedInsets = collectionView.adjustedContentInset
         let visibleHeight = collectionView.bounds.height - adjustedInsets.top - adjustedInsets.bottom
 
-        if collectionView.contentSize.height <= visibleHeight + tolerance {
+        if collectionView.contentSize.height <= visibleHeight + threshold {
             return true
         }
 
-        let newestOffsetY = -adjustedInsets.top
-        return collectionView.contentOffset.y <= newestOffsetY + tolerance
+        let offsetY = collectionView.contentOffset.y + adjustedInsets.top
+        return offsetY + visibleHeight >= collectionView.contentSize.height - threshold
+    }
+
+    internal func scrollToBottom(animated: Bool) {
+        guard self.datasource.isNotEmpty else {
+            return
+        }
+        let lastSection = self.datasource.count - 1
+        self.messagesCollectionView.scrollToItem(
+            at: IndexPath(item: 0, section: lastSection),
+            at: .bottom,
+            animated: animated
+        )
     }
         
     @objc
@@ -1497,47 +1812,28 @@ class ChatViewController: MessagesViewController {
     internal var currentPlayingUrl: URL? = nil
     
     internal func showSharedAudioPanel() {
-        var navbarHeight: CGFloat = 50
-        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-            navbarHeight += topInset
+        guard let sharedAudioPlayerPanel else {
+            return
         }
-        if UIDevice.current.userInterfaceIdiom == .pad && CommonConfigManager.shared.config.interface_type == "tabs" {
-            navbarHeight += 55
+        let wasHidden = sharedAudioPlayerBubbleView.isHidden
+        sharedAudioPlayerBubbleView.setHostedView(sharedAudioPlayerPanel, contentHeight: 44)
+        sharedAudioPlayerBubbleView.isHidden = false
+        guard wasHidden else {
+            return
         }
         UIView.animate(withDuration: 0.1) {
-            self.sharedAudioPlayerPanel?.update(frame: CGRect(
-                origin: CGPoint(
-                    x: 0,
-                    y: navbarHeight
-                ),
-                size: CGSize(
-                    width: self.view.frame.width,
-                    height: 44
-                )
-            ), isHidden: false)
+            self.updateFloatingBubblesVisibility(animated: false)
         }
         
     }
     
     internal func hideSharedAudioPanel() {
-        var navbarHeight: CGFloat = 50
-        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-            navbarHeight += topInset
+        guard sharedAudioPlayerPanel != nil, !sharedAudioPlayerBubbleView.isHidden else {
+            return
         }
-        if UIDevice.current.userInterfaceIdiom == .pad && CommonConfigManager.shared.config.interface_type == "tabs" {
-            navbarHeight += 55
-        }
+        sharedAudioPlayerBubbleView.isHidden = true
         UIView.animate(withDuration: 0.1) {
-            self.sharedAudioPlayerPanel?.update(frame: CGRect(
-                origin: CGPoint(
-                    x: 0,
-                    y: navbarHeight
-                ),
-                size: CGSize(
-                    width: self.view.frame.width,
-                    height: 0
-                )
-            ), isHidden: true)
+            self.updateFloatingBubblesVisibility(animated: false)
         }
         
     }
@@ -1558,6 +1854,7 @@ class ChatViewController: MessagesViewController {
         updateUnreadMentionsNavigatorFrame(animated: false)
         updateScrollDownButtonFrame(animated: false)
         updateInitialMessageOverlayFrame()
+        updateFloatingBubblesVisibility(animated: false)
 //        updateInsets()  // Recompute and apply as above
     }
     
@@ -1574,60 +1871,40 @@ class ChatViewController: MessagesViewController {
 //        self.messagesCollectionView.messagesDisplayDelegate = self
         self.messagesCollectionView.messagesLayoutDelegate = self
         
-        self.messagesCollectionView.transform = CGAffineTransform(scaleX: 1, y: -1)
-        
         if #available(iOS 11.0, *) {
             messagesCollectionView.contentInsetAdjustmentBehavior = .never
         } else {
             automaticallyAdjustsScrollViewInsets = false
         }
 
-        // Compute nav/status height once (update dynamically if needed, e.g., in viewDidLayoutSubviews)
-        let navHeight: CGFloat = {
-            let statusBarHeight = view.safeAreaInsets.top
-            let navBarHeight = navigationController?.navigationBar.frame.height ?? 0
-            return statusBarHeight + navBarHeight
-        }()
-
-        // Update insets: top for input (visual bottom), bottom for nav (visual top)
-        var inputHeight: CGFloat = 49
-        if let bottomInset = UIApplication.shared.windows.first?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
-        }
-        messagesCollectionView.contentInset = UIEdgeInsets(
-            top: inputHeight + 8,
-            left: 0,
-            bottom: navHeight,
-            right: 0
-        )
-        messagesCollectionView.scrollIndicatorInsets = messagesCollectionView.contentInset
-        
         self.messagesCollectionView.scrollsToTop = false
         self.scrollsToBottomOnKeybordBeginsEditing = false
         self.maintainPositionOnKeyboardFrameChanged = true
         self.view.addSubview(self.dateListContainerView)
         
         messagesCollectionView.accountPalette = accountPallete
-        (self.navigationController as? NavBarController)?.cancelButton.addTarget(self, action: #selector(additionalNavBarPanelCancelButtonTouchUpInside), for: .touchUpInside)
         
-        var navbarHeight: CGFloat = 50
-        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-            navbarHeight += topInset
-        }
-        if UIDevice.current.userInterfaceIdiom == .pad && CommonConfigManager.shared.config.interface_type == "tabs" {
-            navbarHeight += 55
+        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
         }
 //        self.navbarOverlayView.frame = CGRect(
 //            width: self.view.bounds.width,
 //            height: navbarHeight
 //        )
         
-//        inputHeight: CGFloat = 49
+//        inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight
 //        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
 //            inputHeight += bottomInset
 //        }
         
-        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+        let horizontalInset = ModernXabberInputView.edgeHorizontalInset
+        let leadingInset = self.view.safeAreaInsets.left + horizontalInset
+        let trailingInset = self.view.safeAreaInsets.right + horizontalInset
+        let frame = CGRect(
+            origin: CGPoint(x: leadingInset, y: self.view.bounds.height - inputHeight),
+            size: CGSize(width: max(0, self.view.bounds.width - leadingInset - trailingInset), height: inputHeight)
+        )
         self.xabberInputView = ModernXabberInputView(frame: frame)
         self.xabberInputView.accountPalette = accountPallete
         self.xabberInputView.delegate = self
@@ -1637,19 +1914,20 @@ class ChatViewController: MessagesViewController {
         self.view.addSubview(self.unreadMentionsNavigatorView)
         self.view.bringSubviewToFront(xabberInputView)
         self.view.bringSubviewToFront(self.unreadMentionsNavigatorView)
+        self.setupFloatingGlassBubbles()
         
         xabberInputView.translatesAutoresizingMaskIntoConstraints = false
         let heightConstraint = xabberInputView.heightAnchor.constraint(equalToConstant: inputHeight)
         NSLayoutConstraint.activate([
-            xabberInputView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            xabberInputView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            xabberInputView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: ModernXabberInputView.edgeHorizontalInset),
+            xabberInputView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -ModernXabberInputView.edgeHorizontalInset),
             xabberInputView.bottomAnchor.constraint(equalTo: view.bottomAnchor),  // Pins to bottom safe area (home indicator)
-            heightConstraint  // Your computed inputHeight (49 + bottomInset)
+            heightConstraint
         ])
         xabberInputView.heightConstraint = heightConstraint
         
         self.messagesCollectionView.keyboardDismissMode = .interactive
-        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 0, right: 0)
+        self.updateChatCollectionInsets(inputHeight: inputHeight)
         
         
         
@@ -1678,7 +1956,6 @@ class ChatViewController: MessagesViewController {
         self.messageLoadingActivityIndicator.startAnimating()
         self.messageLoadingActivityIndicator.isHidden = true
         if self.sharedAudioPlayerPanel != nil {
-            self.view.addSubview(self.sharedAudioPlayerPanel!)
             AudioManager.shared.addMulticastDelegate(self.sharedAudioPlayerPanel)
         }
 //    case avatarChatPosition = "avatar_chat_vertical_position"
@@ -1720,7 +1997,7 @@ class ChatViewController: MessagesViewController {
             self.messagesObserver = realm
                 .objects(MessageStorageItem.self)
                 .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
-                .sorted(byKeyPath: "date", ascending: false)
+                .sorted(byKeyPath: "date", ascending: true)
             self.rebuildUnreadMentionItems()
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
@@ -1728,6 +2005,13 @@ class ChatViewController: MessagesViewController {
     }
     
     final func configureBackground() {
+        if ContinuousSplitBackgroundExperiment.isActive {
+            backgroundView.removeFromSuperview()
+            messagesCollectionView.backgroundColor = .clear
+            view.backgroundColor = .clear
+            return
+        }
+
         backgroundView.frame = CGRect(
             origin: CGPoint(x: 0, y: ((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.maxY ?? 0)),
             size: self.view.bounds.size
@@ -1753,37 +2037,42 @@ class ChatViewController: MessagesViewController {
     }
     
     final func configureNavbar() {
+        setupNavigationBar()
+    }
+
+    private func setupNavigationBar() {
         self.navigationItem.setRightBarButtonItems([], animated: false)
         let appearance = UINavigationBarAppearance()
         appearance.configureWithDefaultBackground()
-        appearance.backgroundColor = .systemBackground
-        appearance.backgroundImage = UIImage()
-        appearance.shadowImage = UIImage()
-        appearance.shadowColor = .clear
 
         let scrollEdgeAppearance = UINavigationBarAppearance()
         scrollEdgeAppearance.configureWithDefaultBackground()
-        scrollEdgeAppearance.backgroundColor = .systemBackground  // For scroll edge (iPadOS favors this)
-        scrollEdgeAppearance.backgroundImage = UIImage()
-        scrollEdgeAppearance.shadowImage = UIImage()
-        scrollEdgeAppearance.shadowColor = .clear
 
         let compactAppearance = UINavigationBarAppearance()
         compactAppearance.configureWithDefaultBackground()
-        compactAppearance.backgroundColor = .systemBackground  // Match standard for iPad/landscape consistency
-        compactAppearance.backgroundImage = UIImage()
-        compactAppearance.shadowImage = UIImage()
-        compactAppearance.shadowColor = .clear
 
-        // Apply per-VC (scoped, no global conflicts)
         self.navigationItem.standardAppearance = appearance
         self.navigationItem.compactAppearance = compactAppearance
         self.navigationItem.scrollEdgeAppearance = scrollEdgeAppearance
 
-        navigationController?.navigationBar.isTranslucent = false  // Locks solid on iOS 16
+        navigationController?.navigationBar.isTranslucent = true
+        edgesForExtendedLayout = [.top, .bottom]
+        extendedLayoutIncludesOpaqueBars = true
 
         navigationItem.largeTitleDisplayMode = .never
-        
+        navigationItem.backButtonDisplayMode = .minimal
+        navigationItem.leftItemsSupplementBackButton = true
+        clearLegacyAdditionalNavigationPanel()
+
+        setupNavigationTitleView()
+        setupNavigationAvatarItem()
+
+        titleLabel.attributedText = updateTitle()
+        initStatus()
+        updateNavbarTitleWidth()
+    }
+
+    private func setupNavigationTitleView() {
         userBarButton.gradient.colors = [UIColor.white.cgColor,
                                          AccountColorManager.shared.palette(for: self.owner).tint700.cgColor]
         if titleStack.arrangedSubviews.isEmpty {
@@ -1803,29 +2092,28 @@ class ChatViewController: MessagesViewController {
         }
 
         navigationItem.setLeftBarButton(nil, animated: true)
-        if userBarButton.gestureRecognizers?.isEmpty ?? true {
-            let gesture = UITapGestureRecognizer(target: self, action: #selector(showInfo))
-            userBarButton.addGestureRecognizer(gesture)
-        }
-        navigationItem.backButtonDisplayMode = .minimal
-        navigationItem.leftItemsSupplementBackButton = true
         titleStack.isUserInteractionEnabled = false
-        titleStack.alignment = .center
+        titleStack.alignment = .fill
+        titleLabel.textAlignment = .center
+        statusLabel.textAlignment = .center
         titleButton.contentHorizontalAlignment = .center
         titleButton.contentVerticalAlignment = .center
         
         titleButton.removeTarget(self, action: #selector(onTitleButtonTouchUp(_:)), for: .touchUpInside)
         titleButton.addTarget(self, action: #selector(onTitleButtonTouchUp(_:)), for: .touchUpInside)
+        navigationItem.titleView = titleButton
+    }
+
+    private func setupNavigationAvatarItem() {
+        if userBarButton.gestureRecognizers?.isEmpty ?? true {
+            let gesture = UITapGestureRecognizer(target: self, action: #selector(showInfo))
+            userBarButton.addGestureRecognizer(gesture)
+        }
         let accountButton = UIBarButtonItem(customView: userBarButton)
         if #available(iOS 26.0, *) {
             accountButton.hidesSharedBackground = true
         }
         navigationItem.setRightBarButtonItems([accountButton], animated: false)
-        navigationItem.titleView = titleButton
-
-        titleLabel.attributedText = updateTitle()
-        initStatus()
-        updateNavbarTitleWidth()
         
         userBarButton.configure(owner: owner, jid: jid)
         if conversationType == .saved {
@@ -1836,13 +2124,162 @@ class ChatViewController: MessagesViewController {
         }
     }
 
+    private func clearLegacyAdditionalNavigationPanel() {
+        guard let navBarController = navigationController as? NavBarController else {
+            return
+        }
+        navBarController.clearAdditionalPanel()
+        navBarController.hideAdditionalPanel(animated: false)
+        navBarController.topToolbar.isHidden = true
+    }
+
     private func updateNavbarTitleWidth() {
         guard navigationItem.titleView === titleButton else { return }
         let navBarWidth = navigationController?.navigationBar.bounds.width ?? view.bounds.width
         let leftReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
         let rightReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
         let sideReserve = max(leftReserved, rightReserved)
-        titleButton.frame = CGRect(x: 0, y: 0, width: max(140, navBarWidth - sideReserve * 2), height: 42)
+        let targetFrame = CGRect(x: 0, y: 0, width: max(140, navBarWidth - sideReserve * 2), height: 42)
+        if !titleButton.frame.isApproximatelyEqual(to: targetFrame) {
+            titleButton.frame = targetFrame
+        }
+    }
+
+    internal func setupFloatingGlassBubbles() {
+        guard floatingBubblesStackView.superview == nil else {
+            return
+        }
+
+        floatingBubblesStackView.addArrangedSubview(topPanelBubbleView)
+        floatingBubblesStackView.addArrangedSubview(messagePanelBubbleView)
+        floatingBubblesStackView.addArrangedSubview(sharedAudioPlayerBubbleView)
+
+        topPanelBubbleView.isHidden = true
+        messagePanelBubbleView.isHidden = true
+        sharedAudioPlayerBubbleView.isHidden = true
+
+        view.addSubview(floatingBubblesStackView)
+        NSLayoutConstraint.activate([
+            floatingBubblesStackView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ChatFloatingHeaderLayoutPolicy.floatingStackTopSpacing),
+            floatingBubblesStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            floatingBubblesStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12)
+        ])
+    }
+
+    internal func showTopPanelBubble(with view: UIView, contentHeight: CGFloat = 40) {
+        topPanelBubbleView.setHostedView(view, contentHeight: contentHeight)
+        topPanelBubbleView.isHidden = false
+        updateFloatingBubblesVisibility(animated: true)
+    }
+
+    internal func hideTopPanelBubble(animated: Bool) {
+        topPanelBubbleView.isHidden = true
+        updateFloatingBubblesVisibility(animated: animated)
+    }
+
+    internal func showMessagePanelBubble(_ panel: ModernXabberInputView.MessagesPanel) {
+        xabberInputView?.topInset = 0
+        xabberInputView?.isForwardPanelShowed = false
+        xabberInputView?.isEditPanelShowed = false
+        panel.isHidden = false
+        messagePanelBubbleView.setHostedView(panel, contentHeight: 40)
+        messagePanelBubbleView.isHidden = false
+        updateFloatingBubblesVisibility(animated: true)
+    }
+
+    internal func hideMessagePanelBubble(animated: Bool = true) {
+        xabberInputView?.topInset = 0
+        xabberInputView?.isForwardPanelShowed = false
+        xabberInputView?.isEditPanelShowed = false
+        xabberInputView?.forwardPanel.isHidden = true
+        xabberInputView?.editPanel.isHidden = true
+        messagePanelBubbleView.isHidden = true
+        updateFloatingBubblesVisibility(animated: animated)
+    }
+
+    internal func updateFloatingBubblesVisibility(animated: Bool = false) {
+        guard floatingBubblesStackView.superview != nil else {
+            return
+        }
+
+        let visibleHeights = floatingBubblesStackView.arrangedSubviews
+            .filter { !$0.isHidden }
+            .map { view -> CGFloat in
+                if let bubble = view as? ChatFloatingGlassBubbleView {
+                    return bubble.measuredHeight()
+                }
+                return view.bounds.height
+            }
+        let height = ChatFloatingHeaderLayoutPolicy.visibleStackHeight(
+            visibleBubbleHeights: visibleHeights,
+            spacing: floatingBubblesStackView.spacing
+        )
+        let shouldHideStack = visibleHeights.isEmpty
+        let visibilityChanged = floatingBubblesStackView.isHidden != shouldHideStack
+        let heightChanged = abs(floatingBubblesHeight - height) > 0.5
+
+        let updates = {
+            if visibilityChanged {
+                self.floatingBubblesStackView.isHidden = shouldHideStack
+            }
+            if heightChanged {
+                self.floatingBubblesHeight = height
+            }
+            self.updateChatCollectionInsets()
+            if animated {
+                self.view.layoutIfNeeded()
+            }
+        }
+
+        if animated, visibilityChanged || heightChanged {
+            UIView.animate(
+                withDuration: 0.2,
+                delay: 0,
+                options: [.beginFromCurrentState, .curveEaseInOut],
+                animations: updates,
+                completion: nil
+            )
+        } else {
+            updates()
+        }
+    }
+
+    internal func updateChatCollectionInsets(inputHeight: CGFloat? = nil) {
+        let composerHeight = inputHeight ?? xabberInputView?.bounds.height ?? ModernXabberInputView.defaultBarHeight
+        let navigationHeight = currentNavigationVisualHeight()
+        let indicatorInsets = ChatFloatingHeaderLayoutPolicy.scrollIndicatorInsets(
+            composerHeight: composerHeight,
+            navigationVisualHeight: navigationHeight,
+            floatingBubblesHeight: floatingBubblesHeight
+        )
+        let insets = ChatFloatingHeaderLayoutPolicy.collectionInsets(
+            composerHeight: composerHeight,
+            navigationVisualHeight: navigationHeight,
+            floatingBubblesHeight: floatingBubblesHeight,
+            contentHeight: messagesCollectionView.contentSize.height,
+            viewportHeight: messagesCollectionView.bounds.height
+        )
+        if !messagesCollectionView.contentInset.isApproximatelyEqual(to: insets) {
+            messagesCollectionView.contentInset = insets
+        }
+        if !messagesCollectionView.scrollIndicatorInsets.isApproximatelyEqual(to: indicatorInsets) {
+            messagesCollectionView.scrollIndicatorInsets = indicatorInsets
+        }
+    }
+
+    private func currentNavigationVisualHeight() -> CGFloat {
+        if view.safeAreaInsets.top > 0 {
+            return view.safeAreaInsets.top
+        }
+
+        var navbarHeight = navigationController?.navigationBar.frame.height ?? 44
+        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
+            navbarHeight += topInset
+        }
+        if UIDevice.current.userInterfaceIdiom == .pad && CommonConfigManager.shared.config.interface_type == "tabs" {
+            navbarHeight += 55
+        }
+        return navbarHeight
     }
     
     final func configureInputBar() {
@@ -1970,6 +2407,12 @@ class ChatViewController: MessagesViewController {
     
     override func shouldChangeFrame() {
         super.shouldChangeFrame()
+        if previousFrame == self.view.bounds {
+            return
+        }
+        let wasNearBottom = self.isNearBottom()
+        let visibleAnchor = wasNearBottom ? nil : self.capturePagingAnchorIfNeeded(direction: .older)
+
         var navbarHeight: CGFloat = 50
         if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
             navbarHeight += topInset
@@ -1982,9 +2425,6 @@ class ChatViewController: MessagesViewController {
             self.configureSharedAudioPanel()
         } else {
             self.hideSharedAudioPanel()
-        }
-        if previousFrame == self.view.bounds {
-            return
         }
         self.setTopPanelState(self.topPanelState.value)
         previousFrame = self.view.bounds
@@ -2007,13 +2447,20 @@ class ChatViewController: MessagesViewController {
         self.messageLoadingActivityIndicator.frame = CGRect(width: 64, height: 64)
         self.messageLoadingActivityIndicator.center = CGPoint(x: self.view.center.x, y: navbarHeight + 32)
         
-        var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight + self.xabberInputView.keyboardHeight
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
         
-        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+        let horizontalInset = ModernXabberInputView.edgeHorizontalInset
+        let leadingInset = self.view.safeAreaInsets.left + horizontalInset
+        let trailingInset = self.view.safeAreaInsets.right + horizontalInset
+        let frame = CGRect(
+            origin: CGPoint(x: leadingInset, y: self.view.bounds.height - inputHeight),
+            size: CGSize(width: max(0, self.view.bounds.width - leadingInset - trailingInset), height: inputHeight)
+        )
         self.xabberInputView.setupFrames(frame)
+        self.updateChatCollectionInsets(inputHeight: inputHeight)
         
         self.recordLockIndicator.frame = CGRect(
             origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 48 - inputHeight),
@@ -2027,6 +2474,13 @@ class ChatViewController: MessagesViewController {
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
             .cache.invalidate()
         self.messagesCollectionView.reloadData()
+        self.messagesCollectionView.layoutIfNeeded()
+        self.updateChatCollectionInsets(inputHeight: inputHeight)
+        if wasNearBottom {
+            self.scrollToBottom(animated: false)
+        } else if let visibleAnchor {
+            self.restorePagingAnchor(visibleAnchor)
+        }
     }
     
     private func unsubscribe() {
@@ -2250,11 +2704,11 @@ class ChatViewController: MessagesViewController {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
         self.shouldChangeFrame()
-        var inputHeight: CGFloat = 49
+        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
-        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 40, right: 0)
+        self.updateChatCollectionInsets(inputHeight: inputHeight)
         
         self.recordLockIndicator.frame = CGRect(
             origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 52 - inputHeight),
@@ -2359,7 +2813,7 @@ class ChatViewController: MessagesViewController {
                         owner: self.owner,
                         conversationType: self.conversationType
                     )
-                )?.lastReadId = self.messagesObserver?.first?.messageId
+                )?.lastReadId = self.messagesObserver?.last?.messageId
             }
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
@@ -2371,6 +2825,7 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        (navigationController as? NavBarController)?.topToolbar.isHidden = false
         XMPPUIActionManager.shared.mam?.endLoadHistory(jid: self.jid, conversationType: conversationType)
         AccountManager.shared.find(for: self.owner)?.mam.endLoadHistory(jid: self.jid, conversationType: conversationType)
     }
