@@ -151,6 +151,17 @@ extension MessageManager {
                 }
                 LastChats.updateErrorState(for: item.opponent, owner: self.owner, conversationType: item.conversationType)
             }
+
+            let encryptedSendAvailability = OmemoSendAvailabilityPolicy.evaluate(
+                owner: item.owner,
+                jid: item.opponent,
+                conversationType: conversationType,
+                realm: realm
+            )
+            if conversationType.isEncrypted && !encryptedSendAvailability.canSend {
+                failEncryptedSend(OmemoManagerError.noTrustedRecipientDevices)
+                return
+            }
             
             switch conversationType {
                 case .omemo, .omemo1, .axolotl:
@@ -251,6 +262,12 @@ extension MessageManager {
                     }
                 }
                 
+                if encryptedSendAvailability.requiresUntrustedContactDeviceWarning {
+                    item.markOmemoUntrustedContactDevicesWarning()
+                } else {
+                    item.clearOmemoUntrustedContactDevicesWarning()
+                }
+
                 item.state = .sending
                 
                 item.trustedSource = realm.object(

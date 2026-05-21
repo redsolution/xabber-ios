@@ -321,6 +321,107 @@ enum ChatAnchorExecutionPolicy {
     }
 }
 
+enum ChatLoadedMessageNavigationPolicy {
+    static func index(
+        in items: [ChatViewController.Datasource],
+        for anchor: ChatMessageAnchorRef
+    ) -> Int? {
+        let anchorableItems = items.enumerated().filter { _, item in
+            isAnchorable(item)
+        }
+
+        if let messagePrimary = anchor.messagePrimary,
+           messagePrimary.isNotEmpty,
+           let match = anchorableItems.first(where: { $0.element.primary == messagePrimary }) {
+            return match.offset
+        }
+
+        if let archivedId = anchor.archivedId,
+           archivedId.isNotEmpty,
+           let match = anchorableItems.first(where: { $0.element.archivedId == archivedId }) {
+            return match.offset
+        }
+
+        if let messageId = anchor.messageId,
+           messageId.isNotEmpty,
+           let match = anchorableItems.first(where: { $0.element.messageId == messageId }) {
+            return match.offset
+        }
+
+        return nil
+    }
+
+    private static func isAnchorable(_ item: ChatViewController.Datasource) -> Bool {
+        guard !item.isFakeMessage else {
+            return false
+        }
+
+        switch item.kind {
+        case .date(_), .unread(_), .initial(_), .skeleton(_):
+            return false
+        default:
+            return true
+        }
+    }
+}
+
+enum ChatForwardPreviewNavigationPolicy {
+    static func loadedTargetIndex(
+        in items: [ChatViewController.Datasource],
+        attachedMessageIds: [String]
+    ) -> Int? {
+        guard attachedMessageIds.isNotEmpty else {
+            return nil
+        }
+
+        let attachedIds = Set(attachedMessageIds)
+        return items.enumerated().first { _, item in
+            attachedIds.contains(item.primary) && isAnchorable(item)
+        }?.offset
+    }
+
+    private static func isAnchorable(_ item: ChatViewController.Datasource) -> Bool {
+        guard !item.isFakeMessage else {
+            return false
+        }
+
+        switch item.kind {
+        case .date(_), .unread(_), .initial(_), .skeleton(_):
+            return false
+        default:
+            return true
+        }
+    }
+}
+
+enum ChatEditPreviewNavigationPolicy {
+    static func loadedTargetIndex(
+        in items: [ChatViewController.Datasource],
+        editMessageId: String
+    ) -> Int? {
+        guard editMessageId.isNotEmpty else {
+            return nil
+        }
+
+        return items.enumerated().first { _, item in
+            item.primary == editMessageId && isAnchorable(item)
+        }?.offset
+    }
+
+    private static func isAnchorable(_ item: ChatViewController.Datasource) -> Bool {
+        guard !item.isFakeMessage else {
+            return false
+        }
+
+        switch item.kind {
+        case .date(_), .unread(_), .initial(_), .skeleton(_):
+            return false
+        default:
+            return true
+        }
+    }
+}
+
 extension ChatViewController {
     private struct ResolvedJumpTarget {
         let primary: String
@@ -331,6 +432,9 @@ extension ChatViewController {
         _ request: ChatOpenMessageRequest,
         hooks: ChatAnchorExecutionHooks? = nil
     ) {
+        if self.performLoadedOpenMessageRequestIfPossible(request, hooks: hooks) {
+            return
+        }
         if self.activeAnchorExecutionState?.request != request {
             self.activeAnchorExecutionState = nil
         }
@@ -343,6 +447,127 @@ extension ChatViewController {
     private func syncAnchorExecutionFlags() {
         self.isExecutingOpenMessageRequest = self.activeAnchorExecutionState != nil
         self.isMessageAnchorNavigationInFlight = self.pendingOpenMessageRequest != nil || self.activeAnchorExecutionState != nil
+    }
+
+    internal func indexPathForLoadedMessage(anchor: ChatMessageAnchorRef) -> IndexPath? {
+        guard let section = ChatLoadedMessageNavigationPolicy.index(in: self.datasource, for: anchor),
+              section < self.datasource.count else {
+            return nil
+        }
+
+        return IndexPath(row: 0, section: section)
+    }
+
+    internal func containsLoadedMessage(anchor: ChatMessageAnchorRef) -> Bool {
+        self.indexPathForLoadedMessage(anchor: anchor) != nil
+    }
+
+    @discardableResult
+    internal func scrollToLoadedMessage(
+        anchor: ChatMessageAnchorRef,
+        centered: Bool,
+        animated: Bool,
+        highlight: Bool,
+        completion: (() -> Void)? = nil
+    ) -> Bool {
+        self.scrollToLoadedMessage(
+            anchor: anchor,
+            centered: centered,
+            animated: animated,
+            highlight: highlight,
+            retryIfNeeded: true,
+            completion: completion
+        )
+    }
+
+    @discardableResult
+    private func scrollToLoadedMessage(
+        anchor: ChatMessageAnchorRef,
+        centered: Bool,
+        animated: Bool,
+        highlight: Bool,
+        retryIfNeeded: Bool,
+        completion: (() -> Void)? = nil
+    ) -> Bool {
+        _ = centered
+        guard let indexPath = self.indexPathForLoadedMessage(anchor: anchor),
+              indexPath.section < self.datasource.count else {
+            return false
+        }
+
+        guard indexPath.section < self.messagesCollectionView.numberOfSections else {
+            if retryIfNeeded {
+                DispatchQueue.main.async { [weak self] in
+                    self?.scrollToLoadedMessage(
+                        anchor: anchor,
+                        centered: centered,
+                        animated: animated,
+                        highlight: highlight,
+                        retryIfNeeded: false,
+                        completion: completion
+                    )
+                }
+            } else {
+                completion?()
+            }
+            return true
+        }
+
+        let item = self.datasource[indexPath.section]
+        self.positionMessage(
+            primary: item.primary,
+            archivedId: item.archivedId,
+            highlight: highlight,
+            animated: animated,
+            completion: completion
+        )
+        return true
+    }
+
+    @discardableResult
+    private func performLoadedOpenMessageRequestIfPossible(
+        _ request: ChatOpenMessageRequest,
+        hooks: ChatAnchorExecutionHooks? = nil
+    ) -> Bool {
+        guard request.owner == self.owner,
+              request.chatJid == self.jid,
+              request.conversationType == self.conversationType,
+              let indexPath = self.indexPathForLoadedMessage(anchor: request.anchor),
+              indexPath.section < self.datasource.count else {
+            return false
+        }
+
+        let target = self.datasource[indexPath.section]
+        let activeHooks = hooks ?? self.activeAnchorExecutionHooks
+        let usesTransientHighlight = request.source.usesTransientHighlight && request.highlight
+
+        self.pendingOpenMessageRequest = nil
+        self.activeAnchorExecutionState = nil
+        self.activeAnchorExecutionHooks = nil
+        self.isApplyingBootstrapAnchorWindow = false
+        self.syncAnchorExecutionFlags()
+        self.setLoadingIndicatorVisible(false)
+        self.setArchiveLoading(false)
+        self.setDatasourceLoadingEnabled(true)
+        self.currentPage.unlock()
+
+        self.scrollToLoadedMessage(
+            anchor: request.anchor,
+            centered: true,
+            animated: activeHooks?.animatedScroll ?? false,
+            highlight: request.highlight && !usesTransientHighlight,
+            completion: {
+                if usesTransientHighlight {
+                    self.applyTransientMessageHighlight(primary: target.primary)
+                }
+                self.scheduleMentionReadOnVisibleIfNeeded(
+                    for: request,
+                    positionedPrimary: target.primary
+                )
+                activeHooks?.onPositioned?()
+            }
+        )
+        return true
     }
 
     private func initialAnchorExecutionState(
@@ -926,12 +1151,16 @@ extension ChatViewController {
                 for: resolved,
                 direction: direction
             ) { target in
+                let usesTransientHighlight = request.source.usesTransientHighlight && request.highlight
                 self.positionMessage(
                     primary: target.primary,
                     archivedId: target.archivedId,
-                    highlight: request.highlight,
+                    highlight: request.highlight && !usesTransientHighlight,
                     animated: hooks?.animatedScroll ?? false,
                     completion: {
+                        if usesTransientHighlight {
+                            self.applyTransientMessageHighlight(primary: target.primary)
+                        }
                         self.finishActiveAnchorExecution()
                         self.scheduleMentionReadOnVisibleIfNeeded(
                             for: request,
@@ -955,8 +1184,15 @@ extension ChatViewController {
     internal func performPendingOpenMessageRequestIfNeeded(
         trigger: ChatAnchorExecutionResumeTrigger = .manual
     ) {
-        guard let request = self.pendingOpenMessageRequest,
-              request.owner == self.owner,
+        guard let request = self.pendingOpenMessageRequest else {
+            return
+        }
+
+        if self.performLoadedOpenMessageRequestIfPossible(request) {
+            return
+        }
+
+        guard request.owner == self.owner,
               request.chatJid == self.jid,
               request.conversationType == self.conversationType,
               self.messagesObserver != nil else {
@@ -1165,6 +1401,77 @@ extension ChatViewController {
     internal func scrollToSearchedMessage(primary: String) {
         self.positionMessage(primary: primary, highlight: true, animated: false)
     }
+
+    internal func scrollToMessage(
+        messagePrimary: String,
+        archivedId: String?,
+        date: Date,
+        centered: Bool,
+        animated: Bool,
+        highlight: Bool
+    ) {
+        _ = centered
+        self.queueOpenMessageRequest(
+            ChatOpenMessageRequest(
+                chatJid: self.jid,
+                owner: self.owner,
+                conversationType: self.conversationType,
+                anchor: ChatMessageAnchorRef(
+                    messagePrimary: messagePrimary,
+                    archivedId: archivedId,
+                    messageId: nil,
+                    authorId: nil,
+                    bodyFingerprint: nil,
+                    sourceDate: date
+                ),
+                highlight: highlight,
+                markReadOnVisible: false,
+                source: .voicePlayer
+            ),
+            hooks: ChatAnchorExecutionHooks(
+                direction: .up,
+                animatedScroll: animated,
+                onFailed: nil,
+                onPositioned: nil
+            )
+        )
+    }
+
+    internal func applyTransientMessageHighlight(primary: String) {
+        guard let section = self.datasourceSnapshot.primaryIndex[primary],
+              section < self.datasource.count else {
+            return
+        }
+
+        let indexPath = IndexPath(row: 0, section: section)
+        guard let cell = self.messagesCollectionView.cellForItem(at: indexPath) as? MessageContentCell else {
+            return
+        }
+
+        let tag = 0xA11D10
+        cell.contentView.subviews
+            .filter { $0.tag == tag }
+            .forEach { $0.removeFromSuperview() }
+
+        let overlay = UIView(frame: cell.contentView.bounds)
+        overlay.tag = tag
+        overlay.isUserInteractionEnabled = false
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        overlay.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.18)
+        cell.contentView.addSubview(overlay)
+
+        UIView.animate(
+            withDuration: 0.25,
+            delay: 0.55,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+            animations: {
+                overlay.alpha = 0
+            },
+            completion: { _ in
+                overlay.removeFromSuperview()
+            }
+        )
+    }
     
     internal func scrollToSearchedMessage(archivedId: String) {
         guard let scrollIndex = self.datasourceSnapshot.archivedIdIndex[archivedId],
@@ -1271,7 +1578,36 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
     }
     
     public final func scrollToMessageAtIndex(_ index: Int) {
-        
+        guard self.searchMessagesQueue.indices.contains(index) else {
+            return
+        }
+
+        let item = self.searchMessagesQueue[index]
+        self.selectedSearchResultId = item.archivedId
+        self.queueOpenMessageRequest(
+            ChatOpenMessageRequest(
+                chatJid: self.jid,
+                owner: self.owner,
+                conversationType: self.conversationType,
+                anchor: ChatMessageAnchorRef(
+                    messagePrimary: item.primary,
+                    archivedId: item.archivedId.isNotEmpty ? item.archivedId : nil,
+                    messageId: item.messageId.isNotEmpty ? item.messageId : nil,
+                    authorId: item.groupchatAuthorId,
+                    bodyFingerprint: nil,
+                    sourceDate: item.date
+                ),
+                highlight: true,
+                markReadOnVisible: false,
+                source: .search
+            ),
+            hooks: ChatAnchorExecutionHooks(
+                direction: self.chatScrollDirection ?? .up,
+                animatedScroll: false,
+                onFailed: nil,
+                onPositioned: nil
+            )
+        )
     }
     
     internal final func applySearchResults(emptyList: Bool = false) {

@@ -50,27 +50,39 @@ extension LastChatsViewController {
 
     internal static func filterReloadIndexPaths(
         _ indexPaths: [IndexPath],
-        datasource: [Datasource],
+        sections: [DatasourceSection],
         activeSwipeActionDatasourceKey: String?
     ) -> [IndexPath] {
         guard let activeSwipeActionDatasourceKey else { return indexPaths }
         return indexPaths.filter { indexPath in
-            guard indexPath.section == 0,
-                  datasource.indices.contains(indexPath.row) else {
+            guard let item = item(at: indexPath, in: sections) else {
                 return true
             }
-            return swipeActionDatasourceKey(for: datasource[indexPath.row]) != activeSwipeActionDatasourceKey
+            return swipeActionDatasourceKey(for: item) != activeSwipeActionDatasourceKey
         }
     }
 
+    internal static func filterReloadIndexPaths(
+        _ indexPaths: [IndexPath],
+        datasource: [Datasource],
+        activeSwipeActionDatasourceKey: String?
+    ) -> [IndexPath] {
+        filterReloadIndexPaths(
+            indexPaths,
+            sections: makeDatasourceSections(from: datasource, showsSkeleton: false),
+            activeSwipeActionDatasourceKey: activeSwipeActionDatasourceKey
+        )
+    }
+
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        let index = indexPath.row
-        let item = self.datasource[index]
+        guard let item = self.item(at: indexPath),
+              item.specialMessageKind == .none else {
+            return nil
+        }
         let isMuted = item.isMute
         let deleteAction = UIContextualAction(style: .destructive,
                                               title: "Delete".localizeString(id: "delete", arguments: [])) {
             (action, view, handler) in
-            let item = self.datasource[index]
             let jid = item.jid
             let owner = item.owner
             let conversationType = item.conversationType
@@ -84,7 +96,6 @@ extension LastChatsViewController {
         let archiveAction = UIContextualAction(style: .normal,
                                                title: "Archive".localizeString(id: "archive_chat", arguments: [])) {
             (action, view, handler) in
-            let item = self.datasource[index]
             let jid = item.jid
             let owner = item.owner
             let conversationType = item.conversationType
@@ -98,7 +109,6 @@ extension LastChatsViewController {
         let unarchiveAction = UIContextualAction(style: .normal,
                                                  title: "Unarchive".localizeString(id: "unarchive_chat", arguments: [])) {
             (action, view, handler) in
-            let item = self.datasource[index]
             let jid = item.jid
             let owner = item.owner
             let conversationType = item.conversationType
@@ -113,7 +123,6 @@ extension LastChatsViewController {
                                             "Unmute".localizeString(id: "unmute_chat", arguments: []) :
                                             "Mute".localizeString(id: "mute_chat", arguments: [])) {
             action, view, handler in
-            let item = self.datasource[index]
             let jid = item.jid
             let owner = item.owner
             let conversationType = item.conversationType
@@ -131,7 +140,6 @@ extension LastChatsViewController {
         let blockAction = UIContextualAction(style: .normal,
                                              title: "Block".localizeString(id: "contact_bar_block", arguments: [])) {
             action, view, handler in
-            let item = self.datasource[index]
             self.onBlock(jid: item.jid, owner: item.owner, displayName: item.username)
             handler(true)
         }
@@ -162,13 +170,14 @@ extension LastChatsViewController {
     }
 
     func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        let index = indexPath.row
-        let item = self.datasource[index]
+        guard let item = self.item(at: indexPath),
+              item.specialMessageKind == .none else {
+            return nil
+        }
         if AccountManager.shared.connectingUsers.value.isEmpty {
             let pinAction = UIContextualAction(style: .normal,
                                                title: "Pin".localizeString(id: "message_pin", arguments: [])) {
                 action, view, handler in
-                let item = self.datasource[index]
                 let jid = item.jid
                 let owner = item.owner
                 let conversationType = item.conversationType
@@ -181,7 +190,6 @@ extension LastChatsViewController {
             let callAction = UIContextualAction(style: .normal,
                                                title: "Call".localizeString(id: "call", arguments: [])) {
                 action, view, handler in
-                let item = self.datasource[index]
                 self.onCall(jid: item.jid, owner: item.owner)
                 handler(true)
             }
@@ -199,11 +207,11 @@ extension LastChatsViewController {
     }
 
     func tableView(_ tableView: UITableView, willBeginEditingRowAt indexPath: IndexPath) {
-        guard datasource.indices.contains(indexPath.row) else {
+        guard let item = self.item(at: indexPath) else {
             activeSwipeActionDatasourceKey = nil
             return
         }
-        activeSwipeActionDatasourceKey = Self.swipeActionDatasourceKey(for: datasource[indexPath.row])
+        activeSwipeActionDatasourceKey = Self.swipeActionDatasourceKey(for: item)
     }
 
     func tableView(_ tableView: UITableView, didEndEditingRowAt indexPath: IndexPath?) {

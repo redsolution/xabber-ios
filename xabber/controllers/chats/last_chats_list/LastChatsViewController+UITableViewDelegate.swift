@@ -111,17 +111,28 @@ extension LastChatsViewController: UITableViewDelegate {
             return nil
         }
     }
-    
-    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        if AudioManager.shared.player == nil {
-            return 0
-        } else {
-            return 44
-        }
+
+    internal static func voicePlayerOpenRequest(route: VoiceMessagePlaybackRoute) -> ChatOpenMessageRequest {
+        ChatOpenMessageRequest(
+            chatJid: route.jid,
+            owner: route.owner,
+            conversationType: route.conversationType,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: route.messagePrimary,
+                archivedId: route.archivedId,
+                messageId: nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: route.sourceDate
+            ),
+            highlight: true,
+            markReadOnVisible: false,
+            source: .voicePlayer
+        )
     }
     
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        let item = self.datasource[indexPath.row]
+        guard let item = self.item(at: indexPath) else { return 0 }
         switch item.specialMessageKind {
             case .none: return 84
             default: return 48
@@ -132,7 +143,9 @@ extension LastChatsViewController: UITableViewDelegate {
         if self.showSkeleton.value {
             return
         }
-        let item = self.datasource[indexPath.row]
+        guard let item = self.item(at: indexPath) else {
+            return
+        }
         switch item.specialMessageKind {
             case .contact:
                 self.leftMenuSelectRootCategoryDelegate?.selectRootScreenAndCategory(screen: "contacts", category: "show_all_contacts")
@@ -162,8 +175,7 @@ extension LastChatsViewController: UITableViewDelegate {
         if let oldVc = self.currentChatVC,
            oldVc.jid == jid, oldVc.owner == owner, oldVc.conversationType == conversationType {
             configureCallback?(oldVc)
-            if let openMessageRequest,
-               oldVc.pendingOpenMessageRequest == nil {
+            if let openMessageRequest {
                 oldVc.queueOpenMessageRequest(openMessageRequest)
             } else if oldVc.pendingOpenMessageRequest != nil {
                 oldVc.performPendingOpenMessageRequestIfNeeded()
@@ -197,14 +209,17 @@ protocol LastChatsDisplayDelegate {
 
 extension LastChatsViewController: LastChatsDisplayDelegate {
     func shouldMakeDialogSelected(jid: String, owner: String, conversationType: ClientSynchronizationManager.ConversationType) {
-        if let index = self.datasource.firstIndex(where: {
-            return $0.jid == jid && $0.owner == owner && $0.conversationType == conversationType
-        }) {
+        if let indexPath = Self.indexPathForChat(
+            jid: jid,
+            owner: owner,
+            conversationType: conversationType,
+            in: self.datasourceSections
+        ) {
             self.tableView
                 .indexPathsForSelectedRows?
                 .compactMap { $0 }
                 .forEach { self.tableView.deselectRow(at: $0, animated: true) }
-            self.tableView.selectRow(at: IndexPath(row: index, section: 0), animated: true, scrollPosition: .middle)
+            self.tableView.selectRow(at: indexPath, animated: true, scrollPosition: .middle)
         }
     }
     

@@ -107,9 +107,27 @@ class XMPPBackgroundTask: NSObject {
             self.stream.keepAliveInterval = 60
 //            self.stream.addDelegate(self.avatarManager, delegateQueue: self.queue)
             self.stream.addDelegate(self, delegateQueue: self.queue)
+            self.logConnectionDiagnostics(
+                event: "stream_configured",
+                details: [
+                    "resource": self.stream.myJID?.resource ?? "none",
+                    "tlsPolicy": self.stream.startTLSPolicy.rawValue,
+                    "keepAlive": self.stream.keepAliveInterval
+                ]
+            )
             do {
+                self.logConnectionDiagnostics(
+                    event: "connect_start",
+                    details: [
+                        "resource": self.stream.myJID?.resource ?? "none",
+                        "host": self.stream.hostName ?? "jid-domain",
+                        "port": self.stream.hostPort,
+                        "timeout": 3
+                    ]
+                )
                 try self.stream.connect(withTimeout: 3)
             } catch {
+                self.logConnectionDiagnostics(event: "connect_throw", error: error)
                 DDLogDebug("XMPPActionManager: \(#function). \(error.localizedDescription)")
             }
             self.startMoment = Date().timeIntervalSince1970
@@ -131,9 +149,28 @@ class XMPPBackgroundTask: NSObject {
     }
     
     public final func disconnect() {
+        self.logConnectionDiagnostics(event: "disconnect_requested")
         self.stream.disconnect()
         self.stream.asyncSocket.disconnect()
         self.stream.removeDelegate(self)
         self.stream = XMPPStream()
+        self.logConnectionDiagnostics(event: "disconnect_completed_local")
+    }
+
+    final func logConnectionDiagnostics(
+        event: String,
+        details: [String: Any?] = [:],
+        rawXML: String? = nil,
+        error: Error? = nil
+    ) {
+        ConnectionDiagnosticsLogger.log(
+            event: event,
+            stream: .background,
+            jid: self.jid,
+            state: ConnectionDiagnosticsLogger.stateDescription(for: self.stream),
+            details: details,
+            rawXML: rawXML,
+            error: error
+        )
     }
 }

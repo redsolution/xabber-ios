@@ -142,6 +142,7 @@ extension ChatViewController {
             .observe(on: MainScheduler.asyncInstance)
             .subscribe {
                 (_) in
+                self.refreshPinnedMessagePanelIfNeeded()
                 if self.showSkeletonObserver.value {
                     _ = self.completeInitialBootstrapIfNeeded()
                     self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
@@ -178,6 +179,26 @@ extension ChatViewController {
                     .subscribe(onNext: { _ in
                         self.rebuildUnreadMentionItems()
                         self.refreshUnreadMentionsNavigatorState(animated: true)
+                    })
+                    .disposed(by: self.bag)
+                Observable
+                    .collection(
+                        from: realm
+                            .objects(GroupChatStorageItem.self)
+                            .filter("owner == %@ AND jid == %@", self.owner, self.jid),
+                        synchronousStart: true
+                    )
+                    .debounce(.milliseconds(30), scheduler: MainScheduler.asyncInstance)
+                    .observe(on: MainScheduler.asyncInstance)
+                    .subscribe(onNext: { results in
+                        guard let groupchat = results.first else {
+                            self.updatePinnedMessagePanelState(pinnedMessageId: nil, canUnpin: false)
+                            return
+                        }
+                        self.updatePinnedMessagePanelState(
+                            pinnedMessageId: groupchat.pinnedMessage,
+                            canUnpin: groupchat.canChangeSettings
+                        )
                     })
                     .disposed(by: self.bag)
             } catch {
@@ -423,80 +444,41 @@ extension ChatViewController {
                     self.updateStatusText()
                     return
                 }
-                if let item = results.first {
-                    switch item.subscribtion {
-                        case .none:
-                            switch item.ask {
-                                case .in, .both:
-                                    self.setTopPanelState(.allowSubscribtion)
-                                default:
-                                    if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                        self.setTopPanelState(.none)
-                                    }
-                            }
-                        case .to:
-                            switch item.ask {
-                                case .in:
-                                    self.setTopPanelState(.addContact)
-                                default:
-                                    if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                        self.setTopPanelState(.none)
-                                    }
-                            }
-                        case .undefined:
-                            switch item.ask {
-                                case .in:
-                                    self.setTopPanelState(.allowSubscribtion)
-                                default:
-                                    if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                        self.setTopPanelState(.none)
-                                    } else {
-                                        self.setTopPanelState(.addContact)
-                                    }
-                            }
-                        default:
-                            if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                self.setTopPanelState(.none)
-                            }
-                    }
-                    self.shouldShowNormalStatus = false
-                    switch item.subscribtion {
-                    case .from:
-                        switch item.ask {
-                            case .none:
-                                self.contactStatus = "Receives your presence updates"
-                                    .localizeString(id: "chat_receives_presence_updates", arguments: [])
-                            case .out:
-                                self.contactStatus = "Subscription request pending..."
-                                    .localizeString(id: "chat_subscription_request_pending", arguments: [])
-                            default:
-                                break
-                        }
-                    case .none:
-                        switch item.ask {
-                        case .out, .both:
-                            self.contactStatus = "Subscription request pending..."
-                                .localizeString(id: "chat_subscription_request_pending", arguments: [])
-                        case .in:
-                            self.contactStatus = "In your contacts"
-                                .localizeString(id: "contact_state_in_contact_list", arguments: [])
-                        case .none:
-                            self.contactStatus = "In your contacts"
-                                .localizeString(id: "contact_state_in_contact_list", arguments: [])
-                        }
-                    case .undefined:
-                        self.contactStatus = "Not in your contacts"
-                            .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
-                    default:
-                        self.shouldShowNormalStatus = true
-                        break
-                    }
-                } else {
-                    self.contactStatus = "Not in your contacts"
-                        .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
-//                    self.showSubscribtionBar(animated: true, state: .notInRoster)
+                let presentation = self.chatSubscriptionPresentation(
+                    rosterItem: results.first,
+                    realm: realm
+                )
+                self.applyChatSubscriptionPresentation(presentation)
+                if presentation.showsNormalPresenceStatus {
+                    self.applyNormalPresenceStatus(realm: realm)
                 }
-                self.updateStatusText()
+            }).disposed(by: bag)
+
+        Observable
+            .collection(from: realm
+                .objects(BlockStorageItem.self)
+                .filter("owner == %@ AND jid == %@", owner, jid))
+            .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe(onNext: { _ in
+                guard self.conversationType != .group,
+                      self.conversationType != .saved,
+                      !(XMPPJID(string: self.jid)?.isServer ?? false) else {
+                    return
+                }
+
+                let rosterItem = realm.object(
+                    ofType: RosterStorageItem.self,
+                    forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner)
+                )
+                let presentation = self.chatSubscriptionPresentation(
+                    rosterItem: rosterItem,
+                    realm: realm
+                )
+                self.applyChatSubscriptionPresentation(presentation)
+                if presentation.showsNormalPresenceStatus {
+                    self.applyNormalPresenceStatus(realm: realm)
+                }
             }).disposed(by: bag)
 
         

@@ -511,3 +511,46 @@ final class SensitiveMediaAnalysisService {
         }
     }
 }
+
+final class SensitiveMediaAnalysisStartupScheduler {
+    static let shared = SensitiveMediaAnalysisStartupScheduler()
+
+    private let lock = NSLock()
+    private let scan: () -> Void
+    private var preparedForLaunch = false
+    private var hasOnlineAccount = false
+    private var scanStarted = false
+
+    init(scan: @escaping () -> Void = {
+        MessageReferenceStorageItem.checkAllUndefinedForSesitive()
+    }) {
+        self.scan = scan
+    }
+
+    func prepareForLaunch() {
+        runScanIfNeeded {
+            preparedForLaunch = true
+        }
+    }
+
+    func accountDidReachOnline(jid: String) {
+        runScanIfNeeded {
+            hasOnlineAccount = true
+        }
+    }
+
+    private func runScanIfNeeded(_ mutation: () -> Void) {
+        let shouldRun: Bool
+        lock.lock()
+        mutation()
+        shouldRun = preparedForLaunch && hasOnlineAccount && !scanStarted
+        if shouldRun {
+            scanStarted = true
+        }
+        lock.unlock()
+
+        if shouldRun {
+            scan()
+        }
+    }
+}

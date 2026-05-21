@@ -26,6 +26,7 @@ import Foundation
 import XMPPFramework
 import SwiftKeychainWrapper
 import SwiftUI
+import CocoaAsyncSocket
 
 protocol XMPPChangePasswordManagerDelegate {
     func didReceiveResponse(title: String, description: String)
@@ -77,15 +78,35 @@ class XMPPChangePasswordManager: NSObject {
             self.stream.startTLSPolicy = XMPPStreamStartTLSPolicy.preferred
             self.stream.keepAliveInterval = 60
             self.stream.addDelegate(self, delegateQueue: self.queue)
+            self.logConnectionDiagnostics(
+                event: "stream_configured",
+                details: [
+                    "resource": self.stream.myJID?.resource ?? "none",
+                    "tlsPolicy": self.stream.startTLSPolicy.rawValue,
+                    "keepAlive": self.stream.keepAliveInterval,
+                    "oldPasswordPresent": oldPassword.isEmpty == false,
+                    "newPasswordPresent": newPassword.isEmpty == false
+                ]
+            )
             do {
+                self.logConnectionDiagnostics(
+                    event: "connect_start",
+                    details: [
+                        "resource": self.stream.myJID?.resource ?? "none",
+                        "host": self.stream.hostName ?? "jid-domain",
+                        "port": self.stream.hostPort,
+                        "timeout": 3
+                    ]
+                )
                 try self.stream.connect(withTimeout: 3)
             } catch {
+                self.logConnectionDiagnostics(event: "connect_throw", error: error)
                 DDLogDebug("XMPPChangePasswordManager: \(#function). \(error.localizedDescription)")
             }
         }
     }
     
-    public func makeNewPasswordIq() -> XMPPElement? {
+    public func makeNewPasswordIq() -> XMPPIQ? {
         guard let jid = self.jid,
               let username = jid.split(separator: "@").first,
               let domain = jid.split(separator: "@").last else {
@@ -104,7 +125,9 @@ class XMPPChangePasswordManager: NSObject {
     }
     
     private func close(_ sender: XMPPStream) {
+        self.logConnectionDiagnostics(event: "disconnect_requested")
         sender.disconnect()
+        self.logConnectionDiagnostics(event: "disconnect_completed_local")
         sender.myJID = nil
         self.jid = nil
         self.password = nil
@@ -112,11 +135,66 @@ class XMPPChangePasswordManager: NSObject {
         self.stream.removeDelegate(self)
         self.stream = XMPPStream()
     }
+
+    final func logConnectionDiagnostics(
+        event: String,
+        details: [String: Any?] = [:],
+        rawXML: String? = nil,
+        error: Error? = nil
+    ) {
+        ConnectionDiagnosticsLogger.log(
+            event: event,
+            stream: .changePassword,
+            jid: self.jid ?? self.stream.myJID?.bare,
+            state: ConnectionDiagnosticsLogger.stateDescription(for: self.stream),
+            details: details,
+            rawXML: rawXML,
+            error: error
+        )
+    }
 }
 
 extension XMPPChangePasswordManager: XMPPStreamDelegate {
+    func xmppStreamWillConnect(_ sender: XMPPStream) {
+        self.logConnectionDiagnostics(
+            event: "tcp_will_connect",
+            details: [
+                "resource": sender.myJID?.resource ?? "none",
+                "host": sender.hostName ?? "jid-domain",
+                "port": sender.hostPort
+            ]
+        )
+    }
+
+    func xmppStream(_ sender: XMPPStream, socketDidConnect socket: GCDAsyncSocket) {
+        self.logConnectionDiagnostics(
+            event: "tcp_socket_connected",
+            details: [
+                "connectedHost": socket.connectedHost ?? "unknown",
+                "connectedPort": socket.connectedPort
+            ]
+        )
+    }
+
+    func xmppStreamDidStartNegotiation(_ sender: XMPPStream) {
+        self.logConnectionDiagnostics(event: "xmpp_negotiation_started")
+    }
+
+    func xmppStreamDidSecure(_ sender: XMPPStream) {
+        self.logConnectionDiagnostics(event: "tls_secure")
+    }
+
+    func xmppStreamConnectDidTimeout(_ sender: XMPPStream) {
+        self.logConnectionDiagnostics(event: "tcp_connect_timeout")
+    }
+
     func xmppStreamDidConnect(_ sender: XMPPStream) {
+        self.logConnectionDiagnostics(
+            event: "xmpp_stream_connected",
+            details: ["resource": sender.myJID?.resource ?? "none"]
+        )
         guard let password = password else {
+            self.logConnectionDiagnostics(event: "authentication_missing_password")
             self.stream.disconnect()
             self.stream.myJID = nil
             self.jid = nil
@@ -124,21 +202,43 @@ extension XMPPChangePasswordManager: XMPPStreamDelegate {
             return
         }
         do {
+            self.logConnectionDiagnostics(
+                event: "authentication_branch_selected",
+                details: ["credentialKind": "password"]
+            )
             try sender.authenticate(withPassword: password)
         } catch {
+            self.logConnectionDiagnostics(event: "authentication_start_failed", error: error)
             DDLogDebug("XMPPChangePasswordManager: \(#function). \(error)")
         }
     }
     
     func xmppStreamDidAuthenticate(_ sender: XMPPStream) {
+        self.logConnectionDiagnostics(
+            event: "authentication_succeeded",
+            details: ["resource": sender.myJID?.resource ?? "none"]
+        )
         guard let iq = makeNewPasswordIq() else {
             close(sender)
             return
         }
+        self.logConnectionDiagnostics(
+            event: "stanza_send_iq",
+            details: [
+                "id": iq.elementID ?? "none",
+                "type": iq.type ?? "none",
+                "to": iq.to?.bare ?? "none"
+            ],
+            rawXML: iq.xmlString
+        )
         sender.send(iq)
     }
     
     func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
+        self.logConnectionDiagnostics(
+            event: "authentication_failed",
+            rawXML: error.xmlString
+        )
         close(sender)
         guard let text = error.elements(forName: "text").first?.stringValue else {
             return
@@ -147,6 +247,16 @@ extension XMPPChangePasswordManager: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didReceive iq: XMPPIQ) -> Bool {
+        self.logConnectionDiagnostics(
+            event: "stanza_receive_iq",
+            details: [
+                "id": iq.elementID ?? "none",
+                "type": iq.type ?? "none",
+                "to": iq.to?.bare ?? "none",
+                "from": iq.from?.bare ?? "none"
+            ],
+            rawXML: iq.xmlString
+        )
         
         switch iq.iqType {
         
@@ -185,5 +295,60 @@ extension XMPPChangePasswordManager: XMPPStreamDelegate {
         }
         
         return true
+    }
+
+    func xmppStream(_ sender: XMPPStream, didFailToSend iq: XMPPIQ, error: Error) {
+        self.logConnectionDiagnostics(
+            event: "stanza_send_failed_iq",
+            details: [
+                "id": iq.elementID ?? "none",
+                "type": iq.type ?? "none"
+            ],
+            rawXML: iq.xmlString,
+            error: error
+        )
+    }
+
+    func xmppStream(_ sender: XMPPStream, didReceiveError error: DDXMLElement) {
+        self.logConnectionDiagnostics(
+            event: "xmpp_stream_error",
+            rawXML: error.xmlString
+        )
+    }
+
+    func xmppStreamDidReceive(_ sender: XMPPStream, streamFeatures features: DDXMLElement) {
+        let hasStartTLS = features.element(forName: "starttls", xmlns: "urn:ietf:params:xml:ns:xmpp-tls") != nil
+        let hasBind = features.element(forName: "bind", xmlns: "urn:ietf:params:xml:ns:xmpp-bind") != nil
+        self.logConnectionDiagnostics(
+            event: "xmpp_stream_features",
+            details: [
+                "startTLS": hasStartTLS,
+                "bind": hasBind
+            ],
+            rawXML: features.xmlString
+        )
+    }
+
+    func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
+        self.logConnectionDiagnostics(
+            event: "tcp_disconnected",
+            error: error
+        )
+    }
+
+    func xmppStream(_ sender: XMPPStream, willSecureWithSettings settings: NSMutableDictionary) {
+        self.logConnectionDiagnostics(
+            event: "tls_will_secure",
+            details: ["manualTrustEvaluation": settings[GCDAsyncSocketManuallyEvaluateTrust] as? Bool ?? false]
+        )
+    }
+
+    func xmppStream(_ sender: XMPPStream, didReceive trust: SecTrust, completionHandler: @escaping (Bool) -> Void) {
+        let shouldTrust = true
+        self.logConnectionDiagnostics(
+            event: "tls_trust_evaluated",
+            details: ["shouldTrust": shouldTrust]
+        )
+        completionHandler(shouldTrust)
     }
 }

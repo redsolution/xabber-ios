@@ -50,7 +50,7 @@ extension ChatViewController {
         let checkButton: UIButton = {
             let button = UIButton()
 
-            button.setTitle("Check devices", for: .normal)
+            button.setTitle("Check contact’s devices", for: .normal)
             button.setTitleColor(.systemBlue, for: .normal)
             button.tintColor = MDCPalette.grey.tint500
             button.setContentHuggingPriority(.defaultHigh, for: .horizontal)
@@ -106,7 +106,7 @@ extension ChatViewController {
     internal func onUpdateTrustedDevicesBlockState(_ isBlocked: Bool, identityVerification: Bool) {
         if isBlocked {
 //            if !isTrustedDevicesBlockingPanelopen {
-                self.showTrustedDevicesBlockingPanel(identityVerification: identityVerification)
+                self.showTrustedDevicesBlockingPanel(state: identityVerification ? .identityVerification : .checkOwnDevices)
 //            }
         } else {
 //            if isTrustedDevicesBlockingPanelopen {
@@ -117,8 +117,42 @@ extension ChatViewController {
         self.titleLabel.sizeToFit()
         self.titleLabel.layoutIfNeeded()
     }
+
+    internal func currentOmemoSendAvailability() -> OmemoSendAvailabilityPolicy.Availability {
+        do {
+            let realm = try WRealm.safe()
+            return OmemoSendAvailabilityPolicy.evaluate(
+                owner: self.owner,
+                jid: self.jid,
+                conversationType: self.conversationType,
+                realm: realm
+            )
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return self.conversationType.isEncrypted ? .blockedByNoTrustedContactDevices : .canSend
+        }
+    }
+
+    internal func refreshOmemoSendAvailability() {
+        onUpdateOmemoSendAvailability(currentOmemoSendAvailability())
+    }
+
+    internal func onUpdateOmemoSendAvailability(_ availability: OmemoSendAvailabilityPolicy.Availability) {
+        switch availability {
+        case .blockedByOwnUntrustedDevices:
+            showTrustedDevicesBlockingPanel(state: .checkOwnDevices)
+        case .blockedByNoTrustedContactDevices:
+            showTrustedDevicesBlockingPanel(state: .checkContactDevices)
+        case .canSend, .canSendWithUntrustedContactDeviceWarning:
+            hideTrustedDevicesBlockingPanel()
+        }
+
+        self.titleLabel.attributedText = self.updateTitle()
+        self.titleLabel.sizeToFit()
+        self.titleLabel.layoutIfNeeded()
+    }
     
-    private func showTrustedDevicesBlockingPanel(identityVerification: Bool) {
+    private func showTrustedDevicesBlockingPanel(state: ModernXabberInputView.InputBarState) {
 //        if UIDevice.needBottomOffset {
 //            self.trustedDevicesBlockingPanel.frame = CGRect(x: 0, y: -8, width: self.view.frame.width, height: 84)
 //        } else {
@@ -128,7 +162,7 @@ extension ChatViewController {
 //        self.xabberInputBar.addSubview(self.trustedDevicesBlockingPanel)
 //        self.xabberInputBar.bringSubviewToFront(self.trustedDevicesBlockingPanel)
         if !self.isTimeSignatureBlockingPanelopen {
-            self.xabberInputView.changeState(to: identityVerification ? .identityVerification : .checkDevices)
+            self.xabberInputView.changeState(to: state)
             self.draftMessageText.accept(nil)
             self.xabberInputView.setComposerText(nil)
             self.isTrustedDevicesBlockingPanelopen = true
@@ -137,13 +171,28 @@ extension ChatViewController {
     
     private func hideTrustedDevicesBlockingPanel() {
         if !self.isTimeSignatureBlockingPanelopen {
-            if self.xabberInputView.state == .checkDevices || self.xabberInputView.state == .identityVerification {
+            if self.xabberInputView.state == .checkDevices ||
+                self.xabberInputView.state == .checkOwnDevices ||
+                self.xabberInputView.state == .checkContactDevices ||
+                self.xabberInputView.state == .identityVerification {
                 self.xabberInputView.changeState(to: .normal)
             }
             self.isTrustedDevicesBlockingPanelopen = false
             self.isTimeSignatureBlockingPanelopen = false
         }
 //        self.trustedDevicesBlockingPanel.removeFromSuperview()
+    }
+
+    internal func showToast(error message: String) {
+        let midX = self.view.frame.midX
+        let midY = self.view.bounds.maxY - (108 + self.view.safeAreaInsets.bottom)
+        self.view.makeToast(
+            message,
+            point: CGPoint(x: midX, y: midY),
+            title: nil,
+            image: nil,
+            completion: nil
+        )
     }
 }
 

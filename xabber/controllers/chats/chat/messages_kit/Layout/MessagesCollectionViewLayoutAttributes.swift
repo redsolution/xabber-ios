@@ -40,6 +40,7 @@ open class MessagesCollectionViewLayoutAttributes: UICollectionViewLayoutAttribu
     public var videosInlineViewSize: CGSize = .zero
     public var filesInlineViewSize: CGSize = .zero
     public var textInlineViewSize: CGSize = .zero
+    public var warningInlineViewSize: CGSize = .zero
     public var authorInlineSize: CGSize = .zero
     public var tail: String = "none"
     public var cornerRadius: String = "16"
@@ -75,6 +76,7 @@ open class MessagesCollectionViewLayoutAttributes: UICollectionViewLayoutAttribu
         copy.videosInlineViewSize = videosInlineViewSize
         copy.filesInlineViewSize = filesInlineViewSize
         copy.textInlineViewSize = textInlineViewSize
+        copy.warningInlineViewSize = warningInlineViewSize
         copy.authorInlineSize = authorInlineSize
         copy.tail = tail
         copy.tailWidth = tailWidth
@@ -108,6 +110,7 @@ open class MessagesCollectionViewLayoutAttributes: UICollectionViewLayoutAttribu
             && attributes.videosInlineViewSize == videosInlineViewSize
             && attributes.filesInlineViewSize == filesInlineViewSize
             && attributes.textInlineViewSize == textInlineViewSize
+            && attributes.warningInlineViewSize == warningInlineViewSize
             && attributes.tail == tail
             && attributes.tailWidth == tailWidth
             && attributes.timeMarkerSize == timeMarkerSize

@@ -102,13 +102,19 @@ class AudioRecorder: NSObject {
     }
     var onEndRecordCallback: ((URL?, Error?, Bool) -> Void)? = nil
     var currentRecordedFileUrl: URL? = nil
-    func startRecording(visualNotificationFreq timeInterval: TimeInterval = 0.05, completion: @escaping (URL?, Error?, Bool) -> Void, failure: @escaping(() -> Void)) {
+    func startRecording(
+        visualNotificationFreq timeInterval: TimeInterval = 0.05,
+        completion: @escaping (URL?, Error?, Bool) -> Void,
+        failure: @escaping(() -> Void),
+        started: ((URL) -> Void)? = nil
+    ) {
         func startRecordingReturn() {
             do {
                 let result = try internalStartRecording(with: timeInterval)
                 self.currentRecordedFileUrl = result
                 self.onEndRecordCallback = completion
                 self.isRunning = true
+                started?(result)
             } catch {
                 DDLogDebug("AudioRecorder: \(#function). \(error.localizedDescription)")
                 self.isRunning = false
@@ -154,7 +160,7 @@ class AudioRecorder: NSObject {
         
         guard let prepared = self.recorder?.prepareToRecord(),
             prepared != false,
-            let started = self.recorder?.record(atTime: self.recorder!.deviceCurrentTime + 0.4),
+            let started = self.recorder?.record(),
             started != false else {
             self.isRunning = false
             throw AudioErrorType.recordFailed
@@ -198,15 +204,26 @@ class AudioRecorder: NSObject {
         self.audioMeteringLevelTimer = nil
         
         if !self.isRunning {
+            if cancel {
+                self.deleteCurrentRecordingFile()
+                self.onEndRecordCallback = nil
+                self.recorder = nil
+                try? AVAudioSession.sharedInstance().setActive(false)
+                return
+            }
             DDLogDebug("Audio Recorder did fail to stop")
             throw AudioErrorType.notCurrentlyPlaying
         }
         self.isRunning = false
+        let shouldDeleteRecording = cancel
         self.recorder?.stop()
         try AVAudioSession.sharedInstance().setActive(false)
         self.recorder = nil
         if !cancel {
             self.onEndRecordCallback?(self.currentRecordedFileUrl, nil, shouldSend)
+            self.onEndRecordCallback = nil
+        } else if shouldDeleteRecording {
+            self.deleteCurrentRecordingFile()
             self.onEndRecordCallback = nil
         }
         DDLogDebug("Audio Recorder did stop successfully")
@@ -219,6 +236,7 @@ class AudioRecorder: NSObject {
         }
         
         self.recorder?.deleteRecording()
+        self.deleteCurrentRecordingFile()
         self.recorder = nil
         self.currentRecordPath = nil
         DDLogDebug("Audio Recorder did remove current record successfully")
@@ -231,6 +249,21 @@ class AudioRecorder: NSObject {
             let percentage: Float = pow(10, (0.05 * averagePower))
             NotificationCenter.default.post(name: .recorderDidUpdateMeteringLevelNotification, object: self, userInfo: [AudioRecorder.audioPercentageUserInfoKey: percentage])
         }
+    }
+
+    private func deleteCurrentRecordingFile() {
+        let urls = [self.currentRecordedFileUrl, self.currentRecordPath].compactMap { $0 }
+        urls.forEach { url in
+            do {
+                if FileManager.default.fileExists(atPath: url.path) {
+                    try FileManager.default.removeItem(at: url)
+                }
+            } catch {
+                DDLogDebug("AudioRecorder: \(#function). \(error.localizedDescription)")
+            }
+        }
+        self.currentRecordedFileUrl = nil
+        self.currentRecordPath = nil
     }
 }
 

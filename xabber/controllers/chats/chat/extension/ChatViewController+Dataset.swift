@@ -858,15 +858,235 @@ struct ChatDatasetApplyPlan {
     let invalidateLayout: Bool
 }
 
+struct ChatMessageContentUpdate: Equatable {
+    let primary: String
+    let indexPath: IndexPath
+}
+
+enum ChatMessageUpdateClassification: Equatable {
+    case contentOnly
+    case layout
+}
+
+struct ChatMessageLayoutSignature: Equatable {
+    enum CellKind: Equatable {
+        case text
+        case system
+        case sticker
+        case initial
+    }
+
+    enum MessageKindKey: Equatable {
+        case attributedText
+        case emoji
+        case sticker(String)
+        case call(String)
+        case system
+        case initial
+        case skeleton
+        case date
+        case unread
+    }
+
+    let cellKind: CellKind
+    let messageKindKey: MessageKindKey
+    let isOutgoing: Bool
+    let withAuthor: Bool
+    let withAvatar: Bool
+    let tailed: Bool
+    let hasIndicator: Bool
+    let messageWarningText: String?
+    let images: [String]
+    let videos: [String]
+    let files: [String]
+    let audios: [String]
+    let forwards: [ForwardSignature]
+
+    struct ForwardSignature: Equatable {
+        let primary: String
+        let isOutgoing: Bool
+        let images: [String]
+        let videos: [String]
+        let files: [String]
+        let audios: [String]
+        let subforwards: [ForwardSignature]
+
+        init(_ attachment: MessageAttachment) {
+            self.primary = attachment.primary
+            self.isOutgoing = attachment.outgoing
+            self.images = attachment.images.map(\.primary)
+            self.videos = attachment.videos.map(\.primary)
+            self.files = attachment.files.map(\.primary)
+            self.audios = attachment.audios.map(\.primary)
+            self.subforwards = attachment.subforwards.map(ForwardSignature.init)
+        }
+    }
+
+    init(_ message: ChatViewController.Datasource) {
+        self.cellKind = Self.cellKind(for: message.kind)
+        self.messageKindKey = Self.messageKindKey(for: message.kind)
+        self.isOutgoing = message.isOutgoing
+        self.withAuthor = message.withAuthor
+        self.withAvatar = message.withAvatar
+        self.tailed = message.tailed
+        self.hasIndicator = message.indicator != .none
+        self.messageWarningText = message.messageWarningText
+        self.images = message.images.map(\.primary)
+        self.videos = message.videos.map(\.primary)
+        self.files = message.files.map(\.primary)
+        self.audios = message.audios.map(\.primary)
+        self.forwards = message.forwards.map(ForwardSignature.init)
+    }
+
+    private static func cellKind(for kind: MessageKind) -> CellKind {
+        switch kind {
+        case .attributedText, .emoji, .skeleton:
+            return .text
+        case .system, .date, .unread, .call:
+            return .system
+        case .sticker:
+            return .sticker
+        case .initial:
+            return .initial
+        }
+    }
+
+    private static func messageKindKey(for kind: MessageKind) -> MessageKindKey {
+        switch kind {
+        case .attributedText:
+            return .attributedText
+        case .emoji:
+            return .emoji
+        case .sticker(let attachment):
+            return .sticker(attachment.primary)
+        case .call(let attachment):
+            return .call(attachment.primary)
+        case .system:
+            return .system
+        case .initial:
+            return .initial
+        case .skeleton:
+            return .skeleton
+        case .date:
+            return .date
+        case .unread:
+            return .unread
+        }
+    }
+}
+
+enum ChatMessageUpdatePolicy {
+    private static let sizeTolerance: CGFloat = 0.5
+
+    static func shouldUseReloadFallback(old: ChatDatasourceSnapshot, new: ChatDatasourceSnapshot) -> Bool {
+        old.hasDuplicateKeys || new.hasDuplicateKeys
+    }
+
+    static func classify(
+        old oldMessage: ChatViewController.Datasource,
+        new newMessage: ChatViewController.Datasource,
+        oldSize: CGSize?,
+        newSize: CGSize?
+    ) -> ChatMessageUpdateClassification {
+        guard oldMessage.primary == newMessage.primary else {
+            return .layout
+        }
+        guard ChatMessageLayoutSignature(oldMessage) == ChatMessageLayoutSignature(newMessage) else {
+            return .layout
+        }
+        guard let oldSize, let newSize, sizesAreEqual(oldSize, newSize) else {
+            return .layout
+        }
+        return .contentOnly
+    }
+
+    static func shouldUpdateContent(
+        old oldMessage: ChatViewController.Datasource,
+        new newMessage: ChatViewController.Datasource
+    ) -> Bool {
+        !ChatViewController.Datasource.compareContent(oldMessage, newMessage) ||
+        messageKindContentKey(oldMessage.kind) != messageKindContentKey(newMessage.kind) ||
+        attributedTextKey(oldMessage.timeMarkerText) != attributedTextKey(newMessage.timeMarkerText) ||
+        attachmentContentKey(oldMessage) != attachmentContentKey(newMessage)
+    }
+
+    private static func sizesAreEqual(_ lhs: CGSize, _ rhs: CGSize) -> Bool {
+        abs(lhs.width - rhs.width) <= sizeTolerance &&
+        abs(lhs.height - rhs.height) <= sizeTolerance
+    }
+
+    private static func messageKindContentKey(_ kind: MessageKind) -> String {
+        switch kind {
+        case .attributedText(let text):
+            return "attributedText:\(attributedTextKey(text))"
+        case .emoji(let text):
+            return "emoji:\(text)"
+        case .sticker(let attachment):
+            return "sticker:\(attachment.primary):\(attachment.url?.absoluteString ?? ""):\(attachment.size)"
+        case .call(let attachment):
+            return "call:\(attachment.primary):\(attachment.incoming):\(attachment.missed)"
+        case .system(let text):
+            return "system:\(attributedTextKey(text))"
+        case .initial(let text):
+            return "initial:\(attributedTextKey(text))"
+        case .skeleton(let text):
+            return "skeleton:\(attributedTextKey(text))"
+        case .date(let text):
+            return "date:\(attributedTextKey(text))"
+        case .unread(let text):
+            return "unread:\(attributedTextKey(text))"
+        }
+    }
+
+    private static func attributedTextKey(_ text: NSAttributedString?) -> String {
+        guard let text else { return "" }
+        return text.string
+    }
+
+    private static func attachmentContentKey(_ message: ChatViewController.Datasource) -> String {
+        [
+            message.images.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.size):\($0.isSensitive):\($0.isSensitiveRevealed)" }.joined(separator: "|"),
+            message.videos.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.previewUrl?.absoluteString ?? ""):\($0.size):\($0.duration):\($0.downloaded):\($0.isSensitive):\($0.isSensitiveRevealed)" }.joined(separator: "|"),
+            message.files.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.name):\($0.size):\($0.downloaded)" }.joined(separator: "|"),
+            message.audios.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.duration):\($0.downloaded):\(pcmKey($0.pcm))" }.joined(separator: "|"),
+            message.forwards.map(forwardContentKey(_:)).joined(separator: "|")
+        ].joined(separator: "#")
+    }
+
+    private static func forwardContentKey(_ attachment: MessageAttachment) -> String {
+        [
+            attachment.primary,
+            attachment.author,
+            attachment.outgoing.description,
+            attributedTextKey(attachment.textMessage),
+            attributedTextKey(attachment.timeMarker),
+            attachment.images.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.size):\($0.isSensitive):\($0.isSensitiveRevealed)" }.joined(separator: "|"),
+            attachment.videos.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.previewUrl?.absoluteString ?? ""):\($0.size):\($0.duration):\($0.downloaded):\($0.isSensitive):\($0.isSensitiveRevealed)" }.joined(separator: "|"),
+            attachment.files.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.name):\($0.size):\($0.downloaded)" }.joined(separator: "|"),
+            attachment.audios.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.duration):\($0.downloaded):\(pcmKey($0.pcm))" }.joined(separator: "|"),
+            attachment.subforwards.map(forwardContentKey(_:)).joined(separator: "|")
+        ].joined(separator: "#")
+    }
+
+    private static func pcmKey(_ pcm: [Float]) -> String {
+        pcm.map { String(format: "%.3f", $0) }.joined(separator: ",")
+    }
+}
+
 struct ChatDatasourceCoordinator {
     struct DiffResult {
         let inserts: IndexSet
         let deletes: IndexSet
         let reloads: [IndexPath]
+        let contentOnlyUpdates: [ChatMessageContentUpdate]
         let moves: [(from: IndexPath, to: IndexPath)]
 
         var isEmpty: Bool {
-            inserts.isEmpty && deletes.isEmpty && reloads.isEmpty && moves.isEmpty
+            inserts.isEmpty && deletes.isEmpty && reloads.isEmpty && contentOnlyUpdates.isEmpty && moves.isEmpty
+        }
+
+        var hasCollectionUpdates: Bool {
+            !inserts.isEmpty || !deletes.isEmpty || !reloads.isEmpty || !moves.isEmpty
         }
     }
 
@@ -875,18 +1095,64 @@ struct ChatDatasourceCoordinator {
     }
 
     static func diff(old: ChatDatasourceSnapshot, new: ChatDatasourceSnapshot) -> DiffResult {
+        diff(old: old, new: new, oldSizeProvider: nil, newSizeProvider: nil)
+    }
+
+    static func diff(
+        old: ChatDatasourceSnapshot,
+        new: ChatDatasourceSnapshot,
+        oldSizeProvider: ((ChatViewController.Datasource) -> CGSize?)?,
+        newSizeProvider: ((ChatViewController.Datasource) -> CGSize?)?
+    ) -> DiffResult {
         let changes = DeepDiff.diff(old: old.items, new: new.items)
         let inserts = IndexSet(changes.compactMap { $0.insert?.index })
         let deletes = IndexSet(changes.compactMap { $0.delete?.index })
-        let reloads = changes.compactMap { change -> IndexPath? in
-            guard let replace = change.replace else { return nil }
-            return IndexPath(row: 0, section: replace.index)
-        }
         let moves = changes.compactMap { change -> (from: IndexPath, to: IndexPath)? in
             guard let move = change.move else { return nil }
             return (IndexPath(row: 0, section: move.fromIndex), IndexPath(row: 0, section: move.toIndex))
         }
-        return DiffResult(inserts: inserts, deletes: deletes, reloads: reloads, moves: moves)
+
+        var contentOnlyUpdates: [ChatMessageContentUpdate] = []
+        var reloads: [IndexPath] = []
+        var handledSections = Set<Int>()
+
+        changes.compactMap(\.replace).forEach { replace in
+            handledSections.insert(replace.index)
+        }
+
+        let commonCount = min(old.items.count, new.items.count)
+        for index in 0..<commonCount {
+            guard !deletes.contains(index), !inserts.contains(index) else { continue }
+            let oldItem = old.items[index]
+            let newItem = new.items[index]
+            guard oldItem.primary == newItem.primary else { continue }
+            guard handledSections.contains(index) ||
+                    ChatMessageUpdatePolicy.shouldUpdateContent(old: oldItem, new: newItem) else {
+                continue
+            }
+
+            let indexPath = IndexPath(row: 0, section: index)
+            let classification = ChatMessageUpdatePolicy.classify(
+                old: oldItem,
+                new: newItem,
+                oldSize: oldSizeProvider?(oldItem),
+                newSize: newSizeProvider?(newItem)
+            )
+            switch classification {
+            case .contentOnly:
+                contentOnlyUpdates.append(ChatMessageContentUpdate(primary: newItem.primary, indexPath: indexPath))
+            case .layout:
+                reloads.append(indexPath)
+            }
+        }
+
+        return DiffResult(
+            inserts: inserts,
+            deletes: deletes,
+            reloads: reloads,
+            contentOnlyUpdates: contentOnlyUpdates,
+            moves: moves
+        )
     }
 
     static func compatibleForTargetedApply(old: ChatDatasourceSnapshot, new: ChatDatasourceSnapshot) -> Bool {
@@ -894,6 +1160,10 @@ struct ChatDatasourceCoordinator {
         guard old.items.count == new.items.count else { return false }
         guard !old.hasDuplicateKeys, !new.hasDuplicateKeys else { return false }
         return zip(old.items, new.items).allSatisfy { $0.primary == $1.primary }
+    }
+
+    static func supportsTargetedApply(old: ChatDatasourceSnapshot, new: ChatDatasourceSnapshot) -> Bool {
+        !old.items.isEmpty && !ChatMessageUpdatePolicy.shouldUseReloadFallback(old: old, new: new)
     }
 }
 
@@ -1101,6 +1371,7 @@ extension ChatViewController {
             }
             completion?()
             self.refreshUnreadMentionsNavigatorState()
+            self.updateVisibleVoiceMessageQueue()
             if self.initialHistoryAppearancePending,
                ChatInitialHistoryAppearancePolicy.shouldFinish(itemCount: items.count, containsOnlyFakeMessages: containsOnlyFakeMessages) {
                 self.hasRenderedStableInitialHistory = true
@@ -1160,7 +1431,7 @@ extension ChatViewController {
             }
             finish()
         case .targetedDiff:
-            if ChatInitialHistoryAppearancePolicy.shouldUseReloadFallbackForTargetedDiff(animated: shouldAnimateApply) {
+            if previousSnapshot.items.isEmpty {
                 self.datasource = items
                 self.datasourceSnapshot = newSnapshot
                 runWithoutAnimation {
@@ -1170,7 +1441,7 @@ extension ChatViewController {
                 return
             }
 
-            guard ChatDatasourceCoordinator.compatibleForTargetedApply(old: previousSnapshot, new: newSnapshot) else {
+            guard ChatDatasourceCoordinator.supportsTargetedApply(old: previousSnapshot, new: newSnapshot) else {
                 self.datasource = items
                 self.datasourceSnapshot = newSnapshot
                 if shouldAnimateApply {
@@ -1184,7 +1455,13 @@ extension ChatViewController {
                 return
             }
 
-            let diff = ChatDatasourceCoordinator.diff(old: previousSnapshot, new: newSnapshot)
+            let flowLayout = self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout
+            let diff = ChatDatasourceCoordinator.diff(
+                old: previousSnapshot,
+                new: newSnapshot,
+                oldSizeProvider: { flowLayout?.sizeForMessage($0) },
+                newSizeProvider: { flowLayout?.sizeForMessage($0) }
+            )
             self.datasource = items
             self.datasourceSnapshot = newSnapshot
 
@@ -1193,8 +1470,36 @@ extension ChatViewController {
                 return
             }
 
+            let applyContentOnlyUpdates = {
+                diff.contentOnlyUpdates.forEach { update in
+                    self.updateVisibleMessageContent(primary: update.primary)
+                }
+            }
+
+            let applyLayoutUpdates = {
+                guard !diff.reloads.isEmpty else { return }
+                diff.reloads.forEach { indexPath in
+                    guard indexPath.section < items.count else { return }
+                    flowLayout?.invalidateLastMessageCachedSize(primary: items[indexPath.section].primary)
+                }
+                self.messagesCollectionView.reconfigureItems(at: diff.reloads)
+            }
+
+            let finishAfterNonStructuralUpdates = {
+                runWithoutAnimation {
+                    applyLayoutUpdates()
+                    applyContentOnlyUpdates()
+                }
+                finish()
+            }
+
+            guard diff.hasCollectionUpdates else {
+                finishAfterNonStructuralUpdates()
+                return
+            }
+
             let updates = {
-                self.messagesCollectionView.performBatchUpdates({
+                let batchUpdates = {
                     if !diff.deletes.isEmpty {
                         self.messagesCollectionView.deleteSections(diff.deletes)
                     }
@@ -1202,23 +1507,51 @@ extension ChatViewController {
                         self.messagesCollectionView.insertSections(diff.inserts)
                     }
                     diff.moves.forEach {
-                        self.messagesCollectionView.moveItem(at: $0.from, to: $0.to)
+                        self.messagesCollectionView.moveSection($0.from.section, toSection: $0.to.section)
                     }
-                    if !diff.reloads.isEmpty {
-                        self.messagesCollectionView.reconfigureItems(at: diff.reloads)
+                }
+                if shouldAnimateApply {
+                    self.messagesCollectionView.performBatchUpdates(batchUpdates, completion: { _ in
+                        finishAfterNonStructuralUpdates()
+                    })
+                } else {
+                    runWithoutAnimation {
+                        self.messagesCollectionView.performBatchUpdates(batchUpdates, completion: { _ in
+                            finishAfterNonStructuralUpdates()
+                        })
                     }
-                }, completion: { _ in
-                    finish()
-                })
-            }
-            if shouldAnimateApply {
-                updates()
-            } else {
-                runWithoutAnimation {
-                    updates()
                 }
             }
+            updates()
         }
+    }
+
+    @discardableResult
+    internal func updateVisibleMessageContent(primary: String) -> Bool {
+        guard let section = datasourceSnapshot.primaryIndex[primary],
+              section < datasource.count else {
+            return false
+        }
+
+        let indexPath = IndexPath(row: 0, section: section)
+        guard let cell = messagesCollectionView.cellForItem(at: indexPath) as? MessageCollectionViewCell else {
+            return false
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let wereAnimationsEnabled = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+        UIView.performWithoutAnimation {
+            cell.reconfigureContent(with: datasource[section], at: indexPath, and: messagesCollectionView)
+            cell.setNeedsLayout()
+            cell.layoutIfNeeded()
+            cell.layer.removeAllAnimations()
+            cell.contentView.layer.removeAllAnimations()
+        }
+        UIView.setAnimationsEnabled(wereAnimationsEnabled)
+        CATransaction.commit()
+        return true
     }
 
     internal var datasetCoordinator: ChatDatasetCoordinator {
@@ -2471,6 +2804,7 @@ extension ChatViewController {
                 state: item.displayAs == .call ? .none : item.state,
                 searchString:  searchString,
                 errorMetadata: item.errorMetadata,
+                messageWarningText: item.messageWarningText,
                 burnDate: item.burnDate,
                 afterburnInterval: item.afterburnInterval,
                 archivedId: item.archivedId,

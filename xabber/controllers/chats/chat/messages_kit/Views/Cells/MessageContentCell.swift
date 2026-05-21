@@ -212,7 +212,7 @@ public class MessageContentCell: MessageCollectionViewCell {
         self.delegate?.didTapErrorButton(cell: self)
     }
 
-    override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
+    private func applyBaseContent(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
         guard let dataSource = messagesCollectionView.messagesDataSource else {
             fatalError(MessageKitError.nilMessagesDataSource)
         }
@@ -231,6 +231,14 @@ public class MessageContentCell: MessageCollectionViewCell {
         self.contentView.backgroundColor = .clear
 //        drawDeliveryIndicator(at: indexPath, in: messagesCollectionView)
         drawSelectionMode()
+    }
+
+    override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
+        applyBaseContent(with: message, at: indexPath, and: messagesCollectionView)
+    }
+
+    override func reconfigureContent(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
+        applyBaseContent(with: message, at: indexPath, and: messagesCollectionView)
     }
 
     open func hilghlightCell(color: UIColor, duration: TimeInterval) {

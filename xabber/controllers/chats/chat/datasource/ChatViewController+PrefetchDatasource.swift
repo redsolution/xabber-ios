@@ -113,6 +113,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             value.insert(self.datasource[indexPath.section].primary)
             self.messagesToReadObserver.accept(value)
         }
+        self.updateVisibleVoiceMessageQueue()
     }
     
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
@@ -124,6 +125,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
                 self.messagesToReadObserver.accept(value)
             }
         }
+        self.updateVisibleVoiceMessageQueue()
     }
     
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -153,6 +155,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
                 self.messagesToReadObserver.accept(value)
             }
         }
+        self.updateVisibleVoiceMessageQueue()
     }
     
     

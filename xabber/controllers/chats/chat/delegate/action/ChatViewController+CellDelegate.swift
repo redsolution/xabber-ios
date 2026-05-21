@@ -184,224 +184,32 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func didStopPlayingAudioCell() {
-        func resetState() {
-            self.currentPlayingView?.resetState()
-            self.sharedPlayerPaneldelegae?.shouldHide()
-            AudioManager.shared.player = nil
-            self.currentPlayingView = nil
-            self.currentPlayingUrl = nil
-            self.hideSharedAudioPanel()
-        }
-        AudioManager.shared.removeMulticastDelegate(self.currentPlayingView)
-        if let lastPrimary = self.currentPlayingView?.primary {
-            do {
-                let realm = try WRealm.safe()
-                if let instance = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: lastPrimary) {
-                    
-                    let primary = instance.messageId
-                    guard let lastIndex = self.datasource.firstIndex(where: { $0.primary == primary }) else {
-                        resetState()
-                        return
-                    }
-                    if lastIndex > 0 {
-                        var nextIndex = -1
-                        self.datasource.prefix(lastIndex).enumerated().forEach {
-                            (offset, item) in
-                            if item.audios.isNotEmpty {
-                                nextIndex = offset
-                            }
-                        }
-                        if nextIndex < 0 {
-                            resetState()
-                        } else {
-                            guard let cell = self.messagesCollectionView.cellForItem(at: IndexPath(item: 0, section: nextIndex)) as? TextMessageCell else {
-                                resetState()
-                                return
-                            }
-                            let view = cell.audiosView.views.first
-                            let url = self.datasource[nextIndex].audios.first?.url
-                            self.currentPlayingView = view
-                            self.didTapOnAudio(view, url: url)
-                        }
-                    } else {
-                        resetState()
-                    }
-                } else {
-                    resetState()
-                }
-            } catch {
-                resetState()
-            }
-        } else {
-            resetState()
-        }
+        VoiceMessagePlaybackCoordinator.shared.stopPlayback()
     }
     
     func canChangeAudioPosition(for referencePrimary: String) -> Bool {
-        if AudioManager.shared.player?.isPlaying ?? false {
-            return self.currentPlayingView?.primary == referencePrimary
-        }
-        return false
+        VoiceMessagePlaybackCoordinator.shared.canSeek(referencePrimary: referencePrimary)
     }
     
     func didSetAudioPosition(_ audioView: InlineAudiosGridView.AudioView?, percentage: Float) -> TimeInterval {
-        guard let duration = AudioManager.shared.player?.duration else {
-            return 0
-        }
-        if audioView?.primary == self.currentPlayingView?.primary {
-            //        AudioManager.shared.removeMulticastDelegate(self.currentPlayingView)
-            let position: TimeInterval = TimeInterval(Float(duration) * percentage)
-            AudioManager.shared.player?.currentTime = position
-            //        AudioManager.shared.addMulticastDelegate(self.currentPlayingView)
-            let newDuration = position
-            return newDuration
-        } else {
-            return 0
-        }
+        guard let primary = audioView?.primary else { return 0 }
+        return VoiceMessagePlaybackCoordinator.shared.seek(referencePrimary: primary, percentage: percentage)
     }
     
     func didTapOnAudio(_ audioView: InlineAudiosGridView.AudioView?, url: URL?) {
-//        self.audioPlayer.
-        if self.audioIsInLoading {
-            return
-        }
         if self.recordedReferenceObject != nil {
             return
         }
         if AudioRecorder.shared.isRunning {
             return
         }
-        self.currentPlayingUrl = nil
-        AudioManager.shared.removeMulticastDelegate(self.xabberInputView)
-        func play(url: URL) throws {
-            AudioManager.shared.removeMulticastDelegate(self.currentPlayingView)
-            self.currentPlayingView?.resetState()
-            if let data = try AudioManager.shared.load(url) {
-                AudioManager.shared.player = try AVAudioPlayer(data: data, fileTypeHint: AVFileType.m4a.rawValue)
-                audioView?.resetWaveform()
-                audioView?.play(for: AudioManager.shared.player?.duration ?? audioView?.duration ?? 0)
-//                            AudioManager.shared.player?.delegate = audioView
-                AudioManager.shared.addMulticastDelegate(audioView)
-                self.currentPlayingView = audioView
-//                self.currentPlayingUrl = url
-            } else {
-                if let primary = audioView?.primary {
-                    audioView?.displayDownload()
-                    self.audioIsInLoading = true
-                    let url = try AudioMessageReceiver.shared.receive(primary: primary)
-                    audioView?.url = url
-                    if let data = try AudioManager.shared.load(url) {
-                        AudioManager.shared.player = try AVAudioPlayer(data: data, fileTypeHint: AVFileType.m4a.rawValue)
-                        audioView?.resetWaveform()
-                        audioView?.play(for: AudioManager.shared.player?.duration ?? audioView?.duration ?? 0)
-//                                    AudioManager.shared.player?.delegate = audioView
-                        AudioManager.shared.addMulticastDelegate(audioView)
-                        self.currentPlayingView = audioView
-//                        self.currentPlayingUrl = url
-                    } else {
-                        self.view.makeToast("Unable to play sound at the moment, please try again".localizeString(id: "audio_error_play_failed", arguments: []))
-                    }
-                }
-            }
-            AudioManager.shared.loadMetadata(reference: audioView?.primary)
-            self.configureSharedAudioPanel()
-            AudioManager.shared.player?.play()
-            self.sharedPlayerPaneldelegae?.shouldShow()
-            self.audioIsInLoading = false
-        }
-        
-        do {
-            if AudioManager.shared.player == nil {
-                if let url = url {
-                    try play(url: url)
-                } else {
-                    if let primary = audioView?.primary {
-                        let url = try AudioMessageReceiver.shared.receive(primary: primary)
-                        audioView?.url = url
-                        try play(url: url)
-                    } else {
-                        self.view.makeToast("Unable to play sound at the moment, please try again".localizeString(id: "audio_error_play_failed", arguments: []))
-                    }
-                }
-            } else {
-                if (AudioManager.shared.player?.isPlaying ?? false) {
-                    if let url = url {
-                        if self.currentPlayingView?.url == url {
-                            AudioManager.shared.player?.pause()
-                            audioView?.pause()
-                            self.sharedAudioPlayerPanel?.swapState(to: .paused)
-                            self.sharedPlayerPaneldelegae?.shouldPause()
-                        } else {
-                            self.sharedPlayerPaneldelegae?.shouldHide()
-                            if AudioManager.shared.player != nil {
-                                AudioManager.shared.audioPlayerDidFinishPlaying(AudioManager.shared.player!, successfully: false)
-                            }
-                            AudioManager.shared.player?.stop()
-                            try play(url: url)
-                        }
-                    } else {
-                        if let primary = audioView?.primary {
-                            let url = try AudioMessageReceiver.shared.receive(primary: primary)
-//                            try play(url: url)
-                            if self.currentPlayingView?.url == url {
-                                AudioManager.shared.player?.pause()
-                                audioView?.pause()
-                                self.sharedAudioPlayerPanel?.swapState(to: .paused)
-                                self.sharedPlayerPaneldelegae?.shouldPause()
-                            } else {
-                                self.sharedPlayerPaneldelegae?.shouldHide()
-                                if AudioManager.shared.player != nil {
-                                    AudioManager.shared.audioPlayerDidFinishPlaying(AudioManager.shared.player!, successfully: false)
-                                }
-                                AudioManager.shared.player?.stop()
-                                try play(url: url)
-                            }
-                        } else {
-                            self.view.makeToast("Unable to play sound at the moment, please try again".localizeString(id: "audio_error_play_failed", arguments: []))
-                        }
-                    }
-                } else {
-                    self.currentPlayingView?.resetState()
-                    if let url = url {
-                        if self.currentPlayingView?.url == url {
-                            AudioManager.shared.player?.play()
-                            audioView?.continuePlay()
-                            self.sharedAudioPlayerPanel?.swapState(to: .playing)
-                            self.sharedPlayerPaneldelegae?.shouldPlay()
-                        } else {
-//                            self.sharedPlayerPaneldelegae?.shouldHide()
-                            if AudioManager.shared.player != nil {
-                                AudioManager.shared.audioPlayerDidFinishPlaying(AudioManager.shared.player!, successfully: false)
-                            }
-                            AudioManager.shared.player?.stop()
-                            try play(url: url)
-                        }
-                    } else {
-                        if let primary = audioView?.primary {
-                            let url = try AudioMessageReceiver.shared.receive(primary: primary)
-//                            try play(url: url)
-                            if self.currentPlayingView?.url == url {
-                                AudioManager.shared.player?.play()
-                                audioView?.continuePlay()
-                                self.sharedAudioPlayerPanel?.swapState(to: .playing)
-                                self.sharedPlayerPaneldelegae?.shouldPlay()
-                            } else {
-    //                            self.sharedPlayerPaneldelegae?.shouldHide()
-                                if AudioManager.shared.player != nil {
-                                    AudioManager.shared.audioPlayerDidFinishPlaying(AudioManager.shared.player!, successfully: false)
-                                }
-                                AudioManager.shared.player?.stop()
-                                try play(url: url)
-                            }
-                        } else {
-                            self.view.makeToast("Unable to play sound at the moment, please try again".localizeString(id: "audio_error_play_failed", arguments: []))
-                        }
-                    }
-                }
-            }
-        } catch {
+        guard let primary = audioView?.primary,
+              let descriptor = self.voiceMessageDescriptor(referencePrimary: primary) else {
             self.view.makeToast("Unable to play sound at the moment, please try again".localizeString(id: "audio_error_play_failed", arguments: []))
+            return
         }
+        audioView?.url = descriptor.decodedURL
+        VoiceMessagePlaybackCoordinator.shared.handleTap(descriptor)
     }
     
     func didTapErrorButton(cell: MessageCollectionViewCell) {
@@ -1255,45 +1063,63 @@ extension ChatViewController: MessageCellDelegate {
     
 }
 
-extension ChatViewController: SharedPlayerViewDelegate {
-    func sharedPlayerViewShouldClose(_ view: SharedPlayerView) {
-        if self.currentPlayingView != nil {
-            self.sharedAudioPlayerPanel?.stopTimer()
-            self.currentPlayingView?.pause()
-            self.currentPlayingView?.resetState()
-            self.currentPlayingUrl = nil
-            self.currentPlayingView = nil
-            AudioManager.shared.player?.stop()
-            AudioManager.shared.player = nil
+extension ChatViewController: AudioPlayerBarViewDelegate {
+    func audioPlayerBarViewDidTapClose(_ view: AudioPlayerBarView) {
+        if VoiceMessagePlaybackCoordinator.shared.hasActivePlayback {
+            VoiceMessagePlaybackCoordinator.shared.stopPlayback()
             self.hideSharedAudioPanel()
             self.sharedPlayerPaneldelegae?.shouldHide()
-        } else {
-            self.hideSharedAudioPanel()
-            self.sharedPlayerPaneldelegae?.shouldHide()
-            self.xabberInputView.recordAndPlayPanel.pause()
-            AudioManager.shared.player?.pause()
+            return
         }
-    }
-    
-    func sharedPlayerViewPlay(_ view: SharedPlayerView) {
-        if self.currentPlayingView != nil {
-            self.currentPlayingView?.continuePlay()
-        } else {
-            self.xabberInputView.recordAndPlayPanel.continuePlay()
-        }
-        AudioManager.shared.player?.play()
-    }
-    
-    func sharedPlayerViewPause(_ view: SharedPlayerView) {
-        if self.currentPlayingView != nil {
-            self.currentPlayingView?.pause()
-        } else {
-            self.xabberInputView.recordAndPlayPanel.pause()
-        }
+        self.hideSharedAudioPanel()
+        self.sharedPlayerPaneldelegae?.shouldHide()
+        self.xabberInputView.recordAndPlayPanel.pause()
         AudioManager.shared.player?.pause()
     }
     
-    func sharedPlayerViewTapOnTitle(_ view: SharedPlayerView) {
+    func audioPlayerBarViewDidTapPlayPause(_ view: AudioPlayerBarView) {
+        if let snapshot = VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot,
+           let descriptor = self.voiceMessageDescriptor(referencePrimary: snapshot.referencePrimary) {
+            VoiceMessagePlaybackCoordinator.shared.handleTap(descriptor)
+            return
+        }
+        if AudioManager.shared.player?.isPlaying == true {
+            self.xabberInputView.recordAndPlayPanel.pause()
+            AudioManager.shared.player?.pause()
+            self.sharedAudioPlayerPanel?.swapState(to: .paused)
+        } else {
+            self.xabberInputView.recordAndPlayPanel.continuePlay()
+            AudioManager.shared.player?.play()
+            self.sharedAudioPlayerPanel?.swapState(to: .playing)
+        }
+    }
+    
+    func audioPlayerBarViewDidTapTitle(_ view: AudioPlayerBarView) {
+        if let route = VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot?.route,
+           route.owner == self.owner,
+           route.jid == self.jid,
+           route.conversationType == self.conversationType {
+            self.scrollToMessage(
+                messagePrimary: route.messagePrimary,
+                archivedId: route.archivedId,
+                date: route.sourceDate,
+                centered: true,
+                animated: false,
+                highlight: true
+            )
+            return
+        }
+        if let primary = VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot?.containerMessagePrimary {
+            self.scrollToMessage(
+                messagePrimary: primary,
+                archivedId: nil,
+                date: Date(),
+                centered: true,
+                animated: false,
+                highlight: true
+            )
+            return
+        }
         if let primary = AudioManager.shared.messagePrimary {
             self.scrollToSearchedMessage(primary: primary)
         }

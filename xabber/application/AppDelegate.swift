@@ -77,12 +77,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         realmMigrations(scheme: 5)
         #if RELEASE
         _DEBUG = false
-        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
+        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.off)
         #else
-        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
+        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.off)
         #endif
         
-        if SettingManager.logEnabled {
+        #if RELEASE
+        let shouldEnableFileLogging = SettingManager.logEnabled
+        #else
+        let shouldEnableFileLogging = true
+        #endif
+
+        if shouldEnableFileLogging {
             let fileLogger = DDFileLogger()
             fileLogger.doNotReuseLogFiles = true
             fileLogger.rollingFrequency = 60 * 60 * 24
@@ -155,6 +161,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func applicationWillResignActive(_ application: UIApplication) {
         DDLogError("resign")
+        ConnectionDiagnosticsLogger.log(
+            event: "app_lifecycle_will_resign_active",
+            stream: .primary,
+            jid: nil,
+            details: [
+                "source": "appDelegate",
+                "activeSceneCoordinator": AppRootCoordinator.active != nil,
+                "willLoadAccounts": AppRootCoordinator.active == nil
+            ]
+        )
         guard AppRootCoordinator.active == nil else {
             return
         }
@@ -168,12 +184,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
      
     func applicationDidEnterBackground(_ application: UIApplication) {
         DDLogError("enter background")
+        ConnectionDiagnosticsLogger.log(
+            event: "app_lifecycle_did_enter_background",
+            stream: .primary,
+            jid: nil,
+            details: [
+                "source": "appDelegate",
+                "activeSceneCoordinator": AppRootCoordinator.active != nil,
+                "willDisconnectAccounts": AppRootCoordinator.active == nil,
+                "accountCount": AccountManager.shared.users.count
+            ]
+        )
         guard AppRootCoordinator.active == nil else {
             return
         }
         AccountManager.shared.users.forEach {
             user in
-            user.xmppStream.asyncSocket.disconnect()
+            user.disconnect(hard: true)
         }
         if UIDevice.current.userInterfaceIdiom == .pad {
 //            self.splitViewController?.show(.supplementary)
@@ -188,6 +215,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationWillEnterForeground(_ application: UIApplication) {
         DDLogError("enter foreground")
+        ConnectionDiagnosticsLogger.log(
+            event: "app_lifecycle_will_enter_foreground",
+            stream: .primary,
+            jid: nil,
+            details: [
+                "source": "appDelegate",
+                "activeSceneCoordinator": AppRootCoordinator.active != nil
+            ]
+        )
         guard AppRootCoordinator.active == nil else {
             return
         }
@@ -199,6 +235,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         DDLogError("did become active")
+        ConnectionDiagnosticsLogger.log(
+            event: "app_lifecycle_did_become_active",
+            stream: .primary,
+            jid: nil,
+            details: [
+                "source": "appDelegate",
+                "activeSceneCoordinator": AppRootCoordinator.active != nil
+            ]
+        )
         guard AppRootCoordinator.active == nil else {
             return
         }

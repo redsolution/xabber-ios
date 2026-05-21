@@ -22,11 +22,22 @@ class SkeletonView: UIView {
     var delayBetweenAnimationLoops : CFTimeInterval = 1.0
     
     
-    var gradientLayer : CAGradientLayer!
+    var gradientLayer: CAGradientLayer?
 
-    override func draw(_ rect: CGRect) {
-        super.draw(rect)
-        
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        gradientLayer?.frame = bounds
+    }
+
+    private func installGradientLayerIfNeeded() {
+        if let gradientLayer {
+            gradientLayer.frame = bounds
+            if gradientLayer.superlayer !== layer {
+                layer.addSublayer(gradientLayer)
+            }
+            return
+        }
+
         let gradientLayer = CAGradientLayer()
         gradientLayer.frame = self.bounds
         gradientLayer.startPoint = CGPoint(x: 0.0, y: 0.8)
@@ -41,11 +52,12 @@ class SkeletonView: UIView {
         
         self.gradientLayer = gradientLayer
     }
-   
-    
-    
+
     func startAnimating(){
-        if gradientLayer == nil { return }
+        installGradientLayerIfNeeded()
+
+        guard let gradientLayer else { return }
+
         let animation = CABasicAnimation(keyPath: "locations")
         animation.fromValue = self.startLocations
         animation.toValue = self.endLocations
@@ -57,12 +69,13 @@ class SkeletonView: UIView {
         animationGroup.duration = self.movingAnimationDuration + self.delayBetweenAnimationLoops
         animationGroup.animations = [animation]
         animationGroup.repeatCount = .infinity
-        self.gradientLayer.add(animationGroup, forKey: animation.keyPath)
+        gradientLayer.add(animationGroup, forKey: animation.keyPath)
     }
     
     func stopAnimating() {
-        self.gradientLayer.removeAllAnimations()
-        self.gradientLayer.removeFromSuperlayer()
+        gradientLayer?.removeAllAnimations()
+        gradientLayer?.removeFromSuperlayer()
+        gradientLayer = nil
     }
     
 }
@@ -120,12 +133,14 @@ extension LastChatsViewController {
             let view = UIView(frame: CGRect(square: 56))
             
             view.backgroundColor = .clear
+            view.translatesAutoresizingMaskIntoConstraints = false
             
             return view
         }()
         
         let avatarView: SkeletonView = {
             let view = SkeletonView(frame: CGRect(square: 64))
+            view.translatesAutoresizingMaskIntoConstraints = false
             if let image = UIImage(named: AccountMasksManager.shared.mask56pt)?.upscale(dimension: 64), AccountMasksManager.shared.load() != "square" {
                 view.mask = UIImageView(image: image)
             } else {
@@ -141,6 +156,7 @@ extension LastChatsViewController {
         let usernameView: SkeletonView = {
             let view = SkeletonView()
             
+            view.translatesAutoresizingMaskIntoConstraints = false
             view.backgroundColor = MDCPalette.grey.tint50
             view.layer.cornerRadius = 6
             view.layer.masksToBounds = true
@@ -151,6 +167,7 @@ extension LastChatsViewController {
         let messageView: SkeletonView = {
             let view = SkeletonView()
             
+            view.translatesAutoresizingMaskIntoConstraints = false
             view.backgroundColor = MDCPalette.grey.tint50
             view.layer.cornerRadius = 6
             view.layer.masksToBounds = true
@@ -164,20 +181,46 @@ extension LastChatsViewController {
         func setup() {
             self.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
             self.contentView.backgroundColor = .clear
-            self.userImageView.frame = CGRect(x: 10, y: 10, width: 64, height: 64)
-            self.usernameView.frame = CGRect(
-                origin: CGPoint(x: 96, y: 10),
-                size: CGSize(width: UIScreen.main.bounds.width - 102, height: 18)
-            )
-            self.messageView.frame = CGRect(
-                origin: CGPoint(x: 96, y: 38),
-                size: CGSize(width: UIScreen.main.bounds.width - 102, height: 32)
-            )
-            self.addSubview(self.userImageView)
+            self.contentView.clipsToBounds = true
+            self.contentView.addSubview(self.userImageView)
             self.userImageView.addSubview(self.avatarView)
-            self.addSubview(usernameView)
-            self.addSubview(messageView)
+            self.contentView.addSubview(usernameView)
+            self.contentView.addSubview(messageView)
             self.avatarView.layer.backgroundColor = AccountColorManager.shared.randomPalette().tint200.cgColor
+            self.separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 96, right: 0)
+            self.activateConstraints()
+        }
+
+        private func activateConstraints() {
+            let usernameTrailingConstraint = usernameView.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor)
+            usernameTrailingConstraint.priority = .defaultHigh
+            let messageTrailingConstraint = messageView.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor)
+            messageTrailingConstraint.priority = .defaultHigh
+
+            NSLayoutConstraint.activate([
+                userImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+                userImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+                userImageView.widthAnchor.constraint(equalToConstant: 64),
+                userImageView.heightAnchor.constraint(equalToConstant: 64),
+
+                avatarView.leadingAnchor.constraint(equalTo: userImageView.leadingAnchor),
+                avatarView.trailingAnchor.constraint(equalTo: userImageView.trailingAnchor),
+                avatarView.topAnchor.constraint(equalTo: userImageView.topAnchor),
+                avatarView.bottomAnchor.constraint(equalTo: userImageView.bottomAnchor),
+
+                usernameView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 96),
+                usernameTrailingConstraint,
+                usernameView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
+                usernameView.heightAnchor.constraint(equalToConstant: 18),
+                usernameView.widthAnchor.constraint(greaterThanOrEqualToConstant: 1),
+
+                messageView.leadingAnchor.constraint(equalTo: usernameView.leadingAnchor),
+                messageTrailingConstraint,
+                messageView.topAnchor.constraint(equalTo: usernameView.bottomAnchor, constant: 10),
+                messageView.heightAnchor.constraint(equalToConstant: 32),
+                messageView.widthAnchor.constraint(greaterThanOrEqualToConstant: 1),
+                messageView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -10)
+            ])
         }
         
         var isAnimationsStart = false
@@ -192,6 +235,10 @@ extension LastChatsViewController {
         }
         
         override func prepareForReuse() {
+            super.prepareForReuse()
+            self.avatarView.stopAnimating()
+            self.usernameView.stopAnimating()
+            self.messageView.stopAnimating()
             self.isAnimationsStart = false
         }
         
@@ -202,6 +249,7 @@ extension LastChatsViewController {
         
         required init?(coder: NSCoder) {
             super.init(coder: coder)
+            self.setup()
         }
         
         

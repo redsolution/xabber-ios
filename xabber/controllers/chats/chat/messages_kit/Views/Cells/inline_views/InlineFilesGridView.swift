@@ -85,9 +85,11 @@ class InlineFilesGridView: InlineAttachmentView {
             return label
         }()
         
+        var primary: String
         var url: URL
         
-        init(frame: CGRect, url: URL) {
+        init(frame: CGRect, primary: String, url: URL) {
+            self.primary = primary
             self.url = url
             super.init(frame: frame)
             setup()
@@ -179,12 +181,43 @@ class InlineFilesGridView: InlineAttachmentView {
             index, rect in
             let item = attachments[index]
             if let url = item.url {
-                let view = FileView(frame: rect, url: url)
+                let view = FileView(frame: rect, primary: item.primary, url: url)
                 view.palette = palette
                 view.configure(filename: item.name, size: item.prettySize)
                 self.addSubview(view)
                 self.views.append(view)
             }
+        }
+    }
+
+    func updateContent(_ attachments: [FileAttachment], palette: MDCPalette) {
+        self.palette = palette
+        if attachments.isEmpty {
+            self.views.forEach { $0.removeFromSuperview() }
+            self.views = []
+            grid.removeAll()
+            return
+        }
+
+        guard self.views.count == attachments.count else {
+            configure(attachments, palette: palette)
+            return
+        }
+
+        guard self.views.map(\.primary) == attachments.map(\.primary) else {
+            configure(attachments, palette: palette)
+            return
+        }
+
+        prepareGrid(attachments).enumerated().forEach { index, rect in
+            let item = attachments[index]
+            guard let url = item.url else { return }
+            let view = self.views[index]
+            view.frame = rect
+            view.primary = item.primary
+            view.url = url
+            view.palette = palette
+            view.configure(filename: item.name, size: item.prettySize)
         }
     }
     

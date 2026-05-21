@@ -63,6 +63,12 @@ extension Account {
             self.roster.request(self.xmppStream)
         }
         self.connectionGate.markOnline()
+        AccountManager.shared.markAsNotConnecting(
+            jid: self.jid,
+            reason: "online",
+            clearAuthentication: false
+        )
+        SensitiveMediaAnalysisStartupScheduler.shared.accountDidReachOnline(jid: self.jid)
         SubscribtionsManager.shared.checkXMPPAccountStateAfterConnection(
             jid: self.jid,
             connectionAttemptID: self.connectionGate.snapshot().activeAttemptID

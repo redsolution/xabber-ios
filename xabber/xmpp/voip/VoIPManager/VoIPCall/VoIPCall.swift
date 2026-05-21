@@ -22,6 +22,7 @@ import Foundation
 import XMPPFramework
 import SwiftKeychainWrapper
 import WebRTC
+import CocoaAsyncSocket
 
 protocol VoIPCallDelegate {
     func VoIPCallDidChangeState(_ call: VoIPCall, to state: VoIPCall.State)
@@ -216,6 +217,14 @@ final class VoIPCall: NSObject {
               !self.stream.isAuthenticating,
               !self.stream.isAuthenticated else {
             DDLogDebug("VoIPCall: skip duplicate stream connect owner=\(owner) callId=\(callId) state=\(streamStateDescription)")
+            self.logConnectionDiagnostics(
+                event: "connect_request_skipped_framework_active",
+                details: [
+                    "callId": self.callId,
+                    "callState": self.state,
+                    "queuedStanzas": self.stanzaQueue.count
+                ]
+            )
             return
         }
 
@@ -225,12 +234,40 @@ final class VoIPCall: NSObject {
             resource: self.voipResource
         )
         let hostMode = self.applyAccountConnectionSettings()
+        self.logConnectionDiagnostics(
+            event: "stream_configured",
+            details: [
+                "callId": self.callId,
+                "resource": self.stream.myJID?.resource ?? "none",
+                "tlsPolicy": self.stream.startTLSPolicy.rawValue,
+                "keepAlive": self.stream.keepAliveInterval,
+                "hostMode": hostMode,
+                "queuedStanzas": self.stanzaQueue.count
+            ]
+        )
         self.queue.async {
             do {
                 DDLogDebug("VoIPCall: stream connect start owner=\(self.owner) callId=\(self.callId) resource=\(self.voipResource) hostMode=\(hostMode) queued=\(self.stanzaQueue.count) timeout=\(Self.connectTimeout)")
+                self.logConnectionDiagnostics(
+                    event: "connect_start",
+                    details: [
+                        "callId": self.callId,
+                        "resource": self.voipResource,
+                        "hostMode": hostMode,
+                        "host": self.stream.hostName ?? "jid-domain",
+                        "port": self.stream.hostPort,
+                        "timeout": Self.connectTimeout,
+                        "queuedStanzas": self.stanzaQueue.count
+                    ]
+                )
                 try self.stream.connect(withTimeout: Self.connectTimeout)
             } catch {
                 DDLogDebug("VoIPCall: \(#function). \(error.localizedDescription)")
+                self.logConnectionDiagnostics(
+                    event: "connect_throw",
+                    details: ["callId": self.callId],
+                    error: error
+                )
                 DispatchQueue.main.async {
                     self.delegate?.VoIPCallDidEndWith(self, error: VoIPCallError.xmppErrorConnectionFailed, byActiveStream: false)
                 }
@@ -261,6 +298,10 @@ final class VoIPCall: NSObject {
     
     public final func disconnect() {
         guard let jid = stream.myJID?.bare else { return }
+        self.logConnectionDiagnostics(
+            event: "disconnect_requested",
+            details: ["callId": self.callId]
+        )
         queuedRejectTimeoutWorkItem?.cancel()
         queuedRejectTimeoutWorkItem = nil
         CredentialsManager.shared.getItem(for: jid).release(.authFailedRecoverable)
@@ -277,7 +318,24 @@ extension VoIPCall {
     }
 
     internal var streamStateDescription: String {
-        return "connected=\(stream.isConnected),connecting=\(stream.isConnecting),authenticating=\(stream.isAuthenticating),authenticated=\(stream.isAuthenticated)"
+        return ConnectionDiagnosticsLogger.stateDescription(for: self.stream)
+    }
+
+    internal final func logConnectionDiagnostics(
+        event: String,
+        details: [String: Any?] = [:],
+        rawXML: String? = nil,
+        error: Error? = nil
+    ) {
+        ConnectionDiagnosticsLogger.log(
+            event: event,
+            stream: .voip,
+            jid: self.owner,
+            state: self.streamStateDescription,
+            details: details,
+            rawXML: rawXML,
+            error: error
+        )
     }
 
     @discardableResult
@@ -999,10 +1057,71 @@ extension VoIPCall {
 }
 
 extension VoIPCall: XMPPStreamDelegate {
+    func xmppStreamWillConnect(_ sender: XMPPStream) {
+        guard sender === self.stream else { return }
+        self.logConnectionDiagnostics(
+            event: "tcp_will_connect",
+            details: [
+                "callId": self.callId,
+                "resource": sender.myJID?.resource ?? "none",
+                "host": sender.hostName ?? "jid-domain",
+                "port": sender.hostPort
+            ]
+        )
+    }
+
+    func xmppStream(_ sender: XMPPStream, socketDidConnect socket: GCDAsyncSocket) {
+        guard sender === self.stream else { return }
+        self.logConnectionDiagnostics(
+            event: "tcp_socket_connected",
+            details: [
+                "callId": self.callId,
+                "connectedHost": socket.connectedHost ?? "unknown",
+                "connectedPort": socket.connectedPort
+            ]
+        )
+    }
+
+    func xmppStreamDidStartNegotiation(_ sender: XMPPStream) {
+        guard sender === self.stream else { return }
+        self.logConnectionDiagnostics(
+            event: "xmpp_negotiation_started",
+            details: ["callId": self.callId]
+        )
+    }
+
+    func xmppStreamDidSecure(_ sender: XMPPStream) {
+        guard sender === self.stream else { return }
+        self.logConnectionDiagnostics(
+            event: "tls_secure",
+            details: ["callId": self.callId]
+        )
+    }
+
+    func xmppStreamConnectDidTimeout(_ sender: XMPPStream) {
+        guard sender === self.stream else { return }
+        self.logConnectionDiagnostics(
+            event: "tcp_connect_timeout",
+            details: ["callId": self.callId]
+        )
+    }
+
     func xmppStreamDidConnect(_ sender: XMPPStream) {
         DDLogDebug("VoIPCall: stream didConnect owner=\(owner) callId=\(callId) resource=\(sender.myJID?.resource ?? "none") queued=\(stanzaQueue.count)")
+        self.logConnectionDiagnostics(
+            event: "xmpp_stream_connected",
+            details: [
+                "callId": self.callId,
+                "resource": sender.myJID?.resource ?? "none",
+                "queuedStanzas": self.stanzaQueue.count
+            ]
+        )
 
         func invalidate() {
+            self.logConnectionDiagnostics(
+                event: "authentication_invalidated",
+                details: ["callId": self.callId]
+            )
             self.stream.disconnect()
             self.stream.myJID = nil
             self.password = nil
@@ -1014,6 +1133,10 @@ extension VoIPCall: XMPPStreamDelegate {
         let creditionalsItem = CredentialsManager.shared.getItem(for: self.owner)
         switch creditionalsItem.kind {
         case .password:
+            self.logConnectionDiagnostics(
+                event: "authentication_branch_selected",
+                details: ["credentialKind": "password", "callId": self.callId]
+            )
             do {
                 if let password = creditionalsItem.creditionalString {
                     stream.shouldRequestXToken = false
@@ -1023,10 +1146,19 @@ extension VoIPCall: XMPPStreamDelegate {
                     invalidate()
                 }
             } catch {
+                self.logConnectionDiagnostics(
+                    event: "authentication_start_failed",
+                    details: ["callId": self.callId],
+                    error: error
+                )
 //                reconnect(error)
             }
             break
         case .token:
+            self.logConnectionDiagnostics(
+                event: "authentication_branch_selected",
+                details: ["credentialKind": "token", "callId": self.callId]
+            )
             creditionalsItem.use {
                 [unowned self] (isInvalidated, item) in
                 
@@ -1052,11 +1184,20 @@ extension VoIPCall: XMPPStreamDelegate {
 	                } catch {
 	                    self.authenticationCounterTracker.authenticationDidFail()
 	                    item.release(.authFailedRecoverable)
+                        self.logConnectionDiagnostics(
+                            event: "authentication_start_failed",
+                            details: ["callId": self.callId],
+                            error: error
+                        )
 	//                    reconnect(error)
 	                }
 	            }
             break
         case .secret:
+            self.logConnectionDiagnostics(
+                event: "authentication_branch_selected",
+                details: ["credentialKind": "secret", "callId": self.callId]
+            )
             creditionalsItem.use {
 	                [unowned self] (isInvalidated, item) in
 	                if isInvalidated {
@@ -1082,6 +1223,11 @@ extension VoIPCall: XMPPStreamDelegate {
 	//                    print(error.localizedDescription)
 	                    self.authenticationCounterTracker.authenticationDidFail()
 	                    item.release(.authFailedRecoverable)
+                        self.logConnectionDiagnostics(
+                            event: "authentication_start_failed",
+                            details: ["callId": self.callId],
+                            error: error
+                        )
 	//                    reconnect(error)
 	                }
 	            }
@@ -1092,6 +1238,14 @@ extension VoIPCall: XMPPStreamDelegate {
 	        guard let jid = sender.myJID?.bare else { return }
 	        self.hasAuthenticatedStream = true
 	        DDLogDebug("VoIPCall: stream didAuthenticate owner=\(owner) callId=\(callId) resource=\(sender.myJID?.resource ?? "none") queued=\(stanzaQueue.count)")
+            self.logConnectionDiagnostics(
+                event: "authentication_succeeded",
+                details: [
+                    "callId": self.callId,
+                    "resource": sender.myJID?.resource ?? "none",
+                    "queuedStanzas": self.stanzaQueue.count
+                ]
+            )
 	        let credentialsItem = CredentialsManager.shared.getItem(for: jid)
 	        authenticationCounterTracker.authenticationDidSucceed(using: credentialsItem)
 	        credentialsItem.release(.authSucceeded)
@@ -1109,10 +1263,36 @@ extension VoIPCall: XMPPStreamDelegate {
         self.processStanzaQueue()
     }
 
+    func xmppStreamDidReceive(_ sender: XMPPStream, streamFeatures features: DDXMLElement) {
+        guard sender === self.stream else { return }
+        let hasStartTLS = features.element(forName: "starttls", xmlns: "urn:ietf:params:xml:ns:xmpp-tls") != nil
+        let hasBind = features.element(forName: "bind", xmlns: "urn:ietf:params:xml:ns:xmpp-bind") != nil
+        self.logConnectionDiagnostics(
+            event: "xmpp_stream_features",
+            details: [
+                "callId": self.callId,
+                "startTLS": hasStartTLS,
+                "bind": hasBind
+            ],
+            rawXML: features.xmlString
+        )
+        if hasStartTLS {
+            self.logConnectionDiagnostics(event: "tls_negotiation_required", details: ["callId": self.callId])
+        }
+        if hasBind {
+            self.logConnectionDiagnostics(event: "resource_binding_available", details: ["callId": self.callId])
+        }
+    }
+
 	    func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
 	        authenticationCounterTracker.authenticationDidFail()
 	        let credentialsItem = CredentialsManager.shared.getItem(for: owner)
 	        DDLogDebug("VoIPCall: stream didNotAuthenticate owner=\(owner) callId=\(callId) resource=\(sender.myJID?.resource ?? "none") queued=\(stanzaQueue.count)")
+            self.logConnectionDiagnostics(
+                event: "authentication_failed",
+                details: ["callId": self.callId],
+                rawXML: error.xmlString
+            )
 	        if let failure = XMPPAuthenticationFailure(element: error) {
 	            let resolution = XMPPAuthenticationFailureResolution.resolve(
 	                failure: failure,
@@ -1141,11 +1321,33 @@ extension VoIPCall: XMPPStreamDelegate {
     
     func xmppStream(_ sender: XMPPStream, didSend iq: XMPPIQ) {
 //        print("VoIP:IQ:SEND: \(iq.prettyXMLString ?? "")")
+        self.logConnectionDiagnostics(
+            event: "stanza_send_iq",
+            details: [
+                "callId": self.callId,
+                "id": iq.elementID ?? "none",
+                "type": iq.type ?? "none",
+                "to": iq.to?.bare ?? "none",
+                "from": iq.from?.bare ?? "none"
+            ],
+            rawXML: iq.xmlString
+        )
         DDLogInfo("send: \(iq.prettyXMLString ?? "")")
     }
     
     func xmppStream(_ sender: XMPPStream, didSend message: XMPPMessage) {
 //        print("VoIP:Message:SEND: \(message.prettyXMLString ?? "")")
+        self.logConnectionDiagnostics(
+            event: "stanza_send_message",
+            details: [
+                "callId": self.callId,
+                "id": message.elementID ?? "none",
+                "type": message.type ?? "chat",
+                "to": message.to?.bare ?? "none",
+                "from": message.from?.bare ?? "none"
+            ],
+            rawXML: message.xmlString
+        )
         DDLogInfo("send: \(message.prettyXMLString ?? "")")
         if isMatchingProposeMessage(message) {
             DDLogDebug("VoIPCall: sent propose owner=\(owner) callId=\(callId) resource=\(sender.myJID?.resource ?? "none")")
@@ -1161,10 +1363,35 @@ extension VoIPCall: XMPPStreamDelegate {
             }
         }
     }
+
+    func xmppStream(_ sender: XMPPStream, didSend presence: XMPPPresence) {
+        self.logConnectionDiagnostics(
+            event: "stanza_send_presence",
+            details: [
+                "callId": self.callId,
+                "id": presence.elementID ?? "none",
+                "type": presence.type ?? "available",
+                "to": presence.to?.bare ?? "none",
+                "from": presence.from?.bare ?? "none"
+            ],
+            rawXML: presence.xmlString
+        )
+    }
     
     func xmppStream(_ sender: XMPPStream, didReceive iq: XMPPIQ) -> Bool {
         print("VoIP:IQ:RECV: \(iq.prettyXMLString ?? "")")
         DDLogInfo(iq.prettyXMLString ?? "")
+        self.logConnectionDiagnostics(
+            event: "stanza_receive_iq",
+            details: [
+                "callId": self.callId,
+                "id": iq.elementID ?? "none",
+                "type": iq.type ?? "none",
+                "to": iq.to?.bare ?? "none",
+                "from": iq.from?.bare ?? "none"
+            ],
+            rawXML: iq.xmlString
+        )
         print("state", self.state)
         if self.state == .ended {
             return true
@@ -1199,6 +1426,17 @@ extension VoIPCall: XMPPStreamDelegate {
     func xmppStream(_ sender: XMPPStream, didReceive message: XMPPMessage) {
         print("VoIP:Message:RECV: \(message.prettyXMLString ?? "")")
         DDLogInfo(message.prettyXMLString ?? "")
+        self.logConnectionDiagnostics(
+            event: "stanza_receive_message",
+            details: [
+                "callId": self.callId,
+                "id": message.elementID ?? "none",
+                "type": message.type ?? "chat",
+                "to": message.to?.bare ?? "none",
+                "from": message.from?.bare ?? "none"
+            ],
+            rawXML: message.xmlString
+        )
         var bareMessage: XMPPMessage
         var isCarbon: Bool = false
         if isCarbonCopy(message) {
@@ -1220,22 +1458,83 @@ extension VoIPCall: XMPPStreamDelegate {
             default: return
         }
     }
+
+    func xmppStream(_ sender: XMPPStream, didReceive presence: XMPPPresence) {
+        self.logConnectionDiagnostics(
+            event: "stanza_receive_presence",
+            details: [
+                "callId": self.callId,
+                "id": presence.elementID ?? "none",
+                "type": presence.type ?? "available",
+                "to": presence.to?.bare ?? "none",
+                "from": presence.from?.bare ?? "none"
+            ],
+            rawXML: presence.xmlString
+        )
+    }
     
     func xmppStream(_ sender: XMPPStream, didFailToSend iq: XMPPIQ, error: Error) {
 //        print("VoIP:MESSAGE:FAIL: \(error.localizedDescription)")
+        self.logConnectionDiagnostics(
+            event: "stanza_send_failed_iq",
+            details: [
+                "callId": self.callId,
+                "id": iq.elementID ?? "none",
+                "type": iq.type ?? "none"
+            ],
+            rawXML: iq.xmlString,
+            error: error
+        )
         self.enqueue(stanza: iq)
         self.doReconnect()
     }
     
     func xmppStream(_ sender: XMPPStream, didFailToSend message: XMPPMessage, error: Error) {
 //        print("VoIP:MESSAGE:FAIL: \(error.localizedDescription)")
+        self.logConnectionDiagnostics(
+            event: "stanza_send_failed_message",
+            details: [
+                "callId": self.callId,
+                "id": message.elementID ?? "none",
+                "type": message.type ?? "chat"
+            ],
+            rawXML: message.xmlString,
+            error: error
+        )
         
         self.enqueue(stanza: message)
+        self.doReconnect()
+    }
+
+    func xmppStream(_ sender: XMPPStream, didFailToSend presence: XMPPPresence, error: Error) {
+        self.logConnectionDiagnostics(
+            event: "stanza_send_failed_presence",
+            details: [
+                "callId": self.callId,
+                "id": presence.elementID ?? "none",
+                "type": presence.type ?? "available"
+            ],
+            rawXML: presence.xmlString,
+            error: error
+        )
+        self.enqueue(stanza: presence)
         self.doReconnect()
     }
     
 	    func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
 	        DDLogDebug("VoIPCall: stream didDisconnect owner=\(owner) callId=\(callId) resource=\(sender.myJID?.resource ?? "none") authenticatedOnce=\(hasAuthenticatedStream) queued=\(stanzaQueue.count) hasQueuedPropose=\(hasQueuedPropose()) state=\(state) error=\(error?.localizedDescription ?? "none")")
+            self.logConnectionDiagnostics(
+                event: "tcp_disconnected",
+                details: [
+                    "callId": self.callId,
+                    "resource": sender.myJID?.resource ?? "none",
+                    "authenticatedOnce": self.hasAuthenticatedStream,
+                    "queuedStanzas": self.stanzaQueue.count,
+                    "hasQueuedPropose": self.hasQueuedPropose(),
+                    "callState": self.state
+                ],
+                error: error
+            )
 	        guard let jid = sender.myJID?.bare else { return }
 	        CredentialsManager.shared.getItem(for: jid).release(.authFailedRecoverable)
 	        if !self.hasAuthenticatedStream && self.hasQueuedPropose() {
@@ -1250,7 +1549,46 @@ extension VoIPCall: XMPPStreamDelegate {
     
 	    func xmppStreamDidSendClosingStreamStanza(_ sender: XMPPStream) {
 	//        print(#function, "CLOSE")
+            self.logConnectionDiagnostics(
+                event: "disconnect_closing_stream_sent",
+                details: ["callId": self.callId]
+            )
 	        guard let jid = sender.myJID?.bare else { return }
 	        CredentialsManager.shared.getItem(for: jid).release(.authFailedRecoverable)
 	    }
+
+    func xmppStream(_ sender: XMPPStream, didReceiveError error: DDXMLElement) {
+        self.logConnectionDiagnostics(
+            event: "xmpp_stream_error",
+            details: ["callId": self.callId],
+            rawXML: error.xmlString
+        )
+    }
+
+    func xmppStream(_ sender: XMPPStream, willSecureWithSettings settings: NSMutableDictionary) {
+        guard sender === self.stream else { return }
+        self.logConnectionDiagnostics(
+            event: "tls_will_secure",
+            details: [
+                "callId": self.callId,
+                "manualTrustEvaluation": settings[GCDAsyncSocketManuallyEvaluateTrust] as? Bool ?? false
+            ]
+        )
+    }
+
+    func xmppStream(_ sender: XMPPStream, didReceive trust: SecTrust, completionHandler: @escaping (Bool) -> Void) {
+        guard sender === self.stream else {
+            completionHandler(false)
+            return
+        }
+        let shouldTrust = true
+        self.logConnectionDiagnostics(
+            event: "tls_trust_evaluated",
+            details: [
+                "callId": self.callId,
+                "shouldTrust": shouldTrust
+            ]
+        )
+        completionHandler(shouldTrust)
+    }
 }

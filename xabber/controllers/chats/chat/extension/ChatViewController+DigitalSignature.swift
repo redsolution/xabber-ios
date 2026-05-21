@@ -154,29 +154,7 @@ extension ChatViewController {
 //        if !self.isTrustedDevicesBlockingPanelopen {
             self.isTimeSignatureBlockingPanelopen = false
             self.isTrustedDevicesBlockingPanelopen = false
-            do {
-                let realm = try WRealm.safe()
-                let myUntrustedDevicesCollection = realm
-                    .objects(SignalDeviceStorageItem.self)
-                    .filter("owner == %@ AND jid == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
-                
-                let theirUntrustDevicesCollection = realm
-                    .objects(SignalDeviceStorageItem.self)
-                    .filter("owner == %@ AND jid == %@", self.owner, self.jid)
-                
-                if theirUntrustDevicesCollection.isEmpty {
-                    self.onUpdateTrustedDevicesBlockState(true, identityVerification: myUntrustedDevicesCollection.isEmpty)
-                } else {
-                    self.onUpdateTrustedDevicesBlockState(!myUntrustedDevicesCollection.isEmpty, identityVerification: false)
-                }
-                    
-                self.titleLabel.attributedText = self.updateTitle()
-                self.titleLabel.sizeToFit()
-                self.titleLabel.layoutIfNeeded()
-                
-            } catch {
-                
-            }
+            self.refreshOmemoSendAvailability()
             
 //            self.xabberInputView.changeState(to: .normal)
 //            self.isTrustedDevicesBlockingPanelopen = false

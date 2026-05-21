@@ -24,15 +24,91 @@
 
 import Foundation
 import XMPPFramework
+import CocoaAsyncSocket
 
 extension XMPPUIActionManager: XMPPStreamDelegate {
-    func xmppStreamDidConnect(_ sender: XMPPStream) {
+    private func isCurrentStream(_ sender: XMPPStream, callback: String) -> Bool {
         guard sender === self.stream else {
-            DDLogDebug("ignore stale ui-action stream didConnect")
-            return
+            self.logConnectionDiagnostics(
+                event: "ui_action_stale_attempt_ignored",
+                details: ["callback": callback]
+            )
+            return false
         }
+        return true
+    }
+
+    private func streamErrorName(_ error: DDXMLElement) -> String {
+        if let errorName = error
+            .elements(forXmlns: "urn:ietf:params:xml:ns:xmpp-streams")
+            .filter({ $0.name != "text" })
+            .first?
+            .name {
+            return errorName
+        }
+        if let errorName = error
+            .elements(forXmlns: "urn:ietf:params:xml:ns:xmpp-sasl")
+            .filter({ $0.name != "text" })
+            .first?
+            .name {
+            return errorName
+        }
+        return error.name ?? "unknown"
+    }
+
+    private func disconnectErrorDescription(_ error: Error?) -> String {
+        guard let error = error else { return "none" }
+        let nsError = error as NSError
+        return "\(nsError.domain):\(nsError.code):\(nsError.localizedDescription)"
+    }
+
+    func xmppStreamWillConnect(_ sender: XMPPStream) {
+        guard self.isCurrentStream(sender, callback: "willConnect") else { return }
+        self.logConnectionDiagnostics(
+            event: "tcp_will_connect",
+            details: [
+                "resource": sender.myJID?.resource ?? "none",
+                "host": sender.hostName ?? "jid-domain",
+                "port": sender.hostPort
+            ]
+        )
+    }
+
+    func xmppStream(_ sender: XMPPStream, socketDidConnect socket: GCDAsyncSocket) {
+        guard self.isCurrentStream(sender, callback: "socketDidConnect") else { return }
+        self.logConnectionDiagnostics(
+            event: "tcp_socket_connected",
+            details: [
+                "connectedHost": socket.connectedHost ?? "unknown",
+                "connectedPort": socket.connectedPort
+            ]
+        )
+    }
+
+    func xmppStreamDidStartNegotiation(_ sender: XMPPStream) {
+        guard self.isCurrentStream(sender, callback: "didStartNegotiation") else { return }
+        self.logConnectionDiagnostics(event: "xmpp_negotiation_started")
+    }
+
+    func xmppStreamDidSecure(_ sender: XMPPStream) {
+        guard self.isCurrentStream(sender, callback: "didSecure") else { return }
+        self.logConnectionDiagnostics(event: "tls_secure")
+    }
+
+    func xmppStreamConnectDidTimeout(_ sender: XMPPStream) {
+        guard self.isCurrentStream(sender, callback: "connectDidTimeout") else { return }
+        self.logConnectionDiagnostics(event: "tcp_connect_timeout")
+        self.lifecycleCoordinator.markFailed()
+    }
+
+    func xmppStreamDidConnect(_ sender: XMPPStream) {
+        guard self.isCurrentStream(sender, callback: "didConnect") else { return }
+        self.logConnectionDiagnostics(
+            event: "xmpp_stream_connected",
+            details: ["resource": sender.myJID?.resource ?? "none"]
+        )
         canSendStanzas = false
-        self.connectionGate.markAuthenticating()
+        self.lifecycleCoordinator.markAuthenticating()
         guard let jid = currentJid else {
             self.stream.disconnect()
             self.stream.myJID = nil
@@ -44,6 +120,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
 //            fatalError()
 //            sender.disconnect()
 //            try? sender.connect(withTimeout: 5)
+            self.logConnectionDiagnostics(event: "authentication_start_failed", error: error)
             self.close(soft: false)
         }
         
@@ -55,6 +132,10 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         let creditionalsItem = CredentialsManager.shared.getItem(for: jid)
         switch creditionalsItem.kind {
         case .password:
+            self.logConnectionDiagnostics(
+                event: "authentication_branch_selected",
+                details: ["credentialKind": "password"]
+            )
             do {
                 if let password = creditionalsItem.creditionalString {
                     stream.shouldRequestXToken = false
@@ -68,6 +149,10 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
             }
             break
         case .token:
+            self.logConnectionDiagnostics(
+                event: "authentication_branch_selected",
+                details: ["credentialKind": "token"]
+            )
             creditionalsItem.use {
                 [unowned self] (isInvalidated, item) in
                 
@@ -98,6 +183,10 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
             }
             break
         case .secret:
+            self.logConnectionDiagnostics(
+                event: "authentication_branch_selected",
+                details: ["credentialKind": "secret"]
+            )
             creditionalsItem.use {
                 [unowned self] (isInvalidated, item) in
                 if isInvalidated {
@@ -131,24 +220,50 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
     }
     
     func xmppStreamDidAuthenticate(_ sender: XMPPStream) {
-        guard sender === self.stream else {
-            DDLogDebug("ignore stale ui-action stream didAuthenticate")
-            return
-        }
+        guard self.isCurrentStream(sender, callback: "didAuthenticate") else { return }
         guard let jid = sender.myJID?.bare else { return }
+        self.logConnectionDiagnostics(
+            event: "authentication_succeeded",
+            details: ["resource": sender.myJID?.resource ?? "none"]
+        )
         let credentialsItem = CredentialsManager.shared.getItem(for: jid)
         authenticationCounterTracker.authenticationDidSucceed(using: credentialsItem)
         credentialsItem.release(.authSucceeded)
-        self.connectionGate.markOnline()
+        self.lifecycleCoordinator.markOnline()
+        self.logConnectionDiagnostics(event: "post_auth_setup_completed")
         canSendStanzas = true
 //        print("UI STREAM AUTHENTICATED")
     }
+
+    func xmppStreamDidReceive(_ sender: XMPPStream, streamFeatures features: DDXMLElement) {
+        guard self.isCurrentStream(sender, callback: "streamFeatures") else { return }
+        let hasStartTLS = features.element(forName: "starttls", xmlns: "urn:ietf:params:xml:ns:xmpp-tls") != nil
+        let hasBind = features.element(forName: "bind", xmlns: "urn:ietf:params:xml:ns:xmpp-bind") != nil
+        self.logConnectionDiagnostics(
+            event: "xmpp_stream_features",
+            details: [
+                "startTLS": hasStartTLS,
+                "bind": hasBind
+            ],
+            rawXML: features.xmlString
+        )
+        if hasStartTLS {
+            self.lifecycleCoordinator.markTLSNegotiating()
+            self.logConnectionDiagnostics(event: "tls_negotiation_required")
+        }
+        if hasBind {
+            self.lifecycleCoordinator.markBinding()
+            self.logConnectionDiagnostics(event: "resource_binding_available")
+        }
+    }
     
     func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
-        guard sender === self.stream else {
-            DDLogDebug("ignore stale ui-action stream auth failure")
-            return
-        }
+        guard self.isCurrentStream(sender, callback: "didNotAuthenticate") else { return }
+        self.logConnectionDiagnostics(
+            event: "authentication_failed",
+            details: ["streamError": self.streamErrorName(error)],
+            rawXML: error.xmlString
+        )
         self.didReceiveError(error)
 //        else {
 //            self.restore()
@@ -156,10 +271,12 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didReceiveError error: DDXMLElement) {
-        guard sender === self.stream else {
-            DDLogDebug("ignore stale ui-action stream error")
-            return
-        }
+        guard self.isCurrentStream(sender, callback: "didReceiveError") else { return }
+        self.logConnectionDiagnostics(
+            event: "xmpp_stream_error",
+            details: ["streamError": self.streamErrorName(error)],
+            rawXML: error.xmlString
+        )
 //        if error.element(forName: "policy-violation") != nil {
 //            self.disable(self.currentJid ?? "")
 //        }
@@ -184,7 +301,18 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didReceive iq: XMPPIQ) -> Bool {
+        guard self.isCurrentStream(sender, callback: "didReceiveIQ") else { return false }
 //        print("UI RECV: \(iq.prettyXMLString ?? "")" )
+        self.logConnectionDiagnostics(
+            event: "stanza_receive_iq",
+            details: [
+                "id": iq.elementID ?? "none",
+                "type": iq.type ?? "none",
+                "to": iq.to?.bare ?? "none",
+                "from": iq.from?.bare ?? "none"
+            ],
+            rawXML: iq.xmlString
+        )
         switch true {
 //        case (self.sync?.read(withIQ: iq) ?? false): return true
         case (self.mam?.read(stream, withIQ: iq) ?? false):
@@ -209,20 +337,67 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didSend iq: XMPPIQ) {
+        guard self.isCurrentStream(sender, callback: "didSendIQ") else { return }
 //        print("UI SEND: \(iq.prettyXMLString ?? "")")
+        self.logConnectionDiagnostics(
+            event: "stanza_send_iq",
+            details: [
+                "id": iq.elementID ?? "none",
+                "type": iq.type ?? "none",
+                "to": iq.to?.bare ?? "none",
+                "from": iq.from?.bare ?? "none"
+            ],
+            rawXML: iq.xmlString
+        )
     }
     
     func xmppStream(_ sender: XMPPStream, didFailToSend iq: XMPPIQ, error: Error) {
+        guard self.isCurrentStream(sender, callback: "didFailToSendIQ") else { return }
+        self.logConnectionDiagnostics(
+            event: "stanza_send_failed_iq",
+            details: [
+                "id": iq.elementID ?? "none",
+                "type": iq.type ?? "none"
+            ],
+            rawXML: iq.xmlString,
+            error: error
+        )
         _ = self.groupchat?.fail(iq: iq)
 //        print("FAIL", iq.prettyXMLString())
     }
     
     func xmppStream(_ sender: XMPPStream, willSend message: XMPPMessage) -> XMPPMessage? {
+        guard self.isCurrentStream(sender, callback: "willSendMessage") else { return nil }
 //        print("UI STREAM WILL SEND MESSAGE \(message.prettyXMLString!)")
         return message
     }
+
+    func xmppStream(_ sender: XMPPStream, didSend message: XMPPMessage) {
+        guard self.isCurrentStream(sender, callback: "didSendMessage") else { return }
+        self.logConnectionDiagnostics(
+            event: "stanza_send_message",
+            details: [
+                "id": message.elementID ?? "none",
+                "type": message.type ?? "chat",
+                "to": message.to?.bare ?? "none",
+                "from": message.from?.bare ?? "none"
+            ],
+            rawXML: message.xmlString
+        )
+    }
     
     func xmppStream(_ sender: XMPPStream, didReceive message: XMPPMessage) {
+        guard self.isCurrentStream(sender, callback: "didReceiveMessage") else { return }
+        self.logConnectionDiagnostics(
+            event: "stanza_receive_message",
+            details: [
+                "id": message.elementID ?? "none",
+                "type": message.type ?? "chat",
+                "to": message.to?.bare ?? "none",
+                "from": message.from?.bare ?? "none"
+            ],
+            rawXML: message.xmlString
+        )
         if message.delayedDeliveryReasonDescription == "Offline Storage" {
             return
         }
@@ -279,18 +454,95 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         }
         
     }
+
+    func xmppStream(_ sender: XMPPStream, didFailToSend message: XMPPMessage, error: Error) {
+        guard self.isCurrentStream(sender, callback: "didFailToSendMessage") else { return }
+        self.logConnectionDiagnostics(
+            event: "stanza_send_failed_message",
+            details: [
+                "id": message.elementID ?? "none",
+                "type": message.type ?? "chat"
+            ],
+            rawXML: message.xmlString,
+            error: error
+        )
+    }
+
+    func xmppStream(_ sender: XMPPStream, didReceive presence: XMPPPresence) {
+        guard self.isCurrentStream(sender, callback: "didReceivePresence") else { return }
+        self.logConnectionDiagnostics(
+            event: "stanza_receive_presence",
+            details: [
+                "id": presence.elementID ?? "none",
+                "type": presence.type ?? "available",
+                "to": presence.to?.bare ?? "none",
+                "from": presence.from?.bare ?? "none"
+            ],
+            rawXML: presence.xmlString
+        )
+    }
+
+    func xmppStream(_ sender: XMPPStream, didSend presence: XMPPPresence) {
+        guard self.isCurrentStream(sender, callback: "didSendPresence") else { return }
+        self.logConnectionDiagnostics(
+            event: "stanza_send_presence",
+            details: [
+                "id": presence.elementID ?? "none",
+                "type": presence.type ?? "available",
+                "to": presence.to?.bare ?? "none",
+                "from": presence.from?.bare ?? "none"
+            ],
+            rawXML: presence.xmlString
+        )
+    }
+
+    func xmppStream(_ sender: XMPPStream, didFailToSend presence: XMPPPresence, error: Error) {
+        guard self.isCurrentStream(sender, callback: "didFailToSendPresence") else { return }
+        self.logConnectionDiagnostics(
+            event: "stanza_send_failed_presence",
+            details: [
+                "id": presence.elementID ?? "none",
+                "type": presence.type ?? "available"
+            ],
+            rawXML: presence.xmlString,
+            error: error
+        )
+    }
     
 //    func xmppStreamDidReceive(_ sender: XMPPStream, streamFeatures features: DDXMLElement) {
 //        sync?.checkAvailability(features)
 //    }
     
     func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
-        guard sender === self.stream else {
-            DDLogDebug("ignore stale ui-action stream disconnect")
-            return
-        }
+        guard self.isCurrentStream(sender, callback: "didDisconnect") else { return }
+        self.logConnectionDiagnostics(
+            event: "tcp_disconnected",
+            details: ["disconnectError": self.disconnectErrorDescription(error)],
+            error: error
+        )
         guard let jid = sender.myJID?.bare else { return }
         CredentialsManager.shared.getItem(for: jid).release(.authFailedRecoverable)
-        self.connectionGate.markDisconnected()
+        self.lifecycleCoordinator.markDisconnected()
+    }
+
+    func xmppStream(_ sender: XMPPStream, willSecureWithSettings settings: NSMutableDictionary) {
+        guard self.isCurrentStream(sender, callback: "willSecure") else { return }
+        self.logConnectionDiagnostics(
+            event: "tls_will_secure",
+            details: ["manualTrustEvaluation": settings[GCDAsyncSocketManuallyEvaluateTrust] as? Bool ?? false]
+        )
+    }
+
+    func xmppStream(_ sender: XMPPStream, didReceive trust: SecTrust, completionHandler: @escaping (Bool) -> Void) {
+        guard self.isCurrentStream(sender, callback: "didReceiveTrust") else {
+            completionHandler(false)
+            return
+        }
+        let shouldTrust = true
+        self.logConnectionDiagnostics(
+            event: "tls_trust_evaluated",
+            details: ["shouldTrust": shouldTrust]
+        )
+        completionHandler(shouldTrust)
     }
 }

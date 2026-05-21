@@ -134,10 +134,6 @@ extension LastChatsViewController {
         let vc = GroupchatInfoViewController()
         vc.owner = owner
         vc.jid = jid
-        self.title = " "
-        self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-        self.navigationController?.navigationBar.shadowImage = UIImage()
-        self.navigationController?.navigationBar.layoutIfNeeded()
         self.navigationController?.pushViewController(vc, animated: true)
     }
 
@@ -146,10 +142,6 @@ extension LastChatsViewController {
         let vc = ContactInfoViewController()
         vc.owner = owner
         vc.jid = jid
-        self.title = " "
-        self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-        self.navigationController?.navigationBar.shadowImage = UIImage()
-        self.navigationController?.navigationBar.layoutIfNeeded()
         self.navigationController?.pushViewController(vc, animated: true)
     }
 

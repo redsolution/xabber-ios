@@ -22,47 +22,54 @@ protocol XabberInputBarDelegate: AnyObject {
     func onAfterburnButtonTouchUp()
     func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat)
     func onCheckDevices()
+    func onCheckContactDevices()
     func onUpdateSignature()
     func onIdentityVerification()
     func onTextDidChange(to text: String?)
-    func onAudioMessageStartRecord()
-    func onAudioMessageDidCancel()
-    func onAudioMessageDidSet()
-    func onAudioMessageShouldSend()
-    func onAudioMessageDidStop()
-    func didReceiveRecordButtonPositionChange(to point: CGPoint)
-    func lockIndicatorShouldLock()
-    func lockIndicatorShouldUnlock()
-    func lockIndicatorShouldStop()
-    func onSendButtonTouchUpInsideWhenAudioWasRecorded()
-    func recordAndPlayPanelDeleteButtonTouchUp()
-    func recordAndPlayPanelPlayButtonTouchUp()
+    func onAudioMessageStartRecord(sessionID: UUID)
+    func onAudioMessageDidCancel(sessionID: UUID)
+    func onAudioMessageDidFinish(sessionID: UUID, intent: VoiceRecordingFinishIntent)
+    func onAudioMessagePreviewSend(sessionID: UUID)
+    func onAudioMessagePreviewDelete(sessionID: UUID)
+    func recordAndPlayPanelPlayButtonTouchUp(sessionID: UUID)
     func didStopPlayingAudio()
     func didSetAudioPositionBar(percentage: Float) -> TimeInterval
 }
 
-protocol SendButtonDelegate {
-    func onTouchesEnded(at timestamp: TimeInterval)
-}
-
 class ModernXabberInputView: UIView {
-    static let edgeHorizontalInset: CGFloat = 8
-    static let minimumComposerHeight: CGFloat = 44
-    static let defaultBarHeight: CGFloat = 55
+    static let edgeHorizontalInset: CGFloat = NativeGlassBarStyle.horizontalInset
+    static let minimumComposerHeight: CGFloat = NativeGlassBarStyle.minimumHeight
+    static let defaultBarHeight: CGFloat = NativeGlassBarStyle.minimumHeight + NativeGlassBarStyle.bottomOffset
 
     private enum LiquidGlassMetrics {
-        static let usesNativeGlassEffect = true
         static let composerHorizontalInset: CGFloat = 0
         static let composerVerticalInset: CGFloat = 0
-        static let composerCornerRadius: CGFloat = 22
-        static let buttonSize: CGFloat = 44
+        static let composerCornerRadius: CGFloat = NativeGlassBarStyle.cornerRadius
+        static let buttonSize: CGFloat = NativeGlassBarStyle.buttonSize
+        static let buttonSpacing: CGFloat = NativeGlassBarStyle.interItemSpacing
         static let textVerticalInset: CGFloat = 4
-        static let verticalReserve: CGFloat = ModernXabberInputView.defaultBarHeight - ModernXabberInputView.minimumComposerHeight
-        static let contentTopOffset: CGFloat = 6
+        static let textHorizontalInset: CGFloat = NativeGlassBarStyle.contentInset
+        static let verticalReserve: CGFloat = NativeGlassBarStyle.bottomOffset
+        static let contentTopOffset: CGFloat = 0
         static let previewHorizontalInset: CGFloat = 8
         static let previewCornerRadius: CGFloat = 20
-        static let borderWidth: CGFloat = 1.0 / UIScreen.main.scale
-        static let toolbarBorderAlpha: CGFloat = 0.34
+        static let contextPreviewHeight: CGFloat = 44
+        static let contextPreviewComposerGap: CGFloat = 4
+        static let contextPreviewReservedHeight: CGFloat = contextPreviewHeight + contextPreviewComposerGap
+        static let recordingLockButtonVerticalGap: CGFloat = 52
+        static let collapsedHeightTolerance: CGFloat = 2
+    }
+
+    private static let detachedButtonGlassViewTag = 26051801
+
+    private enum RecordingGlowMetrics {
+        static let minimumShadowRadius: CGFloat = 8
+        static let maximumShadowRadius: CGFloat = 34
+        static let minimumShadowOpacity: Float = 0.08
+        static let maximumShadowOpacity: Float = 0.46
+        static let riseSmoothing: CGFloat = 0.36
+        static let fallSmoothing: CGFloat = 0.22
+        static let fillAlpha: CGFloat = 0.82
     }
 
     private static func makeGlassEffect(
@@ -71,13 +78,10 @@ class ModernXabberInputView: UIView {
         fallbackStyle: UIBlurEffect.Style = .systemMaterial,
         prefersNativeGlass: Bool = true
     ) -> UIVisualEffect {
-        if LiquidGlassMetrics.usesNativeGlassEffect, prefersNativeGlass, #available(iOS 26.0, *) {
-            let effect = UIGlassEffect(style: .regular)
-            effect.isInteractive = interactive
-            return effect
-        } else {
-            return UIBlurEffect(style: fallbackStyle)
-        }
+        NativeGlassBarStyle.makeEffect(
+            interactive: interactive,
+            prefersNativeGlass: prefersNativeGlass
+        )
     }
 
     private static func makeGlassEffectView(
@@ -100,27 +104,12 @@ class ModernXabberInputView: UIView {
         return view
     }
 
-    private static func applyGlassLayer(
-        to view: UIView,
-        cornerRadius: CGFloat,
-        borderAlpha: CGFloat = 0.28
-    ) {
-        view.layer.cornerRadius = cornerRadius
-        view.layer.cornerCurve = .continuous
-        view.layer.borderWidth = LiquidGlassMetrics.borderWidth
-        view.layer.borderColor = UIColor.separator.withAlphaComponent(borderAlpha).cgColor
-    }
-
     private static func applyToolbarGlassLayer(to view: UIVisualEffectView) {
-        view.clipsToBounds = true
-        let radius = LiquidGlassMetrics.composerCornerRadius
-        view.layer.cornerRadius = radius
-        view.layer.cornerCurve = .continuous
-        if #available(iOS 26.0, *) {
-            view.cornerConfiguration = .uniformCorners(radius: .fixed(Double(radius)))
-        }
-        view.layer.borderWidth = LiquidGlassMetrics.borderWidth
-        view.layer.borderColor = UIColor.separator.withAlphaComponent(LiquidGlassMetrics.toolbarBorderAlpha).cgColor
+        NativeGlassBarStyle.applySurface(
+            to: view,
+            cornerStyle: .fixed(LiquidGlassMetrics.composerCornerRadius),
+            interactive: true
+        )
     }
 
     private static func removeChrome(from button: UIButton) {
@@ -130,189 +119,284 @@ class ModernXabberInputView: UIView {
         button.layer.borderColor = UIColor.clear.cgColor
     }
 
-    private static func applyGlassShadow(
-        to view: UIView,
-        opacity: Float = 0.16,
-        radius: CGFloat = 18,
-        yOffset: CGFloat = 8
-    ) {
-        view.backgroundColor = .clear
-        view.layer.shadowColor = UIColor.black.cgColor
-        view.layer.shadowOpacity = opacity
-        view.layer.shadowRadius = radius
-        view.layer.shadowOffset = CGSize(width: 0, height: yOffset)
-        view.layer.masksToBounds = false
+    private static func makeDetachedButtonGlassEffect() -> UIVisualEffect {
+        NativeGlassBarStyle.makeEffect(interactive: true)
     }
 
-    class MessagesPanel: UIView {
-        
-        open var delegate: ChatViewMessagesPanelDelegate? = nil
+    private static func detachedButtonGlassEffectView(in button: UIButton) -> UIVisualEffectView? {
+        button.subviews
+            .compactMap { $0 as? UIVisualEffectView }
+            .first { $0.tag == detachedButtonGlassViewTag }
+    }
 
-        private let glassShadowView: UIView = {
+    private static func applyDetachedGlassButtonStyle(
+        to button: UIButton,
+        forceConfigurationUpdate: Bool = true
+    ) {
+        NativeGlassBarStyle.applyIconButtonStyle(
+            to: button,
+            tintColor: button.tintColor,
+            forceConfigurationUpdate: forceConfigurationUpdate
+        )
+        button.layer.cornerRadius = 0
+        button.clipsToBounds = false
+
+        if #available(iOS 26.0, *) {
+            detachedButtonGlassEffectView(in: button)?.removeFromSuperview()
+            return
+        }
+
+        let effectView: UIVisualEffectView
+        if let existing = detachedButtonGlassEffectView(in: button) {
+            effectView = existing
+            effectView.effect = makeDetachedButtonGlassEffect()
+        } else {
+            effectView = UIVisualEffectView(effect: makeDetachedButtonGlassEffect())
+            effectView.tag = detachedButtonGlassViewTag
+            effectView.translatesAutoresizingMaskIntoConstraints = false
+            effectView.isUserInteractionEnabled = false
+            effectView.backgroundColor = .clear
+            effectView.isOpaque = false
+            button.insertSubview(effectView, at: 0)
+            NSLayoutConstraint.activate([
+                effectView.leadingAnchor.constraint(equalTo: button.leadingAnchor),
+                effectView.trailingAnchor.constraint(equalTo: button.trailingAnchor),
+                effectView.topAnchor.constraint(equalTo: button.topAnchor),
+                effectView.bottomAnchor.constraint(equalTo: button.bottomAnchor)
+            ])
+        }
+
+        effectView.clipsToBounds = true
+        effectView.layer.cornerRadius = LiquidGlassMetrics.buttonSize / 2
+        effectView.layer.cornerCurve = .continuous
+        effectView.layer.borderWidth = 0
+        effectView.layer.borderColor = nil
+        button.sendSubviewToBack(effectView)
+    }
+
+    private static func setDetachedGlassButtonChromeHidden(_ hidden: Bool, on button: UIButton) {
+        if #available(iOS 26.0, *) {
+            if hidden {
+                button.configuration = nil
+                button.backgroundColor = .clear
+            } else {
+                applyDetachedGlassButtonStyle(to: button)
+            }
+        } else {
+            detachedButtonGlassEffectView(in: button)?.isHidden = hidden
+        }
+    }
+
+    final class ComposerContextPreviewView: UIView {
+        enum Mode: Equatable {
+            case forward
+            case edit
+        }
+
+        var delegate: ChatViewMessagesPanelDelegate? = nil
+
+        static let height: CGFloat = LiquidGlassMetrics.contextPreviewHeight
+
+        private(set) var mode: Mode = .forward
+
+        private let tapControl: UIControl = {
+            let control = UIControl()
+            control.backgroundColor = .clear
+            control.translatesAutoresizingMaskIntoConstraints = false
+            return control
+        }()
+
+        let accentView: UIView = {
             let view = UIView()
+            view.backgroundColor = .tintColor
+            view.layer.cornerRadius = 0.5
             view.isUserInteractionEnabled = false
-            ModernXabberInputView.applyGlassShadow(to: view, opacity: 0.12, radius: 14, yOffset: 6)
+            view.translatesAutoresizingMaskIntoConstraints = false
             return view
         }()
 
-        private let glassEffectView: UIVisualEffectView = {
-            let view = ModernXabberInputView.makeGlassEffectView(
-                interactive: false,
-                tintAlpha: 0.14,
-                fallbackStyle: .systemThinMaterial,
-                prefersNativeGlass: false
-            )
-            ModernXabberInputView.applyGlassLayer(
-                to: view,
-                cornerRadius: LiquidGlassMetrics.previewCornerRadius,
-                borderAlpha: 0.30
-            )
-            return view
-        }()
-        
         let indicatorButton: UIButton = {
-            let button = UIButton(frame: .zero)
-            
-            button.tintColor = .systemGray
-            
-            return button
-        }()
-
-        let verticalLine: UIView = {
-            let view = UIView()
-            
-            view.backgroundColor = .systemBlue
-            
-            return view
+            AudioPlayerBarIconButtonStyle.makeButton()
         }()
 
         let titleLabel: UILabel = {
             let label = UILabel()
-            
-            label.font = UIFont.preferredFont(forTextStyle: .body)
+            label.font = UIFont.systemFont(ofSize: 13, weight: .semibold)
             label.textColor = .tintColor
-            label.font = UIFont.systemFont(ofSize: 14)
-            
+            label.isUserInteractionEnabled = false
+            label.numberOfLines = 1
+            label.lineBreakMode = .byTruncatingTail
+            label.translatesAutoresizingMaskIntoConstraints = false
             return label
         }()
 
         let messageLabel: UILabel = {
             let label = UILabel()
-            
-            label.font = UIFont.preferredFont(forTextStyle: .body)
+            label.font = UIFont.systemFont(ofSize: 12, weight: .regular)
             label.textColor = .secondaryLabel
-            
+            label.isUserInteractionEnabled = false
+            label.numberOfLines = 1
+            label.lineBreakMode = .byTruncatingTail
+            label.translatesAutoresizingMaskIntoConstraints = false
             return label
         }()
-        
+
         let closeButton: UIButton = {
-            let button = UIButton()
-            
-            button.setImage(imageLiteral("xmark"), for: .normal)
-            button.tintColor = .tintColor
-            
+            let button = AudioPlayerBarIconButtonStyle.makeButton()
+            AudioPlayerBarIconButtonStyle.setSystemIcon(
+                named: "xmark",
+                pointSize: AudioPlayerBarIconButtonStyle.compactXmarkPointSize,
+                on: button
+            )
             return button
         }()
-        
-        public func update(title: String, attributed text: NSAttributedString) {
-            self.titleLabel.text = title
-            self.messageLabel.attributedText = text
+
+        let labelsStack: UIStackView = {
+            let stack = UIStackView()
+            stack.axis = .vertical
+            stack.alignment = .fill
+            stack.distribution = .fill
+            stack.spacing = 1
+            stack.isUserInteractionEnabled = false
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            return stack
+        }()
+
+        override var intrinsicContentSize: CGSize {
+            CGSize(width: UIView.noIntrinsicMetric, height: Self.height)
         }
-        
-        public func update(title: String, normal text: String) {
-            self.titleLabel.text = title
-            self.messageLabel.text = text
-        }
-        
-        public func configureForEdit() {
-            self.indicatorButton.setImage(imageLiteral("xabber.pencil.cap"),for: .normal)
-            self.indicatorButton.tintColor = .tintColor
-        }
-        
-        public func configureForForward() {
-            self.indicatorButton.setImage(
-                imageLiteral("arrowshape.turn.up.left"),
-                for: .normal
-            )
-            self.indicatorButton.tintColor = .tintColor
-        }
-        
+
         override init(frame: CGRect) {
             super.init(frame: frame)
-            self.setup()
+            setup()
         }
-        
+
         required init?(coder: NSCoder) {
             super.init(coder: coder)
-            self.setup()
+            setup()
         }
-        
+
+        func update(title: String, attributed text: NSAttributedString) {
+            titleLabel.text = title
+            messageLabel.attributedText = text
+            messageLabel.lineBreakMode = .byTruncatingTail
+            messageLabel.numberOfLines = 1
+        }
+
+        func update(title: String, normal text: String) {
+            titleLabel.text = title
+            messageLabel.text = text
+            messageLabel.lineBreakMode = .byTruncatingTail
+            messageLabel.numberOfLines = 1
+        }
+
+        func configure(mode: Mode) {
+            self.mode = mode
+            switch mode {
+            case .forward:
+                configureForForward()
+            case .edit:
+                configureForEdit()
+            }
+        }
+
+        func configureForForward() {
+            mode = .forward
+            applyContextTint(.tintColor)
+            AudioPlayerBarIconButtonStyle.setSystemIcon(named: "arrowshape.turn.up.left", on: indicatorButton)
+        }
+
+        func configureForEdit() {
+            mode = .edit
+            applyContextTint(.systemOrange)
+            AudioPlayerBarIconButtonStyle.setTemplateIcon(
+                imageLiteral("xabber.pencil.cap", dimension: 18),
+                on: indicatorButton
+            )
+        }
+
+        private func applyContextTint(_ color: UIColor) {
+            accentView.backgroundColor = color
+            titleLabel.textColor = color
+        }
+
         private func setup() {
-            self.backgroundColor = .clear
-            self.addSubview(glassShadowView)
-            self.glassShadowView.addSubview(glassEffectView)
-            self.addSubview(indicatorButton)
-            self.addSubview(verticalLine)
-            self.addSubview(titleLabel)
-            self.addSubview(messageLabel)
-            self.addSubview(closeButton)
-            self.closeButton.addTarget(self, action: #selector(onCloseButtonTouchUpInside), for: .touchUpInside)
-            self.indicatorButton.addTarget(self, action: #selector(onIndicatorButtonTouchUpInside), for: .touchUpInside)
+            backgroundColor = .clear
+            translatesAutoresizingMaskIntoConstraints = false
+            layer.shadowOpacity = 0
+
+            labelsStack.addArrangedSubview(titleLabel)
+            labelsStack.addArrangedSubview(messageLabel)
+
+            addSubview(tapControl)
+            addSubview(accentView)
+            addSubview(indicatorButton)
+            addSubview(labelsStack)
+            addSubview(closeButton)
+
+            tapControl.addTarget(self, action: #selector(onPreviewTouchUpInside), for: .touchUpInside)
+            indicatorButton.addTarget(self, action: #selector(onPreviewTouchUpInside), for: .touchUpInside)
+            closeButton.addTarget(self, action: #selector(onCloseButtonTouchUpInside), for: .touchUpInside)
+
+            NSLayoutConstraint.activate([
+                tapControl.leadingAnchor.constraint(equalTo: leadingAnchor),
+                tapControl.trailingAnchor.constraint(equalTo: trailingAnchor),
+                tapControl.topAnchor.constraint(equalTo: topAnchor),
+                tapControl.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+                indicatorButton.leadingAnchor.constraint(
+                    equalTo: leadingAnchor,
+                    constant: AudioPlayerBarIconButtonStyle.contentInset
+                ),
+                indicatorButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+                indicatorButton.widthAnchor.constraint(equalToConstant: AudioPlayerBarIconButtonStyle.buttonSize),
+                indicatorButton.heightAnchor.constraint(equalToConstant: AudioPlayerBarIconButtonStyle.buttonSize),
+
+                accentView.leadingAnchor.constraint(
+                    equalTo: indicatorButton.trailingAnchor,
+                    constant: AudioPlayerBarIconButtonStyle.adjacentSpacing
+                ),
+                accentView.centerYAnchor.constraint(equalTo: centerYAnchor),
+                accentView.widthAnchor.constraint(equalToConstant: 1),
+                accentView.heightAnchor.constraint(equalToConstant: 24),
+
+                labelsStack.leadingAnchor.constraint(
+                    equalTo: accentView.trailingAnchor,
+                    constant: AudioPlayerBarIconButtonStyle.adjacentSpacing
+                ),
+                labelsStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+                labelsStack.trailingAnchor.constraint(
+                    equalTo: closeButton.leadingAnchor,
+                    constant: -AudioPlayerBarIconButtonStyle.adjacentSpacing
+                ),
+
+                closeButton.trailingAnchor.constraint(
+                    equalTo: trailingAnchor,
+                    constant: -AudioPlayerBarIconButtonStyle.contentInset
+                ),
+                closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+                closeButton.widthAnchor.constraint(equalToConstant: AudioPlayerBarIconButtonStyle.buttonSize),
+                closeButton.heightAnchor.constraint(equalToConstant: AudioPlayerBarIconButtonStyle.buttonSize)
+            ])
+
+            configureForForward()
         }
-        
-        public func update() {
-            let horizontalInset = LiquidGlassMetrics.previewHorizontalInset
-            self.glassShadowView.frame = CGRect(
-                x: horizontalInset,
-                y: 0,
-                width: max(0, bounds.width - horizontalInset * 2),
-                height: bounds.height
-            )
-            self.glassEffectView.frame = self.glassShadowView.bounds
-            ModernXabberInputView.applyGlassLayer(
-                to: self.glassEffectView,
-                cornerRadius: LiquidGlassMetrics.previewCornerRadius,
-                borderAlpha: 0.30
-            )
-            self.glassShadowView.layer.shadowPath = UIBezierPath(
-                roundedRect: self.glassShadowView.bounds,
-                cornerRadius: LiquidGlassMetrics.previewCornerRadius
-            ).cgPath
-            self.indicatorButton.frame = CGRect(
-                origin: CGPoint(x: horizontalInset, y: 0),
-                size: CGSize(width: 44, height: 40)
-            )
-            self.verticalLine.frame = CGRect(
-                origin: CGPoint(x: horizontalInset + 50, y: 8),
-                size: CGSize(width: 2, height: max(0, bounds.height - 16))
-            )
-            self.verticalLine.layer.cornerRadius = 1
-            self.titleLabel.frame = CGRect(
-                origin: CGPoint(x: horizontalInset + 58, y: 3),
-                size: CGSize(width: bounds.width - horizontalInset * 2 - 104, height: 19)
-            )
-            self.messageLabel.frame = CGRect(
-                origin: CGPoint(x: horizontalInset + 58, y: 21),
-                size: CGSize(width: bounds.width - horizontalInset * 2 - 104, height: 18)
-            )
-            self.closeButton.frame = CGRect(
-                origin: CGPoint(x: bounds.width - horizontalInset - 40, y: 0),
-                size: CGSize(width: 40, height: 40)
-            )
-            self.layoutSubviews()
+
+        func update() {
+            setNeedsLayout()
         }
-        
+
         @objc
         private func onCloseButtonTouchUpInside(_ sender: UIButton) {
-            self.delegate?.messagesPanelOnClose()
+            delegate?.messagesPanelOnClose()
         }
-        
+
         @objc
-        private func onIndicatorButtonTouchUpInside(_ sender: UIButton) {
-            self.delegate?.messagesPanelOnIndicatorTouch()
+        private func onPreviewTouchUpInside(_ sender: UIControl) {
+            delegate?.messagesPanelOnIndicatorTouch()
         }
     }
-    
+
     class SearchPanel: UIView {
         
         enum State {
@@ -935,24 +1019,6 @@ class ModernXabberInputView: UIView {
 
     class RecordAndPlayPanel: UIView {
         let recordIndicatorSize: CGFloat = 8
-
-        private let glassShadowView: UIView = {
-            let view = UIView()
-            view.isUserInteractionEnabled = false
-            ModernXabberInputView.applyGlassShadow(to: view, opacity: 0.10, radius: 12, yOffset: 5)
-            return view
-        }()
-
-        private let glassEffectView: UIVisualEffectView = {
-            let view = ModernXabberInputView.makeGlassEffectView(
-                interactive: false,
-                tintAlpha: 0.12,
-                fallbackStyle: .systemThinMaterial,
-                prefersNativeGlass: false
-            )
-            ModernXabberInputView.applyGlassLayer(to: view, cornerRadius: 19, borderAlpha: 0.24)
-            return view
-        }()
         
         let deleteButton: UIButton = {
             let button = UIButton(frame: CGRect(width: 44, height: 38))
@@ -1025,11 +1091,11 @@ class ModernXabberInputView: UIView {
         
         
         internal var delegate: XabberInputBarDelegate? = nil
+        internal var onDelete: (() -> Void)? = nil
+        internal var onPlay: (() -> Void)? = nil
         
         internal func setup() {
             self.backgroundColor = .clear
-            self.addSubview(glassShadowView)
-            self.glassShadowView.addSubview(glassEffectView)
             self.addSubview(deleteButton)
             self.addSubview(backghroundWaveform)
             self.backghroundWaveform.addSubview(playButton)
@@ -1088,16 +1154,9 @@ class ModernXabberInputView: UIView {
         var palette: MDCPalette = .amber
         
         final func update() {
-            self.glassShadowView.frame = self.bounds
-            self.glassEffectView.frame = self.glassShadowView.bounds
-            ModernXabberInputView.applyGlassLayer(to: self.glassEffectView, cornerRadius: 19, borderAlpha: 0.24)
-            self.glassShadowView.layer.shadowPath = UIBezierPath(
-                roundedRect: self.glassShadowView.bounds,
-                cornerRadius: 19
-            ).cgPath
             self.backghroundWaveform.backgroundColor = palette.tint500.withAlphaComponent(0.82)
-            self.backghroundWaveform.layer.borderWidth = LiquidGlassMetrics.borderWidth
-            self.backghroundWaveform.layer.borderColor = UIColor.white.withAlphaComponent(0.22).cgColor
+            self.backghroundWaveform.layer.borderWidth = 0
+            self.backghroundWaveform.layer.borderColor = nil
             self.backghroundWaveform.layer.cornerCurve = .continuous
             self.deleteButton.frame = CGRect(
                 origin: CGPoint(x: 0, y: 0),
@@ -1140,12 +1199,12 @@ class ModernXabberInputView: UIView {
         
         @objc
         internal func onDeleteButtonTouchUpInside(_ sender: UIButton) {
-            self.delegate?.recordAndPlayPanelDeleteButtonTouchUp()
+            self.onDelete?()
         }
         
         @objc
         internal func onPlayButtonTouchUpInside(_ sender: UIButton) {
-            self.delegate?.recordAndPlayPanelPlayButtonTouchUp()
+            self.onPlay?()
         }
         
         func play(for duration: TimeInterval) {
@@ -1181,24 +1240,6 @@ class ModernXabberInputView: UIView {
         let recordIndicatorSize: CGFloat = 8
         
         var palette: MDCPalette = .amber
-
-        private let glassShadowView: UIView = {
-            let view = UIView()
-            view.isUserInteractionEnabled = false
-            ModernXabberInputView.applyGlassShadow(to: view, opacity: 0.10, radius: 12, yOffset: 5)
-            return view
-        }()
-
-        private let glassEffectView: UIVisualEffectView = {
-            let view = ModernXabberInputView.makeGlassEffectView(
-                interactive: false,
-                tintAlpha: 0.12,
-                fallbackStyle: .systemThinMaterial,
-                prefersNativeGlass: false
-            )
-            ModernXabberInputView.applyGlassLayer(to: view, cornerRadius: 19, borderAlpha: 0.24)
-            return view
-        }()
         
         let recordIndicator: UIView = {
             let view = UIView()
@@ -1255,11 +1296,14 @@ class ModernXabberInputView: UIView {
         internal var slideToCancelButtonCenter: CGPoint = .zero
         
         internal var delegate: XabberInputBarDelegate? = nil
+        internal var onCancel: (() -> Void)? = nil
+        internal var onStop: (() -> Void)? = nil
+        internal var onLock: (() -> Void)? = nil
+        internal var onUnlock: (() -> Void)? = nil
+        internal var onLockStop: (() -> Void)? = nil
         
         internal func setup() {
             self.backgroundColor = .clear
-            self.addSubview(glassShadowView)
-            self.glassShadowView.addSubview(glassEffectView)
             self.addSubview(recordIndicator)
             self.addSubview(timeLabel)
             self.addSubview(slideToCancelButton)
@@ -1269,23 +1313,16 @@ class ModernXabberInputView: UIView {
         
         @objc
         internal func onCancelRecordTouchUpInside(_ sender: UIButton) {
-            self.delegate?.onAudioMessageDidCancel()
+            self.onCancel?()
             self.resetElements()
         }
         
         @objc
         internal func onStopRecordTouchUpInside(_ sender: UIButton) {
-            self.delegate?.onAudioMessageDidStop()
+            self.onStop?()
         }
         
         final func update() {
-            self.glassShadowView.frame = self.bounds
-            self.glassEffectView.frame = self.glassShadowView.bounds
-            ModernXabberInputView.applyGlassLayer(to: self.glassEffectView, cornerRadius: 19, borderAlpha: 0.24)
-            self.glassShadowView.layer.shadowPath = UIBezierPath(
-                roundedRect: self.glassShadowView.bounds,
-                cornerRadius: 19
-            ).cgPath
             self.recordIndicator.frame = CGRect(
                 origin: CGPoint(x: 2, y: 15),
                 size: CGSize(square: recordIndicatorSize)
@@ -1324,12 +1361,10 @@ class ModernXabberInputView: UIView {
         var lockIndicatorIsStop: Bool = false
         
         func changeIndicatorToStop() {
-            self.delegate?.lockIndicatorShouldStop()
-            
+            self.onLockStop?()
         }
         
         func resetAndStart() {
-//            self.recordPanelLock = false
             self.startDate = Date()
             let timeInterval: TimeInterval = 0
             self.timeLabel.text = timeInterval.minuteFormatedString
@@ -1385,7 +1420,7 @@ class ModernXabberInputView: UIView {
         func lock() {
             if !lockState {
                 lockState = true
-                self.delegate?.lockIndicatorShouldLock()
+                self.onLock?()
                 FeedbackManager.shared.generate(feedback: .success)
             }
         }
@@ -1393,7 +1428,7 @@ class ModernXabberInputView: UIView {
         func unlock() {
             if lockState {
                 lockState = false
-                self.delegate?.lockIndicatorShouldUnlock()
+                self.onUnlock?()
                 FeedbackManager.shared.generate(feedback: .success)
             }
             
@@ -1413,6 +1448,19 @@ class ModernXabberInputView: UIView {
     private var screenHeight: CGFloat = 0
     
     private var sendButtonState: SendButtonState = .record
+    var voiceRecordingInteraction = VoiceRecordingInteractionStateMachine()
+    private var voiceRecordingGesture: UILongPressGestureRecognizer?
+    private var lockedVoiceRecordingCancelGesture: UIPanGestureRecognizer?
+    private var voiceRecordingGestureStartLocation: CGPoint?
+    private var smoothedRecordingMeteringLevel: CGFloat = 0
+    private var recordLockButtonAllowsStop = false
+    private var recordLockButtonVisualTranslation: CGPoint = .zero
+    private var recordLockButtonIconScale: CGFloat = 1
+    private var isSendButtonDetachedChromeHidden = false
+
+    var isRecordingLockOverlayVisible: Bool {
+        !self.recordLockButton.isHidden
+    }
     
     final var padding: UIEdgeInsets = UIEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
         
@@ -1443,6 +1491,8 @@ class ModernXabberInputView: UIView {
         case identityVerification
         case updateSignature
         case checkDevices
+        case checkOwnDevices
+        case checkContactDevices
         case skeleton
         case selection
         case search
@@ -1469,8 +1519,29 @@ class ModernXabberInputView: UIView {
     
     private var textViewHeightAnchor: NSLayoutConstraint?
     private var didActivateComposerConstraints = false
-    private var textFieldTrailingToTimerConstraint: NSLayoutConstraint?
-    private var textFieldTrailingToSendConstraint: NSLayoutConstraint?
+    private var mainInputHeightConstraint: NSLayoutConstraint?
+    private var mainInputLeadingToRootConstraint: NSLayoutConstraint?
+    private var mainInputLeadingToAttachConstraint: NSLayoutConstraint?
+    private var mainInputTrailingToRootConstraint: NSLayoutConstraint?
+    private var mainInputTrailingToTimerConstraint: NSLayoutConstraint?
+    private var mainInputTrailingToSendConstraint: NSLayoutConstraint?
+    private var contentViewTopToGlassConstraint: NSLayoutConstraint?
+    private var contentViewTopToContextPreviewConstraint: NSLayoutConstraint?
+    private var lastBoundsForRecordingButtonReset: CGRect = .null
+
+    private enum RecordingDragVisualPolicy {
+        static let minX: CGFloat = -120
+        static let maxX: CGFloat = 0
+        static let minY: CGFloat = -108
+        static let maxY: CGFloat = 0
+
+        static func clamped(_ translation: CGPoint) -> CGPoint {
+            CGPoint(
+                x: min(max(translation.x, minX), maxX),
+                y: min(max(translation.y, minY), maxY)
+            )
+        }
+    }
 
     /// The maximum height that the InputTextView can reach
     final var maxTextViewHeight: CGFloat = 130 {
@@ -1499,12 +1570,26 @@ class ModernXabberInputView: UIView {
             return ModernXabberInputView.minimumComposerHeight
         }
         let textViewHeight = min(self.requiredTextViewFittingHeight, self.maxTextViewHeight)
-        return max(ModernXabberInputView.minimumComposerHeight, textViewHeight + self.composerTextVerticalPadding)
+        return self.normalizedComposerContentHeight(
+            for: textViewHeight + self.composerTextVerticalPadding
+        )
+    }
+
+    private func normalizedComposerContentHeight(for rawHeight: CGFloat) -> CGFloat {
+        if rawHeight <= ModernXabberInputView.minimumComposerHeight + LiquidGlassMetrics.collapsedHeightTolerance {
+            return ModernXabberInputView.minimumComposerHeight
+        }
+        return max(ModernXabberInputView.minimumComposerHeight, rawHeight)
     }
     
     private let mainInputShadowView: UIView = {
         let view = UIView(frame: .zero)
         view.isUserInteractionEnabled = true
+        view.layer.shadowColor = nil
+        view.layer.shadowOpacity = 0
+        view.layer.shadowRadius = 0
+        view.layer.shadowOffset = .zero
+        view.layer.shadowPath = nil
         return view
     }()
 
@@ -1534,27 +1619,48 @@ class ModernXabberInputView: UIView {
     }()
     
     class SendButton: UIButton {
+        private enum PulseMetrics {
+            static let collapsedCenter = CGPoint(x: 22, y: 19)
+            static let expandedSize = CGSize(width: 128, height: 128)
+        }
+
+        private weak var pulseHostView: UIView?
+        private var isPulseExpanded: Bool = false
+        private(set) var recordingVisualTranslation: CGPoint = .zero
+
         let pulseView: UIView = {
             let view = UIView(frame: .zero)
-                       
+
+            view.isUserInteractionEnabled = false
+            view.backgroundColor = .clear
+            view.clipsToBounds = false
+            view.layer.masksToBounds = false
+
             return view
         }()
-        
-        var delegate: SendButtonDelegate? = nil
-        
-        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-            print("xabber_input", "SEND BUTTON", #function, touches, event, event?.timestamp)
-            self.delegate?.onTouchesEnded(at: Date().timeIntervalSince1970)
-        }
-        
-        let sendIcon: UIImageView = {
-            let view = UIImageView(image: imageLiteral("xabber.paperplane.fill"))
-            
-            view.tintColor = .systemBackground
-            
+
+        private let pulseEffectView: UIVisualEffectView = {
+            let view = ModernXabberInputView.makeGlassEffectView(
+                interactive: false,
+                fallbackStyle: .systemMaterial,
+                prefersNativeGlass: true
+            )
+
+            view.isUserInteractionEnabled = false
+            view.clipsToBounds = true
+
             return view
         }()
-        
+
+        private let pulseTintView: UIView = {
+            let view = UIView(frame: .zero)
+
+            view.isUserInteractionEnabled = false
+            view.clipsToBounds = true
+
+            return view
+        }()
+
         override init(frame: CGRect) {
             super.init(frame: frame)
 //            self.layer.addSublayer(pulseLayer)
@@ -1562,84 +1668,206 @@ class ModernXabberInputView: UIView {
 //            self.addlayer
 //            self.pulseView.layer.addSublayer(self.pulseLayer)
 //            self.pulseView.layer.addSublayer(self.filledPulseLayer)
-            
-            
+
+
 //            self.filledPulseLayer.position = self.center
 //            
 //            self.pulseLayer.position = self.center
 //            self.pulseLayer.radius = 44
+            self.pulseView.addSubview(self.pulseEffectView)
+            self.pulseView.addSubview(self.pulseTintView)
             self.addSubview(pulseView)
             self.sendSubviewToBack(pulseView)
-            self.pulseView.frame = CGRect(x: 22, y: 19, width: 0, height: 0)
+            self.pulseView.frame = self.collapsedPulseFrame()
             self.pulseView.isHidden = true
-            self.addSubview(sendIcon)
-//            self.sendIcon.center = center
-            self.bringSubviewToFront(self.sendIcon)
-            self.sendIcon.frame = CGRect(
-                origin: .zero,
-                size: self.sendIcon.sizeThatFits(CGSize(square: 24))
-            )
-            self.sendIcon.center = center
-            self.sendIcon.isHidden = true
+            self.setPulseTintColor(.systemOrange)
         }
-        
+
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
         }
-        
-        func showPulse() {
-            self.pulseView.isHidden = false
-            self.pulseView.layer.masksToBounds = true
-            self.sendIcon.isHidden = false
-//            self.filledPulseLayer.position = self.pulseView.center
-            UIView.animate(
-                withDuration: 0.5,
-                delay: 0.0,
-                usingSpringWithDamping: 0.5,
-                initialSpringVelocity: 0.5,
-                options: [.curveEaseInOut]) {
-                    self.pulseView.frame = CGRect(x: -42, y: -45, width: 128, height: 128)
-                    self.pulseView.layer.cornerRadius = 64
-                } completion: { _ in
-                    
-                }
+
+        func hostPulseOverlay(in hostView: UIView) {
+            guard self.pulseHostView !== hostView else {
+                self.updatePulseOverlayPosition()
+                return
+            }
+
+            self.pulseHostView = hostView
+            self.pulseView.removeFromSuperview()
+            hostView.addSubview(self.pulseView)
+            self.updatePulseOverlayPosition()
         }
-        
-        func hidePulse() {
+
+        func setRecordingVisualTranslation(_ translation: CGPoint, animated: Bool = false) {
+            guard self.recordingVisualTranslation != translation else {
+                self.updatePulseOverlayPosition()
+                return
+            }
+            self.recordingVisualTranslation = translation
+            self.pulseView.layer.removeAllAnimations()
+            self.layer.removeAllAnimations()
+
+            let updates = {
+                self.transform = CGAffineTransform(
+                    translationX: translation.x,
+                    y: translation.y
+                )
+                self.updatePulseOverlayPosition()
+            }
+            guard animated else {
+                updates()
+                return
+            }
+
             UIView.animate(
-                withDuration: 0.5,
-                delay: 0.0,
-                usingSpringWithDamping: 0.5,
-                initialSpringVelocity: 0.5,
-                options: [.curveEaseInOut]) {
-                    self.pulseView.frame = CGRect(x: 22, y: 19, width: 0, height: 0)
-                    self.pulseView.layer.cornerRadius = 64
-                } completion: { _ in
-                    
-                }
-            
+                withDuration: 0.2,
+                delay: 0,
+                options: [.beginFromCurrentState, .curveEaseOut],
+                animations: updates
+            )
+        }
+
+        func showPulse() {
+            self.isPulseExpanded = true
+            self.pulseView.layer.removeAllAnimations()
+            self.pulseView.isHidden = false
+            self.pulseView.layer.masksToBounds = false
+            self.pulseView.clipsToBounds = false
+            self.updatePulseOverlayPosition()
+        }
+
+        func hidePulse() {
+            self.isPulseExpanded = false
+            self.pulseView.layer.removeAllAnimations()
             self.pulseView.isHidden = true
             self.pulseView.layer.masksToBounds = false
-            self.sendIcon.isHidden = true
+            self.resetPulseGlow()
+            self.updatePulseOverlayPosition()
+        }
+
+        func setPulseTintColor(_ color: UIColor) {
+            self.pulseTintView.backgroundColor = color.withAlphaComponent(RecordingGlowMetrics.fillAlpha)
+        }
+
+        func updatePulseGlow(level: CGFloat, color: UIColor, animated: Bool) {
+            let clampedLevel = min(max(level, 0), 1)
+            let shadowRadius = RecordingGlowMetrics.minimumShadowRadius
+                + (RecordingGlowMetrics.maximumShadowRadius - RecordingGlowMetrics.minimumShadowRadius) * clampedLevel
+            let shadowOpacity = RecordingGlowMetrics.minimumShadowOpacity
+                + (RecordingGlowMetrics.maximumShadowOpacity - RecordingGlowMetrics.minimumShadowOpacity) * Float(clampedLevel)
+
+            let updates = {
+                self.pulseView.layer.shadowColor = color.cgColor
+                self.pulseView.layer.shadowOpacity = shadowOpacity
+                self.pulseView.layer.shadowRadius = shadowRadius
+                self.pulseView.layer.shadowOffset = .zero
+                self.pulseView.layer.masksToBounds = false
+                self.pulseView.layer.shadowPath = self.pulseView.bounds.isEmpty
+                    ? nil
+                    : UIBezierPath(ovalIn: self.pulseView.bounds).cgPath
+            }
+
+            guard animated else {
+                updates()
+                return
+            }
+
+            UIView.animate(
+                withDuration: 0.12,
+                delay: 0,
+                options: [.beginFromCurrentState, .curveEaseOut],
+                animations: updates
+            )
+        }
+
+        func resetPulseGlow() {
+            self.pulseView.layer.shadowColor = nil
+            self.pulseView.layer.shadowOpacity = 0
+            self.pulseView.layer.shadowRadius = 0
+            self.pulseView.layer.shadowOffset = .zero
+            self.pulseView.layer.shadowPath = nil
+        }
+
+        func updatePulseOverlayPosition() {
+            guard self.pulseView.superview != nil else { return }
+
+            self.pulseView.frame = self.isPulseExpanded && !self.pulseView.isHidden
+                ? self.expandedPulseFrame()
+                : self.collapsedPulseFrame()
+            if !self.pulseView.bounds.isEmpty {
+                self.pulseView.layer.cornerRadius = min(self.pulseView.bounds.width, self.pulseView.bounds.height) / 2
+                self.pulseView.layer.shadowPath = UIBezierPath(ovalIn: self.pulseView.bounds).cgPath
+            }
+            self.layoutPulseContent()
+            if self.isPulseExpanded && !self.pulseView.isHidden {
+                self.updatePulseOverlayZOrder()
+            }
+        }
+
+        private func collapsedPulseFrame() -> CGRect {
+            CGRect(origin: self.convertToPulseSuperview(PulseMetrics.collapsedCenter, for: self.pulseView), size: .zero)
+        }
+
+        private func expandedPulseFrame() -> CGRect {
+            let center = self.convertToPulseSuperview(PulseMetrics.collapsedCenter, for: self.pulseView)
+            return CGRect(
+                x: center.x - PulseMetrics.expandedSize.width / 2,
+                y: center.y - PulseMetrics.expandedSize.height / 2,
+                width: PulseMetrics.expandedSize.width,
+                height: PulseMetrics.expandedSize.height
+            )
+        }
+
+        private func convertToPulseSuperview(_ point: CGPoint, for view: UIView) -> CGPoint {
+            if let superview = view.superview, superview !== self {
+                return self.convert(point, to: superview)
+            }
+            return point
+        }
+
+        private func layoutPulseContent() {
+            [self.pulseEffectView, self.pulseTintView].forEach { subview in
+                subview.frame = self.pulseView.bounds
+                subview.layer.cornerRadius = min(self.pulseView.bounds.width, self.pulseView.bounds.height) / 2
+                subview.layer.cornerCurve = .continuous
+                subview.clipsToBounds = true
+            }
+            self.pulseEffectView.layer.borderWidth = 0
+            self.pulseEffectView.layer.borderColor = nil
+            if #available(iOS 26.0, *) {
+                self.pulseEffectView.cornerConfiguration = .uniformCorners(radius: .fixed(64))
+            }
+        }
+
+        private func updatePulseOverlayZOrder() {
+            guard let superview = self.pulseView.superview else { return }
+            if superview === self {
+                self.sendSubviewToBack(self.pulseView)
+            } else if self.superview === superview {
+                superview.insertSubview(self.pulseView, belowSubview: self)
+            } else {
+                superview.bringSubviewToFront(self.pulseView)
+            }
         }
     }
-    
+
     let sendButton: SendButton = {
         let button = SendButton(frame: CGRect(square: ModernXabberInputView.LiquidGlassMetrics.buttonSize))
-        
-        button.setImage(imageLiteral("mic", dimension: 24), for: .normal)
+
+        button.setImage(imageLiteral("mic", dimension: NativeGlassBarStyle.iconSize), for: .normal)
         button.tintColor = .secondaryLabel
-        ModernXabberInputView.removeChrome(from: button)
-                        
+        ModernXabberInputView.applyDetachedGlassButtonStyle(to: button)
+
         return button
     }()
-   
+
     let attachButton: UIButton = {
         let button = UIButton(frame: CGRect(square: ModernXabberInputView.LiquidGlassMetrics.buttonSize))
-        
-        button.setImage(imageLiteral("paperclip", dimension: 24), for: .normal)
+
+        button.setImage(imageLiteral("paperclip", dimension: NativeGlassBarStyle.iconSize), for: .normal)
         button.tintColor = .secondaryLabel
-        ModernXabberInputView.removeChrome(from: button)
+        ModernXabberInputView.applyDetachedGlassButtonStyle(to: button)
         
         return button
     }()
@@ -1647,15 +1875,28 @@ class ModernXabberInputView: UIView {
     let timerButton: UIButton = {
         let button = UIButton(frame: CGRect(square: ModernXabberInputView.LiquidGlassMetrics.buttonSize))
         
-        button.setImage(imageLiteral("stopwatch", dimension: 24), for: .normal)
+        button.setImage(imageLiteral("stopwatch", dimension: NativeGlassBarStyle.iconSize), for: .normal)
         button.tintColor = .secondaryLabel
         button.isEnabled = true
-        ModernXabberInputView.removeChrome(from: button)
+        ModernXabberInputView.applyDetachedGlassButtonStyle(to: button)
 //        button.isHidden = true
         
         return button
     }()
-    
+
+    let recordLockButton: UIButton = {
+        let button = UIButton(frame: CGRect(square: ModernXabberInputView.LiquidGlassMetrics.buttonSize))
+
+        let configuration = UIImage.SymbolConfiguration(pointSize: NativeGlassBarStyle.iconSize, weight: .regular)
+        button.setImage(UIImage(systemName: "lock.open.fill", withConfiguration: configuration), for: .normal)
+        button.tintColor = .secondaryLabel
+        button.isHidden = true
+        button.isAccessibilityElement = true
+        ModernXabberInputView.applyDetachedGlassButtonStyle(to: button)
+
+        return button
+    }()
+
     let contentView: UIView = {
         let view = UIView(frame: .zero)
         
@@ -1713,17 +1954,8 @@ class ModernXabberInputView: UIView {
         return view
     }()
     
-    let forwardPanel: MessagesPanel = {
-        let view = MessagesPanel(frame: .zero)
-        
-        view.backgroundColor = .clear
-        view.isHidden = true
-        
-        return view
-    }()
-    
-    let editPanel: MessagesPanel = {
-        let view = MessagesPanel()
+    let contextPreviewPanel: ComposerContextPreviewView = {
+        let view = ComposerContextPreviewView(frame: .zero)
         
         view.backgroundColor = .clear
         view.isHidden = true
@@ -1750,9 +1982,9 @@ class ModernXabberInputView: UIView {
     
     override init(frame: CGRect) {
         super.init(frame: frame)
-        self.setupFrames(frame)
         self.setup()
         self.activateConstraints()
+        self.setupFrames(frame)
     }
     
     required init?(coder: NSCoder) {
@@ -1781,8 +2013,37 @@ class ModernXabberInputView: UIView {
         return self.mentionPanel.hitTest(mentionPoint, with: event)
     }
 
+    private func sendButtonPulseHitView(for point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !self.sendButton.isHidden,
+              self.sendButton.isEnabled,
+              self.sendButton.alpha > 0.01,
+              !self.sendButton.pulseView.isHidden,
+              self.sendButton.pulseView.alpha > 0.01 else {
+            return nil
+        }
+
+        let pulseFrame = self.sendButton.pulseView
+            .convert(self.sendButton.pulseView.bounds, to: self)
+            .insetBy(dx: -8, dy: -8)
+        return pulseFrame.contains(point) ? self.sendButton : nil
+    }
+
+    private func recordLockButtonHitView(for point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !self.recordLockButton.isHidden,
+              self.recordLockButton.alpha > 0.01,
+              self.recordLockButton.isUserInteractionEnabled else {
+            return nil
+        }
+
+        let lockPoint = self.recordLockButton.convert(point, from: self)
+        return self.recordLockButton.hitTest(lockPoint, with: event)
+    }
+
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        super.point(inside: point, with: event) || self.mentionPanelHitView(for: point, with: event) != nil
+        super.point(inside: point, with: event)
+            || self.mentionPanelHitView(for: point, with: event) != nil
+            || self.recordLockButtonHitView(for: point, with: event) != nil
+            || self.sendButtonPulseHitView(for: point, with: event) != nil
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -1792,6 +2053,14 @@ class ModernXabberInputView: UIView {
 
         if let mentionHitView = self.mentionPanelHitView(for: point, with: event) {
             return mentionHitView
+        }
+
+        if let pulseHitView = self.sendButtonPulseHitView(for: point, with: event) {
+            return pulseHitView
+        }
+
+        if let lockHitView = self.recordLockButtonHitView(for: point, with: event) {
+            return lockHitView
         }
 
         return super.hitTest(point, with: event)
@@ -1815,24 +2084,30 @@ class ModernXabberInputView: UIView {
     }
 
     private func updateComposerControlLayout() {
-        let shouldTrailToTimer = !self.timerButton.isHidden
-        self.textFieldTrailingToTimerConstraint?.isActive = shouldTrailToTimer
-        self.textFieldTrailingToSendConstraint?.isActive = !shouldTrailToTimer
-        self.mainInputGlassView.layoutIfNeeded()
-        self.contentView.layoutIfNeeded()
+        let shouldLeadToAttach = !self.attachButton.isHidden
+        let shouldTrailToTimer = !self.timerButton.isHidden && !self.sendButton.isHidden
+        let shouldTrailToSend = !shouldTrailToTimer && !self.sendButton.isHidden
+
+        self.mainInputLeadingToAttachConstraint?.isActive = shouldLeadToAttach
+        self.mainInputLeadingToRootConstraint?.isActive = !shouldLeadToAttach
+        self.mainInputTrailingToTimerConstraint?.isActive = shouldTrailToTimer
+        self.mainInputTrailingToSendConstraint?.isActive = shouldTrailToSend
+        self.mainInputTrailingToRootConstraint?.isActive = !shouldTrailToTimer && !shouldTrailToSend
+
+        self.mainInputHeightConstraint?.constant = self.currentComposerContentHeight() + self.topInset
         self.startPositionSendButton = self.sendButton.center
     }
 
     private func currentComposerContentHeight() -> CGFloat {
-        max(ModernXabberInputView.minimumComposerHeight, self.cachedIntrinsicContentSize.height)
+        self.normalizedComposerContentHeight(for: self.cachedIntrinsicContentSize.height)
     }
 
     private func composerFrame(contentHeight: CGFloat) -> CGRect {
         let rawFrame = CGRect(
             x: 0,
-            y: self.topInset + LiquidGlassMetrics.contentTopOffset,
+            y: LiquidGlassMetrics.contentTopOffset,
             width: max(0, self.bounds.width),
-            height: contentHeight
+            height: contentHeight + self.topInset
         ).insetBy(
             dx: LiquidGlassMetrics.composerHorizontalInset,
             dy: LiquidGlassMetrics.composerVerticalInset
@@ -1845,8 +2120,24 @@ class ModernXabberInputView: UIView {
         )
     }
 
+    private var isContextPreviewShowed: Bool {
+        self.activeContextPreviewMode != nil
+    }
+
+    private func layoutContextPreviewPanel() {
+        let isShowing = self.isContextPreviewShowed
+        self.contextPreviewPanel.isHidden = !isShowing
+        self.contentViewTopToContextPreviewConstraint?.isActive = isShowing
+        self.contentViewTopToGlassConstraint?.isActive = !isShowing
+        if isShowing {
+            self.contextPreviewPanel.update()
+        }
+    }
+
     private func updateComposerContentLayout() {
+        self.layoutContextPreviewPanel()
         self.updateComposerControlLayout()
+        self.layoutComposerRecordingPanels()
     }
 
     public func setupFrames(_ frame: CGRect) {
@@ -1862,42 +2153,62 @@ class ModernXabberInputView: UIView {
     
     final func setup() {
         self.backgroundColor = .clear
+        self.clipsToBounds = false
         self.addSubview(self.mainInputShadowView)
         self.mainInputShadowView.addSubview(self.mainInputGlassView)
+        self.addSubview(self.attachButton)
+        self.addSubview(self.timerButton)
+        self.addSubview(self.sendButton)
+        self.addSubview(self.recordLockButton)
+        self.mainInputShadowView.clipsToBounds = false
         self.contentView.backgroundColor = .clear
         self.contentView.isUserInteractionEnabled = true
         [
+            self.mainInputShadowView,
+            self.mainInputGlassView,
+            self.contextPreviewPanel,
             self.contentView,
             self.attachButton,
             self.textField,
             self.timerButton,
-            self.sendButton
+            self.sendButton,
+            self.recordLockButton
         ].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
+        self.mainInputGlassView.contentView.addSubview(self.contextPreviewPanel)
         self.mainInputGlassView.contentView.addSubview(self.contentView)
-        self.contentView.addSubview(self.attachButton)
         self.contentView.addSubview(self.textField)
-        self.contentView.addSubview(self.timerButton)
-        self.contentView.addSubview(self.sendButton)
         self.contentView.addSubview(self.stateButton)
+        self.contentView.addSubview(self.recordAndPlayPanel)
+        self.contentView.addSubview(self.recordPanel)
+        self.contentView.bringSubviewToFront(self.stateButton)
+        self.bringSubviewToFront(self.attachButton)
+        self.bringSubviewToFront(self.timerButton)
+        self.bringSubviewToFront(self.sendButton)
+        self.bringSubviewToFront(self.recordLockButton)
         
-        self.sendButton.delegate = self
+        [
+            self.stateButton
+        ].forEach { ModernXabberInputView.removeChrome(from: $0) }
         [
             self.attachButton,
             self.timerButton,
             self.sendButton,
-            self.stateButton
-        ].forEach { ModernXabberInputView.removeChrome(from: $0) }
+            self.recordLockButton
+        ].forEach {
+            ModernXabberInputView.applyDetachedGlassButtonStyle(
+                to: $0,
+                forceConfigurationUpdate: false
+            )
+        }
+        self.applySendButtonDetachedChromeVisibility()
         self.textField.backgroundColor = .clear
         self.textField.layer.borderWidth = 0
         self.textField.layer.borderColor = UIColor.clear.cgColor
         
         self.addSubview(self.selectionPanel)
-        self.addSubview(self.forwardPanel)
-        self.addSubview(self.editPanel)
         self.addSubview(self.searchPanel)
-        self.addSubview(self.recordAndPlayPanel)
-        self.addSubview(self.recordPanel)
         self.bringSubviewToFront(searchPanel)
+        self.sendButton.hostPulseOverlay(in: self)
         
         self.stateButton.fillSuperview()
         self.stateButton.isHidden = true
@@ -1907,27 +2218,54 @@ class ModernXabberInputView: UIView {
         self.addObservers()
         self.attachButton.addTarget(self, action: #selector(self.onAttachButtonTouchUp), for: .touchUpInside)
         self.timerButton.addTarget(self,  action: #selector(self.onTimerButtonTouchUp), for: .touchUpInside)
+        self.sendButton.addTarget(self, action: #selector(self.onSendButtonTouchUp), for: .touchUpInside)
+        self.recordLockButton.addTarget(self, action: #selector(self.onRecordLockButtonTouchUp), for: .touchUpInside)
         self.stateButton.addTarget(self,  action: #selector(self.onStateButtonTouchUp), for: .touchUpInside)
+        self.recordPanel.onCancel = { [weak self] in
+            self?.cancelActiveVoiceRecordingFromControl()
+        }
+        self.recordPanel.onStop = { [weak self] in
+            self?.stopLockedAudioRecording()
+        }
+        self.recordPanel.onLock = { [weak self] in
+            self?.showRecordingLockOverlay(isLocked: true, allowsStop: true, animated: true)
+        }
+        self.recordPanel.onUnlock = { [weak self] in
+            self?.showRecordingLockOverlay(isLocked: false, allowsStop: false, animated: true)
+        }
+        self.recordPanel.onLockStop = { [weak self] in
+            self?.showRecordingLockOverlay(isLocked: true, allowsStop: true, animated: true)
+        }
+        self.recordAndPlayPanel.onDelete = { [weak self] in
+            self?.deleteVoiceRecordingPreview()
+        }
+        self.recordAndPlayPanel.onPlay = { [weak self] in
+            self?.playVoiceRecordingPreview()
+        }
         self.mentionPanel.onSelect = { [weak self] item in
             self?.insertMentionCandidate(item)
         }
-        self.forwardPanel.update(title: "title", normal: "message")
-        self.editPanel.configureForEdit()
-        let gesture = UIPanGestureRecognizer(target: self, action: #selector(panGestureRecognizerSelector))
+        self.contextPreviewPanel.update(title: "title", normal: "message")
+        self.contextPreviewPanel.configureForForward()
+        let gesture = UILongPressGestureRecognizer(target: self, action: #selector(voiceRecordingLongPressGesture(_:)))
+        gesture.minimumPressDuration = 0
+        gesture.allowableMovement = CGFloat.greatestFiniteMagnitude
+        gesture.cancelsTouchesInView = true
         gesture.delegate = self
-//        gesture.requiresExclusiveTouchType = true
-//        gesture.cancelsTouchesInView = true
-//        
-//        gesture.delaysTouchesBegan = true
-//        gesture.
-//        self.sendButton.addTarget(self, action: #selector(onSendButtonTouchUpInside), for: .touchUpInside)
+        self.voiceRecordingGesture = gesture
         self.sendButton.gestureRecognizers?.forEach {
             self.sendButton.removeGestureRecognizer($0)
         }
         self.sendButton.addGestureRecognizer(gesture)
-//        let touchGesture = UITapGestureRecognizer(target: self, action: #selector(onTouchSendButton))
-//        touchGesture.delegate = self
-//        self.sendButton.addGestureRecognizer(touchGesture)
+
+        let lockedCancelGesture = UIPanGestureRecognizer(
+            target: self,
+            action: #selector(self.lockedVoiceRecordingCancelPanGesture(_:))
+        )
+        lockedCancelGesture.cancelsTouchesInView = true
+        lockedCancelGesture.delegate = self
+        self.lockedVoiceRecordingCancelGesture = lockedCancelGesture
+        self.addGestureRecognizer(lockedCancelGesture)
     }
     
     
@@ -1989,7 +2327,7 @@ class ModernXabberInputView: UIView {
                 self.recordAndPlayPanel.isHidden = true
                 self.stateButton.setTitle("Identity verification", for: .normal)
                 self.stateButton.setTitleColor(.systemBlue, for: .normal)
-            case .checkDevices:
+            case .checkDevices, .checkOwnDevices, .checkContactDevices:
                 self.state = state
                 self.attachButton.isHidden =    true
                 self.textField.isHidden =       true
@@ -2000,7 +2338,12 @@ class ModernXabberInputView: UIView {
                 self.selectionPanel.isHidden =  true
                 self.recordPanel.isHidden =     true
                 self.recordAndPlayPanel.isHidden = true
-                self.stateButton.setTitle("Check devices", for: .normal)
+                switch state {
+                case .checkContactDevices:
+                    self.stateButton.setTitle("Check contact’s devices", for: .normal)
+                default:
+                    self.stateButton.setTitle("Check my devices", for: .normal)
+                }
                 self.stateButton.setTitleColor(.systemBlue, for: .normal)
             case .skeleton:
                 self.state = state
@@ -2054,6 +2397,10 @@ class ModernXabberInputView: UIView {
                 
         }
         self.layoutSubviews()
+        if state != .record {
+            self.resetRecordingOverlayVisuals()
+        }
+        self.resetRecordingButtonPositionAndVisibility(animated: false)
     }
     
     var isSelectionPanelShowed: Bool = false
@@ -2077,123 +2424,89 @@ class ModernXabberInputView: UIView {
     }
     
     var topInset: CGFloat = 0
-    var isForwardPanelShowed: Bool = false
-    var isEditPanelShowed: Bool = false
+    var activeContextPreviewMode: ComposerContextPreviewView.Mode? = nil
+
+    private func notifyHeightChangedForCurrentContext() {
+        self.barHeight = self.currentComposerContentHeight() + LiquidGlassMetrics.verticalReserve
+        var inputHeight: CGFloat = self.barHeight + self.keyboardHeight + self.topInset
+        if self.keyboardHeight == 0 {
+            if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+                inputHeight += bottomInset
+            }
+        }
+
+        self.delegate?.onHeightChanged(to: inputHeight, bar: 0)
+    }
     
     public final func updateBottomPanels(withOffset offset: CGFloat) {
         selectionPanel.frame = CGRect(
             origin: CGPoint(x: 16, y: offset + 2),
             size: CGSize(width: self.bounds.width - 32, height: 38)
         )
-        recordPanel.frame = CGRect(
-            origin: CGPoint(x: 8, y: offset + 6),
-            size: CGSize(width: self.bounds.width - 60, height: 38)
-        )
-        recordAndPlayPanel.frame = CGRect(
-            origin: CGPoint(x: 8, y: offset + 6),
-            size: CGSize(width: self.bounds.width - 60, height: 38)
-        )
+        self.layoutComposerRecordingPanels()
         searchPanel.frame = CGRect(
             origin: CGPoint(x: 16, y: offset + 6),
             size: CGSize(width: self.bounds.width - 32, height: 38)
         )
         self.layoutMentionPanel()
     }
+
+    private func layoutComposerRecordingPanels() {
+        let composerBounds = self.contentView.bounds.width > 0
+            ? self.contentView.bounds
+            : CGRect(x: 0, y: 0, width: self.bounds.width, height: ModernXabberInputView.minimumComposerHeight)
+        let panelFrame = CGRect(
+            origin: CGPoint(x: 8, y: max(0, (composerBounds.height - 38) / 2)),
+            size: CGSize(width: max(0, composerBounds.width - 16), height: 38)
+        )
+        self.recordPanel.frame = panelFrame
+        self.recordAndPlayPanel.frame = panelFrame
+    }
     
     public func showForwardPanel() {
-        if self.isForwardPanelShowed {
-            return
-        }
-        self.isForwardPanelShowed = true
-        self.topInset = 44
-        self.update(screenHeight: self.screenHeight, keyboardHeight: self.keyboardHeight, animate: true) {
-            self.forwardPanel.frame = CGRect(
-                origin: CGPoint(x: 0, y: 0),
-                size: CGSize(width: self.bounds.width, height: 40)
-            )
-            self.updateBottomPanels(withOffset: 40)
-            self.forwardPanel.update()
-            self.forwardPanel.configureForForward()
-            self.forwardPanel.isHidden = false
-            self.barHeight = self.cachedIntrinsicContentSize.height + LiquidGlassMetrics.verticalReserve
-            var inputHeight: CGFloat = self.barHeight + self.keyboardHeight + self.topInset
-            if self.keyboardHeight == 0 {
-                if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                    inputHeight += bottomInset
-                }
-            }
-            
-            self.delegate?.onHeightChanged(to: inputHeight, bar: 0)
-        }
-        
+        self.showContextPreview(mode: .forward)
     }
     
     public func hideForwardPanel() {
-        if !self.isForwardPanelShowed {
-            return
-        }
-        self.isForwardPanelShowed = false
-        self.topInset = 0
-        self.update(screenHeight: self.screenHeight, keyboardHeight: self.keyboardHeight, animate: true) {
-            self.forwardPanel.isHidden = true
-            self.barHeight = self.cachedIntrinsicContentSize.height + LiquidGlassMetrics.verticalReserve
-            var inputHeight: CGFloat = self.barHeight + self.keyboardHeight + self.topInset
-            if self.keyboardHeight == 0 {
-                if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                    inputHeight += bottomInset
-                }
-            }
-            self.updateBottomPanels(withOffset: 0)
-            self.delegate?.onHeightChanged(to: inputHeight, bar: 0)
-        }
-        
+        self.hideContextPreview(ifActive: .forward)
     }
     
     public func showEditPanel() {
-        if self.isEditPanelShowed {
+        self.showContextPreview(mode: .edit)
+    }
+
+    public func hideEditPanel() {
+        self.hideContextPreview(ifActive: .edit)
+    }
+
+    private func showContextPreview(mode: ComposerContextPreviewView.Mode) {
+        let wasShowingContextPreview = self.isContextPreviewShowed
+        self.activeContextPreviewMode = mode
+        self.topInset = LiquidGlassMetrics.contextPreviewReservedHeight
+        self.contextPreviewPanel.configure(mode: mode)
+        self.contextPreviewPanel.isHidden = false
+        if wasShowingContextPreview {
+            self.layoutContextPreviewPanel()
             return
         }
-        self.isEditPanelShowed = true
-        self.topInset = 44
         self.update(screenHeight: self.screenHeight, keyboardHeight: self.keyboardHeight, animate: true) {
-            self.editPanel.frame = CGRect(
-                origin: CGPoint(x: 0, y: 0),
-                size: CGSize(width: self.bounds.width, height: 40)
-            )
-            self.updateBottomPanels(withOffset: 40)
-            self.editPanel.update()
-            self.editPanel.configureForEdit()
-            self.editPanel.isHidden = false
-            self.barHeight = self.cachedIntrinsicContentSize.height + LiquidGlassMetrics.verticalReserve
-            var inputHeight: CGFloat = self.barHeight + self.keyboardHeight + self.topInset
-            if self.keyboardHeight == 0 {
-                if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                    inputHeight += bottomInset
-                }
-            }
-            
-            self.delegate?.onHeightChanged(to: inputHeight, bar: 0)
+            self.contextPreviewPanel.update()
+            self.contextPreviewPanel.isHidden = false
+            self.notifyHeightChangedForCurrentContext()
         }
         
     }
-    
-    public func hideEditPanel() {
-        if !self.isEditPanelShowed {
+
+    private func hideContextPreview(ifActive mode: ComposerContextPreviewView.Mode) {
+        if self.activeContextPreviewMode != mode {
             return
         }
-        self.isEditPanelShowed = false
+        self.activeContextPreviewMode = nil
         self.topInset = 0
         self.update(screenHeight: self.screenHeight, keyboardHeight: self.keyboardHeight, animate: true) {
-            self.editPanel.isHidden = true
-            self.barHeight = self.cachedIntrinsicContentSize.height + LiquidGlassMetrics.verticalReserve
-            var inputHeight: CGFloat = self.barHeight + self.keyboardHeight + self.topInset
-            if self.keyboardHeight == 0 {
-                if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                    inputHeight += bottomInset
-                }
-            }
+            self.contextPreviewPanel.isHidden = true
             self.updateBottomPanels(withOffset: 0)
-            self.delegate?.onHeightChanged(to: inputHeight, bar: 0)
+            self.notifyHeightChangedForCurrentContext()
         }
         
     }
@@ -2238,43 +2551,109 @@ class ModernXabberInputView: UIView {
         guard !self.didActivateComposerConstraints else { return }
         self.didActivateComposerConstraints = true
 
-        let textTrailingToTimer = self.textField.trailingAnchor.constraint(equalTo: self.timerButton.leadingAnchor)
-        let textTrailingToSend = self.textField.trailingAnchor.constraint(equalTo: self.sendButton.leadingAnchor)
-        self.textFieldTrailingToTimerConstraint = textTrailingToTimer
-        self.textFieldTrailingToSendConstraint = textTrailingToSend
+        let mainInputHeight = self.mainInputShadowView.heightAnchor.constraint(equalToConstant: self.currentComposerContentHeight())
+        let mainLeadingToRoot = self.mainInputShadowView.leadingAnchor.constraint(equalTo: self.leadingAnchor)
+        let mainLeadingToAttach = self.mainInputShadowView.leadingAnchor.constraint(
+            equalTo: self.attachButton.trailingAnchor,
+            constant: LiquidGlassMetrics.buttonSpacing
+        )
+        let mainTrailingToRoot = self.mainInputShadowView.trailingAnchor.constraint(equalTo: self.trailingAnchor)
+        let mainTrailingToTimer = self.mainInputShadowView.trailingAnchor.constraint(
+            equalTo: self.timerButton.leadingAnchor,
+            constant: -LiquidGlassMetrics.buttonSpacing
+        )
+        let mainTrailingToSend = self.mainInputShadowView.trailingAnchor.constraint(
+            equalTo: self.sendButton.leadingAnchor,
+            constant: -LiquidGlassMetrics.buttonSpacing
+        )
+        let contentTopToGlass = self.contentView.topAnchor.constraint(equalTo: self.mainInputGlassView.contentView.topAnchor)
+        let contentTopToContextPreview = self.contentView.topAnchor.constraint(
+            equalTo: self.contextPreviewPanel.bottomAnchor,
+            constant: LiquidGlassMetrics.contextPreviewComposerGap
+        )
+        self.mainInputHeightConstraint = mainInputHeight
+        self.mainInputLeadingToRootConstraint = mainLeadingToRoot
+        self.mainInputLeadingToAttachConstraint = mainLeadingToAttach
+        self.mainInputTrailingToRootConstraint = mainTrailingToRoot
+        self.mainInputTrailingToTimerConstraint = mainTrailingToTimer
+        self.mainInputTrailingToSendConstraint = mainTrailingToSend
+        self.contentViewTopToGlassConstraint = contentTopToGlass
+        self.contentViewTopToContextPreviewConstraint = contentTopToContextPreview
+        mainLeadingToRoot.isActive = false
+        mainTrailingToRoot.isActive = false
+        mainTrailingToTimer.isActive = false
+        contentTopToContextPreview.isActive = false
 
         NSLayoutConstraint.activate([
-            self.contentView.leadingAnchor.constraint(equalTo: self.mainInputGlassView.contentView.leadingAnchor),
-            self.contentView.trailingAnchor.constraint(equalTo: self.mainInputGlassView.contentView.trailingAnchor),
-            self.contentView.topAnchor.constraint(equalTo: self.mainInputGlassView.contentView.topAnchor),
-            self.contentView.bottomAnchor.constraint(equalTo: self.mainInputGlassView.contentView.bottomAnchor),
+            self.mainInputShadowView.topAnchor.constraint(equalTo: self.topAnchor, constant: LiquidGlassMetrics.contentTopOffset),
+            mainInputHeight,
+            mainLeadingToAttach,
+            mainTrailingToSend,
 
-            self.attachButton.leadingAnchor.constraint(equalTo: self.contentView.leadingAnchor),
-            self.attachButton.bottomAnchor.constraint(equalTo: self.contentView.bottomAnchor),
+            self.mainInputGlassView.leadingAnchor.constraint(equalTo: self.mainInputShadowView.leadingAnchor),
+            self.mainInputGlassView.trailingAnchor.constraint(equalTo: self.mainInputShadowView.trailingAnchor),
+            self.mainInputGlassView.topAnchor.constraint(equalTo: self.mainInputShadowView.topAnchor),
+            self.mainInputGlassView.bottomAnchor.constraint(equalTo: self.mainInputShadowView.bottomAnchor),
+
+            self.attachButton.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+            self.attachButton.bottomAnchor.constraint(equalTo: self.mainInputShadowView.bottomAnchor),
             self.attachButton.widthAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
             self.attachButton.heightAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
 
-            self.textField.leadingAnchor.constraint(equalTo: self.attachButton.trailingAnchor),
-            self.textField.topAnchor.constraint(equalTo: self.contentView.topAnchor, constant: LiquidGlassMetrics.textVerticalInset),
-            self.textField.bottomAnchor.constraint(equalTo: self.contentView.bottomAnchor, constant: -LiquidGlassMetrics.textVerticalInset),
-
-            self.timerButton.trailingAnchor.constraint(equalTo: self.sendButton.leadingAnchor),
-            self.timerButton.bottomAnchor.constraint(equalTo: self.contentView.bottomAnchor),
+            self.timerButton.trailingAnchor.constraint(
+                equalTo: self.sendButton.leadingAnchor,
+                constant: -LiquidGlassMetrics.buttonSpacing
+            ),
+            self.timerButton.bottomAnchor.constraint(equalTo: self.mainInputShadowView.bottomAnchor),
             self.timerButton.widthAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
             self.timerButton.heightAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
 
-            self.sendButton.trailingAnchor.constraint(equalTo: self.contentView.trailingAnchor),
-            self.sendButton.bottomAnchor.constraint(equalTo: self.contentView.bottomAnchor),
+            self.sendButton.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+            self.sendButton.bottomAnchor.constraint(equalTo: self.mainInputShadowView.bottomAnchor),
             self.sendButton.widthAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
-            self.sendButton.heightAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize)
+            self.sendButton.heightAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
+
+            self.recordLockButton.centerXAnchor.constraint(equalTo: self.sendButton.centerXAnchor),
+            self.recordLockButton.bottomAnchor.constraint(
+                equalTo: self.sendButton.topAnchor,
+                constant: -LiquidGlassMetrics.recordingLockButtonVerticalGap
+            ),
+            self.recordLockButton.widthAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
+            self.recordLockButton.heightAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
+
+            self.contextPreviewPanel.leadingAnchor.constraint(equalTo: self.mainInputGlassView.contentView.leadingAnchor),
+            self.contextPreviewPanel.trailingAnchor.constraint(equalTo: self.mainInputGlassView.contentView.trailingAnchor),
+            self.contextPreviewPanel.topAnchor.constraint(equalTo: self.mainInputGlassView.contentView.topAnchor),
+            self.contextPreviewPanel.heightAnchor.constraint(equalToConstant: ComposerContextPreviewView.height),
+
+            self.contentView.leadingAnchor.constraint(
+                equalTo: self.mainInputGlassView.contentView.leadingAnchor,
+                constant: LiquidGlassMetrics.textHorizontalInset
+            ),
+            self.contentView.trailingAnchor.constraint(
+                equalTo: self.mainInputGlassView.contentView.trailingAnchor,
+                constant: -LiquidGlassMetrics.textHorizontalInset
+            ),
+            contentTopToGlass,
+            self.contentView.bottomAnchor.constraint(equalTo: self.mainInputGlassView.contentView.bottomAnchor),
+
+            self.textField.leadingAnchor.constraint(equalTo: self.contentView.leadingAnchor),
+            self.textField.trailingAnchor.constraint(equalTo: self.contentView.trailingAnchor),
+            self.textField.topAnchor.constraint(equalTo: self.contentView.topAnchor, constant: LiquidGlassMetrics.textVerticalInset),
+            self.textField.bottomAnchor.constraint(equalTo: self.contentView.bottomAnchor, constant: -LiquidGlassMetrics.textVerticalInset)
         ])
 
         self.updateComposerControlLayout()
     }
 
     override func layoutSubviews() {
+        let shouldResetRecordingButton = self.lastBoundsForRecordingButtonReset != self.bounds
         super.layoutSubviews()
         self.layoutLiquidGlassAppearance()
+        if shouldResetRecordingButton {
+            self.lastBoundsForRecordingButtonReset = self.bounds
+            self.resetRecordingButtonPositionAndVisibility(animated: false, enforceVisibility: false)
+        }
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -2284,12 +2663,26 @@ class ModernXabberInputView: UIView {
 
     private func layoutLiquidGlassAppearance() {
         let contentHeight = self.currentComposerContentHeight()
-        let composerFrame = self.composerFrame(contentHeight: contentHeight)
         self.mainInputShadowView.isHidden = self.state == .selection || self.state == .search || self.state == .skeleton
-        self.mainInputShadowView.frame = composerFrame
-        self.mainInputGlassView.frame = self.mainInputShadowView.bounds
+        self.mainInputHeightConstraint?.constant = contentHeight + self.topInset
         ModernXabberInputView.applyToolbarGlassLayer(to: self.mainInputGlassView)
         self.updateComposerContentLayout()
+        self.sendButton.updatePulseOverlayPosition()
+        [
+            self.attachButton,
+            self.timerButton,
+            self.sendButton,
+            self.recordLockButton
+        ].forEach {
+            ModernXabberInputView.applyDetachedGlassButtonStyle(
+                to: $0,
+                forceConfigurationUpdate: false
+            )
+        }
+        self.applySendButtonDetachedChromeVisibility()
+        self.bringSubviewToFront(self.recordLockButton)
+
+        let composerFrame = self.mainInputGlassView.convert(self.mainInputGlassView.bounds, to: self)
 
         let layoutState = LiquidGlassLayoutState(
             bounds: self.bounds,
@@ -2312,12 +2705,6 @@ class ModernXabberInputView: UIView {
     }
 
     private func updateLiquidGlassColors() {
-        self.mainInputShadowView.layer.shadowColor = nil
-        self.mainInputShadowView.layer.shadowOpacity = 0
-        self.mainInputShadowView.layer.shadowRadius = 0
-        self.mainInputShadowView.layer.shadowOffset = .zero
-        self.mainInputShadowView.layer.shadowPath = nil
-        self.mainInputGlassView.layer.borderColor = UIColor.separator.withAlphaComponent(LiquidGlassMetrics.toolbarBorderAlpha).cgColor
         self.textField.backgroundColor = .clear
         self.textField.layer.borderWidth = 0
         self.textField.layer.borderColor = UIColor.clear.cgColor
@@ -2325,8 +2712,25 @@ class ModernXabberInputView: UIView {
             self.attachButton,
             self.timerButton,
             self.sendButton,
-            self.stateButton
-        ].forEach { ModernXabberInputView.removeChrome(from: $0) }
+            self.recordLockButton
+        ].forEach { ModernXabberInputView.applyDetachedGlassButtonStyle(to: $0) }
+        self.applySendButtonDetachedChromeVisibility()
+        if !self.sendButton.pulseView.isHidden {
+            self.sendButton.setPulseTintColor(self.accountPalette.tint500)
+        }
+        ModernXabberInputView.removeChrome(from: self.stateButton)
+    }
+
+    private func setSendButtonDetachedChromeHidden(_ hidden: Bool) {
+        self.isSendButtonDetachedChromeHidden = hidden
+        self.applySendButtonDetachedChromeVisibility()
+    }
+
+    private func applySendButtonDetachedChromeVisibility() {
+        ModernXabberInputView.setDetachedGlassButtonChromeHidden(
+            self.isSendButtonDetachedChromeHidden,
+            on: self.sendButton
+        )
     }
     
     @objc
@@ -2520,24 +2924,24 @@ class ModernXabberInputView: UIView {
     
     public var isSendButtonEnabled: Bool = false
     
-    public var startRecordTimer: Timer? = nil
-    
-    
     final func changeSendButtonState(to state: SendButtonState) {
         self.sendButtonState = state
         switch state {
             case .record:
 //                self.sendButton.setImage(imageLiteral( "microphone").withRenderingMode(.alwaysTemplate), for: .normal)
-                self.sendButton.setImage(imageLiteral("mic.fill", dimension: 24), for: .normal)
+                self.sendButton.setImage(imageLiteral("mic.fill", dimension: NativeGlassBarStyle.iconSize), for: .normal)
                 self.sendButton.tintColor = .secondaryLabel
                 self.attachButton.isEnabled = self.isSendButtonEnabled
                 self.sendButton.isEnabled = self.isSendButtonEnabled
             case .send:
-                self.sendButton.setImage(imageLiteral("xabber.paperplane.fill", dimension: 24), for: .normal)
+                self.sendButton.setImage(imageLiteral("xabber.paperplane.fill", dimension: NativeGlassBarStyle.iconSize), for: .normal)
                 self.sendButton.tintColor = self.isSendButtonEnabled ? self.accountPalette.tint600 : .secondaryLabel
                 self.sendButton.isEnabled = self.isSendButtonEnabled
                 self.attachButton.isEnabled = self.isSendButtonEnabled
         }
+        ModernXabberInputView.applyDetachedGlassButtonStyle(to: self.sendButton)
+        ModernXabberInputView.applyDetachedGlassButtonStyle(to: self.attachButton)
+        self.applySendButtonDetachedChromeVisibility()
     }
     
     final public func updateSendButtonState() {
@@ -2553,7 +2957,7 @@ class ModernXabberInputView: UIView {
             previousIntrinsicContentSize = cachedIntrinsicContentSize
         }
         
-        let contentHeight = max(ModernXabberInputView.minimumComposerHeight, self.cachedIntrinsicContentSize.height)
+        let contentHeight = self.currentComposerContentHeight()
         self.barHeight = contentHeight + LiquidGlassMetrics.verticalReserve
         var inputHeight: CGFloat = self.barHeight + keyboardHeight + self.topInset
         if keyboardHeight == 0 {
@@ -2600,9 +3004,8 @@ class ModernXabberInputView: UIView {
             }
         }
         
-        let requiredHeight = max(
-            ModernXabberInputView.minimumComposerHeight,
-            inputTextViewHeight + self.composerTextVerticalPadding
+        let requiredHeight = self.normalizedComposerContentHeight(
+            for: inputTextViewHeight + self.composerTextVerticalPadding
         )
 //        print("requiredHeight", requiredHeight)
 //        self.delegate?.heightDidChange(self, to: requiredHeight)
@@ -2623,149 +3026,455 @@ class ModernXabberInputView: UIView {
         
     @objc
     private func onSendButtonTouchUp(_ sender: UIButton) {
+        if case .lockedRecording = self.voiceRecordingInteraction.state {
+            let actions = self.voiceRecordingInteraction.sendLockedRecording(at: Date().timeIntervalSince1970)
+            if !actions.isEmpty {
+                self.applyVoiceRecordingActions(actions)
+                return
+            }
+        }
+        if self.state == .recordAndPlay {
+            let actions = self.voiceRecordingInteraction.sendPreview()
+            if !actions.isEmpty {
+                self.applyVoiceRecordingActions(actions)
+                return
+            }
+        }
         switch self.sendButtonState {
             case .send:
                 self.hideMentionSuggestions()
                 self.delegate?.sendButtonTouchUp(with: textField.text)
-//                self.message = ""
-//                self.textField.text = ""
             case .record:
                 break
-//                if self.state != .record {
-//                    self.delegate?.onAudioMessageStartRecord()
-//                    FeedbackManager.shared.generate(feedback: .success)
-//                }
         }
     }
-    
-    private func returnSendButtonToInitialPosition() {
+
+    @objc
+    private func onRecordLockButtonTouchUp(_ sender: UIButton) {
+        guard self.recordLockButtonAllowsStop else { return }
+        self.stopLockedAudioRecording()
+    }
+
+    func updateRecordingMeteringLevel(_ rawLevel: Float, animated: Bool = true) {
+        let finiteRawLevel = rawLevel.isFinite ? rawLevel : 0
+        let clampedLevel = min(max(CGFloat(finiteRawLevel), 0), 1)
+        let smoothing = clampedLevel >= self.smoothedRecordingMeteringLevel
+            ? RecordingGlowMetrics.riseSmoothing
+            : RecordingGlowMetrics.fallSmoothing
+        self.smoothedRecordingMeteringLevel += (clampedLevel - self.smoothedRecordingMeteringLevel) * smoothing
+        self.sendButton.updatePulseGlow(
+            level: self.smoothedRecordingMeteringLevel,
+            color: self.accountPalette.tint500,
+            animated: animated
+        )
+    }
+
+    func showRecordingLockOverlay(isLocked: Bool, allowsStop: Bool, animated: Bool = true) {
+        self.recordLockButtonAllowsStop = allowsStop
+        self.recordLockButton.isHidden = false
+        self.recordLockButton.alpha = 1
+        self.recordLockButton.tintColor = isLocked ? self.accountPalette.tint600 : .secondaryLabel
+        self.updateRecordingLockAccessibility(isLocked: isLocked, allowsStop: allowsStop)
+
+        let configuration = UIImage.SymbolConfiguration(pointSize: NativeGlassBarStyle.iconSize, weight: .regular)
+        let image = UIImage(
+            systemName: isLocked ? "lock.fill" : "lock.open.fill",
+            withConfiguration: configuration
+        )
+        let updateImage = {
+            self.recordLockButton.setImage(image, for: .normal)
+            ModernXabberInputView.applyDetachedGlassButtonStyle(to: self.recordLockButton)
+        }
+
+        guard animated else {
+            updateImage()
+            self.recordLockButtonIconScale = 1
+            self.updateRecordLockButtonTransform()
+            return
+        }
+
+        UIView.transition(
+            with: self.recordLockButton,
+            duration: 0.18,
+            options: [.transitionCrossDissolve, .allowUserInteraction, .beginFromCurrentState],
+            animations: updateImage
+        )
+        self.recordLockButtonIconScale = 0.92
+        self.updateRecordLockButtonTransform()
+        UIView.animate(
+            withDuration: 0.22,
+            delay: 0,
+            usingSpringWithDamping: 0.78,
+            initialSpringVelocity: 0.35,
+            options: [.beginFromCurrentState, .allowUserInteraction],
+            animations: {
+                self.recordLockButtonIconScale = 1
+                self.updateRecordLockButtonTransform()
+            }
+        )
+    }
+
+    func hideRecordingLockOverlay(animated: Bool = false) {
+        self.recordLockButtonAllowsStop = false
+        self.recordLockButton.layer.removeAllAnimations()
+        let updates = {
+            self.recordLockButton.alpha = 0
+        }
+        let completion: (Bool) -> Void = { _ in
+            self.recordLockButton.isHidden = true
+            self.recordLockButton.alpha = 1
+            self.recordLockButtonVisualTranslation = .zero
+            self.recordLockButtonIconScale = 1
+            self.updateRecordLockButtonTransform()
+            self.updateRecordingLockAccessibility(isLocked: false, allowsStop: false)
+        }
+
+        guard animated else {
+            completion(true)
+            return
+        }
+
+        UIView.animate(
+            withDuration: 0.14,
+            delay: 0,
+            options: [.beginFromCurrentState, .curveEaseOut],
+            animations: updates,
+            completion: completion
+        )
+    }
+
+    func resetRecordingOverlayVisuals() {
+        self.smoothedRecordingMeteringLevel = 0
+        self.sendButton.hidePulse()
+        self.hideRecordingLockOverlay(animated: false)
+        self.setSendButtonDetachedChromeHidden(false)
+    }
+
+    private func updateRecordingLockAccessibility(isLocked: Bool, allowsStop: Bool) {
+        if isLocked {
+            self.recordLockButton.accessibilityLabel = "Recording locked"
+            self.recordLockButton.accessibilityValue = "Locked"
+            self.recordLockButton.accessibilityHint = allowsStop ? "Double-tap to stop recording" : nil
+        } else {
+            self.recordLockButton.accessibilityLabel = "Lock recording"
+            self.recordLockButton.accessibilityValue = "Unlocked"
+            self.recordLockButton.accessibilityHint = "Slide up to lock recording"
+        }
+    }
+
+    private func setRecordLockButtonVisualTranslation(_ translation: CGPoint) {
+        guard self.recordLockButtonVisualTranslation != translation else { return }
+        self.recordLockButtonVisualTranslation = translation
+        self.updateRecordLockButtonTransform()
+    }
+
+    private func updateRecordLockButtonTransform() {
+        self.recordLockButton.transform = CGAffineTransform(
+            translationX: self.recordLockButtonVisualTranslation.x,
+            y: self.recordLockButtonVisualTranslation.y
+        ).scaledBy(
+            x: self.recordLockButtonIconScale,
+            y: self.recordLockButtonIconScale
+        )
+    }
+
+    func resetRecordingButtonPositionAndVisibility(animated: Bool) {
+        self.resetRecordingButtonPositionAndVisibility(animated: animated, enforceVisibility: true)
+    }
+
+    private func resetRecordingButtonPositionAndVisibility(animated: Bool, enforceVisibility: Bool) {
+        let updates = {
+            self.sendButton.transform = .identity
+            self.sendButton.layer.removeAllAnimations()
+            self.mainInputGlassView.setNeedsLayout()
+            self.mainInputGlassView.layoutIfNeeded()
+            self.mainInputGlassView.contentView.setNeedsLayout()
+            self.mainInputGlassView.contentView.layoutIfNeeded()
+            self.contentView.setNeedsLayout()
+            self.contentView.layoutIfNeeded()
+            self.startPositionSendButton = self.sendButton.center
+            self.sendButton.setRecordingVisualTranslation(.zero, animated: false)
+            self.recordLockButtonIconScale = 1
+            self.setRecordLockButtonVisualTranslation(.zero)
+            self.updateRecordLockButtonTransform()
+            self.setSendButtonDetachedChromeHidden(false)
+            if enforceVisibility {
+                self.sendButton.isHidden = !self.shouldShowSendButton(in: self.state)
+            }
+            self.sendButton.updatePulseOverlayPosition()
+        }
+
+        guard animated else {
+            UIView.performWithoutAnimation(updates)
+            return
+        }
+
         UIView.animate(
             withDuration: 0.3,
             delay: 0.0,
             usingSpringWithDamping: 0.6,
             initialSpringVelocity: 0.6,
-            options: [.curveEaseOut]
-        ) {
-            self.sendButton.center = self.startPositionSendButton
-        } completion: { _ in
-            
+            options: [.curveEaseOut],
+            animations: updates
+        ) { _ in
+            updates()
         }
+    }
+
+    private func shouldShowSendButton(in state: InputBarState) -> Bool {
+        switch state {
+        case .normal, .record, .recordAndPlay:
+            return true
+        case .identityVerification, .updateSignature, .checkDevices, .checkOwnDevices, .checkContactDevices, .skeleton, .selection, .search:
+            return false
+        }
+    }
+
+    private func returnSendButtonToInitialPosition() {
+        self.resetRecordingButtonPositionAndVisibility(animated: true)
     }
     
     func cancelRecord() {
-        self.startRecordTimer?.invalidate()
-        self.startRecordTimer = nil
-        self.recordStartDate = nil
-        self.sendButton.gestureRecognizers?.forEach {
-            recognizer in
-            recognizer.isEnabled = false
-            recognizer.isEnabled = true
-        }
-        self.recordPanel.resetElements()
-        self.recordAndPlayPanel.resetElements()
-        self.changeState(to: .normal)
-        self.textViewDidChange(force: true)
-        self.sendButton.hidePulse()
-        self.returnSendButtonToInitialPosition()
-        self.recordPanelLock = false
-        self.recordPanel.done()
-    }
-    
-    @objc
-    private func panGestureRecognizerSelector(_ sender: UIPanGestureRecognizer) {
-        
-        print("xabber_input", "drag")
-//        return
-//        print()
-
-        
-        switch sender.state {
-            case .began:
-                break
-            case .changed:
-                if self.isDragPositionGone(sender.translation(in: self)) {
-                    self.cancelRecord()
-                } else {
-                    let point = sender.translation(in: self)
-                    
-                    self.sendButton.center = self.startPositionSendButton.padding(x: point.x, y: point.y)
-                }
-            case .ended:
-//                self.sendButton.hidePulse()
-                if self.recordPanelLock {
-                    self.sendButton.setImage(imageLiteral("xabber.paperplane.fill", dimension: 24), for: .normal)
-                    self.sendButton.tintColor = self.accountPalette.tint600
-                    self.recordPanel.slideToCancelButton.isHidden = true
-                    self.recordPanel.cancelButton.isHidden = false
-                    self.recordPanel.changeIndicatorToStop()
-                    self.startRecordTimer?.fire()
-                    
-                } else {
-                    self.cancelRecord()
-                    self.delegate?.onAudioMessageShouldSend()
-                    self.recordPanelLock = false
-                }
-                self.returnSendButtonToInitialPosition()
-            case .cancelled:
-                self.cancelRecord()
-                self.returnSendButtonToInitialPosition()
-                self.delegate?.onAudioMessageDidCancel()
-            case .failed:
-                self.cancelRecord()
-                self.returnSendButtonToInitialPosition()
-                self.delegate?.onAudioMessageDidCancel()
-            default:
-                self.returnSendButtonToInitialPosition()
-                self.delegate?.onAudioMessageDidCancel()
-        }
+        _ = self.voiceRecordingInteraction.reset()
+        self.resetVoiceRecordingUI()
     }
     
     func resetStateAfterRecord() {
-        self.changeState(to: self.state)
-        self.recordPanel.resetElements()
-        self.returnSendButtonToInitialPosition()
-        self.textViewDidChange(force: true)
-        self.recordPanelLock = false
-        
-        self.recordPanel.done()
         self.cancelRecord()
-        self.sendButton.hidePulse()
     }
-    
-//    @objc
-//    func onSendButtonTouchUpInside(_ sender: AnyObject) {
-//        print("xabber_input", #function)
-//        if self.recordPanelLock {
-//            self.cancelRecord()
-//            self.returnSendButtonToInitialPosition()
-//            self.delegate?.onAudioMessageShouldSend()
-//        } else {
-//            self.cancelRecord()
-//            self.returnSendButtonToInitialPosition()
-//            self.delegate?.onAudioMessageShouldSend()
-//        }
-//    }
-    
+        
     var startPositionSendButton: CGPoint!
-    var recordPanelLock = false
-    
-    
-    func isDragPositionGone(_ position: CGPoint) -> Bool {
-        self.recordPanel.slideToCancel(diffX: position.x)
-        self.recordPanel.slideToLock(point: position)
-        self.delegate?.didReceiveRecordButtonPositionChange(to: position)
-        if position.x < -120 {
-            self.delegate?.onAudioMessageDidCancel()
-            return true
+
+    @objc
+    private func voiceRecordingLongPressGesture(_ sender: UILongPressGestureRecognizer) {
+        let timestamp = Date().timeIntervalSince1970
+        switch sender.state {
+        case .began:
+            guard self.sendButtonState == .record,
+                  self.state == .normal,
+                  self.isSendButtonEnabled else {
+                return
+            }
+            self.voiceRecordingGestureStartLocation = sender.location(in: self)
+            self.applyVoiceRecordingActions(self.voiceRecordingInteraction.beginPress(at: timestamp))
+        case .changed:
+            guard let startLocation = self.voiceRecordingGestureStartLocation else { return }
+            let location = sender.location(in: self)
+            let translation = CGPoint(x: location.x - startLocation.x, y: location.y - startLocation.y)
+            self.applyVoiceRecordingActions(self.voiceRecordingInteraction.dragChanged(to: translation))
+        case .ended:
+            self.applyVoiceRecordingActions(self.voiceRecordingInteraction.endPress(at: timestamp))
+            self.voiceRecordingGestureStartLocation = nil
+            self.returnSendButtonToInitialPosition()
+        case .cancelled, .failed:
+            self.applyVoiceRecordingActions(self.voiceRecordingInteraction.cancelActive())
+            self.voiceRecordingGestureStartLocation = nil
+            self.returnSendButtonToInitialPosition()
+        default:
+            break
         }
-        if position.y < -108 {
-            self.recordPanel.lock()
-            self.recordPanelLock = true
-        } else if position.y > -108 {
-            self.recordPanel.unlock()
-            self.recordPanelLock = false
+    }
+
+    @objc
+    private func lockedVoiceRecordingCancelPanGesture(_ sender: UIPanGestureRecognizer) {
+        let translation = sender.translation(in: self)
+        switch sender.state {
+        case .began, .changed:
+            self.applyLockedVoiceRecordingCancelDrag(translation, finished: false)
+        case .ended, .cancelled, .failed:
+            self.applyLockedVoiceRecordingCancelDrag(translation, finished: true)
+        default:
+            break
         }
-        return false
+    }
+
+    func applyLockedVoiceRecordingCancelDrag(_ translation: CGPoint, finished: Bool) {
+        guard case .lockedRecording = self.voiceRecordingInteraction.state else { return }
+        self.applyVoiceRecordingActions(self.voiceRecordingInteraction.dragChanged(to: translation))
+        if finished, case .lockedRecording = self.voiceRecordingInteraction.state {
+            self.returnSendButtonToInitialPosition()
+        }
+    }
+
+    private func cancelActiveVoiceRecordingFromControl() {
+        self.applyVoiceRecordingActions(self.voiceRecordingInteraction.cancelActive())
+    }
+
+    func stopLockedAudioRecording() {
+        self.applyVoiceRecordingActions(
+            self.voiceRecordingInteraction.stopLockedRecording(at: Date().timeIntervalSince1970)
+        )
+    }
+
+    private func deleteVoiceRecordingPreview() {
+        self.applyVoiceRecordingActions(self.voiceRecordingInteraction.deletePreview())
+    }
+
+    private func playVoiceRecordingPreview() {
+        guard case .preview(let sessionID) = self.voiceRecordingInteraction.state else { return }
+        self.delegate?.recordAndPlayPanelPlayButtonTouchUp(sessionID: sessionID)
+    }
+
+    func audioRecordingDidStart(sessionID: UUID) {
+        self.applyVoiceRecordingActions(self.voiceRecordingInteraction.recorderStarted(sessionID: sessionID))
+    }
+
+    func audioRecordingDidFail(sessionID: UUID?) {
+        self.applyVoiceRecordingActions(self.voiceRecordingInteraction.recorderFailed(sessionID: sessionID))
+    }
+
+    func audioRecordingDidCancel(sessionID: UUID) {
+        self.applyVoiceRecordingActions(self.voiceRecordingInteraction.complete(sessionID: sessionID))
+    }
+
+    func audioRecordingDidSend(sessionID: UUID) {
+        self.applyVoiceRecordingActions(self.voiceRecordingInteraction.complete(sessionID: sessionID))
+    }
+
+    func audioRecordingPreviewReady(sessionID: UUID) {
+        guard case .preview(let currentSessionID) = self.voiceRecordingInteraction.state,
+              currentSessionID == sessionID else {
+            return
+        }
+        self.showVoiceRecordingPreviewUI()
+    }
+
+    func applyVoiceRecordingActions(_ actions: [VoiceRecordingInteractionStateMachine.Action]) {
+        actions.forEach { action in
+            switch action {
+            case .requestStartRecording(let sessionID):
+                self.beginVoiceRecordingUI()
+                self.delegate?.onAudioMessageStartRecord(sessionID: sessionID)
+            case .showRecording:
+                self.recordPanel.resetAndStart()
+            case .updateDrag(let translation):
+                self.updateVoiceRecordingDragUI(translation)
+            case .lockRecording:
+                self.lockVoiceRecordingUI()
+            case .cancelRecording(let sessionID):
+                self.resetVoiceRecordingUI()
+                self.delegate?.onAudioMessageDidCancel(sessionID: sessionID)
+                _ = self.voiceRecordingInteraction.reset()
+            case .finishRecording(let sessionID, let intent):
+                self.finishVoiceRecordingUI()
+                self.delegate?.onAudioMessageDidFinish(sessionID: sessionID, intent: intent)
+            case .deletePreview(let sessionID):
+                self.delegate?.onAudioMessagePreviewDelete(sessionID: sessionID)
+            case .sendPreview(let sessionID):
+                self.delegate?.onAudioMessagePreviewSend(sessionID: sessionID)
+            case .resetUI:
+                self.resetVoiceRecordingUI()
+            case .fail:
+                self.resetVoiceRecordingUI()
+            }
+        }
+    }
+
+    private func beginVoiceRecordingUI() {
+        FeedbackManager.shared.generate(feedback: .success)
+        self.hideMentionSuggestions()
+        self.changeState(to: .record)
+        self.recordPanel.resetElements()
+        self.setSendButtonDetachedChromeHidden(false)
+        self.smoothedRecordingMeteringLevel = 0
+        self.sendButton.setPulseTintColor(self.accountPalette.tint500)
+        self.sendButton.showPulse()
+        self.updateRecordingMeteringLevel(0, animated: false)
+        self.showRecordingLockOverlay(isLocked: false, allowsStop: false, animated: true)
+    }
+
+    private func finishVoiceRecordingUI() {
+        self.recordPanel.done()
+        self.recordPanel.resetElements()
+        self.resetRecordingOverlayVisuals()
+        self.returnSendButtonToInitialPosition()
+        self.changeState(to: .normal)
+        self.textViewDidChange(force: true)
+    }
+
+    private func resetVoiceRecordingUI() {
+        self.voiceRecordingGestureStartLocation = nil
+        self.recordPanel.done()
+        self.recordPanel.resetElements()
+        self.recordAndPlayPanel.resetElements()
+        self.resetRecordingOverlayVisuals()
+        self.returnSendButtonToInitialPosition()
+        self.changeState(to: .normal)
+        self.textViewDidChange(force: true)
+    }
+
+    private func showVoiceRecordingPreviewUI() {
+        self.recordPanel.done()
+        self.recordPanel.resetElements()
+        self.resetRecordingOverlayVisuals()
+        self.returnSendButtonToInitialPosition()
+        self.changeState(to: .recordAndPlay)
+        self.isSendButtonEnabled = true
+        self.changeSendButtonState(to: .send)
+    }
+
+    func updateVoiceRecordingDragUI(_ translation: CGPoint) {
+        let visualTranslation = self.clampedRecordingButtonTranslation(
+            RecordingDragVisualPolicy.clamped(translation)
+        )
+        self.recordPanel.slideToCancel(diffX: visualTranslation.x)
+        self.recordPanel.slideToLock(point: visualTranslation)
+        self.sendButton.setRecordingVisualTranslation(visualTranslation)
+        self.setRecordLockButtonVisualTranslation(visualTranslation)
+        self.setSendButtonDetachedChromeHidden(visualTranslation != .zero)
+    }
+
+    private func clampedRecordingButtonTranslation(_ translation: CGPoint) -> CGPoint {
+        guard let hostView = self.superview else { return translation }
+
+        let currentSendTransform = self.sendButton.transform
+        let currentLockTransform = self.recordLockButton.transform
+        self.sendButton.transform = .identity
+        self.recordLockButton.transform = .identity
+        let sendBaseFrame = self.sendButton.convert(self.sendButton.bounds, to: hostView)
+        let lockBaseFrame = self.recordLockButton.isHidden
+            ? .null
+            : self.recordLockButton.convert(self.recordLockButton.bounds, to: hostView)
+        self.sendButton.transform = currentSendTransform
+        self.recordLockButton.transform = currentLockTransform
+        let baseFrame = lockBaseFrame.isNull ? sendBaseFrame : sendBaseFrame.union(lockBaseFrame)
+        guard !baseFrame.isNull, !baseFrame.isEmpty else { return translation }
+
+        let safeBounds = hostView.bounds.inset(by: hostView.safeAreaInsets)
+        guard !safeBounds.isNull, !safeBounds.isEmpty else { return translation }
+
+        var adjusted = translation
+        var proposedFrame = baseFrame.offsetBy(dx: adjusted.x, dy: adjusted.y)
+
+        if proposedFrame.minX < safeBounds.minX {
+            adjusted.x += safeBounds.minX - proposedFrame.minX
+            proposedFrame = baseFrame.offsetBy(dx: adjusted.x, dy: adjusted.y)
+        }
+        if proposedFrame.maxX > safeBounds.maxX {
+            adjusted.x -= proposedFrame.maxX - safeBounds.maxX
+            proposedFrame = baseFrame.offsetBy(dx: adjusted.x, dy: adjusted.y)
+        }
+        if proposedFrame.minY < safeBounds.minY {
+            adjusted.y += safeBounds.minY - proposedFrame.minY
+            proposedFrame = baseFrame.offsetBy(dx: adjusted.x, dy: adjusted.y)
+        }
+        if proposedFrame.maxY > safeBounds.maxY {
+            adjusted.y -= proposedFrame.maxY - safeBounds.maxY
+        }
+
+        return adjusted
+    }
+
+    func lockVoiceRecordingUI() {
+        self.recordPanel.lock()
+        self.recordPanel.slideToCancelButton.isHidden = true
+        self.recordPanel.cancelButton.isHidden = false
+        self.recordPanel.changeIndicatorToStop()
+        self.showRecordingLockOverlay(isLocked: true, allowsStop: true, animated: true)
+        self.sendButton.setImage(imageLiteral("xabber.paperplane.fill", dimension: NativeGlassBarStyle.iconSize), for: .normal)
+        self.sendButton.tintColor = self.accountPalette.tint600
+        ModernXabberInputView.applyDetachedGlassButtonStyle(to: self.sendButton)
+        self.applySendButtonDetachedChromeVisibility()
     }
     
     @objc
@@ -2773,15 +3482,16 @@ class ModernXabberInputView: UIView {
         switch state {
             case .updateSignature:
                 self.delegate?.onUpdateSignature()
-            case .checkDevices:
+            case .checkDevices, .checkOwnDevices:
                 self.delegate?.onCheckDevices()
+            case .checkContactDevices:
+                self.delegate?.onCheckContactDevices()
             case .identityVerification:
                 self.delegate?.onIdentityVerification()
             default: break
         }
     }
     
-    var recordStartDate: TimeInterval? = nil
 }
 
 extension ModernXabberInputView: UITextViewDelegate, InputTextViewKeyHandler {
@@ -2841,81 +3551,30 @@ extension ModernXabberInputView: UITextViewDelegate, InputTextViewKeyHandler {
 extension ModernXabberInputView: UIGestureRecognizerDelegate {
     
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        print("xabber_input", #function, 1)
-        
+        if gestureRecognizer === self.voiceRecordingGesture {
+            return self.sendButtonState == .record
+                && self.state == .normal
+                && self.isSendButtonEnabled
+        }
+        if gestureRecognizer === self.lockedVoiceRecordingCancelGesture {
+            guard case .lockedRecording = self.voiceRecordingInteraction.state else {
+                return false
+            }
+            return true
+        }
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
     }
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        print("xabber_input", #function, otherGestureRecognizer.debugDescription)
 
-        return true
-    }
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        print("xabber_input", #function, otherGestureRecognizer.debugDescription)
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         return false
     }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        return false
+    }
+
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        print("xabber_input", #function, 2)
-        
-        return true
-    }
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        print("xabber_input", #function, "touch", 3)
-        print("xabber_input", "timestamp", touch.timestamp)
-        print("xabber_input", "timestamp", touch.estimatedProperties)
-        if touch.phase == .began {
-            switch sendButtonState {
-                case .record:
-                    FeedbackManager.shared.generate(feedback: .success)
-                    if self.state == .recordAndPlay {
-                        self.delegate?.onSendButtonTouchUpInsideWhenAudioWasRecorded()
-                        
-                    } else if self.recordPanelLock {
-                        self.cancelRecord()
-                        self.returnSendButtonToInitialPosition()
-                        self.delegate?.onAudioMessageShouldSend()
-                    } else {
-                        if self.state != .record {
-                            self.startRecordTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false, block: { _ in
-                                self.changeState(to: .record)
-                                self.sendButton.pulseView.backgroundColor = self.accountPalette.tint500
-                                self.sendButton.showPulse()
-                                DispatchQueue.main.async {
-                                    self.delegate?.onAudioMessageStartRecord()
-                                }
-                                self.startRecordTimer?.invalidate()
-                                self.startRecordTimer = nil
-                            })
-                            RunLoop.current.add(self.startRecordTimer!, forMode: .default)
-                            self.recordStartDate = Date().timeIntervalSince1970
-                        } else {
-                            self.cancelRecord()
-                            self.returnSendButtonToInitialPosition()
-                            self.delegate?.onAudioMessageDidCancel()
-                        }
-                    }
-                case .send:
-                    self.hideMentionSuggestions()
-                    self.delegate?.sendButtonTouchUp(with: textField.text)
-            }
-        }
-        
-        return true
-    }
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive press: UIPress) -> Bool {
-        print("xabber_input", #function, "press", 4)
-        return true
-    }
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive event: UIEvent) -> Bool {
-        print("xabber_input", #function, "event", event.type)
-//        if !gestureRecognizer.delaysTouchesBegan {
-//            return true
-//        }
-//        if event.type == .touches {
-//            
-//            
-//        }
-        return true
+        return false
     }
 }
 
@@ -2942,23 +3601,6 @@ extension ModernXabberInputView: MulticastAVAudioPlayerDelegate {
         self.recordAndPlayPanel.playButton.setImage(imageLiteral("play.fill"), for: .normal)
         self.delegate?.didStopPlayingAudio()
         
-    }
-}
-
-extension ModernXabberInputView: SendButtonDelegate {
-    func onTouchesEnded(at timestamp: TimeInterval) {
-        guard let start = self.recordStartDate else {
-            return
-        }
-        if timestamp - start < 0.7 {
-            self.cancelRecord()
-            self.returnSendButtonToInitialPosition()
-            self.delegate?.onAudioMessageDidCancel()
-        } else {
-            self.cancelRecord()
-            self.delegate?.onAudioMessageShouldSend()
-            self.recordPanelLock = false
-        }
     }
 }
 

@@ -31,12 +31,23 @@ import XMPPFramework.XMPPJID
 import AVFoundation
 
 public final class ChangesWithIndexPath {
+    public let insertedSections: IndexSet
+    public let deletedSections: IndexSet
     public let inserts: [IndexPath]
     public let deletes: [IndexPath]
     public var replaces: [IndexPath]
     public let moves: [(from: IndexPath, to: IndexPath)]
 
-    public init(inserts: [IndexPath], deletes: [IndexPath], replaces: [IndexPath], moves: [(from: IndexPath, to: IndexPath)]) {
+    public init(
+        insertedSections: IndexSet = IndexSet(),
+        deletedSections: IndexSet = IndexSet(),
+        inserts: [IndexPath],
+        deletes: [IndexPath],
+        replaces: [IndexPath],
+        moves: [(from: IndexPath, to: IndexPath)]
+    ) {
+        self.insertedSections = insertedSections
+        self.deletedSections = deletedSections
         self.inserts = inserts
         self.deletes = deletes
         self.replaces = replaces
@@ -51,300 +62,406 @@ protocol SharedAudioPlayerPanelDelegate {
     func shouldPause()
 }
 
-protocol SharedPlayerViewDelegate {
-    func sharedPlayerViewShouldClose(_ view: SharedPlayerView)
-    func sharedPlayerViewPlay( _ view: SharedPlayerView)
-    func sharedPlayerViewPause(_ view: SharedPlayerView)
-    func sharedPlayerViewTapOnTitle(_ view: SharedPlayerView)
+enum AudioPlayerBarEffectFactory {
+    static let fallbackBlurStyle: UIBlurEffect.Style = .systemMaterial
+
+    static func makeEffect(prefersNativeGlass: Bool = true) -> UIVisualEffect {
+        if prefersNativeGlass, #available(iOS 26.0, *) {
+            let effect = UIGlassEffect(style: .regular)
+            effect.isInteractive = true
+            effect.tintColor = UIColor.systemBackground.withAlphaComponent(0.16)
+            return effect
+        }
+
+        return UIBlurEffect(style: fallbackBlurStyle)
+    }
 }
 
-class SharedPlayerView: UIView {
-    
-    internal let playButton: UIButton = {
-        let button = UIButton(frame: .zero)
-        
-        button.setImage(imageLiteral("play.fill"), for: .normal)
-        button.tintColor = .tintColor
-        
+enum AudioPlayerBarIconButtonStyle {
+    static let buttonSize: CGFloat = 44
+    static let contentInset: CGFloat = 8
+    static let adjacentSpacing: CGFloat = 4
+    static let compactXmarkPointSize: CGFloat = 13
+    static let tintColor: UIColor = .label
+
+    static func makeButton(accessibilityLabel: String? = nil) -> UIButton {
+        let button = UIButton(type: .system)
+        apply(to: button)
+        button.accessibilityLabel = accessibilityLabel
         return button
+    }
+
+    static func apply(to button: UIButton) {
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.tintColor = tintColor
+        button.backgroundColor = .clear
+        button.configuration = nil
+        button.contentHorizontalAlignment = .center
+        button.contentVerticalAlignment = .center
+        button.adjustsImageWhenHighlighted = true
+        button.adjustsImageWhenDisabled = true
+    }
+
+    static func setSystemIcon(named iconName: String, on button: UIButton) {
+        setTemplateIcon(UIImage(systemName: iconName), on: button)
+    }
+
+    static func setSystemIcon(named iconName: String, pointSize: CGFloat, on button: UIButton) {
+        let configuration = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+        setTemplateIcon(UIImage(systemName: iconName, withConfiguration: configuration), on: button)
+    }
+
+    static func setTemplateIcon(_ image: UIImage?, on button: UIButton) {
+        apply(to: button)
+        button.setImage(image?.withRenderingMode(.alwaysTemplate), for: .normal)
+    }
+}
+
+protocol AudioPlayerBarViewDelegate: AnyObject {
+    func audioPlayerBarViewDidTapClose(_ view: AudioPlayerBarView)
+    func audioPlayerBarViewDidTapPlayPause(_ view: AudioPlayerBarView)
+    func audioPlayerBarViewDidTapTitle(_ view: AudioPlayerBarView)
+}
+
+enum LastChatsPinnedVoicePlayerInsetPolicy {
+    static func adjustedContentOffsetY(
+        currentY: CGFloat,
+        insetDelta: CGFloat,
+        minimumY: CGFloat,
+        maximumY: CGFloat
+    ) -> CGFloat {
+        let proposedY = currentY - insetDelta
+        return min(max(proposedY, minimumY), maximumY)
+    }
+}
+
+final class AudioPlayerBarView: UIView {
+    enum Metrics {
+        static let height: CGFloat = 44
+        static let horizontalInset: CGFloat = 12
+        static let topOffset: CGFloat = 4
+        static let bottomGap: CGFloat = 8
+        static let reservedTopInset: CGFloat = height + topOffset + bottomGap
+        static let buttonSize: CGFloat = AudioPlayerBarIconButtonStyle.buttonSize
+        static let contentInset: CGFloat = AudioPlayerBarIconButtonStyle.contentInset
+    }
+
+    let effectView: UIVisualEffectView = {
+        let view = UIVisualEffectView(effect: AudioPlayerBarEffectFactory.makeEffect())
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        view.clipsToBounds = true
+        if #available(iOS 26.0, *) {
+            view.cornerConfiguration = .capsule()
+        } else {
+            view.layer.cornerRadius = Metrics.height / 2
+            view.layer.cornerCurve = .continuous
+        }
+        view.layer.borderWidth = 1.0 / UIScreen.main.scale
+        view.layer.borderColor = UIColor.separator.withAlphaComponent(0.32).cgColor
+        return view
     }()
-    
-    let blurredEffectView: UIVisualEffectView = {
-        let blurEffect = UIBlurEffect(style: .extraLight)//.systemMaterial)
-        let blurredEffectView = UIVisualEffectView(effect: blurEffect)
-        
-        return blurredEffectView
+
+    let playPauseButton: UIButton = {
+        AudioPlayerBarIconButtonStyle.makeButton(accessibilityLabel: "Play or pause voice message")
     }()
-    
-    internal let titleButton: UIButton = {
-        let button = UIButton(frame: .zero)
-        
-        button.setTitleColor(.secondaryLabel, for: .normal)
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .regular)
-        
-        return button
+
+    let titleControl: UIControl = {
+        let control = UIControl(frame: .zero)
+        control.translatesAutoresizingMaskIntoConstraints = false
+        control.accessibilityTraits.insert(.button)
+        return control
     }()
-    
-    internal let closeButton: UIButton = {
-        let button = UIButton(frame: .zero)
-        
-        button.setImage(imageLiteral("xmark"), for: .normal)
-        button.tintColor = .tintColor
-        
-        return button
-    }()
-    
-    internal let titleStack: UIStackView = {
+
+    private let titleStack: UIStackView = {
         let stack = UIStackView(frame: .zero)
-        
+        stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
+        stack.alignment = .fill
         stack.distribution = .fill
-        stack.alignment = .center
-        
+        stack.spacing = 1
+        stack.isUserInteractionEnabled = false
         return stack
     }()
-    
+
     let titleLabel: UILabel = {
         let label = UILabel(frame: .zero)
-        
-        label.font = UIFont.systemFont(ofSize: 15, weight: .regular)
+        label.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
         label.textColor = .label
-        
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
         return label
     }()
-    
+
     let subtitleLabel: UILabel = {
         let label = UILabel(frame: .zero)
-        
-        label.font = UIFont.systemFont(ofSize: 12, weight: .regular)
+        label.font = UIFont.systemFont(ofSize: 11, weight: .regular)
         label.textColor = .secondaryLabel
-        
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
         return label
     }()
-    
-    let progressView: UIView = {
-        let view = UIView(frame: .zero)
-        
-        view.backgroundColor = .tintColor
-        
-        return view
+
+    let timeLabel: UILabel = {
+        let label = UILabel(frame: .zero)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = UIFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        label.textColor = .secondaryLabel
+        label.textAlignment = .right
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return label
     }()
-    
-    let separatorLine: UIView = {
-        let view = UIView(frame: .zero)
-        
-        view.backgroundColor = UIColor.black.withAlphaComponent(0.4)
-        
-        return view
+
+    let closeButton: UIButton = {
+        AudioPlayerBarIconButtonStyle.makeButton(accessibilityLabel: "Close voice player")
     }()
-    
-    var timer: Timer? = nil
-    
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        self.setup()
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    private func calcCurrentProgress(currentTime: TimeInterval, duration: TimeInterval) -> CGFloat {
-        let k: CGFloat = CGFloat(currentTime / duration)
-        let resultWidth = self.frame.width * k
-        return resultWidth
-    }
-    
-    @objc
-    private final func updateProgressBar() {
-        guard AudioManager.shared.player != nil else {
-            return
-        }
-        let newWidth = self.calcCurrentProgress(currentTime: AudioManager.shared.player?.currentTime ?? 0, duration: AudioManager.shared.player?.duration ?? 0)
-        if newWidth >= self.frame.width {
-            self.stopTimer()
-            return
-        }
-        if newWidth.isNaN {
-            self.stopTimer()
-            return
-        }
-//        UIView.animate(withDuration: 0.01) {
-            self.progressView.frame = CGRect(
-                origin: CGPoint(x: 0, y: 42),
-                size: CGSize(width: newWidth, height: 2)
-            )
-//        }
-        
-    }
-    
-    private final func startTimer() {
-        self.stopTimer()
-        self.timer = Timer.scheduledTimer(
-            timeInterval: 0.05,
-            target: self,
-            selector: #selector(updateProgressBar),
-            userInfo: nil,
-            repeats: true
-        )
-        RunLoop.current.add(self.timer!, forMode: .common)
-    }
-    
-    public final func stopTimer() {
-        self.timer?.invalidate()
-        self.timer = nil
-    }
-    
-    func setup() {
-        
-        self.titleStack.addArrangedSubview(self.titleLabel)
-        self.titleStack.addArrangedSubview(self.subtitleLabel)
-        
-        self.addSubview(self.blurredEffectView)
-        self.addSubview(self.playButton)
-        self.addSubview(self.titleStack)
-        self.addSubview(self.closeButton)
-        self.addSubview(self.separatorLine)
-        self.addSubview(self.progressView)
-        self.closeButton.addTarget(self, action: #selector(self.onCloseButtonTouchUp), for: .touchUpInside)
-        self.playButton.addTarget(self, action: #selector(self.onPlayButtonTouchUp), for: .touchUpInside)
-        let titleGesture = UITapGestureRecognizer(target: self, action: #selector(self.onTitleStackTapRecognize))
-        self.titleStack.addGestureRecognizer(titleGesture)
-    }
-    
-    func update(frame: CGRect, isHidden: Bool) {
-        let height: CGFloat = 44
-        self.frame = frame
-        self.blurredEffectView.isHidden = isHidden
-        self.playButton.isHidden = isHidden
-        self.titleStack.isHidden = isHidden
-        self.closeButton.isHidden = isHidden
-        self.separatorLine.isHidden = isHidden
-        self.progressView.isHidden = isHidden
-        self.blurredEffectView.frame = CGRect(origin: .zero, size: frame.size)
-        let buttonSize = CGSize(width: 44, height: height)
-        self.playButton.frame = CGRect(
-            origin: CGPoint(x: 4, y: 0),
-            size: buttonSize
-        )
-        self.closeButton.frame = CGRect(
-            origin: CGPoint(x: frame.width - 44 - 6, y: 0),
-            size: buttonSize
-        )
-        self.titleStack.frame = CGRect(
-            origin: CGPoint(x: 56, y: 5),
-            size: CGSize(width: frame.width - 114, height: height - 10)
-        )
-        self.progressView.frame = CGRect(
-            origin: CGPoint(x: 0, y: 42),
-            size: CGSize(width: 0, height: 2)
-        )
-        self.separatorLine.frame = CGRect(
-            origin: CGPoint(x: 0, y: height - 1.0 / UIScreen.main.scale),
-            size: CGSize(width: frame.width, height: 1.0 / UIScreen.main.scale)
-        )
-        self.layoutIfNeeded()
-    }
-    
-    func configure(title: String?, subtitle: String?) {
-        self.playButton.setImage(imageLiteral("pause.fill"), for: .normal)
-//        self.titleButton.setTitle(title, for: .normal)
-        self.titleLabel.text = title
-        self.subtitleLabel.text = subtitle
-        self.layoutSubviews()
-    }
-    
-    open var delegate: SharedPlayerViewDelegate? = nil
+
+    weak var delegate: AudioPlayerBarViewDelegate?
+    private(set) var renderedPlayPauseIconName: String = "play.fill"
+    private(set) var state: PlayState = .paused
+
     enum PlayState {
         case playing
         case paused
     }
-    
-    var state: PlayState = .playing
-    
-    @objc
-    private final func onCloseButtonTouchUp(_ sender: UIButton) {
-        AudioManager.shared.player?.stop()
-        AudioManager.shared.player = nil
-        self.stopTimer()
-        self.delegate?.sharedPlayerViewShouldClose(self)
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: Metrics.height)
     }
-    
-    public final func swapState(to newState: PlayState? = nil) {
-        if let newState = newState {
-            self.state = newState
-            switch newState {
-                case .playing:
-                    self.startTimer()
-                    self.playButton.setImage(imageLiteral("pause.fill"), for: .normal)
-                case .paused:
-                    self.stopTimer()
-                    self.playButton.setImage(imageLiteral("play.fill"), for: .normal)
-            }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+        render(snapshot: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func render(snapshot: VoiceMessagePlaybackSnapshot?) {
+        guard let snapshot else {
+            isHidden = true
+            titleLabel.text = nil
+            subtitleLabel.text = nil
+            timeLabel.text = "0:00 / 0:00"
+            setPlayPauseIcon(named: "play.fill")
+            return
+        }
+
+        isHidden = false
+        titleLabel.text = snapshot.title ?? "Voice message"
+        subtitleLabel.text = snapshot.subtitle ?? "Voice message"
+        titleControl.accessibilityLabel = [titleLabel.text, subtitleLabel.text]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+
+        let playbackTimes = Self.playbackTimes(for: snapshot.state)
+        let duration = playbackTimes.duration > 0 ? playbackTimes.duration : 0
+        let currentTime = min(max(playbackTimes.currentTime, 0), duration)
+        timeLabel.text = "\(currentTime.minuteFormatedString) / \(duration.minuteFormatedString)"
+
+        switch snapshot.state {
+        case .playing:
+            swapState(to: .playing)
+        default:
+            swapState(to: .paused)
+        }
+    }
+
+    func render(
+        title: String?,
+        subtitle: String?,
+        state: PlayState,
+        currentTime: TimeInterval = 0,
+        duration: TimeInterval = 0,
+        isHidden: Bool = false
+    ) {
+        self.isHidden = isHidden
+        titleLabel.text = title
+        subtitleLabel.text = subtitle
+        titleControl.accessibilityLabel = [title, subtitle]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+
+        let safeDuration = max(duration, 0)
+        let safeCurrentTime = min(max(currentTime, 0), safeDuration)
+        timeLabel.text = "\(safeCurrentTime.minuteFormatedString) / \(safeDuration.minuteFormatedString)"
+        swapState(to: state)
+    }
+
+    func refreshAppearance() {
+        effectView.effect = AudioPlayerBarEffectFactory.makeEffect()
+        effectView.layer.borderColor = UIColor.separator.withAlphaComponent(0.32).cgColor
+    }
+
+    func swapState(to newState: PlayState? = nil) {
+        if let newState {
+            state = newState
         } else {
-            switch state {
-                case .playing:
-                    self.state = .paused
-                    self.stopTimer()
-                    self.playButton.setImage(imageLiteral("play.fill"), for: .normal)
-                case .paused:
-                    self.state = .playing
-                    self.startTimer()
-                    self.playButton.setImage(imageLiteral("pause.fill"), for: .normal)
-            }
+            state = state == .playing ? .paused : .playing
         }
-    }
-    
-    @objc
-    private final func onPlayButtonTouchUp(_ sender: UIButton) {
-        self.swapState()
         switch state {
-            case .playing:
-                self.delegate?.sharedPlayerViewPlay(self)
-            case .paused:
-                self.delegate?.sharedPlayerViewPause(self)
+        case .playing:
+            setPlayPauseIcon(named: "pause.fill")
+        case .paused:
+            setPlayPauseIcon(named: "play.fill")
         }
-        
     }
-    
+
+    private func setup() {
+        translatesAutoresizingMaskIntoConstraints = false
+        backgroundColor = .clear
+        isOpaque = false
+
+        addSubview(effectView)
+        let contentView = effectView.contentView
+        contentView.addSubview(playPauseButton)
+        contentView.addSubview(titleControl)
+        contentView.addSubview(timeLabel)
+        contentView.addSubview(closeButton)
+        titleControl.addSubview(titleStack)
+        titleStack.addArrangedSubview(titleLabel)
+        titleStack.addArrangedSubview(subtitleLabel)
+
+        playPauseButton.addTarget(self, action: #selector(onPlayPauseButtonTouchUpInside), for: .touchUpInside)
+        closeButton.addTarget(self, action: #selector(onCloseButtonTouchUpInside), for: .touchUpInside)
+        titleControl.addTarget(self, action: #selector(onTitleTouchUpInside), for: .touchUpInside)
+
+        NSLayoutConstraint.activate([
+            effectView.topAnchor.constraint(equalTo: topAnchor),
+            effectView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            effectView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            effectView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            playPauseButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Metrics.contentInset),
+            playPauseButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            playPauseButton.widthAnchor.constraint(equalToConstant: Metrics.buttonSize),
+            playPauseButton.heightAnchor.constraint(equalToConstant: Metrics.buttonSize),
+
+            closeButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Metrics.contentInset),
+            closeButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: Metrics.buttonSize),
+            closeButton.heightAnchor.constraint(equalToConstant: Metrics.buttonSize),
+
+            timeLabel.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -AudioPlayerBarIconButtonStyle.adjacentSpacing),
+            timeLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            timeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 68),
+
+            titleControl.leadingAnchor.constraint(equalTo: playPauseButton.trailingAnchor, constant: AudioPlayerBarIconButtonStyle.adjacentSpacing),
+            titleControl.trailingAnchor.constraint(equalTo: timeLabel.leadingAnchor, constant: -8),
+            titleControl.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            titleControl.heightAnchor.constraint(equalToConstant: 34),
+
+            titleStack.leadingAnchor.constraint(equalTo: titleControl.leadingAnchor),
+            titleStack.trailingAnchor.constraint(equalTo: titleControl.trailingAnchor),
+            titleStack.centerYAnchor.constraint(equalTo: titleControl.centerYAnchor)
+        ])
+
+        setPlayPauseIcon(named: "play.fill")
+        AudioPlayerBarIconButtonStyle.setSystemIcon(named: "xmark", on: closeButton)
+    }
+
+    private func setPlayPauseIcon(named iconName: String) {
+        renderedPlayPauseIconName = iconName
+        AudioPlayerBarIconButtonStyle.setSystemIcon(named: iconName, on: playPauseButton)
+    }
+
+    private static func playbackTimes(for state: VoiceMessagePlaybackState) -> (currentTime: TimeInterval, duration: TimeInterval) {
+        switch state {
+        case .playing(let currentTime, let duration),
+             .paused(let currentTime, let duration):
+            return (currentTime, duration)
+        default:
+            return (0, 0)
+        }
+    }
+
     @objc
-    private final func onTitleStackTapRecognize(_ sender: UIGestureRecognizer) {
-        self.delegate?.sharedPlayerViewTapOnTitle(self)
+    private func onPlayPauseButtonTouchUpInside() {
+        delegate?.audioPlayerBarViewDidTapPlayPause(self)
+    }
+
+    @objc
+    private func onCloseButtonTouchUpInside() {
+        delegate?.audioPlayerBarViewDidTapClose(self)
+    }
+
+    @objc
+    private func onTitleTouchUpInside() {
+        delegate?.audioPlayerBarViewDidTapTitle(self)
     }
 }
 
-extension SharedPlayerView: MulticastAVAudioPlayerDelegate {
+extension AudioPlayerBarView: MulticastAVAudioPlayerDelegate {
     func staticMulticastId() -> String {
-        return "shared_player_view_smid"
+        return "audio_player_bar_view_smid"
     }
     
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        print(self.staticMulticastId(), #function)
-        self.stopTimer()
     }
     
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: (any Error)?) {
-        print(self.staticMulticastId(), #function)
     }
     
     func audioPlayerBeginInterruption(_ player: AVAudioPlayer) {
-        print(self.staticMulticastId(), #function)
     }
     
     func audioPlayerEndInterruption(_ player: AVAudioPlayer, withOptions flags: Int) {
-        print(self.staticMulticastId(), #function)
     }
-    
-    
 }
 
-struct AvatarStructItem {
+struct AvatarStructItem: Equatable {
     let jid: String
     let owner: String
     let name: String
     let url: String?
     let isGroup: Bool
     let uuid: String
+}
+
+enum LastChatsRowUpdateClassification: Equatable {
+    case contentOnly
+    case structuralReload
+}
+
+enum LastChatsRowUpdatePolicy {
+    static func classify(
+        old oldItem: LastChatsViewController.Datasource,
+        new newItem: LastChatsViewController.Datasource,
+        oldShowsSkeleton: Bool = false,
+        newShowsSkeleton: Bool = false
+    ) -> LastChatsRowUpdateClassification {
+        guard oldShowsSkeleton == newShowsSkeleton else {
+            return .structuralReload
+        }
+        guard oldItem.jid == newItem.jid,
+              oldItem.owner == newItem.owner,
+              oldItem.conversationType == newItem.conversationType else {
+            return .structuralReload
+        }
+        guard oldItem.specialMessageKind == newItem.specialMessageKind else {
+            return .structuralReload
+        }
+        guard rowHeight(for: oldItem, showsSkeleton: oldShowsSkeleton) == rowHeight(for: newItem, showsSkeleton: newShowsSkeleton) else {
+            return .structuralReload
+        }
+        return .contentOnly
+    }
+
+    static func rowHeight(for item: LastChatsViewController.Datasource, showsSkeleton: Bool = false) -> CGFloat {
+        if showsSkeleton {
+            return 84
+        }
+        switch item.specialMessageKind {
+        case .none:
+            return 84
+        case .contact, .invite:
+            return 48
+        }
+    }
 }
 
 class LastChatsViewController: BaseViewController {
@@ -356,16 +473,37 @@ class LastChatsViewController: BaseViewController {
         case saved
     }
     
-    enum SpecialMessageKind {
+    enum SpecialMessageKind: Equatable {
         case none
         case contact
         case invite
+
+        var diffKey: String {
+            switch self {
+            case .none:
+                return "chat"
+            case .contact:
+                return "special-contact"
+            case .invite:
+                return "special-invite"
+            }
+        }
+    }
+
+    enum DatasourceSectionKind: Equatable {
+        case specialMessages
+        case chats
+    }
+
+    struct DatasourceSection {
+        let kind: DatasourceSectionKind
+        let rows: [Datasource]
     }
     
     struct Datasource: DiffAware {
         var diffId: String {
             get {
-                return [jid, owner].prp()
+                return [specialMessageKind.diffKey, jid, owner, conversationType.rawValue].prp()
             }
         }
 
@@ -405,7 +543,7 @@ class LastChatsViewController: BaseViewController {
             return a.jid == b.jid
                     && a.owner == b.owner
                     && a.username == b.username
-                    && a.attributedUsername?.string == b.attributedUsername?.string
+                    && attributedStringsEqual(a.attributedUsername, b.attributedUsername)
                     && a.message == b.message
                     && a.date == b.date
                     && a.state == b.state
@@ -428,6 +566,20 @@ class LastChatsViewController: BaseViewController {
                     && a.avatarUrl == b.avatarUrl
                     && a.hasErrorInChat == b.hasErrorInChat
                     && a.updateTS == b.updateTS
+                    && a.isVerificationActionRequired == b.isVerificationActionRequired
+                    && a.specialMessageKind == b.specialMessageKind
+                    && a.avatars == b.avatars
+        }
+
+        private static func attributedStringsEqual(_ lhs: NSAttributedString?, _ rhs: NSAttributedString?) -> Bool {
+            switch (lhs, rhs) {
+            case (nil, nil):
+                return true
+            case let (lhs?, rhs?):
+                return lhs.isEqual(to: rhs)
+            default:
+                return false
+            }
         }
         
     }
@@ -442,19 +594,13 @@ class LastChatsViewController: BaseViewController {
     open var leftMenuSelectRootCategoryDelegate: LeftMenuSelectRootScreenDelegate? = nil
     
     internal let tableView: UITableView = {
-        let style: UITableView.Style = ContinuousSplitBackgroundExperiment.isActive ? .insetGrouped : .plain
-        let view = UITableView(frame: .zero, style: style)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(ChatListTableViewCell.self, forCellReuseIdentifier: ChatListTableViewCell.cellName)
         view.register(ArchivedCell.self, forCellReuseIdentifier: ArchivedCell.cellName)
         view.register(SkeletonCell.self, forCellReuseIdentifier: SkeletonCell.cellName)
         view.register(SpecialMessageTableViewCell.self, forCellReuseIdentifier: SpecialMessageTableViewCell.cellName)
         view.contentInsetAdjustmentBehavior = .scrollableAxes
-        view.tableHeaderView = UIView(frame: .zero)
-        view.tableFooterView = UIView(frame: .zero)
-        if !ContinuousSplitBackgroundExperiment.isActive {
-            view.sectionHeaderTopPadding = 0
-        }
         view.applyContinuousSplitInsetGroupedAppearance()
 //        view.allowsMultipleSelection = false
 //        view.allowsMultipleSelectionDuringEditing = false
@@ -489,7 +635,7 @@ class LastChatsViewController: BaseViewController {
     }()
     
     internal let accountNavButton: AccountNavButton = {
-        let button = AccountNavButton(frame: CGRect(width: 64, height: 40))
+        let button = AccountNavButton(frame: CGRect(width: 44, height: 44))
         
 //        button.isUserInteractionEnabled = false
         
@@ -510,13 +656,7 @@ class LastChatsViewController: BaseViewController {
         let controller = UISearchController(searchResultsController: searchResults)
         
         controller.searchResultsUpdater = searchResults
-        controller.searchBar.searchBarStyle = .prominent
         controller.searchBar.placeholder = "Search contacts and messages".localizeString(id: "search_contacts_and_messages", arguments: [])
-        controller.searchBar.isTranslucent = true
-        controller.hidesNavigationBarDuringPresentation = true
-        controller.hidesBottomBarWhenPushed = true
-        controller.definesPresentationContext = true
-//        controller.
         
         return controller
     }()
@@ -546,6 +686,8 @@ class LastChatsViewController: BaseViewController {
     
     internal var datasource: [Datasource] = []
     internal var datasourceIndexByKey: [String: Int] = [:]
+    internal var datasourceSections: [DatasourceSection] = [DatasourceSection(kind: .chats, rows: [])]
+    internal var datasourceIndexPathByKey: [String: IndexPath] = [:]
     
     internal var bag: DisposeBag = DisposeBag()
     internal var datasetBag: DisposeBag = DisposeBag()
@@ -565,7 +707,9 @@ class LastChatsViewController: BaseViewController {
     internal var editedIndexPath: IndexPath? = nil
     internal var activeSwipeActionDatasourceKey: String? = nil
     internal var pendingSwipeActionReloadDatasourceKey: String? = nil
+    internal var pendingSwipeActionReconfigureDatasourceKey: String? = nil
     internal var pendingSwipeActionTableReload: Bool = false
+    internal var datasourceShowsSkeleton: Bool = true
 
     public var archivedMode: Bool = false
     
@@ -583,13 +727,23 @@ class LastChatsViewController: BaseViewController {
     open var splitDelegate: SplitViewControllerDelegate? = nil
     
     open var currentChatVC: ChatViewController? = nil
+    internal var voiceMessageStateObserverToken: UUID? = nil
+    internal var pinnedVoicePlayerHeightConstraint: NSLayoutConstraint? = nil
     
     
-    let playerViewToolbar: SharedPlayerView = {
-        let view = SharedPlayerView(frame: .zero)
+    let playerViewToolbar: AudioPlayerBarView = {
+        let view = AudioPlayerBarView(frame: .zero)
         
         view.isHidden = false
         
+        return view
+    }()
+
+    let pinnedVoicePlayerView: AudioPlayerBarView = {
+        let view = AudioPlayerBarView(frame: .zero)
+
+        view.isHidden = true
+
         return view
     }()
     
@@ -599,20 +753,128 @@ class LastChatsViewController: BaseViewController {
     }
     
     internal func configurePlayerView() {
-        self.playerViewToolbar.update(frame: CGRect(0, 0, self.view.frame.width, 44), isHidden: false)
-        self.playerViewToolbar.configure(title: "", subtitle: "Voice message")
-        self.playerViewToolbar.delegate = self
+        self.setupPinnedVoicePlayerIfNeeded()
+        self.renderPinnedVoicePlayer(snapshot: VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot)
     }
     
     
     internal func showPlayerViewIfNeeded() {
-        AudioManager.shared.addMulticastDelegate(self)
-        if self.playerViewToolbar.state == .playing {
-        } else if AudioManager.shared.player != nil {
-            self.playerViewToolbar.swapState(to: .playing)
-            self.playerViewToolbar.configure(title: AudioManager.shared.currentPlayingTitle, subtitle: AudioManager.shared.currentPlayingSubtitle)
+        self.renderPinnedVoicePlayer(snapshot: VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot)
+    }
+
+    internal func configureVoiceMessagePlaybackCoordinatorObserver() {
+        VoiceMessagePlaybackCoordinator.shared.removeObserver(voiceMessageStateObserverToken)
+        voiceMessageStateObserverToken = VoiceMessagePlaybackCoordinator.shared.addObserver { [weak self] change in
+            DispatchQueue.main.async {
+                self?.handleVoiceMessageStateChange(change)
+            }
         }
-        self.reloadTableViewOrDeferForActiveSwipe()
+    }
+
+    private func handleVoiceMessageStateChange(_ change: VoiceMessageStateChange) {
+        self.renderPinnedVoicePlayer(snapshot: VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot)
+    }
+
+    private func setupPinnedVoicePlayerIfNeeded() {
+        guard self.pinnedVoicePlayerView.superview == nil else {
+            self.view.bringSubviewToFront(self.pinnedVoicePlayerView)
+            self.updateTableInsetsForPinnedVoicePlayer()
+            return
+        }
+
+        self.pinnedVoicePlayerView.delegate = self
+        self.view.addSubview(self.pinnedVoicePlayerView)
+        let heightConstraint = self.pinnedVoicePlayerView.heightAnchor.constraint(equalToConstant: AudioPlayerBarView.Metrics.height)
+        self.pinnedVoicePlayerHeightConstraint = heightConstraint
+
+        NSLayoutConstraint.activate([
+            self.pinnedVoicePlayerView.topAnchor.constraint(
+                equalTo: self.view.safeAreaLayoutGuide.topAnchor,
+                constant: AudioPlayerBarView.Metrics.topOffset
+            ),
+            self.pinnedVoicePlayerView.leadingAnchor.constraint(
+                equalTo: self.view.safeAreaLayoutGuide.leadingAnchor,
+                constant: AudioPlayerBarView.Metrics.horizontalInset
+            ),
+            self.pinnedVoicePlayerView.trailingAnchor.constraint(
+                equalTo: self.view.safeAreaLayoutGuide.trailingAnchor,
+                constant: -AudioPlayerBarView.Metrics.horizontalInset
+            ),
+            heightConstraint
+        ])
+
+        self.view.bringSubviewToFront(self.pinnedVoicePlayerView)
+        self.updateTableInsetsForPinnedVoicePlayer()
+    }
+
+    private func renderPinnedVoicePlayer(snapshot: VoiceMessagePlaybackSnapshot?) {
+        self.setupPinnedVoicePlayerIfNeeded()
+        self.pinnedVoicePlayerView.render(snapshot: snapshot)
+        if snapshot != nil {
+            self.view.bringSubviewToFront(self.pinnedVoicePlayerView)
+        }
+        self.updateTableInsetsForPinnedVoicePlayer()
+    }
+
+    internal func updateTableInsetsForPinnedVoicePlayer() {
+        let topInset = self.pinnedVoicePlayerView.superview != nil && !self.pinnedVoicePlayerView.isHidden
+            ? AudioPlayerBarView.Metrics.reservedTopInset
+            : 0
+        let previousTopInset = self.tableView.contentInset.top
+        let insetDelta = topInset - previousTopInset
+        let previousContentOffsetY = self.tableView.contentOffset.y
+
+        if abs(insetDelta) > 0.5 {
+            self.tableView.contentInset.top = topInset
+            let minimumY = -self.tableView.adjustedContentInset.top
+            let maximumY = max(
+                minimumY,
+                self.tableView.contentSize.height + self.tableView.adjustedContentInset.bottom - self.tableView.bounds.height
+            )
+            self.tableView.contentOffset.y = LastChatsPinnedVoicePlayerInsetPolicy.adjustedContentOffsetY(
+                currentY: previousContentOffsetY,
+                insetDelta: insetDelta,
+                minimumY: minimumY,
+                maximumY: maximumY
+            )
+        }
+        if self.tableView.verticalScrollIndicatorInsets.top != topInset {
+            self.tableView.verticalScrollIndicatorInsets.top = topInset
+        }
+    }
+
+    private func openActiveVoiceMessageRoute() {
+        guard let route = VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot?.route else {
+            return
+        }
+        self.stackNewChat(
+            owner: route.owner,
+            jid: route.jid,
+            conversationType: route.conversationType,
+            openMessageRequest: Self.voicePlayerOpenRequest(route: route)
+        )
+    }
+
+    internal func sharedVoiceDescriptor(referencePrimary: String) -> VoiceMessageDescriptor? {
+        do {
+            let realm = try WRealm.safe()
+            guard let reference = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary) else {
+                return nil
+            }
+            return VoiceMessageDescriptor(
+                referencePrimary: reference.primary,
+                containerMessagePrimary: reference.messageId,
+                remoteURL: reference.downloadUrl,
+                decodedURL: reference.decodedUrl,
+                duration: TimeInterval(reference.duration ?? 0),
+                downloaded: reference.isDownloaded || reference.decodedUrl != nil,
+                pcm: reference.meteringLevels ?? [],
+                sentDate: reference.sentDate
+            )
+        } catch {
+            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+            return nil
+        }
     }
     
     internal func updateTitle(_ value: Filter) {
@@ -711,8 +973,8 @@ class LastChatsViewController: BaseViewController {
             
             let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
             let invites = realm
-                .objects(UINotificationStorageItem.self)
-                .filter("owner IN %@ AND isRead == %@ AND kind_ == %@", jids, false, UINotificationStorageItem.Kind.invite.rawValue)
+                .objects(GroupchatInvitesStorageItem.self)
+                .filter("owner IN %@ AND isRead == %@", jids, false)
             
             let requests = realm
                 .objects(UINotificationStorageItem.self)
@@ -748,6 +1010,34 @@ class LastChatsViewController: BaseViewController {
                 } onDisposed: {
                     DDLogDebug("LastChatsViewController: \(#function). RX state: disposed")
                 }
+                .disposed(by: datasetBag)
+
+            let enabledOwners = Array(enabledAccounts.value)
+            Observable
+                .collection(from: realm.objects(RosterStorageItem.self).filter("owner IN %@", enabledOwners))
+                .debounce(.milliseconds(150), scheduler: MainScheduler.asyncInstance)
+                .skip(1)
+                .subscribe(onNext: { _ in
+                    self.runDatasetUpdateTask()
+                })
+                .disposed(by: datasetBag)
+
+            Observable
+                .collection(from: realm.objects(ResourceStorageItem.self).filter("owner IN %@", enabledOwners))
+                .debounce(.milliseconds(150), scheduler: MainScheduler.asyncInstance)
+                .skip(1)
+                .subscribe(onNext: { _ in
+                    self.runDatasetUpdateTask()
+                })
+                .disposed(by: datasetBag)
+
+            Observable
+                .collection(from: realm.objects(MessageStorageItem.self).filter("owner IN %@ AND outgoing == true", enabledOwners))
+                .debounce(.milliseconds(120), scheduler: MainScheduler.asyncInstance)
+                .skip(1)
+                .subscribe(onNext: { _ in
+                    self.runDatasetUpdateTask()
+                })
                 .disposed(by: datasetBag)
 
             canUpdateDataset = true
@@ -798,11 +1088,97 @@ class LastChatsViewController: BaseViewController {
         [jid, owner].prp()
     }
     
-    private final func setDatasource(_ newDatasource: [Datasource]) {
+    internal static func makeDatasourceSections(
+        from datasource: [Datasource],
+        showsSkeleton: Bool
+    ) -> [DatasourceSection] {
+        let specialRows = showsSkeleton
+            ? []
+            : datasource.filter { $0.specialMessageKind != .none }
+        let chatRows = datasource.filter { $0.specialMessageKind == .none }
+
+        var sections: [DatasourceSection] = []
+        if specialRows.isNotEmpty {
+            sections.append(DatasourceSection(kind: .specialMessages, rows: specialRows))
+        }
+        sections.append(DatasourceSection(kind: .chats, rows: chatRows))
+        return sections
+    }
+
+    internal static func item(at indexPath: IndexPath, in sections: [DatasourceSection]) -> Datasource? {
+        guard sections.indices.contains(indexPath.section),
+              sections[indexPath.section].rows.indices.contains(indexPath.row) else {
+            return nil
+        }
+        return sections[indexPath.section].rows[indexPath.row]
+    }
+
+    internal static func sectionIndex(
+        of kind: DatasourceSectionKind,
+        in sections: [DatasourceSection]
+    ) -> Int? {
+        sections.firstIndex { $0.kind == kind }
+    }
+
+    internal static func indexPathForChat(
+        jid: String,
+        owner: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        in sections: [DatasourceSection]
+    ) -> IndexPath? {
+        guard let section = sectionIndex(of: .chats, in: sections) else { return nil }
+        guard let row = sections[section].rows.firstIndex(where: {
+            $0.specialMessageKind == .none
+                && $0.jid == jid
+                && $0.owner == owner
+                && $0.conversationType == conversationType
+        }) else {
+            return nil
+        }
+        return IndexPath(row: row, section: section)
+    }
+
+    internal func item(at indexPath: IndexPath) -> Datasource? {
+        Self.item(at: indexPath, in: datasourceSections)
+    }
+
+    internal func sectionKind(at section: Int) -> DatasourceSectionKind? {
+        guard datasourceSections.indices.contains(section) else { return nil }
+        return datasourceSections[section].kind
+    }
+
+    private func indexPathForSwipeActionDatasourceKey(_ key: String) -> IndexPath? {
+        for (sectionIndex, section) in datasourceSections.enumerated() {
+            guard section.kind == .chats else { continue }
+            if let row = section.rows.firstIndex(where: { Self.swipeActionDatasourceKey(for: $0) == key }) {
+                return IndexPath(row: row, section: sectionIndex)
+            }
+        }
+        return nil
+    }
+
+    private final func setDatasource(
+        _ newDatasource: [Datasource],
+        sections newSections: [DatasourceSection],
+        showsSkeleton: Bool
+    ) {
         self.datasource = newDatasource
+        self.datasourceSections = newSections
+        self.datasourceShowsSkeleton = showsSkeleton
         self.datasourceIndexByKey = Dictionary(
             newDatasource.enumerated().map { (index, item) in
                 (self.datasourceKey(jid: item.jid, owner: item.owner), index)
+            },
+            uniquingKeysWith: { _, new in new }
+        )
+        self.datasourceIndexPathByKey = Dictionary(
+            newSections.enumerated().flatMap { sectionIndex, section in
+                section.rows.enumerated().map { rowIndex, item in
+                    (
+                        self.datasourceKey(jid: item.jid, owner: item.owner),
+                        IndexPath(row: rowIndex, section: sectionIndex)
+                    )
+                }
             },
             uniquingKeysWith: { _, new in new }
         )
@@ -811,17 +1187,33 @@ class LastChatsViewController: BaseViewController {
     }
 
     internal static func hasStructuralTableChanges(_ changes: ChangesWithIndexPath) -> Bool {
-        return changes.deletes.isNotEmpty || changes.inserts.isNotEmpty || changes.moves.isNotEmpty
+        return !changes.deletedSections.isEmpty
+            || !changes.insertedSections.isEmpty
+            || changes.deletes.isNotEmpty
+            || changes.inserts.isNotEmpty
+            || changes.moves.isNotEmpty
     }
 
     private final func filteredReloadIndexPathsPreservingActiveSwipe(_ indexPaths: [IndexPath]) -> [IndexPath] {
         let filtered = Self.filterReloadIndexPaths(
             indexPaths,
-            datasource: self.datasource,
+            sections: self.datasourceSections,
             activeSwipeActionDatasourceKey: self.activeSwipeActionDatasourceKey
         )
         if filtered.count != indexPaths.count, let activeSwipeActionDatasourceKey {
             self.pendingSwipeActionReloadDatasourceKey = activeSwipeActionDatasourceKey
+        }
+        return filtered
+    }
+
+    private final func filteredReconfigureIndexPathsPreservingActiveSwipe(_ indexPaths: [IndexPath]) -> [IndexPath] {
+        let filtered = Self.filterReloadIndexPaths(
+            indexPaths,
+            sections: self.datasourceSections,
+            activeSwipeActionDatasourceKey: self.activeSwipeActionDatasourceKey
+        )
+        if filtered.count != indexPaths.count, let activeSwipeActionDatasourceKey {
+            self.pendingSwipeActionReconfigureDatasourceKey = activeSwipeActionDatasourceKey
         }
         return filtered
     }
@@ -838,12 +1230,14 @@ class LastChatsViewController: BaseViewController {
     internal final func finishActiveSwipeActionEditing() {
         let shouldReloadTable = pendingSwipeActionTableReload
         let reloadKey = pendingSwipeActionReloadDatasourceKey
+        let reconfigureKey = pendingSwipeActionReconfigureDatasourceKey
 
         activeSwipeActionDatasourceKey = nil
         pendingSwipeActionTableReload = false
         pendingSwipeActionReloadDatasourceKey = nil
+        pendingSwipeActionReconfigureDatasourceKey = nil
 
-        guard shouldReloadTable || reloadKey != nil else { return }
+        guard shouldReloadTable || reloadKey != nil || reconfigureKey != nil else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard self.activeSwipeActionDatasourceKey == nil else {
@@ -851,20 +1245,60 @@ class LastChatsViewController: BaseViewController {
                     self.pendingSwipeActionTableReload = true
                 }
                 self.pendingSwipeActionReloadDatasourceKey = reloadKey ?? self.activeSwipeActionDatasourceKey
+                self.pendingSwipeActionReconfigureDatasourceKey = reconfigureKey ?? self.activeSwipeActionDatasourceKey
                 return
             }
             if shouldReloadTable {
                 self.tableView.reloadData()
                 return
             }
-            guard let reloadKey,
-                  let row = self.datasource.firstIndex(where: { Self.swipeActionDatasourceKey(for: $0) == reloadKey }) else {
-                return
+            if let reloadKey,
+               let indexPath = self.indexPathForSwipeActionDatasourceKey(reloadKey) {
+                UIView.performWithoutAnimation {
+                    self.tableView.reloadRows(at: [indexPath], with: .none)
+                }
             }
-            UIView.performWithoutAnimation {
-                self.tableView.reloadRows(at: [IndexPath(row: row, section: 0)], with: .none)
+            if reloadKey == nil,
+               let reconfigureKey,
+               let indexPath = self.indexPathForSwipeActionDatasourceKey(reconfigureKey) {
+                self.reconfigureVisibleRow(at: indexPath)
             }
         }
+    }
+
+    @discardableResult
+    internal final func reconfigureVisibleRow(at indexPath: IndexPath) -> Bool {
+        guard !self.showSkeleton.value,
+              let item = self.item(at: indexPath),
+              let cell = self.tableView.cellForRow(at: indexPath) else {
+            return false
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let wereAnimationsEnabled = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+        UIView.performWithoutAnimation {
+            switch item.specialMessageKind {
+            case .none:
+                guard let chatCell = cell as? ChatListTableViewCell else { return }
+                self.configureChatCell(chatCell, with: item)
+            case .contact, .invite:
+                guard let specialCell = cell as? SpecialMessageTableViewCell else { return }
+                self.configureSpecialMessageCell(specialCell, with: item)
+            }
+            cell.setNeedsLayout()
+            cell.layoutIfNeeded()
+            cell.layer.removeAllAnimations()
+            cell.contentView.layer.removeAllAnimations()
+        }
+        UIView.setAnimationsEnabled(wereAnimationsEnabled)
+        CATransaction.commit()
+        return true
+    }
+
+    internal final func reconfigureVisibleRows(at indexPaths: [IndexPath]) {
+        indexPaths.forEach { self.reconfigureVisibleRow(at: $0) }
     }
 
     internal static func shouldShowEmptyState(
@@ -1326,19 +1760,78 @@ class LastChatsViewController: BaseViewController {
     public final var canUpdateDataset = true
     
     
-    private final func convertChangeset(changes: [Change<Datasource>]) -> ChangesWithIndexPath {
-        let inserts =  changes.compactMap { return $0.insert?.index }.compactMap({ return IndexPath(row:$0, section: 0)})
-        let deletes =  changes.compactMap { return $0.delete?.index }.compactMap({ return IndexPath(row:$0, section: 0 )})
-        let replaces = changes.compactMap { return $0.replace?.index }.compactMap({ return IndexPath(row:$0, section: 0 )})
-        
-        let moves = changes.compactMap({ $0.move }).map({
-          (
-            from: IndexPath(item: $0.fromIndex, section: 0),
-            to: IndexPath(item: $0.toIndex, section: 0)
-          )
-        })
-        
+    private static func convertChangeset(
+        changes: [Change<Datasource>],
+        oldSectionIndex: Int,
+        newSectionIndex: Int
+    ) -> ChangesWithIndexPath {
+        let inserts = changes
+            .compactMap { $0.insert?.index }
+            .map { IndexPath(row: $0, section: newSectionIndex) }
+        let deletes = changes
+            .compactMap { $0.delete?.index }
+            .map { IndexPath(row: $0, section: oldSectionIndex) }
+        let replaces = changes
+            .compactMap { $0.replace?.index }
+            .map { IndexPath(row: $0, section: newSectionIndex) }
+
+        let moves = changes.compactMap({ $0.move }).map {
+            (
+                from: IndexPath(row: $0.fromIndex, section: oldSectionIndex),
+                to: IndexPath(row: $0.toIndex, section: newSectionIndex)
+            )
+        }
+
         return ChangesWithIndexPath(
+            inserts: inserts,
+            deletes: deletes,
+            replaces: replaces,
+            moves: moves
+        )
+    }
+
+    internal static func sectionedChanges(
+        oldSections: [DatasourceSection],
+        newSections: [DatasourceSection]
+    ) -> ChangesWithIndexPath {
+        var insertedSections = IndexSet()
+        var deletedSections = IndexSet()
+        var inserts: [IndexPath] = []
+        var deletes: [IndexPath] = []
+        var replaces: [IndexPath] = []
+        var moves: [(from: IndexPath, to: IndexPath)] = []
+
+        oldSections.enumerated().forEach { oldIndex, oldSection in
+            if sectionIndex(of: oldSection.kind, in: newSections) == nil {
+                deletedSections.insert(oldIndex)
+            }
+        }
+
+        newSections.enumerated().forEach { newIndex, newSection in
+            if sectionIndex(of: newSection.kind, in: oldSections) == nil {
+                insertedSections.insert(newIndex)
+            }
+        }
+
+        oldSections.enumerated().forEach { oldIndex, oldSection in
+            guard let newIndex = sectionIndex(of: oldSection.kind, in: newSections) else {
+                return
+            }
+            let rowChanges = diff(old: oldSection.rows, new: newSections[newIndex].rows)
+            let sectionChanges = convertChangeset(
+                changes: rowChanges,
+                oldSectionIndex: oldIndex,
+                newSectionIndex: newIndex
+            )
+            inserts.append(contentsOf: sectionChanges.inserts)
+            deletes.append(contentsOf: sectionChanges.deletes)
+            replaces.append(contentsOf: sectionChanges.replaces)
+            moves.append(contentsOf: sectionChanges.moves)
+        }
+
+        return ChangesWithIndexPath(
+            insertedSections: insertedSections,
+            deletedSections: deletedSections,
             inserts: inserts,
             deletes: deletes,
             replaces: replaces,
@@ -1368,29 +1861,59 @@ class LastChatsViewController: BaseViewController {
         guard !self.isDatasetUpdateInFlight else { return }
         self.needsDatasetRefresh = false
         self.isDatasetUpdateInFlight = true
-        let oldDatasource = self.datasource
+        let oldSections = self.datasourceSections
+        let oldShowsSkeleton = self.datasourceShowsSkeleton
+        let newShowsSkeleton = self.showSkeleton.value
         let shouldAnimate = self.isFirstLayout
         self.updateQueue.async {
             let newDataset = self.mapDataset()
-            let changes = diff(old: oldDatasource, new: newDataset)
-            let indexPaths = self.convertChangeset(changes: changes)
+            let newSections = Self.makeDatasourceSections(
+                from: newDataset,
+                showsSkeleton: newShowsSkeleton
+            )
+            let indexPaths = Self.sectionedChanges(
+                oldSections: oldSections,
+                newSections: newSections
+            )
             DispatchQueue.main.async {
                 if !shouldAnimate {
                     UIView.performWithoutAnimation {
-                        self.apply(changes: indexPaths) {
-                            self.setDatasource(newDataset)
+                        self.apply(
+                            changes: indexPaths,
+                            oldSections: oldSections,
+                            newSections: newSections,
+                            oldShowsSkeleton: oldShowsSkeleton,
+                            newShowsSkeleton: newShowsSkeleton
+                        ) {
+                            self.setDatasource(newDataset, sections: newSections, showsSkeleton: newShowsSkeleton)
                         }
                     }
                 } else {
-                    let updatesCount = indexPaths.deletes.count + indexPaths.inserts.count + indexPaths.moves.count
+                    let updatesCount = indexPaths.deletedSections.count
+                        + indexPaths.insertedSections.count
+                        + indexPaths.deletes.count
+                        + indexPaths.inserts.count
+                        + indexPaths.moves.count
                     if updatesCount < 4 {
-                        self.apply(changes: indexPaths) {
-                            self.setDatasource(newDataset)
+                        self.apply(
+                            changes: indexPaths,
+                            oldSections: oldSections,
+                            newSections: newSections,
+                            oldShowsSkeleton: oldShowsSkeleton,
+                            newShowsSkeleton: newShowsSkeleton
+                        ) {
+                            self.setDatasource(newDataset, sections: newSections, showsSkeleton: newShowsSkeleton)
                         }
                     } else {
                         UIView.performWithoutAnimation {
-                            self.apply(changes: indexPaths) {
-                                self.setDatasource(newDataset)
+                            self.apply(
+                                changes: indexPaths,
+                                oldSections: oldSections,
+                                newSections: newSections,
+                                oldShowsSkeleton: oldShowsSkeleton,
+                                newShowsSkeleton: newShowsSkeleton
+                            ) {
+                                self.setDatasource(newDataset, sections: newSections, showsSkeleton: newShowsSkeleton)
                             }
                         }
                     }
@@ -1410,9 +1933,74 @@ class LastChatsViewController: BaseViewController {
         self.preprocessDataset()
     }
     
-    private final func apply(changes: ChangesWithIndexPath, prepare: @escaping (() -> Void)) {
-        
-        if changes.deletes.isEmpty &&
+    private final func replacementUpdatePlan(
+        changes: ChangesWithIndexPath,
+        oldSections: [DatasourceSection],
+        newSections: [DatasourceSection],
+        oldShowsSkeleton: Bool,
+        newShowsSkeleton: Bool
+    ) -> (reloads: [IndexPath], reconfigures: [IndexPath]) {
+        var reloads: [IndexPath] = []
+        var reconfigures: [IndexPath] = []
+
+        changes.replaces.forEach { indexPath in
+            guard newSections.indices.contains(indexPath.section) else {
+                reloads.append(indexPath)
+                return
+            }
+            let sectionKind = newSections[indexPath.section].kind
+            guard let oldSectionIndex = Self.sectionIndex(of: sectionKind, in: oldSections),
+                  oldSections[oldSectionIndex].rows.indices.contains(indexPath.row),
+                  newSections[indexPath.section].rows.indices.contains(indexPath.row) else {
+                reloads.append(indexPath)
+                return
+            }
+
+            switch LastChatsRowUpdatePolicy.classify(
+                old: oldSections[oldSectionIndex].rows[indexPath.row],
+                new: newSections[indexPath.section].rows[indexPath.row],
+                oldShowsSkeleton: oldShowsSkeleton,
+                newShowsSkeleton: newShowsSkeleton
+            ) {
+            case .contentOnly:
+                reconfigures.append(indexPath)
+            case .structuralReload:
+                reloads.append(indexPath)
+            }
+        }
+
+        return (reloads, reconfigures)
+    }
+
+    private final func applyReplacementUpdates(
+        reloads: [IndexPath],
+        reconfigures: [IndexPath]
+    ) {
+        let reloads = self.filteredReloadIndexPathsPreservingActiveSwipe(reloads)
+        let reconfigures = self.filteredReconfigureIndexPathsPreservingActiveSwipe(reconfigures)
+        guard reloads.isNotEmpty || reconfigures.isNotEmpty else { return }
+
+        UIView.performWithoutAnimation {
+            if reloads.isNotEmpty {
+                self.tableView.reloadRows(at: reloads, with: .none)
+            }
+            if reconfigures.isNotEmpty {
+                self.reconfigureVisibleRows(at: reconfigures)
+            }
+        }
+    }
+
+    private final func apply(
+        changes: ChangesWithIndexPath,
+        oldSections: [DatasourceSection],
+        newSections: [DatasourceSection],
+        oldShowsSkeleton: Bool,
+        newShowsSkeleton: Bool,
+        prepare: @escaping (() -> Void)
+    ) {
+        if changes.deletedSections.isEmpty &&
+            changes.insertedSections.isEmpty &&
+            changes.deletes.isEmpty &&
             changes.inserts.isEmpty &&
             changes.moves.isEmpty &&
             changes.replaces.isEmpty {
@@ -1422,21 +2010,35 @@ class LastChatsViewController: BaseViewController {
         }
 
         guard Self.hasStructuralTableChanges(changes) else {
+            let replacementPlan = self.replacementUpdatePlan(
+                changes: changes,
+                oldSections: oldSections,
+                newSections: newSections,
+                oldShowsSkeleton: oldShowsSkeleton,
+                newShowsSkeleton: newShowsSkeleton
+            )
             prepare()
-            let replacements = self.filteredReloadIndexPathsPreservingActiveSwipe(changes.replaces)
-            if replacements.isNotEmpty {
-                UIView.performWithoutAnimation {
-                    // Replacement rows can switch between skeleton, chat, and special-message cells.
-                    // Reload them so UITableView can dequeue the correct reuse identifier.
-                    self.tableView.reloadRows(at: replacements, with: .none)
-                }
-            }
+            self.applyReplacementUpdates(reloads: replacementPlan.reloads, reconfigures: replacementPlan.reconfigures)
             self.finishDatasetUpdateCycle()
             return
         }
+
+        let replacementPlan = self.replacementUpdatePlan(
+            changes: changes,
+            oldSections: oldSections,
+            newSections: newSections,
+            oldShowsSkeleton: oldShowsSkeleton,
+            newShowsSkeleton: newShowsSkeleton
+        )
         
         self.tableView.performBatchUpdates({
             prepare()
+            if !changes.deletedSections.isEmpty {
+                self.tableView.deleteSections(changes.deletedSections, with: .automatic)
+            }
+            if !changes.insertedSections.isEmpty {
+                self.tableView.insertSections(changes.insertedSections, with: .automatic)
+            }
             if !changes.deletes.isEmpty {
                 self.tableView.deleteRows(at: changes.deletes, with: .automatic)
             }
@@ -1450,19 +2052,14 @@ class LastChatsViewController: BaseViewController {
                 }
             }
         }, completion: { result in
+            self.applyReplacementUpdates(reloads: replacementPlan.reloads, reconfigures: replacementPlan.reconfigures)
             self.finishDatasetUpdateCycle()
-            let replacements = self.filteredReloadIndexPathsPreservingActiveSwipe(changes.replaces)
-            if replacements.isEmpty { return }
-            UIView.performWithoutAnimation {
-                // Replacement rows can switch between skeleton, chat, and special-message cells.
-                // Reload them so UITableView can dequeue the correct reuse identifier.
-                self.tableView.reloadRows(at: replacements, with: .none)
-            }
         })
     }
     
     internal func subscribe() {
         bag = DisposeBag()
+        configureVoiceMessagePlaybackCoordinatorObserver()
         
         do {
             let realm = try WRealm.safe()
@@ -1555,19 +2152,8 @@ class LastChatsViewController: BaseViewController {
             .observed
             .asObservable()
             .debounce(.milliseconds(150), scheduler: MainScheduler.asyncInstance)
-            .subscribe(onNext: { (result) in
-                let indexPaths = result.compactMap {
-                    item in
-                    if let row = self.datasourceIndexByKey[self.datasourceKey(jid: item.jid, owner: item.owner)] {
-                        return IndexPath(row: row, section: 0)
-                    }
-                    return nil
-                }
-                let reloads = self.filteredReloadIndexPathsPreservingActiveSwipe(indexPaths)
-                guard !reloads.isEmpty else { return }
-                UIView.performWithoutAnimation {
-                    self.tableView.reloadRows(at: reloads, with: .none)
-                }
+            .subscribe(onNext: { _ in
+                self.runDatasetUpdateTask()
             })
             .disposed(by: bag)
         
@@ -1600,6 +2186,8 @@ class LastChatsViewController: BaseViewController {
         bag = DisposeBag()
         datasetBag = DisposeBag()
         unreadCounterBag = DisposeBag()
+        VoiceMessagePlaybackCoordinator.shared.removeObserver(voiceMessageStateObserverToken)
+        voiceMessageStateObserverToken = nil
     }
     
     override func observer() {
@@ -1844,7 +2432,25 @@ class LastChatsViewController: BaseViewController {
     }
     
     open var shouldShowBottomBar: Bool = true
-    
+
+    internal static func makeLastChatsNavigationAppearance() -> UINavigationBarAppearance {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
+        appearance.shadowColor = .clear
+        appearance.shadowImage = UIImage()
+        return appearance
+    }
+
+    internal final func applyLastChatsNavigationAppearance() {
+        let appearance = Self.makeLastChatsNavigationAppearance()
+        self.navigationItem.standardAppearance = appearance
+        self.navigationItem.scrollEdgeAppearance = appearance
+        self.navigationItem.compactAppearance = appearance
+        if #available(iOS 15.0, *) {
+            self.navigationItem.compactScrollEdgeAppearance = appearance
+        }
+    }
+
     internal func configureBars() {
         //self.title = "Chats"
         self.updateTitle(self.filter.value)
@@ -1854,10 +2460,13 @@ class LastChatsViewController: BaseViewController {
             self.navigationItem.largeTitleDisplayMode = .never
         }
         self.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+        self.applyLastChatsNavigationAppearance()
 
         if #available(iOS 16.0, *) {
             self.navigationItem.preferredSearchBarPlacement = .stacked
         }
+        self.navigationItem.hidesSearchBarWhenScrolling = false
+
         securityButton.target = self
         securityButton.action = #selector(onRegisterYubikey)
         switch CommonConfigManager.shared.interfaceType {
@@ -1890,7 +2499,7 @@ class LastChatsViewController: BaseViewController {
                 accountNavButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
             case .split:
                 self.bottomBar.isHidden = true
-                self.playerViewToolbar.update(frame: CGRect(0, 0, self.view.frame.width, 44), isHidden: false)
+                self.playerViewToolbar.frame = CGRect(0, 0, self.view.frame.width, AudioPlayerBarView.Metrics.height)
                 self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
                 
                 let sidebarButton = UIBarButtonItem(image: imageLiteral("sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
@@ -2021,7 +2630,9 @@ class LastChatsViewController: BaseViewController {
     
     override func shouldChangeFrame() {
         super.shouldChangeFrame()
+        self.updateTableInsetsForPinnedVoicePlayer()
         self.updateTableInsetsForFloatingToolbar()
+        self.view.bringSubviewToFront(self.pinnedVoicePlayerView)
         self.view.bringSubviewToFront(self.floatingBottomBarView)
     }
     
@@ -2037,37 +2648,8 @@ class LastChatsViewController: BaseViewController {
             }
         }
         NotifyManager.shared.setLastChats(displayed: true)
-        title = " "
         configure()
         configureSearchBar()
-        
-        
-//        let customBar = UIView()
-//            customBar.backgroundColor = .systemGray6
-//            customBar.translatesAutoresizingMaskIntoConstraints = false
-//        navigationController!.navigationBar.addSubview(customBar)
-//            
-//            // Constraints
-//            NSLayoutConstraint.activate([
-////                customBar.topAnchor.constraint(equalTo: navigationController?.navigationBar.bottomAnchor ?? view.safeAreaLayoutGuide.topAnchor),
-//                customBar.topAnchor.constraint(equalTo: navigationController!.navigationBar.bottomAnchor),
-//                customBar.leadingAnchor.constraint(equalTo: navigationController!.navigationBar.leadingAnchor),
-//                customBar.trailingAnchor.constraint(equalTo: navigationController!.navigationBar.trailingAnchor),
-//                customBar.heightAnchor.constraint(equalToConstant: 44)
-//            ])
-//            
-//            // Add content to custom bar (e.g., buttons)
-//            let button = UIButton(type: .system)
-//            button.setTitle("Tap Me", for: .normal)
-////            button.addTarget(self, action: #selector(buttonTapped), for: .touchUpInside)
-//            button.translatesAutoresizingMaskIntoConstraints = false
-//            customBar.addSubview(button)
-//            
-//            NSLayoutConstraint.activate([
-//                button.centerXAnchor.constraint(equalTo: customBar.centerXAnchor),
-//                button.centerYAnchor.constraint(equalTo: customBar.centerYAnchor)
-//            ])
-        
     }
 
     override func reloadDatasource() {
@@ -2156,84 +2738,39 @@ extension LastChatsViewController: MulticastAVAudioPlayerDelegate {
     
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         print("finish")
-        self.playerViewToolbar.swapState(to: .paused)
-        AudioManager.shared.player = nil
-        self.reloadTableViewOrDeferForActiveSwipe()
+        self.renderPinnedVoicePlayer(snapshot: VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot)
     }
 }
 
-extension LastChatsViewController: SharedPlayerViewDelegate {
-    func sharedPlayerViewShouldClose(_ view: SharedPlayerView) {
-        print(#function)
-        self.playerViewToolbar.swapState(to: .paused)
-        AudioManager.shared.player?.stop()
-        AudioManager.shared.player = nil
-        self.reloadTableViewOrDeferForActiveSwipe()
+extension LastChatsViewController: AudioPlayerBarViewDelegate {
+    func audioPlayerBarViewDidTapClose(_ view: AudioPlayerBarView) {
+        VoiceMessagePlaybackCoordinator.shared.stopPlayback()
+        self.renderPinnedVoicePlayer(snapshot: VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot)
     }
-    
-    func sharedPlayerViewPlay(_ view: SharedPlayerView) {
-        print(#function)
-//        self.playerViewToolbar.swapState(to: .playing)
-        AudioManager.shared.player?.play()
+
+    func audioPlayerBarViewDidTapPlayPause(_ view: AudioPlayerBarView) {
+        VoiceMessagePlaybackCoordinator.shared.toggleCurrentPlayback()
     }
-    
-    func sharedPlayerViewPause(_ view: SharedPlayerView) {
-        print(#function)
-//        self.playerViewToolbar.swapState(to: .paused)
-        AudioManager.shared.player?.pause()
+
+    func audioPlayerBarViewDidTapTitle(_ view: AudioPlayerBarView) {
+        self.openActiveVoiceMessageRoute()
     }
-    
-    func sharedPlayerViewTapOnTitle(_ view: SharedPlayerView) {
-        print(#function)
-        guard let primary = AudioManager.shared.messagePrimary else {
-            return
-        }
-        do {
-            let realm = try WRealm.safe()
-            guard let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) else {
-                return
-            }
-            let vc = ChatViewController()
-            vc.owner = message.owner
-            vc.jid = message.opponent
-            vc.conversationType = message.conversationType
-            vc.sharedPlayerPaneldelegae = self
-            showStacked(vc, in: self)
-            let archivedId = message.archivedId
-            let date = message.date
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                vc.scrollToMessageAtIndex(archivedId: archivedId, date: date)
-            }
-        } catch {
-            
-        }
-    }
-    
-    
 }
 
 extension LastChatsViewController: SharedAudioPlayerPanelDelegate {
     func shouldPlay() {
-        self.playerViewToolbar.swapState(to: .playing)
+        self.renderPinnedVoicePlayer(snapshot: VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot)
     }
     
     func shouldPause() {
-        self.playerViewToolbar.swapState(to: .paused)
+        self.renderPinnedVoicePlayer(snapshot: VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot)
     }
     
     func shouldShow() {
-//        if AudioManager.shared.player != nil {
-        self.playerViewToolbar.swapState(to: .playing)
-        self.playerViewToolbar.configure(title: AudioManager.shared.currentPlayingTitle, subtitle: AudioManager.shared.currentPlayingSubtitle)
-//        }
-        self.reloadTableViewOrDeferForActiveSwipe()
+        self.renderPinnedVoicePlayer(snapshot: VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot)
     }
     
     func shouldHide() {
-        self.playerViewToolbar.stopTimer()
-        self.playerViewToolbar.swapState(to: .paused)
-        AudioManager.shared.player = nil
-        self.reloadTableViewOrDeferForActiveSwipe()
+        self.renderPinnedVoicePlayer(snapshot: nil)
     }
 }

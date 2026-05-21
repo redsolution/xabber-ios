@@ -164,6 +164,10 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
 
     func cellSizeCalculatorForItem(at indexPath: IndexPath) -> CellSizeCalculator {
         let message = messagesDataSource.messageForItem(at: indexPath, in: messagesCollectionView)
+        return cellSizeCalculator(for: message)
+    }
+
+    func cellSizeCalculator(for message: MessageType) -> CellSizeCalculator {
         switch message.kind {
             case .attributedText, .emoji, .skeleton(_):
                 return commonMessageSizeCalculator
@@ -200,6 +204,10 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
 //            cache.cache(for: message.primary, size: size)
             return size
 //        }
+    }
+
+    func sizeForMessage(_ message: MessageType) -> CGSize {
+        cellSizeCalculator(for: message).messageContainerSize(for: message)
     }
     
 //    func setMessageIncomingMessagePadding(_ newPadding: UIEdgeInsets) {

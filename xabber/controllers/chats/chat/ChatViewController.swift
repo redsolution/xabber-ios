@@ -40,6 +40,19 @@ enum ChatOpenMessageRequestSource: String {
     case pushNotification = "push-notification"
     case search = "search"
     case external = "external"
+    case voicePlayer = "voice-player"
+    case composerReferencePreview = "composer-reference-preview"
+    case composerEditPreview = "composer-edit-preview"
+    case pinnedMessage = "pinned-message"
+
+    var usesTransientHighlight: Bool {
+        switch self {
+        case .voicePlayer, .composerReferencePreview, .composerEditPreview, .pinnedMessage:
+            return true
+        case .mentionNotification, .pushNotification, .search, .external:
+            return false
+        }
+    }
 }
 
 struct ChatMessageAnchorRef: Equatable {
@@ -152,32 +165,365 @@ struct ChatFloatingHeaderLayoutPolicy {
     }
 }
 
+enum ChatSubscriptionStatusText: Equatable {
+    case notInContacts
+    case incomingSubscriptionRequest
+    case inContacts
+    case subscriptionRequestPending
+    case receivesPresenceUpdates
+
+    var localizedString: String {
+        switch self {
+        case .notInContacts:
+            return "Not in your contacts"
+                .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
+        case .incomingSubscriptionRequest:
+            return "Incoming subscription request"
+                .localizeString(id: "incoming_subscription_request", arguments: [])
+        case .inContacts:
+            return "In your contacts"
+                .localizeString(id: "contact_state_in_contact_list", arguments: [])
+        case .subscriptionRequestPending:
+            return "Subscription request pending..."
+                .localizeString(id: "chat_subscription_request_pending", arguments: [])
+        case .receivesPresenceUpdates:
+            return "Receives your presence updates"
+                .localizeString(id: "chat_receives_presence_updates", arguments: [])
+        }
+    }
+}
+
+struct ChatSubscriptionPresentationInput: Equatable {
+    let hasRosterItem: Bool
+    let subscribtion: RosterStorageItem.Subsccribtion
+    let ask: RosterStorageItem.Ask
+    let conversationType: ClientSynchronizationManager.ConversationType
+    let isServerJID: Bool
+    let isSavedChat: Bool
+    let isBlocked: Bool
+    let isContact: Bool
+}
+
+struct ChatSubscriptionPresentation: Equatable {
+    enum StatusMode: Equatable {
+        case unchanged
+        case fixed(ChatSubscriptionStatusText)
+        case normalPresence
+    }
+
+    enum TopPanelKind: Equatable {
+        case none
+        case addContact
+        case contactRequest
+        case requestSubscription
+        case allowSubscription
+    }
+
+    enum Action: Equatable {
+        case addContact
+        case requestSubscription
+        case allowSubscription
+        case block
+        case close
+    }
+
+    let statusMode: StatusMode
+    let topPanelKind: TopPanelKind
+    let actions: [Action]
+    let showsNormalPresenceStatus: Bool
+}
+
+enum ChatSubscriptionPresentationPolicy {
+    static func presentation(
+        rosterItem: RosterStorageItem?,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        isServerJID: Bool,
+        isSavedChat: Bool,
+        isBlocked: Bool
+    ) -> ChatSubscriptionPresentation {
+        presentation(for: ChatSubscriptionPresentationInput(
+            hasRosterItem: rosterItem != nil,
+            subscribtion: rosterItem?.subscribtion ?? .undefined,
+            ask: rosterItem?.ask ?? .none,
+            conversationType: conversationType,
+            isServerJID: isServerJID,
+            isSavedChat: isSavedChat,
+            isBlocked: isBlocked,
+            isContact: rosterItem?.isContact ?? true
+        ))
+    }
+
+    static func presentation(for input: ChatSubscriptionPresentationInput) -> ChatSubscriptionPresentation {
+        guard applies(to: input) else {
+            return ChatSubscriptionPresentation(
+                statusMode: .unchanged,
+                topPanelKind: .none,
+                actions: [],
+                showsNormalPresenceStatus: false
+            )
+        }
+
+        let subscribtion: RosterStorageItem.Subsccribtion = input.hasRosterItem ? input.subscribtion : .undefined
+
+        switch subscribtion {
+        case .undefined:
+            switch input.ask {
+            case .none:
+                return fixed(.notInContacts, panel: .addContact, actions: [.addContact, .block, .close])
+            case .in, .both:
+                return fixed(.incomingSubscriptionRequest, panel: .contactRequest, actions: [.addContact, .block, .close])
+            case .out:
+                return fixed(.subscriptionRequestPending)
+            }
+        case .none:
+            switch input.ask {
+            case .none:
+                return fixed(.inContacts)
+            case .in:
+                return fixed(.inContacts, panel: .allowSubscription, actions: [.allowSubscription, .block, .close])
+            case .out:
+                return fixed(.subscriptionRequestPending)
+            case .both:
+                return fixed(.subscriptionRequestPending, panel: .allowSubscription, actions: [.allowSubscription, .block, .close])
+            }
+        case .to:
+            switch input.ask {
+            case .in, .both:
+                return normal(panel: .allowSubscription, actions: [.allowSubscription, .block, .close])
+            case .none, .out:
+                return normal()
+            }
+        case .from:
+            switch input.ask {
+            case .out, .both:
+                return fixed(.subscriptionRequestPending)
+            case .none, .in:
+                return fixed(.receivesPresenceUpdates)
+            }
+        case .both:
+            return normal()
+        }
+    }
+
+    private static func applies(to input: ChatSubscriptionPresentationInput) -> Bool {
+        guard !input.isSavedChat,
+              !input.isServerJID,
+              !input.isBlocked,
+              input.isContact else {
+            return false
+        }
+        return input.conversationType == .regular || input.conversationType.isEncrypted
+    }
+
+    private static func fixed(
+        _ status: ChatSubscriptionStatusText,
+        panel: ChatSubscriptionPresentation.TopPanelKind = .none,
+        actions: [ChatSubscriptionPresentation.Action] = []
+    ) -> ChatSubscriptionPresentation {
+        ChatSubscriptionPresentation(
+            statusMode: .fixed(status),
+            topPanelKind: panel,
+            actions: actions,
+            showsNormalPresenceStatus: false
+        )
+    }
+
+    private static func normal(
+        panel: ChatSubscriptionPresentation.TopPanelKind = .none,
+        actions: [ChatSubscriptionPresentation.Action] = []
+    ) -> ChatSubscriptionPresentation {
+        ChatSubscriptionPresentation(
+            statusMode: .normalPresence,
+            topPanelKind: panel,
+            actions: actions,
+            showsNormalPresenceStatus: true
+        )
+    }
+}
+
+enum ChatPinnedMessageBarHeightPolicy {
+    static let minimumHeight: CGFloat = NativeGlassBarStyle.minimumHeight
+    static let maximumHeight: CGFloat = 88
+
+    static func visualHeight(forFittingHeight fittingHeight: CGFloat) -> CGFloat {
+        min(max(fittingHeight, minimumHeight), maximumHeight)
+    }
+}
+
+final class ChatPinnedMessagePanelView: UIControl {
+    enum Metrics {
+        static let height = ChatPinnedMessageBarHeightPolicy.minimumHeight
+        static let iconSize = NativeGlassBarStyle.iconSize
+        static let unpinButtonSize = NativeGlassBarStyle.buttonSize
+        static let horizontalSpacing = NativeGlassBarStyle.interItemSpacing
+        static let verticalTextSpacing: CGFloat = 1
+    }
+
+    let pinIconView: UIImageView = {
+        let imageView = UIImageView(frame: .zero)
+        imageView.image = UIImage(systemName: "pin.fill")?.withRenderingMode(.alwaysTemplate)
+        imageView.tintColor = .tintColor
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.setContentHuggingPriority(.required, for: .horizontal)
+        imageView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return imageView
+    }()
+
+    let titleLabel: UILabel = {
+        let label = UILabel(frame: .zero)
+        label.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+        label.textColor = .secondaryLabel
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
+        return label
+    }()
+
+    let previewLabel: UILabel = {
+        let label = UILabel(frame: .zero)
+        label.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+        label.textColor = .label
+        label.numberOfLines = 3
+        label.lineBreakMode = .byTruncatingTail
+        return label
+    }()
+
+    let unpinButton: UIButton = {
+        let button = UIButton(type: .system)
+        NativeGlassBarStyle.applyIconButtonStyle(
+            to: button,
+            tintColor: .secondaryLabel,
+            image: UIImage(systemName: "pin.slash.fill") ?? UIImage(systemName: "xmark"),
+            prefersNativeGlass: false
+        )
+        button.accessibilityLabel = "Unpin message".localizeString(
+            id: "group_chat__pinned_message__tooltip_unpin",
+            arguments: []
+        )
+        return button
+    }()
+
+    private let textStack: UIStackView = {
+        let stack = UIStackView(frame: .zero)
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.distribution = .fill
+        stack.spacing = Metrics.verticalTextSpacing
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.isUserInteractionEnabled = false
+        return stack
+    }()
+
+    private var textTrailingToUnpinConstraint: NSLayoutConstraint?
+    private var textTrailingToTrailingConstraint: NSLayoutConstraint?
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: Metrics.height)
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        isOpaque = false
+        accessibilityTraits.insert(.button)
+
+        textStack.addArrangedSubview(titleLabel)
+        textStack.addArrangedSubview(previewLabel)
+
+        addSubview(pinIconView)
+        addSubview(textStack)
+        addSubview(unpinButton)
+
+        let textTrailingToUnpin = unpinButton.leadingAnchor.constraint(
+            equalTo: textStack.trailingAnchor,
+            constant: Metrics.horizontalSpacing
+        )
+        let textTrailingToTrailing = textStack.trailingAnchor.constraint(equalTo: trailingAnchor)
+        self.textTrailingToUnpinConstraint = textTrailingToUnpin
+        self.textTrailingToTrailingConstraint = textTrailingToTrailing
+
+        NSLayoutConstraint.activate([
+            pinIconView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            pinIconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            pinIconView.widthAnchor.constraint(equalToConstant: Metrics.iconSize),
+            pinIconView.heightAnchor.constraint(equalToConstant: Metrics.iconSize),
+
+            textStack.leadingAnchor.constraint(equalTo: pinIconView.trailingAnchor, constant: Metrics.horizontalSpacing),
+            textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            textStack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
+
+            textTrailingToUnpin,
+            unpinButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            unpinButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            unpinButton.widthAnchor.constraint(equalToConstant: Metrics.unpinButtonSize),
+            unpinButton.heightAnchor.constraint(equalToConstant: Metrics.unpinButtonSize)
+        ])
+        textTrailingToTrailing.isActive = false
+    }
+
+    func configure(title: NSAttributedString?, preview: String, showsUnpinButton: Bool) {
+        titleLabel.attributedText = title
+        titleLabel.isHidden = title?.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+        previewLabel.text = preview
+        unpinButton.isHidden = !showsUnpinButton
+        unpinButton.isUserInteractionEnabled = showsUnpinButton
+        textTrailingToUnpinConstraint?.isActive = showsUnpinButton
+        textTrailingToTrailingConstraint?.isActive = !showsUnpinButton
+        accessibilityLabel = titleLabel.isHidden ? preview : "\(titleLabel.text ?? ""), \(preview)"
+    }
+
+    func preferredContentHeight(width: CGFloat) -> CGFloat {
+        guard width > 0 else {
+            return ChatPinnedMessageBarHeightPolicy.minimumHeight
+        }
+        let size = systemLayoutSizeFitting(
+            CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        return ChatPinnedMessageBarHeightPolicy.visualHeight(forFittingHeight: size.height)
+    }
+}
+
 final class ChatFloatingGlassBubbleView: UIView {
     private enum Metrics {
-        static let cornerRadius: CGFloat = 20
+        static let cornerRadius: CGFloat = NativeGlassBarStyle.cornerRadius
         static let horizontalPadding: CGFloat = 10
-        static let verticalPadding: CGFloat = 6
-        static let borderWidth: CGFloat = 1 / UIScreen.main.scale
+        static let verticalPadding: CGFloat = 0
     }
 
     private let blurView: UIVisualEffectView = {
-        let view = UIVisualEffectView(effect: ChatFloatingGlassBubbleView.makeGlassEffect())
+        let view = UIVisualEffectView(effect: NativeGlassBarStyle.makeEffect(interactive: true))
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
 
     private var hostedView: UIView?
+    private var hostedViewConstraints: [NSLayoutConstraint] = []
     private var heightConstraint: NSLayoutConstraint?
     private var contentHeight: CGFloat
+    private let verticalPadding: CGFloat
 
-    init(contentHeight: CGFloat) {
+    init(contentHeight: CGFloat, verticalPadding: CGFloat = Metrics.verticalPadding) {
         self.contentHeight = contentHeight
+        self.verticalPadding = verticalPadding
         super.init(frame: .zero)
         setup()
     }
 
     required init?(coder: NSCoder) {
         self.contentHeight = 44
+        self.verticalPadding = Metrics.verticalPadding
         super.init(coder: coder)
         setup()
     }
@@ -185,18 +531,13 @@ final class ChatFloatingGlassBubbleView: UIView {
     private func setup() {
         translatesAutoresizingMaskIntoConstraints = false
         backgroundColor = .clear
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.12
-        layer.shadowRadius = 16
-        layer.shadowOffset = CGSize(width: 0, height: 8)
-
-        blurView.clipsToBounds = true
-        blurView.layer.cornerRadius = Metrics.cornerRadius
-        blurView.layer.borderWidth = Metrics.borderWidth
-        blurView.layer.borderColor = UIColor.label.withAlphaComponent(0.12).cgColor
-        if #available(iOS 13.0, *) {
-            blurView.layer.cornerCurve = .continuous
-        }
+        isOpaque = false
+        layer.shadowColor = nil
+        layer.shadowOpacity = 0
+        layer.shadowRadius = 0
+        layer.shadowOffset = .zero
+        layer.shadowPath = nil
+        NativeGlassBarStyle.applySurface(to: blurView, cornerStyle: .capsule, interactive: true)
 
         addSubview(blurView)
         NSLayoutConstraint.activate([
@@ -206,23 +547,13 @@ final class ChatFloatingGlassBubbleView: UIView {
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
-        heightConstraint = heightAnchor.constraint(equalToConstant: contentHeight + Metrics.verticalPadding * 2)
+        heightConstraint = heightAnchor.constraint(equalToConstant: contentHeight + verticalPadding * 2)
         heightConstraint?.isActive = true
         isHidden = true
     }
 
-    private static func makeGlassEffect() -> UIVisualEffect {
-        if #available(iOS 26.0, *) {
-            let effect = UIGlassEffect(style: .regular)
-            effect.tintColor = UIColor.systemBackground.withAlphaComponent(0.16)
-            effect.isInteractive = false
-            return effect
-        }
-        return UIBlurEffect(style: .systemThinMaterial)
-    }
-
     func setHostedView(_ view: UIView?, contentHeight: CGFloat) {
-        let newHeight = contentHeight + Metrics.verticalPadding * 2
+        let newHeight = contentHeight + verticalPadding * 2
         if hostedView === view {
             self.contentHeight = contentHeight
             if abs((heightConstraint?.constant ?? newHeight) - newHeight) > 0.5 {
@@ -232,6 +563,8 @@ final class ChatFloatingGlassBubbleView: UIView {
             return
         }
 
+        NSLayoutConstraint.deactivate(hostedViewConstraints)
+        hostedViewConstraints = []
         hostedView?.removeFromSuperview()
         hostedView = view
         self.contentHeight = contentHeight
@@ -240,37 +573,29 @@ final class ChatFloatingGlassBubbleView: UIView {
         guard let view else {
             return
         }
-        view.translatesAutoresizingMaskIntoConstraints = true
-        view.autoresizingMask = []
+        view.translatesAutoresizingMaskIntoConstraints = false
         blurView.contentView.addSubview(view)
-        setNeedsLayout()
+        hostedViewConstraints = [
+            view.leadingAnchor.constraint(equalTo: blurView.contentView.leadingAnchor, constant: Metrics.horizontalPadding),
+            view.trailingAnchor.constraint(equalTo: blurView.contentView.trailingAnchor, constant: -Metrics.horizontalPadding),
+            view.topAnchor.constraint(equalTo: blurView.contentView.topAnchor, constant: verticalPadding),
+            view.bottomAnchor.constraint(equalTo: blurView.contentView.bottomAnchor, constant: -verticalPadding)
+        ]
+        NSLayoutConstraint.activate(hostedViewConstraints)
     }
 
     func measuredHeight() -> CGFloat {
-        heightConstraint?.constant ?? (contentHeight + Metrics.verticalPadding * 2)
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: Metrics.cornerRadius).cgPath
-
-        let contentFrame = blurView.contentView.bounds.insetBy(
-            dx: Metrics.horizontalPadding,
-            dy: Metrics.verticalPadding
-        )
-        hostedView?.frame = contentFrame
-
-        if let messagePanel = hostedView as? ModernXabberInputView.MessagesPanel {
-            messagePanel.update()
-        } else if let playerView = hostedView as? SharedPlayerView {
-            playerView.update(frame: contentFrame, isHidden: false)
-            playerView.blurredEffectView.isHidden = true
-            playerView.separatorLine.isHidden = true
-        }
+        heightConstraint?.constant ?? (contentHeight + verticalPadding * 2)
     }
 }
 
 final class ChatFloatingActionPanelView: UIView {
+    private enum Metrics {
+        static let height: CGFloat = NativeGlassBarStyle.minimumHeight
+        static let iconSize: CGFloat = NativeGlassBarStyle.iconSize
+        static let buttonSize: CGFloat = NativeGlassBarStyle.buttonSize
+    }
+
     private let iconView: UIImageView = {
         let imageView = UIImageView(frame: .zero)
         imageView.contentMode = .scaleAspectFit
@@ -289,13 +614,20 @@ final class ChatFloatingActionPanelView: UIView {
         return stack
     }()
 
-    private let closeButton: UIButton = {
+    let closeButton: UIButton = {
         let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "xmark"), for: .normal)
-        button.tintColor = .secondaryLabel
-        button.translatesAutoresizingMaskIntoConstraints = false
+        NativeGlassBarStyle.applyIconButtonStyle(
+            to: button,
+            tintColor: .secondaryLabel,
+            image: UIImage(systemName: "xmark"),
+            prefersNativeGlass: false
+        )
         return button
     }()
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: Metrics.height)
+    }
 
     init(icon: UIImage?, tintColor: UIColor, showsCloseButton: Bool = true) {
         super.init(frame: .zero)
@@ -309,8 +641,17 @@ final class ChatFloatingActionPanelView: UIView {
 
     private func setup(icon: UIImage?, tintColor: UIColor, showsCloseButton: Bool) {
         backgroundColor = .clear
+        isOpaque = false
+        layer.borderWidth = 0
+        layer.borderColor = nil
+        layer.shadowColor = nil
+        layer.shadowOpacity = 0
+        layer.shadowRadius = 0
+        layer.shadowOffset = .zero
+        layer.shadowPath = nil
         iconView.image = icon?.withRenderingMode(.alwaysTemplate)
         iconView.tintColor = tintColor
+        contentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         addSubview(iconView)
         addSubview(contentStack)
@@ -319,12 +660,12 @@ final class ChatFloatingActionPanelView: UIView {
         closeButton.isHidden = !showsCloseButton
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 40),
+            heightAnchor.constraint(equalToConstant: Metrics.height),
 
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 28),
-            iconView.heightAnchor.constraint(equalToConstant: 28),
+            iconView.widthAnchor.constraint(equalToConstant: Metrics.iconSize),
+            iconView.heightAnchor.constraint(equalToConstant: Metrics.iconSize),
 
             contentStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
             contentStack.topAnchor.constraint(equalTo: topAnchor),
@@ -333,8 +674,8 @@ final class ChatFloatingActionPanelView: UIView {
             closeButton.leadingAnchor.constraint(equalTo: contentStack.trailingAnchor, constant: 8),
             closeButton.trailingAnchor.constraint(equalTo: trailingAnchor),
             closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            closeButton.widthAnchor.constraint(equalToConstant: 32),
-            closeButton.heightAnchor.constraint(equalToConstant: 32)
+            closeButton.widthAnchor.constraint(equalToConstant: Metrics.buttonSize),
+            closeButton.heightAnchor.constraint(equalToConstant: Metrics.buttonSize)
         ])
     }
 
@@ -344,7 +685,12 @@ final class ChatFloatingActionPanelView: UIView {
 
     func setContentViews(_ views: [UIView]) {
         contentStack.removeAllArrangedSubviews()
-        views.forEach { contentStack.addArrangedSubview($0) }
+        views.forEach {
+            if let button = $0 as? UIButton {
+                button.titleLabel?.lineBreakMode = .byTruncatingTail
+            }
+            contentStack.addArrangedSubview($0)
+        }
     }
 }
 
@@ -480,6 +826,17 @@ class ChatViewController: MessagesViewController {
         case shouldRequestVerification = "should_request_verification"
         case acceptedVerification = "accepted_verification"
         case audioPlayer = "audio_player"
+
+        var isSubscriptionPanel: Bool {
+            switch self {
+            case .addContact, .requestSubscribtion, .allowSubscribtion:
+                return true
+            case .none, .pinnedMessage, .requestedVerification, .enterCodeVerification,
+                    .requestingVerification, .shouldRequestVerification, .acceptedVerification,
+                    .audioPlayer:
+                return false
+            }
+        }
     }
     
     enum InputBarState {
@@ -548,6 +905,7 @@ class ChatViewController: MessagesViewController {
         var state: MessageStorageItem.MessageSendingState
         var searchString: String?
         var errorMetadata: [String: Any]? = nil
+        var messageWarningText: String? = nil
         var burnDate: Double
         var afterburnInterval: Double
         var archivedId:  String?
@@ -585,6 +943,7 @@ class ChatViewController: MessagesViewController {
                 a.archivedId == b.archivedId &&
                 a.isRead == b.isRead &&
                 ChatViewController.Datasource.iconForMetadata(for: a.errorMetadata) == ChatViewController.Datasource.iconForMetadata(for: b.errorMetadata) &&
+                a.messageWarningText == b.messageWarningText &&
                 a.selectedSearchResultId == b.selectedSearchResultId &&
                 a.queryIds == b.queryIds &&
 //                a.tailed == b.tailed &&
@@ -866,6 +1225,77 @@ class ChatViewController: MessagesViewController {
         }
     }
 
+    internal func chatSubscriptionPresentation(
+        rosterItem: RosterStorageItem?,
+        realm: Realm
+    ) -> ChatSubscriptionPresentation {
+        let isBlocked = realm.object(
+            ofType: BlockStorageItem.self,
+            forPrimaryKey: [self.jid, self.owner].prp()
+        ) != nil
+        return ChatSubscriptionPresentationPolicy.presentation(
+            rosterItem: rosterItem,
+            conversationType: self.conversationType,
+            isServerJID: XMPPJID(string: self.jid)?.isServer ?? false,
+            isSavedChat: self.conversationType == .saved,
+            isBlocked: isBlocked
+        )
+    }
+
+    internal func applyChatSubscriptionPresentation(_ presentation: ChatSubscriptionPresentation) {
+        switch presentation.statusMode {
+        case .unchanged:
+            break
+        case .fixed(let status):
+            self.shouldShowNormalStatus = false
+            self.contactStatus = status.localizedString
+            self.updateStatusText()
+        case .normalPresence:
+            self.shouldShowNormalStatus = true
+        }
+
+        switch presentation.topPanelKind {
+        case .none:
+            if self.topPanelState.value.isSubscriptionPanel {
+                self.setTopPanelState(.none)
+            }
+        case .addContact, .contactRequest:
+            self.setTopPanelState(.addContact)
+        case .requestSubscription:
+            self.setTopPanelState(.requestSubscribtion)
+        case .allowSubscription:
+            self.setTopPanelState(.allowSubscribtion)
+        }
+    }
+
+    internal func applyNormalPresenceStatus(realm: Realm) {
+        let results = realm
+            .objects(ResourceStorageItem.self)
+            .filter("owner == %@ AND jid == %@", self.owner, self.jid)
+            .sorted(by: [
+                SortDescriptor(keyPath: "timestamp", ascending: false),
+                SortDescriptor(keyPath: "priority", ascending: false)
+            ])
+        let offlineStatus = "last seen recently".localizeString(id: "last_seen_recently", arguments: [])
+        let status = (results.first?.statusMessage.isEmpty ?? true)
+            ? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
+            : results.first?.statusMessage ?? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
+        self.titleLabel.attributedText = self.updateTitle()
+        let statusStr = AccountManager.shared.connectingUsers.value.contains(self.owner)
+            ? "Waiting for network...".localizeString(id: "waiting_for_network", arguments: [])
+            : status
+        if self.statusLabel.text == " " {
+            self.statusLabel.text = statusStr
+        }
+        if self.shouldShowNormalStatus {
+            self.setStatusText(statusStr)
+            self.contactStatus = status
+            self.statusLabel.layoutIfNeeded()
+        }
+        self.titleLabel.sizeToFit()
+        self.titleLabel.layoutIfNeeded()
+    }
+
     internal func setShouldShowInitialMessage(_ shouldShow: Bool) {
         self.performOnMain {
             self.shouldShowInitialMessage.accept(shouldShow)
@@ -1088,6 +1518,7 @@ class ChatViewController: MessagesViewController {
     internal var visibleUnreadMentionReconciliationWorkItem: DispatchWorkItem? = nil
     
     internal var currentPlayingView: InlineAudiosGridView.AudioView? = nil
+    internal var voiceMessageStateObserverToken: UUID? = nil
 
     internal enum FloatingControlsLayoutPolicy {
         static let trailingInset: CGFloat = 4
@@ -1198,27 +1629,6 @@ class ChatViewController: MessagesViewController {
 //        return view
 //    }()
     
-    let recordLockIndicator: UIButton = {
-        let button = UIButton(frame: CGRect(square: 38))
-        
-        button.setImage(imageLiteral("lock.open.fill"), for: .normal)
-        button.backgroundColor = .systemGroupedBackground
-        button.layer.cornerRadius = 19
-        button.layer.masksToBounds = true
-//        button.layer.borderWidth = 0
-//        button.layer.borderColor = UIColor.secondarySystemBackground.cgColor
-        
-        if #available(iOS 17.0, *) {
-            button.isSymbolAnimationEnabled = true
-        }
-        
-        button.isHidden = true
-        
-        return button
-    }()
-    
-    
-    
     internal var xabberInputView: ModernXabberInputView!
     
     internal var shouldRequestChatInfo: Bool = false
@@ -1237,16 +1647,18 @@ class ChatViewController: MessagesViewController {
         return stack
     }()
 
-    internal let topPanelBubbleView = ChatFloatingGlassBubbleView(contentHeight: 40)
-    internal let messagePanelBubbleView = ChatFloatingGlassBubbleView(contentHeight: 40)
-    internal let sharedAudioPlayerBubbleView = ChatFloatingGlassBubbleView(contentHeight: 44)
+    internal let topPanelBubbleView = ChatFloatingGlassBubbleView(contentHeight: 44)
+    internal let pinnedMessageBubbleView = ChatFloatingGlassBubbleView(contentHeight: ChatPinnedMessageBarHeightPolicy.minimumHeight)
+    internal var pinnedMessagePanelView: ChatPinnedMessagePanelView? = nil
+    internal var sharedAudioPlayerHeightConstraint: NSLayoutConstraint? = nil
     internal var floatingBubblesHeight: CGFloat = 0
     
-    internal let sharedAudioPlayerPanel: SharedPlayerView? = {
+    internal let sharedAudioPlayerPanel: AudioPlayerBarView? = {
         if UIDevice.current.userInterfaceIdiom == .pad {
             return nil
         }
-        let view = SharedPlayerView(frame: .zero)
+        let view = AudioPlayerBarView(frame: .zero)
+        view.isHidden = true
         
         return view
     }()
@@ -1304,7 +1716,7 @@ class ChatViewController: MessagesViewController {
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
-        if self.recordLockIndicator.isHidden == false {
+        if self.xabberInputView?.isRecordingLockOverlayVisible == true {
             inputHeight += 52
         }
 
@@ -1473,8 +1885,7 @@ class ChatViewController: MessagesViewController {
     }
     
     internal func configureMessagesPanel() {
-        self.xabberInputView.forwardPanel.delegate = self
-        self.xabberInputView.editPanel.delegate = self
+        self.xabberInputView.contextPreviewPanel.delegate = self
     }
     
     internal func configureSelectionPanel() {
@@ -1683,103 +2094,16 @@ class ChatViewController: MessagesViewController {
         
         do {
             let realm = try WRealm.safe()
-            
-            if let item = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                    switch item.subscribtion {
-                        case .none:
-                            switch item.ask {
-                                case .in, .both:
-                                    self.setTopPanelState(.allowSubscribtion)
-                                default:
-                                    if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                        self.setTopPanelState(.none)
-                                    }
-                            }
-                        case .to:
-                            switch item.ask {
-                                case .in:
-                                    self.setTopPanelState(.addContact)
-                                default:
-                                    if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                        self.setTopPanelState(.none)
-                                    }
-                            }
-                        case .undefined:
-                            switch item.ask {
-                                case .in:
-                                    self.setTopPanelState(.requestSubscribtion)
-                                default:
-                                    if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                        self.setTopPanelState(.none)
-                                    }
-                            }
-                        default:
-                            if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                self.setTopPanelState(.none)
-                            }
-                    }
-                    self.shouldShowNormalStatus = false
-                    switch item.subscribtion {
-                    case .from:
-                        switch item.ask {
-                            case .none:
-                                self.contactStatus = "Receives your presence updates"
-                                    .localizeString(id: "chat_receives_presence_updates", arguments: [])
-                            case .out:
-                                self.contactStatus = "Subscription request pending..."
-                                    .localizeString(id: "chat_subscription_request_pending", arguments: [])
-                            default:
-                                break
-                        }
-                    case .none:
-                        switch item.ask {
-                        case .out, .both:
-                            self.contactStatus = "Subscription request pending..."
-                                .localizeString(id: "chat_subscription_request_pending", arguments: [])
-                        case .in:
-                            self.contactStatus = "In your contacts"
-                                .localizeString(id: "contact_state_in_contact_list", arguments: [])
-                        case .none:
-                            self.contactStatus = "In your contacts"
-                                .localizeString(id: "contact_state_in_contact_list", arguments: [])
-                        }
-                    case .undefined:
-                        self.contactStatus = "Not in your contacts"
-                            .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
-                    default:
-                        self.shouldShowNormalStatus = true
-                        break
-                    }
-                
-            } else {
-                self.contactStatus = "Not in your contacts"
-                    .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
-//                    self.showSubscribtionBar(animated: true, state: .notInRoster)
-                self.setTopPanelState(.addContact)
-                self.updateStatusText()
+            let rosterItem = realm.object(
+                ofType: RosterStorageItem.self,
+                forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner)
+            )
+            let presentation = self.chatSubscriptionPresentation(rosterItem: rosterItem, realm: realm)
+            self.applyChatSubscriptionPresentation(presentation)
+            guard presentation.showsNormalPresenceStatus else {
                 return
             }
-            
-            let results = realm
-                            .objects(ResourceStorageItem.self)
-                            .filter("owner == %@ AND jid == %@", self.owner, self.jid)
-                            .sorted(by: [SortDescriptor(keyPath: "timestamp", ascending: false),
-                                         SortDescriptor(keyPath: "priority", ascending: false)])
-            let nickname = self.opponentSender.displayName
-            let offlineStatus = "last seen recently".localizeString(id: "last_seen_recently", arguments: [])
-            let status = (results.first?.statusMessage.isEmpty ?? true) ? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus) : results.first?.statusMessage ?? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
-            self.titleLabel.attributedText = self.updateTitle()
-            let statusStr = AccountManager.shared.connectingUsers.value.contains(self.owner) ? "Waiting for network...".localizeString(id: "waiting_for_network", arguments: []) : status
-            if self.statusLabel.text == " " {
-                self.statusLabel.text = statusStr
-            }
-            if self.shouldShowNormalStatus {
-                self.setStatusText(statusStr)
-                self.contactStatus = status
-                self.statusLabel.layoutIfNeeded()
-            }
-            self.titleLabel.sizeToFit()
-            self.titleLabel.layoutIfNeeded()
+            self.applyNormalPresenceStatus(realm: realm)
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
@@ -1809,15 +2133,17 @@ class ChatViewController: MessagesViewController {
             }
         }
     }
+    internal var activeAudioRecordingSessionID: UUID? = nil
+    internal var recordedReferenceSessionID: UUID? = nil
     internal var currentPlayingUrl: URL? = nil
     
     internal func showSharedAudioPanel() {
         guard let sharedAudioPlayerPanel else {
             return
         }
-        let wasHidden = sharedAudioPlayerBubbleView.isHidden
-        sharedAudioPlayerBubbleView.setHostedView(sharedAudioPlayerPanel, contentHeight: 44)
-        sharedAudioPlayerBubbleView.isHidden = false
+        let wasHidden = sharedAudioPlayerPanel.isHidden
+        sharedAudioPlayerPanel.delegate = self
+        sharedAudioPlayerPanel.isHidden = false
         guard wasHidden else {
             return
         }
@@ -1828,10 +2154,10 @@ class ChatViewController: MessagesViewController {
     }
     
     internal func hideSharedAudioPanel() {
-        guard sharedAudioPlayerPanel != nil, !sharedAudioPlayerBubbleView.isHidden else {
+        guard let sharedAudioPlayerPanel, !sharedAudioPlayerPanel.isHidden else {
             return
         }
-        sharedAudioPlayerBubbleView.isHidden = true
+        sharedAudioPlayerPanel.isHidden = true
         UIView.animate(withDuration: 0.1) {
             self.updateFloatingBubblesVisibility(animated: false)
         }
@@ -1839,12 +2165,20 @@ class ChatViewController: MessagesViewController {
     }
     
     internal func configureSharedAudioPanel() {
-        self.sharedAudioPlayerPanel?.configure(
+        if let snapshot = VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot {
+            self.sharedAudioPlayerPanel?.delegate = self
+            self.sharedAudioPlayerPanel?.render(snapshot: snapshot)
+            self.showSharedAudioPanel()
+            return
+        }
+        self.sharedAudioPlayerPanel?.render(
             title: AudioManager.shared.currentPlayingTitle,
-            subtitle: AudioManager.shared.currentPlayingSubtitle
+            subtitle: AudioManager.shared.currentPlayingSubtitle,
+            state: .playing,
+            currentTime: AudioManager.shared.player?.currentTime ?? 0,
+            duration: AudioManager.shared.player?.duration ?? 0
         )
         self.sharedAudioPlayerPanel?.delegate = self
-        self.sharedAudioPlayerPanel?.swapState(to: .playing)
         self.showSharedAudioPanel()
     }
     
@@ -1958,6 +2292,7 @@ class ChatViewController: MessagesViewController {
         if self.sharedAudioPlayerPanel != nil {
             AudioManager.shared.addMulticastDelegate(self.sharedAudioPlayerPanel)
         }
+        self.configureVoiceMessagePlaybackCoordinator()
 //    case avatarChatPosition = "avatar_chat_vertical_position"
 //    case avatarCornerStyle = "avatar_corner_style"
         self.updateCornerStyle()
@@ -2151,12 +2486,16 @@ class ChatViewController: MessagesViewController {
         }
 
         floatingBubblesStackView.addArrangedSubview(topPanelBubbleView)
-        floatingBubblesStackView.addArrangedSubview(messagePanelBubbleView)
-        floatingBubblesStackView.addArrangedSubview(sharedAudioPlayerBubbleView)
+        floatingBubblesStackView.addArrangedSubview(pinnedMessageBubbleView)
+        if let sharedAudioPlayerPanel {
+            floatingBubblesStackView.addArrangedSubview(sharedAudioPlayerPanel)
+            sharedAudioPlayerHeightConstraint = sharedAudioPlayerPanel.heightAnchor.constraint(equalToConstant: AudioPlayerBarView.Metrics.height)
+            sharedAudioPlayerHeightConstraint?.isActive = true
+        }
 
         topPanelBubbleView.isHidden = true
-        messagePanelBubbleView.isHidden = true
-        sharedAudioPlayerBubbleView.isHidden = true
+        pinnedMessageBubbleView.isHidden = true
+        sharedAudioPlayerPanel?.isHidden = true
 
         view.addSubview(floatingBubblesStackView)
         NSLayoutConstraint.activate([
@@ -2166,7 +2505,7 @@ class ChatViewController: MessagesViewController {
         ])
     }
 
-    internal func showTopPanelBubble(with view: UIView, contentHeight: CGFloat = 40) {
+    internal func showTopPanelBubble(with view: UIView, contentHeight: CGFloat = 44) {
         topPanelBubbleView.setHostedView(view, contentHeight: contentHeight)
         topPanelBubbleView.isHidden = false
         updateFloatingBubblesVisibility(animated: true)
@@ -2177,23 +2516,19 @@ class ChatViewController: MessagesViewController {
         updateFloatingBubblesVisibility(animated: animated)
     }
 
-    internal func showMessagePanelBubble(_ panel: ModernXabberInputView.MessagesPanel) {
-        xabberInputView?.topInset = 0
-        xabberInputView?.isForwardPanelShowed = false
-        xabberInputView?.isEditPanelShowed = false
-        panel.isHidden = false
-        messagePanelBubbleView.setHostedView(panel, contentHeight: 40)
-        messagePanelBubbleView.isHidden = false
+    internal func showForwardPanel() {
+        xabberInputView?.showForwardPanel()
+        updateFloatingBubblesVisibility(animated: true)
+    }
+
+    internal func showEditPanel() {
+        xabberInputView?.showEditPanel()
         updateFloatingBubblesVisibility(animated: true)
     }
 
     internal func hideMessagePanelBubble(animated: Bool = true) {
-        xabberInputView?.topInset = 0
-        xabberInputView?.isForwardPanelShowed = false
-        xabberInputView?.isEditPanelShowed = false
-        xabberInputView?.forwardPanel.isHidden = true
-        xabberInputView?.editPanel.isHidden = true
-        messagePanelBubbleView.isHidden = true
+        xabberInputView?.hideForwardPanel()
+        xabberInputView?.hideEditPanel()
         updateFloatingBubblesVisibility(animated: animated)
     }
 
@@ -2207,6 +2542,9 @@ class ChatViewController: MessagesViewController {
             .map { view -> CGFloat in
                 if let bubble = view as? ChatFloatingGlassBubbleView {
                     return bubble.measuredHeight()
+                }
+                if view is AudioPlayerBarView {
+                    return AudioPlayerBarView.Metrics.height
                 }
                 return view.bounds.height
             }
@@ -2308,9 +2646,6 @@ class ChatViewController: MessagesViewController {
         self.xabberInputView.mentionUsersReloadHandler = { [weak self] in
             self?.requestMentionUsersIfNeeded()
         }
-        self.view.addSubview(self.recordLockIndicator)
-        self.recordLockIndicator.tintColor = self.accountPallete.tint500
-        
     }
 
     internal func mentionCandidates(for query: String) -> [ComposerMentionCandidate] {
@@ -2427,6 +2762,7 @@ class ChatViewController: MessagesViewController {
             self.hideSharedAudioPanel()
         }
         self.setTopPanelState(self.topPanelState.value)
+        self.refreshPinnedMessagePanelIfNeeded()
         previousFrame = self.view.bounds
         backgroundView.frame = CGRect(
             origin: CGPoint(x: 0, y: 0),//((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.height ?? 0)),
@@ -2461,11 +2797,6 @@ class ChatViewController: MessagesViewController {
         )
         self.xabberInputView.setupFrames(frame)
         self.updateChatCollectionInsets(inputHeight: inputHeight)
-        
-        self.recordLockIndicator.frame = CGRect(
-            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 48 - inputHeight),
-            size: CGSize(square: 38)
-        )
 
         self.updateUnreadMentionsNavigatorFrame(animated: false)
         self.updateScrollDownButtonFrame(animated: false)
@@ -2486,6 +2817,8 @@ class ChatViewController: MessagesViewController {
     private func unsubscribe() {
         NotifyManager.shared.currentDialog = nil
         self.bag = DisposeBag()
+        VoiceMessagePlaybackCoordinator.shared.removeObserver(self.voiceMessageStateObserverToken)
+        self.voiceMessageStateObserverToken = nil
     }
     
     
@@ -2558,6 +2891,7 @@ class ChatViewController: MessagesViewController {
     @objc
     private func didEnterBackground() {
         NotifyManager.shared.currentDialog = nil
+        self.cancelActiveAudioRecordingForLifecycle()
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.owner, owner: self.jid, conversationType: self.conversationType)) {
@@ -2700,6 +3034,7 @@ class ChatViewController: MessagesViewController {
                 try self.encryptedSubscribtions()
             }
             self.addObservers()
+            self.configureVoiceMessagePlaybackCoordinator()
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
@@ -2709,12 +3044,7 @@ class ChatViewController: MessagesViewController {
             inputHeight += bottomInset
         }
         self.updateChatCollectionInsets(inputHeight: inputHeight)
-        
-        self.recordLockIndicator.frame = CGRect(
-            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 52 - inputHeight),
-            size: CGSize(square: 38)
-        )
-        
+
         self.lowPrioritySubscribtions()
         self.setupEncryptedChat()
         self.initialHistoryAppearancePending = ChatInitialHistoryAppearancePolicy.shouldStart(
@@ -2790,6 +3120,7 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        self.cancelActiveAudioRecordingForLifecycle()
         omemoDeviceListTimer?.invalidate()
         omemoDeviceListTimer = nil
         AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
@@ -2907,6 +3238,177 @@ class ChatViewController: MessagesViewController {
         self.unsubscribe()
         self.removeObservers()
         self.clearMemoryCache()
+    }
+}
+
+extension ChatViewController {
+    internal func configureVoiceMessagePlaybackCoordinator() {
+        VoiceMessagePlaybackCoordinator.shared.removeObserver(self.voiceMessageStateObserverToken)
+        self.voiceMessageStateObserverToken = VoiceMessagePlaybackCoordinator.shared.addObserver { [weak self] change in
+            DispatchQueue.main.async {
+                self?.handleVoiceMessageStateChange(change)
+            }
+        }
+        self.updateVisibleVoiceMessageQueue()
+        if VoiceMessagePlaybackCoordinator.shared.hasActivePlayback {
+            self.configureSharedAudioPanel()
+        }
+    }
+
+    private func handleVoiceMessageStateChange(_ change: VoiceMessageStateChange) {
+        if change.containerMessagePrimary.isNotEmpty {
+            self.updateVisibleMessageContent(primary: change.containerMessagePrimary)
+        }
+
+        switch change.state {
+        case .playing:
+            self.configureSharedAudioPanel()
+            self.sharedPlayerPaneldelegae?.shouldShow()
+            self.sharedPlayerPaneldelegae?.shouldPlay()
+        case .paused:
+            self.configureSharedAudioPanel()
+            self.sharedPlayerPaneldelegae?.shouldShow()
+            self.sharedPlayerPaneldelegae?.shouldPause()
+        default:
+            if change.previousState?.isActivePlayback == true,
+               !VoiceMessagePlaybackCoordinator.shared.hasActivePlayback {
+                self.hideSharedAudioPanel()
+                self.sharedPlayerPaneldelegae?.shouldHide()
+            }
+        }
+    }
+
+    internal func updateVisibleVoiceMessageQueue() {
+        VoiceMessagePlaybackCoordinator.shared.setVisibleVoiceMessages(self.visibleVoiceMessageDescriptors())
+    }
+
+    internal func voiceMessageDescriptor(referencePrimary: String) -> VoiceMessageDescriptor? {
+        for item in datasource {
+            if let descriptor = voiceMessageDescriptor(referencePrimary: referencePrimary, in: item) {
+                return descriptor
+            }
+        }
+        return voiceMessageDescriptorFromRealm(referencePrimary: referencePrimary, containerPrimary: nil, sentDate: Date.distantPast)
+    }
+
+    internal func visibleVoiceMessageDescriptors() -> [VoiceMessageDescriptor] {
+        return messagesCollectionView.indexPathsForVisibleItems
+            .sorted {
+                if $0.section != $1.section {
+                    return $0.section < $1.section
+                }
+                return $0.item < $1.item
+            }
+            .compactMap { indexPath -> Datasource? in
+                guard datasource.indices.contains(indexPath.section) else { return nil }
+                return datasource[indexPath.section]
+            }
+            .flatMap { voiceMessageDescriptors(in: $0) }
+    }
+
+    private func voiceMessageDescriptors(in item: Datasource) -> [VoiceMessageDescriptor] {
+        var descriptors = item.audios.compactMap {
+            voiceMessageDescriptor(audio: $0, containerPrimary: item.primary, sentDate: item.sentDate)
+        }
+        item.forwards.forEach {
+            descriptors.append(contentsOf: voiceMessageDescriptors(in: $0, containerPrimary: item.primary, sentDate: item.sentDate))
+        }
+        return descriptors
+    }
+
+    private func voiceMessageDescriptor(referencePrimary: String, in item: Datasource) -> VoiceMessageDescriptor? {
+        if let audio = item.audios.first(where: { $0.primary == referencePrimary }) {
+            return voiceMessageDescriptor(audio: audio, containerPrimary: item.primary, sentDate: item.sentDate)
+        }
+        for forward in item.forwards {
+            if let descriptor = voiceMessageDescriptor(referencePrimary: referencePrimary, in: forward, containerPrimary: item.primary, sentDate: item.sentDate) {
+                return descriptor
+            }
+        }
+        return nil
+    }
+
+    private func voiceMessageDescriptor(
+        referencePrimary: String,
+        in attachment: MessageAttachment,
+        containerPrimary: String,
+        sentDate: Date
+    ) -> VoiceMessageDescriptor? {
+        if let audio = attachment.audios.first(where: { $0.primary == referencePrimary }) {
+            return voiceMessageDescriptor(audio: audio, containerPrimary: containerPrimary, sentDate: sentDate)
+        }
+        for forward in attachment.subforwards {
+            if let descriptor = voiceMessageDescriptor(referencePrimary: referencePrimary, in: forward, containerPrimary: containerPrimary, sentDate: sentDate) {
+                return descriptor
+            }
+        }
+        return nil
+    }
+
+    private func voiceMessageDescriptors(
+        in attachment: MessageAttachment,
+        containerPrimary: String,
+        sentDate: Date
+    ) -> [VoiceMessageDescriptor] {
+        var descriptors = attachment.audios.compactMap {
+            voiceMessageDescriptor(audio: $0, containerPrimary: containerPrimary, sentDate: sentDate)
+        }
+        attachment.subforwards.forEach {
+            descriptors.append(contentsOf: voiceMessageDescriptors(in: $0, containerPrimary: containerPrimary, sentDate: sentDate))
+        }
+        return descriptors
+    }
+
+    private func voiceMessageDescriptor(
+        audio: AudioAttachment,
+        containerPrimary: String,
+        sentDate: Date
+    ) -> VoiceMessageDescriptor? {
+        let fallback = VoiceMessageDescriptor(
+            referencePrimary: audio.primary,
+            containerMessagePrimary: containerPrimary,
+            remoteURL: nil,
+            decodedURL: audio.url,
+            duration: TimeInterval(audio.duration),
+            downloaded: audio.downloaded || audio.url != nil,
+            pcm: audio.pcm,
+            sentDate: sentDate
+        )
+        return voiceMessageDescriptorFromRealm(
+            referencePrimary: audio.primary,
+            containerPrimary: containerPrimary,
+            sentDate: sentDate,
+            fallback: fallback
+        )
+    }
+
+    private func voiceMessageDescriptorFromRealm(
+        referencePrimary: String,
+        containerPrimary: String?,
+        sentDate: Date,
+        fallback: VoiceMessageDescriptor? = nil
+    ) -> VoiceMessageDescriptor? {
+        do {
+            let realm = try WRealm.safe()
+            guard let reference = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary) else {
+                return fallback
+            }
+            let decodedURL = reference.decodedUrl ?? fallback?.decodedURL
+            let downloaded = reference.isDownloaded || decodedURL != nil || fallback?.downloaded == true
+            return VoiceMessageDescriptor(
+                referencePrimary: reference.primary,
+                containerMessagePrimary: containerPrimary ?? reference.messageId,
+                remoteURL: reference.downloadUrl,
+                decodedURL: decodedURL,
+                duration: TimeInterval(reference.duration ?? Int(fallback?.duration ?? 0)),
+                downloaded: downloaded,
+                pcm: reference.meteringLevels ?? fallback?.pcm ?? [],
+                sentDate: sentDate == Date.distantPast ? reference.sentDate : sentDate
+            )
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return fallback
+        }
     }
 }
 

@@ -84,6 +84,19 @@ public class TextMessageCell: MessageContentCell {
                 
         return label
     }()
+
+    let warningLabel: InsetLabel = {
+        let label = InsetLabel()
+        label.numberOfLines = 0
+        label.font = UIFont.systemFont(ofSize: 12, weight: .medium)
+        label.textColor = .systemOrange
+        label.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.12)
+        label.textInsets = UIEdgeInsets(top: 5, left: 8, bottom: 5, right: 8)
+        label.layer.cornerRadius = 8
+        label.clipsToBounds = true
+        label.isHidden = true
+        return label
+    }()
     
     
         
@@ -103,6 +116,7 @@ public class TextMessageCell: MessageContentCell {
             layoutAudiosView(with: attributes)
             layoutFilesView(with: attributes)
             layoutLabelView(with: attributes)
+            layoutWarningLabel(with: attributes)
             layoutTimeMarker(with: attributes)
         }
         super.apply(layoutAttributes)
@@ -388,6 +402,27 @@ public class TextMessageCell: MessageContentCell {
             size: attributes.textInlineViewSize
         )
     }
+
+    func layoutWarningLabel(with attributes: MessagesCollectionViewLayoutAttributes) {
+        let labelContainerSize = CGSize(
+            width: attributes.textInlineViewSize.width + attributes.messageLabelInsets.horizontal,
+            height: attributes.textInlineViewSize == .zero ? 0 : attributes.textInlineViewSize.height + attributes.messageLabelInsets.vertical
+        )
+        let offsetItems = [
+            attributes.authorInlineSize,
+            attributes.forwardsContainerViewSize,
+            attributes.imagesInlineViewSize,
+            attributes.videosInlineViewSize,
+            attributes.audioInlineViewSize,
+            attributes.filesInlineViewSize,
+            labelContainerSize
+        ]
+        let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
+        warningLabel.frame = CGRect(
+            origin: CGPoint(x: attributes.messageLabelInsets.left, y: offset),
+            size: attributes.warningInlineViewSize
+        )
+    }
     
     public override func prepareForReuse() {
         
@@ -407,6 +442,8 @@ public class TextMessageCell: MessageContentCell {
         videosView.subviews.forEach { $0.removeFromSuperview() }
         videosView.views.removeAll()
         authorView.text = nil
+        warningLabel.text = nil
+        warningLabel.isHidden = true
     }
     
     
@@ -420,13 +457,28 @@ public class TextMessageCell: MessageContentCell {
         containerView.addSubview(filesView)
         
         containerView.addSubview(labelContainer)
+        containerView.addSubview(warningLabel)
         containerView.addSubview(timeMarker)
         labelContainer.addSubview(messageLabel)
     }
     
     var messagePrimary: String = ""
+
+    private lazy var messageLongPressGesture: UILongPressGestureRecognizer = {
+        let gesture = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPressGesture(_:)))
+        gesture.delaysTouchesBegan = true
+        return gesture
+    }()
     
     override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
+        applyTextContent(with: message, at: indexPath, and: messagesCollectionView, reuseInlineViews: false)
+    }
+
+    override func reconfigureContent(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
+        applyTextContent(with: message, at: indexPath, and: messagesCollectionView, reuseInlineViews: true)
+    }
+
+    private func applyTextContent(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView, reuseInlineViews: Bool) {
         self.messagePrimary = message.primary
         super.configure(with: message, at: indexPath, and: messagesCollectionView)
         messageLabel.configure {
@@ -438,6 +490,8 @@ public class TextMessageCell: MessageContentCell {
             }
         }
         authorView.attributedText = message.attributedAuthor
+        warningLabel.text = message.messageWarningText
+        warningLabel.isHidden = message.messageWarningText == nil
         var timeMarkerWithBackplate: Bool = false
         if message.images.isNotEmpty || message.videos.isNotEmpty,
            message.files.isEmpty,
@@ -453,19 +507,27 @@ public class TextMessageCell: MessageContentCell {
         }
         let palette = AccountColorManager.shared.palette(for: message.owner)
         self.timeMarker.configure(text: message.timeMarkerText, indicator: message.indicator, withBackplate: timeMarkerWithBackplate)
-        self.imagesView.configure(message.images)
-        self.filesView.configure(message.files, palette: palette)
+        if reuseInlineViews {
+            self.imagesView.updateContent(message.images)
+            self.filesView.updateContent(message.files, palette: palette)
+        } else {
+            self.imagesView.configure(message.images)
+            self.filesView.configure(message.files, palette: palette)
+        }
         self.audiosView.delegate = delegate
-        self.audiosView.configure(message.audios, palette: palette)
-        self.forwardsContainer.configure(message.forwards, palette: palette, delegate: delegate)
-        self.videosView.configure(message.videos)
+        if reuseInlineViews {
+            self.audiosView.updateContent(message.audios, palette: palette)
+            self.forwardsContainer.updateContent(message.forwards, palette: palette, delegate: delegate)
+            self.videosView.updateContent(message.videos)
+        } else {
+            self.audiosView.configure(message.audios, palette: palette)
+            self.forwardsContainer.configure(message.forwards, palette: palette, delegate: delegate)
+            self.videosView.configure(message.videos)
+        }
         self.imagesView.layer.backgroundColor = MDCPalette.grey.tint100.cgColor
         
-        
-        let longPressGesture = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPressGesture(_:)))
-//        tapGesture.require(toFail: longPressGesture)
-        longPressGesture.delaysTouchesBegan = true
-        self.containerView.addGestureRecognizer(longPressGesture)
+        ensureLongPressGestureInstalled()
+        avatarView.isHidden = false
         if message.withAvatar {
             if let avatarUrl = message.avatarUrl {
                 let userId = message.groupchatAuthorId
@@ -482,6 +544,13 @@ public class TextMessageCell: MessageContentCell {
         } else {
             avatarView.isHidden = true
         }
+    }
+
+    private func ensureLongPressGestureInstalled() {
+        guard !(containerView.gestureRecognizers ?? []).contains(where: { $0 === messageLongPressGesture }) else {
+            return
+        }
+        containerView.addGestureRecognizer(messageLongPressGesture)
     }
     
     @objc

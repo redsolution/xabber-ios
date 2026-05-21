@@ -1100,7 +1100,9 @@ extension LeftMenuViewController: UITableViewDelegate {
         }
         
         let nvc = UINavigationController(rootViewController: vc)
-        nvc.applyTransparentSplitAppearance()
+        if !(vc is LastChatsViewController) {
+            nvc.applyTransparentSplitAppearance()
+        }
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(vc)
         splitVC.setViewController(nvc, for: .supplementary)
         splitVC.setViewController(svc, for: .secondary)

@@ -29,7 +29,7 @@ class BottomBarView: UIView {
     }()
     
     let blurredEffectView: UIVisualEffectView = {
-        let blurredEffectView = UIVisualEffectView(effect: BottomBarGlassEffectFactory.makeEffect())
+        let blurredEffectView = UIVisualEffectView(effect: NativeGlassBarStyle.makeEffect(interactive: true))
         blurredEffectView.backgroundColor = .clear
         blurredEffectView.isOpaque = false
         
@@ -41,6 +41,7 @@ class BottomBarView: UIView {
         
         button.setImage(imageLiteral("line.3.horizontal.decrease.circle", dimension: 24), for: .normal)
         button.tintColor = .tintColor
+        NativeGlassBarStyle.applyIconButtonStyle(to: button, tintColor: .tintColor, prefersNativeGlass: false)
         
         return button
     }()
@@ -50,6 +51,7 @@ class BottomBarView: UIView {
         
         button.setImage(imageLiteral("plus", dimension: 24), for: .normal)
         button.tintColor = .tintColor
+        NativeGlassBarStyle.applyIconButtonStyle(to: button, tintColor: .tintColor, prefersNativeGlass: false)
         
         return button
     }()

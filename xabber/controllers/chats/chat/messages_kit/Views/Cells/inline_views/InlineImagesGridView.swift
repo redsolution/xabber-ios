@@ -163,6 +163,7 @@ class InlineImagesGridView: InlineAttachmentView {
 //        subviews.forEach { $0.removeFromSuperview() }
         self.views.forEach { $0.removeFromSuperview() }
         self.views = []
+        self.contentViews.removeAll()
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
             if let url = attachments[index].url {
@@ -198,6 +199,42 @@ class InlineImagesGridView: InlineAttachmentView {
             
         }
         
+    }
+
+    func updateContent(_ attachments: [ImageAttachment]) {
+        if attachments.isEmpty {
+            self.views.forEach { $0.removeFromSuperview() }
+            self.views = []
+            self.contentViews.removeAll()
+            return
+        }
+
+        guard self.views.map(\.primary) == attachments.map(\.primary),
+              self.views.count == attachments.count else {
+            configure(attachments)
+            return
+        }
+
+        prepareGrid(attachments).enumerated().forEach { index, rect in
+            let item = attachments[index]
+            guard let url = item.url else { return }
+            let view = self.views[index]
+            view.frame = rect
+            view.primary = item.primary
+            view.isSensitive = item.isSensitive && !item.isSensitiveRevealed
+            if view.url != url {
+                view.url = url
+                view.kf.setImage(
+                    with: url,
+                    placeholder: nil,
+                    options: [
+                        .alsoPrefetchToMemory,
+                        .waitForCache,
+                        .backgroundDecode,
+                    ]
+                )
+            }
+        }
     }
     
     func handleTouch(at point: CGPoint, callback: (([URL], URL, String, Bool) -> Void)?) -> Bool {

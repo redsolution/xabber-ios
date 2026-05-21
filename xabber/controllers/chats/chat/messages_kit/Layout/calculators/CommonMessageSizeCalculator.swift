@@ -139,6 +139,29 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
                 return .zero
         }
     }
+
+    private func calcWarningLabelSize(for message: MessageType, maxWidth: CGFloat) -> CGSize {
+        guard let text = message.messageWarningText,
+              text.isNotEmpty else {
+            return .zero
+        }
+        let insets = UIEdgeInsets(top: 5, left: 8, bottom: 5, right: 8)
+        let attributedText = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 12, weight: .medium)
+            ]
+        )
+        let labelSize = self.labelSize(
+            for: attributedText,
+            considering: max(1, maxWidth - insets.horizontal)
+        )
+        guard labelSize != .zero else { return .zero }
+        return CGSize(
+            width: min(maxWidth, labelSize.width + insets.horizontal),
+            height: labelSize.height + insets.vertical
+        )
+    }
     
     func messageAttachmentsContainerSize(for messageAttachments: [MessageAttachment]) -> [MessageAttachmentSizes] {
         var out: [MessageAttachmentSizes] = []
@@ -234,6 +257,7 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
         let sizeFiles = calcInlineFilesSize(for: message.files, max: maxSizeForFiles)//.margin(width: 0, height: 2)
         let sizeVideos = calcInlineVideosSize(for: message.videos, max: maxSizeForVideos)//.margin(width: 0, height: 2)
         let sizeImages = calcInlineImagesSize(for: message.images, min: sizeLabel, max: maxSizeForImages)//.margin(width: 0, height: 2)
+        let warningSize = calcWarningLabelSize(for: message, maxWidth: maxWidth)
         
         var paddedLabelSize: CGSize = .zero
         if sizeLabel != .zero {
@@ -243,7 +267,7 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
             )
         }
         
-        let totalSizes = [authorSize, sizeImages, sizeVideos, sizeFiles, sizeAudios, paddedLabelSize] + inlineMessagesSizes.compactMap({ $0.messageContainer.margin(
+        let totalSizes = [authorSize, sizeImages, sizeVideos, sizeFiles, sizeAudios, paddedLabelSize, warningSize] + inlineMessagesSizes.compactMap({ $0.messageContainer.margin(
             width: 0,
             height: inlineContainerSizePadding.vertical
         ) })
@@ -252,7 +276,9 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
         messageContainerSize.width = totalSizes.compactMap { $0.width }.max() ?? maxWidth
         
         let timeMarkerSize = labelSize(for: message.timeMarkerText, considering: messageContainerSize.width).margin(width: 24, height: 2)
-        if messageContainerSize.height < (message.withAuthor ? 58 : 38) {
+        if warningSize != .zero {
+            messageContainerSize.height += timeMarkerSize.height
+        } else if messageContainerSize.height < (message.withAuthor ? 58 : 38) {
             if (messageContainerSize.width + timeMarkerSize.width) >= maxWidth {
                 messageContainerSize.height += 20
             } else {
@@ -299,6 +325,7 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
         let sizeFiles = calcInlineFilesSize(for: message.files, max: maxSizeForFiles)//.margin(width: 0, height: 2)
         let sizeVideos = calcInlineVideosSize(for: message.videos, max: maxSizeForVideos)//.margin(width: 0, height: 2)
         let sizeImages = calcInlineImagesSize(for: message.images, min: sizeLabel, max: maxSizeForImages)//.margin(width: 0, height: 2)
+        let warningSize = calcWarningLabelSize(for: message, maxWidth: maxWidth)
         
         var paddedLabelSize: CGSize = .zero
         if sizeLabel != .zero {
@@ -308,7 +335,7 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
             )
         }
         
-        let totalSizes = [authorSize, sizeImages, sizeVideos, sizeFiles, sizeAudios, paddedLabelSize] + inlineMessagesSizes.compactMap({ $0.messageContainer.margin(
+        let totalSizes = [authorSize, sizeImages, sizeVideos, sizeFiles, sizeAudios, paddedLabelSize, warningSize] + inlineMessagesSizes.compactMap({ $0.messageContainer.margin(
             width: 0,
             height: inlineContainerSizePadding.vertical
         ) })
@@ -316,7 +343,9 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
         messageContainerSize.height = totalSizes.compactMap { $0.height }.reduce(0, +) + messageContainerPadding.vertical + messageContainerMargin.vertical
         messageContainerSize.width = totalSizes.compactMap { $0.width }.max() ?? maxWidth
         
-        if messageContainerSize.height < (message.withAuthor ? 58 : 38) {
+        if warningSize != .zero {
+            messageContainerSize.height += timeMarkerSize.height
+        } else if messageContainerSize.height < (message.withAuthor ? 58 : 38) {
             if (messageContainerSize.width + timeMarkerSize.width) >= maxWidth {
                 messageContainerSize.height += 20
             } else {
@@ -354,6 +383,7 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
         attributes.audioInlineViewSize = sizeAudios
         attributes.imagesInlineViewSize = sizeImages
         attributes.textInlineViewSize = sizeLabel
+        attributes.warningInlineViewSize = warningSize
         attributes.forwardsInlineViewSize = inlineMessagesSizes
         attributes.messageContainerSize = messageContainerSize
         attributes.forwardsContainerViewSize = forwardsContainerSize
@@ -405,4 +435,3 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
         messageContainerSizes(for: message, attributes: attributes)
     }
 }
-

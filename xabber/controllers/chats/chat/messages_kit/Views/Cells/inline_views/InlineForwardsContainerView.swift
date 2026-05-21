@@ -267,12 +267,16 @@ class InlineMessageAttachmentView: ModernContainerView {
     var palette: MDCPalette = .amber
     var messagePrimary: String = ""
     func configure(_ message: MessageAttachment, palette: MDCPalette) {
+        updateContent(message, palette: palette)
+    }
+
+    func updateContent(_ message: MessageAttachment, palette: MDCPalette) {
         self.messagePrimary = message.primary
-        imagesView.configure(message.images)
-        videosView.configure(message.videos)
+        imagesView.updateContent(message.images)
+        videosView.updateContent(message.videos)
         audiosView.delegate = self.delegate
-        audiosView.configure(message.audios, palette: palette)
-        filesView.configure(message.files, palette: palette)
+        audiosView.updateContent(message.audios, palette: palette)
+        filesView.updateContent(message.files, palette: palette)
         messageLabel.attributedText = message.textMessage
         authorLabel.attributedText = message.attributedAuthor
 //        let radius = CommonConfigManager.shared.messageStyleConfig.containers.level_1.border.getRadiusFor(index: "16")
@@ -462,6 +466,24 @@ class InlineForwardsContainerView: InlineAttachmentView {
                 inlineViews[index].delegate = delegate
                 inlineViews[index].configure(message, palette: palette)
             }
+        }
+    }
+
+    func updateContent(_ messages: [MessageAttachment], palette: MDCPalette, delegate: MessageCellDelegate?) {
+        if messages.isEmpty {
+            resetState()
+            return
+        }
+
+        guard inlineViews.map(\.messagePrimary) == messages.map(\.primary),
+              inlineViews.count == messages.count else {
+            configure(messages, palette: palette, delegate: delegate)
+            return
+        }
+
+        messages.enumerated().forEach { index, message in
+            inlineViews[index].delegate = delegate
+            inlineViews[index].updateContent(message, palette: palette)
         }
     }
     

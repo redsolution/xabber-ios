@@ -50,6 +50,7 @@ protocol MessageType {
     var videos: [VideoAttachment] { get }
     var files: [FileAttachment] { get }
     var audios: [AudioAttachment] { get }
+    var messageWarningText: String? { get }
     var timeMarkerText: NSAttributedString { get }
     var indicator: IndicatorType { get }
     var avatarUrl: String? { get }

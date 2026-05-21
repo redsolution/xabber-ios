@@ -54,6 +54,73 @@ extension OmemoManagerError: LocalizedError {
     }
 }
 
+struct OmemoSendAvailabilityPolicy {
+    enum Availability: Equatable {
+        case canSend
+        case canSendWithUntrustedContactDeviceWarning
+        case blockedByOwnUntrustedDevices
+        case blockedByNoTrustedContactDevices
+
+        var canSend: Bool {
+            switch self {
+            case .canSend, .canSendWithUntrustedContactDeviceWarning:
+                return true
+            case .blockedByOwnUntrustedDevices, .blockedByNoTrustedContactDevices:
+                return false
+            }
+        }
+
+        var requiresUntrustedContactDeviceWarning: Bool {
+            return self == .canSendWithUntrustedContactDeviceWarning
+        }
+    }
+
+    static func evaluate(
+        conversationType: ClientSynchronizationManager.ConversationType,
+        ownDeviceStates: [SignalDeviceStorageItem.TrustState],
+        contactDeviceStates: [SignalDeviceStorageItem.TrustState]
+    ) -> Availability {
+        guard conversationType.isEncrypted else { return .canSend }
+
+        if ownDeviceStates.contains(where: { $0 != .trusted }) {
+            return .blockedByOwnUntrustedDevices
+        }
+
+        let trustedContactDeviceCount = contactDeviceStates.filter { $0 == .trusted }.count
+        guard trustedContactDeviceCount > 0 else {
+            return .blockedByNoTrustedContactDevices
+        }
+
+        if contactDeviceStates.contains(where: { $0 != .trusted }) {
+            return .canSendWithUntrustedContactDeviceWarning
+        }
+
+        return .canSend
+    }
+
+    static func evaluate(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        realm: Realm
+    ) -> Availability {
+        let ownDeviceStates = realm
+            .objects(SignalDeviceStorageItem.self)
+            .filter("owner == %@ AND jid == %@", owner, owner)
+            .map { $0.state }
+        let contactDeviceStates = realm
+            .objects(SignalDeviceStorageItem.self)
+            .filter("owner == %@ AND jid == %@", owner, jid)
+            .map { $0.state }
+
+        return evaluate(
+            conversationType: conversationType,
+            ownDeviceStates: Array(ownDeviceStates),
+            contactDeviceStates: Array(contactDeviceStates)
+        )
+    }
+}
+
 extension OmemoManager {
     private static let sessionQueue = DispatchQueue(label: "com.xabber.omemo.session.queue")
     

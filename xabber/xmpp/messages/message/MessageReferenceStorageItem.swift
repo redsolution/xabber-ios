@@ -211,8 +211,13 @@ class MessageReferenceStorageItem: Object {
     
     var duration: Int? {
         get {
-            guard let duration = self.metadata?["duration"] as? Int else { return nil }
-            return duration
+            if let duration = self.metadata?["duration"] as? Int {
+                return duration
+            }
+            if let duration = self.metadata?["duration"] as? String {
+                return Int(duration)
+            }
+            return nil
         }
         set {
             self.metadata?["duration"] = newValue
@@ -388,19 +393,33 @@ class MessageReferenceStorageItem: Object {
     }
     
     
+    private static let sensitivityScanQueue = DispatchQueue(
+        label: "com.xabber.sensitive-media.startup-scan",
+        qos: .utility
+    )
+
     static func checkAllUndefinedForSesitive() {
-        DispatchQueue.global(qos: .default).async {
+        sensitivityScanQueue.async {
             do {
                 let realm = try WRealm.safe()
-                let objects = realm.objects(MessageReferenceStorageItem.self).filter("isSensitive == %@ AND isSensitiveChecked == %@", false, false)
-                objects.forEach {
-                    reference in
-                    reference.checkIsSensitive()
+                let primaryKeys = pendingSensitiveAnalysisPrimaryKeys(in: realm)
+                Task.detached(priority: .utility) {
+                    for primaryKey in primaryKeys {
+                        await SensitiveMediaAnalysisService.shared.analyzeMessageReference(primaryKey: primaryKey)
+                    }
                 }
             } catch {
                 DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
             }
         }
+    }
+
+    static func pendingSensitiveAnalysisPrimaryKeys(in realm: Realm) -> [String] {
+        let objects = realm
+            .objects(MessageReferenceStorageItem.self)
+            .filter("isSensitive == %@ AND isSensitiveChecked == %@", false, false)
+
+        return Array(objects.map { $0.primary })
     }
     
     func checkIsSensitive() {

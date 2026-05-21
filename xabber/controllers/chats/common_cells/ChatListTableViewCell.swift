@@ -341,10 +341,15 @@ class ChatListTableViewCell: UITableViewCell {
     public var badgeString: String = ""
     private var avatarRequestKey: String?
     private var appliedAvatarRequestKey: String?
+    private var avatarIdentityKey: String?
     private var defaultAvatarImage: UIImage?
 
     private func makeAvatarRequestKey(owner: String, jid: String, avatarUrl: String?, size: CGFloat) -> String {
         [owner, jid, avatarUrl ?? "", String(Int(size))].joined(separator: "|")
+    }
+
+    private func makeAvatarIdentityKey(owner: String, jid: String) -> String {
+        [owner, jid].joined(separator: "|")
     }
     
     private static func formattedDate(from date: Date) -> String {
@@ -390,6 +395,10 @@ class ChatListTableViewCell: UITableViewCell {
                                 verAction: Bool) {
 
         if conversationType == .saved {
+            self.avatarRequestKey = nil
+            self.appliedAvatarRequestKey = nil
+            self.avatarIdentityKey = nil
+            self.defaultAvatarImage = nil
             self.avatarView.image = imageLiteral(XMPPFavoritesManagerStorageItem.imageName, dimension: 32)
             self.avatarView.contentMode = .center
             self.avatarView.tintColor = AccountColorManager.shared.palette(for: owner).tint900
@@ -399,15 +408,20 @@ class ChatListTableViewCell: UITableViewCell {
             self.avatarView.tintColor = nil
             self.avatarView.backgroundColor = MDCPalette.grey.tint200
             let requestKey = makeAvatarRequestKey(owner: owner, jid: jid, avatarUrl: avatarUrl, size: 64)
+            let identityKey = makeAvatarIdentityKey(owner: owner, jid: jid)
+            let shouldKeepCurrentImageWhileLoading = self.avatarIdentityKey == identityKey && self.avatarView.image != nil
             let defaultAvatar = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 64)
             self.defaultAvatarImage = defaultAvatar
+            self.avatarIdentityKey = identityKey
 
             if self.appliedAvatarRequestKey == requestKey, let currentImage = self.avatarView.image {
                 self.avatarRequestKey = requestKey
                 self.avatarView.image = currentImage
             } else {
                 self.avatarRequestKey = requestKey
-                self.avatarView.image = defaultAvatar
+                if !shouldKeepCurrentImageWhileLoading {
+                    self.avatarView.image = defaultAvatar
+                }
                 DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { [weak self] image in
                     guard let self = self, self.avatarRequestKey == requestKey else { return }
                     self.appliedAvatarRequestKey = requestKey
@@ -427,6 +441,7 @@ class ChatListTableViewCell: UITableViewCell {
         if let attributedUsername = attributedUsername {
             usernameLabel.attributedText = attributedUsername
         } else {
+            usernameLabel.attributedText = nil
             usernameLabel.text = username
         }
         usernameLabel.sizeToFit()
@@ -446,6 +461,8 @@ class ChatListTableViewCell: UITableViewCell {
         }
         if let date = date {
             dateLabel.text = Self.formattedDate(from: date)
+        } else {
+            dateLabel.text = nil
         }
         muteIndicator.isHidden = !isMute
         syncedIndicator.alpha = isSynced ? 0.0 : 0.87
@@ -458,6 +475,12 @@ class ChatListTableViewCell: UITableViewCell {
                                            width: 16,
                                            height: 16)
             statusIndicator.border(1)
+        } else {
+            statusIndicator.frame = CGRect(x: 49,
+                                           y: 49,
+                                           width: 12,
+                                           height: 12)
+            statusIndicator.border(1)
         }
         
         statusIndicator.setStatus(status: status, entity: entity)
@@ -468,6 +491,7 @@ class ChatListTableViewCell: UITableViewCell {
         
         if let deliveryState = deliveryState {
             deliveryIndicator.isHidden = false
+            badgeView.isHidden = true
             switch deliveryState {
                 case .sending, .notSended, .uploading:
                     deliveryIndicator.image = imageLiteral("clock")
@@ -557,6 +581,7 @@ class ChatListTableViewCell: UITableViewCell {
         verificationBadgeView.isHidden = true
         avatarRequestKey = nil
         appliedAvatarRequestKey = nil
+        avatarIdentityKey = nil
         defaultAvatarImage = nil
         avatarView.image = nil
         avatarView.contentMode = .scaleAspectFill

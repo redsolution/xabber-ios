@@ -23,6 +23,11 @@ import XMPPFramework
 import RealmSwift
 
 class XMPPDeviceManager: AbstractXMPPManager {
+    private static let persistenceQueue = DispatchQueue(
+        label: "com.xabber.xmpp.device-manager.persistence",
+        qos: .utility
+    )
+
     public var deviceId: String? = nil
     
     override func namespaces() -> [String] {
@@ -89,23 +94,38 @@ class XMPPDeviceManager: AbstractXMPPManager {
     }
     
     public final func updateMyDevice(resource: String) {
-        do {
-            let realm = try WRealm.safe()
-            guard let deviceId = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner)?.deviceUuid else {
-                return
-            }
-            if let instance = realm.object(ofType: DeviceStorageItem.self, forPrimaryKey: [deviceId, self.owner].prp()) {
-                try realm.write {
-                    instance.resource = resource
+        let owner = self.owner
+        let resource = resource
+
+        Self.persistenceQueue.async {
+            autoreleasepool {
+                do {
+                    let realm = try WRealm.safe()
+                    guard let deviceId = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: owner)?.deviceUuid else {
+                        return
+                    }
+
+                    let deviceInstance = realm.object(
+                        ofType: DeviceStorageItem.self,
+                        forPrimaryKey: DeviceStorageItem.genPrimary(uid: deviceId, owner: owner)
+                    )
+                    let resourceInstance = realm.object(
+                        ofType: ResourceStorageItem.self,
+                        forPrimaryKey: ResourceStorageItem.genPrimary(jid: owner, owner: owner, resource: resource)
+                    )
+
+                    guard deviceInstance != nil || resourceInstance != nil else {
+                        return
+                    }
+
+                    try realm.write {
+                        deviceInstance?.resource = resource
+                        resourceInstance?.deviceId = deviceId
+                    }
+                } catch {
+                    DDLogDebug("XMPPDeviceManager: \(#function). \(error.localizedDescription)")
                 }
             }
-            if let instance = realm.object(ofType: ResourceStorageItem.self, forPrimaryKey: ResourceStorageItem.genPrimary(jid: self.owner, owner: owner, resource: resource)) {
-                try realm.write {
-                    instance.deviceId = deviceId
-                }
-            }
-        } catch {
-            DDLogDebug("XMPPDeviceManager: \(#function). \(error.localizedDescription)")
         }
     }
     

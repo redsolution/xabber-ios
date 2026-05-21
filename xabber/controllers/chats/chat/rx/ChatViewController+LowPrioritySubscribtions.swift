@@ -44,6 +44,73 @@ extension ChatViewController {
             self.statusLabel.isHidden = false
         }
     }
+
+    private func updateComposerContextPreview(forAttachedMessageIds results: [String]) {
+        guard results.isNotEmpty, self.editMessageId.value == nil else {
+            return
+        }
+
+        do {
+            if results.count == 1 {
+                let realm = try WRealm.safe()
+                if let primary = results.first,
+                   let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                    let message = NSAttributedString(
+                        string: item.displayedBody(),
+                        attributes: [
+                            .font: UIFont.systemFont(ofSize: 14, weight: .regular),
+                            .foregroundColor: UIColor.secondaryLabel
+                        ]
+                    )
+                    var title = item.outgoing ? self.ownerSender.displayName : self.opponentSender.displayName
+                    if item.opponent != self.jid && !item.outgoing {
+                        if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: item.opponent, owner: item.owner)) {
+                            title = instance.displayName
+                        } else {
+                            title = item.opponent
+                        }
+                    }
+                    self.xabberInputView.contextPreviewPanel.update(
+                        title: "Reply to \(title)",
+                        attributed: message
+                    )
+                    self.showForwardPanel()
+                }
+            } else {
+                var nicknames: Set<String> = Set<String>()
+                var jids: Set<String> = Set<String>()
+                let realm = try WRealm.safe()
+                let items = realm.objects(MessageStorageItem.self).filter("primary IN %@", results)
+                items.forEach { jids.insert($0.outgoing ? $0.owner : $0.opponent) }
+                jids.forEach {
+                    if $0 == self.owner {
+                        if let displayName = AccountManager.shared.find(for: $0)?.username {
+                            nicknames.insert(displayName)
+                        }
+                    } else if let displayName = realm
+                        .object(ofType: RosterStorageItem.self,
+                                forPrimaryKey: [$0, self.owner].prp())?
+                        .displayName {
+                        nicknames.insert(displayName)
+                    }
+                }
+                let message = NSAttributedString(
+                    string: "\(results.count) forwarded messages".localizeString(id: "counted_forwarded_messages", arguments: ["\(results.count)"]),
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 14, weight: .regular),
+                        .foregroundColor: UIColor.secondaryLabel
+                    ]
+                )
+                self.xabberInputView.contextPreviewPanel.update(
+                    title: nicknames.joined(separator: ", "),
+                    attributed: message
+                )
+                self.showForwardPanel()
+            }
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
     
     internal func lowPrioritySubscribtions() {
         CommonChatStatesManager
@@ -179,14 +246,13 @@ extension ChatViewController {
                                     .font: UIFont.systemFont(ofSize: 14, weight: .regular),
                                        .foregroundColor: MDCPalette.grey.tint800
                                    ])
-                               self.xabberInputView.editPanel.update(
+                               self.xabberInputView.contextPreviewPanel.update(
                                 title: nickname,
                                 attributed: text
                                )
                                self.xabberInputView.setComposerBody(item.body, references: item.references.toArray())
                                self.xabberInputView.textViewDidChange(force: true)
-                               self.xabberInputView.editPanel.configureForEdit()
-                               self.showMessagePanelBubble(self.xabberInputView.editPanel)
+                               self.showEditPanel()
                            }
 
                        } else {
@@ -203,6 +269,8 @@ extension ChatViewController {
                 } else {
                     if self.attachedMessagesIds.value.isEmpty {
                         self.hideMessagePanelBubble()
+                    } else {
+                        self.updateComposerContextPreview(forAttachedMessageIds: self.attachedMessagesIds.value)
                     }
                 }
             })
@@ -213,75 +281,14 @@ extension ChatViewController {
             .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
             .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
-                do {
-                    if results.isEmpty {
-                        if self.editMessageId.value == nil {
-                            self.hideMessagePanelBubble()
-                        }
-                    } else if results.count == 1 {
-                        let realm = try WRealm.safe()
-                        if let primary = results.first,
-                            let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-                            let message = NSAttributedString(
-                                string: item.displayedBody(),
-                                attributes: [
-                                    .font: UIFont.systemFont(ofSize: 14, weight: .regular),
-                                    .foregroundColor: UIColor.secondaryLabel
-                                ])
-                            var title = item.outgoing ? self.ownerSender.displayName : self.opponentSender.displayName
-                            if item.opponent != self.jid && !item.outgoing {
-                                if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: item.opponent, owner: item.owner)) {
-                                    title = instance.displayName
-                                } else {
-                                    title = item.opponent
-                                }
-                            }
-                            self.xabberInputView.forwardPanel.update(
-                                title: "Reply to \(title)",
-                                attributed: message
-                            )
-                            self.xabberInputView.forwardPanel.configureForForward()
-                            self.showMessagePanelBubble(self.xabberInputView.forwardPanel)
-                        } else {
-                            return
-                        }
-                    } else {
-                        var nicknames: Set<String> = Set<String>()
-                        var jids: Set<String> = Set<String>()
-                        let realm = try WRealm.safe()
-                        let items = realm.objects(MessageStorageItem.self).filter("primary IN %@", results)
-                        items.forEach { jids.insert($0.outgoing ? $0.owner : $0.opponent) }
-                        jids.forEach {
-                            if $0 == self.owner {
-                                if let displayName = AccountManager.shared.find(for: $0)?.username {
-                                    nicknames.insert(displayName)
-                                }
-                            } else {
-                                if let displayName = realm
-                                    .object(ofType: RosterStorageItem.self,
-                                            forPrimaryKey: [$0, self.owner].prp())?
-                                    .displayName {
-                                    nicknames.insert(displayName)
-                                }
-                            }
-                        }
-                        let message = NSAttributedString(
-                            string: "\(results.count) forwarded messages".localizeString(id: "counted_forwarded_messages", arguments: ["\(results.count)"]),
-                            attributes: [
-                                .font: UIFont.systemFont(ofSize: 14, weight: .regular),
-                                .foregroundColor: UIColor.secondaryLabel
-                            ]
-                        )
-                        self.xabberInputView.forwardPanel.update(
-                            title: nicknames.joined(separator: ", "),
-                            attributed: message
-                        )
-                        self.xabberInputView.forwardPanel.configureForForward()
-                        self.showMessagePanelBubble(self.xabberInputView.forwardPanel)
+                if results.isEmpty {
+                    if self.editMessageId.value == nil {
+                        self.hideMessagePanelBubble()
                     }
-                } catch {
-                    DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                    return
                 }
+
+                self.updateComposerContextPreview(forAttachedMessageIds: results)
                 
             })
             .disposed(by: bag)
@@ -573,50 +580,34 @@ extension ChatViewController {
                 }
             }.disposed(by: bag)
         
-        let myUntrustedDevicesCollection = realm
+        let ownDevicesCollection = realm
             .objects(SignalDeviceStorageItem.self)
-            .filter("owner == %@ AND jid == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
-        
-        let theirUntrustDevicesCollection = realm
+            .filter("owner == %@ AND jid == %@", self.owner, self.owner)
+
+        let contactDevicesCollection = realm
             .objects(SignalDeviceStorageItem.self)
             .filter("owner == %@ AND jid == %@", self.owner, self.jid)
         
         Observable
-            .collection(from: myUntrustedDevicesCollection)
+            .collection(from: ownDevicesCollection)
             .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
             .observe(on: MainScheduler.asyncInstance)
-            .subscribe { results in
-                if !results.isEmpty {
-                    self.onUpdateTrustedDevicesBlockState(true, identityVerification: false)
-                } else {
-                    self.onUpdateTrustedDevicesBlockState(false, identityVerification: false)
-                }
+            .subscribe { _ in
+                self.refreshOmemoSendAvailability()
             }.disposed(by: self.bag)
         
         Observable
-            .collection(from: theirUntrustDevicesCollection)
+            .collection(from: contactDevicesCollection)
             .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
             .observe(on: MainScheduler.asyncInstance)
-            .subscribe { results in
-                do {
-                    let realm = try WRealm.safe()
-                    let myUntrustedDevicesCollection = realm
-                        .objects(SignalDeviceStorageItem.self)
-                        .filter("owner == %@ AND jid == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
-                    
-                    if results.isEmpty {
-                        self.onUpdateTrustedDevicesBlockState(true, identityVerification: myUntrustedDevicesCollection.isEmpty)
-                    } else {
-                        self.onUpdateTrustedDevicesBlockState(!myUntrustedDevicesCollection.isEmpty, identityVerification: false)
-                    }
-                } catch {
-                    
-                }
-                
+            .subscribe { _ in
+                self.refreshOmemoSendAvailability()
                 self.titleLabel.attributedText = self.updateTitle()
                 self.titleLabel.sizeToFit()
                 self.titleLabel.layoutIfNeeded()
             }.disposed(by: self.bag)
+
+        self.refreshOmemoSendAvailability()
 
         let verificationSessions = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
         Observable
@@ -627,7 +618,7 @@ extension ChatViewController {
                 if results.isEmpty {
                     let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.distrusted.rawValue])
                     if !contactDevices.isEmpty {
-                        if ![.addContact, .allowSubscribtion, .requestSubscribtion].contains(self.topPanelState.value) {
+                        if !self.topPanelState.value.isSubscriptionPanel {
                             self.setTopPanelState(.shouldRequestVerification)
                         }
                         return
@@ -635,7 +626,7 @@ extension ChatViewController {
                 }
                 
                 let item = results.first
-                if ![.addContact, .allowSubscribtion, .requestSubscribtion].contains(self.topPanelState.value) {
+                if !self.topPanelState.value.isSubscriptionPanel {
                     switch item?.state {
                         case .receivedRequestAccept:
                             self.setTopPanelState(.enterCodeVerification)
@@ -666,7 +657,7 @@ extension ChatViewController {
                     return
                 }
                 
-                if ![.addContact, .allowSubscribtion, .requestSubscribtion, .shouldRequestVerification].contains(self.topPanelState.value) {
+                if !self.topPanelState.value.isSubscriptionPanel && self.topPanelState.value != .shouldRequestVerification {
                     self.setTopPanelState(.shouldRequestVerification)
                 }
                 

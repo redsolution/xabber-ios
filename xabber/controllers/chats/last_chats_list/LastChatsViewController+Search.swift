@@ -32,6 +32,10 @@ extension LastChatsViewController {
 //        searchController.searchBar.barTintColor = .gray
 //        searchController.searchBar.tintColor = .blue
 //        searchController.searchBar.barStyle = .default
+        if #available(iOS 16.0, *) {
+            navigationItem.preferredSearchBarPlacement = .stacked
+        }
+        navigationItem.hidesSearchBarWhenScrolling = false
         navigationItem.searchController = searchController
 //        searchController.searchBar.sizeToFit()
         (searchController.searchResultsUpdater as? SearchResultsViewController)?.presenter = self

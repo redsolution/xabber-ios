@@ -107,7 +107,7 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         instance.node = node
         
         try realm.write {
-            realm.add(instance)
+            realm.add(instance, update: .modified)
         }
     }
     

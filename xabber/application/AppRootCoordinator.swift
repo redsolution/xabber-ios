@@ -129,6 +129,16 @@ enum AppRootKind: Equatable {
     case tabs
 }
 
+enum MainSplitLayout {
+    static let lastChatsSupplementaryColumnWidth: CGFloat = 414
+
+    static func apply(to splitViewController: UISplitViewController) {
+        splitViewController.preferredSupplementaryColumnWidth = lastChatsSupplementaryColumnWidth
+        splitViewController.minimumSupplementaryColumnWidth = lastChatsSupplementaryColumnWidth
+        splitViewController.maximumSupplementaryColumnWidth = lastChatsSupplementaryColumnWidth
+    }
+}
+
 final class EULAViewController: SimpleBaseViewController {
     enum Mode {
         case acceptance(onAccept: (() -> Void)?)
@@ -556,13 +566,32 @@ final class AppRootCoordinator: NSObject {
     }
 
     func sceneWillResignActive() {
+        ConnectionDiagnosticsLogger.log(
+            event: "scene_lifecycle_will_resign_active",
+            stream: .primary,
+            jid: nil,
+            details: [
+                "source": "appRootCoordinator",
+                "willLoadAccounts": true
+            ]
+        )
         addBlurredScreen()
         AccountManager.shared.load()
     }
 
     func sceneDidEnterBackground() {
+        ConnectionDiagnosticsLogger.log(
+            event: "scene_lifecycle_did_enter_background",
+            stream: .primary,
+            jid: nil,
+            details: [
+                "source": "appRootCoordinator",
+                "willDisconnectAccounts": true,
+                "accountCount": AccountManager.shared.users.count
+            ]
+        )
         AccountManager.shared.users.forEach { user in
-            user.xmppStream.asyncSocket.disconnect()
+            user.disconnect(hard: true)
         }
 
         if UIDevice.current.userInterfaceIdiom == .pad {
@@ -576,6 +605,12 @@ final class AppRootCoordinator: NSObject {
     }
 
     func sceneWillEnterForeground() {
+        ConnectionDiagnosticsLogger.log(
+            event: "scene_lifecycle_will_enter_foreground",
+            stream: .primary,
+            jid: nil,
+            details: ["source": "appRootCoordinator"]
+        )
         AccountManager.shared.prepare()
         CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .foreground)
         NotifyManager.shared.setLastChats(displayed: true)
@@ -583,6 +618,12 @@ final class AppRootCoordinator: NSObject {
     }
 
     func sceneDidBecomeActive() {
+        ConnectionDiagnosticsLogger.log(
+            event: "scene_lifecycle_did_become_active",
+            stream: .primary,
+            jid: nil,
+            details: ["source": "appRootCoordinator"]
+        )
         removeBlurredScreen()
     }
 
@@ -689,6 +730,7 @@ final class AppRootCoordinator: NSObject {
 
     private func makeSplitRoot(userInfo: [AnyHashable: Any]?) -> UIViewController {
         let vc = UISplitViewController(style: .tripleColumn)
+        MainSplitLayout.apply(to: vc)
         ContinuousSplitBackgroundExperiment.configureTransparentSplit(vc)
         if CommonConfigManager.shared.config.use_large_title {
             vc.navigationItem.largeTitleDisplayMode = .automatic
@@ -734,8 +776,7 @@ final class AppRootCoordinator: NSObject {
         } else {
             chatsNvc.navigationItem.largeTitleDisplayMode = .never
         }
-        chatsNvc.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
-        chatsNvc.applyTransparentSplitAppearance()
+        chatsNvc.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
 
         let detailNvc = UINavigationController(rootViewController: chatViewController ?? emptyChatVc)
         detailNvc.applyTransparentSplitAppearance()
@@ -767,21 +808,25 @@ final class AppRootCoordinator: NSObject {
         archivedVc.filter.accept(.archived)
         let notificationsVc = NotificationsListViewController()
         let callsVc = LastCallsViewController()
+        let chatsNavigationController = UINavigationController(rootViewController: chatsVc)
+        let archivedNavigationController = UINavigationController(rootViewController: archivedVc)
+        chatsNavigationController.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+        archivedNavigationController.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
 
         if CommonConfigManager.shared.config.support_calls {
             vc.viewControllers = [
-                NavBarController(rootViewController: chatsVc),
+                chatsNavigationController,
                 NavBarController(rootViewController: contactsVc),
                 NavBarController(rootViewController: notificationsVc),
-                NavBarController(rootViewController: archivedVc),
+                archivedNavigationController,
                 NavBarController(rootViewController: callsVc)
             ]
         } else {
             vc.viewControllers = [
-                NavBarController(rootViewController: chatsVc),
+                chatsNavigationController,
                 NavBarController(rootViewController: contactsVc),
                 NavBarController(rootViewController: notificationsVc),
-                NavBarController(rootViewController: archivedVc)
+                archivedNavigationController
             ]
         }
 

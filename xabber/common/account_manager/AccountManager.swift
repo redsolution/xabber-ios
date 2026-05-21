@@ -465,8 +465,31 @@ public class AccountManager: NSObject {
     }
     
     final func markAsConnected(jid: String) {
+        ConnectionDiagnosticsLogger.log(
+            event: "account_manager_mark_connected_requested",
+            stream: .primary,
+            jid: jid,
+            details: [
+                "connectingContains": self.connectingUsers.value.contains(jid),
+                "connectingCount": self.connectingUsers.value.count,
+                "authenticatedContains": self.authenticatedUsers.value.contains(jid),
+                "authenticatedCount": self.authenticatedUsers.value.count
+            ]
+        )
         self.updateConnectingUsers { value in
+            let wasPresent = value.contains(jid)
             value.remove(jid)
+            ConnectionDiagnosticsLogger.log(
+                event: "account_manager_mark_connected",
+                stream: .primary,
+                jid: jid,
+                details: [
+                    "set": "connectingUsers",
+                    "wasPresent": wasPresent,
+                    "isPresent": value.contains(jid),
+                    "count": value.count
+                ]
+            )
         }
         if newAccountJid == jid {
             self.find(for: jid)?.queue.asyncAfter(deadline: .now() + 2) {
@@ -474,19 +497,130 @@ public class AccountManager: NSObject {
             }
         }
     }
+
+    final func markAsNotConnecting(
+        jid: String,
+        reason: String,
+        clearAuthentication: Bool = false
+    ) {
+        ConnectionDiagnosticsLogger.log(
+            event: "account_manager_mark_not_connecting_requested",
+            stream: .primary,
+            jid: jid,
+            details: [
+                "reason": reason,
+                "clearAuthentication": clearAuthentication,
+                "connectingContains": self.connectingUsers.value.contains(jid),
+                "connectingCount": self.connectingUsers.value.count,
+                "authenticatedContains": self.authenticatedUsers.value.contains(jid),
+                "authenticatedCount": self.authenticatedUsers.value.count
+            ]
+        )
+        self.updateConnectingUsers { value in
+            let wasPresent = value.contains(jid)
+            value.remove(jid)
+            ConnectionDiagnosticsLogger.log(
+                event: "account_manager_mark_not_connecting",
+                stream: .primary,
+                jid: jid,
+                details: [
+                    "set": "connectingUsers",
+                    "reason": reason,
+                    "wasPresent": wasPresent,
+                    "isPresent": value.contains(jid),
+                    "count": value.count
+                ]
+            )
+        }
+        guard clearAuthentication else { return }
+        self.updateAuthenticatedUsers { value in
+            let wasPresent = value.contains(jid)
+            value.remove(jid)
+            ConnectionDiagnosticsLogger.log(
+                event: "account_manager_mark_not_connecting",
+                stream: .primary,
+                jid: jid,
+                details: [
+                    "set": "authenticatedUsers",
+                    "reason": reason,
+                    "wasPresent": wasPresent,
+                    "isPresent": value.contains(jid),
+                    "count": value.count
+                ]
+            )
+        }
+    }
     
     final func markAsAuthencticated(jid: String) {
+        ConnectionDiagnosticsLogger.log(
+            event: "account_manager_mark_authenticated_requested",
+            stream: .primary,
+            jid: jid,
+            details: [
+                "connectingContains": self.connectingUsers.value.contains(jid),
+                "connectingCount": self.connectingUsers.value.count,
+                "authenticatedContains": self.authenticatedUsers.value.contains(jid),
+                "authenticatedCount": self.authenticatedUsers.value.count
+            ]
+        )
         self.updateAuthenticatedUsers { value in
+            let wasPresent = value.contains(jid)
             value.remove(jid)
+            ConnectionDiagnosticsLogger.log(
+                event: "account_manager_mark_authenticated",
+                stream: .primary,
+                jid: jid,
+                details: [
+                    "set": "authenticatedUsers",
+                    "wasPresent": wasPresent,
+                    "isPresent": value.contains(jid),
+                    "count": value.count
+                ]
+            )
         }
     }
     
     final func markAsConnecting(jid: String) {
+        ConnectionDiagnosticsLogger.log(
+            event: "account_manager_mark_connecting_requested",
+            stream: .primary,
+            jid: jid,
+            details: [
+                "connectingContains": self.connectingUsers.value.contains(jid),
+                "connectingCount": self.connectingUsers.value.count,
+                "authenticatedContains": self.authenticatedUsers.value.contains(jid),
+                "authenticatedCount": self.authenticatedUsers.value.count
+            ]
+        )
         self.updateConnectingUsers { value in
+            let wasPresent = value.contains(jid)
             value.insert(jid)
+            ConnectionDiagnosticsLogger.log(
+                event: "account_manager_mark_connecting",
+                stream: .primary,
+                jid: jid,
+                details: [
+                    "set": "connectingUsers",
+                    "wasPresent": wasPresent,
+                    "isPresent": value.contains(jid),
+                    "count": value.count
+                ]
+            )
         }
         self.updateAuthenticatedUsers { value in
+            let wasPresent = value.contains(jid)
             value.insert(jid)
+            ConnectionDiagnosticsLogger.log(
+                event: "account_manager_mark_connecting",
+                stream: .primary,
+                jid: jid,
+                details: [
+                    "set": "authenticatedUsers",
+                    "wasPresent": wasPresent,
+                    "isPresent": value.contains(jid),
+                    "count": value.count
+                ]
+            )
         }
     }
     

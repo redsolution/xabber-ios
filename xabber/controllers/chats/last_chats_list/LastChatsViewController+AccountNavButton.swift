@@ -24,34 +24,61 @@ import Kingfisher
 import CocoaLumberjack
 
 class AccountNavButton: UIButton {
+    private enum Metrics {
+        static let hitTarget: CGFloat = 44
+        static let avatarSize: CGFloat = 32
+        static let statusSize: CGFloat = 9
+        static let statusOffset: CGFloat = 3
+    }
     
     internal let avatarView: UIImageView = {
-        let view = UIImageView(frame: CGRect(x: 0, y: 4, width: 32, height: 32))
+        let view = UIImageView(frame: .zero)
         if let image = UIImage(named: AccountMasksManager.shared.mask32pt), AccountMasksManager.shared.load() != "square" {
             view.mask = UIImageView(image: image)
         } else {
             view.mask = nil
         }
+        view.translatesAutoresizingMaskIntoConstraints = false
         view.layer.masksToBounds = true
         
         return view
     }()
     
     internal let statusView: RoundedStatusView = {
-        let view = RoundedStatusView(frame: CGRect(x: 23, y: 27, width: 9, height: 9))
+        let view = RoundedStatusView(frame: .zero)
+        view.translatesAutoresizingMaskIntoConstraints = false
         
         return view
     }()
     
     internal func setup() {
+        backgroundColor = nil
+        layer.borderWidth = 0
+        layer.shadowOpacity = 0
         addSubview(avatarView)
         addSubview(statusView)
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: Metrics.hitTarget),
+            heightAnchor.constraint(equalToConstant: Metrics.hitTarget),
+            avatarView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            avatarView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            avatarView.widthAnchor.constraint(equalToConstant: Metrics.avatarSize),
+            avatarView.heightAnchor.constraint(equalToConstant: Metrics.avatarSize),
+            statusView.widthAnchor.constraint(equalToConstant: Metrics.statusSize),
+            statusView.heightAnchor.constraint(equalToConstant: Metrics.statusSize),
+            statusView.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: Metrics.statusOffset),
+            statusView.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor, constant: Metrics.statusOffset)
+        ])
     }
-    
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: Metrics.hitTarget, height: Metrics.hitTarget)
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         setup()
-        
+
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,

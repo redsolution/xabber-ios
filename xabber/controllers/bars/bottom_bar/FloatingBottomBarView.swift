@@ -8,48 +8,137 @@
 
 import UIKit
 
-enum BottomBarGlassEffectFactory {
-    static let fallbackBlurStyle: UIBlurEffect.Style = .systemMaterial
+enum NativeGlassBarStyle {
+    enum CornerStyle {
+        case fixed(CGFloat)
+        case capsule
+    }
 
-    static func makeEffect(prefersNativeGlass: Bool = true) -> UIVisualEffect {
+    static let minimumHeight: CGFloat = 44
+    static let bottomOffset: CGFloat = 4
+    static let horizontalInset: CGFloat = 16
+    static let contentInset: CGFloat = 10
+    static let buttonSize: CGFloat = 44
+    static let iconSize: CGFloat = 20
+    static let interItemSpacing: CGFloat = 8
+    static let cornerRadius: CGFloat = 22
+    static let fallbackBlurStyle: UIBlurEffect.Style = .systemMaterial
+    static let nativeGlassTintColor = UIColor.systemBackground.withAlphaComponent(0.16)
+    static let iconTintColor: UIColor = .label
+
+    static func makeEffect(
+        interactive: Bool = true,
+        prefersNativeGlass: Bool = true
+    ) -> UIVisualEffect {
         if prefersNativeGlass, #available(iOS 26.0, *) {
             let effect = UIGlassEffect(style: .regular)
-            effect.isInteractive = true
+            effect.tintColor = nativeGlassTintColor
+            effect.isInteractive = interactive
             return effect
         }
 
         return UIBlurEffect(style: fallbackBlurStyle)
     }
+
+    static func applySurface(
+        to view: UIVisualEffectView,
+        cornerStyle: CornerStyle = .fixed(cornerRadius),
+        interactive: Bool = true
+    ) {
+        view.effect = makeEffect(interactive: interactive)
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        view.clipsToBounds = true
+        view.layer.borderWidth = 0
+        view.layer.borderColor = nil
+        view.layer.shadowColor = nil
+        view.layer.shadowOpacity = 0
+        view.layer.shadowRadius = 0
+        view.layer.shadowOffset = .zero
+        view.layer.shadowPath = nil
+
+        switch cornerStyle {
+        case .fixed(let radius):
+            view.layer.cornerRadius = radius
+            view.layer.cornerCurve = .continuous
+            if #available(iOS 26.0, *) {
+                view.cornerConfiguration = .uniformCorners(radius: .fixed(Double(radius)))
+            }
+        case .capsule:
+            view.layer.cornerRadius = cornerRadius
+            view.layer.cornerCurve = .continuous
+            if #available(iOS 26.0, *) {
+                view.cornerConfiguration = .capsule()
+            }
+        }
+    }
+
+    static func applyIconButtonStyle(
+        to button: UIButton,
+        tintColor: UIColor? = nil,
+        image: UIImage? = nil,
+        prefersNativeGlass: Bool = true,
+        forceConfigurationUpdate: Bool = true
+    ) {
+        let configuredImage: UIImage?
+        if #available(iOS 26.0, *) {
+            configuredImage = button.configuration?.image
+        } else {
+            configuredImage = nil
+        }
+        let resolvedImage = (image ?? button.image(for: .normal) ?? configuredImage)?
+            .withRenderingMode(.alwaysTemplate)
+        let resolvedTintColor = tintColor ?? button.tintColor ?? iconTintColor
+
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.tintColor = resolvedTintColor
+        button.backgroundColor = .clear
+        button.contentHorizontalAlignment = .center
+        button.contentVerticalAlignment = .center
+        button.layer.borderWidth = 0
+        button.layer.borderColor = nil
+        button.layer.shadowColor = nil
+        button.layer.shadowOpacity = 0
+        button.layer.shadowRadius = 0
+        button.layer.shadowOffset = .zero
+        button.layer.shadowPath = nil
+
+        if image != nil, let resolvedImage {
+            button.setImage(resolvedImage, for: .normal)
+        }
+
+        if prefersNativeGlass, #available(iOS 26.0, *) {
+            if forceConfigurationUpdate {
+                var configuration = UIButton.Configuration.clearGlass()
+                configuration.image = resolvedImage
+                configuration.baseForegroundColor = resolvedTintColor
+                configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
+                button.configuration = configuration
+            }
+        } else {
+            button.configuration = nil
+        }
+    }
 }
 
 final class FloatingBottomBarView: UIView {
     enum Metrics {
-        static let height: CGFloat = 44
-        static let bottomOffset: CGFloat = 4
-        static let horizontalInset: CGFloat = 16
-        static let contentInset: CGFloat = 10
-        static let buttonSize: CGFloat = 44
-        static let iconSize: CGFloat = 20
+        static let height: CGFloat = NativeGlassBarStyle.minimumHeight
+        static let bottomOffset: CGFloat = NativeGlassBarStyle.bottomOffset
+        static let horizontalInset: CGFloat = NativeGlassBarStyle.horizontalInset
+        static let contentInset: CGFloat = NativeGlassBarStyle.contentInset
+        static let buttonSize: CGFloat = NativeGlassBarStyle.buttonSize
+        static let iconSize: CGFloat = NativeGlassBarStyle.iconSize
         static let maxWidth: CGFloat = 360
         static let tableInsetPadding: CGFloat = 12
         static let reservedBottomInset = height + bottomOffset + tableInsetPadding
     }
 
     let effectView: UIVisualEffectView = {
-        let view = UIVisualEffectView(effect: BottomBarGlassEffectFactory.makeEffect())
+        let view = UIVisualEffectView(effect: NativeGlassBarStyle.makeEffect(interactive: true))
 
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.backgroundColor = .clear
-        view.isOpaque = false
-        view.clipsToBounds = true
-        if #available(iOS 26.0, *) {
-            view.cornerConfiguration = .capsule()
-        } else {
-            view.layer.cornerRadius = Metrics.height / 2
-            view.layer.cornerCurve = .continuous
-        }
-        view.layer.borderWidth = 1.0 / UIScreen.main.scale
-        view.layer.borderColor = UIColor.separator.withAlphaComponent(0.34).cgColor
+        NativeGlassBarStyle.applySurface(to: view, cornerStyle: .capsule, interactive: true)
 
         return view
     }()
@@ -58,8 +147,11 @@ final class FloatingBottomBarView: UIView {
         let button = UIButton(type: .system)
 
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.tintColor = .black
-        button.backgroundColor = .clear
+        NativeGlassBarStyle.applyIconButtonStyle(
+            to: button,
+            tintColor: NativeGlassBarStyle.iconTintColor,
+            prefersNativeGlass: false
+        )
         button.accessibilityLabel = "Unread chats filter"
 
         return button
@@ -85,8 +177,11 @@ final class FloatingBottomBarView: UIView {
         let button = UIButton(type: .system)
 
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.tintColor = .black
-        button.backgroundColor = .clear
+        NativeGlassBarStyle.applyIconButtonStyle(
+            to: button,
+            tintColor: NativeGlassBarStyle.iconTintColor,
+            prefersNativeGlass: false
+        )
         button.accessibilityLabel = "Add"
 
         return button
@@ -116,7 +211,7 @@ final class FloatingBottomBarView: UIView {
     }
 
     func refreshAppearance() {
-        effectView.layer.borderColor = UIColor.separator.withAlphaComponent(0.34).cgColor
+        NativeGlassBarStyle.applySurface(to: effectView, cornerStyle: .capsule, interactive: true)
     }
 
     private func setup() {
@@ -172,10 +267,11 @@ final class FloatingBottomBarView: UIView {
     private func configure(button: UIButton, imageName: String) {
         let image = imageLiteral(imageName, dimension: Metrics.iconSize)
 
-        button.configuration = nil
-        button.setImage(image, for: .normal)
-        button.tintColor = .black
-        button.backgroundColor = .clear
-        button.layer.cornerRadius = 0
+        NativeGlassBarStyle.applyIconButtonStyle(
+            to: button,
+            tintColor: NativeGlassBarStyle.iconTintColor,
+            image: image,
+            prefersNativeGlass: false
+        )
     }
 }

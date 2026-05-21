@@ -655,7 +655,7 @@ class ApplicationStateManager: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
             AuthenticatedKeyExchangeManager.prepare()
         }
-        MessageReferenceStorageItem.checkAllUndefinedForSesitive()
+        SensitiveMediaAnalysisStartupScheduler.shared.prepareForLaunch()
     }
     
     var autoDeleteTaskTimer: Timer? = nil

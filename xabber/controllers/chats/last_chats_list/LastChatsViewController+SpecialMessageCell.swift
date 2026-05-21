@@ -131,20 +131,14 @@ class SpecialMessageTableViewCell: UITableViewCell {
         self.closeCallback?(self.key)
     }
     
-    func configure(title: String, subtitle: String, avatars: [AvatarStructItem], owner: String, showTopLine: Bool, key: String) {
+    func configure(title: String, subtitle: String, avatars: [AvatarStructItem], owner: String, key: String) {
         self.key = key
         self.titleLabel.text = title
         self.subtitleLabel.text  = subtitle
+        self.avatarStack.subviews.forEach { $0.removeFromSuperview() }
         var offset: CGFloat = 0
         var avatarsViews: [UIView] = []
         let offsetConst: CGFloat = 12
-        if showTopLine {
-            self.topLine.isHidden = false
-        } else {
-            self.topLine.isHidden = true
-        }
-        self.contentView.backgroundColor = AccountColorManager.shared.palette(for: owner).tint50.withAlphaComponent(0.5)
-//        backgroundColorView.backgroundColor = AccountColorManager.shared.palette(for: owner).tint50.withAlphaComponent(0.5)
         avatars.forEach {
             avatar in
             
@@ -213,30 +207,8 @@ class SpecialMessageTableViewCell: UITableViewCell {
         }
     }
     
-    let backgroundColorView: UIView = {
-        let view = UIView()
-        
-        view.layer.cornerRadius = 16
-        view.layer.masksToBounds = true
-        
-        return view
-    }()
-    
-    let topLine: UIView = {
-        let view = UIView()
-        
-        view.backgroundColor = UIColor.black.withAlphaComponent(0.21)
-        
-        return view
-    }()
-    
     func setupSubviews() {
-        self.contentView.backgroundColor = .clear
-        self.contentView.layer.cornerRadius = 8
-        self.contentView.layer.masksToBounds = true
-//        self.contentView.addSubview(backgroundColorView)
         self.contentView.addSubview(self.contentStack)
-//        backgroundColorView.fillSuperviewWithOffset(top: 2, bottom: 2, left: 16, right: 16)
         self.avatarStackContainer.frame = CGRect(origin: CGPoint(x: 16, y: 2), size: CGSize(width: 64, height: 44))
         self.contentView.addSubview(avatarStackContainer)
         self.avatarStackContainer.addSubview(avatarStack)
@@ -248,9 +220,6 @@ class SpecialMessageTableViewCell: UITableViewCell {
         self.contentStack.addArrangedSubview(self.cancelButton)
         self.stack.addArrangedSubview(self.titleLabel)
         self.stack.addArrangedSubview(self.subtitleLabel)
-        separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 0, right: 0)
-        self.contentView.addSubview(self.topLine)
-        self.topLine.frame = CGRect(origin: CGPoint.zero, size: CGSize(width: UIScreen.main.bounds.width, height: 1.0 / UIScreen.main.scale))
 //        self.accessoryType = .disclosureIndicator
         NSLayoutConstraint.activate([
             self.cancelButton.widthAnchor.constraint(equalToConstant: 36),
@@ -270,5 +239,3 @@ class SpecialMessageTableViewCell: UITableViewCell {
     }
     
 }
-
-

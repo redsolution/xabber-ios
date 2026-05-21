@@ -92,6 +92,331 @@ final class ChatFloatingHeaderLayoutPolicyTests: XCTestCase {
     }
 }
 
+final class ChatSubscriptionPresentationPolicyTests: XCTestCase {
+    private typealias Subscribtion = RosterStorageItem.Subsccribtion
+    private typealias Ask = RosterStorageItem.Ask
+
+    private func presentation(
+        hasRosterItem: Bool = true,
+        subscribtion: Subscribtion,
+        ask: Ask,
+        conversationType: ClientSynchronizationManager.ConversationType = .regular,
+        isServerJID: Bool = false,
+        isSavedChat: Bool = false,
+        isBlocked: Bool = false,
+        isContact: Bool = true
+    ) -> ChatSubscriptionPresentation {
+        ChatSubscriptionPresentationPolicy.presentation(for: ChatSubscriptionPresentationInput(
+            hasRosterItem: hasRosterItem,
+            subscribtion: subscribtion,
+            ask: ask,
+            conversationType: conversationType,
+            isServerJID: isServerJID,
+            isSavedChat: isSavedChat,
+            isBlocked: isBlocked,
+            isContact: isContact
+        ))
+    }
+
+    func testRegularContactMatrixMatchesWorkbookPolicy() {
+        let addActions: [ChatSubscriptionPresentation.Action] = [.addContact, .block, .close]
+        let allowActions: [ChatSubscriptionPresentation.Action] = [.allowSubscription, .block, .close]
+        let noActions: [ChatSubscriptionPresentation.Action] = []
+        let cases: [(String, Bool, Subscribtion, Ask, ChatSubscriptionPresentation.StatusMode, ChatSubscriptionPresentation.TopPanelKind, [ChatSubscriptionPresentation.Action], Bool)] = [
+            ("nil none", false, .undefined, .none, .fixed(.notInContacts), .addContact, addActions, false),
+            ("nil in", false, .undefined, .in, .fixed(.incomingSubscriptionRequest), .contactRequest, addActions, false),
+            ("nil out", false, .undefined, .out, .fixed(.subscriptionRequestPending), .none, noActions, false),
+            ("nil both", false, .undefined, .both, .fixed(.incomingSubscriptionRequest), .contactRequest, addActions, false),
+            ("undefined none", true, .undefined, .none, .fixed(.notInContacts), .addContact, addActions, false),
+            ("undefined in", true, .undefined, .in, .fixed(.incomingSubscriptionRequest), .contactRequest, addActions, false),
+            ("undefined out", true, .undefined, .out, .fixed(.subscriptionRequestPending), .none, noActions, false),
+            ("undefined both", true, .undefined, .both, .fixed(.incomingSubscriptionRequest), .contactRequest, addActions, false),
+            ("none none", true, .none, .none, .fixed(.inContacts), .none, noActions, false),
+            ("none in", true, .none, .in, .fixed(.inContacts), .allowSubscription, allowActions, false),
+            ("none out", true, .none, .out, .fixed(.subscriptionRequestPending), .none, noActions, false),
+            ("none both", true, .none, .both, .fixed(.subscriptionRequestPending), .allowSubscription, allowActions, false),
+            ("to none", true, .to, .none, .normalPresence, .none, noActions, true),
+            ("to in", true, .to, .in, .normalPresence, .allowSubscription, allowActions, true),
+            ("to out", true, .to, .out, .normalPresence, .none, noActions, true),
+            ("to both", true, .to, .both, .normalPresence, .allowSubscription, allowActions, true),
+            ("from none", true, .from, .none, .fixed(.receivesPresenceUpdates), .none, noActions, false),
+            ("from in", true, .from, .in, .fixed(.receivesPresenceUpdates), .none, noActions, false),
+            ("from out", true, .from, .out, .fixed(.subscriptionRequestPending), .none, noActions, false),
+            ("from both", true, .from, .both, .fixed(.subscriptionRequestPending), .none, noActions, false),
+            ("both none", true, .both, .none, .normalPresence, .none, noActions, true),
+            ("both in", true, .both, .in, .normalPresence, .none, noActions, true),
+            ("both out", true, .both, .out, .normalPresence, .none, noActions, true),
+            ("both both", true, .both, .both, .normalPresence, .none, noActions, true)
+        ]
+
+        for item in cases {
+            let result = presentation(hasRosterItem: item.1, subscribtion: item.2, ask: item.3)
+
+            XCTAssertEqual(result.statusMode, item.4, item.0)
+            XCTAssertEqual(result.topPanelKind, item.5, item.0)
+            XCTAssertEqual(result.actions, item.6, item.0)
+            XCTAssertEqual(result.showsNormalPresenceStatus, item.7, item.0)
+        }
+    }
+
+    func testBypassedConversationAndEntityTypesDoNotEmitSubscriptionPresentation() {
+        let bypassed = [
+            presentation(subscribtion: .none, ask: .in, conversationType: .group),
+            presentation(subscribtion: .none, ask: .in, conversationType: .channel),
+            presentation(subscribtion: .none, ask: .in, conversationType: .notifications),
+            presentation(subscribtion: .none, ask: .in, isServerJID: true),
+            presentation(subscribtion: .none, ask: .in, isSavedChat: true),
+            presentation(subscribtion: .none, ask: .in, isBlocked: true),
+            presentation(subscribtion: .none, ask: .in, isContact: false)
+        ]
+
+        for result in bypassed {
+            XCTAssertEqual(result.statusMode, .unchanged)
+            XCTAssertEqual(result.topPanelKind, .none)
+            XCTAssertTrue(result.actions.isEmpty)
+            XCTAssertFalse(result.showsNormalPresenceStatus)
+        }
+    }
+
+    func testRosterItemHelperUsesSamePolicyAsDirectInput() {
+        let rosterItem = RosterStorageItem()
+        rosterItem.subscribtion = .none
+        rosterItem.ask = .in
+
+        let direct = presentation(subscribtion: .none, ask: .in)
+        let fromRosterItem = ChatSubscriptionPresentationPolicy.presentation(
+            rosterItem: rosterItem,
+            conversationType: .regular,
+            isServerJID: false,
+            isSavedChat: false,
+            isBlocked: false
+        )
+
+        XCTAssertEqual(fromRosterItem, direct)
+    }
+
+    func testControllerPresentationAdapterMatchesSharedPolicy() throws {
+        let realm = try Realm(configuration: Realm.Configuration(
+            inMemoryIdentifier: "ChatSubscriptionPresentationPolicyTests-\(name)"
+        ))
+        let rosterItem = RosterStorageItem()
+        rosterItem.owner = "romeo@example.com"
+        rosterItem.jid = "juliet@example.com"
+        rosterItem.subscribtion = .none
+        rosterItem.ask = .in
+
+        let viewController = ChatViewController()
+        viewController.owner = rosterItem.owner
+        viewController.jid = rosterItem.jid
+        viewController.conversationType = .regular
+
+        let expected = ChatSubscriptionPresentationPolicy.presentation(
+            rosterItem: rosterItem,
+            conversationType: .regular,
+            isServerJID: false,
+            isSavedChat: false,
+            isBlocked: false
+        )
+
+        XCTAssertEqual(
+            viewController.chatSubscriptionPresentation(rosterItem: rosterItem, realm: realm),
+            expected
+        )
+    }
+
+    func testEncryptedOneToOneChatsUseRegularContactPolicy() {
+        for conversationType in [ClientSynchronizationManager.ConversationType.omemo, .omemo1, .axolotl] {
+            let result = presentation(
+                subscribtion: .to,
+                ask: .in,
+                conversationType: conversationType
+            )
+
+            XCTAssertEqual(result.statusMode, .normalPresence)
+            XCTAssertEqual(result.topPanelKind, .allowSubscription)
+            XCTAssertTrue(result.showsNormalPresenceStatus)
+        }
+    }
+}
+
+final class ChatSubscriptionTopBarStyleTests: XCTestCase {
+    func testPinnedMessageHeightPolicyClampsToMinimumAndMaximum() {
+        XCTAssertEqual(
+            ChatPinnedMessageBarHeightPolicy.visualHeight(forFittingHeight: 20),
+            44,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ChatPinnedMessageBarHeightPolicy.visualHeight(forFittingHeight: 64),
+            64,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ChatPinnedMessageBarHeightPolicy.visualHeight(forFittingHeight: 140),
+            88,
+            accuracy: 0.001
+        )
+    }
+
+    func testFloatingGlassBubbleUsesNativeGlassStyleWithoutCustomChrome() throws {
+        let bubble = ChatFloatingGlassBubbleView(contentHeight: 44)
+        let effectView = try XCTUnwrap(bubble.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+
+        XCTAssertEqual(bubble.measuredHeight(), 44, accuracy: 0.001)
+        XCTAssertEqual(bubble.layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertEqual(effectView.layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertEqual(effectView.layer.borderWidth, 0, accuracy: 0.001)
+        XCTAssertNil(effectView.layer.borderColor)
+        if #available(iOS 26.0, *) {
+            XCTAssertTrue(effectView.effect is UIGlassEffect)
+        } else {
+            XCTAssertTrue(effectView.effect is UIBlurEffect)
+        }
+    }
+
+    func testFloatingActionPanelHostsControlsInFortyFourPointLayout() {
+        let button = UIButton(type: .system)
+        button.setTitle("Incoming subscription request", for: .normal)
+        let panel = ChatFloatingActionPanelView(
+            icon: UIImage(systemName: "person.wave.2.fill"),
+            tintColor: .tintColor,
+            showsCloseButton: true
+        )
+
+        panel.setContentViews([button])
+        panel.frame = CGRect(x: 0, y: 0, width: 320, height: 44)
+        panel.layoutIfNeeded()
+
+        XCTAssertTrue(button.superview != nil)
+        XCTAssertEqual(panel.intrinsicContentSize.height, 44, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(button.frame.height, 44)
+        XCTAssertEqual(button.titleLabel?.lineBreakMode, .byTruncatingTail)
+    }
+
+    func testPinnedMessagePanelFitsInsideClampedGlassBubbleWithOptionalUnpin() throws {
+        let bubble = ChatFloatingGlassBubbleView(contentHeight: ChatPinnedMessageBarHeightPolicy.minimumHeight)
+        let panel = ChatPinnedMessagePanelView(frame: .zero)
+        panel.configure(
+            title: NSAttributedString(string: "Alice"),
+            preview: "A longer pinned message preview that should wrap cleanly without pushing the bar past its visual limit.",
+            showsUnpinButton: true
+        )
+
+        let fittingHeight = panel.preferredContentHeight(width: 320)
+        bubble.setHostedView(panel, contentHeight: fittingHeight)
+        bubble.frame = CGRect(x: 0, y: 0, width: 360, height: bubble.measuredHeight())
+        bubble.layoutIfNeeded()
+        panel.layoutIfNeeded()
+
+        let effectView = try XCTUnwrap(bubble.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+        XCTAssertEqual(bubble.measuredHeight(), fittingHeight, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(fittingHeight, 44)
+        XCTAssertLessThanOrEqual(fittingHeight, 88)
+        XCTAssertEqual(effectView.layer.borderWidth, 0, accuracy: 0.001)
+        XCTAssertEqual(effectView.layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertFalse(panel.unpinButton.isHidden)
+        XCTAssertLessThanOrEqual(panel.previewLabel.frame.maxY, panel.bounds.maxY + 0.5)
+    }
+}
+
+final class ChatVerificationTopBarStyleTests: XCTestCase {
+    func testSharedTopBubbleUsesNativeGlassSurfaceWithoutCustomChrome() throws {
+        let bubble = ChatFloatingGlassBubbleView(contentHeight: NativeGlassBarStyle.minimumHeight)
+        let effectView = try XCTUnwrap(visualEffectViews(in: bubble).first)
+
+        XCTAssertEqual(bubble.measuredHeight(), NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertEqual(bubble.backgroundColor ?? .clear, .clear)
+        XCTAssertFalse(bubble.isOpaque)
+        XCTAssertNil(bubble.layer.shadowColor)
+        XCTAssertEqual(bubble.layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertEqual(bubble.layer.shadowRadius, 0, accuracy: 0.001)
+        XCTAssertEqual(bubble.layer.shadowOffset, .zero)
+        XCTAssertNil(bubble.layer.shadowPath)
+        XCTAssertEqual(effectView.backgroundColor ?? .clear, .clear)
+        XCTAssertFalse(effectView.isOpaque)
+        XCTAssertEqual(effectView.layer.borderWidth, 0, accuracy: 0.001)
+        XCTAssertNil(effectView.layer.borderColor)
+        XCTAssertEqual(effectView.layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertNil(effectView.layer.shadowPath)
+
+        if #available(iOS 26.0, *) {
+            let glassEffect = try XCTUnwrap(effectView.effect as? UIGlassEffect)
+            XCTAssertTrue(glassEffect.isInteractive)
+            XCTAssertEqual(glassEffect.tintColor, NativeGlassBarStyle.nativeGlassTintColor)
+        } else {
+            XCTAssertTrue(effectView.effect is UIBlurEffect)
+        }
+    }
+
+    func testIncomingVerificationPanelIsContentOnlyFortyFourPointLayout() throws {
+        let viewController = ChatViewController()
+        let panel = viewController.makeRequestingVerificationPanel(isActionEnabled: true)
+        let bubble = ChatFloatingGlassBubbleView(contentHeight: NativeGlassBarStyle.minimumHeight)
+
+        bubble.setHostedView(panel, contentHeight: NativeGlassBarStyle.minimumHeight)
+        bubble.frame = CGRect(x: 0, y: 0, width: 320, height: NativeGlassBarStyle.minimumHeight)
+        bubble.layoutIfNeeded()
+
+        let effectView = try XCTUnwrap(visualEffectViews(in: bubble).first)
+        let actionButton = try XCTUnwrap(button(configuredTitle: "Accept verification request", in: panel))
+
+        XCTAssertTrue(panel.isDescendant(of: effectView.contentView))
+        XCTAssertFalse(panel.translatesAutoresizingMaskIntoConstraints)
+        XCTAssertEqual(panel.intrinsicContentSize.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertEqual(panel.frame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertEqual(panel.frame.minX, 10, accuracy: 0.001)
+        XCTAssertEqual(effectView.contentView.bounds.maxX - panel.frame.maxX, 10, accuracy: 0.001)
+        XCTAssertEqual(visualEffectViews(in: panel).count, 0)
+        XCTAssertEqual(panel.layer.borderWidth, 0, accuracy: 0.001)
+        XCTAssertEqual(panel.layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertTrue(actionButton.isEnabled)
+        XCTAssertEqual(actionButton.titleLabel?.lineBreakMode, .byTruncatingTail)
+    }
+
+    func testIncomingVerificationActionTargetsExistingFlow() throws {
+        let viewController = ChatViewController()
+        let panel = viewController.makeRequestingVerificationPanel(isActionEnabled: true)
+        let actionButton = try XCTUnwrap(button(configuredTitle: "Accept verification request", in: panel))
+
+        let actions = actionButton.actions(forTarget: viewController, forControlEvent: .touchUpInside) ?? []
+
+        XCTAssertTrue(actions.contains(NSStringFromSelector(#selector(ChatViewController.onRequestingVerification(_:)))))
+    }
+
+    func testIncomingVerificationCloseTargetsExistingDismissal() {
+        let viewController = ChatViewController()
+        let panel = viewController.makeRequestingVerificationPanel(isActionEnabled: true)
+        let actions = panel.closeButton.actions(forTarget: viewController, forControlEvent: .touchUpInside) ?? []
+
+        XCTAssertTrue(actions.contains(NSStringFromSelector(#selector(ChatViewController.additionalNavBarPanelCancelButtonTouchUpInside(_:)))))
+    }
+
+    func testIncomingVerificationActionCanBeDisabledWhenLocalBundleIsUnavailable() throws {
+        let panel = ChatViewController().makeRequestingVerificationPanel(isActionEnabled: false)
+        let actionButton = try XCTUnwrap(button(configuredTitle: "Accept verification request", in: panel))
+
+        XCTAssertFalse(actionButton.isEnabled)
+    }
+
+    private func button(configuredTitle title: String, in view: UIView) -> UIButton? {
+        buttons(in: view).first {
+            $0.configuration?.title == title || $0.title(for: .normal) == title
+        }
+    }
+
+    private func buttons(in view: UIView) -> [UIButton] {
+        view.subviews.reduce(view is UIButton ? [view as! UIButton] : []) { result, subview in
+            result + buttons(in: subview)
+        }
+    }
+
+    private func visualEffectViews(in view: UIView) -> [UIVisualEffectView] {
+        view.subviews.reduce(view is UIVisualEffectView ? [view as! UIVisualEffectView] : []) { result, subview in
+            result + visualEffectViews(in: subview)
+        }
+    }
+}
+
 final class CreateNewEntityBotTests: XCTestCase {
     func testBotDefinitionsExposeExpectedRows() {
         XCTAssertEqual(
@@ -264,6 +589,20 @@ final class EULAGateRoutingTests: XCTestCase {
             ),
             .presentEULA
         )
+    }
+}
+
+@MainActor
+final class MainSplitLayoutTests: XCTestCase {
+    func testLastChatsSupplementaryColumnWidthIsPinnedTo414Points() {
+        let splitViewController = UISplitViewController(style: .tripleColumn)
+
+        MainSplitLayout.apply(to: splitViewController)
+
+        XCTAssertEqual(MainSplitLayout.lastChatsSupplementaryColumnWidth, 414)
+        XCTAssertEqual(splitViewController.preferredSupplementaryColumnWidth, 414)
+        XCTAssertEqual(splitViewController.minimumSupplementaryColumnWidth, 414)
+        XCTAssertEqual(splitViewController.maximumSupplementaryColumnWidth, 414)
     }
 }
 
@@ -1983,6 +2322,680 @@ final class AccountStreamLifecycleGateTests: XCTestCase {
             gate.beginConnect(trigger: .uiActionRestore),
             .skip(phase: .online, activeAttemptID: attemptID)
         )
+    }
+}
+
+final class XMPPUIActionLifecycleCoordinatorTests: XCTestCase {
+
+    func testDuplicateSameOwnerOpenIsSkippedWhileActive() {
+        let coordinator = XMPPUIActionLifecycleCoordinator()
+        let owner = "alice@example.com"
+
+        guard case .start(let firstStart) = coordinator.beginOpen(owner: owner) else {
+            XCTFail("Expected first UI action open to start")
+            return
+        }
+
+        XCTAssertEqual(
+            coordinator.beginOpen(owner: owner, activePhase: .connecting),
+            .skipActive(owner: owner, phase: .connecting, activeAttemptID: firstStart.attemptID)
+        )
+
+        coordinator.markAuthenticating()
+
+        XCTAssertEqual(
+            coordinator.beginOpen(owner: owner, activePhase: .authenticating),
+            .skipActive(owner: owner, phase: .authenticating, activeAttemptID: firstStart.attemptID)
+        )
+
+        coordinator.markOnline()
+
+        XCTAssertEqual(
+            coordinator.beginOpen(owner: owner, activePhase: .online),
+            .skipActive(owner: owner, phase: .online, activeAttemptID: firstStart.attemptID)
+        )
+    }
+
+    func testPerformRequestWaitsForExistingSameOwnerAttempt() {
+        let coordinator = XMPPUIActionLifecycleCoordinator()
+        let owner = "alice@example.com"
+
+        guard case .start(let start) = coordinator.beginOpen(owner: owner) else {
+            XCTFail("Expected first UI action open to start")
+            return
+        }
+
+        let decision = coordinator.beginPerformRequest(
+            owner: owner,
+            activePhase: .connecting,
+            isAuthenticated: false,
+            streamIsDisconnected: false
+        )
+
+        XCTAssertEqual(
+            decision,
+            .waiting(owner: owner, phase: .connecting, activeAttemptID: start.attemptID)
+        )
+    }
+
+    func testPerformRequestStartsFreshAttemptWhenSameOwnerGateIsStaleAndStreamDisconnected() {
+        let coordinator = XMPPUIActionLifecycleCoordinator()
+        let owner = "alice@example.com"
+
+        guard case .start(let firstStart) = coordinator.beginOpen(owner: owner) else {
+            XCTFail("Expected first UI action open to start")
+            return
+        }
+
+        let decision = coordinator.beginPerformRequest(
+            owner: owner,
+            activePhase: nil,
+            isAuthenticated: false,
+            streamIsDisconnected: true
+        )
+
+        guard case .start(let secondStart) = decision else {
+            XCTFail("Expected disconnected stale UI action gate to start a fresh attempt")
+            return
+        }
+
+        XCTAssertEqual(secondStart.owner, owner)
+        XCTAssertNotEqual(secondStart.attemptID, firstStart.attemptID)
+        XCTAssertNil(secondStart.previousOwner)
+    }
+
+    func testStalePreparedConnectIsIgnoredAfterOwnerSwitch() {
+        let coordinator = XMPPUIActionLifecycleCoordinator()
+
+        guard case .start(let firstStart) = coordinator.beginOpen(owner: "alice@example.com") else {
+            XCTFail("Expected first UI action open to start")
+            return
+        }
+
+        guard case .start(let secondStart) = coordinator.beginOpen(owner: "bob@example.com") else {
+            XCTFail("Expected owner switch to start a new UI action attempt")
+            return
+        }
+
+        XCTAssertEqual(secondStart.previousOwner, "alice@example.com")
+        XCTAssertEqual(
+            coordinator.validatePreparedConnect(
+                owner: "alice@example.com",
+                attemptID: firstStart.attemptID,
+                jidBare: "alice@example.com",
+                resource: "\(AccountManager.defaultResource)_ui_upgrade_task"
+            ),
+            .staleAttempt
+        )
+        XCTAssertEqual(
+            coordinator.validatePreparedConnect(
+                owner: "bob@example.com",
+                attemptID: secondStart.attemptID,
+                jidBare: "bob@example.com",
+                resource: "\(AccountManager.defaultResource)_ui_upgrade_task"
+            ),
+            .proceed
+        )
+    }
+
+    func testPreparedConnectRequiresConfiguredJIDAndUIActionResource() {
+        let coordinator = XMPPUIActionLifecycleCoordinator()
+        let owner = "alice@example.com"
+
+        guard case .start(let start) = coordinator.beginOpen(owner: owner) else {
+            XCTFail("Expected first UI action open to start")
+            return
+        }
+
+        XCTAssertEqual(
+            coordinator.validatePreparedConnect(
+                owner: owner,
+                attemptID: start.attemptID,
+                jidBare: nil,
+                resource: nil
+            ),
+            .missingJID
+        )
+        XCTAssertEqual(
+            coordinator.validatePreparedConnect(
+                owner: owner,
+                attemptID: start.attemptID,
+                jidBare: owner,
+                resource: nil
+            ),
+            .missingJID
+        )
+        XCTAssertEqual(
+            coordinator.validatePreparedConnect(
+                owner: owner,
+                attemptID: start.attemptID,
+                jidBare: owner,
+                resource: AccountManager.defaultResource
+            ),
+            .missingJID
+        )
+    }
+
+    func testOwnerSwitchStartsOneFreshAttemptAndThenSkipsDuplicate() {
+        let coordinator = XMPPUIActionLifecycleCoordinator()
+
+        guard case .start(let firstStart) = coordinator.beginOpen(owner: "alice@example.com") else {
+            XCTFail("Expected first UI action open to start")
+            return
+        }
+
+        guard case .start(let secondStart) = coordinator.beginOpen(owner: "bob@example.com") else {
+            XCTFail("Expected owner switch to start")
+            return
+        }
+
+        XCTAssertEqual(secondStart.previousOwner, "alice@example.com")
+        XCTAssertNotEqual(secondStart.attemptID, firstStart.attemptID)
+        XCTAssertEqual(coordinator.currentOwner, "bob@example.com")
+
+        XCTAssertEqual(
+            coordinator.beginOpen(owner: "bob@example.com", activePhase: .connecting),
+            .skipActive(owner: "bob@example.com", phase: .connecting, activeAttemptID: secondStart.attemptID)
+        )
+    }
+}
+
+final class AccountStreamConnectPreflightTests: XCTestCase {
+
+    func testRestoreSkipsBeforeConfigurationDuringActivePrimaryPhases() {
+        let activePhases: [AccountStreamLifecyclePhase] = [
+            .connecting,
+            .tlsNegotiating,
+            .authenticating,
+            .online
+        ]
+
+        for phase in activePhases {
+            let gate = AccountStreamLifecycleGate()
+            let attemptID = move(gate, to: phase)
+
+            let decision = AccountStreamConnectPreflight.decide(
+                gate: gate,
+                trigger: .restore,
+                forceReset: false,
+                frameworkActivePhase: nil,
+                streamIsDisconnected: false
+            )
+
+            XCTAssertEqual(
+                decision,
+                .skip(phase: phase, activeAttemptID: attemptID, reason: .gateActive),
+                "Expected restore to skip before stream configuration in \(phase.rawValue)"
+            )
+            XCTAssertEqual(gate.snapshot().phase, phase)
+            XCTAssertEqual(gate.snapshot().activeAttemptID, attemptID)
+        }
+    }
+
+    func testDisconnectedFrameworkStateResetsStaleGateBeforeConfiguration() {
+        let gate = AccountStreamLifecycleGate()
+
+        guard case .start(let firstAttemptID) = gate.beginConnect(trigger: .initialLoad) else {
+            XCTFail("Expected connect to start")
+            return
+        }
+
+        let decision = AccountStreamConnectPreflight.decide(
+            gate: gate,
+            trigger: .restore,
+            forceReset: false,
+            frameworkActivePhase: nil,
+            streamIsDisconnected: true
+        )
+
+        guard case .start(let secondAttemptID, let stalePhase) = decision else {
+            XCTFail("Expected disconnected stale gate to start a new prepared connect")
+            return
+        }
+
+        XCTAssertEqual(stalePhase, .connecting)
+        XCTAssertNotEqual(firstAttemptID, secondAttemptID)
+        XCTAssertEqual(gate.snapshot().phase, .connecting)
+        XCTAssertEqual(gate.snapshot().activeAttemptID, secondAttemptID)
+    }
+
+    func testFrameworkActivePhaseSkipsBeforeConfiguration() {
+        let gate = AccountStreamLifecycleGate()
+
+        let decision = AccountStreamConnectPreflight.decide(
+            gate: gate,
+            trigger: .restore,
+            forceReset: false,
+            frameworkActivePhase: .postAuthSetup,
+            streamIsDisconnected: false
+        )
+
+        XCTAssertEqual(
+            decision,
+            .skip(phase: .postAuthSetup, activeAttemptID: nil, reason: .frameworkActive)
+        )
+        XCTAssertEqual(gate.snapshot().phase, .postAuthSetup)
+        XCTAssertNil(gate.snapshot().activeAttemptID)
+    }
+
+    private func move(_ gate: AccountStreamLifecycleGate, to phase: AccountStreamLifecyclePhase) -> UInt64 {
+        guard case .start(let attemptID) = gate.beginConnect(trigger: .initialLoad) else {
+            XCTFail("Expected connect to start")
+            return 0
+        }
+
+        switch phase {
+        case .idle, .failed:
+            XCTFail("Unexpected active phase \(phase)")
+        case .connecting:
+            break
+        case .tlsNegotiating:
+            gate.markTLSNegotiating()
+        case .authenticating:
+            gate.markTLSNegotiating()
+            gate.markAuthenticating()
+        case .binding:
+            gate.markAuthenticating()
+            gate.markBinding()
+        case .postAuthSetup:
+            gate.markAuthenticating()
+            gate.markBinding()
+            gate.markPostAuthSetup()
+        case .online:
+            gate.markAuthenticating()
+            gate.markBinding()
+            gate.markPostAuthSetup()
+            gate.markOnline()
+        case .disconnecting:
+            gate.markDisconnecting()
+        }
+
+        return attemptID
+    }
+}
+
+final class XMPPDeviceManagerRealmThreadingTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+
+    override func setUp() {
+        super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "XMPPDeviceManagerRealmThreadingTests-\(name)"
+        )
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    override func tearDown() {
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        super.tearDown()
+    }
+
+    func testUpdateMyDevicePersistsResourceFromBackgroundQueue() throws {
+        let owner = "owner-\(UUID().uuidString)@example.com"
+        let deviceId = "device-\(UUID().uuidString)"
+        let resource = "xabber-ios-background-resource"
+        let realm = try WRealm.safe()
+
+        try realm.write {
+            let account = AccountStorageItem()
+            account.jid = owner
+            account.deviceUuid = deviceId
+            realm.add(account)
+
+            let device = DeviceStorageItem()
+            device.primary = DeviceStorageItem.genPrimary(uid: deviceId, owner: owner)
+            device.owner = owner
+            device.uid = deviceId
+            realm.add(device)
+
+            let resourceItem = ResourceStorageItem()
+            resourceItem.primary = ResourceStorageItem.genPrimary(jid: owner, owner: owner, resource: resource)
+            resourceItem.owner = owner
+            resourceItem.jid = owner
+            resourceItem.resource = resource
+            realm.add(resourceItem)
+        }
+
+        let manager = XMPPDeviceManager(withOwner: owner)
+        let callbackExpectation = expectation(description: "background update callback")
+
+        DispatchQueue(label: "XMPPDeviceManagerRealmThreadingTests.callback").async {
+            manager.updateMyDevice(resource: resource)
+            callbackExpectation.fulfill()
+        }
+
+        wait(for: [callbackExpectation], timeout: 1)
+
+        XCTAssertTrue(waitUntil {
+            realm.refresh()
+            let device = realm.object(
+                ofType: DeviceStorageItem.self,
+                forPrimaryKey: DeviceStorageItem.genPrimary(uid: deviceId, owner: owner)
+            )
+            let resourceItem = realm.object(
+                ofType: ResourceStorageItem.self,
+                forPrimaryKey: ResourceStorageItem.genPrimary(jid: owner, owner: owner, resource: resource)
+            )
+            return device?.resource == resource && resourceItem?.deviceId == deviceId
+        })
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 2,
+        pollInterval: TimeInterval = 0.02,
+        condition: @escaping () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+        return condition()
+    }
+}
+
+@MainActor
+final class AccountManagerConnectingStateTests: XCTestCase {
+
+    func testMarkAsNotConnectingRemovesOnlyTargetConnectingUser() {
+        let manager = AccountManager()
+        let jid = "alice-\(UUID().uuidString)@example.com"
+        let otherJid = "bob-\(UUID().uuidString)@example.com"
+
+        manager.connectingUsers.accept([jid, otherJid])
+        manager.authenticatedUsers.accept([jid])
+
+        manager.markAsNotConnecting(jid: jid, reason: "online", clearAuthentication: false)
+
+        XCTAssertEqual(manager.connectingUsers.value, Set([otherJid]))
+        XCTAssertEqual(manager.authenticatedUsers.value, Set([jid]))
+    }
+
+    func testTerminalMarkAsNotConnectingCanClearPendingAuthenticationState() {
+        let manager = AccountManager()
+        let jid = "alice-\(UUID().uuidString)@example.com"
+
+        manager.connectingUsers.accept([jid])
+        manager.authenticatedUsers.accept([jid])
+
+        manager.markAsNotConnecting(jid: jid, reason: "disconnect", clearAuthentication: true)
+
+        XCTAssertFalse(manager.connectingUsers.value.contains(jid))
+        XCTAssertFalse(manager.authenticatedUsers.value.contains(jid))
+    }
+}
+
+final class ConnectionDiagnosticsLoggerTests: XCTestCase {
+
+    func testLineContainsCoreConnectionFieldsInStableOrder() {
+        let error = NSError(
+            domain: "kCFStreamErrorDomainNetDB",
+            code: -72000,
+            userInfo: [NSLocalizedDescriptionKey: "DNS failed"]
+        )
+
+        let line = ConnectionDiagnosticsLogger.line(
+            event: "connect start",
+            stream: .primary,
+            jid: "alice@example.com",
+            attemptID: 42,
+            trigger: .restore,
+            phase: .connecting,
+            state: "connected=false,connecting=true",
+            details: [
+                "hostMode": "manual",
+                "port": 5222
+            ],
+            error: error
+        )
+
+        XCTAssertTrue(line.hasPrefix("CONNECTION_DIAGNOSTICS event=\"connect start\" stream=primary jid=alice@example.com attempt=42 trigger=restore phase=connecting"))
+        XCTAssertTrue(line.contains("state=\"connected=false,connecting=true\""))
+        XCTAssertTrue(line.contains("errorDomain=kCFStreamErrorDomainNetDB"))
+        XCTAssertTrue(line.contains("errorCode=-72000"))
+        XCTAssertTrue(line.contains("errorDescription=\"DNS failed\""))
+        XCTAssertTrue(line.contains("hostMode=manual"))
+        XCTAssertTrue(line.contains("port=5222"))
+    }
+
+    func testLineContainsTimingAndExecutionContextFields() {
+        let line = ConnectionDiagnosticsLogger.line(
+            event: "tls_delegate_callback_entered",
+            stream: .primary,
+            jid: "alice@example.com",
+            attemptID: 7,
+            phase: .tlsNegotiating,
+            timing: ConnectionDiagnosticsTiming(elapsedMs: 1234, deltaMs: 56),
+            executionContext: ConnectionDiagnosticsExecutionContext(
+                thread: "main",
+                queue: "com.xabber.account"
+            )
+        )
+
+        XCTAssertTrue(line.contains("elapsedMs=1234"))
+        XCTAssertTrue(line.contains("deltaMs=56"))
+        XCTAssertTrue(line.contains("thread=main"))
+        XCTAssertTrue(line.contains("queue=com.xabber.account"))
+    }
+
+    func testAttemptTimelineIncreasesDeltasAndResetsByAttempt() {
+        let timeline = ConnectionDiagnosticsTimeline()
+
+        let first = timeline.record(
+            stream: .primary,
+            jid: "alice@example.com",
+            attemptID: 1,
+            now: 100
+        )
+        let second = timeline.record(
+            stream: .primary,
+            jid: "alice@example.com",
+            attemptID: 1,
+            now: 101.25
+        )
+        let newAttempt = timeline.record(
+            stream: .primary,
+            jid: "alice@example.com",
+            attemptID: 2,
+            now: 200
+        )
+
+        XCTAssertEqual(first, ConnectionDiagnosticsTiming(elapsedMs: 0, deltaMs: nil))
+        XCTAssertEqual(second, ConnectionDiagnosticsTiming(elapsedMs: 1250, deltaMs: 1250))
+        XCTAssertEqual(newAttempt, ConnectionDiagnosticsTiming(elapsedMs: 0, deltaMs: nil))
+    }
+
+    func testRawXMLRedactionRemovesCredentialMaterial() {
+        let xml = """
+        <auth xmlns="urn:ietf:params:xml:ns:xmpp-sasl">secret-auth</auth>
+        <response xmlns="urn:ietf:params:xml:ns:xmpp-sasl">secret-response</response>
+        <iq type="result">
+          <device>
+            <secret>device-secret-value</secret>
+            <validation-key>validation-key-value</validation-key>
+          </device>
+          <encryption-key>push-key-value</encryption-key>
+          <token>token-value</token>
+          <password>password-value</password>
+          <item jwt="jwt-value" authorization="Bearer raw-token" />
+        </iq>
+        """
+
+        let redacted = ConnectionDiagnosticsLogger.redact(xml)
+
+        XCTAssertFalse(redacted.contains("secret-auth"))
+        XCTAssertFalse(redacted.contains("secret-response"))
+        XCTAssertFalse(redacted.contains("device-secret-value"))
+        XCTAssertFalse(redacted.contains("validation-key-value"))
+        XCTAssertFalse(redacted.contains("push-key-value"))
+        XCTAssertFalse(redacted.contains("token-value"))
+        XCTAssertFalse(redacted.contains("password-value"))
+        XCTAssertFalse(redacted.contains("jwt-value"))
+        XCTAssertFalse(redacted.contains("raw-token"))
+        XCTAssertTrue(redacted.contains(ConnectionDiagnosticsLogger.redactedValue))
+    }
+
+    func testRawXMLRedactionHandlesCredentialAttributeNameVariants() {
+        let xml = """
+        <iq device-secret="device-secret-value"
+            device_secret='device-secret-underscore-value'
+            deviceSecret="device-secret-camel-value"
+            xabberDeviceSecret="xabber-device-secret-value"
+            validation_key="validation-key-underscore-value"
+            validationKey="validation-key-camel-value"
+            encryption_key="encryption-key-underscore-value"
+            encryptionKey="encryption-key-camel-value"
+            accessToken="access-token-camel-value"
+            refreshToken="refresh-token-camel-value" />
+        """
+
+        let redacted = ConnectionDiagnosticsLogger.redact(xml)
+
+        XCTAssertFalse(redacted.contains("device-secret-value"))
+        XCTAssertFalse(redacted.contains("device-secret-underscore-value"))
+        XCTAssertFalse(redacted.contains("device-secret-camel-value"))
+        XCTAssertFalse(redacted.contains("xabber-device-secret-value"))
+        XCTAssertFalse(redacted.contains("validation-key-underscore-value"))
+        XCTAssertFalse(redacted.contains("validation-key-camel-value"))
+        XCTAssertFalse(redacted.contains("encryption-key-underscore-value"))
+        XCTAssertFalse(redacted.contains("encryption-key-camel-value"))
+        XCTAssertFalse(redacted.contains("access-token-camel-value"))
+        XCTAssertFalse(redacted.contains("refresh-token-camel-value"))
+        XCTAssertTrue(redacted.contains("device-secret=\"\(ConnectionDiagnosticsLogger.redactedValue)\""))
+        XCTAssertTrue(redacted.contains("device_secret='\(ConnectionDiagnosticsLogger.redactedValue)'"))
+        XCTAssertTrue(redacted.contains("deviceSecret=\"\(ConnectionDiagnosticsLogger.redactedValue)\""))
+    }
+
+    func testFormatterCoversLifecycleTcpReconnectAndAccountStateEvents() {
+        let lifecycle = ConnectionDiagnosticsLogger.line(
+            event: "xmpp_stream_features",
+            stream: .primary,
+            jid: "alice@example.com",
+            phase: .tlsNegotiating,
+            details: [
+                "startTLS": true,
+                "bind": false
+            ],
+            rawXML: "<features><starttls /></features>",
+            includeRawXML: true
+        )
+        let tcp = ConnectionDiagnosticsLogger.line(
+            event: "tcp_socket_connected",
+            stream: .background,
+            jid: "alice@example.com",
+            details: [
+                "connectedHost": "xmpp.example.com",
+                "connectedPort": 5222
+            ]
+        )
+        let reconnect = ConnectionDiagnosticsLogger.line(
+            event: "reconnect_allowed",
+            stream: .primary,
+            jid: "alice@example.com",
+            trigger: .xmppReconnect,
+            details: ["flags": "reachable"]
+        )
+        let accountState = ConnectionDiagnosticsLogger.line(
+            event: "account_manager_mark_connecting",
+            stream: .primary,
+            jid: "alice@example.com",
+            details: [
+                "set": "connectingUsers",
+                "wasPresent": false,
+                "count": 1
+            ]
+        )
+
+        XCTAssertTrue(lifecycle.contains("event=xmpp_stream_features"))
+        XCTAssertTrue(lifecycle.contains("phase=tlsNegotiating"))
+        XCTAssertTrue(lifecycle.contains("xml=\"<features><starttls /></features>\""))
+        XCTAssertTrue(tcp.contains("event=tcp_socket_connected"))
+        XCTAssertTrue(tcp.contains("connectedHost=xmpp.example.com"))
+        XCTAssertTrue(tcp.contains("connectedPort=5222"))
+        XCTAssertTrue(reconnect.contains("event=reconnect_allowed"))
+        XCTAssertTrue(reconnect.contains("trigger=xmppReconnect"))
+        XCTAssertTrue(accountState.contains("event=account_manager_mark_connecting"))
+        XCTAssertTrue(accountState.contains("set=connectingUsers"))
+        XCTAssertTrue(accountState.contains("wasPresent=false"))
+    }
+
+    func testRawXMLLineUsesRedactedPayloadWhenEnabled() {
+        let line = ConnectionDiagnosticsLogger.line(
+            event: "stanza_receive",
+            stream: .uiAction,
+            jid: "alice@example.com",
+            rawXML: "<message><body>Hello</body><token>token-value</token></message>",
+            includeRawXML: true
+        )
+
+        XCTAssertTrue(line.contains("xml=\"<message><body>Hello</body><token>[redacted]</token></message>\""))
+        XCTAssertFalse(line.contains("token-value"))
+    }
+
+    func testRawXMLLineOmitsPayloadWhenDisabled() {
+        let line = ConnectionDiagnosticsLogger.line(
+            event: "stanza_receive",
+            stream: .primary,
+            jid: "alice@example.com",
+            rawXML: "<message><body>Hello</body></message>",
+            includeRawXML: false
+        )
+
+        XCTAssertFalse(line.contains("xml="))
+    }
+}
+
+final class SensitiveMediaAnalysisStartupSchedulerTests: XCTestCase {
+
+    func testPrepareForLaunchDefersScanUntilAccountOnline() {
+        var scanCount = 0
+        let scheduler = SensitiveMediaAnalysisStartupScheduler {
+            scanCount += 1
+        }
+
+        scheduler.prepareForLaunch()
+
+        XCTAssertEqual(scanCount, 0)
+
+        scheduler.accountDidReachOnline(jid: "alice@example.com")
+
+        XCTAssertEqual(scanCount, 1)
+    }
+
+    func testRepeatedOnlineEventsRunDeferredScanOnce() {
+        var scanCount = 0
+        let scheduler = SensitiveMediaAnalysisStartupScheduler {
+            scanCount += 1
+        }
+
+        scheduler.prepareForLaunch()
+        scheduler.accountDidReachOnline(jid: "alice@example.com")
+        scheduler.accountDidReachOnline(jid: "bob@example.com")
+        scheduler.accountDidReachOnline(jid: "alice@example.com")
+
+        XCTAssertEqual(scanCount, 1)
+    }
+
+    func testPrepareRunsScanWhenAccountIsAlreadyOnline() {
+        var scanCount = 0
+        let scheduler = SensitiveMediaAnalysisStartupScheduler {
+            scanCount += 1
+        }
+
+        scheduler.accountDidReachOnline(jid: "alice@example.com")
+
+        XCTAssertEqual(scanCount, 0)
+
+        scheduler.prepareForLaunch()
+
+        XCTAssertEqual(scanCount, 1)
     }
 }
 
@@ -3998,6 +5011,231 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
     }
 }
 
+final class ChatMessageUpdatePolicyTests: XCTestCase {
+    private func makeDatasource(
+        primary: String = "message-1",
+        text: String = "Hello",
+        state: MessageStorageItem.MessageSendingState = .sending,
+        indicator: IndicatorType = .sending,
+        editDate: Date? = nil,
+        images: [ImageAttachment] = [],
+        videos: [VideoAttachment] = [],
+        files: [FileAttachment] = [],
+        audios: [AudioAttachment] = [],
+        forwards: [MessageAttachment] = [],
+        archivedId: String? = "archived-1",
+        sentDate: Date = Date(timeIntervalSince1970: 100),
+        timeMarkerText: NSAttributedString = NSAttributedString(string: "12:00")
+    ) -> ChatViewController.Datasource {
+        ChatViewController.Datasource(
+            primary: primary,
+            jid: "romeo@example.com",
+            owner: "owner@example.com",
+            outgoing: true,
+            sender: Sender(id: "owner@example.com", displayName: "Owner"),
+            messageId: "\(primary)-message-id",
+            sentDate: sentDate,
+            editDate: editDate,
+            kind: .attributedText(NSAttributedString(string: text)),
+            withAuthor: false,
+            withAvatar: false,
+            error: state == .error,
+            errorType: "",
+            canPinMessage: false,
+            canEditMessage: true,
+            canDeleteMessage: true,
+            forwards: forwards,
+            isOutgoing: true,
+            isEdited: editDate != nil,
+            groupchatAuthorRole: "",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isHasAttachedMessages: false,
+            isDownloaded: true,
+            state: state,
+            searchString: nil,
+            errorMetadata: nil,
+            burnDate: -1,
+            afterburnInterval: -1,
+            archivedId: archivedId,
+            queryIds: nil,
+            isRead: true,
+            selectedSearchResultId: nil,
+            isHadHistoryGap: false,
+            tailed: false,
+            isFakeMessage: false,
+            images: images,
+            videos: videos,
+            files: files,
+            audios: audios,
+            timeMarkerText: timeMarkerText,
+            indicator: indicator,
+            avatarUrl: nil,
+            attributedAuthor: nil
+        )
+    }
+
+    private func diff(
+        old oldItems: [ChatViewController.Datasource],
+        new newItems: [ChatViewController.Datasource],
+        oldSize: CGSize = CGSize(width: 320, height: 44),
+        newSize: CGSize = CGSize(width: 320, height: 44)
+    ) -> ChatDatasourceCoordinator.DiffResult {
+        ChatDatasourceCoordinator.diff(
+            old: ChatDatasourceCoordinator.makeSnapshot(items: oldItems),
+            new: ChatDatasourceCoordinator.makeSnapshot(items: newItems),
+            oldSizeProvider: { _ in oldSize },
+            newSizeProvider: { _ in newSize }
+        )
+    }
+
+    func testDeliveryStatusChangeWithUnchangedSizeChoosesContentOnlyUpdate() {
+        let old = makeDatasource(state: .sending, indicator: .sending)
+        let new = makeDatasource(state: .read, indicator: .read)
+
+        let result = diff(old: [old], new: [new])
+
+        XCTAssertEqual(result.contentOnlyUpdates.map(\.primary), ["message-1"])
+        XCTAssertTrue(result.reloads.isEmpty)
+        XCTAssertTrue(result.inserts.isEmpty)
+        XCTAssertTrue(result.deletes.isEmpty)
+    }
+
+    func testNonNoneIndicatorSwapStaysContentOnlyButNoneIndicatorTransitionAffectsLayout() {
+        let sending = makeDatasource(state: .sending, indicator: .sending)
+        let read = makeDatasource(state: .read, indicator: .read)
+        let noIndicator = makeDatasource(state: .none, indicator: .none)
+
+        let nonNoneSwap = diff(old: [sending], new: [read])
+        let noneTransition = diff(old: [noIndicator], new: [sending])
+
+        XCTAssertEqual(nonNoneSwap.contentOnlyUpdates.map(\.primary), ["message-1"])
+        XCTAssertTrue(nonNoneSwap.reloads.isEmpty)
+        XCTAssertTrue(noneTransition.contentOnlyUpdates.isEmpty)
+        XCTAssertEqual(noneTransition.reloads, [IndexPath(item: 0, section: 0)])
+    }
+
+    func testEditedTextWithUnchangedMeasuredSizeChoosesContentOnlyUpdate() {
+        let old = makeDatasource(text: "Hello world")
+        let new = makeDatasource(
+            text: "Hallo world",
+            editDate: Date(timeIntervalSince1970: 200),
+            timeMarkerText: NSAttributedString(string: "12:00 edited")
+        )
+
+        let result = diff(old: [old], new: [new])
+
+        XCTAssertEqual(result.contentOnlyUpdates.map(\.primary), ["message-1"])
+        XCTAssertTrue(result.reloads.isEmpty)
+    }
+
+    func testEditedTextWithChangedMeasuredSizeInvalidatesLayout() {
+        let old = makeDatasource(text: "Short")
+        let new = makeDatasource(text: "A much longer edited message")
+
+        let result = diff(
+            old: [old],
+            new: [new],
+            oldSize: CGSize(width: 320, height: 44),
+            newSize: CGSize(width: 320, height: 88)
+        )
+
+        XCTAssertTrue(result.contentOnlyUpdates.isEmpty)
+        XCTAssertEqual(result.reloads, [IndexPath(item: 0, section: 0)])
+    }
+
+    func testAttachmentIdentityOrCountChangeInvalidatesLayout() {
+        let firstAudio = AudioAttachment(
+            primary: "audio-1",
+            url: URL(string: "file:///audio-1.ogg"),
+            size: 1,
+            name: "voice",
+            duration: 1,
+            downloaded: true,
+            pcm: [0.2]
+        )
+        let secondAudio = AudioAttachment(
+            primary: "audio-2",
+            url: URL(string: "file:///audio-2.ogg"),
+            size: 1,
+            name: "voice",
+            duration: 1,
+            downloaded: true,
+            pcm: [0.3]
+        )
+        let old = makeDatasource(audios: [firstAudio])
+        let new = makeDatasource(audios: [firstAudio, secondAudio])
+
+        let result = diff(old: [old], new: [new])
+
+        XCTAssertTrue(result.contentOnlyUpdates.isEmpty)
+        XCTAssertEqual(result.reloads, [IndexPath(item: 0, section: 0)])
+    }
+
+    func testInsertDeleteMoveStayStructuralWhenKeysAreUnique() {
+        let first = makeDatasource(primary: "first", archivedId: "a1")
+        let second = makeDatasource(primary: "second", archivedId: "a2")
+        let third = makeDatasource(primary: "third", archivedId: "a3")
+
+        let result = diff(old: [first, third], new: [third, first, second])
+
+        XCTAssertFalse(result.inserts.isEmpty)
+        XCTAssertFalse(result.moves.isEmpty)
+        XCTAssertTrue(result.contentOnlyUpdates.isEmpty)
+        XCTAssertFalse(
+            ChatMessageUpdatePolicy.shouldUseReloadFallback(
+                old: ChatDatasourceCoordinator.makeSnapshot(items: [first, third]),
+                new: ChatDatasourceCoordinator.makeSnapshot(items: [third, first, second])
+            )
+        )
+    }
+
+    func testDuplicateKeysChooseReloadFallback() {
+        let first = makeDatasource(primary: "duplicate", archivedId: "a1")
+        let second = makeDatasource(primary: "duplicate", archivedId: "a2")
+        let snapshot = ChatDatasourceCoordinator.makeSnapshot(items: [first, second])
+
+        XCTAssertTrue(
+            ChatMessageUpdatePolicy.shouldUseReloadFallback(old: snapshot, new: snapshot)
+        )
+    }
+}
+
+final class InlineAudiosGridViewContentUpdateTests: XCTestCase {
+    func testSamePrimaryAudioUpdateReusesExistingAudioView() {
+        let grid = InlineAudiosGridView(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
+        let original = AudioAttachment(
+            primary: "audio-1",
+            url: URL(string: "file:///original.ogg"),
+            size: 1,
+            name: "voice",
+            duration: 1,
+            downloaded: true,
+            pcm: [0.2]
+        )
+        let updated = AudioAttachment(
+            primary: "audio-1",
+            url: URL(string: "file:///updated.ogg"),
+            size: 1,
+            name: "voice",
+            duration: 2,
+            downloaded: true,
+            pcm: [0.5, 0.6]
+        )
+
+        grid.configure([original], palette: .blue)
+        let initialView = grid.views.first
+
+        grid.updateContent([updated], palette: .blue)
+
+        XCTAssertTrue(grid.views.first === initialView)
+        XCTAssertEqual(grid.views.first?.url, updated.url)
+        XCTAssertEqual(grid.views.first?.duration, updated.duration)
+        XCTAssertEqual(grid.views.first?.primary, updated.primary)
+    }
+}
+
 private struct SensitiveMediaAnalysisTestError: Error, LocalizedError {
     var errorDescription: String? {
         return "analysis failed"
@@ -4257,6 +5495,30 @@ final class SensitiveMediaAnalysisServiceTests: XCTestCase {
         _ = await (first, second)
 
         XCTAssertEqual(analyzer.imageFileCallCount, 1)
+    }
+
+    func testStartupScanPrimaryKeysAreDetachedFromRealmResults() throws {
+        _ = try insertMediaReference(primary: "pending-startup-scan", mimeType: "image/jpeg", mediaType: "image", fileExtension: "jpg")
+        let checkedPrimary = try insertMediaReference(primary: "checked-startup-scan", mimeType: "image/jpeg", mediaType: "image", fileExtension: "jpg")
+        let sensitivePrimary = try insertMediaReference(primary: "sensitive-startup-scan", mimeType: "image/jpeg", mediaType: "image", fileExtension: "jpg", isSensitive: true)
+        let realm = try WRealm.safe()
+
+        try realm.write {
+            realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: checkedPrimary)?.isSensitiveChecked = true
+            realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: sensitivePrimary)?.isSensitiveChecked = false
+        }
+
+        let primaryKeys = MessageReferenceStorageItem.pendingSensitiveAnalysisPrimaryKeys(in: realm)
+        let detachedIteration = expectation(description: "detached primary key iteration")
+        var detachedPrimaryKeys: [String] = []
+
+        DispatchQueue(label: "SensitiveMediaAnalysisServiceTests.detached-keys").async {
+            detachedPrimaryKeys = primaryKeys.map { $0 }
+            detachedIteration.fulfill()
+        }
+
+        wait(for: [detachedIteration], timeout: 1)
+        XCTAssertEqual(detachedPrimaryKeys, ["pending-startup-scan"])
     }
 
     private func insertMediaReference(
@@ -5877,10 +7139,82 @@ final class ChatObserverLookupPolicyTests: XCTestCase {
 
 final class ChatMessageAnchorPolicyTests: XCTestCase {
 
+    private func makeDatasource(
+        primary: String = "message-1",
+        archivedId: String? = "archived-1",
+        messageId: String = "message-id-1",
+        kind: MessageKind = .attributedText(NSAttributedString(string: "Hello")),
+        isFakeMessage: Bool = false
+    ) -> ChatViewController.Datasource {
+        ChatViewController.Datasource(
+            primary: primary,
+            jid: "group@xabber.example",
+            owner: "owner@example.com",
+            outgoing: false,
+            sender: Sender(id: "sender@example.com", displayName: "Sender"),
+            messageId: messageId,
+            sentDate: Date(timeIntervalSince1970: 1_700_000_000),
+            editDate: nil,
+            kind: kind,
+            withAuthor: false,
+            withAvatar: false,
+            error: false,
+            errorType: "",
+            canPinMessage: true,
+            canEditMessage: false,
+            canDeleteMessage: true,
+            forwards: [],
+            isOutgoing: false,
+            isEdited: false,
+            groupchatAuthorRole: "",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isHasAttachedMessages: false,
+            isDownloaded: true,
+            state: .read,
+            searchString: nil,
+            errorMetadata: nil,
+            burnDate: -1,
+            afterburnInterval: -1,
+            archivedId: archivedId,
+            queryIds: nil,
+            isRead: true,
+            selectedSearchResultId: nil,
+            isHadHistoryGap: false,
+            tailed: false,
+            isFakeMessage: isFakeMessage,
+            images: [],
+            videos: [],
+            files: [],
+            audios: [],
+            timeMarkerText: NSAttributedString(string: "12:00"),
+            indicator: .read,
+            avatarUrl: nil,
+            attributedAuthor: nil
+        )
+    }
+
+    private func makeAnchor(
+        messagePrimary: String? = nil,
+        archivedId: String? = nil,
+        messageId: String? = nil
+    ) -> ChatMessageAnchorRef {
+        ChatMessageAnchorRef(
+            messagePrimary: messagePrimary,
+            archivedId: archivedId,
+            messageId: messageId,
+            authorId: nil,
+            bodyFingerprint: nil,
+            sourceDate: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+    }
+
     private func makeRequest(
         archivedId: String? = "archived-42",
         messageId: String? = "message-42",
-        sourceDate: Date = Date(timeIntervalSince1970: 1_700_000_000)
+        sourceDate: Date = Date(timeIntervalSince1970: 1_700_000_000),
+        source: ChatOpenMessageRequestSource = .mentionNotification
     ) -> ChatOpenMessageRequest {
         ChatOpenMessageRequest(
             chatJid: "group@xabber.example",
@@ -5896,8 +7230,255 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             ),
             highlight: false,
             markReadOnVisible: false,
-            source: .mentionNotification
+            source: source
         )
+    }
+
+    func testLoadedMessageLookupMatchesPrimaryBeforeOtherAnchorIds() {
+        let items = [
+            makeDatasource(primary: "first", archivedId: "archived-match", messageId: "message-match"),
+            makeDatasource(primary: "primary-match", archivedId: "other-archived", messageId: "other-message")
+        ]
+
+        let result = ChatLoadedMessageNavigationPolicy.index(
+            in: items,
+            for: makeAnchor(messagePrimary: "primary-match", archivedId: "archived-match", messageId: "message-match")
+        )
+
+        XCTAssertEqual(result, 1)
+    }
+
+    func testLoadedMessageLookupMatchesArchivedIdAndMessageIdInDatasourceOnly() {
+        let items = [
+            makeDatasource(primary: "first", archivedId: "archived-1", messageId: "message-1"),
+            makeDatasource(primary: "second", archivedId: "archived-2", messageId: "message-2")
+        ]
+
+        XCTAssertEqual(
+            ChatLoadedMessageNavigationPolicy.index(in: items, for: makeAnchor(archivedId: "archived-2")),
+            1
+        )
+        XCTAssertEqual(
+            ChatLoadedMessageNavigationPolicy.index(in: items, for: makeAnchor(messageId: "message-1")),
+            0
+        )
+    }
+
+    func testLoadedMessageLookupIgnoresNonAnchorRows() {
+        let dateRow = makeDatasource(
+            primary: "date-row",
+            archivedId: "archived-target",
+            messageId: "message-target",
+            kind: .date(NSAttributedString(string: "Today")),
+            isFakeMessage: true
+        )
+        let unreadRow = makeDatasource(
+            primary: "unread-row",
+            archivedId: "unread-archived",
+            messageId: "unread-message",
+            kind: .unread(NSAttributedString(string: "Unread")),
+            isFakeMessage: true
+        )
+        let realRow = makeDatasource(
+            primary: "real-row",
+            archivedId: "real-archived",
+            messageId: "real-message"
+        )
+
+        XCTAssertNil(
+            ChatLoadedMessageNavigationPolicy.index(in: [dateRow, unreadRow, realRow], for: makeAnchor(archivedId: "archived-target", messageId: "message-target"))
+        )
+        XCTAssertEqual(
+            ChatLoadedMessageNavigationPolicy.index(in: [dateRow, unreadRow, realRow], for: makeAnchor(messagePrimary: "real-row")),
+            2
+        )
+    }
+
+    func testForwardPreviewLoadedTargetUsesEarliestDisplayedAttachedMessage() {
+        let items = [
+            makeDatasource(primary: "older-visible", archivedId: "archived-1", messageId: "message-1"),
+            makeDatasource(primary: "newer-visible", archivedId: "archived-2", messageId: "message-2")
+        ]
+
+        XCTAssertEqual(
+            ChatForwardPreviewNavigationPolicy.loadedTargetIndex(
+                in: items,
+                attachedMessageIds: ["newer-visible", "older-visible"]
+            ),
+            0
+        )
+    }
+
+    func testForwardPreviewLoadedTargetIgnoresFakeRowsAndMissesExternalForwards() {
+        let fakeRow = makeDatasource(
+            primary: "selected-fake",
+            archivedId: "archived-fake",
+            messageId: "message-fake",
+            kind: .skeleton(NSAttributedString(string: "")),
+            isFakeMessage: true
+        )
+        let visibleRow = makeDatasource(primary: "visible", archivedId: "archived-visible", messageId: "message-visible")
+
+        XCTAssertNil(
+            ChatForwardPreviewNavigationPolicy.loadedTargetIndex(
+                in: [fakeRow, visibleRow],
+                attachedMessageIds: ["external-forward"]
+            )
+        )
+        XCTAssertNil(
+            ChatForwardPreviewNavigationPolicy.loadedTargetIndex(
+                in: [fakeRow, visibleRow],
+                attachedMessageIds: ["selected-fake"]
+            )
+        )
+    }
+
+    func testEditPreviewLoadedTargetUsesDisplayedEditedMessage() {
+        let items = [
+            makeDatasource(primary: "other-visible", archivedId: "archived-1", messageId: "message-1"),
+            makeDatasource(primary: "edited-visible", archivedId: "archived-2", messageId: "message-2")
+        ]
+
+        XCTAssertEqual(
+            ChatEditPreviewNavigationPolicy.loadedTargetIndex(
+                in: items,
+                editMessageId: "edited-visible"
+            ),
+            1
+        )
+    }
+
+    func testEditPreviewLoadedTargetIgnoresFakeRows() {
+        let fakeRow = makeDatasource(
+            primary: "edited-message",
+            archivedId: "archived-fake",
+            messageId: "message-fake",
+            kind: .skeleton(NSAttributedString(string: "")),
+            isFakeMessage: true
+        )
+        let visibleRow = makeDatasource(primary: "visible", archivedId: "archived-visible", messageId: "message-visible")
+
+        XCTAssertNil(
+            ChatEditPreviewNavigationPolicy.loadedTargetIndex(
+                in: [fakeRow, visibleRow],
+                editMessageId: "edited-message"
+            )
+        )
+    }
+
+    func testComposerPreviewSourcesUseTransientHighlight() {
+        XCTAssertTrue(ChatOpenMessageRequestSource.composerReferencePreview.usesTransientHighlight)
+        XCTAssertTrue(ChatOpenMessageRequestSource.composerEditPreview.usesTransientHighlight)
+        XCTAssertTrue(ChatOpenMessageRequestSource.voicePlayer.usesTransientHighlight)
+        XCTAssertTrue(ChatOpenMessageRequestSource.pinnedMessage.usesTransientHighlight)
+        XCTAssertFalse(ChatOpenMessageRequestSource.search.usesTransientHighlight)
+    }
+
+    func testLoadedPinnedMessageLookupResolvesBeforeAnchorExecution() {
+        let items = [
+            makeDatasource(primary: "visible", archivedId: "pinned-archived", messageId: "pinned-message")
+        ]
+        let anchor = makeAnchor(archivedId: "pinned-archived", messageId: "pinned-message")
+        let loadedIndex = ChatLoadedMessageNavigationPolicy.index(in: items, for: anchor)
+        var state = ChatAnchorExecutionState(
+            request: makeRequest(
+                archivedId: "pinned-archived",
+                messageId: "pinned-message",
+                source: .pinnedMessage
+            )
+        )
+        state.lastAttemptedRemotePlan = nil
+
+        let action = ChatAnchorExecutionPolicy.resumeAction(
+            state: state,
+            hasLocalMatch: loadedIndex != nil,
+            trigger: .manual,
+            pageSize: ChatHistoryPagingConfiguration.pageSize
+        )
+
+        XCTAssertEqual(loadedIndex, 0)
+        XCTAssertEqual(action, .resolveLocally)
+    }
+
+    func testLoadedMessageLookupMissFallsBackToAnchorExecutionPolicy() {
+        var state = ChatAnchorExecutionState(request: makeRequest())
+        state.lastAttemptedRemotePlan = nil
+
+        let loadedIndex = ChatLoadedMessageNavigationPolicy.index(
+            in: [makeDatasource(primary: "visible", archivedId: "visible-archived", messageId: "visible-message")],
+            for: makeAnchor(archivedId: "missing-archived", messageId: "missing-message")
+        )
+        let action = ChatAnchorExecutionPolicy.resumeAction(
+            state: state,
+            hasLocalMatch: loadedIndex != nil,
+            trigger: .manual,
+            pageSize: ChatHistoryPagingConfiguration.pageSize
+        )
+
+        XCTAssertNil(loadedIndex)
+        XCTAssertEqual(
+            action,
+            ChatAnchorExecutionAction.startRemoteFetch(
+                ChatAnchorRemoteFetchPlan.exactArchivedId("archived-42")
+            )
+        )
+    }
+
+    func testPinnedMessageLookupMissFallsBackToAnchorExecutionPolicy() {
+        var state = ChatAnchorExecutionState(
+            request: makeRequest(
+                archivedId: "missing-pinned-archived",
+                messageId: "missing-pinned-message",
+                source: .pinnedMessage
+            )
+        )
+        state.lastAttemptedRemotePlan = nil
+
+        let loadedIndex = ChatLoadedMessageNavigationPolicy.index(
+            in: [makeDatasource(primary: "visible", archivedId: "visible-archived", messageId: "visible-message")],
+            for: makeAnchor(archivedId: "missing-pinned-archived", messageId: "missing-pinned-message")
+        )
+        let action = ChatAnchorExecutionPolicy.resumeAction(
+            state: state,
+            hasLocalMatch: loadedIndex != nil,
+            trigger: .manual,
+            pageSize: ChatHistoryPagingConfiguration.pageSize
+        )
+
+        XCTAssertNil(loadedIndex)
+        XCTAssertEqual(
+            action,
+            ChatAnchorExecutionAction.startRemoteFetch(
+                ChatAnchorRemoteFetchPlan.exactArchivedId("missing-pinned-archived")
+            )
+        )
+    }
+
+    @MainActor
+    func testChatViewControllerLoadedMessageHelpersUseDisplayedDatasource() {
+        let controller = ChatViewController()
+        controller.datasource = [
+            makeDatasource(primary: "visible-1", archivedId: "archived-1", messageId: "message-1"),
+            makeDatasource(primary: "visible-2", archivedId: "archived-2", messageId: "message-2")
+        ]
+
+        let anchor = makeAnchor(messagePrimary: "visible-2", archivedId: "archived-1", messageId: "message-1")
+
+        XCTAssertTrue(controller.containsLoadedMessage(anchor: anchor))
+        XCTAssertEqual(controller.indexPathForLoadedMessage(anchor: anchor), IndexPath(row: 0, section: 1))
+    }
+
+    @MainActor
+    func testChatViewControllerLoadedMessageHelpersMissWhenOnlyObserverCouldMatch() {
+        let controller = ChatViewController()
+        controller.datasource = [
+            makeDatasource(primary: "visible", archivedId: "visible-archived", messageId: "visible-message")
+        ]
+
+        let anchor = makeAnchor(archivedId: "observer-only-archived", messageId: "observer-only-message")
+
+        XCTAssertFalse(controller.containsLoadedMessage(anchor: anchor))
+        XCTAssertNil(controller.indexPathForLoadedMessage(anchor: anchor))
     }
 
     func testAnchorFetchPolicyPrefersExactArchivedIdWhenAvailable() {
@@ -8310,6 +9891,422 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
 }
 
 @MainActor
+final class LastChatsSkeletonCellLayoutTests: XCTestCase {
+    func testSkeletonContentStaysInsideNarrowSidebarWidth() {
+        let cell = makeCell(width: 260)
+
+        assertSkeletonViewsAreHostedByContentView(cell)
+        assertSkeletonFramesStayInsideContentView(cell)
+        assertTextBarsRespectTrailingLayoutMargin(cell)
+        XCTAssertTrue(cell.contentView.clipsToBounds)
+    }
+
+    func testSkeletonContentStaysInsideRegularPhoneWidth() {
+        let cell = makeCell(width: 390)
+
+        assertSkeletonFramesStayInsideContentView(cell)
+        assertTextBarsRespectTrailingLayoutMargin(cell)
+    }
+
+    func testSkeletonContentStaysInsideWideSidebarWidth() {
+        let cell = makeCell(width: 512)
+
+        assertSkeletonFramesStayInsideContentView(cell)
+        assertTextBarsRespectTrailingLayoutMargin(cell)
+    }
+
+    func testSkeletonLayoutUpdatesAfterWidthChange() {
+        let cell = makeCell(width: 512)
+
+        cell.frame = CGRect(x: 0, y: 0, width: 280, height: 84)
+        layout(cell)
+
+        assertSkeletonFramesStayInsideContentView(cell)
+        assertTextBarsRespectTrailingLayoutMargin(cell)
+    }
+
+    func testPrepareForReuseStopsAnimationsAndAllowsRestart() {
+        let cell = makeCell(width: 390)
+
+        cell.animate()
+        XCTAssertTrue(cell.isAnimationsStart)
+        XCTAssertNotNil(cell.avatarView.gradientLayer)
+        XCTAssertFalse(cell.avatarView.gradientLayer?.animationKeys()?.isEmpty ?? true)
+
+        cell.prepareForReuse()
+
+        XCTAssertFalse(cell.isAnimationsStart)
+        XCTAssertNil(cell.avatarView.gradientLayer)
+        XCTAssertNil(cell.usernameView.gradientLayer)
+        XCTAssertNil(cell.messageView.gradientLayer)
+
+        cell.animate()
+
+        XCTAssertTrue(cell.isAnimationsStart)
+        XCTAssertNotNil(cell.avatarView.gradientLayer)
+    }
+
+    private func makeCell(width: CGFloat) -> LastChatsViewController.SkeletonCell {
+        let cell = LastChatsViewController.SkeletonCell(
+            style: .default,
+            reuseIdentifier: LastChatsViewController.SkeletonCell.cellName
+        )
+        cell.frame = CGRect(x: 0, y: 0, width: width, height: 84)
+        layout(cell)
+        return cell
+    }
+
+    private func layout(_ cell: LastChatsViewController.SkeletonCell) {
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+        cell.contentView.setNeedsLayout()
+        cell.contentView.layoutIfNeeded()
+    }
+
+    private func assertSkeletonViewsAreHostedByContentView(
+        _ cell: LastChatsViewController.SkeletonCell,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(cell.userImageView.isDescendant(of: cell.contentView), file: file, line: line)
+        XCTAssertTrue(cell.avatarView.isDescendant(of: cell.contentView), file: file, line: line)
+        XCTAssertTrue(cell.usernameView.isDescendant(of: cell.contentView), file: file, line: line)
+        XCTAssertTrue(cell.messageView.isDescendant(of: cell.contentView), file: file, line: line)
+    }
+
+    private func assertSkeletonFramesStayInsideContentView(
+        _ cell: LastChatsViewController.SkeletonCell,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let allowedBounds = cell.contentView.bounds.insetBy(dx: -0.5, dy: -0.5)
+        [
+            ("avatar container", cell.userImageView),
+            ("avatar", cell.avatarView),
+            ("title bar", cell.usernameView),
+            ("subtitle bar", cell.messageView)
+        ].forEach { name, view in
+            let frame = view.convert(view.bounds, to: cell.contentView)
+            XCTAssertTrue(
+                allowedBounds.contains(frame),
+                "Expected \(name) frame \(frame) to stay inside contentView bounds \(cell.contentView.bounds)",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func assertTextBarsRespectTrailingLayoutMargin(
+        _ cell: LastChatsViewController.SkeletonCell,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let trailing = cell.contentView.layoutMarginsGuide.layoutFrame.maxX
+        [cell.usernameView, cell.messageView].forEach { view in
+            let frame = view.convert(view.bounds, to: cell.contentView)
+            XCTAssertLessThanOrEqual(frame.maxX, trailing + 0.5, file: file, line: line)
+            XCTAssertGreaterThan(frame.width, 0, file: file, line: line)
+        }
+    }
+}
+
+@MainActor
+final class LastChatsSectionModelTests: XCTestCase {
+    func testNoSpecialRowsProducesOnlyChatsSection() {
+        let firstChat = makeDatasource(jid: "a@example.com")
+        let secondChat = makeDatasource(jid: "b@example.com")
+
+        let sections = LastChatsViewController.makeDatasourceSections(
+            from: [firstChat, secondChat],
+            showsSkeleton: false
+        )
+
+        XCTAssertEqual(sections.map(\.kind), [.chats])
+        XCTAssertEqual(sections.first?.rows.map(\.jid), ["a@example.com", "b@example.com"])
+    }
+
+    func testSpecialRowsProduceFirstSectionBeforeChats() {
+        let contact = makeDatasource(jid: "contact@example.com", specialMessageKind: .contact)
+        let invite = makeDatasource(jid: "invite@example.com", specialMessageKind: .invite)
+        let firstChat = makeDatasource(jid: "a@example.com")
+        let secondChat = makeDatasource(jid: "b@example.com")
+
+        let sections = LastChatsViewController.makeDatasourceSections(
+            from: [contact, invite, firstChat, secondChat],
+            showsSkeleton: false
+        )
+
+        XCTAssertEqual(sections.map(\.kind), [.specialMessages, .chats])
+        XCTAssertEqual(sections[0].rows.map(\.specialMessageKind), [.contact, .invite])
+        XCTAssertEqual(sections[1].rows.map(\.jid), ["a@example.com", "b@example.com"])
+        XCTAssertTrue(sections[0].rows.allSatisfy { $0.specialMessageKind != .none })
+        XCTAssertTrue(sections[1].rows.allSatisfy { $0.specialMessageKind == .none })
+    }
+
+    func testContactOnlyAndInviteOnlySpecialSectionsAreVisible() {
+        let contactSections = LastChatsViewController.makeDatasourceSections(
+            from: [makeDatasource(specialMessageKind: .contact)],
+            showsSkeleton: false
+        )
+        let inviteSections = LastChatsViewController.makeDatasourceSections(
+            from: [makeDatasource(specialMessageKind: .invite)],
+            showsSkeleton: false
+        )
+
+        XCTAssertEqual(contactSections.map(\.kind), [.specialMessages, .chats])
+        XCTAssertEqual(contactSections[0].rows.map(\.specialMessageKind), [.contact])
+        XCTAssertEqual(inviteSections.map(\.kind), [.specialMessages, .chats])
+        XCTAssertEqual(inviteSections[0].rows.map(\.specialMessageKind), [.invite])
+    }
+
+    func testSkeletonStateSuppressesSpecialSection() {
+        let sections = LastChatsViewController.makeDatasourceSections(
+            from: [
+                makeDatasource(specialMessageKind: .contact),
+                makeDatasource(jid: "a@example.com")
+            ],
+            showsSkeleton: true
+        )
+
+        XCTAssertEqual(sections.map(\.kind), [.chats])
+        XCTAssertEqual(sections.first?.rows.map(\.specialMessageKind), [.none])
+    }
+
+    func testFirstSpecialRowAppearanceInsertsSpecialSection() {
+        let chat = makeDatasource(jid: "a@example.com")
+        let oldSections = LastChatsViewController.makeDatasourceSections(from: [chat], showsSkeleton: false)
+        let newSections = LastChatsViewController.makeDatasourceSections(
+            from: [makeDatasource(specialMessageKind: .contact), chat],
+            showsSkeleton: false
+        )
+
+        let changes = LastChatsViewController.sectionedChanges(
+            oldSections: oldSections,
+            newSections: newSections
+        )
+
+        XCTAssertEqual(changes.insertedSections, IndexSet(integer: 0))
+        XCTAssertTrue(changes.deletedSections.isEmpty)
+        XCTAssertTrue(LastChatsViewController.hasStructuralTableChanges(changes))
+    }
+
+    func testLastSpecialRowRemovalDeletesSpecialSection() {
+        let chat = makeDatasource(jid: "a@example.com")
+        let oldSections = LastChatsViewController.makeDatasourceSections(
+            from: [makeDatasource(specialMessageKind: .contact), chat],
+            showsSkeleton: false
+        )
+        let newSections = LastChatsViewController.makeDatasourceSections(from: [chat], showsSkeleton: false)
+
+        let changes = LastChatsViewController.sectionedChanges(
+            oldSections: oldSections,
+            newSections: newSections
+        )
+
+        XCTAssertEqual(changes.deletedSections, IndexSet(integer: 0))
+        XCTAssertTrue(changes.insertedSections.isEmpty)
+        XCTAssertTrue(LastChatsViewController.hasStructuralTableChanges(changes))
+    }
+
+    func testSecondSpecialRowAppearanceInsertsRowInsideSpecialSection() {
+        let contact = makeDatasource(jid: "contact@example.com", specialMessageKind: .contact)
+        let invite = makeDatasource(jid: "invite@example.com", specialMessageKind: .invite)
+        let oldSections = LastChatsViewController.makeDatasourceSections(from: [contact], showsSkeleton: false)
+        let newSections = LastChatsViewController.makeDatasourceSections(from: [contact, invite], showsSkeleton: false)
+
+        let changes = LastChatsViewController.sectionedChanges(
+            oldSections: oldSections,
+            newSections: newSections
+        )
+
+        XCTAssertTrue(changes.insertedSections.isEmpty)
+        XCTAssertEqual(changes.inserts, [IndexPath(row: 1, section: 0)])
+        XCTAssertTrue(LastChatsViewController.hasStructuralTableChanges(changes))
+    }
+
+    func testChatContentUpdateIsReplacementOnly() {
+        let oldSections = LastChatsViewController.makeDatasourceSections(
+            from: [makeDatasource(jid: "a@example.com", message: "Old")],
+            showsSkeleton: false
+        )
+        let newSections = LastChatsViewController.makeDatasourceSections(
+            from: [makeDatasource(jid: "a@example.com", message: "New")],
+            showsSkeleton: false
+        )
+
+        let changes = LastChatsViewController.sectionedChanges(
+            oldSections: oldSections,
+            newSections: newSections
+        )
+
+        XCTAssertEqual(changes.replaces, [IndexPath(row: 0, section: 0)])
+        XCTAssertFalse(LastChatsViewController.hasStructuralTableChanges(changes))
+    }
+
+    private func makeDatasource(
+        jid: String = "romeo@example.com",
+        conversationType: ClientSynchronizationManager.ConversationType = .regular,
+        specialMessageKind: LastChatsViewController.SpecialMessageKind = .none,
+        message: String = "Hello"
+    ) -> LastChatsViewController.Datasource {
+        LastChatsViewController.Datasource(
+            jid: jid,
+            owner: "owner@example.com",
+            username: "Romeo",
+            attributedUsername: nil,
+            message: message,
+            date: Date(timeIntervalSince1970: 1_711_283_200),
+            state: nil,
+            isMute: false,
+            isSynced: true,
+            status: .offline,
+            entity: conversationType == .regular || conversationType.isEncrypted ? .contact : .groupchat,
+            conversationType: conversationType,
+            unread: 0,
+            unreadString: nil,
+            hasUnreadMention: false,
+            color: .clear,
+            isDraft: false,
+            hasAttachment: false,
+            userNickname: nil,
+            isSystemMessage: false,
+            isPinned: false,
+            subRequest: false,
+            isEncrypted: conversationType.isEncrypted,
+            avatarUrl: nil,
+            hasErrorInChat: false,
+            updateTS: 0,
+            isVerificationActionRequired: false,
+            specialMessageKind: specialMessageKind,
+            avatars: []
+        )
+    }
+}
+
+@MainActor
+final class LastChatsSeparatorAppearanceTests: XCTestCase {
+    func testTableUsesNativeInsetGroupedSectionChrome() {
+        let viewController = LastChatsViewController()
+
+        XCTAssertEqual(viewController.tableView.style, .insetGrouped)
+        XCTAssertNil(viewController.tableView.tableHeaderView)
+        XCTAssertNil(viewController.tableView.tableFooterView)
+        XCTAssertFalse(viewController.responds(to: #selector(UITableViewDelegate.tableView(_:heightForHeaderInSection:))))
+        XCTAssertFalse(viewController.responds(to: #selector(UITableViewDelegate.tableView(_:heightForFooterInSection:))))
+        XCTAssertFalse(viewController.responds(to: #selector(UITableViewDelegate.tableView(_:viewForHeaderInSection:))))
+        XCTAssertFalse(viewController.responds(to: #selector(UITableViewDelegate.tableView(_:viewForFooterInSection:))))
+    }
+
+    func testConfigureBarsKeepsNavigationAppearanceFromDrawingBottomShadow() {
+        let viewController = LastChatsViewController()
+        _ = UINavigationController(rootViewController: viewController)
+
+        viewController.configureBars()
+
+        [
+            viewController.navigationItem.standardAppearance,
+            viewController.navigationItem.scrollEdgeAppearance,
+            viewController.navigationItem.compactAppearance
+        ].forEach { appearance in
+            XCTAssertNotNil(appearance)
+            let shadowColor = appearance?.shadowColor
+            XCTAssertTrue(shadowColor == nil || shadowColor?.cgColor.alpha == 0)
+            let shadowImage = appearance?.shadowImage
+            XCTAssertTrue(shadowImage == nil || shadowImage?.size == .zero)
+        }
+        if #available(iOS 15.0, *) {
+            XCTAssertNotNil(viewController.navigationItem.compactScrollEdgeAppearance)
+        }
+        if #available(iOS 16.0, *) {
+            XCTAssertEqual(viewController.navigationItem.preferredSearchBarPlacement, .stacked)
+        }
+        XCTAssertFalse(viewController.navigationItem.hidesSearchBarWhenScrolling)
+    }
+
+    func testSearchControllerUsesDefaultNavigationSearchChrome() {
+        let viewController = LastChatsViewController()
+
+        XCTAssertEqual(viewController.searchController.searchBar.searchBarStyle, .default)
+        XCTAssertFalse(viewController.searchController.hidesBottomBarWhenPushed)
+        XCTAssertFalse(viewController.searchController.definesPresentationContext)
+    }
+
+    func testConfigureSearchBarKeepsSearchVisibleInNavigationArea() {
+        let viewController = LastChatsViewController()
+
+        viewController.configureSearchBar()
+
+        XCTAssertTrue(viewController.navigationItem.searchController === viewController.searchController)
+        XCTAssertFalse(viewController.navigationItem.hidesSearchBarWhenScrolling)
+        if #available(iOS 16.0, *) {
+            XCTAssertEqual(viewController.navigationItem.preferredSearchBarPlacement, .stacked)
+        }
+    }
+
+    func testAccountNavigationButtonUsesSystemBarButtonHitTarget() {
+        let button = LastChatsViewController().accountNavButton
+
+        XCTAssertEqual(button.intrinsicContentSize.width, 44)
+        XCTAssertEqual(button.intrinsicContentSize.height, 44)
+        XCTAssertEqual(button.layer.borderWidth, 0)
+        XCTAssertEqual(button.layer.shadowOpacity, 0)
+    }
+
+    func testSpecialMessageCellDoesNotInstallTopHairlineAcrossReuse() {
+        let cell = SpecialMessageTableViewCell(
+            style: .default,
+            reuseIdentifier: SpecialMessageTableViewCell.cellName
+        )
+        cell.frame = CGRect(x: 0, y: 0, width: 320, height: 48)
+        cell.contentView.frame = cell.bounds
+
+        cell.configure(
+            title: "New contact request",
+            subtitle: "New contact request from Romeo",
+            avatars: [],
+            owner: "owner@example.com",
+            key: "contact"
+        )
+        assertNoVisibleTopHairline(in: cell)
+
+        cell.prepareForReuse()
+        assertNoVisibleTopHairline(in: cell)
+
+        cell.configure(
+            title: "New invitations",
+            subtitle: "Join Capulet Hall",
+            avatars: [],
+            owner: "owner@example.com",
+            key: "invite"
+        )
+        assertNoVisibleTopHairline(in: cell)
+    }
+
+    private func assertNoVisibleTopHairline(
+        in cell: SpecialMessageTableViewCell,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let maxHairlineHeight = (1.0 / UIScreen.main.scale) + 0.5
+        let visibleTopHairlines = cell.contentView.subviews.filter { view in
+            guard view !== cell.contentStack,
+                  view !== cell.avatarStackContainer,
+                  !view.isHidden,
+                  view.alpha > 0,
+                  view.backgroundColor != nil else {
+                return false
+            }
+
+            return abs(view.frame.minY) <= 0.5
+                && view.frame.height > 0
+                && view.frame.height <= maxHairlineHeight
+        }
+
+        XCTAssertTrue(visibleTopHairlines.isEmpty, file: file, line: line)
+    }
+}
+
+@MainActor
 final class LastChatsSwipeActionTests: XCTestCase {
 
     func testSwipeActionIconsResolve() {
@@ -8361,35 +10358,45 @@ final class LastChatsSwipeActionTests: XCTestCase {
     }
 
     func testActiveSwipeRowReloadFilteringRemovesOnlyActiveRow() {
+        let contactRequest = makeDatasource(jid: "request@example.com", conversationType: .regular, specialMessageKind: .contact)
         let direct = makeDatasource(jid: "romeo@example.com", conversationType: .regular)
         let group = makeDatasource(jid: "room@example.com", conversationType: .group)
-        let datasource = [direct, group]
+        let sections = LastChatsViewController.makeDatasourceSections(
+            from: [contactRequest, direct, group],
+            showsSkeleton: false
+        )
         let activeKey = LastChatsViewController.swipeActionDatasourceKey(for: group)
 
         let filtered = LastChatsViewController.filterReloadIndexPaths(
             [
                 IndexPath(row: 0, section: 0),
-                IndexPath(row: 1, section: 0),
-                IndexPath(row: 2, section: 0)
+                IndexPath(row: 0, section: 1),
+                IndexPath(row: 1, section: 1),
+                IndexPath(row: 2, section: 1)
             ],
-            datasource: datasource,
+            sections: sections,
             activeSwipeActionDatasourceKey: activeKey
         )
 
         XCTAssertEqual(filtered, [
             IndexPath(row: 0, section: 0),
-            IndexPath(row: 2, section: 0)
+            IndexPath(row: 0, section: 1),
+            IndexPath(row: 2, section: 1)
         ])
     }
 
     func testActiveSwipeRowReloadFilteringCanRemoveAllReloads() {
+        let contactRequest = makeDatasource(jid: "request@example.com", conversationType: .regular, specialMessageKind: .contact)
         let direct = makeDatasource(jid: "romeo@example.com", conversationType: .regular)
-        let datasource = [direct]
+        let sections = LastChatsViewController.makeDatasourceSections(
+            from: [contactRequest, direct],
+            showsSkeleton: false
+        )
         let activeKey = LastChatsViewController.swipeActionDatasourceKey(for: direct)
 
         let filtered = LastChatsViewController.filterReloadIndexPaths(
-            [IndexPath(row: 0, section: 0)],
-            datasource: datasource,
+            [IndexPath(row: 0, section: 1)],
+            sections: sections,
             activeSwipeActionDatasourceKey: activeKey
         )
 
@@ -8414,41 +10421,160 @@ final class LastChatsSwipeActionTests: XCTestCase {
         XCTAssertTrue(LastChatsViewController.hasStructuralTableChanges(structural))
     }
 
+    func testRowUpdatePolicyClassifiesRenderedContentChangesAsContentOnly() {
+        let base = makeDatasource(conversationType: .regular)
+        let contentOnlyRows = [
+            makeDatasource(conversationType: .regular, message: "Updated preview"),
+            makeDatasource(conversationType: .regular, date: Date(timeIntervalSince1970: 1_711_283_260)),
+            makeDatasource(conversationType: .regular, state: .read),
+            makeDatasource(conversationType: .regular, isMute: true),
+            makeDatasource(conversationType: .regular, status: .online),
+            makeDatasource(conversationType: .regular, unread: 5),
+            makeDatasource(conversationType: .regular, hasUnreadMention: true),
+            makeDatasource(conversationType: .regular, isPinned: true),
+            makeDatasource(conversationType: .regular, avatarUrl: "avatar-key-1"),
+            makeDatasource(conversationType: .regular, username: "Juliet"),
+            makeDatasource(conversationType: .regular, isVerificationActionRequired: true)
+        ]
+
+        contentOnlyRows.forEach { item in
+            XCTAssertEqual(
+                LastChatsRowUpdatePolicy.classify(old: base, new: item),
+                .contentOnly
+            )
+        }
+    }
+
+    func testRowUpdatePolicyClassifiesTypingTextAsContentOnly() {
+        let base = makeDatasource(conversationType: .regular, message: "Hello")
+        let typing = makeDatasource(conversationType: .regular, message: "typing...")
+
+        XCTAssertEqual(
+            LastChatsRowUpdatePolicy.classify(old: base, new: typing),
+            .contentOnly
+        )
+    }
+
+    func testRowUpdatePolicyKeepsStructuralChangesAsReloads() {
+        let base = makeDatasource(conversationType: .regular)
+
+        XCTAssertEqual(
+            LastChatsRowUpdatePolicy.classify(
+                old: base,
+                new: makeDatasource(conversationType: .regular),
+                oldShowsSkeleton: true,
+                newShowsSkeleton: false
+            ),
+            .structuralReload
+        )
+        XCTAssertEqual(
+            LastChatsRowUpdatePolicy.classify(
+                old: base,
+                new: makeDatasource(conversationType: .omemo)
+            ),
+            .structuralReload
+        )
+        XCTAssertEqual(
+            LastChatsRowUpdatePolicy.classify(
+                old: base,
+                new: makeDatasource(conversationType: .regular, specialMessageKind: .contact)
+            ),
+            .structuralReload
+        )
+        XCTAssertEqual(
+            LastChatsRowUpdatePolicy.classify(
+                old: makeDatasource(conversationType: .regular, specialMessageKind: .contact),
+                new: makeDatasource(conversationType: .regular, specialMessageKind: .invite)
+            ),
+            .structuralReload
+        )
+    }
+
+    func testLastChatsDatasourceCompareContentTracksRenderedFields() {
+        let base = makeDatasource(conversationType: .regular)
+        let redTitle = NSAttributedString(
+            string: "Romeo",
+            attributes: [.foregroundColor: UIColor.red]
+        )
+        let blueTitle = NSAttributedString(
+            string: "Romeo",
+            attributes: [.foregroundColor: UIColor.blue]
+        )
+        let avatar = AvatarStructItem(
+            jid: "romeo@example.com",
+            owner: "owner@example.com",
+            name: "Romeo",
+            url: "avatar-key-1",
+            isGroup: false,
+            uuid: "avatar-uuid"
+        )
+
+        XCTAssertFalse(LastChatsViewController.Datasource.compareContent(
+            base,
+            makeDatasource(conversationType: .regular, isVerificationActionRequired: true)
+        ))
+        XCTAssertFalse(LastChatsViewController.Datasource.compareContent(
+            base,
+            makeDatasource(conversationType: .regular, specialMessageKind: .contact)
+        ))
+        XCTAssertFalse(LastChatsViewController.Datasource.compareContent(
+            makeDatasource(conversationType: .regular, specialMessageKind: .contact),
+            makeDatasource(conversationType: .regular, specialMessageKind: .contact, avatars: [avatar])
+        ))
+        XCTAssertFalse(LastChatsViewController.Datasource.compareContent(
+            makeDatasource(conversationType: .regular, attributedUsername: redTitle),
+            makeDatasource(conversationType: .regular, attributedUsername: blueTitle)
+        ))
+    }
+
     private func makeDatasource(
         jid: String = "romeo@example.com",
         conversationType: ClientSynchronizationManager.ConversationType,
-        specialMessageKind: LastChatsViewController.SpecialMessageKind = .none
+        specialMessageKind: LastChatsViewController.SpecialMessageKind = .none,
+        username: String = "Romeo",
+        attributedUsername: NSAttributedString? = nil,
+        message: String = "Hello",
+        date: Date? = Date(timeIntervalSince1970: 1_711_283_200),
+        state: MessageStorageItem.MessageSendingState? = nil,
+        isMute: Bool = false,
+        status: ResourceStatus = .offline,
+        unread: Int = 0,
+        hasUnreadMention: Bool = false,
+        isPinned: Bool = false,
+        avatarUrl: String? = nil,
+        isVerificationActionRequired: Bool = false,
+        avatars: [AvatarStructItem] = []
     ) -> LastChatsViewController.Datasource {
         LastChatsViewController.Datasource(
             jid: jid,
             owner: "owner@example.com",
-            username: "Romeo",
-            attributedUsername: nil,
-            message: "Hello",
-            date: Date(timeIntervalSince1970: 1_711_283_200),
-            state: nil,
-            isMute: false,
+            username: username,
+            attributedUsername: attributedUsername,
+            message: message,
+            date: date,
+            state: state,
+            isMute: isMute,
             isSynced: true,
-            status: .offline,
+            status: status,
             entity: conversationType == .regular || conversationType.isEncrypted ? .contact : .groupchat,
             conversationType: conversationType,
-            unread: 0,
+            unread: unread,
             unreadString: nil,
-            hasUnreadMention: false,
+            hasUnreadMention: hasUnreadMention,
             color: .clear,
             isDraft: false,
             hasAttachment: false,
             userNickname: nil,
             isSystemMessage: false,
-            isPinned: false,
+            isPinned: isPinned,
             subRequest: false,
             isEncrypted: conversationType.isEncrypted,
-            avatarUrl: nil,
+            avatarUrl: avatarUrl,
             hasErrorInChat: false,
             updateTS: 0,
-            isVerificationActionRequired: false,
+            isVerificationActionRequired: isVerificationActionRequired,
             specialMessageKind: specialMessageKind,
-            avatars: []
+            avatars: avatars
         )
     }
 }
@@ -9472,6 +11598,27 @@ final class FavoritesFeatureTests: XCTestCase {
         XCTAssertTrue(ignored.contains("abuse.xmppdev01.xabber.com"))
     }
 
+    func testFavoritesStorageCreationIsIdempotentForRepeatedDisco() throws {
+        let manager = XMPPFavoritesManager(withOwner: owner)
+        manager.node = "favorites.xmppdev01.xabber.com"
+
+        try manager.createXMPPFavoritesManagerStorageItem()
+        manager.node = "favorites2.xmppdev01.xabber.com"
+        try manager.createXMPPFavoritesManagerStorageItem()
+
+        let realm = try WRealm.safe()
+        let rows = realm.objects(XMPPFavoritesManagerStorageItem.self)
+        XCTAssertEqual(rows.count, 1)
+        let row = try XCTUnwrap(
+            realm.object(
+                ofType: XMPPFavoritesManagerStorageItem.self,
+                forPrimaryKey: XMPPFavoritesManagerStorageItem.genPrimary(owner: owner)
+            )
+        )
+        XCTAssertEqual(row.owner, owner)
+        XCTAssertEqual(row.node, "favorites2.xmppdev01.xabber.com")
+    }
+
     func testBuildForwardMessageTargetsFavoritesNodeAndAddsForwardReference() throws {
         let realm = try WRealm.safe()
         let forwardedPrimary = "forwarded-message-primary"
@@ -9505,6 +11652,19 @@ final class FavoritesFeatureTests: XCTestCase {
 }
 
 final class ComposerMentionsTests: XCTestCase {
+
+    private final class MessagesPanelDelegateSpy: ChatViewMessagesPanelDelegate {
+        private(set) var closeCount = 0
+        private(set) var indicatorTouchCount = 0
+
+        func messagesPanelOnClose() {
+            closeCount += 1
+        }
+
+        func messagesPanelOnIndicatorTouch() {
+            indicatorTouchCount += 1
+        }
+    }
 
     private func baseAttributes() -> [NSAttributedString.Key: Any] {
         [
@@ -9874,7 +12034,7 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertTrue(hitView === inputView.mentionPanel || hitView?.isDescendant(of: inputView.mentionPanel) == true)
     }
 
-    func testComposerControlsAreHostedInsidePrimaryGlassContentView() throws {
+    func testComposerTextSurfaceDoesNotOwnDetachedComposerButtons() throws {
         let inputView = ModernXabberInputView(frame: CGRect(
             x: 0,
             y: 0,
@@ -9889,13 +12049,13 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertTrue(effectView.contentView.isUserInteractionEnabled)
         XCTAssertTrue(inputView.contentView.isDescendant(of: effectView.contentView))
         XCTAssertTrue(inputView.textField.isDescendant(of: effectView.contentView))
-        XCTAssertTrue(inputView.attachButton.isDescendant(of: effectView.contentView))
-        XCTAssertTrue(inputView.timerButton.isDescendant(of: effectView.contentView))
-        XCTAssertTrue(inputView.sendButton.isDescendant(of: effectView.contentView))
         XCTAssertTrue(inputView.stateButton.isDescendant(of: effectView.contentView))
+        XCTAssertFalse(inputView.attachButton.isDescendant(of: effectView.contentView))
+        XCTAssertFalse(inputView.timerButton.isDescendant(of: effectView.contentView))
+        XCTAssertFalse(inputView.sendButton.isDescendant(of: effectView.contentView))
     }
 
-    func testComposerTextFieldHasFourPointVerticalPaddingInsidePrimaryGlass() throws {
+    func testComposerTextFieldHasFourPointVerticalPaddingAndSharedHorizontalInsetInsidePrimaryGlass() throws {
         let inputView = ModernXabberInputView(frame: CGRect(
             x: 0,
             y: 0,
@@ -9907,13 +12067,41 @@ final class ComposerMentionsTests: XCTestCase {
         inputView.contentView.layoutIfNeeded()
 
         let effectView = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+        let contentFrame = inputView.contentView.convert(inputView.contentView.bounds, to: effectView.contentView)
 
         XCTAssertTrue(inputView.textField.isDescendant(of: effectView.contentView))
+        XCTAssertEqual(contentFrame.minX, NativeGlassBarStyle.contentInset, accuracy: 0.001)
+        XCTAssertEqual(effectView.contentView.bounds.maxX - contentFrame.maxX, NativeGlassBarStyle.contentInset, accuracy: 0.001)
         XCTAssertEqual(inputView.textField.frame.minY, 4, accuracy: 0.001)
         XCTAssertEqual(inputView.contentView.bounds.maxY - inputView.textField.frame.maxY, 4, accuracy: 0.001)
     }
 
-    func testComposerControlsRemainClearAndBorderlessInsideGlass() {
+    func testComposerUsesSharedBarRootHeightAndInsets() throws {
+        XCTAssertEqual(ModernXabberInputView.edgeHorizontalInset, NativeGlassBarStyle.horizontalInset, accuracy: 0.001)
+        XCTAssertEqual(
+            ModernXabberInputView.defaultBarHeight,
+            NativeGlassBarStyle.minimumHeight + NativeGlassBarStyle.bottomOffset,
+            accuracy: 0.001
+        )
+
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.changeState(to: .normal)
+        inputView.layoutIfNeeded()
+
+        let effectView = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+        let effectFrame = effectView.convert(effectView.bounds, to: inputView)
+
+        XCTAssertEqual(effectFrame.minY, 0, accuracy: 0.001)
+        XCTAssertEqual(effectFrame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertEqual(inputView.bounds.maxY - effectFrame.maxY, NativeGlassBarStyle.bottomOffset, accuracy: 0.001)
+    }
+
+    func testComposerTextFieldAndStateButtonRemainClearAndBorderlessInsideGlass() {
         let inputView = ModernXabberInputView(frame: CGRect(
             x: 0,
             y: 0,
@@ -9926,17 +12114,66 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertEqual(inputView.textField.layer.borderWidth, 0, accuracy: 0.001)
         XCTAssertTrue(inputView.textField.layer.borderColor == nil || inputView.textField.layer.borderColor == UIColor.clear.cgColor)
 
-        let composerButtons: [UIButton] = [
-            inputView.attachButton,
-            inputView.timerButton,
-            inputView.sendButton,
-            inputView.stateButton
-        ]
-        composerButtons.forEach { button in
-            XCTAssertEqual((button.backgroundColor ?? .clear).cgColor.alpha, UIColor.clear.cgColor.alpha, accuracy: 0.001)
+        XCTAssertEqual((inputView.stateButton.backgroundColor ?? .clear).cgColor.alpha, UIColor.clear.cgColor.alpha, accuracy: 0.001)
+        XCTAssertEqual(inputView.stateButton.layer.borderWidth, 0, accuracy: 0.001)
+        XCTAssertTrue(inputView.stateButton.layer.borderColor == nil || inputView.stateButton.layer.borderColor == UIColor.clear.cgColor)
+    }
+
+    func testDetachedComposerButtonsUseCircularGlassSurfaces() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.shouldHideTimer = false
+        inputView.layoutIfNeeded()
+
+        for button in [inputView.attachButton, inputView.timerButton, inputView.sendButton] {
+            XCTAssertEqual(button.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+            XCTAssertEqual(button.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
             XCTAssertEqual(button.layer.borderWidth, 0, accuracy: 0.001)
-            XCTAssertTrue(button.layer.borderColor == nil || button.layer.borderColor == UIColor.clear.cgColor)
+
+            if #available(iOS 26.0, *) {
+                XCTAssertNotNil(button.configuration)
+                XCTAssertNil(detachedButtonEffectView(in: button))
+            } else {
+                let effectView = try XCTUnwrap(detachedButtonEffectView(in: button))
+                XCTAssertEqual(effectView.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+                XCTAssertEqual(effectView.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+                XCTAssertEqual(effectView.layer.cornerRadius, NativeGlassBarStyle.cornerRadius, accuracy: 0.001)
+                XCTAssertEqual(effectView.layer.borderWidth, 0, accuracy: 0.001)
+                XCTAssertNil(effectView.layer.borderColor)
+                XCTAssertFalse(effectView.isUserInteractionEnabled)
+                XCTAssertTrue(effectView.effect is UIBlurEffect)
+            }
         }
+    }
+
+    func testTimerVisibleLayoutKeepsDetachedControlsAlignedAroundTextSurface() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.shouldHideTimer = false
+        inputView.changeState(to: .normal)
+        inputView.layoutIfNeeded()
+
+        let textSurface = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+        let attachFrame = inputView.attachButton.convert(inputView.attachButton.bounds, to: inputView)
+        let textSurfaceFrame = textSurface.convert(textSurface.bounds, to: inputView)
+        let timerFrame = inputView.timerButton.convert(inputView.timerButton.bounds, to: inputView)
+        let sendFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)
+
+        XCTAssertFalse(inputView.timerButton.isHidden)
+        XCTAssertEqual(textSurfaceFrame.minX - attachFrame.maxX, NativeGlassBarStyle.interItemSpacing, accuracy: 0.001)
+        XCTAssertEqual(timerFrame.minX - textSurfaceFrame.maxX, NativeGlassBarStyle.interItemSpacing, accuracy: 0.001)
+        XCTAssertEqual(sendFrame.minX - timerFrame.maxX, NativeGlassBarStyle.interItemSpacing, accuracy: 0.001)
+        XCTAssertEqual(attachFrame.midY, sendFrame.midY, accuracy: 0.001)
+        XCTAssertEqual(timerFrame.midY, sendFrame.midY, accuracy: 0.001)
+        XCTAssertEqual(textSurfaceFrame.maxY - sendFrame.maxY, 0, accuracy: 0.001)
     }
 
     func testComposerUsesNativeGlassEffectWhenAvailable() throws {
@@ -9969,11 +12206,725 @@ final class ComposerMentionsTests: XCTestCase {
         let effectView = try XCTUnwrap(composerEffectView(containing: inputView.textField))
         let containerView = try XCTUnwrap(effectView.superview)
 
+        XCTAssertEqual(effectView.layer.borderWidth, 0, accuracy: 0.001)
+        XCTAssertNil(effectView.layer.borderColor)
         XCTAssertNil(containerView.layer.shadowColor)
         XCTAssertEqual(containerView.layer.shadowOpacity, 0, accuracy: 0.001)
         XCTAssertEqual(containerView.layer.shadowRadius, 0, accuracy: 0.001)
         XCTAssertEqual(containerView.layer.shadowOffset, .zero)
         XCTAssertNil(containerView.layer.shadowPath)
+    }
+
+    func testForwardPreviewUsesPrimaryComposerGlassSurfaceWithoutWrapper() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.contextPreviewPanel.update(title: "Reply to Alice", normal: "A forwarded message")
+
+        inputView.showForwardPanel()
+        inputView.layoutIfNeeded()
+
+        let effectView = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+
+        XCTAssertFalse(inputView.contextPreviewPanel.isHidden)
+        XCTAssertEqual(inputView.contextPreviewPanel.frame.height, 44, accuracy: 0.001)
+        XCTAssertTrue(inputView.contextPreviewPanel.isDescendant(of: effectView.contentView))
+        XCTAssertTrue(inputView.textField.isDescendant(of: effectView.contentView))
+        XCTAssertEqual(visualEffectViewCount(in: inputView.contextPreviewPanel), 0)
+        XCTAssertEqual(inputView.contextPreviewPanel.layer.shadowOpacity, 0, accuracy: 0.001)
+
+        if #available(iOS 26.0, *) {
+            let glassEffect = try XCTUnwrap(effectView.effect as? UIGlassEffect)
+            XCTAssertTrue(glassEffect.isInteractive)
+        } else {
+            XCTAssertTrue(effectView.effect is UIBlurEffect)
+        }
+    }
+
+    func testEditPreviewUsesPrimaryComposerGlassSurfaceWithoutWrapper() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.contextPreviewPanel.update(title: "Editing Alice", normal: "An edited message")
+
+        inputView.showEditPanel()
+        inputView.layoutIfNeeded()
+
+        let effectView = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+
+        XCTAssertFalse(inputView.contextPreviewPanel.isHidden)
+        XCTAssertEqual(inputView.contextPreviewPanel.mode, .edit)
+        XCTAssertEqual(inputView.contextPreviewPanel.frame.height, 44, accuracy: 0.001)
+        XCTAssertTrue(inputView.contextPreviewPanel.isDescendant(of: effectView.contentView))
+        XCTAssertTrue(inputView.textField.isDescendant(of: effectView.contentView))
+        XCTAssertEqual(visualEffectViewCount(in: inputView.contextPreviewPanel), 0)
+        XCTAssertEqual(inputView.contextPreviewPanel.layer.shadowOpacity, 0, accuracy: 0.001)
+    }
+
+    func testContextPreviewShowsOnlyOneModeAtATime() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+
+        inputView.showForwardPanel()
+        XCTAssertEqual(inputView.activeContextPreviewMode, .forward)
+        XCTAssertEqual(inputView.contextPreviewPanel.mode, .forward)
+        let forwardAccent = inputView.contextPreviewPanel.accentView.backgroundColor
+
+        inputView.showEditPanel()
+        XCTAssertEqual(inputView.activeContextPreviewMode, .edit)
+        XCTAssertEqual(inputView.contextPreviewPanel.mode, .edit)
+        XCTAssertFalse(forwardAccent?.isEqual(inputView.contextPreviewPanel.accentView.backgroundColor) ?? true)
+        XCTAssertEqual(
+            descendantCount(
+                in: inputView,
+                where: { $0 is ModernXabberInputView.ComposerContextPreviewView }
+            ),
+            1
+        )
+    }
+
+    func testForwardPreviewSitsInsidePrimaryGlassWithFourPointGapToTextRow() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.layoutIfNeeded()
+        let composerEffectView = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+        let initialComposerFrame = composerEffectView.convert(composerEffectView.bounds, to: inputView)
+
+        inputView.showForwardPanel()
+        inputView.layoutIfNeeded()
+
+        let previewFrame = inputView.contextPreviewPanel.convert(inputView.contextPreviewPanel.bounds, to: inputView)
+        let textRowFrame = inputView.contentView.convert(inputView.contentView.bounds, to: inputView)
+        let expandedComposerFrame = composerEffectView.convert(composerEffectView.bounds, to: inputView)
+
+        XCTAssertEqual(previewFrame.height, 44, accuracy: 0.001)
+        XCTAssertEqual(textRowFrame.minY - previewFrame.maxY, 4, accuracy: 0.001)
+        XCTAssertEqual(expandedComposerFrame.minY, initialComposerFrame.minY, accuracy: 0.001)
+        XCTAssertEqual(expandedComposerFrame.height, initialComposerFrame.height + 48, accuracy: 0.001)
+        XCTAssertTrue(inputView.contextPreviewPanel.isDescendant(of: composerEffectView.contentView))
+        XCTAssertTrue(inputView.contentView.isDescendant(of: composerEffectView.contentView))
+    }
+
+    func testEditPreviewSitsInsidePrimaryGlassWithFourPointGapToTextRow() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.layoutIfNeeded()
+        let composerEffectView = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+        let initialComposerFrame = composerEffectView.convert(composerEffectView.bounds, to: inputView)
+
+        inputView.showEditPanel()
+        inputView.layoutIfNeeded()
+
+        let previewFrame = inputView.contextPreviewPanel.convert(inputView.contextPreviewPanel.bounds, to: inputView)
+        let textRowFrame = inputView.contentView.convert(inputView.contentView.bounds, to: inputView)
+        let expandedComposerFrame = composerEffectView.convert(composerEffectView.bounds, to: inputView)
+
+        XCTAssertEqual(previewFrame.height, 44, accuracy: 0.001)
+        XCTAssertEqual(textRowFrame.minY - previewFrame.maxY, 4, accuracy: 0.001)
+        XCTAssertEqual(expandedComposerFrame.minY, initialComposerFrame.minY, accuracy: 0.001)
+        XCTAssertEqual(expandedComposerFrame.height, initialComposerFrame.height + 48, accuracy: 0.001)
+        XCTAssertTrue(inputView.contextPreviewPanel.isDescendant(of: composerEffectView.contentView))
+        XCTAssertTrue(inputView.contentView.isDescendant(of: composerEffectView.contentView))
+    }
+
+    func testContextPreviewTextTruncatesInOneLine() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+
+        XCTAssertEqual(inputView.contextPreviewPanel.titleLabel.numberOfLines, 1)
+        XCTAssertEqual(inputView.contextPreviewPanel.messageLabel.numberOfLines, 1)
+        XCTAssertEqual(inputView.contextPreviewPanel.titleLabel.lineBreakMode, .byTruncatingTail)
+        XCTAssertEqual(inputView.contextPreviewPanel.messageLabel.lineBreakMode, .byTruncatingTail)
+    }
+
+    func testContextPreviewButtonsUsePlayerBarIconOnlyStyleAcrossModes() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+
+        inputView.showForwardPanel()
+        inputView.layoutIfNeeded()
+        assertPlayerBarIconOnlyStyle(inputView.contextPreviewPanel.indicatorButton)
+        assertPlayerBarIconOnlyStyle(inputView.contextPreviewPanel.closeButton)
+
+        inputView.showEditPanel()
+        inputView.layoutIfNeeded()
+        assertPlayerBarIconOnlyStyle(inputView.contextPreviewPanel.indicatorButton)
+        assertPlayerBarIconOnlyStyle(inputView.contextPreviewPanel.closeButton)
+    }
+
+    func testContextPreviewAccentStripFollowsIconAndStaysOnePointWideAcrossModes() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+
+        inputView.showForwardPanel()
+        inputView.layoutIfNeeded()
+        let forwardAccentColor = inputView.contextPreviewPanel.accentView.backgroundColor
+        assertContextPreviewAccentFollowsIcon(inputView.contextPreviewPanel)
+
+        inputView.showEditPanel()
+        inputView.layoutIfNeeded()
+        assertContextPreviewAccentFollowsIcon(inputView.contextPreviewPanel)
+        XCTAssertFalse(forwardAccentColor?.isEqual(inputView.contextPreviewPanel.accentView.backgroundColor) ?? true)
+    }
+
+    func testContextPreviewCloseGlyphIsSmallerThanPlayerCloseButtonWithoutShrinkingTapTarget() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.showForwardPanel()
+        inputView.layoutIfNeeded()
+        let contextCloseButton = inputView.contextPreviewPanel.closeButton
+
+        let playerView = AudioPlayerBarView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 360,
+            height: AudioPlayerBarView.Metrics.height
+        ))
+        playerView.layoutIfNeeded()
+
+        assertPlayerBarIconOnlyStyle(contextCloseButton)
+        XCTAssertEqual(contextCloseButton.bounds.width, AudioPlayerBarIconButtonStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(contextCloseButton.bounds.height, AudioPlayerBarIconButtonStyle.buttonSize, accuracy: 0.001)
+
+        let contextCloseImage = try XCTUnwrap(contextCloseButton.image(for: .normal))
+        let playerCloseImage = try XCTUnwrap(playerView.closeButton.image(for: .normal))
+        XCTAssertLessThan(contextCloseImage.size.width, playerCloseImage.size.width)
+        XCTAssertLessThan(contextCloseImage.size.height, playerCloseImage.size.height)
+    }
+
+    func testContextPreviewCloseAndTapUseExistingDelegateCallbacks() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        let spy = MessagesPanelDelegateSpy()
+        inputView.contextPreviewPanel.delegate = spy
+
+        inputView.contextPreviewPanel.closeButton.sendActions(for: .touchUpInside)
+        inputView.contextPreviewPanel.indicatorButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(spy.closeCount, 1)
+        XCTAssertEqual(spy.indicatorTouchCount, 1)
+    }
+
+    func testRecordingStateShowsOnlyRecordingControlsOnPrimaryGlass() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+
+        inputView.changeState(to: .record)
+        inputView.layoutIfNeeded()
+
+        XCTAssertTrue(inputView.textField.isHidden)
+        XCTAssertTrue(inputView.attachButton.isHidden)
+        XCTAssertTrue(inputView.timerButton.isHidden)
+        XCTAssertTrue(inputView.stateButton.isHidden)
+        XCTAssertTrue(inputView.selectionPanel.isHidden)
+        XCTAssertTrue(inputView.searchPanel.isHidden)
+        XCTAssertTrue(inputView.recordAndPlayPanel.isHidden)
+
+        XCTAssertFalse(inputView.sendButton.isHidden)
+        XCTAssertFalse(inputView.recordPanel.isHidden)
+
+        let effectView = try XCTUnwrap(composerEffectView(containing: inputView.recordPanel))
+        XCTAssertTrue(inputView.recordPanel.isDescendant(of: effectView.contentView))
+        XCTAssertFalse(inputView.sendButton.isDescendant(of: effectView.contentView))
+    }
+
+    func testRecordAndPlayStateShowsPreviewControlsOnPrimaryGlass() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+
+        inputView.changeState(to: .recordAndPlay)
+        inputView.layoutIfNeeded()
+
+        XCTAssertTrue(inputView.textField.isHidden)
+        XCTAssertTrue(inputView.attachButton.isHidden)
+        XCTAssertTrue(inputView.timerButton.isHidden)
+        XCTAssertTrue(inputView.recordPanel.isHidden)
+
+        XCTAssertFalse(inputView.sendButton.isHidden)
+        XCTAssertFalse(inputView.recordAndPlayPanel.isHidden)
+
+        let effectView = try XCTUnwrap(composerEffectView(containing: inputView.recordAndPlayPanel))
+        XCTAssertTrue(inputView.recordAndPlayPanel.isDescendant(of: effectView.contentView))
+        XCTAssertFalse(inputView.sendButton.isDescendant(of: effectView.contentView))
+    }
+
+    func testAudioPanelsDoNotAddSeparateGlassBackgrounds() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+
+        XCTAssertFalse(inputView.recordPanel.containsDescendant(ofType: UIVisualEffectView.self))
+        XCTAssertFalse(inputView.recordAndPlayPanel.containsDescendant(ofType: UIVisualEffectView.self))
+    }
+
+    func testRecordingDragMovesDetachedSendButtonAndClampsToGestureThresholds() {
+        let hostView = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 8,
+            y: 789,
+            width: 374,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        hostView.addSubview(inputView)
+        inputView.changeState(to: .record)
+        hostView.layoutIfNeeded()
+        inputView.layoutIfNeeded()
+
+        let initialButtonFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: hostView)
+
+        inputView.updateVoiceRecordingDragUI(CGPoint(x: -1_000, y: -1_000))
+
+        let draggedButtonFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: hostView)
+
+        XCTAssertTrue(hostView.bounds.contains(draggedButtonFrame))
+        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation.x, -120, accuracy: 0.001)
+        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation.y, -108, accuracy: 0.001)
+        XCTAssertEqual(draggedButtonFrame.midX, initialButtonFrame.midX - 120, accuracy: 0.001)
+        XCTAssertEqual(draggedButtonFrame.midY, initialButtonFrame.midY - 108, accuracy: 0.001)
+    }
+
+    func testRecordingButtonResetClearsExtremeDragAndKeepsButtonVisible() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.changeState(to: .record)
+        inputView.layoutIfNeeded()
+
+        let initialButtonFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)
+        inputView.updateVoiceRecordingDragUI(CGPoint(x: -1_000, y: -1_000))
+
+        inputView.resetRecordingButtonPositionAndVisibility(animated: false)
+
+        let resetButtonFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)
+        XCTAssertFalse(inputView.sendButton.isHidden)
+        XCTAssertTrue(inputView.bounds.contains(resetButtonFrame))
+        XCTAssertEqual(resetButtonFrame.origin.x, initialButtonFrame.origin.x, accuracy: 0.001)
+        XCTAssertEqual(resetButtonFrame.origin.y, initialButtonFrame.origin.y, accuracy: 0.001)
+        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation, .zero)
+    }
+
+    func testCancelAndStateChangeClearRecordingDragOffset() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.changeState(to: .record)
+        inputView.layoutIfNeeded()
+        inputView.updateVoiceRecordingDragUI(CGPoint(x: -1_000, y: -1_000))
+
+        inputView.cancelRecord()
+
+        XCTAssertFalse(inputView.sendButton.isHidden)
+        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation, .zero)
+        XCTAssertTrue(inputView.bounds.contains(inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)))
+
+        inputView.changeState(to: .record)
+        inputView.updateVoiceRecordingDragUI(CGPoint(x: -1_000, y: -1_000))
+        inputView.changeState(to: .recordAndPlay)
+
+        XCTAssertFalse(inputView.sendButton.isHidden)
+        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation, .zero)
+        XCTAssertTrue(inputView.bounds.contains(inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)))
+    }
+
+    func testBoundsChangeRefreshesRecordingButtonAnchorAndClearsDragOffset() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.changeState(to: .record)
+        inputView.layoutIfNeeded()
+        inputView.updateVoiceRecordingDragUI(CGPoint(x: -1_000, y: -1_000))
+
+        inputView.frame = CGRect(x: 0, y: 0, width: 500, height: ModernXabberInputView.defaultBarHeight)
+        inputView.setNeedsLayout()
+        inputView.layoutIfNeeded()
+
+        let buttonFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)
+        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation, .zero)
+        XCTAssertTrue(inputView.bounds.contains(buttonFrame))
+        XCTAssertGreaterThan(buttonFrame.minX, 430)
+    }
+
+    func testRecordingDragClampsDetachedSendButtonToVisibleHostBounds() {
+        let hostView = UIView(frame: CGRect(x: 0, y: 0, width: 240, height: 160))
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 8,
+            y: 18,
+            width: 224,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        hostView.addSubview(inputView)
+        inputView.changeState(to: .record)
+        hostView.layoutIfNeeded()
+        inputView.layoutIfNeeded()
+
+        inputView.updateVoiceRecordingDragUI(CGPoint(x: -1_000, y: -1_000))
+
+        let draggedButtonFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: hostView)
+        XCTAssertTrue(hostView.bounds.contains(draggedButtonFrame))
+        XCTAssertGreaterThan(inputView.sendButton.recordingVisualTranslation.y, -108)
+    }
+
+    func testRecordingPulseIndicatorShowsLargeCircleOutsideComposerGlass() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.changeState(to: .record)
+        inputView.layoutIfNeeded()
+
+        inputView.sendButton.showPulse()
+        inputView.layoutIfNeeded()
+
+        let pulseView = inputView.sendButton.pulseView
+        let effectView = try XCTUnwrap(composerEffectView(containing: inputView.recordPanel))
+        let pulseFrame = pulseView.convert(pulseView.bounds, to: inputView)
+        let composerFrame = effectView.convert(effectView.bounds, to: inputView)
+
+        XCTAssertFalse(pulseView.isHidden)
+        XCTAssertEqual(pulseView.bounds.width, 128, accuracy: 0.001)
+        XCTAssertEqual(pulseView.bounds.height, 128, accuracy: 0.001)
+        XCTAssertEqual(pulseView.layer.cornerRadius, 64, accuracy: 0.001)
+        XCTAssertFalse(inputView.clipsToBounds)
+        XCTAssertFalse(pulseView.isDescendant(of: effectView.contentView))
+        XCTAssertLessThan(pulseFrame.minY, composerFrame.minY)
+
+        let pulseEffectView = try XCTUnwrap(pulseView.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+        let pulseTintOverlay = try XCTUnwrap(pulseView.subviews.first { subview in
+            !(subview is UIVisualEffectView) && (subview.backgroundColor?.cgColor.alpha ?? 0) > 0
+        })
+        XCTAssertEqual(pulseEffectView.bounds.width, 128, accuracy: 0.001)
+        XCTAssertEqual(pulseEffectView.bounds.height, 128, accuracy: 0.001)
+        XCTAssertEqual(pulseTintOverlay.bounds.width, 128, accuracy: 0.001)
+        XCTAssertEqual(pulseTintOverlay.bounds.height, 128, accuracy: 0.001)
+        XCTAssertEqual(pulseTintOverlay.backgroundColor?.cgColor.alpha ?? 0, 0.82, accuracy: 0.01)
+    }
+
+    func testRecordingPulseMeteringAnimatesClampedColoredShadow() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.changeState(to: .record)
+        inputView.sendButton.showPulse()
+
+        inputView.updateRecordingMeteringLevel(0, animated: false)
+        let quietOpacity = inputView.sendButton.pulseView.layer.shadowOpacity
+        let quietRadius = inputView.sendButton.pulseView.layer.shadowRadius
+
+        inputView.updateRecordingMeteringLevel(1, animated: false)
+        let loudOpacity = inputView.sendButton.pulseView.layer.shadowOpacity
+        let loudRadius = inputView.sendButton.pulseView.layer.shadowRadius
+
+        inputView.updateRecordingMeteringLevel(-10, animated: false)
+        let reducedOpacity = inputView.sendButton.pulseView.layer.shadowOpacity
+        let reducedRadius = inputView.sendButton.pulseView.layer.shadowRadius
+
+        inputView.updateRecordingMeteringLevel(10, animated: false)
+        let clampedOpacity = inputView.sendButton.pulseView.layer.shadowOpacity
+        let clampedRadius = inputView.sendButton.pulseView.layer.shadowRadius
+
+        XCTAssertGreaterThan(loudOpacity, quietOpacity)
+        XCTAssertGreaterThan(loudRadius, quietRadius)
+        XCTAssertLessThan(reducedOpacity, loudOpacity)
+        XCTAssertLessThan(reducedRadius, loudRadius)
+        XCTAssertLessThanOrEqual(clampedOpacity, 0.5)
+        XCTAssertLessThanOrEqual(clampedRadius, 38)
+        XCTAssertEqual(inputView.sendButton.pulseView.layer.shadowOffset, .zero)
+        XCTAssertNotNil(inputView.sendButton.pulseView.layer.shadowColor)
+    }
+
+    func testRecordingLockButtonUsesDetachedGlassAndAlignsAboveSendButton() throws {
+        let hostView = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 8,
+            y: 789,
+            width: 374,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        hostView.addSubview(inputView)
+        inputView.changeState(to: .record)
+        inputView.showRecordingLockOverlay(isLocked: false, allowsStop: false, animated: false)
+        inputView.sendButton.showPulse()
+        hostView.layoutIfNeeded()
+        inputView.layoutIfNeeded()
+
+        let effectView = try XCTUnwrap(composerEffectView(containing: inputView.recordPanel))
+        let lockButton = inputView.recordLockButton
+        let initialLockFrame = lockButton.convert(lockButton.bounds, to: inputView)
+        let initialSendFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)
+        let initialPulseFrame = inputView.sendButton.pulseView.convert(inputView.sendButton.pulseView.bounds, to: inputView)
+
+        XCTAssertFalse(lockButton.isHidden)
+        XCTAssertTrue(inputView.isRecordingLockOverlayVisible)
+        XCTAssertEqual(lockButton.bounds.width, 44, accuracy: 0.001)
+        XCTAssertEqual(lockButton.bounds.height, 44, accuracy: 0.001)
+        if #available(iOS 26.0, *) {
+            XCTAssertNotNil(lockButton.configuration)
+            XCTAssertNil(detachedButtonEffectView(in: lockButton))
+        } else {
+            let lockEffectView = try XCTUnwrap(detachedButtonEffectView(in: lockButton))
+            XCTAssertEqual(lockEffectView.bounds.width, 44, accuracy: 0.001)
+            XCTAssertEqual(lockEffectView.bounds.height, 44, accuracy: 0.001)
+            XCTAssertEqual(lockEffectView.layer.cornerRadius, 22, accuracy: 0.001)
+            XCTAssertEqual(lockEffectView.layer.borderWidth, 0, accuracy: 0.001)
+        }
+        XCTAssertEqual(initialLockFrame.midX, initialSendFrame.midX, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(initialLockFrame.maxY, initialPulseFrame.minY - 6)
+        XCTAssertFalse(lockButton.isDescendant(of: effectView.contentView))
+
+        inputView.updateVoiceRecordingDragUI(CGPoint(x: -72, y: -64))
+
+        let draggedLockFrame = lockButton.convert(lockButton.bounds, to: inputView)
+        let draggedSendFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)
+        let draggedPulseFrame = inputView.sendButton.pulseView.convert(inputView.sendButton.pulseView.bounds, to: inputView)
+
+        XCTAssertEqual(draggedLockFrame.midX - initialLockFrame.midX, draggedSendFrame.midX - initialSendFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(draggedLockFrame.midY - initialLockFrame.midY, draggedSendFrame.midY - initialSendFrame.midY, accuracy: 0.001)
+        XCTAssertEqual(draggedLockFrame.midX, draggedSendFrame.midX, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(draggedLockFrame.maxY, draggedPulseFrame.minY - 6)
+
+        inputView.resetRecordingButtonPositionAndVisibility(animated: false)
+
+        let resetLockFrame = lockButton.convert(lockButton.bounds, to: inputView)
+        XCTAssertEqual(resetLockFrame.origin.x, initialLockFrame.origin.x, accuracy: 0.001)
+        XCTAssertEqual(resetLockFrame.origin.y, initialLockFrame.origin.y, accuracy: 0.001)
+        XCTAssertEqual(lockButton.transform, .identity)
+    }
+
+    func testRecordingDragHidesSendButtonDetachedGlassUntilReset() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.changeState(to: .record)
+        inputView.layoutIfNeeded()
+
+        XCTAssertFalse(isDetachedButtonChromeHidden(inputView.sendButton))
+
+        inputView.updateVoiceRecordingDragUI(CGPoint(x: -40, y: -24))
+
+        XCTAssertTrue(isDetachedButtonChromeHidden(inputView.sendButton))
+        XCTAssertFalse(inputView.sendButton.isHidden)
+        XCTAssertNotNil(inputView.sendButton.imageView?.image)
+
+        inputView.setNeedsLayout()
+        inputView.layoutIfNeeded()
+
+        XCTAssertTrue(isDetachedButtonChromeHidden(inputView.sendButton))
+
+        inputView.resetRecordingButtonPositionAndVisibility(animated: false)
+
+        XCTAssertFalse(isDetachedButtonChromeHidden(inputView.sendButton))
+        XCTAssertEqual(inputView.sendButton.transform, .identity)
+        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation, .zero)
+    }
+
+    func testLockingRecordingPreservesActiveDragPosition() throws {
+        let hostView = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 8,
+            y: 789,
+            width: 374,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        hostView.addSubview(inputView)
+        inputView.changeState(to: .record)
+        inputView.showRecordingLockOverlay(isLocked: false, allowsStop: false, animated: false)
+        inputView.sendButton.showPulse()
+        hostView.layoutIfNeeded()
+        inputView.layoutIfNeeded()
+
+        inputView.updateVoiceRecordingDragUI(CGPoint(x: -44, y: -108))
+
+        let sendFrameBeforeLock = inputView.sendButton.convert(inputView.sendButton.bounds, to: hostView)
+        let lockFrameBeforeLock = inputView.recordLockButton.convert(inputView.recordLockButton.bounds, to: hostView)
+        let pulseFrameBeforeLock = inputView.sendButton.pulseView.convert(inputView.sendButton.pulseView.bounds, to: hostView)
+
+        inputView.lockVoiceRecordingUI()
+
+        let sendFrameAfterLock = inputView.sendButton.convert(inputView.sendButton.bounds, to: hostView)
+        let lockFrameAfterLock = inputView.recordLockButton.convert(inputView.recordLockButton.bounds, to: hostView)
+        let pulseFrameAfterLock = inputView.sendButton.pulseView.convert(inputView.sendButton.pulseView.bounds, to: hostView)
+
+        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation.x, -44, accuracy: 0.001)
+        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation.y, -108, accuracy: 0.001)
+        XCTAssertEqual(sendFrameAfterLock.origin.x, sendFrameBeforeLock.origin.x, accuracy: 0.001)
+        XCTAssertEqual(sendFrameAfterLock.origin.y, sendFrameBeforeLock.origin.y, accuracy: 0.001)
+        XCTAssertEqual(lockFrameAfterLock.origin.x, lockFrameBeforeLock.origin.x, accuracy: 0.001)
+        XCTAssertEqual(lockFrameAfterLock.origin.y, lockFrameBeforeLock.origin.y, accuracy: 0.001)
+        XCTAssertEqual(pulseFrameAfterLock.origin.x, pulseFrameBeforeLock.origin.x, accuracy: 0.001)
+        XCTAssertEqual(pulseFrameAfterLock.origin.y, pulseFrameBeforeLock.origin.y, accuracy: 0.001)
+        XCTAssertTrue(isDetachedButtonChromeHidden(inputView.sendButton))
+    }
+
+    func testLockedRecordingCancelDragResetsOverlayAndDetachedChrome() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.layoutIfNeeded()
+        let sessionID = UUID()
+
+        inputView.applyVoiceRecordingActions(
+            inputView.voiceRecordingInteraction.beginPress(sessionID: sessionID, at: 10)
+        )
+        inputView.applyVoiceRecordingActions(
+            inputView.voiceRecordingInteraction.recorderStarted(sessionID: sessionID)
+        )
+        inputView.applyVoiceRecordingActions(
+            inputView.voiceRecordingInteraction.dragChanged(to: CGPoint(x: 0, y: -109))
+        )
+        inputView.resetRecordingButtonPositionAndVisibility(animated: false)
+
+        inputView.applyLockedVoiceRecordingCancelDrag(CGPoint(x: -121, y: 0), finished: false)
+
+        XCTAssertEqual(inputView.voiceRecordingInteraction.state, .idle)
+        XCTAssertTrue(inputView.sendButton.pulseView.isHidden)
+        XCTAssertTrue(inputView.recordLockButton.isHidden)
+        XCTAssertFalse(isDetachedButtonChromeHidden(inputView.sendButton))
+        XCTAssertEqual(inputView.sendButton.transform, .identity)
+        XCTAssertEqual(inputView.recordLockButton.transform, .identity)
+        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation, .zero)
+    }
+
+    func testRecordingPulseDoesNotAddRootLevelSendIconOverlay() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.changeState(to: .record)
+        inputView.layoutIfNeeded()
+
+        inputView.sendButton.showPulse()
+        inputView.changeSendButtonState(to: .send)
+        inputView.showRecordingLockOverlay(isLocked: true, allowsStop: true, animated: false)
+        inputView.layoutIfNeeded()
+
+        XCTAssertEqual(visibleRootImageViewCount(in: inputView), 0)
+
+        inputView.resetRecordingOverlayVisuals()
+        inputView.changeSendButtonState(to: .record)
+        inputView.sendButton.showPulse()
+        inputView.layoutIfNeeded()
+
+        XCTAssertEqual(visibleRootImageViewCount(in: inputView), 0)
+    }
+
+    func testRecordingLockButtonUpdatesIconAndAccessibilityForLockedState() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.layoutIfNeeded()
+
+        inputView.showRecordingLockOverlay(isLocked: false, allowsStop: false, animated: false)
+        let unlockedImage = inputView.recordLockButton.image(for: .normal)
+
+        XCTAssertEqual(inputView.recordLockButton.accessibilityLabel, "Lock recording")
+        XCTAssertEqual(inputView.recordLockButton.accessibilityValue, "Unlocked")
+
+        inputView.showRecordingLockOverlay(isLocked: true, allowsStop: true, animated: false)
+        let lockedImage = inputView.recordLockButton.image(for: .normal)
+
+        XCTAssertNotNil(unlockedImage)
+        XCTAssertNotNil(lockedImage)
+        XCTAssertFalse(unlockedImage === lockedImage)
+        XCTAssertEqual(inputView.recordLockButton.accessibilityLabel, "Recording locked")
+        XCTAssertEqual(inputView.recordLockButton.accessibilityValue, "Locked")
+        XCTAssertEqual(inputView.recordLockButton.accessibilityHint, "Double-tap to stop recording")
+    }
+
+    func testRecordingOverlayResetClearsPulseLockAndMetering() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.changeState(to: .record)
+        inputView.sendButton.showPulse()
+        inputView.showRecordingLockOverlay(isLocked: true, allowsStop: true, animated: false)
+        inputView.updateRecordingMeteringLevel(1, animated: false)
+
+        inputView.cancelRecord()
+
+        XCTAssertTrue(inputView.sendButton.pulseView.isHidden)
+        XCTAssertTrue(inputView.recordLockButton.isHidden)
+        XCTAssertFalse(inputView.isRecordingLockOverlayVisible)
+        XCTAssertFalse(isDetachedButtonChromeHidden(inputView.sendButton))
+        XCTAssertEqual(inputView.recordLockButton.transform, .identity)
+        XCTAssertEqual(inputView.sendButton.pulseView.layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertEqual(inputView.sendButton.pulseView.layer.shadowRadius, 0, accuracy: 0.001)
     }
 
     private func composerEffectView(containing view: UIView) -> UIVisualEffectView? {
@@ -9985,6 +12936,87 @@ final class ComposerMentionsTests: XCTestCase {
             currentSuperview = current.superview
         }
         return nil
+    }
+
+    private func detachedButtonEffectView(in button: UIButton) -> UIVisualEffectView? {
+        button.subviews.compactMap { $0 as? UIVisualEffectView }.first
+    }
+
+    private func isDetachedButtonChromeHidden(_ button: UIButton) -> Bool {
+        if #available(iOS 26.0, *) {
+            return button.configuration == nil
+        }
+        return detachedButtonEffectView(in: button)?.isHidden ?? true
+    }
+
+    private func visualEffectViewCount(in view: UIView) -> Int {
+        view.subviews.reduce(view is UIVisualEffectView ? 1 : 0) { count, subview in
+            count + visualEffectViewCount(in: subview)
+        }
+    }
+
+    private func visibleRootImageViewCount(in view: UIView) -> Int {
+        view.subviews.compactMap { $0 as? UIImageView }.filter { imageView in
+            !imageView.isHidden && imageView.alpha > 0.01
+        }.count
+    }
+
+    private func descendantCount(in view: UIView, where predicate: (UIView) -> Bool) -> Int {
+        view.subviews.reduce(predicate(view) ? 1 : 0) { count, subview in
+            count + descendantCount(in: subview, where: predicate)
+        }
+    }
+
+    private func assertContextPreviewAccentFollowsIcon(
+        _ panel: ModernXabberInputView.ComposerContextPreviewView,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let iconFrame = panel.indicatorButton.convert(panel.indicatorButton.bounds, to: panel)
+        let accentFrame = panel.accentView.convert(panel.accentView.bounds, to: panel)
+        let labelsFrame = panel.labelsStack.convert(panel.labelsStack.bounds, to: panel)
+
+        XCTAssertEqual(accentFrame.width, 1, accuracy: 0.001, file: file, line: line)
+        XCTAssertLessThan(iconFrame.maxX, accentFrame.minX, file: file, line: line)
+        XCTAssertLessThan(accentFrame.maxX, labelsFrame.minX, file: file, line: line)
+    }
+
+    private func assertPlayerBarIconOnlyStyle(
+        _ button: UIButton,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertNil(button.configuration, file: file, line: line)
+        XCTAssertEqual(button.backgroundColor ?? .clear, .clear, file: file, line: line)
+        XCTAssertEqual(button.tintColor, AudioPlayerBarIconButtonStyle.tintColor, file: file, line: line)
+        XCTAssertEqual(button.bounds.width, AudioPlayerBarIconButtonStyle.buttonSize, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(button.bounds.height, AudioPlayerBarIconButtonStyle.buttonSize, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(button.contentHorizontalAlignment, .center, file: file, line: line)
+        XCTAssertEqual(button.contentVerticalAlignment, .center, file: file, line: line)
+        XCTAssertTrue(button.adjustsImageWhenHighlighted, file: file, line: line)
+        XCTAssertTrue(button.adjustsImageWhenDisabled, file: file, line: line)
+    }
+}
+
+private extension UIView {
+    func containsDescendant<T: UIView>(ofType type: T.Type) -> Bool {
+        for subview in subviews {
+            if subview is T || subview.containsDescendant(ofType: type) {
+                return true
+            }
+        }
+        return false
+    }
+
+    func hasClippingAncestor(stoppingAt stopView: UIView) -> Bool {
+        var currentSuperview = superview
+        while let current = currentSuperview, current !== stopView {
+            if current.clipsToBounds || current.layer.masksToBounds {
+                return true
+            }
+            currentSuperview = current.superview
+        }
+        return false
     }
 }
 
@@ -14270,6 +17302,93 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
     }
 }
 
+final class EncryptedChatSendAvailabilityPolicyTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+
+    override func setUp() {
+        super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "EncryptedChatSendAvailabilityPolicyTests-\(name)")
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    override func tearDown() {
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        super.tearDown()
+    }
+
+    func testOwnUntrustedDeviceBlocksInput() {
+        let availability = OmemoSendAvailabilityPolicy.evaluate(
+            conversationType: .omemo,
+            ownDeviceStates: [.trusted, .unknown],
+            contactDeviceStates: [.trusted]
+        )
+
+        XCTAssertEqual(availability, .blockedByOwnUntrustedDevices)
+        XCTAssertFalse(availability.canSend)
+    }
+
+    func testMixedContactDevicesAllowSendingWithWarning() {
+        let availability = OmemoSendAvailabilityPolicy.evaluate(
+            conversationType: .omemo,
+            ownDeviceStates: [.trusted],
+            contactDeviceStates: [.trusted, .unknown, .distrusted]
+        )
+
+        XCTAssertEqual(availability, .canSendWithUntrustedContactDeviceWarning)
+        XCTAssertTrue(availability.canSend)
+        XCTAssertTrue(availability.requiresUntrustedContactDeviceWarning)
+    }
+
+    func testContactDevicesWithZeroTrustedDevicesBlockInput() {
+        let availability = OmemoSendAvailabilityPolicy.evaluate(
+            conversationType: .omemo,
+            ownDeviceStates: [.trusted],
+            contactDeviceStates: [.unknown, .distrusted]
+        )
+
+        XCTAssertEqual(availability, .blockedByNoTrustedContactDevices)
+        XCTAssertFalse(availability.canSend)
+    }
+
+    func testFullyTrustedDeviceStateAllowsSendingWithoutWarning() {
+        let availability = OmemoSendAvailabilityPolicy.evaluate(
+            conversationType: .omemo,
+            ownDeviceStates: [.trusted],
+            contactDeviceStates: [.trusted, .trusted]
+        )
+
+        XCTAssertEqual(availability, .canSend)
+        XCTAssertTrue(availability.canSend)
+        XCTAssertFalse(availability.requiresUntrustedContactDeviceWarning)
+    }
+
+    func testWarningMetadataPersistsAndResolvesText() throws {
+        let realm = try WRealm.safe()
+        let message = MessageStorageItem()
+        message.configureOutgoingMessage(
+            "encrypted",
+            legacy: "encrypted",
+            messageId: "warning-message",
+            owner: "alice@example.org",
+            opponent: "bob@example.org",
+            references: [],
+            inlineForwards: []
+        )
+
+        try realm.write {
+            message.markOmemoUntrustedContactDevicesWarning()
+            realm.add(message, update: .modified)
+        }
+
+        let stored = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: message.primary))
+        XCTAssertEqual(stored.messageWarningText, MessageStorageItem.omemoUntrustedContactDevicesWarningText)
+    }
+}
+
 final class OmemoSessionLifecycleTests: XCTestCase {
     private var previousRealmConfiguration: Realm.Configuration!
     private var owners: [String] = []
@@ -14327,6 +17446,31 @@ final class OmemoSessionLifecycleTests: XCTestCase {
             XCTAssertEqual(error as? OmemoManagerError, .noTrustedRecipientDevices)
         }
         XCTAssertEqual(try storedSessionCount(owner: owner, jid: recipient), 0)
+    }
+
+    func testMixedRecipientDevicesOnlyEncryptsToTrustedDevices() throws {
+        let owner = uniqueJid("alice")
+        let recipient = uniqueJid("bob")
+        let trustedDeviceId = 2205
+        let untrustedDeviceId = 2206
+        let manager = try makeManager(owner: owner, deviceId: 1105)
+        try addRemoteBundle(
+            to: manager,
+            jid: recipient,
+            deviceId: trustedDeviceId,
+            trustState: .trusted
+        )
+        try addRemoteBundle(
+            to: manager,
+            jid: recipient,
+            deviceId: untrustedDeviceId,
+            trustState: .unknown
+        )
+
+        let encrypted = try XCTUnwrap(try manager.encryptMessage(message: envelope("mixed"), to: recipient))
+
+        XCTAssertNotNil(keyExchangeFlag(in: encrypted, jid: recipient, deviceId: trustedDeviceId))
+        XCTAssertNil(keyExchangeFlag(in: encrypted, jid: recipient, deviceId: untrustedDeviceId))
     }
 
     func testIdentityChangeMarksDeviceAndDeletesSession() throws {
@@ -14948,5 +18092,716 @@ final class ModerationReportTests: XCTestCase {
         XCTAssertEqual(stored.localReportState, ModerationLocalReportState.submitted.rawValue)
         XCTAssertEqual(stored.body, "Selected message text")
         XCTAssertFalse(stored.isDeleted)
+    }
+}
+
+final class VoiceMessagePlaybackCoordinatorTests: XCTestCase {
+    private var downloader: FakeVoiceMessageDownloader!
+    private var player: FakeVoiceMessagePlayer!
+    private var coordinator: VoiceMessagePlaybackCoordinator!
+    private var previousRealmConfiguration: Realm.Configuration!
+
+    override func setUp() {
+        super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "VoiceMessagePlaybackCoordinatorTests-\(name)")
+        downloader = FakeVoiceMessageDownloader()
+        player = FakeVoiceMessagePlayer()
+        coordinator = VoiceMessagePlaybackCoordinator(downloader: downloader, player: player)
+    }
+
+    override func tearDown() {
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        coordinator = nil
+        player = nil
+        downloader = nil
+        super.tearDown()
+    }
+
+    func testNotDownloadedTapStartsDownload() {
+        let descriptor = makeDescriptor(primary: "voice-1", downloaded: false)
+
+        coordinator.handleTap(descriptor)
+
+        XCTAssertEqual(downloader.startedPrimaries, ["voice-1"])
+        XCTAssertEqual(coordinator.state(for: descriptor), .downloading(progress: 0))
+    }
+
+    func testVisibleDownloadsRunNewestToOldestOneAtATime() {
+        let old = makeDescriptor(primary: "old", sentDate: Date(timeIntervalSince1970: 1))
+        let new = makeDescriptor(primary: "new", sentDate: Date(timeIntervalSince1970: 2))
+
+        coordinator.setVisibleVoiceMessages([old, new])
+
+        XCTAssertEqual(downloader.startedPrimaries, ["new"])
+        XCTAssertEqual(coordinator.state(for: old), .queued)
+        downloader.completeSuccess(primary: "new")
+        drainMainQueue()
+
+        XCTAssertEqual(downloader.startedPrimaries, ["new", "old"])
+        XCTAssertEqual(coordinator.state(for: old), .downloading(progress: 0))
+    }
+
+    func testLeavingVisibilityRemovesQueuedDownloadBeforeStart() {
+        let old = makeDescriptor(primary: "old", sentDate: Date(timeIntervalSince1970: 1))
+        let new = makeDescriptor(primary: "new", sentDate: Date(timeIntervalSince1970: 2))
+
+        coordinator.setVisibleVoiceMessages([old, new])
+        coordinator.setVisibleVoiceMessages([new])
+        downloader.completeSuccess(primary: "new")
+        drainMainQueue()
+
+        XCTAssertEqual(downloader.startedPrimaries, ["new"])
+        XCTAssertEqual(coordinator.state(for: old), .notDownloaded)
+    }
+
+    func testActiveCancelStopsDownloadAndReturnsToNotDownloaded() {
+        let descriptor = makeDescriptor(primary: "voice-1")
+
+        coordinator.handleTap(descriptor)
+        coordinator.handleTap(descriptor)
+
+        XCTAssertTrue(downloader.tasks["voice-1"]?.cancelCalled ?? false)
+        XCTAssertEqual(coordinator.state(for: descriptor), .notDownloaded)
+    }
+
+    func testFailedRetryStartsFreshDownload() {
+        let descriptor = makeDescriptor(primary: "voice-1")
+
+        coordinator.handleTap(descriptor)
+        downloader.completeFailure(primary: "voice-1")
+        drainMainQueue()
+        coordinator.handleTap(descriptor)
+
+        XCTAssertEqual(downloader.startedPrimaries, ["voice-1", "voice-1"])
+        XCTAssertEqual(coordinator.state(for: descriptor), .downloading(progress: 0))
+    }
+
+    func testDownloadedPlayPauseResumeUsesSharedPlayer() {
+        let descriptor = makeDescriptor(primary: "voice-1", downloaded: true)
+
+        coordinator.handleTap(descriptor)
+        XCTAssertEqual(player.startedPrimaries, ["voice-1"])
+        XCTAssertEqual(coordinator.state(for: descriptor), .playing(currentTime: 0, duration: 12))
+
+        player.currentTime = 3
+        coordinator.handleTap(descriptor)
+        XCTAssertEqual(player.pauseCount, 1)
+        XCTAssertEqual(coordinator.state(for: descriptor), .paused(currentTime: 3, duration: 12))
+
+        coordinator.handleTap(descriptor)
+        XCTAssertEqual(player.resumeCount, 1)
+        XCTAssertEqual(coordinator.state(for: descriptor), .playing(currentTime: 3, duration: 12))
+    }
+
+    func testPlayingAnotherVoicePausesPreviousGlobalPlayback() {
+        let first = makeDescriptor(primary: "first", downloaded: true)
+        let second = makeDescriptor(primary: "second", downloaded: true)
+
+        coordinator.handleTap(first)
+        player.currentTime = 4
+        coordinator.handleTap(second)
+
+        XCTAssertEqual(player.stopCount, 1)
+        XCTAssertEqual(player.startedPrimaries, ["first", "second"])
+        XCTAssertEqual(coordinator.state(for: first), .paused(currentTime: 4, duration: 12))
+        XCTAssertEqual(coordinator.state(for: second), .playing(currentTime: 0, duration: 12))
+    }
+
+    func testPlaybackPositionIsStoredByReferencePrimary() {
+        let descriptor = makeDescriptor(primary: "voice-1", downloaded: true)
+
+        coordinator.handleTap(descriptor)
+        player.currentTime = 5
+        coordinator.tickPlaybackProgress()
+        coordinator.handleTap(descriptor)
+
+        XCTAssertEqual(coordinator.state(for: descriptor), .paused(currentTime: 5, duration: 12))
+    }
+
+    func testPlaybackFinishAutoAdvancesToClosestNewerVisibleDownloadedVoice() {
+        let old = makeDescriptor(primary: "old", sentDate: Date(timeIntervalSince1970: 1), downloaded: true)
+        let current = makeDescriptor(primary: "current", sentDate: Date(timeIntervalSince1970: 2), downloaded: true)
+        let next = makeDescriptor(primary: "next", sentDate: Date(timeIntervalSince1970: 3), downloaded: true)
+        let newest = makeDescriptor(primary: "newest", sentDate: Date(timeIntervalSince1970: 4), downloaded: true)
+        var observedPlayingPrimaries: [String] = []
+        _ = coordinator.addObserver { change in
+            if case .playing = change.state {
+                observedPlayingPrimaries.append(change.referencePrimary)
+            }
+        }
+
+        coordinator.setVisibleVoiceMessages([old, current, next, newest])
+        coordinator.handleTap(current)
+        player.onFinish?()
+        drainMainQueue()
+
+        XCTAssertEqual(player.startedPrimaries, ["current", "next"])
+        XCTAssertEqual(coordinator.state(for: current), .downloaded)
+        XCTAssertEqual(coordinator.state(for: next), .playing(currentTime: 0, duration: 12))
+        XCTAssertEqual(coordinator.currentPlaybackSnapshot?.referencePrimary, "next")
+        XCTAssertEqual(observedPlayingPrimaries, ["current", "next"])
+    }
+
+    func testCurrentPlaybackSnapshotExposesStorageRouteForActiveVoice() throws {
+        try insertVoiceRoute(
+            referencePrimary: "voice-route",
+            messagePrimary: "message-route",
+            owner: "alice@example.com",
+            jid: "bob@example.com",
+            conversationType: .regular,
+            archivedId: "archived-route",
+            date: Date(timeIntervalSince1970: 1_711_500_000)
+        )
+        let descriptor = makeDescriptor(primary: "voice-route", downloaded: true)
+
+        coordinator.handleTap(descriptor)
+
+        let route = try XCTUnwrap(coordinator.currentPlaybackSnapshot?.route)
+        XCTAssertEqual(route.owner, "alice@example.com")
+        XCTAssertEqual(route.jid, "bob@example.com")
+        XCTAssertEqual(route.conversationType, .regular)
+        XCTAssertEqual(route.messagePrimary, "message-route")
+        XCTAssertEqual(route.archivedId, "archived-route")
+        XCTAssertEqual(route.sourceDate, Date(timeIntervalSince1970: 1_711_500_000))
+    }
+
+    func testPlaybackFinishAutoAdvanceUpdatesSnapshotRouteToNextVoice() throws {
+        try insertVoiceRoute(
+            referencePrimary: "current-route",
+            messagePrimary: "message-current-route",
+            owner: "alice@example.com",
+            jid: "bob@example.com",
+            conversationType: .regular,
+            archivedId: "archived-current-route",
+            date: Date(timeIntervalSince1970: 10)
+        )
+        try insertVoiceRoute(
+            referencePrimary: "next-route",
+            messagePrimary: "message-next-route",
+            owner: "alice@example.com",
+            jid: "bob@example.com",
+            conversationType: .regular,
+            archivedId: "archived-next-route",
+            date: Date(timeIntervalSince1970: 20)
+        )
+        let current = makeDescriptor(primary: "current-route", sentDate: Date(timeIntervalSince1970: 10), downloaded: true)
+        let next = makeDescriptor(primary: "next-route", sentDate: Date(timeIntervalSince1970: 20), downloaded: true)
+
+        coordinator.setVisibleVoiceMessages([current, next])
+        coordinator.handleTap(current)
+        player.onFinish?()
+        drainMainQueue()
+
+        XCTAssertEqual(coordinator.currentPlaybackSnapshot?.referencePrimary, "next-route")
+        XCTAssertEqual(coordinator.currentPlaybackSnapshot?.route?.messagePrimary, "message-next-route")
+        XCTAssertEqual(coordinator.currentPlaybackSnapshot?.route?.archivedId, "archived-next-route")
+    }
+
+    func testToggleCurrentPlaybackPausesAndResumesSharedPlayer() {
+        let descriptor = makeDescriptor(primary: "voice-toggle", downloaded: true)
+
+        coordinator.handleTap(descriptor)
+        player.currentTime = 4
+        coordinator.toggleCurrentPlayback()
+        XCTAssertEqual(player.pauseCount, 1)
+        XCTAssertEqual(coordinator.state(for: descriptor), .paused(currentTime: 4, duration: 12))
+
+        coordinator.toggleCurrentPlayback()
+        XCTAssertEqual(player.resumeCount, 1)
+        XCTAssertEqual(coordinator.state(for: descriptor), .playing(currentTime: 4, duration: 12))
+    }
+
+    func testSeekCurrentPlaybackUpdatesSharedPosition() {
+        let descriptor = makeDescriptor(primary: "voice-seek", downloaded: true)
+
+        coordinator.handleTap(descriptor)
+        let position = coordinator.seekCurrentPlayback(percentage: 0.5)
+
+        XCTAssertEqual(position, 6, accuracy: 0.001)
+        XCTAssertEqual(player.currentTime, 6, accuracy: 0.001)
+        XCTAssertEqual(coordinator.state(for: descriptor), .playing(currentTime: 6, duration: 12))
+    }
+
+    func testPlaybackFinishDoesNotAutoAdvanceToOlderVisibleVoice() {
+        let older = makeDescriptor(primary: "older", sentDate: Date(timeIntervalSince1970: 1), downloaded: true)
+        let current = makeDescriptor(primary: "current", sentDate: Date(timeIntervalSince1970: 2), downloaded: true)
+
+        coordinator.setVisibleVoiceMessages([older, current])
+        coordinator.handleTap(current)
+        player.onFinish?()
+        drainMainQueue()
+
+        XCTAssertEqual(player.startedPrimaries, ["current"])
+        XCTAssertEqual(coordinator.state(for: current), .downloaded)
+        XCTAssertNil(coordinator.currentPlaybackSnapshot)
+    }
+
+    func testPlaybackFinishDoesNotAutoAdvanceToOffscreenNewerVoice() {
+        let current = makeDescriptor(primary: "current", sentDate: Date(timeIntervalSince1970: 1), downloaded: true)
+        let offscreenNewer = makeDescriptor(primary: "offscreen-newer", sentDate: Date(timeIntervalSince1970: 2), downloaded: true)
+
+        coordinator.setVisibleVoiceMessages([current])
+        _ = coordinator.state(for: offscreenNewer)
+        coordinator.handleTap(current)
+        player.onFinish?()
+        drainMainQueue()
+
+        XCTAssertEqual(player.startedPrimaries, ["current"])
+        XCTAssertEqual(coordinator.state(for: current), .downloaded)
+        XCTAssertEqual(coordinator.state(for: offscreenNewer), .downloaded)
+        XCTAssertNil(coordinator.currentPlaybackSnapshot)
+    }
+
+    func testPlaybackFinishStopsWhenClosestNewerVisibleVoiceIsNotDownloaded() {
+        let current = makeDescriptor(primary: "current", sentDate: Date(timeIntervalSince1970: 1), downloaded: true)
+        let notDownloadedNewer = makeDescriptor(primary: "not-downloaded-newer", sentDate: Date(timeIntervalSince1970: 2), downloaded: false)
+
+        coordinator.setVisibleVoiceMessages([current, notDownloadedNewer])
+        coordinator.handleTap(current)
+        player.onFinish?()
+        drainMainQueue()
+
+        XCTAssertEqual(player.startedPrimaries, ["current"])
+        XCTAssertEqual(coordinator.state(for: current), .downloaded)
+        XCTAssertNil(coordinator.currentPlaybackSnapshot)
+    }
+
+    private func makeDescriptor(
+        primary: String,
+        sentDate: Date = Date(timeIntervalSince1970: 1),
+        downloaded: Bool = false
+    ) -> VoiceMessageDescriptor {
+        VoiceMessageDescriptor(
+            referencePrimary: primary,
+            containerMessagePrimary: "message-\(primary)",
+            remoteURL: URL(string: "https://example.org/\(primary).ogg"),
+            decodedURL: downloaded ? URL(fileURLWithPath: "/tmp/\(primary).m4a") : nil,
+            duration: 12,
+            downloaded: downloaded,
+            pcm: [0.1, 0.5],
+            sentDate: sentDate
+        )
+    }
+
+    private func insertVoiceRoute(
+        referencePrimary: String,
+        messagePrimary: String,
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        archivedId: String,
+        date: Date
+    ) throws {
+        let realm = try WRealm.safe()
+        let message = MessageStorageItem()
+        message.primary = messagePrimary
+        message.owner = owner
+        message.opponent = jid
+        message.conversationType = conversationType
+        message.archivedId = archivedId
+        message.date = date
+        message.sentDate = date
+        message.messageId = "message-id-\(messagePrimary)"
+
+        let reference = MessageReferenceStorageItem()
+        reference.primary = referencePrimary
+        reference.messageId = messagePrimary
+        reference.owner = owner
+        reference.jid = jid
+        reference.conversationType = conversationType
+        reference.kind = .voice
+        reference.sentDate = date
+        reference.isDownloaded = true
+        reference.decodedUrl = URL(fileURLWithPath: "/tmp/\(referencePrimary).m4a")
+
+        try realm.write {
+            realm.add(message, update: .modified)
+            realm.add(reference, update: .modified)
+        }
+    }
+
+    private func drainMainQueue() {
+        let expectation = expectation(description: "drain main queue")
+        DispatchQueue.main.async {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+    }
+}
+
+final class AudioPlayerBarViewTests: XCTestCase {
+    func testDefaultEffectUsesNativeGlassWhenAvailable() throws {
+        let effect = AudioPlayerBarEffectFactory.makeEffect()
+
+        if #available(iOS 26.0, *) {
+            let glassEffect = try XCTUnwrap(effect as? UIGlassEffect)
+            XCTAssertTrue(glassEffect.isInteractive)
+        } else {
+            XCTAssertTrue(effect is UIBlurEffect)
+        }
+    }
+
+    func testFallbackEffectUsesSystemMaterialBlur() {
+        XCTAssertEqual(AudioPlayerBarEffectFactory.fallbackBlurStyle, .systemMaterial)
+        XCTAssertTrue(AudioPlayerBarEffectFactory.makeEffect(prefersNativeGlass: false) is UIBlurEffect)
+    }
+
+    func testControlsAreHostedInsideVisualEffectContentView() {
+        let view = AudioPlayerBarView(frame: CGRect(x: 0, y: 0, width: 360, height: AudioPlayerBarView.Metrics.height))
+
+        XCTAssertEqual(AudioPlayerBarView.Metrics.height, 44)
+        XCTAssertEqual(view.intrinsicContentSize.height, 44)
+        XCTAssertTrue(view.playPauseButton.superview === view.effectView.contentView)
+        XCTAssertTrue(view.titleControl.superview === view.effectView.contentView)
+        XCTAssertTrue(view.closeButton.superview === view.effectView.contentView)
+        XCTAssertFalse(view.containsDescendant(ofType: UISlider.self))
+        XCTAssertFalse(view.containsDescendant(ofType: UIProgressView.self))
+    }
+
+    func testButtonsUseSharedIconOnlyStyle() {
+        let view = AudioPlayerBarView(frame: CGRect(x: 0, y: 0, width: 360, height: AudioPlayerBarView.Metrics.height))
+        view.layoutIfNeeded()
+
+        XCTAssertNil(view.playPauseButton.configuration)
+        XCTAssertNil(view.closeButton.configuration)
+        XCTAssertEqual(view.playPauseButton.backgroundColor ?? .clear, .clear)
+        XCTAssertEqual(view.closeButton.backgroundColor ?? .clear, .clear)
+        XCTAssertEqual(view.playPauseButton.tintColor, AudioPlayerBarIconButtonStyle.tintColor)
+        XCTAssertEqual(view.closeButton.tintColor, AudioPlayerBarIconButtonStyle.tintColor)
+        XCTAssertEqual(view.playPauseButton.bounds.width, AudioPlayerBarIconButtonStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(view.playPauseButton.bounds.height, AudioPlayerBarIconButtonStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(view.closeButton.bounds.width, AudioPlayerBarIconButtonStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(view.closeButton.bounds.height, AudioPlayerBarIconButtonStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(view.playPauseButton.contentHorizontalAlignment, .center)
+        XCTAssertEqual(view.playPauseButton.contentVerticalAlignment, .center)
+        XCTAssertEqual(view.closeButton.contentHorizontalAlignment, .center)
+        XCTAssertEqual(view.closeButton.contentVerticalAlignment, .center)
+        XCTAssertTrue(view.playPauseButton.adjustsImageWhenHighlighted)
+        XCTAssertTrue(view.playPauseButton.adjustsImageWhenDisabled)
+        XCTAssertTrue(view.closeButton.adjustsImageWhenHighlighted)
+        XCTAssertTrue(view.closeButton.adjustsImageWhenDisabled)
+    }
+
+    func testPlayingPausedAndNilSnapshotRendering() {
+        let view = AudioPlayerBarView(frame: CGRect(x: 0, y: 0, width: 360, height: AudioPlayerBarView.Metrics.height))
+
+        view.render(
+            snapshot: VoiceMessagePlaybackSnapshot(
+                referencePrimary: "voice",
+                containerMessagePrimary: "message",
+                state: .playing(currentTime: 3, duration: 12),
+                title: "Alice",
+                subtitle: "Voice message",
+                route: nil
+            )
+        )
+        XCTAssertFalse(view.isHidden)
+        XCTAssertEqual(view.renderedPlayPauseIconName, "pause.fill")
+        XCTAssertEqual(view.timeLabel.text, "0:03 / 0:12")
+
+        view.render(
+            snapshot: VoiceMessagePlaybackSnapshot(
+                referencePrimary: "voice",
+                containerMessagePrimary: "message",
+                state: .paused(currentTime: 6, duration: 12),
+                title: "Alice",
+                subtitle: "Voice message",
+                route: nil
+            )
+        )
+        XCTAssertEqual(view.renderedPlayPauseIconName, "play.fill")
+        XCTAssertEqual(view.timeLabel.text, "0:06 / 0:12")
+
+        view.render(snapshot: nil)
+        XCTAssertTrue(view.isHidden)
+        XCTAssertEqual(view.timeLabel.text, "0:00 / 0:00")
+    }
+
+    func testManualRenderingKeepsChatPreviewFallbackVisuallyAligned() {
+        let view = AudioPlayerBarView(frame: CGRect(x: 0, y: 0, width: 360, height: AudioPlayerBarView.Metrics.height))
+
+        view.render(title: "Alice", subtitle: "Voice message", state: .playing, currentTime: 4, duration: 9)
+
+        XCTAssertFalse(view.isHidden)
+        XCTAssertEqual(view.renderedPlayPauseIconName, "pause.fill")
+        XCTAssertEqual(view.titleLabel.text, "Alice")
+        XCTAssertEqual(view.subtitleLabel.text, "Voice message")
+        XCTAssertEqual(view.timeLabel.text, "0:04 / 0:09")
+    }
+}
+
+final class LastChatsPinnedPlayerInsetPolicyTests: XCTestCase {
+    func testInsetPolicyPreservesVisibleContentWhenPlayerShowsAndHides() {
+        let shownOffset = LastChatsPinnedVoicePlayerInsetPolicy.adjustedContentOffsetY(
+            currentY: 120,
+            insetDelta: 56,
+            minimumY: -56,
+            maximumY: 400
+        )
+        let hiddenOffset = LastChatsPinnedVoicePlayerInsetPolicy.adjustedContentOffsetY(
+            currentY: shownOffset,
+            insetDelta: -56,
+            minimumY: 0,
+            maximumY: 400
+        )
+
+        XCTAssertEqual(shownOffset, 64, accuracy: 0.001)
+        XCTAssertEqual(hiddenOffset, 120, accuracy: 0.001)
+    }
+
+    func testInsetPolicyClampsToValidScrollRange() {
+        XCTAssertEqual(
+            LastChatsPinnedVoicePlayerInsetPolicy.adjustedContentOffsetY(
+                currentY: -40,
+                insetDelta: 56,
+                minimumY: -56,
+                maximumY: 200
+            ),
+            -56,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            LastChatsPinnedVoicePlayerInsetPolicy.adjustedContentOffsetY(
+                currentY: 190,
+                insetDelta: -56,
+                minimumY: -56,
+                maximumY: 200
+            ),
+            200,
+            accuracy: 0.001
+        )
+    }
+}
+
+final class ChatFloatingAudioPlayerLayoutTests: XCTestCase {
+    func testChatAudioPlayerUsesSharedBarMetrics() {
+        let view = AudioPlayerBarView(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
+
+        XCTAssertEqual(AudioPlayerBarView.Metrics.height, 44, accuracy: 0.001)
+        XCTAssertEqual(view.intrinsicContentSize.height, 44, accuracy: 0.001)
+    }
+
+    func testSharedGlassBubbleUsesExactFortyFourPointHeight() {
+        let bubble = ChatFloatingGlassBubbleView(contentHeight: NativeGlassBarStyle.minimumHeight)
+
+        XCTAssertEqual(bubble.measuredHeight(), 44, accuracy: 0.001)
+    }
+
+    func testFloatingHeaderLayoutUsesFortyFourPointSharedPlayerHeight() {
+        let stackHeight = ChatFloatingHeaderLayoutPolicy.visibleStackHeight(
+            visibleBubbleHeights: [AudioPlayerBarView.Metrics.height],
+            spacing: ChatFloatingHeaderLayoutPolicy.floatingStackTopSpacing
+        )
+        let insets = ChatFloatingHeaderLayoutPolicy.scrollIndicatorInsets(
+            composerHeight: 44,
+            navigationVisualHeight: 52,
+            floatingBubblesHeight: stackHeight
+        )
+
+        XCTAssertEqual(stackHeight, 44, accuracy: 0.001)
+        XCTAssertEqual(insets.top, 52 + 8 + 44 + 8, accuracy: 0.001)
+    }
+
+    func testChatViewControllerAudioPlayerIsSharedBarNotFloatingGlassBubble() throws {
+        let viewController = ChatViewController()
+        let panel = try XCTUnwrap(viewController.sharedAudioPlayerPanel)
+
+        XCTAssertTrue(type(of: panel) == AudioPlayerBarView.self)
+    }
+}
+
+final class LastChatsPinnedVoicePlayerRoutingTests: XCTestCase {
+    func testVoicePlayerRouteBuildsChatOpenMessageRequest() {
+        let route = VoiceMessagePlaybackRoute(
+            owner: "alice@example.com",
+            jid: "bob@example.com",
+            conversationType: .regular,
+            messagePrimary: "message-1",
+            archivedId: "archived-1",
+            sourceDate: Date(timeIntervalSince1970: 1_711_500_000)
+        )
+
+        let request = LastChatsViewController.voicePlayerOpenRequest(route: route)
+
+        XCTAssertEqual(request.owner, "alice@example.com")
+        XCTAssertEqual(request.chatJid, "bob@example.com")
+        XCTAssertEqual(request.conversationType, .regular)
+        XCTAssertEqual(request.anchor.messagePrimary, "message-1")
+        XCTAssertEqual(request.anchor.archivedId, "archived-1")
+        XCTAssertEqual(request.anchor.sourceDate, Date(timeIntervalSince1970: 1_711_500_000))
+        XCTAssertTrue(request.highlight)
+        XCTAssertFalse(request.markReadOnVisible)
+        XCTAssertEqual(request.source, .voicePlayer)
+    }
+}
+
+final class InlineAudioViewVoiceStateRenderingTests: XCTestCase {
+    func testRenderStatesUseExpectedIconsAndProgress() {
+        let view = makeAudioView()
+
+        view.render(state: .notDownloaded)
+        XCTAssertEqual(view.renderedIconName, "square.and.arrow.down")
+        XCTAssertEqual(view.renderedDownloadProgress, 0)
+
+        view.render(state: .downloading(progress: 0.5))
+        XCTAssertEqual(view.renderedIconName, "xmark")
+        XCTAssertEqual(view.renderedDownloadProgress, 0.5)
+
+        view.render(state: .downloaded)
+        XCTAssertEqual(view.renderedIconName, "play.fill")
+
+        view.render(state: .playing(currentTime: 3, duration: 12))
+        XCTAssertEqual(view.renderedIconName, "pause")
+        XCTAssertEqual(Double(view.waveform.currentGradientPercentage ?? 0), 0.25, accuracy: 0.001)
+
+        view.render(state: .paused(currentTime: 6, duration: 12))
+        XCTAssertEqual(view.renderedIconName, "play.fill")
+        XCTAssertEqual(Double(view.waveform.currentGradientPercentage ?? 0), 0.5, accuracy: 0.001)
+    }
+
+    func testSamePrimaryAudioUpdateReusesViewAndRestoresCoordinatorProgress() {
+        let grid = InlineAudiosGridView(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
+        let attachment = AudioAttachment(
+            primary: "audio-1",
+            url: URL(fileURLWithPath: "/tmp/audio-1.m4a"),
+            size: 10,
+            name: "voice",
+            duration: 12,
+            downloaded: true,
+            pcm: [0.2]
+        )
+        grid.stateProvider = { _ in .paused(currentTime: 4, duration: 12) }
+
+        grid.configure([attachment], palette: .blue)
+        let original = grid.views.first
+        grid.updateContent([attachment], palette: .blue)
+
+        XCTAssertTrue(grid.views.first === original)
+        XCTAssertEqual(grid.views.first?.waveform.currentGradientPercentage ?? 0, 4.0 / 12.0, accuracy: 0.001)
+    }
+
+    func testLocalURLRendersPlayIconWhenDownloadedFlagIsStaleFalse() {
+        let view = InlineAudiosGridView.AudioView(
+            frame: CGRect(x: 0, y: 0, width: 260, height: 44),
+            url: URL(fileURLWithPath: "/tmp/local-url-audio.m4a")
+        )
+
+        view.configure(
+            "local-url-audio-\(UUID().uuidString)",
+            filename: "voice",
+            size: "10 KB",
+            duration: 12,
+            pcm: [0.2],
+            downloaded: false
+        )
+
+        XCTAssertEqual(view.renderedIconName, "play.fill")
+    }
+
+    func testGridReusePreservesPlayIconForLocalURLWithStaleDownloadedFlag() {
+        let grid = InlineAudiosGridView(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
+        let attachment = AudioAttachment(
+            primary: "local-grid-audio-\(UUID().uuidString)",
+            url: URL(fileURLWithPath: "/tmp/local-grid-audio.m4a"),
+            size: 10,
+            name: "voice",
+            duration: 12,
+            downloaded: false,
+            pcm: [0.2]
+        )
+
+        grid.configure([attachment], palette: .blue)
+        let original = grid.views.first
+        grid.updateContent([attachment], palette: .blue)
+
+        XCTAssertTrue(grid.views.first === original)
+        XCTAssertEqual(grid.views.first?.renderedIconName, "play.fill")
+    }
+
+    private func makeAudioView() -> InlineAudiosGridView.AudioView {
+        let view = InlineAudiosGridView.AudioView(frame: CGRect(x: 0, y: 0, width: 260, height: 44), url: URL(fileURLWithPath: "/tmp/audio.m4a"))
+        view.configure("audio", filename: "voice", size: "10 KB", duration: 12, pcm: [0.2, 0.4])
+        return view
+    }
+}
+
+private final class FakeVoiceDownloadTask: VoiceMessageDownloadTask {
+    private(set) var cancelCalled = false
+
+    func cancel() {
+        cancelCalled = true
+    }
+}
+
+private final class FakeVoiceMessageDownloader: VoiceMessageDownloading {
+    private(set) var startedPrimaries: [String] = []
+    private var completions: [String: (Result<VoiceMessageDownloadedFile, Error>) -> Void] = [:]
+    var tasks: [String: FakeVoiceDownloadTask] = [:]
+
+    func download(
+        _ descriptor: VoiceMessageDescriptor,
+        progress: @escaping (Double) -> Void,
+        completion: @escaping (Result<VoiceMessageDownloadedFile, Error>) -> Void
+    ) -> VoiceMessageDownloadTask {
+        startedPrimaries.append(descriptor.referencePrimary)
+        completions[descriptor.referencePrimary] = completion
+        let task = FakeVoiceDownloadTask()
+        tasks[descriptor.referencePrimary] = task
+        return task
+    }
+
+    func completeSuccess(primary: String) {
+        completions[primary]?(
+            .success(
+                VoiceMessageDownloadedFile(
+                    decodedURL: URL(fileURLWithPath: "/tmp/\(primary).m4a"),
+                    duration: 12,
+                    pcm: [0.1, 0.5]
+                )
+            )
+        )
+    }
+
+    func completeFailure(primary: String) {
+        completions[primary]?(.failure(NSError(domain: "voice", code: 1)))
+    }
+}
+
+private final class FakeVoiceMessagePlayer: VoiceMessagePlaying {
+    var currentTime: TimeInterval = 0
+    var duration: TimeInterval = 12
+    var isPlaying: Bool = false
+    var onFinish: (() -> Void)?
+    private(set) var startedPrimaries: [String] = []
+    private(set) var pauseCount = 0
+    private(set) var resumeCount = 0
+    private(set) var stopCount = 0
+
+    func start(url: URL, referencePrimary: String, at time: TimeInterval) throws -> TimeInterval {
+        startedPrimaries.append(referencePrimary)
+        currentTime = time
+        isPlaying = true
+        return duration
+    }
+
+    func pause() {
+        pauseCount += 1
+        isPlaying = false
+    }
+
+    func resume() {
+        resumeCount += 1
+        isPlaying = true
+    }
+
+    func stop() {
+        stopCount += 1
+        isPlaying = false
+    }
+
+    func seek(to time: TimeInterval) {
+        currentTime = time
     }
 }

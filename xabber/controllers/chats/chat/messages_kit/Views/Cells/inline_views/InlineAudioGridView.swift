@@ -412,6 +412,11 @@ public class InlineAudiosGridView: InlineAttachmentView {
         
         let activityIndicator: UIActivityIndicatorView = UIActivityIndicatorView(style: .medium)
         var palette: MDCPalette = .amber
+        private let downloadTrackLayer = CAShapeLayer()
+        private let downloadProgressLayer = CAShapeLayer()
+        private(set) var renderedIconName: String?
+        private(set) var renderedDownloadProgress: Double = 0
+        private(set) var renderedState: VoiceMessagePlaybackState = .notDownloaded
         
         internal func setup() {
             iconButton.frame = CGRect(
@@ -429,6 +434,7 @@ public class InlineAudiosGridView: InlineAttachmentView {
             addSubview(iconButton)
             addSubview(waveform)
             addSubview(durationLabel)
+            configureDownloadProgressLayers()
 //            addSubview(stack)
 //            stack.fillSuperview()
 //            stack.addArrangedSubview(iconButton)
@@ -448,11 +454,35 @@ public class InlineAudiosGridView: InlineAttachmentView {
         var duration: TimeInterval = 0
         var primary: String = ""
         var delegate: MessageCellDelegate? = nil
+        private var hasInstalledWaveformPanGesture = false
         
-        public func configure(_ primary: String, filename: String, size: String, duration: TimeInterval, pcm: [Float]) {
-            iconButton.setImage(imageLiteral("play.fill"), for: .normal)
+        public override func layoutSubviews() {
+            super.layoutSubviews()
+            updateDownloadProgressPath()
+        }
+
+        func configure(
+            _ primary: String,
+            filename: String,
+            size: String,
+            duration: TimeInterval,
+            pcm: [Float],
+            downloaded: Bool = true,
+            state: VoiceMessagePlaybackState? = nil
+        ) {
+            updateContent(primary, filename: filename, size: size, duration: duration, pcm: pcm, downloaded: downloaded, state: state)
+        }
+
+        func updateContent(
+            _ primary: String,
+            filename: String,
+            size: String,
+            duration: TimeInterval,
+            pcm: [Float],
+            downloaded: Bool = true,
+            state: VoiceMessagePlaybackState? = nil
+        ) {
 //            waveform.text = filename
-            print("WAVEFORM", self.waveform.frame)
 //            print("WAVEFORM", self.waveform.)
             if pcm.isEmpty {
                 waveform.meteringLevels = (0..<52).compactMap { _ in return 0.1 }
@@ -468,11 +498,17 @@ public class InlineAudiosGridView: InlineAttachmentView {
             self.waveform.gradientStartColor = palette.tint500
             self.waveform.gradientEndColor = palette.tint500
             self.waveform.barBackgroundFillColor = palette.tint100
-            let gesture = UIPanGestureRecognizer(target: self, action: #selector(onPanGestureAppear))
-            self.waveform.addGestureRecognizer(gesture)
+            if !hasInstalledWaveformPanGesture {
+                let gesture = UIPanGestureRecognizer(target: self, action: #selector(onPanGestureAppear))
+                self.waveform.addGestureRecognizer(gesture)
+                hasInstalledWaveformPanGesture = true
+            }
             self.iconButton.backgroundColor = palette.tint500
             self.waveform.drawCallback = self.updateTimeLabel
+            self.iconButton.removeTarget(self, action: #selector(onPlayButtonTouchUpInside), for: .touchUpInside)
             self.iconButton.addTarget(self, action: #selector(onPlayButtonTouchUpInside), for: .touchUpInside)
+            let locallyAvailable = downloaded || self.url != nil
+            render(state: state ?? VoiceMessagePlaybackCoordinator.shared.state(forReferencePrimary: primary, downloaded: locallyAvailable))
         }
         
         @objc
@@ -497,16 +533,19 @@ public class InlineAudiosGridView: InlineAttachmentView {
                         guard let newDuration = self.delegate?.didSetAudioPosition(self, percentage: percentage) else {
                             return
                         }
-                        //                    self.waveform.
-                        self.waveform.startFrom = newDuration
-                        self.waveform.play(for: self.duration - newDuration)
-                    case .cancelled, .failed:
-                        guard let currentDuration = AudioManager.shared.player?.currentTime else {
-                            return
+                        let remainingDuration = max(self.duration - newDuration, 0)
+                        switch renderedState {
+                        case .playing:
+                            render(state: .playing(currentTime: newDuration, duration: self.duration))
+                            self.waveform.startFrom = newDuration
+                            self.waveform.play(for: remainingDuration)
+                        case .paused:
+                            render(state: .paused(currentTime: newDuration, duration: self.duration))
+                        default:
+                            render(state: .downloaded)
                         }
-                        let percentage: Float = Float(currentDuration / duration)
-                        self.waveform.currentGradientPercentage = percentage
-                        self.waveform.play(for: self.duration - currentDuration)
+                    case .cancelled, .failed:
+                        render(state: renderedState)
                     default:
                         break
                 }
@@ -515,50 +554,34 @@ public class InlineAudiosGridView: InlineAttachmentView {
         }
         
         public func displayDownload() {
-            self.iconButton.setImage(nil, for: .normal)
-            
-            self.activityIndicator.frame = self.iconButton.bounds
-            self.activityIndicator.startAnimating()
-            self.activityIndicator.isHidden = false
-            self.activityIndicator.color = .white
-            self.iconButton.addSubview(self.activityIndicator)
+            render(state: .downloading(progress: renderedDownloadProgress))
         }
         
         public final func updateTimeLabel() {
-            if AudioManager.shared.player != nil {
-                if let currentDuration = AudioManager.shared.player?.currentTime {
-                    self.durationLabel.text = currentDuration.minuteFormatedString
-                } else {
-                    self.durationLabel.text = self.duration.minuteFormatedString
-                }
-            } else {
+            switch renderedState {
+            case .playing(let currentTime, _), .paused(let currentTime, _):
+                self.durationLabel.text = currentTime.minuteFormatedString
+            default:
                 self.durationLabel.text = self.duration.minuteFormatedString
             }
         }
         
         public func play(for duration: TimeInterval) {
-            self.activityIndicator.removeFromSuperview()
-            self.iconButton.setImage(imageLiteral("pause.fill"), for: .normal)
-            self.iconButton.startPulse()
-            UIView.animate(withDuration: 0.1, animations: { self.iconButton.backgroundColor = self.palette.tint300 })
+            render(state: .playing(currentTime: self.waveform.startFrom, duration: self.duration))
 //            self.iconButton.backgroundColor = palette.tint300
             self.waveform.play(for: duration)
         }
         
         public func continuePlay() {
+            render(state: .playing(currentTime: self.waveform.startFrom, duration: self.duration))
             self.waveform.play(for: self.duration)
-            self.iconButton.setImage(imageLiteral("pause.fill"), for: .normal)
-            self.iconButton.startPulse()
-            UIView.animate(withDuration: 0.1, animations: { self.iconButton.backgroundColor = self.palette.tint300 })
 //            self.iconButton.backgroundColor = palette.tint300
             self.layoutSubviews()
         }
         
         public func pause() {
-            self.waveform.pause()
-            self.iconButton.setImage(imageLiteral("play.fill"), for: .normal)
-            self.iconButton.endPulse()
-            UIView.animate(withDuration: 0.1, animations: { self.iconButton.backgroundColor = self.palette.tint300 })
+            let currentTime = Double(renderedState.playbackProgress) * self.duration
+            render(state: .paused(currentTime: currentTime, duration: self.duration))
 //            self.iconButton.backgroundColor = palette.tint300
         }
         
@@ -567,11 +590,101 @@ public class InlineAudiosGridView: InlineAttachmentView {
         }
         
         public func resetState() {
-            self.waveform.pause()
-            self.iconButton.setImage(imageLiteral("play.fill"), for: .normal)
-            self.iconButton.endPulse()
-            UIView.animate(withDuration: 0.1, animations: { self.iconButton.backgroundColor = self.palette.tint500 })
+            render(state: .downloaded)
 //            self.iconButton.backgroundColor = palette.tint500
+        }
+
+        func render(state: VoiceMessagePlaybackState) {
+            renderedState = state
+            activityIndicator.removeFromSuperview()
+            activityIndicator.stopAnimating()
+            iconButton.backgroundColor = palette.tint500
+            downloadTrackLayer.isHidden = true
+            downloadProgressLayer.isHidden = true
+            setDownloadProgress(0)
+            iconButton.endPulse()
+            waveform.pause()
+
+            switch state {
+            case .notDownloaded, .queued, .failed:
+                setIcon(named: "square.and.arrow.down")
+                waveform.currentGradientPercentage = 0
+                durationLabel.text = duration.minuteFormatedString
+            case .downloading(let progress):
+                setIcon(named: "xmark")
+                downloadTrackLayer.isHidden = false
+                downloadProgressLayer.isHidden = false
+                setDownloadProgress(progress)
+                waveform.currentGradientPercentage = 0
+                durationLabel.text = duration.minuteFormatedString
+            case .downloaded:
+                setIcon(named: "play.fill")
+                waveform.currentGradientPercentage = 0
+                durationLabel.text = duration.minuteFormatedString
+            case .playing(let currentTime, let duration):
+                setIcon(named: "pause")
+                iconButton.startPulse()
+                iconButton.backgroundColor = palette.tint300
+                let progress = VoiceMessagePlaybackState.playing(currentTime: currentTime, duration: duration).playbackProgress
+                waveform.currentGradientPercentage = Float(progress)
+                durationLabel.text = currentTime.minuteFormatedString
+            case .paused(let currentTime, let duration):
+                setIcon(named: "play.fill")
+                iconButton.backgroundColor = palette.tint300
+                let progress = VoiceMessagePlaybackState.paused(currentTime: currentTime, duration: duration).playbackProgress
+                waveform.currentGradientPercentage = Float(progress)
+                durationLabel.text = currentTime.minuteFormatedString
+            }
+            waveform.setNeedsDisplay()
+        }
+
+        private func configureDownloadProgressLayers() {
+            [downloadTrackLayer, downloadProgressLayer].forEach {
+                $0.fillColor = UIColor.clear.cgColor
+                $0.lineWidth = 2
+                $0.lineCap = .round
+                $0.isHidden = true
+                iconButton.layer.addSublayer($0)
+            }
+            downloadTrackLayer.strokeColor = UIColor.white.withAlphaComponent(0.35).cgColor
+            downloadProgressLayer.strokeColor = UIColor.white.cgColor
+            updateDownloadProgressPath()
+        }
+
+        private func updateDownloadProgressPath() {
+            let inset: CGFloat = 3
+            let rect = iconButton.bounds.insetBy(dx: inset, dy: inset)
+            let path = UIBezierPath(
+                ovalIn: rect.isEmpty ? CGRect(x: inset, y: inset, width: 30, height: 30) : rect
+            ).cgPath
+            downloadTrackLayer.frame = iconButton.bounds
+            downloadProgressLayer.frame = iconButton.bounds
+            downloadTrackLayer.path = path
+            downloadProgressLayer.path = path
+        }
+
+        private func setDownloadProgress(_ progress: Double) {
+            renderedDownloadProgress = min(max(progress, 0), 1)
+            downloadProgressLayer.strokeStart = 0
+            downloadProgressLayer.strokeEnd = CGFloat(renderedDownloadProgress)
+        }
+
+        private func setIcon(named name: String) {
+            renderedIconName = name
+            let image: UIImage?
+            switch name {
+            case "square.and.arrow.down":
+                image = UIImage(systemName: "square.and.arrow.down") ?? imageLiteral("download")
+            case "xmark":
+                image = UIImage(systemName: "xmark") ?? imageLiteral("xmark")
+            case "pause":
+                image = UIImage(systemName: "pause") ?? imageLiteral("pause.fill")
+            case "play.fill":
+                image = UIImage(systemName: "play.fill") ?? imageLiteral("play.fill")
+            default:
+                image = UIImage(systemName: name)
+            }
+            iconButton.setImage(image?.withRenderingMode(.alwaysTemplate), for: .normal)
         }
         
         func staticMulticastId() -> String {
@@ -598,6 +711,7 @@ public class InlineAudiosGridView: InlineAttachmentView {
 
     
     public var views: [AudioView] = []
+    var stateProvider: ((AudioAttachment) -> VoiceMessagePlaybackState)?
     
     func prepareGrid(_ attachments: [AudioAttachment]) -> [CGRect] {
         let frame = self.frame
@@ -631,10 +745,53 @@ public class InlineAudiosGridView: InlineAttachmentView {
             view.palette = palette
             view.delegate = self.delegate
             let duration = item.duration as TimeInterval
-            view.configure(item.primary, filename: item.name, size: item.prettySize, duration: duration, pcm: item.pcm)
+            view.configure(
+                item.primary,
+                filename: item.name,
+                size: item.prettySize,
+                duration: duration,
+                pcm: item.pcm,
+                downloaded: item.downloaded,
+                state: stateProvider?(item)
+            )
             addSubview(view)
             views.append(view)
 //            }
+        }
+    }
+
+    func updateContent(_ attachments: [AudioAttachment], palette: MDCPalette) {
+        self.palette = palette
+        if attachments.isEmpty {
+            self.views.forEach { $0.removeFromSuperview() }
+            self.views = []
+            grid.removeAll()
+            return
+        }
+
+        guard self.views.map(\.primary) == attachments.map(\.primary),
+              self.views.count == attachments.count else {
+            configure(attachments, palette: palette)
+            return
+        }
+
+        prepareGrid(attachments).enumerated().forEach { index, rect in
+            let item = attachments[index]
+            let view = self.views[index]
+            view.frame = rect
+            view.url = item.url
+            view.palette = palette
+            view.delegate = self.delegate
+            let duration = item.duration as TimeInterval
+            view.updateContent(
+                item.primary,
+                filename: item.name,
+                size: item.prettySize,
+                duration: duration,
+                pcm: item.pcm,
+                downloaded: item.downloaded,
+                state: stateProvider?(item)
+            )
         }
     }
     

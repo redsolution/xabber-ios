@@ -12,19 +12,20 @@ import UIKit
 
 final class FloatingBottomBarViewTests: XCTestCase {
     func testDefaultEffectUsesNativeGlassWhenAvailable() throws {
-        let effect = BottomBarGlassEffectFactory.makeEffect()
+        let effect = NativeGlassBarStyle.makeEffect(interactive: true)
 
         if #available(iOS 26.0, *) {
             let glassEffect = try XCTUnwrap(effect as? UIGlassEffect)
             XCTAssertTrue(glassEffect.isInteractive)
+            XCTAssertEqual(glassEffect.tintColor, NativeGlassBarStyle.nativeGlassTintColor)
         } else {
             XCTAssertTrue(effect is UIBlurEffect)
         }
     }
 
     func testFallbackEffectUsesSystemMaterialBlur() {
-        XCTAssertEqual(BottomBarGlassEffectFactory.fallbackBlurStyle, .systemMaterial)
-        XCTAssertTrue(BottomBarGlassEffectFactory.makeEffect(prefersNativeGlass: false) is UIBlurEffect)
+        XCTAssertEqual(NativeGlassBarStyle.fallbackBlurStyle, .systemMaterial)
+        XCTAssertTrue(NativeGlassBarStyle.makeEffect(prefersNativeGlass: false) is UIBlurEffect)
     }
 
     func testControlsAreHostedInsideVisualEffectContentView() {
@@ -39,16 +40,42 @@ final class FloatingBottomBarViewTests: XCTestCase {
         let view = FloatingBottomBarView(frame: .zero)
 
         XCTAssertEqual(view.layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertEqual(view.effectView.layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertNil(view.effectView.layer.shadowPath)
+    }
+
+    func testComponentDoesNotApplyCustomBorder() {
+        let view = FloatingBottomBarView(frame: .zero)
+
+        XCTAssertEqual(view.effectView.layer.borderWidth, 0, accuracy: 0.001)
+        XCTAssertNil(view.effectView.layer.borderColor)
     }
 
     func testLayoutMetricsMatchLastChatsBottomInsetContract() {
-        XCTAssertEqual(FloatingBottomBarView.Metrics.height, 44)
-        XCTAssertEqual(FloatingBottomBarView.Metrics.bottomOffset, 4)
-        XCTAssertEqual(FloatingBottomBarView.Metrics.horizontalInset, 16)
-        XCTAssertEqual(FloatingBottomBarView.Metrics.contentInset, 10)
-        XCTAssertEqual(FloatingBottomBarView.Metrics.buttonSize, 44)
-        XCTAssertEqual(FloatingBottomBarView.Metrics.iconSize, 20)
+        XCTAssertEqual(FloatingBottomBarView.Metrics.height, NativeGlassBarStyle.minimumHeight)
+        XCTAssertEqual(FloatingBottomBarView.Metrics.bottomOffset, NativeGlassBarStyle.bottomOffset)
+        XCTAssertEqual(FloatingBottomBarView.Metrics.horizontalInset, NativeGlassBarStyle.horizontalInset)
+        XCTAssertEqual(FloatingBottomBarView.Metrics.contentInset, NativeGlassBarStyle.contentInset)
+        XCTAssertEqual(FloatingBottomBarView.Metrics.buttonSize, NativeGlassBarStyle.buttonSize)
+        XCTAssertEqual(FloatingBottomBarView.Metrics.iconSize, NativeGlassBarStyle.iconSize)
         XCTAssertEqual(FloatingBottomBarView.Metrics.maxWidth, 360)
         XCTAssertEqual(FloatingBottomBarView.Metrics.reservedBottomInset, 60)
+    }
+
+    func testButtonsUseSharedClearIconStyleWithoutIndividualBackgrounds() {
+        let view = FloatingBottomBarView(frame: CGRect(x: 0, y: 0, width: 360, height: 44))
+        view.layoutIfNeeded()
+
+        for button in [view.leftButton, view.rightButton] {
+            XCTAssertEqual(button.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+            XCTAssertEqual(button.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+            XCTAssertEqual(button.tintColor, NativeGlassBarStyle.iconTintColor)
+            XCTAssertEqual(button.contentHorizontalAlignment, .center)
+            XCTAssertEqual(button.contentVerticalAlignment, .center)
+            XCTAssertEqual(button.backgroundColor ?? .clear, .clear)
+            XCTAssertEqual(button.layer.borderWidth, 0, accuracy: 0.001)
+            XCTAssertEqual(button.layer.shadowOpacity, 0, accuracy: 0.001)
+            XCTAssertNil(button.configuration)
+        }
     }
 }

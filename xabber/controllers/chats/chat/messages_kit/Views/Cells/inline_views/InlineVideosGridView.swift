@@ -395,6 +395,7 @@ class InlineVideosGridView: InlineAttachmentView {
     func configure(_ attachments: [VideoAttachment]) {
         self.views.forEach { $0.removeFromSuperview() }
         self.views = []
+        self.contentViews.removeAll()
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
             let view = InlineMessageVideoView(
@@ -432,6 +433,44 @@ class InlineVideosGridView: InlineAttachmentView {
             
         }
         
+    }
+
+    func updateContent(_ attachments: [VideoAttachment]) {
+        if attachments.isEmpty {
+            self.views.forEach { $0.removeFromSuperview() }
+            self.views = []
+            self.contentViews.removeAll()
+            return
+        }
+
+        guard self.views.map(\.primary) == attachments.map(\.primary),
+              self.views.count == attachments.count else {
+            configure(attachments)
+            return
+        }
+
+        prepareGrid(attachments).enumerated().forEach { index, rect in
+            let item = attachments[index]
+            let view = self.views[index]
+            view.frame = rect
+            view.primary = item.primary
+            view.url = item.url
+            view.isSensitive = item.isSensitive && !item.isSensitiveRevealed
+            if let previewUrl = item.previewUrl {
+                view.kf.setImage(
+                    with: previewUrl,
+                    placeholder: nil,
+                    options: [
+                        .alsoPrefetchToMemory,
+                        .waitForCache,
+                        .backgroundDecode,
+                    ]
+                )
+            } else {
+                view.image = nil
+                view.backgroundColor = .black
+            }
+        }
     }
     
     func handleTouch(at point: CGPoint, callback: (([URL], URL, String, Bool) -> Void)?) -> Bool {

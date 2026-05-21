@@ -247,6 +247,37 @@ class MessageStorageItem: Object {
         .localizeString(id: "report_hidden_message_placeholder", arguments: [])
     static let reportHiddenMediaText: String = "This media was hidden after your report."
         .localizeString(id: "report_hidden_media_placeholder", arguments: [])
+    static let omemoUntrustedContactDevicesWarningText: String = "This message was not sent to one or more untrusted devices."
+        .localizeString(id: "chat_omemo_untrusted_contact_devices_warning", arguments: [])
+    static let messageWarningMetadataKey: String = "warning"
+    static let omemoUntrustedContactDevicesWarningCode: String = "omemo_untrusted_contact_devices"
+
+    var messageWarningText: String? {
+        guard let warningCode = systemMetadata?[MessageStorageItem.messageWarningMetadataKey] as? String else {
+            return nil
+        }
+        switch warningCode {
+        case MessageStorageItem.omemoUntrustedContactDevicesWarningCode:
+            return MessageStorageItem.omemoUntrustedContactDevicesWarningText
+        default:
+            return nil
+        }
+    }
+
+    func markOmemoUntrustedContactDevicesWarning() {
+        var metadata = systemMetadata ?? [:]
+        metadata[MessageStorageItem.messageWarningMetadataKey] = MessageStorageItem.omemoUntrustedContactDevicesWarningCode
+        systemMetadata = metadata
+    }
+
+    func clearOmemoUntrustedContactDevicesWarning() {
+        guard var metadata = systemMetadata,
+              metadata[MessageStorageItem.messageWarningMetadataKey] as? String == MessageStorageItem.omemoUntrustedContactDevicesWarningCode else {
+            return
+        }
+        metadata.removeValue(forKey: MessageStorageItem.messageWarningMetadataKey)
+        systemMetadata = metadata.isEmpty ? nil : metadata
+    }
 
     var localReportPlaceholderText: String? {
         if isLocallyHiddenByReport {

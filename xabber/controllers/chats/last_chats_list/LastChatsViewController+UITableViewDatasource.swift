@@ -25,6 +25,11 @@ import CocoaLumberjack
 extension LastChatsViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        guard let item = item(at: indexPath),
+              let sectionKind = sectionKind(at: indexPath.section) else {
+            fatalError()
+        }
+
         if showSkeleton.value {
             guard let cell = tableView.dequeueReusableCell(withIdentifier: SkeletonCell.cellName, for: indexPath) as? SkeletonCell else {
                 fatalError()
@@ -33,89 +38,93 @@ extension LastChatsViewController: UITableViewDataSource {
             return cell
         }
 
-        let index = indexPath.row
-        let item = datasource[index]
-        
-        switch item.specialMessageKind {
-            case .none:
+        switch sectionKind {
+            case .chats:
+                guard item.specialMessageKind == .none else {
+                    fatalError()
+                }
                 guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatListTableViewCell.cellName,
                                                                for: indexPath) as? ChatListTableViewCell else {
                     fatalError()
                 }
-                
-                
-                cell.configure(
-                    item.jid,
-                    owner: item.owner,
-                    username: item.username,
-                    attributedUsername: item.attributedUsername,
-                    message: item.message,
-                    date: item.date,
-                    deliveryState: item.state,
-                    isMute: item.isMute,
-                    isSynced: item.isSynced,
-                    isGroupchat: [.groupchat, .incognitoChat].contains(item.entity),
-                    status: item.status,
-                    entity: item.entity,
-                    conversationType: item.conversationType,
-                    unread: item.unread,
-                    unreadString: item.unreadString,
-                    hasUnreadMention: item.hasUnreadMention,
-                    indicator: item.color,
-                    isDraft: item.isDraft,
-                    isAttachment: item.hasAttachment,
-                    groupchatNickname: item.userNickname,
-                    isSystem: item.isSystemMessage,
-                    isPinned: item.isPinned,
-                    subRequest: item.subRequest,
-                    avatarUrl: item.avatarUrl,
-                    hasErrorInChat: item.hasErrorInChat,
-                    verAction: item.isVerificationActionRequired
-                )
-                cell.setMask()
-                
-                let selectionColor = AccountColorManager.shared.palette(for: item.owner).tint50 | AccountColorManager.shared.palette(for: item.owner).tint900
-                if ContinuousSplitBackgroundExperiment.isActive {
-                    cell.applyContinuousSplitGlassBackground(selectedColor: selectionColor)
-                } else {
-                    let view = UIView()
-                    view.backgroundColor = selectionColor
-                    cell.selectedBackgroundView = view
-                }
-            
+                configureChatCell(cell, with: item)
                 return cell
-            case .contact:
+            case .specialMessages:
+                guard item.specialMessageKind != .none else {
+                    fatalError()
+                }
                 guard let cell = tableView.dequeueReusableCell(withIdentifier: SpecialMessageTableViewCell.cellName, for: indexPath) as? SpecialMessageTableViewCell else {
                     fatalError()
                 }
-                cell.configure(
-                    title: "New contact request",
-                    subtitle: item.unread > 1 ? "New contact requests from: \(item.username) and others" : "New contact request from \(item.username)",
-                    avatars: item.avatars,
-                    owner: item.owner,
-                    showTopLine: indexPath.row == 0,
-                    key: "contact"
-                )
-                cell.closeCallback = onCloseNotificationCallback
-                cell.applyContinuousSplitGlassBackground()
-                return cell
-            case .invite:
-                guard let cell = tableView.dequeueReusableCell(withIdentifier: SpecialMessageTableViewCell.cellName, for: indexPath) as? SpecialMessageTableViewCell else {
-                    fatalError()
-                }
-                
-                cell.configure(
-                    title: "New group invite",
-                    subtitle: item.unread > 1 ? "Join new groups: \(item.username) and more" : "Join \(item.username)",
-                    avatars: item.avatars,
-                    owner: item.owner,
-                    showTopLine: indexPath.row == 0,
-                    key: "invite"
-                )
-                cell.closeCallback = onCloseNotificationCallback
-                cell.applyContinuousSplitGlassBackground()
+                configureSpecialMessageCell(cell, with: item)
                 return cell
         }
+    }
+
+    internal func configureChatCell(_ cell: ChatListTableViewCell, with item: Datasource) {
+        cell.configure(
+            item.jid,
+            owner: item.owner,
+            username: item.username,
+            attributedUsername: item.attributedUsername,
+            message: item.message,
+            date: item.date,
+            deliveryState: item.state,
+            isMute: item.isMute,
+            isSynced: item.isSynced,
+            isGroupchat: [.groupchat, .incognitoChat].contains(item.entity),
+            status: item.status,
+            entity: item.entity,
+            conversationType: item.conversationType,
+            unread: item.unread,
+            unreadString: item.unreadString,
+            hasUnreadMention: item.hasUnreadMention,
+            indicator: item.color,
+            isDraft: item.isDraft,
+            isAttachment: item.hasAttachment,
+            groupchatNickname: item.userNickname,
+            isSystem: item.isSystemMessage,
+            isPinned: item.isPinned,
+            subRequest: item.subRequest,
+            avatarUrl: item.avatarUrl,
+            hasErrorInChat: item.hasErrorInChat,
+            verAction: item.isVerificationActionRequired
+        )
+        cell.setMask()
+
+        let selectionColor = AccountColorManager.shared.palette(for: item.owner).tint50 | AccountColorManager.shared.palette(for: item.owner).tint900
+        if ContinuousSplitBackgroundExperiment.isActive {
+            cell.applyContinuousSplitGlassBackground(selectedColor: selectionColor)
+        } else {
+            let view = UIView()
+            view.backgroundColor = selectionColor
+            cell.selectedBackgroundView = view
+        }
+    }
+
+    internal func configureSpecialMessageCell(_ cell: SpecialMessageTableViewCell, with item: Datasource) {
+        switch item.specialMessageKind {
+        case .contact:
+            cell.configure(
+                title: "New contact request",
+                subtitle: item.unread > 1 ? "New contact requests from: \(item.username) and others" : "New contact request from \(item.username)",
+                avatars: item.avatars,
+                owner: item.owner,
+                key: "contact"
+            )
+        case .invite:
+            cell.configure(
+                title: "New invitations",
+                subtitle: item.unread > 1 ? "Join new groups: \(item.username) and more" : "Join \(item.username)",
+                avatars: item.avatars,
+                owner: item.owner,
+                key: "invite"
+            )
+        case .none:
+            return
+        }
+        cell.closeCallback = onCloseNotificationCallback
+        cell.applyContinuousSplitGlassBackground()
     }
     
     public func onCloseNotificationCallback(_ key: String) {
@@ -134,13 +143,19 @@ extension LastChatsViewController: UITableViewDataSource {
                         }
                     }
                 case "invite":
-                    let invites = realm
+                    let uiInvites = realm
                         .objects(UINotificationStorageItem.self)
                         .filter("owner IN %@ AND isRead == %@ AND kind_ == %@", jids, false, UINotificationStorageItem.Kind.invite.rawValue)
+                    let groupInvites = realm
+                        .objects(GroupchatInvitesStorageItem.self)
+                        .filter("owner IN %@ AND isRead == %@", jids, false)
                     try realm.write {
-                        invites.forEach {
+                        uiInvites.forEach {
                             $0.isRead = true
                             $0.readAt = Date()
+                        }
+                        groupInvites.forEach {
+                            $0.isRead = true
                         }
                     }
                 default:
@@ -155,11 +170,12 @@ extension LastChatsViewController: UITableViewDataSource {
     }
     
     func numberOfSections(in tableView: UITableView) -> Int {
-        return 1
+        return datasourceSections.count
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return datasource.count
+        guard datasourceSections.indices.contains(section) else { return 0 }
+        return datasourceSections[section].rows.count
     }
     
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -193,13 +209,5 @@ extension LastChatsViewController: UITableViewDataSource {
             (cell as? SkeletonCell)?.animate()
         }
     }
-    
-    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        if AudioManager.shared.player == nil {
-            return nil
-        } else {
-            return self.playerViewToolbar
-        }
-    }
-    
+
 }
