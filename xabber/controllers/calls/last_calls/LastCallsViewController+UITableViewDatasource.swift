@@ -38,6 +38,7 @@ extension LastCallsViewController: UITableViewDataSource {
             outgoing: item.outgoing
         )
         cell.setMask()
+        cell.applyPlainGroupedSystemBackground()
         return cell
     }
     

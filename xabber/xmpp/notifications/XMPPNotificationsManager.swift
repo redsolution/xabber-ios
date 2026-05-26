@@ -15,6 +15,7 @@ class XMPPNotificationsManager: AbstractXMPPManager {
     
     static let xmlns: String = "urn:xabber:xen:0"
     private static let archivePageSize: Int = 100
+    private static let historicalBackfillPageBudgetPerRun: Int = 3
     
     open var node: String? =  nil
 
@@ -53,6 +54,7 @@ class XMPPNotificationsManager: AbstractXMPPManager {
     private let syncStateQueue = DispatchQueue(label: "com.xabber.notifications.sync-state")
     private var isLatestSyncInProgress: Bool = false
     private var isBackfillInProgress: Bool = false
+    private var remainingHistoricalBackfillPageBudget: Int = 0
     
     override func namespaces() -> [String] {
         return [
@@ -170,6 +172,23 @@ class XMPPNotificationsManager: AbstractXMPPManager {
         self.syncStateQueue.sync {
             self.isLatestSyncInProgress = false
             self.isBackfillInProgress = false
+            self.remainingHistoricalBackfillPageBudget = 0
+        }
+    }
+
+    private final func resetHistoricalBackfillBudget() {
+        self.syncStateQueue.sync {
+            self.remainingHistoricalBackfillPageBudget = Self.historicalBackfillPageBudgetPerRun
+        }
+    }
+
+    private final func consumeHistoricalBackfillBudget() -> Bool {
+        self.syncStateQueue.sync {
+            guard self.remainingHistoricalBackfillPageBudget > 0 else {
+                return false
+            }
+            self.remainingHistoricalBackfillPageBudget -= 1
+            return true
         }
     }
 
@@ -690,10 +709,12 @@ class XMPPNotificationsManager: AbstractXMPPManager {
         _ stream: XMPPStream,
         node: String,
         afterId: String?,
-        bootstrapFromNewestPage: Bool
+        bootstrapFromNewestPage: Bool,
+        completion: @escaping () -> Void
     ) {
         guard let archiveManager = archiveManager() else {
             endSync(.latest)
+            completion()
             return
         }
 
@@ -715,14 +736,19 @@ class XMPPNotificationsManager: AbstractXMPPManager {
             requestCallbacks: .init(
                 onMessage: nil,
                 onEndPage: { [weak self] _, state, first, last, count in
-                    self?.handleLatestPageResult(
+                    guard let self else {
+                        completion()
+                        return
+                    }
+                    self.handleLatestPageResult(
                         stream,
                         node: node,
                         bootstrapFromNewestPage: bootstrapFromNewestPage,
                         state: state,
                         first: first,
                         last: last,
-                        count: count
+                        count: count,
+                        completion: completion
                     )
                 }
             )
@@ -736,7 +762,8 @@ class XMPPNotificationsManager: AbstractXMPPManager {
         state: MessageArchivePageEndState,
         first: String,
         last: String,
-        count: Int
+        count: Int,
+        completion: @escaping () -> Void
     ) {
         var archiveSyncCompleted = false
         var backfillCursor: String?
@@ -765,12 +792,14 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                 stream,
                 node: node,
                 afterId: last,
-                bootstrapFromNewestPage: false
+                bootstrapFromNewestPage: false,
+                completion: completion
             )
             return
         }
 
         endSync(.latest)
+        completion()
 
         guard !archiveSyncCompleted else {
             return
@@ -784,7 +813,47 @@ class XMPPNotificationsManager: AbstractXMPPManager {
         node: String,
         fallbackCursor: String?
     ) {
+        guard consumeHistoricalBackfillBudget() else {
+            DDLogDebug("XMPPNotificationsManager: historical backfill budget exhausted owner=\(self.owner) node=\(node)")
+            return
+        }
+
+        if let account = AccountManager.shared.find(for: self.owner) {
+            account.xmppTaskScheduler.enqueueAccountTask(
+                priority: .background,
+                resource: .mamArchive,
+                deduplicationKey: "notifications.backfill.\(self.owner).\(node)"
+            ) { [weak self] _, stream, finish in
+                guard let self else {
+                    finish()
+                    return
+                }
+                self.performHistoricalBackfillPage(
+                    stream,
+                    node: node,
+                    fallbackCursor: fallbackCursor,
+                    completion: finish
+                )
+            }
+            return
+        }
+
+        performHistoricalBackfillPage(
+            stream,
+            node: node,
+            fallbackCursor: fallbackCursor,
+            completion: {}
+        )
+    }
+
+    private final func performHistoricalBackfillPage(
+        _ stream: XMPPStream,
+        node: String,
+        fallbackCursor: String?,
+        completion: @escaping () -> Void
+    ) {
         guard beginSync(.backfill) else {
+            completion()
             return
         }
 
@@ -793,17 +862,20 @@ class XMPPNotificationsManager: AbstractXMPPManager {
             let storage = realm.object(ofType: XMPPNotificationsManagerStorageItem.self, forPrimaryKey: self.storagePrimary)
             guard storage?.archiveSyncCompleted != true else {
                 endSync(.backfill)
+                completion()
                 return
             }
 
             guard let cursor = storedBackfillCursor(in: realm, fallback: fallbackCursor), cursor.isNotEmpty else {
                 endSync(.backfill)
+                completion()
                 return
             }
 
-            requestOlderBackfillPage(stream, node: node, beforeId: cursor)
+            requestOlderBackfillPage(stream, node: node, beforeId: cursor, completion: completion)
         } catch {
             endSync(.backfill)
+            completion()
             DDLogDebug("XMPPNotificationsManager: \(#function). \(error.localizedDescription)")
         }
     }
@@ -811,10 +883,12 @@ class XMPPNotificationsManager: AbstractXMPPManager {
     private final func requestOlderBackfillPage(
         _ stream: XMPPStream,
         node: String,
-        beforeId: String
+        beforeId: String,
+        completion: @escaping () -> Void
     ) {
         guard let archiveManager = archiveManager() else {
             endSync(.backfill)
+            completion()
             return
         }
 
@@ -834,11 +908,16 @@ class XMPPNotificationsManager: AbstractXMPPManager {
             requestCallbacks: .init(
                 onMessage: nil,
                 onEndPage: { [weak self] _, state, first, _, _ in
-                    self?.handleBackfillPageResult(
+                    guard let self else {
+                        completion()
+                        return
+                    }
+                    self.handleBackfillPageResult(
                         stream,
                         node: node,
                         state: state,
-                        first: first
+                        first: first,
+                        completion: completion
                     )
                 }
             )
@@ -849,7 +928,8 @@ class XMPPNotificationsManager: AbstractXMPPManager {
         _ stream: XMPPStream,
         node: String,
         state: MessageArchivePageEndState,
-        first: String
+        first: String,
+        completion: @escaping () -> Void
     ) {
         do {
             let realm = try WRealm.safe()
@@ -865,15 +945,19 @@ class XMPPNotificationsManager: AbstractXMPPManager {
 
         if state.queryExhausted {
             endSync(.backfill)
+            completion()
             return
         }
 
         guard first.isNotEmpty else {
             endSync(.backfill)
+            completion()
             return
         }
 
-        requestOlderBackfillPage(stream, node: node, beforeId: first)
+        endSync(.backfill)
+        completion()
+        startHistoricalBackfillIfNeeded(stream, node: node, fallbackCursor: first)
     }
     
     public func readAll(_ stream: XMPPStream) {
@@ -947,9 +1031,38 @@ class XMPPNotificationsManager: AbstractXMPPManager {
     public func update(_ stream: XMPPStream) {
         guard isAvailable(), let node = self.node else { return }
 
-        guard beginSync(.latest) else {
+        let runLatestSync: (XMPPStream, @escaping () -> Void) -> Void = { [weak self] stream, completion in
+            guard let self else {
+                completion()
+                return
+            }
+            self.performLatestSync(stream, node: node, completion: completion)
+        }
+
+        if let account = AccountManager.shared.find(for: self.owner) {
+            account.xmppTaskScheduler.enqueueAccountTask(
+                priority: .foreground,
+                resource: .mamArchive,
+                deduplicationKey: "notifications.latest.\(self.owner).\(node)"
+            ) { _, stream, finish in
+                runLatestSync(stream, finish)
+            }
             return
         }
+
+        runLatestSync(stream, {})
+    }
+
+    private final func performLatestSync(
+        _ stream: XMPPStream,
+        node: String,
+        completion: @escaping () -> Void
+    ) {
+        guard beginSync(.latest) else {
+            completion()
+            return
+        }
+        resetHistoricalBackfillBudget()
 
         do {
             let realm = try WRealm.safe()
@@ -962,10 +1075,12 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                 stream,
                 node: node,
                 afterId: latestCursor.cursor,
-                bootstrapFromNewestPage: latestCursor.cursor?.isNotEmpty != true
+                bootstrapFromNewestPage: latestCursor.cursor?.isNotEmpty != true,
+                completion: completion
             )
         } catch {
             endSync(.latest)
+            completion()
             DDLogDebug("XMPPNotificationsManager: \(#function). \(error.localizedDescription)")
         }
     }

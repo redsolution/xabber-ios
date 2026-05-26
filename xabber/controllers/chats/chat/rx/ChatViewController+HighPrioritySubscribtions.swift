@@ -103,6 +103,24 @@ extension ChatViewController {
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
         self.bag = DisposeBag()
         let realm = try WRealm.safe()
+        self.configureDataset()
+        self.cancelInitialBootstrapLocalHistoryFallback()
+        let initialChatInstance = realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                jid: self.jid,
+                owner: self.owner,
+                conversationType: self.conversationType
+            )
+        )
+        let initialBootstrapViewState = self.bootstrapViewState(chatInstance: initialChatInstance)
+        self.applyBootstrapViewState(
+            initialBootstrapViewState,
+            forceRender: self.datasource.isEmpty || !self.isShowingBootstrapPlaceholder
+        )
+        if initialBootstrapViewState == .skeleton {
+            self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
+        }
         let bootstrapRequestCallbacks = MessageArchiveManager.RequestCallbacks(
             onMessage: nil,
             onEndPage: { [weak self] queryId, state, first, last, count in
@@ -134,7 +152,6 @@ extension ChatViewController {
             })
         }
         
-        self.configureDataset()
         Observable
             .collection(from: self.messagesObserver, synchronousStart: true)
             .skip(1)
@@ -145,6 +162,7 @@ extension ChatViewController {
                 self.refreshPinnedMessagePanelIfNeeded()
                 if self.showSkeletonObserver.value {
                     _ = self.completeInitialBootstrapIfNeeded()
+                    self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
                     self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
                     return
                 }
@@ -508,8 +526,10 @@ extension ChatViewController {
             case .bootstrapStarted(let queryId):
                 self.beginInitialBootstrapTracking(queryId: queryId)
                 self.applyBootstrapViewState(self.currentBootstrapViewState(), forceRender: true)
+                self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
             case .gapRepairOnly, .noop:
                 self.resetInitialBootstrapTracking()
+                _ = self.revealStaleLocalHistoryIfNeeded()
             }
         }
     }
@@ -533,6 +553,9 @@ extension ChatViewController {
             }
         } else if !shouldShowSkeleton {
             self.reloadInitialWindowAfterBootstrapIfNeeded()
+        }
+        if shouldShowSkeleton {
+            self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
         }
         _ = self.completeInitialBootstrapIfNeeded()
         self.rebuildUnreadMentionItems()

@@ -174,20 +174,49 @@ class VCardManager: AbstractXMPPManager {
     
     var missedVCardJidsList: Set<String> = Set()
     var missedVCardLastQueryId: String? = nil
+    private var scheduledLazyVCardJids: Set<String> = Set()
     
     public final func lazyLoadMissedVCards(_ stream: XMPPStream) {
-        if missedVCardLastQueryId == nil && missedVCardJidsList.isEmpty {
-            do {
-                let realm = try WRealm.safe()
-                let jids = Set(realm.objects(RosterStorageItem.self).filter("owner == %@", self.owner).compactMap { $0.jid })
-                let vcards = Set(realm.objects(vCardStorageItem.self).filter("owner == %@", self.owner).compactMap { $0.jid })
-                self.missedVCardJidsList = jids.subtracting(vcards)
-                if let jid = missedVCardJidsList.popFirst() {
-                    self.missedVCardLastQueryId = self.requestItem(stream, jid: jid)
-                }
-            } catch {
-                DDLogDebug("VCardManager: \(#function). \(error.localizedDescription)")
+        do {
+            let realm = try WRealm.safe()
+            let jids = Set(realm.objects(RosterStorageItem.self).filter("owner == %@", self.owner).compactMap { $0.jid })
+            let vcards = Set(realm.objects(vCardStorageItem.self).filter("owner == %@", self.owner).compactMap { $0.jid })
+            let missingJids = jids
+                .subtracting(vcards)
+                .filter { !self.scheduledLazyVCardJids.contains($0) }
+
+            guard missingJids.isNotEmpty else {
+                return
             }
+
+            if let account = AccountManager.shared.find(for: self.owner) {
+                missingJids.forEach { jid in
+                    self.scheduledLazyVCardJids.insert(jid)
+                    account.xmppTaskScheduler.enqueueAccountTask(
+                        priority: .background,
+                        resource: .vcard,
+                        deduplicationKey: "vcard.lazy.\(self.owner).\(jid)",
+                        requiresAuthenticatedStream: false
+                    ) { [weak self] _, stream, finish in
+                        guard let self else {
+                            finish()
+                            return
+                        }
+                        guard stream.isAuthenticated else {
+                            self.scheduledLazyVCardJids.remove(jid)
+                            finish()
+                            return
+                        }
+                        _ = self.requestItem(stream, jid: jid)
+                        finish()
+                    }
+                }
+            } else if stream.isAuthenticated, let jid = missingJids.first {
+                self.scheduledLazyVCardJids.insert(jid)
+                _ = self.requestItem(stream, jid: jid)
+            }
+        } catch {
+            DDLogDebug("VCardManager: \(#function). \(error.localizedDescription)")
         }
     }
     
@@ -211,6 +240,7 @@ class VCardManager: AbstractXMPPManager {
         if elementID == self.addContactVcardCheckId {
             self.addContactVcardCheckCallback?(from, iq.iqType != .error)
         }
+        self.scheduledLazyVCardJids.remove(from)
         if elementID == self.missedVCardLastQueryId {
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                 user.vcards.continueLazyLoadMissedVCards(stream)

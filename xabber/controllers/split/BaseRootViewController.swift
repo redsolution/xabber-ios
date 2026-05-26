@@ -8,6 +8,7 @@
 
 import Foundation
 import UIKit
+import RealmSwift
 
 class BaseRootViewController: BaseViewController {
     
@@ -301,7 +302,134 @@ extension UITableView {
     }
 }
 
+enum ContinuousSplitCellBackgroundStyle {
+    static let nativeGlassTintColor = UIColor.systemBackground.withAlphaComponent(0.16)
+    static let normalFallbackBlurStyle: UIBlurEffect.Style = .systemThinMaterial
+    static let highlightedFallbackBlurStyle: UIBlurEffect.Style = .systemMaterial
+    static let normalBackgroundColor = UIColor.systemBackground.withAlphaComponent(0.24)
+
+    static func makeEffect(
+        isHighlighted: Bool,
+        prefersNativeGlass: Bool = true,
+        tintColor: UIColor? = nil
+    ) -> UIVisualEffect {
+        if prefersNativeGlass, #available(iOS 26.0, *) {
+            let effect = UIGlassEffect(style: .regular)
+            effect.isInteractive = false
+            effect.tintColor = tintColor ?? nativeGlassTintColor
+            return effect
+        }
+
+        return UIBlurEffect(style: isHighlighted ? highlightedFallbackBlurStyle : normalFallbackBlurStyle)
+    }
+
+    static func backgroundColor(isHighlighted: Bool, selectedColor: UIColor) -> UIColor {
+        isHighlighted
+            ? selectedColor.withAlphaComponent(0.35)
+            : normalBackgroundColor
+    }
+}
+
+enum AccountSelectionHighlightStyle {
+    static func tint50(owner: String?, fallbackOwners: Set<String> = []) -> UIColor {
+        if let owner, owner.isNotEmpty {
+            return AccountColorManager.shared.palette(for: owner).tint50
+        }
+
+        if let owner = firstOwner(from: fallbackOwners) ?? firstEnabledOwner() {
+            return AccountColorManager.shared.palette(for: owner).tint50
+        }
+
+        return AccountColorManager.shared.topPalette().tint50
+    }
+
+    private static func firstOwner(from owners: Set<String>) -> String? {
+        guard owners.isNotEmpty else { return nil }
+
+        do {
+            let realm = try WRealm.safe()
+            if let account = realm
+                .objects(AccountStorageItem.self)
+                .filter("jid IN %@", Array(owners))
+                .sorted(byKeyPath: "order", ascending: true)
+                .first {
+                return account.jid
+            }
+        } catch {
+            return owners.sorted().first
+        }
+
+        return owners.sorted().first
+    }
+
+    private static func firstEnabledOwner() -> String? {
+        do {
+            return try WRealm.safe()
+                .objects(AccountStorageItem.self)
+                .filter("enabled == true")
+                .sorted(byKeyPath: "order", ascending: true)
+                .first?
+                .jid
+        } catch {
+            return nil
+        }
+    }
+}
+
 extension UITableViewCell {
+    func applyPlainGroupedSystemBackground(selectedColor: UIColor?) {
+        applyPlainGroupedSystemBackground(selectedColor: selectedColor, isSelected: false)
+    }
+
+    func applyPlainGroupedSystemBackground(selectedColor: UIColor? = nil, isSelected: Bool = false) {
+        configurationUpdateHandler = nil
+
+        func applyBackground(color: UIColor) {
+            var background = UIBackgroundConfiguration.listGroupedCell()
+            background.backgroundColor = color
+            background.backgroundColorTransformer = UIConfigurationColorTransformer { _ in
+                color
+            }
+            background.visualEffect = nil
+            backgroundConfiguration = background
+
+            backgroundColor = color
+            contentView.backgroundColor = .clear
+            isOpaque = true
+            selectionStyle = .none
+            backgroundView = nil
+            selectedBackgroundView = nil
+            multipleSelectionBackgroundView = nil
+        }
+
+        let normalColor = UIColor.systemBackground
+        let selectedBackgroundColor = selectedColor ?? normalColor
+        applyBackground(color: isSelected ? selectedBackgroundColor : normalColor)
+
+        guard let selectedColor else { return }
+
+        configurationUpdateHandler = { cell, state in
+            let color = isSelected || state.isSelected || state.isHighlighted
+                ? selectedColor
+                : normalColor
+            var background = UIBackgroundConfiguration.listGroupedCell()
+            background.backgroundColor = color
+            background.backgroundColorTransformer = UIConfigurationColorTransformer { _ in
+                color
+            }
+            background.visualEffect = nil
+            cell.backgroundConfiguration = background
+            cell.backgroundColor = color
+            cell.contentView.backgroundColor = .clear
+            cell.isOpaque = true
+            cell.selectionStyle = .none
+            cell.backgroundView = nil
+            cell.selectedBackgroundView = nil
+            cell.multipleSelectionBackgroundView = nil
+        }
+        setNeedsUpdateConfiguration()
+    }
+
     func applyContinuousSplitSystemBackground(selectedColor: UIColor = .systemFill) {
         guard ContinuousSplitBackgroundExperiment.isActive else { return }
 
@@ -309,6 +437,7 @@ extension UITableViewCell {
 
         var background = UIBackgroundConfiguration.listGroupedCell()
         background.backgroundColor = .systemBackground
+        background.visualEffect = nil
         backgroundConfiguration = background
 
         backgroundColor = .clear
@@ -329,11 +458,16 @@ extension UITableViewCell {
         selectedBackgroundView = nil
 
         configurationUpdateHandler = { cell, state in
+            let isHighlighted = state.isSelected || state.isHighlighted
             var background = UIBackgroundConfiguration.listGroupedCell()
-            background.visualEffect = UIBlurEffect(style: state.isSelected || state.isHighlighted ? .systemMaterial : .systemThinMaterial)
-            background.backgroundColor = state.isSelected || state.isHighlighted
-                ? selectedColor.withAlphaComponent(0.35)
-                : UIColor.systemBackground.withAlphaComponent(0.24)
+            background.visualEffect = ContinuousSplitCellBackgroundStyle.makeEffect(
+                isHighlighted: isHighlighted,
+                tintColor: isHighlighted ? selectedColor.withAlphaComponent(0.18) : nil
+            )
+            background.backgroundColor = ContinuousSplitCellBackgroundStyle.backgroundColor(
+                isHighlighted: isHighlighted,
+                selectedColor: selectedColor
+            )
             cell.backgroundConfiguration = background
         }
         setNeedsUpdateConfiguration()

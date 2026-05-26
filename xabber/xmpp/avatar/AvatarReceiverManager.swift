@@ -218,9 +218,7 @@ class XmppAvatarManager: AbstractXMPPManager {
             } catch {
                 DDLogDebug("XmppAvatarManager: \(#function). \(error.localizedDescription)")
             }
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                user.avatarManager.self.requestPubSubItem(stream, node: .data, jid: jid, by: id)
-            })
+            self.enqueuePubSubItemRequest(node: .data, jid: jid, by: id)
         }
         return true
     }
@@ -261,6 +259,29 @@ class XmppAvatarManager: AbstractXMPPManager {
     enum AvatarNode: String {
         case metadata = "urn:xmpp:avatar:metadata"
         case data = "urn:xmpp:avatar:data"
+    }
+
+    public final func enqueuePubSubItemRequest(node: AvatarNode, jid: String, by itemId: String) {
+        guard let account = AccountManager.shared.find(for: self.owner) else {
+            return
+        }
+        account.xmppTaskScheduler.enqueueAccountTask(
+            priority: .background,
+            resource: .avatar,
+            deduplicationKey: "avatar.\(self.owner).\(node.rawValue).\(jid).\(itemId)",
+            requiresAuthenticatedStream: false
+        ) { [weak self] _, stream, finish in
+            guard let self else {
+                finish()
+                return
+            }
+            guard stream.isAuthenticated else {
+                finish()
+                return
+            }
+            self.requestPubSubItem(stream, node: node, jid: jid, by: itemId)
+            finish()
+        }
     }
         
     public final func requestPubSubItem(_ xmppStream: XMPPStream, node: AvatarNode, jid: String, by itemId: String) {

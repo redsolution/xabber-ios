@@ -126,6 +126,45 @@ class MessageArchiveManager: AbstractXMPPManager {
         let max: Int
     }
 
+    enum RegularChatArchiveRequestKind: Equatable {
+        case bootstrap
+        case older
+        case newer
+        case exactAnchor
+        case dateWindow
+    }
+
+    enum RegularChatArchiveRequestPriority {
+        case interactive
+        case idle
+    }
+
+    struct RegularChatArchiveRequestPlan: Equatable {
+        let kind: RegularChatArchiveRequestKind
+        let jid: String
+        let conversationType: ClientSynchronizationManager.ConversationType
+        let purpose: RequestPurpose
+        let nextPage: String?
+        let prevPage: String?
+        let ids: [String]?
+        let start: Date?
+        let end: Date?
+        let max: Int
+        let usesServerArchiveId: Bool
+    }
+
+    struct RegularChatArchiveRequestKey: Hashable {
+        let jid: String
+        let conversationTypeRaw: String
+        let purpose: RequestPurpose
+        let nextPage: String?
+        let prevPage: String?
+        let ids: [String]?
+        let startTime: TimeInterval?
+        let endTime: TimeInterval?
+        let max: Int
+    }
+
     private struct ArchiveDateConstraint {
         let start: Date?
         let shouldSkipRequest: Bool
@@ -145,6 +184,93 @@ class MessageArchiveManager: AbstractXMPPManager {
 
     static func newerPageRequest(messageId: String, pageSize: Int) -> PageRequestConfiguration {
         PageRequestConfiguration(nextPage: nil, prevPage: messageId, max: pageSize)
+    }
+
+    static func regularArchivePageSize(requested: Int?, defaultPageSize: Int = ChatHistoryPagingConfiguration.pageSize) -> Int {
+        min(max(requested ?? defaultPageSize, 1), ChatHistoryPagingConfiguration.pageSize)
+    }
+
+    static func regularBootstrapRequestPlan(jid: String, pageSize: Int) -> RegularChatArchiveRequestPlan {
+        let request = newestBootstrapPageRequest(pageSize: pageSize)
+        return RegularChatArchiveRequestPlan(
+            kind: .bootstrap,
+            jid: jid,
+            conversationType: .regular,
+            purpose: .bootstrap,
+            nextPage: request.nextPage,
+            prevPage: request.prevPage,
+            ids: nil,
+            start: nil,
+            end: nil,
+            max: request.max,
+            usesServerArchiveId: false
+        )
+    }
+
+    static func regularOlderRequestPlan(jid: String, oldestLoadedArchiveId: String?, pageSize: Int) -> RegularChatArchiveRequestPlan {
+        let request = olderPageRequest(messageId: oldestLoadedArchiveId, pageSize: pageSize)
+        return RegularChatArchiveRequestPlan(
+            kind: .older,
+            jid: jid,
+            conversationType: .regular,
+            purpose: .pageOlder,
+            nextPage: request.nextPage,
+            prevPage: request.prevPage,
+            ids: nil,
+            start: nil,
+            end: nil,
+            max: request.max,
+            usesServerArchiveId: oldestLoadedArchiveId?.isNotEmpty == true
+        )
+    }
+
+    static func regularNewerRequestPlan(jid: String, newestLoadedArchiveId: String, pageSize: Int) -> RegularChatArchiveRequestPlan {
+        let request = newerPageRequest(messageId: newestLoadedArchiveId, pageSize: pageSize)
+        return RegularChatArchiveRequestPlan(
+            kind: .newer,
+            jid: jid,
+            conversationType: .regular,
+            purpose: .pageNewer,
+            nextPage: request.nextPage,
+            prevPage: request.prevPage,
+            ids: nil,
+            start: nil,
+            end: nil,
+            max: request.max,
+            usesServerArchiveId: true
+        )
+    }
+
+    static func regularExactAnchorRequestPlan(jid: String, archivedId: String) -> RegularChatArchiveRequestPlan {
+        RegularChatArchiveRequestPlan(
+            kind: .exactAnchor,
+            jid: jid,
+            conversationType: .regular,
+            purpose: .jump,
+            nextPage: nil,
+            prevPage: nil,
+            ids: [archivedId],
+            start: nil,
+            end: nil,
+            max: 1,
+            usesServerArchiveId: true
+        )
+    }
+
+    static func regularDateWindowAnchorRequestPlan(jid: String, start: Date, end: Date, max: Int) -> RegularChatArchiveRequestPlan {
+        RegularChatArchiveRequestPlan(
+            kind: .dateWindow,
+            jid: jid,
+            conversationType: .regular,
+            purpose: .jump,
+            nextPage: nil,
+            prevPage: nil,
+            ids: nil,
+            start: start,
+            end: end,
+            max: max,
+            usesServerArchiveId: false
+        )
     }
 
     static func getArchiveLowerBoundForConversation(
@@ -235,6 +361,20 @@ class MessageArchiveManager: AbstractXMPPManager {
     
     open var temporaryMessageReceiverDelegate: TemporaryMessageReceiverProtocol? = nil
     private var persistedMessageCountsByQueryId: [String: Int] = [:]
+    private final class RegularArchiveInFlightEntry {
+        let queryId: String
+        var requestCallbacks: [RequestCallbacks] = []
+        var completionCallbacks: [() -> Void] = []
+        let priority: RegularChatArchiveRequestPriority
+
+        init(queryId: String, priority: RegularChatArchiveRequestPriority) {
+            self.queryId = queryId
+            self.priority = priority
+        }
+    }
+    private var regularArchiveInFlightByKey: [RegularChatArchiveRequestKey: RegularArchiveInFlightEntry] = [:]
+    private var regularArchiveRequestKeyByQueryId: [String: RegularChatArchiveRequestKey] = [:]
+    private var regularIdleBackfillInProgress: Bool = false
     
     override init(withOwner owner: String) {
         self.isInitialArchiveRequested = SettingManager.shared.getKey(for: owner, scope: .messageArchive, key: "initial") == nil
@@ -412,6 +552,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 last: "",
                 count: 0
             )
+            self.finishRegularArchiveRequest(queryId: queryId, item: item, state: nil, first: "", last: "", count: 0)
             self.callbacksQueue.remove(item)
             self.queryIds.remove(elementId)
             return true
@@ -449,6 +590,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                                     }
                                     self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count)
                                     self.completeCallback(item.callback)
+                                    self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
                                     self.callbacksQueue.remove(item)
                                     return true
                                 }
@@ -469,6 +611,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                                     }
                                     self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count)
                                     self.completeCallback(item.callback)
+                                    self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
                                     self.callbacksQueue.remove(item)
                                     return true
                                 }
@@ -476,12 +619,14 @@ class MessageArchiveManager: AbstractXMPPManager {
                             if count == 0 {
                                 self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count)
                                 self.completeCallback(item.callback)
+                                self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
                                 self.callbacksQueue.remove(item)
                                 return true
                             }
                             if complete {
                                 self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count)
                                 self.completeCallback(item.callback)
+                                self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
                                 self.callbacksQueue.remove(item)
                                 return true
                             }
@@ -530,12 +675,14 @@ class MessageArchiveManager: AbstractXMPPManager {
                             }
                             if count == 0 {
 //                                try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
+                                self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
                                 self.callbacksQueue.remove(item)
                                 self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count)
                                 return true
                             }
                             if fin.attributeBoolValue(forName: "complete") {
 //                                try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
+                                self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
                                 self.callbacksQueue.remove(item)
                                 self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count)
                                 return true
@@ -548,6 +695,11 @@ class MessageArchiveManager: AbstractXMPPManager {
                             DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
                         }
                     }
+                }
+                if item.task.conversationType == .regular,
+                   self.regularArchiveRequestKeyByQueryId[queryId] != nil {
+                    let state = self.makePageEndState(for: item.task, queryId: queryId, queryExhausted: false)
+                    self.finishRegularArchiveRequest(queryId: queryId, item: item, state: state, first: first, last: last, count: item.task.max)
                 }
                 self.callbacksQueue.remove(item)
             }
@@ -638,6 +790,187 @@ class MessageArchiveManager: AbstractXMPPManager {
         )
         self.searchResultsQueries.insert(queryId)
         self.continuesTaskID = taskId
+    }
+
+    private static func regularRequestKey(for plan: RegularChatArchiveRequestPlan) -> RegularChatArchiveRequestKey {
+        RegularChatArchiveRequestKey(
+            jid: plan.jid,
+            conversationTypeRaw: plan.conversationType.rawValue,
+            purpose: plan.purpose,
+            nextPage: plan.nextPage,
+            prevPage: plan.prevPage,
+            ids: plan.ids,
+            startTime: plan.start?.timeIntervalSince1970,
+            endTime: plan.end?.timeIntervalSince1970,
+            max: plan.max
+        )
+    }
+
+    private func regularArchiveCallbacks(
+        primary: RequestCallbacks,
+        entry: RegularArchiveInFlightEntry
+    ) -> RequestCallbacks {
+        RequestCallbacks(
+            onMessage: { item, queryId in
+                primary.onMessage?(item, queryId)
+                entry.requestCallbacks.forEach { $0.onMessage?(item, queryId) }
+            },
+            onEndPage: { queryId, state, first, last, count in
+                primary.onEndPage?(queryId, state, first, last, count)
+                entry.requestCallbacks.forEach { $0.onEndPage?(queryId, state, first, last, count) }
+            }
+        )
+    }
+
+    private func regularArchiveCompletion(
+        primary: (() -> Void)?,
+        entry: RegularArchiveInFlightEntry
+    ) -> (() -> Void) {
+        return {
+            primary?()
+            entry.completionCallbacks.forEach { $0() }
+        }
+    }
+
+    @discardableResult
+    private func startRegularArchiveRequest(
+        _ stream: XMPPStream,
+        plan: RegularChatArchiveRequestPlan,
+        queryId: String,
+        flipPage: Bool = true,
+        priority: RegularChatArchiveRequestPriority = .interactive,
+        joinDuplicateRequests: Bool = true,
+        callback: (() -> Void)? = nil,
+        requestCallbacks: RequestCallbacks = .none
+    ) -> String {
+        let key = Self.regularRequestKey(for: plan)
+        if joinDuplicateRequests,
+           let entry = regularArchiveInFlightByKey[key] {
+            if requestCallbacks.onMessage != nil || requestCallbacks.onEndPage != nil {
+                entry.requestCallbacks.append(requestCallbacks)
+            }
+            if let callback {
+                entry.completionCallbacks.append(callback)
+            }
+            return entry.queryId
+        }
+
+        let entry = RegularArchiveInFlightEntry(queryId: queryId, priority: priority)
+        regularArchiveInFlightByKey[key] = entry
+        regularArchiveRequestKeyByQueryId[queryId] = key
+
+        self.requestArchive(
+            stream,
+            jid: plan.jid,
+            isContinues: false,
+            conversationType: .regular,
+            purpose: plan.purpose,
+            queryId: queryId,
+            ids: plan.ids,
+            flipPage: flipPage,
+            start: plan.start,
+            end: plan.end,
+            nextPage: plan.nextPage,
+            prevPage: plan.prevPage,
+            max: plan.max,
+            consumerManagesArchiveEnd: true,
+            consumerManagesHistoryCursor: true,
+            callback: regularArchiveCompletion(primary: callback, entry: entry),
+            requestCallbacks: regularArchiveCallbacks(primary: requestCallbacks, entry: entry)
+        )
+        return queryId
+    }
+
+    private func finishRegularArchiveRequest(
+        queryId: String,
+        item: CallbackQueueItem,
+        state: MessageArchivePageEndState?,
+        first: String,
+        last: String,
+        count: Int
+    ) {
+        guard item.task.conversationType == .regular,
+              let key = regularArchiveRequestKeyByQueryId.removeValue(forKey: queryId) else {
+            return
+        }
+
+        let entry = regularArchiveInFlightByKey.removeValue(forKey: key)
+        if let state {
+            applyRegularArchivePageResult(
+                jid: item.jid,
+                purpose: item.task.purpose,
+                state: state,
+                first: first,
+                last: last,
+                count: count
+            )
+        }
+
+        if entry?.priority == .idle {
+            regularIdleBackfillInProgress = false
+            scheduleRegularIdleBackfillIfNeeded()
+        }
+    }
+
+    private func applyRegularArchivePageResult(
+        jid: String,
+        purpose: RequestPurpose,
+        state: MessageArchivePageEndState,
+        first: String,
+        last: String,
+        count: Int
+    ) {
+        guard jid.isNotEmpty else {
+            return
+        }
+
+        do {
+            let realm = try WRealm.safe()
+            let primary = LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: .regular)
+            try realm.write {
+                let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(owner: self.owner, jid: jid, in: realm)
+                if count > 0 {
+                    archiveState.mergeLoadedRange(first: first, last: last)
+                }
+                switch purpose {
+                case .bootstrap:
+                    archiveState.newerLiveEdgeReached = true
+                    if state.archiveEnded {
+                        archiveState.olderArchiveEndReached = true
+                    }
+                case .pageOlder:
+                    if state.queryExhausted || state.archiveEnded {
+                        archiveState.olderArchiveEndReached = true
+                    }
+                case .pageNewer:
+                    if state.queryExhausted {
+                        archiveState.newerLiveEdgeReached = true
+                    }
+                case .jump, .gapRepair:
+                    break
+                case .search, .latest, .media:
+                    break
+                }
+                archiveState.updatedAt = Date()
+
+                if let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary) {
+                    chat.lastLoadedMessageHistoryId = archiveState.oldestLoadedArchiveId ?? chat.lastLoadedMessageHistoryId
+                    chat.fullArchiveLoaded = archiveState.olderArchiveEndReached
+                    if purpose == .bootstrap {
+                        chat.isInitialArchiveLoaded = true
+                        if archiveState.newerLiveEdgeReached {
+                            chat.isSynced = true
+                        }
+                    } else if purpose == .pageNewer,
+                              archiveState.newerLiveEdgeReached,
+                              archiveState.lastSnapshotArchiveId == nil || archiveState.containsArchiveId(archiveState.lastSnapshotArchiveId) {
+                        chat.isSynced = true
+                    }
+                }
+            }
+        } catch {
+            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
+        }
     }
     
     
@@ -777,7 +1110,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             end: end,
             tags: tags,
             withCounter: withCounter
-        )
+        ) || (consumerManagesArchiveEnd && purpose == .latest)
         
         self.callbacksQueue.update(with:
             CallbackQueueItem(
@@ -820,6 +1153,17 @@ class MessageArchiveManager: AbstractXMPPManager {
         requestCallbacks: RequestCallbacks = .none
     ) -> String {
         let requestQueryId = queryId ?? "MAM jump exact: \(NanoID.new(6))"
+        if conversationType == .regular {
+            let plan = Self.regularExactAnchorRequestPlan(jid: jid, archivedId: archivedId)
+            return startRegularArchiveRequest(
+                stream,
+                plan: plan,
+                queryId: requestQueryId,
+                flipPage: false,
+                callback: callback,
+                requestCallbacks: requestCallbacks
+            )
+        }
         self.requestArchive(
             stream,
             jid: jid,
@@ -851,6 +1195,22 @@ class MessageArchiveManager: AbstractXMPPManager {
         requestCallbacks: RequestCallbacks = .none
     ) -> String {
         let requestQueryId = queryId ?? "MAM jump window: \(NanoID.new(6))"
+        if conversationType == .regular {
+            let plan = Self.regularDateWindowAnchorRequestPlan(
+                jid: jid,
+                start: start,
+                end: end,
+                max: max
+            )
+            return startRegularArchiveRequest(
+                stream,
+                plan: plan,
+                queryId: requestQueryId,
+                flipPage: false,
+                callback: callback,
+                requestCallbacks: requestCallbacks
+            )
+        }
         self.requestArchive(
             stream,
             jid: jid,
@@ -927,7 +1287,9 @@ class MessageArchiveManager: AbstractXMPPManager {
         callback: (() -> Void)?,
         requestCallbacks: RequestCallbacks = .none
     ) -> SyncChatStartResult {
-        let effectivePageSize = pageSize ?? self.pageSize
+        let effectivePageSize = conversationType == .regular
+            ? Self.regularArchivePageSize(requested: pageSize, defaultPageSize: self.pageSize)
+            : (pageSize ?? self.pageSize)
         do {
             let realm = try WRealm.safe()
             let primary = LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType)
@@ -961,7 +1323,12 @@ class MessageArchiveManager: AbstractXMPPManager {
             }
 
             if let lastChatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary) {
-                if lastChatInstance.isSynced {
+                let localMessageCount = realm
+                    .objects(MessageStorageItem.self)
+                    .filter("opponent == %@ AND owner == %@ AND conversationType_ == %@", jid, self.owner, conversationType.rawValue)
+                    .count
+                let shouldBootstrapRegular = conversationType == .regular && (!lastChatInstance.isSynced || localMessageCount == 0)
+                if lastChatInstance.isSynced && !shouldBootstrapRegular {
                     // Keep chat open deterministic: synced chats should render local state immediately
                     // and let explicit user paging own further archive loads.
                     return .noop
@@ -972,8 +1339,19 @@ class MessageArchiveManager: AbstractXMPPManager {
                             archiveStart = instance.createdAt
                         }
                     }
-                    let bootstrapRequest = Self.newestBootstrapPageRequest(pageSize: effectivePageSize)
                     let bootstrapQueryId = "MAM bootstrap history: \(NanoID.new(6))"
+                    if conversationType == .regular {
+                        let plan = Self.regularBootstrapRequestPlan(jid: jid, pageSize: effectivePageSize)
+                        let resolvedQueryId = startRegularArchiveRequest(
+                            stream,
+                            plan: plan,
+                            queryId: bootstrapQueryId,
+                            callback: callback,
+                            requestCallbacks: requestCallbacks
+                        )
+                        return .bootstrapStarted(queryId: resolvedQueryId)
+                    }
+                    let bootstrapRequest = Self.newestBootstrapPageRequest(pageSize: effectivePageSize)
                     self.requestArchive(
                         stream, jid: jid,
                         isContinues: false,
@@ -1000,9 +1378,22 @@ class MessageArchiveManager: AbstractXMPPManager {
     
     @discardableResult
     internal func getPrevHistory(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String, pageSize: Int? = nil, queryId: String? = nil, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) -> String {
-        let effectivePageSize = pageSize ?? self.pageSize
+        let effectivePageSize = conversationType == .regular
+            ? Self.regularArchivePageSize(requested: pageSize, defaultPageSize: self.pageSize)
+            : (pageSize ?? self.pageSize)
         let pageRequest = Self.newerPageRequest(messageId: messageId, pageSize: effectivePageSize)
         let requestQueryId = queryId ?? "MAM prev history: \(NanoID.new(6))"
+        if conversationType == .regular {
+            let plan = Self.regularNewerRequestPlan(jid: jid, newestLoadedArchiveId: messageId, pageSize: effectivePageSize)
+            return startRegularArchiveRequest(
+                stream,
+                plan: plan,
+                queryId: requestQueryId,
+                joinDuplicateRequests: queryId == nil,
+                callback: callback,
+                requestCallbacks: requestCallbacks
+            )
+        }
         self.requestArchive(
             stream,
             jid: jid,
@@ -1030,9 +1421,22 @@ class MessageArchiveManager: AbstractXMPPManager {
     
     @discardableResult
     internal func getNextHistory(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String?, pageSize: Int? = nil, queryId: String? = nil, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) -> String {
-        let effectivePageSize = pageSize ?? self.pageSize
+        let effectivePageSize = conversationType == .regular
+            ? Self.regularArchivePageSize(requested: pageSize, defaultPageSize: self.pageSize)
+            : (pageSize ?? self.pageSize)
         let pageRequest = Self.olderPageRequest(messageId: messageId, pageSize: effectivePageSize)
         let requestQueryId = queryId ?? "MAM next history: \(NanoID.new(6))"
+        if conversationType == .regular {
+            let plan = Self.regularOlderRequestPlan(jid: jid, oldestLoadedArchiveId: messageId, pageSize: effectivePageSize)
+            return startRegularArchiveRequest(
+                stream,
+                plan: plan,
+                queryId: requestQueryId,
+                joinDuplicateRequests: queryId == nil,
+                callback: callback,
+                requestCallbacks: requestCallbacks
+            )
+        }
         self.requestArchive(
             stream,
             jid: jid,
@@ -1341,11 +1745,82 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
         return true
     }
+
+    internal func scheduleRegularIdleBackfillIfNeeded(delay: TimeInterval = 0.25) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            self.startNextRegularIdleBackfillIfNeeded()
+        }
+    }
+
+    private func startNextRegularIdleBackfillIfNeeded() {
+        guard !regularIdleBackfillInProgress else {
+            return
+        }
+
+        let target: String?
+        do {
+            let realm = try WRealm.safe()
+            let activeRegularJids = Set(
+                regularArchiveInFlightByKey.keys
+                    .filter { $0.conversationTypeRaw == ClientSynchronizationManager.ConversationType.regular.rawValue }
+                    .map(\.jid)
+            )
+            target = realm.objects(LastChatsStorageItem.self)
+                .filter("owner == %@ AND conversationType_ == %@ AND isSynced == false", self.owner, ClientSynchronizationManager.ConversationType.regular.rawValue)
+                .sorted(byKeyPath: "messageDate", ascending: false)
+                .first(where: { !activeRegularJids.contains($0.jid) })?
+                .jid
+        } catch {
+            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
+            return
+        }
+
+        guard let jid = target else {
+            return
+        }
+
+        regularIdleBackfillInProgress = true
+        let pageSize = Self.regularArchivePageSize(requested: nil, defaultPageSize: self.pageSize)
+        let queryId = "MAM idle regular bootstrap: \(NanoID.new(6))"
+        let plan = Self.regularBootstrapRequestPlan(jid: jid, pageSize: pageSize)
+
+        guard let account = AccountManager.shared.find(for: self.owner) else {
+            self.regularIdleBackfillInProgress = false
+            return
+        }
+
+        account.xmppTaskScheduler.enqueueAccountTask(
+            priority: .idle,
+            resource: .mamArchive,
+            deduplicationKey: "regular.idle-bootstrap.\(self.owner)",
+            requiresAuthenticatedStream: false
+        ) { [weak self] user, stream, finish in
+            guard let self else {
+                finish()
+                return
+            }
+            guard stream.isAuthenticated else {
+                self.regularIdleBackfillInProgress = false
+                finish()
+                return
+            }
+            _ = user.mam.startRegularArchiveRequest(
+                stream,
+                plan: plan,
+                queryId: queryId,
+                priority: .idle,
+                callback: finish
+            )
+        }
+    }
     
     func didResetState() {
         self.callbacksQueue.forEach { $0.callback?() }
         self.callbacksQueue.removeAll()
         self.queryIds.removeAll()
         self.persistedMessageCountsByQueryId.removeAll()
+        self.regularArchiveInFlightByKey.removeAll()
+        self.regularArchiveRequestKeyByQueryId.removeAll()
+        self.regularIdleBackfillInProgress = false
     }
 }

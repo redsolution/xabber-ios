@@ -2044,14 +2044,14 @@ final class XMPPAuthenticationFailureTests: XCTestCase {
         XCTAssertTrue(resolution.shouldLogRawFailure)
     }
 
-    func testCounterTrackerIncrementsOnlyAfterSuccess() {
+    func testCounterTrackerReservesNextCounterBeforeSuccess() throws {
         let jid = "auth-counter-\(UUID().uuidString)@example.com"
         CredentialsManager.shared.setItem(for: jid, token: "token")
         let storage = CredentialsManager.shared.getItem(for: jid)
         let tracker = XMPPAuthenticationCounterTracker()
 
-        XCTAssertEqual(tracker.counterForAuthentication(using: storage), 1)
-        XCTAssertEqual(storage.currentCounter(), 1)
+        XCTAssertEqual(try tracker.counterForAuthentication(using: storage), 1)
+        XCTAssertEqual(storage.currentCounter(), 2)
 
         tracker.authenticationDidSucceed(using: storage)
         XCTAssertEqual(storage.currentCounter(), 2)
@@ -2060,16 +2060,16 @@ final class XMPPAuthenticationFailureTests: XCTestCase {
         XCTAssertEqual(storage.currentCounter(), 2)
     }
 
-    func testCounterTrackerDoesNotIncrementAfterFailure() {
+    func testCounterTrackerDoesNotRollbackReservedCounterAfterFailure() throws {
         let jid = "auth-counter-failure-\(UUID().uuidString)@example.com"
         CredentialsManager.shared.setItem(for: jid, token: "token")
         let storage = CredentialsManager.shared.getItem(for: jid)
         let tracker = XMPPAuthenticationCounterTracker()
 
-        XCTAssertEqual(tracker.counterForAuthentication(using: storage), 1)
+        XCTAssertEqual(try tracker.counterForAuthentication(using: storage), 1)
         tracker.authenticationDidFail()
 
-        XCTAssertEqual(storage.currentCounter(), 1)
+        XCTAssertEqual(storage.currentCounter(), 2)
     }
 
     func testRecoverableAuthFailureDoesNotInvalidateCredentialStorage() {
@@ -2126,7 +2126,7 @@ final class XMPPAuthenticationFailureTests: XCTestCase {
         storage.release(.authFailedRecoverable)
     }
 
-    func testQueuedCredentialUseSerializesCountersAfterSuccess() {
+    func testQueuedCredentialUseSerializesCounterReservationsAfterSuccess() {
         let jid = "serialized-counter-\(UUID().uuidString)@example.com"
         CredentialsManager.shared.setItem(for: jid, token: "token")
         let storage = CredentialsManager.shared.getItem(for: jid)
@@ -2137,22 +2137,81 @@ final class XMPPAuthenticationFailureTests: XCTestCase {
         var secondCounter: UInt64?
 
         storage.use { _, item in
-            firstCounter = firstTracker.counterForAuthentication(using: item)
+            firstCounter = try? firstTracker.counterForAuthentication(using: item)
         }
         storage.use { _, item in
-            secondCounter = secondTracker.counterForAuthentication(using: item)
+            secondCounter = try? secondTracker.counterForAuthentication(using: item)
         }
 
         XCTAssertEqual(firstCounter, 1)
+        XCTAssertEqual(storage.currentCounter(), 2)
         XCTAssertNil(secondCounter)
 
         firstTracker.authenticationDidSucceed(using: storage)
         storage.release(.authSucceeded)
 
         XCTAssertEqual(secondCounter, 2)
+        XCTAssertEqual(storage.currentCounter(), 3)
 
         secondTracker.authenticationDidFail()
         storage.release(.authFailedRecoverable)
+        XCTAssertEqual(storage.currentCounter(), 3)
+    }
+
+    func testConcurrentCounterReservationsAreUniqueAndDurable() {
+        let jid = "concurrent-counter-\(UUID().uuidString)@example.com"
+        CredentialsManager.shared.setItem(for: jid, token: "token")
+        let storage = CredentialsManager.shared.getItem(for: jid)
+        let attempts = 20
+        let lock = NSLock()
+        var counters: [UInt64] = []
+        var failures = 0
+
+        DispatchQueue.concurrentPerform(iterations: attempts) { _ in
+            guard let reservation = try? storage.reserveCounterForAuthentication() else {
+                lock.lock()
+                failures += 1
+                lock.unlock()
+                return
+            }
+            lock.lock()
+            counters.append(reservation.counter)
+            lock.unlock()
+        }
+
+        let expected = (1...attempts).map(UInt64.init)
+        XCTAssertEqual(failures, 0)
+        XCTAssertEqual(counters.sorted(), expected)
+        XCTAssertEqual(storage.currentCounter(), UInt64(attempts + 1))
+    }
+
+    func testCounterReservationPersistenceFailureDoesNotAdvanceCounter() {
+        let jid = "counter-persistence-failure-\(UUID().uuidString)@example.com"
+        CredentialsManager.shared.setItem(for: jid, token: "token")
+        let storage = CredentialsManager.shared.getItem(for: jid)
+
+        CredentialsManager.Storage.counterPersistenceOverride = { _, _ in false }
+        defer { CredentialsManager.Storage.counterPersistenceOverride = nil }
+
+        XCTAssertThrowsError(try storage.reserveCounterForAuthentication())
+        XCTAssertEqual(storage.currentCounter(), 1)
+    }
+
+    func testCounterReservationSurvivesFreshStorageRead() throws {
+        let jid = "counter-relaunch-\(UUID().uuidString)@example.com"
+        CredentialsManager.shared.setItem(for: jid, token: "token")
+        let storage = CredentialsManager.shared.getItem(for: jid)
+
+        let firstReservation = try storage.reserveCounterForAuthentication()
+        XCTAssertEqual(firstReservation.counter, 1)
+        XCTAssertEqual(firstReservation.nextCounter, 2)
+
+        let freshStorage = CredentialsManager.Storage(jid: jid)
+        XCTAssertEqual(freshStorage.currentCounter(), 2)
+
+        let secondReservation = try freshStorage.reserveCounterForAuthentication()
+        XCTAssertEqual(secondReservation.counter, 2)
+        XCTAssertEqual(secondReservation.nextCounter, 3)
     }
 
     func testCredentialRevocationKeepsStorageInvalidated() {
@@ -2322,6 +2381,146 @@ final class AccountStreamLifecycleGateTests: XCTestCase {
             gate.beginConnect(trigger: .uiActionRestore),
             .skip(phase: .online, activeAttemptID: attemptID)
         )
+    }
+}
+
+final class AccountXMPPTaskSchedulerTests: XCTestCase {
+    func testRunsQueuedTasksByPriority() {
+        let scheduler = AccountXMPPTaskScheduler(
+            configuration: .test(defaultCooldown: 0),
+            startsImmediately: false
+        )
+        var events: [String] = []
+        let completed = expectation(description: "all tasks completed")
+        completed.expectedFulfillmentCount = 4
+
+        scheduler.enqueue(priority: .idle, resource: .other("test"), deduplicationKey: "idle") { finish in
+            events.append("idle")
+            completed.fulfill()
+            finish()
+        }
+        scheduler.enqueue(priority: .background, resource: .other("test"), deduplicationKey: "background") { finish in
+            events.append("background")
+            completed.fulfill()
+            finish()
+        }
+        scheduler.enqueue(priority: .foreground, resource: .other("test"), deduplicationKey: "foreground") { finish in
+            events.append("foreground")
+            completed.fulfill()
+            finish()
+        }
+        scheduler.enqueue(priority: .interactive, resource: .other("test"), deduplicationKey: "interactive") { finish in
+            events.append("interactive")
+            completed.fulfill()
+            finish()
+        }
+
+        scheduler.resume()
+
+        wait(for: [completed], timeout: 1)
+        XCTAssertEqual(events, ["interactive", "foreground", "background", "idle"])
+    }
+
+    func testMamArchiveTasksAreMutuallyExclusive() {
+        let scheduler = AccountXMPPTaskScheduler(configuration: .test(defaultCooldown: 0))
+        let firstStarted = expectation(description: "first MAM task started")
+        let secondDidNotStartEarly = expectation(description: "second MAM task did not start early")
+        secondDidNotStartEarly.isInverted = true
+        let secondStarted = expectation(description: "second MAM task started after first completion")
+        var finishFirst: (() -> Void)?
+        var isCheckingEarlyStart = true
+
+        scheduler.enqueue(priority: .background, resource: .mamArchive, deduplicationKey: "first") { finish in
+            finishFirst = finish
+            firstStarted.fulfill()
+        }
+        scheduler.enqueue(priority: .foreground, resource: .mamArchive, deduplicationKey: "second") { finish in
+            if isCheckingEarlyStart {
+                secondDidNotStartEarly.fulfill()
+            }
+            secondStarted.fulfill()
+            finish()
+        }
+
+        wait(for: [firstStarted], timeout: 1)
+        wait(for: [secondDidNotStartEarly], timeout: 0.1)
+        isCheckingEarlyStart = false
+        finishFirst?()
+        wait(for: [secondStarted], timeout: 1)
+    }
+
+    func testCooldownDelaysNextTaskForSameResource() {
+        let scheduler = AccountXMPPTaskScheduler(
+            configuration: .test(defaultCooldown: 0, cooldowns: [.vcard: 0.15])
+        )
+        let firstStarted = expectation(description: "first vCard task started")
+        let secondDidNotStartDuringCooldown = expectation(description: "second vCard task waits for cooldown")
+        secondDidNotStartDuringCooldown.isInverted = true
+        let secondStarted = expectation(description: "second vCard task started after cooldown")
+        var isCheckingCooldown = true
+
+        scheduler.enqueue(priority: .background, resource: .vcard, deduplicationKey: "first") { finish in
+            firstStarted.fulfill()
+            finish()
+        }
+        scheduler.enqueue(priority: .background, resource: .vcard, deduplicationKey: "second") { finish in
+            if isCheckingCooldown {
+                secondDidNotStartDuringCooldown.fulfill()
+            }
+            secondStarted.fulfill()
+            finish()
+        }
+
+        wait(for: [firstStarted], timeout: 1)
+        wait(for: [secondDidNotStartDuringCooldown], timeout: 0.05)
+        isCheckingCooldown = false
+        wait(for: [secondStarted], timeout: 1)
+    }
+
+    func testResetClearsPendingTasks() {
+        let scheduler = AccountXMPPTaskScheduler(configuration: .test(defaultCooldown: 0))
+        let firstStarted = expectation(description: "first task started")
+        let pendingDidNotStart = expectation(description: "pending task was cancelled")
+        pendingDidNotStart.isInverted = true
+        var finishFirst: (() -> Void)?
+
+        scheduler.enqueue(priority: .background, resource: .vcard, deduplicationKey: "first") { finish in
+            finishFirst = finish
+            firstStarted.fulfill()
+        }
+        scheduler.enqueue(priority: .background, resource: .vcard, deduplicationKey: "second") { finish in
+            pendingDidNotStart.fulfill()
+            finish()
+        }
+
+        wait(for: [firstStarted], timeout: 1)
+        scheduler.reset()
+        finishFirst?()
+        wait(for: [pendingDidNotStart], timeout: 0.1)
+    }
+
+    func testDeduplicatedPendingTaskIsPromotedToHigherPriority() {
+        let scheduler = AccountXMPPTaskScheduler(
+            configuration: .test(defaultCooldown: 0),
+            startsImmediately: false
+        )
+        var events: [String] = []
+        let completed = expectation(description: "promoted task completed")
+
+        scheduler.enqueue(priority: .background, resource: .vcard, deduplicationKey: "vcard:alice") { finish in
+            events.append("background")
+            finish()
+        }
+        scheduler.enqueue(priority: .foreground, resource: .vcard, deduplicationKey: "vcard:alice") { finish in
+            events.append("foreground")
+            completed.fulfill()
+            finish()
+        }
+
+        scheduler.resume()
+
+        wait(for: [completed], timeout: 1)
+        XCTAssertEqual(events, ["foreground"])
     }
 }
 
@@ -5627,15 +5826,15 @@ final class ChatBootstrapStateTests: XCTestCase {
         )
     }
 
-    func testBootstrapStateShowsContentWhenMessagesExistBeforeArchiveBootstrapCompletes() {
+    func testBootstrapStateKeepsSkeletonWhenBootstrapIsInFlightWithLocalMessages() {
         XCTAssertEqual(
             ChatBootstrapViewState.resolve(
                 messageCount: 3,
-                isSynced: false,
+                isSynced: true,
                 isInitialBootstrapInFlight: true,
                 hasPendingInitialAnchorRequest: false
             ),
-            .content
+            .skeleton
         )
     }
 
@@ -5651,7 +5850,7 @@ final class ChatBootstrapStateTests: XCTestCase {
         )
     }
 
-    func testBootstrapStateIgnoresUnsyncedFlagWhenMessagesAlreadyExist() {
+    func testBootstrapStateKeepsSkeletonWhenUnsyncedChatHasLocalMessages() {
         let item = LastChatsStorageItem()
         item.isSynced = false
 
@@ -5662,7 +5861,198 @@ final class ChatBootstrapStateTests: XCTestCase {
                 isInitialBootstrapInFlight: false,
                 hasPendingInitialAnchorRequest: false
             ),
+            .skeleton
+        )
+    }
+
+    func testBootstrapStateShowsContentForUnsyncedLocalMessagesWhenFallbackIsAllowed() {
+        XCTAssertEqual(
+            ChatBootstrapViewState.resolve(
+                messageCount: 2,
+                isSynced: false,
+                isInitialBootstrapInFlight: true,
+                hasPendingInitialAnchorRequest: false,
+                allowsStaleLocalHistory: true
+            ),
             .content
+        )
+    }
+
+    func testBootstrapStateKeepsSkeletonForEmptyUnsyncedChatWhenFallbackIsAllowed() {
+        XCTAssertEqual(
+            ChatBootstrapViewState.resolve(
+                messageCount: 0,
+                isSynced: false,
+                isInitialBootstrapInFlight: true,
+                hasPendingInitialAnchorRequest: false,
+                allowsStaleLocalHistory: true
+            ),
+            .skeleton
+        )
+    }
+
+    func testBootstrapStateKeepsSkeletonForPendingAnchorWhenFallbackIsAllowed() {
+        XCTAssertEqual(
+            ChatBootstrapViewState.resolve(
+                messageCount: 2,
+                isSynced: false,
+                isInitialBootstrapInFlight: true,
+                hasPendingInitialAnchorRequest: true,
+                allowsStaleLocalHistory: true
+            ),
+            .skeleton
+        )
+    }
+
+    func testInitialBootstrapCompletionWaitsForMamFin() {
+        XCTAssertFalse(
+            ChatInitialBootstrapCompletionPolicy.shouldFinish(
+                didReceiveEndPage: false,
+                hasMessages: true,
+                didConfirmEmpty: false,
+                isMessagePipelineIdle: true,
+                requiresObserverSettle: false,
+                didObservePostIdleTick: false
+            )
+        )
+    }
+
+    func testInitialBootstrapCompletionWaitsForPersistenceQueueIdle() {
+        XCTAssertFalse(
+            ChatInitialBootstrapCompletionPolicy.shouldFinish(
+                didReceiveEndPage: true,
+                hasMessages: true,
+                didConfirmEmpty: false,
+                isMessagePipelineIdle: false,
+                requiresObserverSettle: false,
+                didObservePostIdleTick: false
+            )
+        )
+    }
+
+    func testInitialBootstrapCompletionWaitsForObserverSettleAfterPersistedMessages() {
+        XCTAssertFalse(
+            ChatInitialBootstrapCompletionPolicy.shouldFinish(
+                didReceiveEndPage: true,
+                hasMessages: true,
+                didConfirmEmpty: false,
+                isMessagePipelineIdle: true,
+                requiresObserverSettle: true,
+                didObservePostIdleTick: false
+            )
+        )
+
+        XCTAssertTrue(
+            ChatInitialBootstrapCompletionPolicy.shouldFinish(
+                didReceiveEndPage: true,
+                hasMessages: true,
+                didConfirmEmpty: false,
+                isMessagePipelineIdle: true,
+                requiresObserverSettle: true,
+                didObservePostIdleTick: true
+            )
+        )
+    }
+}
+
+final class ChatBootstrapLocalHistoryFallbackPolicyTests: XCTestCase {
+
+    func testFallbackSchedulesOnlyForSkeletonWithLocalMessages() {
+        XCTAssertTrue(
+            ChatBootstrapLocalHistoryFallbackPolicy.shouldScheduleFallback(
+                messageCount: 3,
+                isShowingSkeleton: true,
+                allowsStaleLocalHistory: false,
+                hasPendingInitialAnchorRequest: false
+            )
+        )
+
+        XCTAssertFalse(
+            ChatBootstrapLocalHistoryFallbackPolicy.shouldScheduleFallback(
+                messageCount: 0,
+                isShowingSkeleton: true,
+                allowsStaleLocalHistory: false,
+                hasPendingInitialAnchorRequest: false
+            )
+        )
+    }
+
+    func testFallbackDoesNotScheduleWhenLocalHistoryIsAlreadyAllowedOrAnchorIsPending() {
+        XCTAssertFalse(
+            ChatBootstrapLocalHistoryFallbackPolicy.shouldScheduleFallback(
+                messageCount: 3,
+                isShowingSkeleton: true,
+                allowsStaleLocalHistory: true,
+                hasPendingInitialAnchorRequest: false
+            )
+        )
+
+        XCTAssertFalse(
+            ChatBootstrapLocalHistoryFallbackPolicy.shouldScheduleFallback(
+                messageCount: 3,
+                isShowingSkeleton: true,
+                allowsStaleLocalHistory: false,
+                hasPendingInitialAnchorRequest: true
+            )
+        )
+    }
+
+    func testFallbackRevealsOnlySkeletonWithLocalMessagesAndNoPendingAnchor() {
+        XCTAssertTrue(
+            ChatBootstrapLocalHistoryFallbackPolicy.shouldRevealLocalHistory(
+                messageCount: 3,
+                isShowingSkeleton: true,
+                hasPendingInitialAnchorRequest: false
+            )
+        )
+
+        XCTAssertFalse(
+            ChatBootstrapLocalHistoryFallbackPolicy.shouldRevealLocalHistory(
+                messageCount: 3,
+                isShowingSkeleton: false,
+                hasPendingInitialAnchorRequest: false
+            )
+        )
+
+        XCTAssertFalse(
+            ChatBootstrapLocalHistoryFallbackPolicy.shouldRevealLocalHistory(
+                messageCount: 3,
+                isShowingSkeleton: true,
+                hasPendingInitialAnchorRequest: true
+            )
+        )
+    }
+}
+
+final class ChatBootstrapSkeletonRenderPolicyTests: XCTestCase {
+
+    func testSkeletonRenderRunsWhenDatasourceIsEmptyEvenIfSkeletonFlagAlreadyTrue() {
+        XCTAssertTrue(
+            ChatBootstrapSkeletonRenderPolicy.shouldRenderSkeletonDatasource(
+                forceRender: false,
+                isDatasourceEmpty: true,
+                isShowingBootstrapPlaceholder: true
+            )
+        )
+    }
+
+    func testSkeletonRenderRunsWhenStaleRealRowsAreDisplayed() {
+        XCTAssertTrue(
+            ChatBootstrapSkeletonRenderPolicy.shouldRenderSkeletonDatasource(
+                forceRender: false,
+                isDatasourceEmpty: false,
+                isShowingBootstrapPlaceholder: false
+            )
+        )
+    }
+
+    func testSkeletonRenderDoesNotReloadExistingPlaceholderWithoutForce() {
+        XCTAssertFalse(
+            ChatBootstrapSkeletonRenderPolicy.shouldRenderSkeletonDatasource(
+                forceRender: false,
+                isDatasourceEmpty: false,
+                isShowingBootstrapPlaceholder: true
+            )
         )
     }
 }
@@ -6229,6 +6619,109 @@ final class MessageArchivePagingRequestTests: XCTestCase {
     func testChatHistoryPagingUsesSharedPageSizeConstant() {
         XCTAssertEqual(ChatHistoryPagingConfiguration.pageSize, 100)
     }
+
+    func testRegularBootstrapRequestPlanUsesNewestPageBeforePointer() {
+        let plan = MessageArchiveManager.regularBootstrapRequestPlan(jid: "romeo@example.com", pageSize: 100)
+
+        XCTAssertEqual(plan.kind, .bootstrap)
+        XCTAssertEqual(plan.jid, "romeo@example.com")
+        XCTAssertEqual(plan.conversationType, .regular)
+        XCTAssertEqual(plan.purpose, .bootstrap)
+        XCTAssertEqual(plan.nextPage, "")
+        XCTAssertNil(plan.prevPage)
+        XCTAssertNil(plan.ids)
+        XCTAssertEqual(plan.max, 100)
+        XCTAssertFalse(plan.usesServerArchiveId)
+    }
+
+    func testRegularOlderRequestPlanUsesServerArchiveBeforeCursor() {
+        let plan = MessageArchiveManager.regularOlderRequestPlan(
+            jid: "romeo@example.com",
+            oldestLoadedArchiveId: "1776840442467416",
+            pageSize: 100
+        )
+
+        XCTAssertEqual(plan.kind, .older)
+        XCTAssertEqual(plan.nextPage, "1776840442467416")
+        XCTAssertNil(plan.prevPage)
+        XCTAssertTrue(plan.usesServerArchiveId)
+    }
+
+    func testRegularNewerRequestPlanUsesServerArchiveAfterCursor() {
+        let plan = MessageArchiveManager.regularNewerRequestPlan(
+            jid: "romeo@example.com",
+            newestLoadedArchiveId: "1776840442467416",
+            pageSize: 100
+        )
+
+        XCTAssertEqual(plan.kind, .newer)
+        XCTAssertNil(plan.nextPage)
+        XCTAssertEqual(plan.prevPage, "1776840442467416")
+        XCTAssertTrue(plan.usesServerArchiveId)
+    }
+
+    func testRegularExactAnchorPlanUsesIdsWithArchivedIdOnly() {
+        let plan = MessageArchiveManager.regularExactAnchorRequestPlan(
+            jid: "romeo@example.com",
+            archivedId: "1776840442467416"
+        )
+
+        XCTAssertEqual(plan.kind, .exactAnchor)
+        XCTAssertEqual(plan.ids, ["1776840442467416"])
+        XCTAssertEqual(plan.max, 1)
+        XCTAssertTrue(plan.usesServerArchiveId)
+    }
+}
+
+final class RegularChatArchiveSyncStateTests: XCTestCase {
+
+    private let owner = "juliet@example.com"
+    private let jid = "romeo@example.com"
+
+    override func setUp() {
+        super.setUp()
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "RegularChatArchiveSyncStateTests-\(name)")
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    func testMergingRegularArchivePageUpdatesBoundsAndContinuousRange() throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
+            state.mergeLoadedRange(first: "300", last: "200")
+            state.mergeLoadedRange(first: "250", last: "100")
+        }
+
+        let state = try XCTUnwrap(realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
+        ))
+        XCTAssertEqual(state.oldestLoadedArchiveId, "100")
+        XCTAssertEqual(state.newestLoadedArchiveId, "300")
+        XCTAssertEqual(state.loadedRanges, [RegularChatArchiveIDRange(oldestArchiveId: "100", newestArchiveId: "300")])
+        XCTAssertTrue(state.knownGaps.isEmpty)
+    }
+
+    func testDisjointRegularArchiveRangesRecordKnownGap() throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
+            state.mergeLoadedRange(first: "200", last: "100")
+            state.mergeLoadedRange(first: "500", last: "400")
+        }
+
+        let state = try XCTUnwrap(realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
+        ))
+        XCTAssertEqual(
+            state.knownGaps,
+            [RegularChatArchiveGap(olderRangeNewestArchiveId: "200", newerRangeOldestArchiveId: "400")]
+        )
+    }
 }
 
 final class MessageArchiveQueryCallbackTests: XCTestCase {
@@ -6321,9 +6814,18 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)
         chat.owner = owner
         chat.isSynced = true
+        let message = MessageStorageItem()
+        message.primary = "synced-local-message"
+        message.owner = owner
+        message.opponent = jid
+        message.conversationType = conversationType
+        message.messageId = "synced-local-message"
+        message.archivedId = "100"
+        message.date = Date(timeIntervalSince1970: 100)
 
         try realm.write {
             realm.add(chat, update: .modified)
+            realm.add(message, update: .modified)
         }
 
         let result = manager.syncChat(
@@ -6366,6 +6868,75 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             return XCTFail("Expected bootstrap request to start")
         }
         XCTAssertEqual(queuedTask(manager, queryId: queryId)?.max, 42)
+    }
+
+    func testSyncedRegularChatWithNoLocalMessagesStartsBootstrap() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let jid = "empty-synced@example.com"
+        let realm = try WRealm.safe()
+
+        let chat = LastChatsStorageItem()
+        chat.jid = jid
+        chat.conversationType = .regular
+        chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        chat.owner = owner
+        chat.isSynced = true
+
+        try realm.write {
+            realm.add(chat, update: .modified)
+        }
+
+        let result = manager.syncChat(
+            XMPPStream(),
+            jid: jid,
+            conversationType: .regular,
+            pageSize: 100,
+            callback: nil
+        )
+
+        guard case .bootstrapStarted = result else {
+            return XCTFail("Expected empty regular chat to bootstrap even when legacy synced flag is true")
+        }
+    }
+
+    func testRegularBootstrapSuppressesDuplicateInFlightRequestForSameChat() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let jid = "romeo@example.com"
+        let realm = try WRealm.safe()
+
+        let chat = LastChatsStorageItem()
+        chat.jid = jid
+        chat.conversationType = .regular
+        chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        chat.owner = owner
+        chat.isSynced = false
+
+        try realm.write {
+            realm.add(chat, update: .modified)
+        }
+
+        let first = manager.syncChat(
+            XMPPStream(),
+            jid: jid,
+            conversationType: .regular,
+            pageSize: 100,
+            callback: nil
+        )
+        let second = manager.syncChat(
+            XMPPStream(),
+            jid: jid,
+            conversationType: .regular,
+            pageSize: 100,
+            callback: nil
+        )
+
+        guard case let .bootstrapStarted(firstQueryId) = first,
+              case let .bootstrapStarted(secondQueryId) = second else {
+            return XCTFail("Expected both opens to attach to bootstrap")
+        }
+
+        XCTAssertEqual(firstQueryId, secondQueryId)
+        XCTAssertEqual(manager.callbacksQueue.count, 1)
     }
 
     func testGetNextHistoryUsesInjectedPageSize() {
@@ -6947,6 +7518,38 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 isArchiveEnded: false
             ),
             .localOnly
+        )
+    }
+
+    func testNewerPagingRequestsRemoteArchiveWhenKnownNewerGapExists() {
+        XCTAssertEqual(
+            ChatHistoryPagingPolicy.loadDecision(
+                direction: .newer,
+                currentWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 50),
+                requestedWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 150),
+                localWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 50),
+                totalCount: 50,
+                isArchiveEnded: false,
+                hasKnownNewerGap: true,
+                newerLiveEdgeReached: false
+            ),
+            .remoteNewerPage
+        )
+    }
+
+    func testNewerPagingStopsWhenLiveEdgeIsReachedAndNoGapIsKnown() {
+        XCTAssertEqual(
+            ChatHistoryPagingPolicy.loadDecision(
+                direction: .newer,
+                currentWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 50),
+                requestedWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 150),
+                localWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 50),
+                totalCount: 50,
+                isArchiveEnded: false,
+                hasKnownNewerGap: false,
+                newerLiveEdgeReached: true
+            ),
+            .endReached
         )
     }
 
@@ -7815,7 +8418,8 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
                 messageCount: 1,
                 isSynced: false,
                 isInitialBootstrapInFlight: false,
-                hasPendingInitialAnchorRequest: false
+                hasPendingInitialAnchorRequest: false,
+                allowsStaleLocalHistory: true
             ),
             .content
         )
@@ -9098,6 +9702,56 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XCTAssertEqual(chat?.lastMessageId, "sync-last-message-1")
     }
 
+    func testRegularSnapshotLastMessageMismatchMarksDialogUnsynchronizedAndStoresArchiveState() throws {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        let jid = "romeo@xmppdev01.xabber.com"
+        let realm = try WRealm.safe()
+        let chat = LastChatsStorageItem()
+        chat.owner = owner
+        chat.jid = jid
+        chat.conversationType = .regular
+        chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        chat.lastMessageId = "local-last-message"
+        chat.isSynced = true
+
+        try realm.write {
+            realm.add(chat, update: .modified)
+        }
+
+        let iq = try makeIQ(xml: """
+        <iq type='set' id='push-regular-unsynced'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1776840442469439'>
+            <conversation jid='\(jid)' type='urn:xabber:chat' stamp='1776840442469439' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'>
+                <last-message>
+                  <message from='\(jid)' to='\(owner)' id='remote-last-message'>
+                    <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='1776840442467416'/>
+                    <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>
+                    <body>Hello Juliet</body>
+                  </message>
+                </last-message>
+              </metadata>
+            </conversation>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+
+        let updatedChat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        ))
+        let archiveState = try XCTUnwrap(realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
+        ))
+        XCTAssertFalse(updatedChat.isSynced)
+        XCTAssertEqual(archiveState.lastSnapshotArchiveId, "1776840442467416")
+        XCTAssertEqual(archiveState.lastSnapshotMessageId, "remote-last-message")
+        XCTAssertFalse(archiveState.newerLiveEdgeReached)
+    }
+
     func testNotificationSnapshotUnreadStatePersistsUnreadBoundaryAndKeepsExistingNode() throws {
         try upsertNotificationSyncStorage(
             node: "notifications.saved.example.com",
@@ -10252,6 +10906,57 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertEqual(button.layer.shadowOpacity, 0)
     }
 
+    func testNormalChatCellUsesPlainSystemBackgroundWithoutGlass() {
+        let owner = "last-chat-selected-\(UUID().uuidString)@example.com"
+        registerAccountColor(owner: owner, colorKey: "orange")
+        let viewController = LastChatsViewController()
+        let cell = ChatListTableViewCell(style: .default, reuseIdentifier: ChatListTableViewCell.cellName)
+        let unselectedDatasource = makeChatDatasource(owner: owner)
+
+        viewController.configureChatCell(cell, with: unselectedDatasource)
+
+        XCTAssertEqual(cell.backgroundColor, .systemBackground)
+        XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
+        XCTAssertEqual(cell.contentView.backgroundColor, .clear)
+        XCTAssertNotNil(cell.configurationUpdateHandler)
+        XCTAssertNil(cell.selectedBackgroundView)
+        XCTAssertEqual(cell.selectionStyle, .none)
+
+        viewController.setSelectedChat(
+            jid: unselectedDatasource.jid,
+            owner: unselectedDatasource.owner,
+            conversationType: unselectedDatasource.conversationType,
+            animated: false
+        )
+        viewController.configureChatCell(cell, with: unselectedDatasource)
+
+        XCTAssertTrue(
+            cell.backgroundColor?.isEqual(AccountColorManager.shared.palette(for: owner).tint50) == true
+        )
+        XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
+
+        let secondOwner = "last-chat-reused-\(UUID().uuidString)@example.com"
+        registerAccountColor(owner: secondOwner, colorKey: "blue")
+        let secondDatasource = makeChatDatasource(owner: secondOwner)
+        cell.prepareForReuse()
+        viewController.setSelectedChat(
+            jid: secondDatasource.jid,
+            owner: secondDatasource.owner,
+            conversationType: secondDatasource.conversationType,
+            animated: false
+        )
+        viewController.configureChatCell(cell, with: secondDatasource)
+
+        XCTAssertTrue(
+            cell.backgroundColor?.isEqual(AccountColorManager.shared.palette(for: secondOwner).tint50) == true
+        )
+
+        cell.prepareForReuse()
+        viewController.configureChatCell(cell, with: unselectedDatasource)
+
+        XCTAssertEqual(cell.backgroundColor, .systemBackground)
+    }
+
     func testSpecialMessageCellDoesNotInstallTopHairlineAcrossReuse() {
         let cell = SpecialMessageTableViewCell(
             style: .default,
@@ -10303,6 +11008,49 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         }
 
         XCTAssertTrue(visibleTopHairlines.isEmpty, file: file, line: line)
+    }
+
+    private func registerAccountColor(owner: String, colorKey: String) {
+        AccountColorManager.shared.accounts.insert(
+            AccountColorManager.ColorForJid(
+                jid: owner,
+                color: AccountColorManager.shared.colorForKey(colorKey)
+            )
+        )
+    }
+
+    private func makeChatDatasource(owner: String = "owner@example.com") -> LastChatsViewController.Datasource {
+        LastChatsViewController.Datasource(
+            jid: "romeo@example.com",
+            owner: owner,
+            username: "Romeo",
+            attributedUsername: nil,
+            message: "Hello",
+            date: Date(timeIntervalSince1970: 1_711_283_200),
+            state: nil,
+            isMute: false,
+            isSynced: true,
+            status: .offline,
+            entity: .contact,
+            conversationType: .regular,
+            unread: 0,
+            unreadString: nil,
+            hasUnreadMention: false,
+            color: .clear,
+            isDraft: false,
+            hasAttachment: false,
+            userNickname: nil,
+            isSystemMessage: false,
+            isPinned: false,
+            subRequest: false,
+            isEncrypted: false,
+            avatarUrl: nil,
+            hasErrorInChat: false,
+            updateTS: 0,
+            isVerificationActionRequired: false,
+            specialMessageKind: .none,
+            avatars: []
+        )
     }
 }
 

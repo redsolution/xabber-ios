@@ -116,7 +116,8 @@ extension LastCallsViewController {
         let titleLabel: UILabel = {
             let label = UILabel()
             
-            label.font = UIFont.systemFont(ofSize: 17, weight: .regular)
+            label.font = UIFont.preferredFont(forTextStyle: .body)
+            label.adjustsFontForContentSizeCategory = true
             label.numberOfLines = 1
             label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             
@@ -126,7 +127,8 @@ extension LastCallsViewController {
         let subtitleLabel: UILabel = {
             let label = UILabel()
             
-            label.font = UIFont.systemFont(ofSize: 13, weight: .regular)
+            label.font = UIFont.preferredFont(forTextStyle: .footnote)
+            label.adjustsFontForContentSizeCategory = true
             if #available(iOS 13.0, *) {
                 label.textColor = .secondaryLabel
             } else {
@@ -141,7 +143,8 @@ extension LastCallsViewController {
             let label = UILabel()
             
             label.textColor = UIColor(red:0.56, green:0.56, blue:0.58, alpha:1)
-            label.font = UIFont.systemFont(ofSize: 13, weight: .regular)
+            label.font = UIFont.preferredFont(forTextStyle: .footnote)
+            label.adjustsFontForContentSizeCategory = true
             label.textAlignment = .right
             label.setContentCompressionResistancePriority(.required, for: .horizontal)
             label.setContentHuggingPriority(.required, for: .horizontal)

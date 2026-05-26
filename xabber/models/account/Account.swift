@@ -26,6 +26,255 @@ import RxCocoa
 import SwiftKeychainWrapper
 import MaterialComponents.MaterialPalettes
 
+final class AccountXMPPTaskScheduler {
+    enum Priority: Int, Comparable {
+        case idle = 0
+        case background = 1
+        case foreground = 2
+        case interactive = 3
+
+        static func < (lhs: Priority, rhs: Priority) -> Bool {
+            lhs.rawValue < rhs.rawValue
+        }
+    }
+
+    enum Resource: Hashable {
+        case mamArchive
+        case vcard
+        case avatar
+        case other(String)
+    }
+
+    struct Configuration {
+        let defaultMaxConcurrent: Int
+        let maxConcurrentByResource: [Resource: Int]
+        let defaultCooldown: TimeInterval
+        let cooldownByResource: [Resource: TimeInterval]
+
+        static let production = Configuration(
+            defaultMaxConcurrent: 1,
+            maxConcurrentByResource: [
+                .mamArchive: 1,
+                .vcard: 1,
+                .avatar: 1,
+            ],
+            defaultCooldown: 0,
+            cooldownByResource: [
+                .mamArchive: 0.35,
+                .vcard: 0.15,
+                .avatar: 0.15,
+            ]
+        )
+
+        static func test(
+            defaultMaxConcurrent: Int = 1,
+            maxConcurrentByResource: [Resource: Int] = [:],
+            defaultCooldown: TimeInterval = 0,
+            cooldowns: [Resource: TimeInterval] = [:]
+        ) -> Configuration {
+            Configuration(
+                defaultMaxConcurrent: defaultMaxConcurrent,
+                maxConcurrentByResource: maxConcurrentByResource,
+                defaultCooldown: defaultCooldown,
+                cooldownByResource: cooldowns
+            )
+        }
+
+        func maxConcurrent(for resource: Resource) -> Int {
+            max(maxConcurrentByResource[resource] ?? defaultMaxConcurrent, 1)
+        }
+
+        func cooldown(for resource: Resource) -> TimeInterval {
+            max(cooldownByResource[resource] ?? defaultCooldown, 0)
+        }
+    }
+
+    private struct ScheduledTask {
+        let id: Int
+        let priority: Priority
+        let resource: Resource
+        let deduplicationKey: String?
+        let order: Int
+        let work: (@escaping () -> Void) -> Void
+    }
+
+    private weak var account: Account?
+    private let configuration: Configuration
+    private let queue = DispatchQueue(label: "com.xabber.account-xmpp-task-scheduler")
+    private var pendingTasks: [ScheduledTask] = []
+    private var runningCountByResource: [Resource: Int] = [:]
+    private var delayedResources: Set<Resource> = []
+    private var runningDeduplicationKeys: Set<String> = []
+    private var nextTaskID: Int = 0
+    private var nextOrder: Int = 0
+    private var isPaused: Bool
+
+    init(
+        account: Account? = nil,
+        configuration: Configuration = .production,
+        startsImmediately: Bool = true
+    ) {
+        self.account = account
+        self.configuration = configuration
+        self.isPaused = !startsImmediately
+    }
+
+    func enqueue(
+        priority: Priority,
+        resource: Resource,
+        deduplicationKey: String?,
+        work: @escaping (@escaping () -> Void) -> Void
+    ) {
+        queue.async {
+            if let deduplicationKey {
+                if self.runningDeduplicationKeys.contains(deduplicationKey) {
+                    return
+                }
+                if let index = self.pendingTasks.firstIndex(where: { $0.deduplicationKey == deduplicationKey }) {
+                    guard priority > self.pendingTasks[index].priority else {
+                        return
+                    }
+                    let existing = self.pendingTasks[index]
+                    self.pendingTasks[index] = ScheduledTask(
+                        id: existing.id,
+                        priority: priority,
+                        resource: resource,
+                        deduplicationKey: deduplicationKey,
+                        order: existing.order,
+                        work: work
+                    )
+                    self.drainLocked()
+                    return
+                }
+            }
+
+            let task = ScheduledTask(
+                id: self.nextTaskID,
+                priority: priority,
+                resource: resource,
+                deduplicationKey: deduplicationKey,
+                order: self.nextOrder,
+                work: work
+            )
+            self.nextTaskID += 1
+            self.nextOrder += 1
+            self.pendingTasks.append(task)
+            self.drainLocked()
+        }
+    }
+
+    func enqueueAccountTask(
+        priority: Priority,
+        resource: Resource,
+        deduplicationKey: String?,
+        requiresAuthenticatedStream: Bool = true,
+        work: @escaping (Account, XMPPStream, @escaping () -> Void) -> Void
+    ) {
+        enqueue(priority: priority, resource: resource, deduplicationKey: deduplicationKey) { [weak self] finish in
+            guard let self, let account = self.account else {
+                finish()
+                return
+            }
+            account.action { user, stream in
+                guard !requiresAuthenticatedStream || stream.isAuthenticated else {
+                    finish()
+                    return
+                }
+                work(user, stream, finish)
+            }
+        }
+    }
+
+    func resume() {
+        queue.async {
+            self.isPaused = false
+            self.drainLocked()
+        }
+    }
+
+    func reset() {
+        queue.async {
+            self.pendingTasks.removeAll()
+            self.runningCountByResource.removeAll()
+            self.runningDeduplicationKeys.removeAll()
+            self.delayedResources.removeAll()
+        }
+    }
+
+    private func drainLocked() {
+        guard !isPaused else {
+            return
+        }
+
+        while let index = nextRunnableTaskIndexLocked() {
+            let task = pendingTasks.remove(at: index)
+            runningCountByResource[task.resource, default: 0] += 1
+            if let deduplicationKey = task.deduplicationKey {
+                runningDeduplicationKeys.insert(deduplicationKey)
+            }
+
+            let completion = makeCompletion(for: task)
+            task.work(completion)
+        }
+    }
+
+    private func nextRunnableTaskIndexLocked() -> Int? {
+        pendingTasks
+            .enumerated()
+            .filter { _, task in
+                !delayedResources.contains(task.resource)
+                    && runningCountByResource[task.resource, default: 0] < configuration.maxConcurrent(for: task.resource)
+            }
+            .max { lhs, rhs in
+                if lhs.element.priority == rhs.element.priority {
+                    return lhs.element.order > rhs.element.order
+                }
+                return lhs.element.priority < rhs.element.priority
+            }?
+            .offset
+    }
+
+    private func makeCompletion(for task: ScheduledTask) -> () -> Void {
+        let completionLock = NSLock()
+        var didComplete = false
+
+        return { [weak self] in
+            completionLock.lock()
+            guard !didComplete else {
+                completionLock.unlock()
+                return
+            }
+            didComplete = true
+            completionLock.unlock()
+
+            self?.complete(task)
+        }
+    }
+
+    private func complete(_ task: ScheduledTask) {
+        queue.async {
+            self.runningCountByResource[task.resource] = max(self.runningCountByResource[task.resource, default: 1] - 1, 0)
+            if self.runningCountByResource[task.resource] == 0 {
+                self.runningCountByResource.removeValue(forKey: task.resource)
+            }
+            if let deduplicationKey = task.deduplicationKey {
+                self.runningDeduplicationKeys.remove(deduplicationKey)
+            }
+
+            let cooldown = self.configuration.cooldown(for: task.resource)
+            if cooldown > 0 {
+                self.delayedResources.insert(task.resource)
+                self.queue.asyncAfter(deadline: .now() + cooldown) {
+                    self.delayedResources.remove(task.resource)
+                    self.drainLocked()
+                }
+            } else {
+                self.drainLocked()
+            }
+        }
+    }
+}
+
 enum AccountStreamLifecyclePhase: String {
     case idle
     case connecting
@@ -572,6 +821,7 @@ final class Account: NSObject {
 //  XMPPFramework params
     var queue: DispatchQueue
     var xmppStream: XMPPStream
+    lazy var xmppTaskScheduler: AccountXMPPTaskScheduler = AccountXMPPTaskScheduler(account: self)
     let authenticationCounterTracker = XMPPAuthenticationCounterTracker()
     let connectionGate = AccountStreamLifecycleGate()
 //  XMPPFramework modules
@@ -754,6 +1004,7 @@ final class Account: NSObject {
     
     func resetStream() {
         self.logConnectionDiagnostics(event: "reset_stream_requested")
+        self.xmppTaskScheduler.reset()
         self.cancelDelayedConnectTimer()
         self.connectionGate.reset()
         self.statusState.accept(.offline)
@@ -1474,6 +1725,7 @@ final class Account: NSObject {
     func resetModules() {
 //        self.statusMessage.accept("Waiting for network")
         self.statusMessage.accept("Offline")
+        self.xmppTaskScheduler.reset()
         self.mam.didResetState()
         self.presences.didResetState()
         self.msgDeleteManager.clearSession()

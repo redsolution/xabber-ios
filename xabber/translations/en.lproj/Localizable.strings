@@ -2288,6 +2288,24 @@ I don\'t need luck. I have ammo.";
 "chat_calls_title" = "Calls";
 
 
+"calls_categories_intro_subtitle" = "Manage VoIP calls and settings";
+
+
+"calls_filter_all" = "All Calls";
+
+
+"calls_filter_missed" = "Missed";
+
+
+"calls_filter_incoming" = "Incoming";
+
+
+"calls_filter_outgoing" = "Outgoing";
+
+
+"calls_filter_declined" = "Declined";
+
+
 "chat_calls_list_hint" = "Calls list is empty";
 
 

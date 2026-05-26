@@ -91,15 +91,13 @@ extension LastChatsViewController: UITableViewDataSource {
             verAction: item.isVerificationActionRequired
         )
         cell.setMask()
-
-        let selectionColor = AccountColorManager.shared.palette(for: item.owner).tint50 | AccountColorManager.shared.palette(for: item.owner).tint900
-        if ContinuousSplitBackgroundExperiment.isActive {
-            cell.applyContinuousSplitGlassBackground(selectedColor: selectionColor)
-        } else {
-            let view = UIView()
-            view.backgroundColor = selectionColor
-            cell.selectedBackgroundView = view
-        }
+        cell.applyPlainGroupedSystemBackground(
+            selectedColor: AccountSelectionHighlightStyle.tint50(
+                owner: item.owner,
+                fallbackOwners: enabledAccounts.value
+            ),
+            isSelected: isSelectedChat(item)
+        )
     }
 
     internal func configureSpecialMessageCell(_ cell: SpecialMessageTableViewCell, with item: Datasource) {

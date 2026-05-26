@@ -77,6 +77,11 @@
 		4E2000022F67000000ABC001 /* VoiceRecordingInteractionStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E2000012F67000000ABC001 /* VoiceRecordingInteractionStateMachine.swift */; };
 		4E2000042F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E2000032F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift */; };
 		4E3000022F68000000ABC001 /* VoiceMessagePlaybackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3000012F68000000ABC001 /* VoiceMessagePlaybackCoordinator.swift */; };
+		4E3100022F69000000ABC001 /* CallsControllerFilterProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3100012F69000000ABC001 /* CallsControllerFilterProtocol.swift */; };
+		4E3100042F69000000ABC001 /* CallsListCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3100032F69000000ABC001 /* CallsListCoordinator.swift */; };
+		4E3100062F69000000ABC001 /* CallsSectionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3100052F69000000ABC001 /* CallsSectionCoordinator.swift */; };
+		4E3100082F69000000ABC001 /* CallsCategoriesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3100072F69000000ABC001 /* CallsCategoriesViewController.swift */; };
+		4E31000A2F69000000ABC001 /* CallsListCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3100092F69000000ABC001 /* CallsListCoordinatorTests.swift */; };
 		660093C722DEEDBD00C5F16B /* LastChatsViewController+UITableViewAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660093C622DEEDBD00C5F16B /* LastChatsViewController+UITableViewAction.swift */; };
 		660093C922DF2A5F00C5F16B /* LastCallsViewController+EmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660093C822DF2A5F00C5F16B /* LastCallsViewController+EmptyView.swift */; };
 		660093CB22DF2CFD00C5F16B /* LastCallsViewController+UITableViewAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660093CA22DF2CFD00C5F16B /* LastCallsViewController+UITableViewAction.swift */; };
@@ -1071,6 +1076,11 @@
 		4E2000012F67000000ABC001 /* VoiceRecordingInteractionStateMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecordingInteractionStateMachine.swift; sourceTree = "<group>"; };
 		4E2000032F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecordingInteractionStateMachineTests.swift; sourceTree = "<group>"; };
 		4E3000012F68000000ABC001 /* VoiceMessagePlaybackCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMessagePlaybackCoordinator.swift; sourceTree = "<group>"; };
+		4E3100012F69000000ABC001 /* CallsControllerFilterProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallsControllerFilterProtocol.swift; sourceTree = "<group>"; };
+		4E3100032F69000000ABC001 /* CallsListCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallsListCoordinator.swift; sourceTree = "<group>"; };
+		4E3100052F69000000ABC001 /* CallsSectionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallsSectionCoordinator.swift; sourceTree = "<group>"; };
+		4E3100072F69000000ABC001 /* CallsCategoriesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallsCategoriesViewController.swift; sourceTree = "<group>"; };
+		4E3100092F69000000ABC001 /* CallsListCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallsListCoordinatorTests.swift; sourceTree = "<group>"; };
 		58D918EA4C5D9244619D4BEE /* Pods_xabberTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_xabberTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		5A01438B65BCB76802280911 /* Pods-xabber.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-xabber.release.xcconfig"; path = "Target Support Files/Pods-xabber/Pods-xabber.release.xcconfig"; sourceTree = "<group>"; };
 		660093C622DEEDBD00C5F16B /* LastChatsViewController+UITableViewAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+UITableViewAction.swift"; sourceTree = "<group>"; };
@@ -2830,6 +2840,10 @@
 			isa = PBXGroup;
 			children = (
 				6635A04125CC1A0600EA57FE /* new_call */,
+				4E3100012F69000000ABC001 /* CallsControllerFilterProtocol.swift */,
+				4E3100032F69000000ABC001 /* CallsListCoordinator.swift */,
+				4E3100052F69000000ABC001 /* CallsSectionCoordinator.swift */,
+				4E3100072F69000000ABC001 /* CallsCategoriesViewController.swift */,
 				665D33CA22D887C00034F74E /* LastCallsViewController.swift */,
 				660093C822DF2A5F00C5F16B /* LastCallsViewController+EmptyView.swift */,
 				665D33CC22D890B20034F74E /* LastCallsViewController+UITableViewDatasource.swift */,
@@ -3644,6 +3658,7 @@
 					4E1000032F66000000ABC001 /* FloatingBottomBarViewTests.swift */,
 					4E1000052F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift */,
 					4E2000032F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift */,
+					4E3100092F69000000ABC001 /* CallsListCoordinatorTests.swift */,
 					66AE4E7724E12F7C00FF11DC /* xabberTests.swift */,
 					66AE4E7924E12F7C00FF11DC /* Info.plist */,
 					66AE4E7F24E189EF00FF11DC /* XabberXMPPTests.swift */,
@@ -4889,6 +4904,10 @@
 				66449AA5291CE55100D1A329 /* UUID+v5.swift.swift in Sources */,
 				66DE8EF72058055400AE2A17 /* MessageArchiveManager.swift in Sources */,
 				669F20872481548E00A0A666 /* EditContactViewController+UITextFieldDelegate.swift in Sources */,
+				4E3100022F69000000ABC001 /* CallsControllerFilterProtocol.swift in Sources */,
+				4E3100042F69000000ABC001 /* CallsListCoordinator.swift in Sources */,
+				4E3100062F69000000ABC001 /* CallsSectionCoordinator.swift in Sources */,
+				4E3100082F69000000ABC001 /* CallsCategoriesViewController.swift in Sources */,
 				661B48CB2021834A00E3FFF8 /* MessageStorageItem.swift in Sources */,
 				66C3CEDF26145EC70028EBAE /* XMPPBackgroundTask+EndTaskDelegate.swift in Sources */,
 				66C8CA792510AA4500CA7271 /* XMPPBackgroundTask.swift in Sources */,
@@ -5526,6 +5545,7 @@
 					66AE4E7824E12F7C00FF11DC /* xabberTests.swift in Sources */,
 					4E2000042F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift in Sources */,
 					4E1000042F66000000ABC001 /* FloatingBottomBarViewTests.swift in Sources */,
+					4E31000A2F69000000ABC001 /* CallsListCoordinatorTests.swift in Sources */,
 				4E1000062F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift in Sources */,
 				66D2B585253EFED100299578 /* XabberAssetsTests.swift in Sources */,
 			);

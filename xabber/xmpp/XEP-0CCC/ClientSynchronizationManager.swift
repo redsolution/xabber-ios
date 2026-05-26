@@ -97,6 +97,49 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         let lastMessageArchiveId: String?
     }
 
+    struct RegularSnapshotLastMessageIdentity: Equatable {
+        let archiveId: String?
+        let messageId: String?
+        let senderId: String?
+        let bodyFingerprint: String?
+        let date: Date?
+    }
+
+    enum RegularSnapshotSyncPolicy {
+        static func matchesLocalLastMessage(
+            snapshot: RegularSnapshotLastMessageIdentity,
+            localLastMessageId: String,
+            localLastMessage: MessageStorageItem?,
+            owner: String,
+            jid: String
+        ) -> Bool {
+            if let archiveId = snapshot.archiveId,
+               archiveId.isNotEmpty,
+               localLastMessage?.archivedId == archiveId {
+                return true
+            }
+
+            if let messageId = snapshot.messageId,
+               messageId.isNotEmpty,
+               localLastMessageId == messageId || localLastMessage?.messageId == messageId {
+                return true
+            }
+
+            guard let localLastMessage,
+                  let snapshotDate = snapshot.date else {
+                return false
+            }
+
+            let localSenderId = localLastMessage.outgoing ? owner : jid
+            let datesMatch = abs(localLastMessage.date.timeIntervalSince1970 - snapshotDate.timeIntervalSince1970) < 1
+            let senderMatches = snapshot.senderId?.isEmpty != false || snapshot.senderId == localSenderId
+            let bodyMatches = snapshot.bodyFingerprint?.isEmpty != false ||
+                MentionNotificationSync.normalizedBodyFingerprint(localLastMessage.body) == snapshot.bodyFingerprint
+
+            return datesMatch && senderMatches && bodyMatches
+        }
+    }
+
     enum SyncPhase {
         case idle
         case snapshotInProgress
@@ -328,6 +371,57 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             return dateFromSyncStamp(fallbackSyncStamp)
         }
         return dateFromSyncStamp(syncStamp(from: messageElement, fallback: fallbackSyncStamp))
+    }
+
+    private func regularSnapshotIdentity(
+        from messageStanza: XMPPMessage,
+        fallbackDate: Date
+    ) -> RegularSnapshotLastMessageIdentity {
+        let archiveId = Self.normalizedArchiveId(getStanzaId(messageStanza, owner: self.owner))
+        let messageId = getUniqueMessageId(messageStanza, owner: self.owner)
+        return RegularSnapshotLastMessageIdentity(
+            archiveId: archiveId,
+            messageId: messageId.isNotEmpty ? messageId : nil,
+            senderId: messageStanza.from?.bare,
+            bodyFingerprint: MentionNotificationSync.normalizedBodyFingerprint(messageStanza.body),
+            date: getDeliveryDate(messageStanza) ?? fallbackDate
+        )
+    }
+
+    private func applyRegularSnapshotArchiveState(
+        jid: String,
+        snapshot: RegularSnapshotLastMessageIdentity,
+        lastChat: LastChatsStorageItem,
+        realm: Realm
+    ) {
+        guard lastChat.conversationType == .regular else {
+            return
+        }
+
+        let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(owner: self.owner, jid: jid, in: realm)
+        archiveState.lastSnapshotArchiveId = snapshot.archiveId
+        archiveState.lastSnapshotMessageId = snapshot.messageId
+        archiveState.lastSnapshotSenderId = snapshot.senderId
+        archiveState.lastSnapshotBodyFingerprint = snapshot.bodyFingerprint
+        archiveState.lastSnapshotDate = snapshot.date
+        archiveState.updatedAt = Date()
+
+        let matches = RegularSnapshotSyncPolicy.matchesLocalLastMessage(
+            snapshot: snapshot,
+            localLastMessageId: lastChat.lastMessageId,
+            localLastMessage: lastChat.lastMessage,
+            owner: self.owner,
+            jid: jid
+        )
+        guard !matches else {
+            return
+        }
+
+        lastChat.isSynced = false
+        archiveState.newerLiveEdgeReached = false
+        if let archiveId = snapshot.archiveId {
+            archiveState.recordKnownNewerGap(to: archiveId)
+        }
     }
 
     private static func syncMetadata(from conversation: DDXMLElement) -> DDXMLElement? {
@@ -624,6 +718,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             if shouldRunInviteFallback {
                 AccountManager.shared.find(for: owner)?.groupchats.getInvitesFallback()
             }
+            AccountManager.shared.find(for: owner)?.mam.scheduleRegularIdleBackfillIfNeeded()
         } catch {
             DDLogDebug("ClientSynchronizationManager: \(#function). \(error.localizedDescription)")
         }
@@ -769,6 +864,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     if shouldRunInviteFallback {
                         AccountManager.shared.find(for: self.owner)?.groupchats.getInvitesFallback()
                     }
+                    AccountManager.shared.find(for: self.owner)?.mam.scheduleRegularIdleBackfillIfNeeded()
                 }
             } catch {
                 _ = self.finishApplyingPage(snapshotStamp: page.stamp, isFinalPage: page.isFinalPage)
@@ -1180,7 +1276,18 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                           [self.owner, jid].contains(to) else {
                         return nil
                     }
-                    if instance.lastMessageId != getUniqueMessageId(messageStanza, owner: self.owner) {
+                    if conversationType == .regular {
+                        let snapshot = self.regularSnapshotIdentity(
+                            from: messageStanza,
+                            fallbackDate: conversationDate
+                        )
+                        self.applyRegularSnapshotArchiveState(
+                            jid: jid,
+                            snapshot: snapshot,
+                            lastChat: instance,
+                            realm: realm
+                        )
+                    } else if instance.lastMessageId != getUniqueMessageId(messageStanza, owner: self.owner) {
                         instance.isSynced = false//!firstSync
                     }
                     return AccountManager

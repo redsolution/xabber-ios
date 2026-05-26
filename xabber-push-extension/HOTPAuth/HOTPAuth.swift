@@ -90,8 +90,15 @@ class HOTPAuth {
                 return
             }
             if let secret = item.creditionalString {
-                creditionalsItem.incrementCounter()
-                let counter = creditionalsItem.currentCounter()
+                let reservation: CredentialsManager.Storage.AuthenticationCounterReservation
+                do {
+                    reservation = try item.reserveCounterForAuthentication()
+                } catch {
+                    callback?(nil)
+                    item.release(.authFailedRecoverable)
+                    return
+                }
+                let counter = reservation.counter
                 guard let hmac = try? HMAC(key: secret.bytes, variant: HMAC.Variant.sha1).authenticate(withUnsafeBytes(of: counter.bigEndian, { Data($0) }).bytes) else {
                     callback?(nil)
                     creditionalsItem.release(.authFailedRecoverable)
@@ -120,7 +127,6 @@ class HOTPAuth {
                 creditionalsItem.release(.authSucceeded)
                 return
             } else {
-                item.decrementCounter()
                 callback?(nil)
                 item.release(.authFailedRecoverable)
             }

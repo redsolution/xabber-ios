@@ -172,6 +172,13 @@ extension LastChatsViewController: UITableViewDelegate {
         openMessageRequest: ChatOpenMessageRequest? = nil,
         configure configureCallback: ((ChatViewController?) -> Void)? = nil
     ) {
+        setSelectedChat(
+            jid: jid,
+            owner: owner,
+            conversationType: conversationType,
+            animated: true
+        )
+
         if let oldVc = self.currentChatVC,
            oldVc.jid == jid, oldVc.owner == owner, oldVc.conversationType == conversationType {
             configureCallback?(oldVc)
@@ -209,18 +216,13 @@ protocol LastChatsDisplayDelegate {
 
 extension LastChatsViewController: LastChatsDisplayDelegate {
     func shouldMakeDialogSelected(jid: String, owner: String, conversationType: ClientSynchronizationManager.ConversationType) {
-        if let indexPath = Self.indexPathForChat(
+        setSelectedChat(
             jid: jid,
             owner: owner,
             conversationType: conversationType,
-            in: self.datasourceSections
-        ) {
-            self.tableView
-                .indexPathsForSelectedRows?
-                .compactMap { $0 }
-                .forEach { self.tableView.deselectRow(at: $0, animated: true) }
-            self.tableView.selectRow(at: indexPath, animated: true, scrollPosition: .middle)
-        }
+            animated: true,
+            scrollPosition: .middle
+        )
     }
     
     

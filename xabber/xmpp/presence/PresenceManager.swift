@@ -544,8 +544,8 @@ class PresenceManager: AbstractXMPPManager {
                 return true
             }
             
-            AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
-                user.avatarManager.requestPubSubItem(stream, node: .metadata, jid: jid, by: "")
+            AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, _ in
+                user.avatarManager.enqueuePubSubItemRequest(node: .metadata, jid: jid, by: "")
             })
         } catch {
             DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")

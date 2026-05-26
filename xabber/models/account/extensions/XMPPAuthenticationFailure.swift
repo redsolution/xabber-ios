@@ -245,7 +245,7 @@ struct XMPPStoredCredentialAuthenticator {
             guard let token = storage.creditionalString else {
                 return .missingCredential
             }
-            let counter = counterTracker.counterForAuthentication(using: storage)
+            let counter = try counterTracker.counterForAuthentication(using: storage)
             try stream.authenticate(withXabberToken: token, counter: counter)
             return .started
 
@@ -253,16 +253,21 @@ struct XMPPStoredCredentialAuthenticator {
             guard let secret = storage.creditionalString else {
                 return .missingCredential
             }
-            let counter = counterTracker.counterForAuthentication(using: storage)
             if stream.supportsOCRAAuthentication {
-                let deviceUUID = try currentDeviceUUID(for: ownerJID)
+                let storedDeviceUUID = try currentDeviceUUID(for: ownerJID)
+                guard let validationKey = storage.validationKey?.nilIfEmpty,
+                      let deviceUUID = storedDeviceUUID?.nilIfEmpty else {
+                    return .missingCredential
+                }
+                let counter = try counterTracker.counterForAuthentication(using: storage)
                 try stream.authenticate(
                     withOCRASecret: secret,
-                    validationKey: storage.validationKey ?? "",
-                    deviceId: deviceUUID ?? "",
+                    validationKey: validationKey,
+                    deviceId: deviceUUID,
                     counter: counter
                 )
             } else {
+                let counter = try counterTracker.counterForAuthentication(using: storage)
                 try stream.authenticate(withHOTPSecret: secret, counter: counter)
             }
             return .started
@@ -274,34 +279,35 @@ struct XMPPStoredCredentialAuthenticator {
 
     private static func currentDeviceUUID(for ownerJID: String) throws -> String? {
         let realm = try WRealm.safe()
-        return realm.object(ofType: AccountStorageItem.self, forPrimaryKey: ownerJID)?.deviceUuid
+        let realmDeviceUUID = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: ownerJID)?.deviceUuid
+        return realmDeviceUUID?.nilIfEmpty ?? CredentialsManager.getXabberDeviceId(for: ownerJID)?.nilIfEmpty
     }
 }
 
 final class XMPPAuthenticationCounterTracker {
-    private var pendingJID: String?
+    private var pendingReservation: CredentialsManager.Storage.AuthenticationCounterReservation?
     private let lock = NSRecursiveLock()
 
-    func counterForAuthentication(using storage: CredentialsManager.Storage) -> UInt64 {
+    func counterForAuthentication(using storage: CredentialsManager.Storage) throws -> UInt64 {
         lock.lock()
         defer { lock.unlock() }
-        pendingJID = storage.jid
-        return storage.currentCounter()
+        let reservation = try storage.reserveCounterForAuthentication()
+        pendingReservation = reservation
+        return reservation.counter
     }
 
     func authenticationDidSucceed(using storage: CredentialsManager.Storage) {
         lock.lock()
         defer { lock.unlock() }
-        if pendingJID == storage.jid {
-            pendingJID = nil
-            storage.incrementCounter()
+        if pendingReservation?.jid == storage.jid {
+            pendingReservation = nil
         }
     }
 
     func authenticationDidFail() {
         lock.lock()
         defer { lock.unlock() }
-        pendingJID = nil
+        pendingReservation = nil
     }
 }
 

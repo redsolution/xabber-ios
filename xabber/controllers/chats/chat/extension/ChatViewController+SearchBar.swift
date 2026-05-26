@@ -1658,7 +1658,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
     
     func didReceiveEndPage(queryId: String, state: MessageArchivePageEndState, first: String, last: String, count: Int) {
         DispatchQueue.main.async {
-            if self.handleInitialBootstrapEndPageIfNeeded(queryId: queryId, count: count) {
+            if self.handleInitialBootstrapEndPageIfNeeded(queryId: queryId, count: count, persistedMessageCount: state.persistedMessageCount) {
                 return
             }
             if self.completeInteractiveHistoryPageLoadIfNeeded(queryId: queryId, state: state, first: first, last: last, count: count) {

@@ -33,6 +33,15 @@ private func credentialsDebugLog(_ message: String) {
     #endif
 }
 
+private func credentialsDiagnosticHash(_ value: String) -> String {
+    var hash: UInt64 = 1469598103934665603
+    for byte in value.utf8 {
+        hash ^= UInt64(byte)
+        hash = hash &* 1099511628211
+    }
+    return String(format: "%016llx", hash)
+}
+
 class CredentialsManager: NSObject {
     private static var testDataStore: [String: Data] = [:]
     private static var testIntStore: [String: Int] = [:]
@@ -98,9 +107,25 @@ class CredentialsManager: NSObject {
             case authFailedRecoverable
             case credentialRevoked
         }
+
+        struct AuthenticationCounterReservation: Equatable {
+            let jid: String
+            let attemptID: String
+            let counter: UInt64
+            let nextCounter: UInt64
+            let credentialGeneration: UInt64
+        }
+
+        enum CounterReservationError: Error, Equatable {
+            case counterOverflow
+            case persistenceFailed
+        }
+
+        static var counterPersistenceOverride: ((String, UInt64) -> Bool)?
         
         var jid: String
         var counter: UInt64 = 0
+        private var credentialGeneration: UInt64 = 0
 //        {
 //            get {
 //                if let counterRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
@@ -122,7 +147,7 @@ class CredentialsManager: NSObject {
         var creditionalString: String? {
             get {
                 let credential = self.retrieveCreditionals(for: [jid, kind.rawValue].prp())
-                credentialsDebugLog("CredentialsManager: credential lookup jid=\(jid) kind=\(kind.rawValue) present=\(credential != nil)")
+                credentialsDebugLog("CredentialsManager: credential lookup jidHash=\(credentialsDiagnosticHash(jid)) kind=\(kind.rawValue) present=\(credential != nil)")
                 return credential
             }
             set {
@@ -146,7 +171,7 @@ class CredentialsManager: NSObject {
         private let lock = NSRecursiveLock()
         var isFirstTokenIssued: Bool = false {
             didSet {
-                credentialsDebugLog("CredentialsManager: credential first token state jid=\(jid) firstIssued=\(isFirstTokenIssued)")
+                credentialsDebugLog("CredentialsManager: credential first token state jidHash=\(credentialsDiagnosticHash(jid)) firstIssued=\(isFirstTokenIssued)")
             }
         }
         
@@ -178,7 +203,7 @@ class CredentialsManager: NSObject {
             withLock {
                 if let kind = predefinedKind {
                     self.kind = kind
-                    credentialsDebugLog("CredentialsManager: credential kind updated jid=\(jid) kind=\(kind.rawValue) predefined=true")
+                    credentialsDebugLog("CredentialsManager: credential kind updated jidHash=\(credentialsDiagnosticHash(jid)) kind=\(kind.rawValue) predefined=true")
                     return
                 }
                 self.kind = .password
@@ -188,7 +213,7 @@ class CredentialsManager: NSObject {
                 if self.retrieveCreditionals(for: [jid, Kind.secret.rawValue].prp()) != nil {
                     self.kind = .secret
                 }
-                credentialsDebugLog("CredentialsManager: credential kind updated jid=\(jid) kind=\(self.kind.rawValue) predefined=false")
+                credentialsDebugLog("CredentialsManager: credential kind updated jidHash=\(credentialsDiagnosticHash(jid)) kind=\(self.kind.rawValue) predefined=false")
             }
         }
         
@@ -197,7 +222,7 @@ class CredentialsManager: NSObject {
         }
         
         public final func use(_ callback: @escaping ((Bool, Storage) -> Void)) {
-            credentialsDebugLog("CredentialsManager: credential use requested jid=\(jid) kind=\(kind.rawValue) blocked=\(isBlocked)")
+            credentialsDebugLog("CredentialsManager: credential use requested jidHash=\(credentialsDiagnosticHash(jid)) kind=\(kind.rawValue) blocked=\(isBlocked)")
             let callbackToRun: (() -> Void)? = withLock {
                 if isBlocked {
                     callbacks.append(SynchronizedArrayCallbackItem({
@@ -225,7 +250,7 @@ class CredentialsManager: NSObject {
         }
         
         public final func release(_ outcome: ReleaseOutcome) {
-            credentialsDebugLog("CredentialsManager: credential release jid=\(jid) kind=\(kind.rawValue) outcome=\(outcome)")
+            credentialsDebugLog("CredentialsManager: credential release jidHash=\(credentialsDiagnosticHash(jid)) kind=\(kind.rawValue) outcome=\(outcome)")
             let callbackToRun: (() -> Void)? = withLock {
                 switch outcome {
                 case .authSucceeded:
@@ -252,7 +277,7 @@ class CredentialsManager: NSObject {
             withLock {
                 let newCounter = self.currentCounter() + 1
                 self.counter = newCounter
-                self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
+                self.storeCounter(newCounter)
             }
 //            self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
         }
@@ -264,11 +289,10 @@ class CredentialsManager: NSObject {
                     if counter > 1 {
                         let newCounter = counter - 1
                         self.counter = newCounter
-                        self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
-                        self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
+                        self.storeCounter(newCounter)
                     }
                 } else {
-                    credentialsDebugLog("CredentialsManager: credential counter missing on decrement jid=\(jid) kind=\(kind.rawValue)")
+                    credentialsDebugLog("CredentialsManager: credential counter missing on decrement jidHash=\(credentialsDiagnosticHash(jid)) kind=\(kind.rawValue)")
                 }
             }
             
@@ -276,7 +300,7 @@ class CredentialsManager: NSObject {
         
         public final func getSecret() -> String? {
             let secret = self.retrieveCreditionals(for: [jid, Kind.secret.rawValue].prp())
-            credentialsDebugLog("CredentialsManager: credential secret lookup jid=\(jid) present=\(secret != nil)")
+            credentialsDebugLog("CredentialsManager: credential secret lookup jidHash=\(credentialsDiagnosticHash(jid)) present=\(secret != nil)")
             return secret
         }
 
@@ -289,6 +313,38 @@ class CredentialsManager: NSObject {
                     return counter
                 }
                 return max(self.counter, 1)
+            }
+        }
+
+        public final func reserveCounterForAuthentication() throws -> AuthenticationCounterReservation {
+            try withLock {
+                let counter = self.currentCounter()
+                guard counter < UInt64.max else {
+                    credentialsDebugLog("CredentialsManager: counter reservation overflow jidHash=\(credentialsDiagnosticHash(jid)) kind=\(kind.rawValue)")
+                    throw CounterReservationError.counterOverflow
+                }
+
+                let nextCounter = counter + 1
+                let previousCounter = self.counter
+                self.counter = nextCounter
+
+                guard self.storeCounter(nextCounter, allowTestOverride: true),
+                      let persistedRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
+                      UInt64(persistedRaw) == nextCounter else {
+                    self.counter = previousCounter
+                    credentialsDebugLog("CredentialsManager: counter reservation persistence failed jidHash=\(credentialsDiagnosticHash(jid)) kind=\(kind.rawValue) counter=\(counter) nextCounter=\(nextCounter)")
+                    throw CounterReservationError.persistenceFailed
+                }
+
+                let reservation = AuthenticationCounterReservation(
+                    jid: jid,
+                    attemptID: UUID().uuidString,
+                    counter: counter,
+                    nextCounter: nextCounter,
+                    credentialGeneration: credentialGeneration
+                )
+                credentialsDebugLog("CredentialsManager: counter reserved jidHash=\(credentialsDiagnosticHash(jid)) kind=\(kind.rawValue) attemptID=\(reservation.attemptID) counter=\(counter) nextCounter=\(nextCounter) generation=\(credentialGeneration)")
+                return reservation
             }
         }
         
@@ -305,12 +361,13 @@ class CredentialsManager: NSObject {
         
         public func storeSecret(_ value: String, validationKey: String) {
             withLock {
+                self.credentialGeneration += 1
                 self.isFirstTokenIssued = true
                 self.counter = 1
                 self.kind = .secret
                 self.storeCreditionals(for: [jid, "validation_key"].prp(), value: validationKey)
                 self.storeCreditionals(for: [jid, Kind.secret.rawValue].prp(), value: value)
-                self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(self.counter)")
+                self.storeCounter(self.counter)
 //            self.storeCounterToRealm(self.counter)
                 self.removeCreditionals(for: [jid, Kind.password.rawValue].prp())
                 self.removeCreditionals(for: [jid, Kind.token.rawValue].prp())
@@ -319,11 +376,12 @@ class CredentialsManager: NSObject {
         
         public func storeToken(_ value: String) {
             withLock {
+                self.credentialGeneration += 1
                 self.isFirstTokenIssued = true
                 self.counter = 1
                 self.kind = .token
                 self.storeCreditionals(for: [jid, Kind.token.rawValue].prp(), value: value)
-                self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(self.counter)")
+                self.storeCounter(self.counter)
 //            self.storeCounterToRealm(self.counter)
                 self.removeCreditionals(for: [jid, Kind.password.rawValue].prp())
                 self.removeCreditionals(for: [jid, Kind.secret.rawValue].prp())
@@ -332,6 +390,7 @@ class CredentialsManager: NSObject {
         
         public func storePassword(_ value: String, keepSecret: Bool = false) {
             withLock {
+                self.credentialGeneration += 1
                 self.kind = .password
                 self.storeCreditionals(for: [jid, Kind.password.rawValue].prp(), value: value)
                 self.removeCreditionals(for: [jid, Kind.token.rawValue].prp())
@@ -342,17 +401,29 @@ class CredentialsManager: NSObject {
 //            self.removeCreditionals(for: [jid, "counter"].prp())
         }
 
-        private func withLock<T>(_ block: () -> T) -> T {
+        private func withLock<T>(_ block: () throws -> T) rethrows -> T {
             lock.lock()
             defer { lock.unlock() }
-            return block()
+            return try block()
         }
         
-        private func storeCreditionals(for key: String, value: String) {
+        @discardableResult
+        private func storeCounter(_ value: UInt64, allowTestOverride: Bool = false) -> Bool {
+            if allowTestOverride,
+               let counterPersistenceOverride = Self.counterPersistenceOverride,
+               !counterPersistenceOverride(jid, value) {
+                return false
+            }
+            return self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(value)")
+        }
+
+        @discardableResult
+        private func storeCreditionals(for key: String, value: String) -> Bool {
             let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
                                            accessGroup: CredentialsManager.uniqueAccessGroup())
             let result = keychain.set(value, forKey: key, withAccessibility: .alwaysThisDeviceOnly)
-            credentialsDebugLog("CredentialsManager: credential store jid=\(jid) kind=\(kind.rawValue) success=\(result)")
+            credentialsDebugLog("CredentialsManager: credential store jidHash=\(credentialsDiagnosticHash(jid)) kind=\(kind.rawValue) success=\(result)")
+            return result
         }
         
         private func retrieveCreditionals(for key: String) -> String? {
@@ -371,6 +442,7 @@ class CredentialsManager: NSObject {
     }
     
     var storage: Set<Storage> = Set<Storage>()
+    private let storageLock = NSRecursiveLock()
     
     override init() {
         super.init()
@@ -383,13 +455,16 @@ class CredentialsManager: NSObject {
     }
     
     public final func getItem(for jid: String) -> Storage {
+        storageLock.lock()
+        defer { storageLock.unlock() }
+
         if let item = storage.first(where: { $0.jid == jid }) {
             return item
-        } else {
-            let item = Storage(jid: jid)
-            storage.insert(item)
-            return item
         }
+
+        let item = Storage(jid: jid)
+        storage.insert(item)
+        return item
     }
     
     public func setXabberAccountUUID(for jid: String, uuid uuidString: String) {
@@ -465,24 +540,13 @@ class CredentialsManager: NSObject {
     }
     
     public func setItem(for jid: String, validationKey: String? = nil, secret: String? = nil, token: String? = nil, password: String? = nil, keepSecret: Bool = false) {
-        if let item = storage.first(where: { $0.jid == jid }) {
-            if let secret = secret {
-                item.storeSecret(secret, validationKey: validationKey ?? "")
-            } else if let token = token {
-                item.storeToken(token)
-            } else if let password = password {
-                item.storePassword(password, keepSecret: keepSecret)
-            }
-        } else {
-            let item = Storage(jid: jid)
-            if let secret = secret {
-                item.storeSecret(secret, validationKey: validationKey ?? "")
-            } else if let token = token {
-                item.storeToken(token)
-            } else if let password = password {
-                item.storePassword(password, keepSecret: keepSecret)
-            }
-            storage.insert(item)
+        let item = getItem(for: jid)
+        if let secret = secret {
+            item.storeSecret(secret, validationKey: validationKey ?? "")
+        } else if let token = token {
+            item.storeToken(token)
+        } else if let password = password {
+            item.storePassword(password, keepSecret: keepSecret)
         }
     }
        

@@ -46,7 +46,7 @@ class LastCallsViewController: BaseViewController {
             case .incoming:
                 return "Incoming".localizeString(id: "chat_message_incoming", arguments: [])
             case .rejected:
-                return "Cancelled"
+                return CallsListFilter.declined.title
             }
         }
         
@@ -91,18 +91,7 @@ class LastCallsViewController: BaseViewController {
     }
     
     static func displayDirection(for state: MessageStorageItem.VoIPCallState, outgoing: Bool) -> DisplayCallDirection {
-        switch state {
-        case .missed:
-            return .missed
-        case .busy, .noanswer:
-            return .rejected
-        case .received:
-            return .incoming
-        case .made:
-            return outgoing ? .outgoing : .incoming
-        case .none:
-            return outgoing ? .outgoing : .incoming
-        }
+        CallsListCoordinator.displayDirection(for: state, outgoing: outgoing)
     }
 
     internal static func emptyStateDescriptor(
@@ -157,51 +146,9 @@ class LastCallsViewController: BaseViewController {
     }
 
     internal static func callDatasource(in realm: Realm, enabledAccounts: Set<String>) -> [Datasource] {
-        guard enabledAccounts.isNotEmpty else {
-            return []
-        }
-
-        let items = Array(realm.objects(MessageStorageItem.self)
-            .filter(
-                "owner IN %@ AND messageType == %@ AND isDeleted == false",
-                Array(enabledAccounts),
-                MessageStorageItem.MessageDisplayType.call.rawValue
-            )
-            .sorted(byKeyPath: "date", ascending: false)
-            .prefix(50))
-        let owners = Array(Set(items.map { $0.owner }))
-        let jids = Array(Set(items.map { $0.opponent }))
-        let rosterItems = owners.isEmpty || jids.isEmpty
-            ? []
-            : realm.objects(RosterStorageItem.self)
-                .filter("owner IN %@ AND jid IN %@", owners, jids)
-                .toArray()
-        let rosterByKey = Dictionary(
-            uniqueKeysWithValues: rosterItems.map { item in
-                (RosterStorageItem.genPrimary(jid: item.jid, owner: item.owner), item)
-            }
-        )
-
-        return items.compactMap { item in
-            let rosterItem = rosterByKey[RosterStorageItem.genPrimary(jid: item.opponent, owner: item.owner)]
-            let stateUnwr = (item.callMetadata?["callState"] as? String) ?? ""
-            let displayState = Self.displayDirection(
-                for: MessageStorageItem.VoIPCallState(rawValue: stateUnwr) ?? .none,
-                outgoing: item.outgoing
-            )
-
-            return Datasource(
-                owner: item.owner,
-                jid: item.opponent,
-                username: rosterItem?.displayName ?? item.opponent,
-                avatarUrl: rosterItem?.avatarMinUrl ?? rosterItem?.avatarMaxUrl ?? rosterItem?.oldschoolAvatarKey,
-                date: item.date,
-                direction: displayState,
-                outgoing: item.outgoing,
-                messagePrimary: item.primary,
-                referencePrimary: item.references.first?.primary
-            )
-        }
+        CallsListCoordinator
+            .deriveState(realm: realm, enabledAccounts: enabledAccounts, filter: .all)
+            .listDatasource
     }
     
     struct Datasource: DiffAware {
@@ -242,6 +189,8 @@ class LastCallsViewController: BaseViewController {
     internal var calls: Results<MessageStorageItem>? = nil
     internal var displayNames: Results<RosterDisplayNameStorageItem>? = nil
     internal var enabledAccounts: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set<String>())
+    internal var filter: BehaviorRelay<CallsListFilter> = BehaviorRelay(value: .all)
+    internal var filterMenu: UIMenu = UIMenu()
     internal var isEmptyViewShowed: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     internal var isCallHistoryLoaded: Bool = false
     
@@ -253,7 +202,9 @@ class LastCallsViewController: BaseViewController {
         view.register(ItemCell.self, forCellReuseIdentifier: ItemCell.cellName)
         view.separatorStyle = .singleLine
         view.cellLayoutMarginsFollowReadableWidth = true
-        view.tableFooterView = UIView(frame: .zero)
+        view.rowHeight = UITableView.automaticDimension
+        view.estimatedRowHeight = 68
+        view.applyContinuousSplitInsetGroupedAppearance()
         
         return view
     }()
@@ -339,7 +290,9 @@ class LastCallsViewController: BaseViewController {
             if enabledAccounts.value != accounts {
                 enabledAccounts.accept(accounts)
             }
-            let results = Self.callDatasource(in: realm, enabledAccounts: accounts)
+            let results = CallsListCoordinator
+                .deriveState(realm: realm, enabledAccounts: accounts, filter: filter.value)
+                .listDatasource
             applyCallDatasource(results)
             isCallHistoryLoaded = true
             refreshEmptyStateVisibility(callHistoryIsEmpty: results.isEmpty)
@@ -402,6 +355,15 @@ class LastCallsViewController: BaseViewController {
                     DispatchQueue.main.async {
                         self.updateTitle()
                     }
+                })
+                .disposed(by: bag)
+            filter
+                .asObservable()
+                .distinctUntilChanged()
+                .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
+                .subscribe(onNext: { [weak self] _ in
+                    self?.reloadCallDatasource()
+                    self?.configureBars()
                 })
                 .disposed(by: bag)
             Observable
@@ -557,9 +519,34 @@ class LastCallsViewController: BaseViewController {
     internal func onRegisterYubikey() {
         showRegisterYubikeyDialog()
     }
+
+    internal func makeCallsFilterMenu() -> UIMenu {
+        let actions = CallsListFilter.visibleCategoryCases.map { item in
+            UIAction(
+                title: item.title,
+                image: imageLiteral(item.iconName),
+                identifier: UIAction.Identifier(rawValue: "calls.filter.\(item.rawValue)"),
+                discoverabilityTitle: nil,
+                attributes: [],
+                state: filter.value == item ? .on : .off,
+                handler: { [weak self] _ in
+                    self?.shouldFilterBy(category: item.rawValue)
+                }
+            )
+        }
+        filterMenu = UIMenu(options: [.singleSelection], children: actions)
+        return filterMenu
+    }
+
+    internal func makeCallsFilterButton() -> UIBarButtonItem {
+        let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .plain, target: self, action: nil)
+        button.accessibilityIdentifier = "calls_filter_menu_button"
+        button.menu = makeCallsFilterMenu()
+        return button
+    }
     
     internal func configureBars() {
-        self.title = "Calls"
+        self.title = "Calls".localizeString(id: "chat_calls_title", arguments: [])
 //        if CommonConfigManager.shared.config.use_large_title {
 //            self.navigationItem.largeTitleDisplayMode = .automatic
 //        } else {
@@ -573,6 +560,7 @@ class LastCallsViewController: BaseViewController {
         securityButton.action = #selector(onRegisterYubikey)
         switch CommonConfigManager.shared.interfaceType {
             case .tabs:
+                let filterBarButton = makeCallsFilterButton()
                 let addBarButton = UIBarButtonItem(
                     image: UIImage(systemName: "plus")?
                         .upscale(dimension: 24)
@@ -587,7 +575,7 @@ class LastCallsViewController: BaseViewController {
                     self.navigationItem.setRightBarButtonItems([addBarButton], animated: true)
                 }
                 let leftBarButton = UIBarButtonItem(customView: accountNavButton)
-                self.navigationItem.setLeftBarButton(leftBarButton, animated: true)
+                self.navigationItem.setLeftBarButtonItems([filterBarButton, leftBarButton], animated: true)
                 accountNavButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
             case .split:
                 self.bottomBar.splitViewController = self.splitViewController
@@ -608,6 +596,13 @@ class LastCallsViewController: BaseViewController {
 //                    self.navigationItem.setHidesBackButton(true, animated: false)
 //                    self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
 //                }
+                if UIDevice.current.userInterfaceIdiom != .pad {
+                    let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
+                    navigationItem.setHidesBackButton(true, animated: false)
+                    navigationItem.setLeftBarButtonItems([backButton, makeCallsFilterButton()], animated: true)
+                } else {
+                    navigationItem.setLeftBarButtonItems([], animated: true)
+                }
                 self.bottomBar.isHidden = true
         }
     }
@@ -646,12 +641,16 @@ class LastCallsViewController: BaseViewController {
     }
     
     internal func configure() {
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
         view.addSubview(tableView)
         tableView.fillSuperview()
+        tableView.applyContinuousSplitInsetGroupedAppearance()
         tableView.dataSource = self
         tableView.delegate = self
         
         emptyView.isHidden = true
+        emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
+        emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
         view.addSubview(emptyView)
         emptyView.fillSuperview()
         view.bringSubviewToFront(emptyView)
@@ -693,9 +692,11 @@ class LastCallsViewController: BaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
-        let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
-        self.navigationItem.setLeftBarButton(backButton, animated: false)
-        self.title = "Calls"
+        if CommonConfigManager.shared.interfaceType == .split && UIDevice.current.userInterfaceIdiom != .pad {
+            let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
+            self.navigationItem.setLeftBarButtonItems([backButton, makeCallsFilterButton()], animated: false)
+        }
+        self.title = "Calls".localizeString(id: "chat_calls_title", arguments: [])
 //        if CommonConfigManager.shared.config.use_large_title {
 //            self.navigationItem.largeTitleDisplayMode = .automatic
 //        } else {
@@ -754,5 +755,16 @@ class LastCallsViewController: BaseViewController {
     
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
+    }
+}
+
+extension LastCallsViewController: CallsControllerFilterProtocol {
+    func shouldFilterBy(category: String?) {
+        guard let category,
+              let value = CallsListFilter(rawValue: category) else {
+            filter.accept(.all)
+            return
+        }
+        filter.accept(value)
     }
 }

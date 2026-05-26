@@ -1006,6 +1006,7 @@ class ChatViewController: MessagesViewController {
     var observerArchivedIdIndexMap: [String: Int] = [:]
     var observerMessageIdIndexMap: [String: Int] = [:]
     var observerOldestArchivedId: String? = nil
+    var observerNewestArchivedId: String? = nil
     var observerLookupSignature: ObserverLookupSignature? = nil
     
     
@@ -1089,6 +1090,11 @@ class ChatViewController: MessagesViewController {
     var isInitialBootstrapInFlight: Bool = false
     var didReceiveInitialBootstrapEndPage: Bool = false
     var initialBootstrapResultCount: Int? = nil
+    var initialBootstrapPersistedMessageCount: Int? = nil
+    var didEnterInitialBootstrapObserverSettlePhase: Bool = false
+    var didObserveInitialBootstrapPostIdleTick: Bool = false
+    var initialBootstrapLocalHistoryFallbackWorkItem: DispatchWorkItem? = nil
+    var allowsStaleLocalHistoryDuringInitialBootstrap: Bool = false
     var hasConfirmedArchiveEndThisSession: Bool = false
     var hasUsedArchiveEndVerificationProbe: Bool = false
     var inSearchMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
@@ -2817,6 +2823,7 @@ class ChatViewController: MessagesViewController {
     private func unsubscribe() {
         NotifyManager.shared.currentDialog = nil
         self.bag = DisposeBag()
+        self.cancelInitialBootstrapLocalHistoryFallback()
         VoiceMessagePlaybackCoordinator.shared.removeObserver(self.voiceMessageStateObserverToken)
         self.voiceMessageStateObserverToken = nil
     }

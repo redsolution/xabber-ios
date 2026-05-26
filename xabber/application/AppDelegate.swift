@@ -74,12 +74,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
 
-        realmMigrations(scheme: 5)
+        realmMigrations(scheme: 6)
         #if RELEASE
         _DEBUG = false
-        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.off)
+        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
         #else
-        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.off)
+        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
         #endif
         
         #if RELEASE

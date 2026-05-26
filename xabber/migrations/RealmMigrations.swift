@@ -84,6 +84,11 @@ func realmMigrations(scheme: UInt64) {
                     newObject?["sensitivitySource"] = nil
                 }
             }
+            if oldSchemaVersion < 6 {
+                // RegularChatArchiveSyncStateStorageItem is a new table with default values.
+                // Existing LastChatsStorageItem rows remain authoritative until a regular MAM page
+                // establishes durable archive bounds for that dialog.
+            }
         },
         deleteRealmIfMigrationNeeded: true) { total, used in
             let limit = 100 * 1024 * 1024

@@ -199,6 +199,7 @@ class LeftMenuViewController: UIViewController {
     var chatsVc: LastChatsViewController? = nil
     var archivedVc: LastChatsViewController? = nil
     var callsVc: LastCallsViewController? = nil
+    var callsCategoriesVc: CallsCategoriesViewController? = nil
     var notificationsVc: NotificationsListViewController? = nil
     var notificationsCategoriesVc: NotificationsCategoriesViewController? = nil
     var contactsCategoriesVc: ContactsCategoryViewController? = nil
@@ -1059,22 +1060,33 @@ extension LeftMenuViewController: UITableViewDelegate {
         return 0
     }
     
-    private func show(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) {
+    private func show(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isCalls: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) {
         if #available(iOS 26, *) {
             // Code for iOS 26 and above
-            self.showNew(controller: vc, kind: kind, isNotifications: isNotifications, isContacts: isContacts, isGroups: isGroups, category: category, leftMenuDelegate: leftMenuDelegate)
+            self.showNew(controller: vc, kind: kind, isNotifications: isNotifications, isCalls: isCalls, isContacts: isContacts, isGroups: isGroups, category: category, leftMenuDelegate: leftMenuDelegate)
         } else {
             // Fallback for older iOS versions
-            self.showOld(controller: vc, kind: kind, isNotifications: isNotifications, isContacts: isContacts, isGroups: isGroups, category: category, leftMenuDelegate: leftMenuDelegate)
+            self.showOld(controller: vc, kind: kind, isNotifications: isNotifications, isCalls: isCalls, isContacts: isContacts, isGroups: isGroups, category: category, leftMenuDelegate: leftMenuDelegate)
         }
     }
     
-    private func showNew(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) {
+    private func showNew(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isCalls: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) {
         let svc: UIViewController
         vc.resetState()
         if isNotifications {
             svc = NotificationsListViewController()
             (vc as? NotificationsCategoriesViewController)?.filterDelegate = (svc as? NotificationsListViewController)
+        } else if isCalls {
+            let listController = callsVc ?? LastCallsViewController()
+            callsVc = listController
+            svc = listController
+            if let categoriesController = vc as? CallsCategoriesViewController {
+                CallsSectionCoordinator.wire(
+                    categoriesController: categoriesController,
+                    listController: listController,
+                    leftMenuDelegate: leftMenuDelegate
+                )
+            }
         } else if isContacts {
             svc = ContactsViewController()
             (vc as? ContactsCategoryViewController)?.filterDelegate = (svc as? ContactsViewController)
@@ -1110,12 +1122,23 @@ extension LeftMenuViewController: UITableViewDelegate {
         splitVC.hide(.primary)
     }
     
-    private func showOld(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) {
+    private func showOld(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isCalls: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) {
         let svc: UIViewController
         vc.resetState()
         if isNotifications {
             svc = NotificationsListViewController()
             (vc as? NotificationsCategoriesViewController)?.filterDelegate = (svc as? NotificationsListViewController)
+        } else if isCalls {
+            let listController = callsVc ?? LastCallsViewController()
+            callsVc = listController
+            svc = listController
+            if let categoriesController = vc as? CallsCategoriesViewController {
+                CallsSectionCoordinator.wire(
+                    categoriesController: categoriesController,
+                    listController: listController,
+                    leftMenuDelegate: leftMenuDelegate
+                )
+            }
         } else if isContacts {
             svc = ContactsViewController()
             (vc as? ContactsCategoryViewController)?.filterDelegate = (svc as? ContactsViewController)
@@ -1204,16 +1227,27 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                 if self.archivedVc?.filter.value == .unread {
                     self.archivedVc?.filter.accept(.archived)
                 }
-                if let vc = self.callsVc {
-                    vc.leftMenuDelegate = self
-                    self.show(controller: vc, kind: .emptyCall)
-//                    self.showEmptyDetail(for: .emptyCall)
+                if UIDevice.current.userInterfaceIdiom == .pad {
+                    let listController = self.callsVc ?? LastCallsViewController()
+                    let categoriesController = self.callsCategoriesVc ?? CallsCategoriesViewController()
+                    self.callsVc = listController
+                    self.callsCategoriesVc = categoriesController
+                    CallsSectionCoordinator.wire(
+                        categoriesController: categoriesController,
+                        listController: listController,
+                        leftMenuDelegate: self
+                    )
+                    self.show(controller: categoriesController, kind: .emptyCall, isCalls: true, leftMenuDelegate: self)
                 } else {
-                    let vc = LastCallsViewController()
-                    vc.leftMenuDelegate = self
-                    self.callsVc = vc
-                    self.show(controller: vc, kind: .emptyCall)
-//                    self.showEmptyDetail(for: .emptyCall)
+                    if let vc = self.callsVc {
+                        vc.leftMenuDelegate = self
+                        self.show(controller: vc, kind: .emptyCall)
+                    } else {
+                        let vc = LastCallsViewController()
+                        vc.leftMenuDelegate = self
+                        self.callsVc = vc
+                        self.show(controller: vc, kind: .emptyCall)
+                    }
                 }
             case "mentions":
                 if self.chatsVc?.filter.value == .unread {

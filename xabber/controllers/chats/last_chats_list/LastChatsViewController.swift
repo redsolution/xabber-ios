@@ -499,6 +499,29 @@ class LastChatsViewController: BaseViewController {
         let kind: DatasourceSectionKind
         let rows: [Datasource]
     }
+
+    struct SelectedChatIdentity: Equatable {
+        let jid: String
+        let owner: String
+        let conversationType: ClientSynchronizationManager.ConversationType
+
+        init(jid: String, owner: String, conversationType: ClientSynchronizationManager.ConversationType) {
+            self.jid = jid
+            self.owner = owner
+            self.conversationType = conversationType
+        }
+
+        init(item: Datasource) {
+            self.init(jid: item.jid, owner: item.owner, conversationType: item.conversationType)
+        }
+
+        func matches(_ item: Datasource) -> Bool {
+            item.specialMessageKind == .none
+                && item.jid == jid
+                && item.owner == owner
+                && item.conversationType == conversationType
+        }
+    }
     
     struct Datasource: DiffAware {
         var diffId: String {
@@ -727,6 +750,7 @@ class LastChatsViewController: BaseViewController {
     open var splitDelegate: SplitViewControllerDelegate? = nil
     
     open var currentChatVC: ChatViewController? = nil
+    internal var selectedChatIdentity: SelectedChatIdentity? = nil
     internal var voiceMessageStateObserverToken: UUID? = nil
     internal var pinnedVoicePlayerHeightConstraint: NSLayoutConstraint? = nil
     
@@ -750,6 +774,7 @@ class LastChatsViewController: BaseViewController {
     override func resetState() {
         super.resetState()
         self.currentChatVC = nil
+        self.selectedChatIdentity = nil
     }
     
     internal func configurePlayerView() {
@@ -1138,6 +1163,91 @@ class LastChatsViewController: BaseViewController {
         return IndexPath(row: row, section: section)
     }
 
+    internal static func indexPathForChat(
+        _ identity: SelectedChatIdentity,
+        in sections: [DatasourceSection]
+    ) -> IndexPath? {
+        indexPathForChat(
+            jid: identity.jid,
+            owner: identity.owner,
+            conversationType: identity.conversationType,
+            in: sections
+        )
+    }
+
+    internal final func isSelectedChat(_ item: Datasource) -> Bool {
+        selectedChatIdentity?.matches(item) ?? false
+    }
+
+    internal final func setSelectedChat(
+        jid: String,
+        owner: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        animated: Bool,
+        scrollPosition: UITableView.ScrollPosition = .none
+    ) {
+        let previousIdentity = selectedChatIdentity
+        let currentIdentity = SelectedChatIdentity(
+            jid: jid,
+            owner: owner,
+            conversationType: conversationType
+        )
+        selectedChatIdentity = currentIdentity
+        updateVisibleSelectionRows(
+            previousIdentity: previousIdentity,
+            currentIdentity: currentIdentity,
+            animated: animated,
+            scrollPosition: scrollPosition
+        )
+    }
+
+    internal final func syncSelectedChatSelection(
+        animated: Bool = false,
+        scrollPosition: UITableView.ScrollPosition = .none
+    ) {
+        let selectedIndexPath = selectedChatIdentity.flatMap {
+            Self.indexPathForChat($0, in: datasourceSections)
+        }
+
+        tableView.indexPathsForSelectedRows?
+            .filter { indexPath in
+                selectedIndexPath.map { indexPath != $0 } ?? true
+            }
+            .forEach { tableView.deselectRow(at: $0, animated: false) }
+
+        guard let selectedIndexPath else {
+            return
+        }
+
+        tableView.selectRow(at: selectedIndexPath, animated: animated, scrollPosition: scrollPosition)
+        reconfigureVisibleRow(at: selectedIndexPath)
+    }
+
+    private final func updateVisibleSelectionRows(
+        previousIdentity: SelectedChatIdentity?,
+        currentIdentity: SelectedChatIdentity?,
+        animated: Bool,
+        scrollPosition: UITableView.ScrollPosition
+    ) {
+        let previousIndexPath = previousIdentity.flatMap {
+            Self.indexPathForChat($0, in: datasourceSections)
+        }
+        let currentIndexPath = currentIdentity.flatMap {
+            Self.indexPathForChat($0, in: datasourceSections)
+        }
+
+        if let previousIndexPath,
+           currentIndexPath.map({ previousIndexPath != $0 }) ?? true {
+            tableView.deselectRow(at: previousIndexPath, animated: false)
+        }
+        if let currentIndexPath {
+            tableView.selectRow(at: currentIndexPath, animated: animated, scrollPosition: scrollPosition)
+        }
+
+        Set([previousIndexPath, currentIndexPath].compactMap { $0 })
+            .forEach { reconfigureVisibleRow(at: $0) }
+    }
+
     internal func item(at indexPath: IndexPath) -> Datasource? {
         Self.item(at: indexPath, in: datasourceSections)
     }
@@ -1225,6 +1335,7 @@ class LastChatsViewController: BaseViewController {
             return
         }
         tableView.reloadData()
+        syncSelectedChatSelection()
     }
 
     internal final func finishActiveSwipeActionEditing() {
@@ -1250,6 +1361,7 @@ class LastChatsViewController: BaseViewController {
             }
             if shouldReloadTable {
                 self.tableView.reloadData()
+                self.syncSelectedChatSelection()
                 return
             }
             if let reloadKey,
@@ -1929,6 +2041,7 @@ class LastChatsViewController: BaseViewController {
     private final func finishDatasetUpdateCycle() {
         self.isDatasetUpdateInFlight = false
         self.canUpdateDataset = true
+        self.syncSelectedChatSelection()
         guard self.needsDatasetRefresh else { return }
         self.preprocessDataset()
     }
@@ -2677,9 +2790,7 @@ class LastChatsViewController: BaseViewController {
         super.viewDidAppear(animated)
         updateTitle(filter.value)
         self.navigationItem.backButtonTitle = "Chats"
-        if let selected = tableView.indexPathForSelectedRow {
-            tableView.deselectRow(at: selected, animated: true)
-        }
+        syncSelectedChatSelection()
         NotifyManager.shared.setLastChats(displayed: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             let center = UNUserNotificationCenter.current()
