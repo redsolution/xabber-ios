@@ -68,7 +68,9 @@ final class CallsListCoordinatorTests: XCTestCase {
         )
 
         XCTAssertEqual(state.counters, CallsListCoordinator.Counters(total: 4, missed: 1, incoming: 1, outgoing: 1, declined: 1))
+        XCTAssertEqual(state.categoriesDatasource.first?.first?.isSelectable, false)
         let categoryRows = state.categoriesDatasource.flatMap { $0 }.filter { !$0.isHeader }
+        XCTAssertTrue(categoryRows.allSatisfy(\.isSelectable))
         XCTAssertEqual(categoryRows.map(\.key), [
             CallsListFilter.missed.rawValue,
             CallsListFilter.incoming.rawValue,
@@ -232,6 +234,52 @@ final class CallsVisualStyleTests: XCTestCase {
         )
     }
 
+    private func assertNoSelectionOutline(
+        in cell: UITableViewCell,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertNil(cell.backgroundConfiguration?.visualEffect, file: file, line: line)
+        XCTAssertTrue(
+            cell.backgroundConfiguration?.strokeColor == nil
+                || cell.backgroundConfiguration?.strokeColor == .clear,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(cell.backgroundConfiguration?.strokeWidth ?? 0, 0, file: file, line: line)
+        XCTAssertEqual(cell.backgroundConfiguration?.strokeOutset ?? 0, 0, file: file, line: line)
+        XCTAssertNil(cell.backgroundView, file: file, line: line)
+        XCTAssertNil(cell.selectedBackgroundView, file: file, line: line)
+        XCTAssertNil(cell.multipleSelectionBackgroundView, file: file, line: line)
+        XCTAssertEqual(cell.focusStyle, .custom, file: file, line: line)
+        XCTAssertEqual(cell.layer.borderWidth, 0, file: file, line: line)
+        XCTAssertEqual(cell.layer.shadowOpacity, 0, file: file, line: line)
+        XCTAssertEqual(cell.contentView.layer.borderWidth, 0, file: file, line: line)
+        XCTAssertEqual(cell.contentView.layer.shadowOpacity, 0, file: file, line: line)
+    }
+
+    private func assertInformationalHeaderDoesNotAcceptSelectionFeedback(
+        _ cell: UITableViewCell,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(cell.selectionStyle, .none, file: file, line: line)
+        XCTAssertNil(cell.backgroundView, file: file, line: line)
+        XCTAssertNil(cell.selectedBackgroundView, file: file, line: line)
+        XCTAssertNil(cell.multipleSelectionBackgroundView, file: file, line: line)
+        XCTAssertEqual(cell.focusStyle, .custom, file: file, line: line)
+        XCTAssertEqual(cell.layer.borderWidth, 0, file: file, line: line)
+        XCTAssertEqual(cell.layer.shadowOpacity, 0, file: file, line: line)
+        XCTAssertEqual(cell.contentView.layer.borderWidth, 0, file: file, line: line)
+        XCTAssertEqual(cell.contentView.layer.shadowOpacity, 0, file: file, line: line)
+        XCTAssertNil(cell.configurationUpdateHandler, file: file, line: line)
+
+        cell.setHighlighted(true, animated: false)
+        XCTAssertFalse(cell.isHighlighted, file: file, line: line)
+        cell.setSelected(true, animated: false)
+        XCTAssertFalse(cell.isSelected, file: file, line: line)
+    }
+
     func testCallsListTableUsesInsetGroupedTransparentSplitAppearance() {
         let controller = LastCallsViewController()
         controller.loadViewIfNeeded()
@@ -271,6 +319,19 @@ final class CallsVisualStyleTests: XCTestCase {
         XCTAssertNil(cell.configurationUpdateHandler)
         XCTAssertNil(cell.selectedBackgroundView)
         XCTAssertEqual(cell.selectionStyle, .none)
+        assertNoSelectionOutline(in: cell)
+    }
+
+    func testCallsRowsDoNotUseUIKitFocusOutline() {
+        let listController = LastCallsViewController()
+        listController.loadViewIfNeeded()
+
+        XCTAssertFalse(listController.tableView(listController.tableView, canFocusRowAt: IndexPath(row: 0, section: 0)))
+
+        let categoriesController = CallsCategoriesViewController()
+        categoriesController.loadViewIfNeeded()
+
+        XCTAssertFalse(categoriesController.tableView(categoriesController.tableView, canFocusRowAt: IndexPath(row: 0, section: 1)))
     }
 
     func testCallsCategoryRowsUsePlainSystemBackgroundWithoutGlass() {
@@ -293,6 +354,7 @@ final class CallsVisualStyleTests: XCTestCase {
         XCTAssertEqual(unselectedCategory.selectionStyle, .none)
         XCTAssertEqual(unselectedCategory.layer.borderWidth, 0)
         XCTAssertEqual(unselectedCategory.layer.shadowOpacity, 0)
+        assertNoSelectionOutline(in: unselectedCategory)
 
         let selectedController = CallsCategoriesViewController()
         selectedController.loadViewIfNeeded()
@@ -306,6 +368,7 @@ final class CallsVisualStyleTests: XCTestCase {
             selectedCategory.backgroundColor?.isEqual(AccountColorManager.shared.palette(for: owner).tint50) == true
         )
         XCTAssertNil(selectedCategory.backgroundConfiguration?.visualEffect)
+        assertNoSelectionOutline(in: selectedCategory)
 
         let deselectedController = CallsCategoriesViewController()
         deselectedController.loadViewIfNeeded()
@@ -316,6 +379,66 @@ final class CallsVisualStyleTests: XCTestCase {
         )
 
         XCTAssertEqual(deselectedCategory.backgroundColor, .systemBackground)
+        assertNoSelectionOutline(in: deselectedCategory)
+    }
+
+    func testCallsCategoryIntroHeaderIsInformationalOnly() {
+        final class FilterSpy: CallsControllerFilterProtocol {
+            var categories: [String?] = []
+
+            func shouldFilterBy(category: String?) {
+                categories.append(category)
+            }
+        }
+
+        let controller = CallsCategoriesViewController()
+        controller.loadViewIfNeeded()
+        let spy = FilterSpy()
+        controller.filterDelegate = spy
+        let headerIndexPath = IndexPath(row: 0, section: 0)
+        let categoryIndexPath = IndexPath(row: 0, section: 1)
+        let selectedRowsBeforeHeaderTap = controller.tableView.indexPathsForSelectedRows ?? []
+
+        XCTAssertEqual(controller.datasource[headerIndexPath.section][headerIndexPath.row].isSelectable, false)
+        XCTAssertTrue(controller.datasource[categoryIndexPath.section][categoryIndexPath.row].isSelectable)
+        XCTAssertFalse(controller.tableView(controller.tableView, shouldHighlightRowAt: headerIndexPath))
+        XCTAssertNil(controller.tableView(controller.tableView, willSelectRowAt: headerIndexPath))
+        XCTAssertFalse(controller.tableView(controller.tableView, canFocusRowAt: headerIndexPath))
+        XCTAssertEqual(
+            controller.tableView(controller.tableView, heightForRowAt: headerIndexPath),
+            UITableView.automaticDimension
+        )
+
+        let headerCell = controller.tableView(controller.tableView, cellForRowAt: headerIndexPath)
+        assertInformationalHeaderDoesNotAcceptSelectionFeedback(headerCell)
+
+        controller.tableView(controller.tableView, didSelectRowAt: headerIndexPath)
+        XCTAssertTrue(spy.categories.isEmpty)
+        XCTAssertEqual(controller.tableView.indexPathsForSelectedRows ?? [], selectedRowsBeforeHeaderTap)
+
+        XCTAssertTrue(controller.tableView(controller.tableView, shouldHighlightRowAt: categoryIndexPath))
+        XCTAssertEqual(controller.tableView(controller.tableView, willSelectRowAt: categoryIndexPath), categoryIndexPath)
+        controller.tableView(controller.tableView, didSelectRowAt: categoryIndexPath)
+        XCTAssertEqual(spy.categories, [CallsListFilter.missed.rawValue])
+    }
+
+    func testCallsCompactSplitNavbarButtonsAreVisibleAfterLoad() throws {
+        let controller = LastCallsViewController()
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.navigationItem.leftBarButtonItem?.accessibilityIdentifier, "calls_back_to_chats_button")
+        let rightItems = try XCTUnwrap(controller.navigationItem.rightBarButtonItems)
+        XCTAssertEqual(rightItems.compactMap(\.accessibilityIdentifier), ["calls_filter_menu_button"])
+    }
+
+    func testCallsCategoriesRegularNavbarShowsSidebarButtonImmediately() {
+        let controller = CallsCategoriesViewController()
+
+        controller.loadViewIfNeeded()
+        controller.configureLeadingNavigationItem(forRegularWidth: true, animated: false)
+
+        XCTAssertEqual(controller.navigationItem.leftBarButtonItem?.accessibilityIdentifier, "calls_sidebar_menu_button")
     }
 
     func testAccountSelectionHighlightFallsBackToFirstEnabledAccountByOrder() {

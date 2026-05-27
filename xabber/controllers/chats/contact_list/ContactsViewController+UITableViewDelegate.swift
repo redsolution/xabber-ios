@@ -23,6 +23,10 @@ import RealmSwift
 import CocoaLumberjack
 
 extension ContactsViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, canFocusRowAt indexPath: IndexPath) -> Bool {
+        false
+    }
+
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         let item = datasource[indexPath.section][indexPath.row]
         if item.isHeader {

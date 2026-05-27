@@ -284,7 +284,7 @@ enum ContactsListSupport {
 
         return [
             [
-                ContactsCategoryViewController.Datasource(title: "Contacts", icon: "person.fill", key: "all", subtitle: "Text about contacts, circles and other", color: .tintColor, isImportant: false, value: 0, isHeader: true),
+                ContactsCategoryViewController.Datasource(title: "Contacts", icon: "person.fill", key: "all", subtitle: "Text about contacts, circles and other", color: .tintColor, isImportant: false, value: 0, isHeader: true, isSelectable: false),
             ],
             [
                 ContactsCategoryViewController.Datasource(title: "Contacts", icon: "person.crop.rectangle.stack", key: "all", subtitle: "\(contactsCount)", color: .tintColor, isImportant: false, value: contactsCount, isHeader: false),
@@ -327,7 +327,7 @@ enum ContactsListSupport {
 
         return [
             [
-                ContactsCategoryViewController.Datasource(title: "Groups", icon: "person.2.fill", key: "all", subtitle: "Text about groups, incognito groups and private chats", color: .tintColor, isImportant: false, value: 0, isHeader: true),
+                ContactsCategoryViewController.Datasource(title: "Groups", icon: "person.2.fill", key: "all", subtitle: "Text about groups, incognito groups and private chats", color: .tintColor, isImportant: false, value: 0, isHeader: true, isSelectable: false),
             ],
             [
                 ContactsCategoryViewController.Datasource(title: "Public Groups", icon: "person.2", key: "public", subtitle: "\(publicCount)", color: .tintColor, isImportant: false, value: publicCount, isHeader: false),
@@ -547,6 +547,7 @@ class ContactsViewController: BaseViewController {
         view.register(MenuItemHeaderTableCell.self, forCellReuseIdentifier: MenuItemHeaderTableCell.cellName)
         
         view.separatorStyle = .singleLine
+        view.applyContinuousSplitInsetGroupedAppearance()
         
         return view
     }()
@@ -609,12 +610,11 @@ class ContactsViewController: BaseViewController {
         let controller = UISearchController(searchResultsController: searchResults)
         
         controller.searchResultsUpdater = searchResults
-        controller.searchBar.searchBarStyle = .minimal
+        controller.searchBar.searchBarStyle = .default
         controller.searchBar.placeholder = "Search contacts and messages".localizeString(id: "search_contacts_and_messages", arguments: [])
-        controller.searchBar.isTranslucent = true
-        controller.hidesNavigationBarDuringPresentation = true
-        controller.hidesBottomBarWhenPushed = true
-        controller.definesPresentationContext = true
+        controller.hidesNavigationBarDuringPresentation = false
+        controller.hidesBottomBarWhenPushed = false
+        controller.definesPresentationContext = false
         
         return controller
     }()
@@ -1603,11 +1603,62 @@ class ContactsViewController: BaseViewController {
     var filter: BehaviorRelay<Filter> = BehaviorRelay(value: .all)
     var filterAccount: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var filterMenu: UIMenu = UIMenu()
+
+    internal static func makeContactsNavigationAppearance() -> UINavigationBarAppearance {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
+        appearance.shadowColor = .clear
+        appearance.shadowImage = UIImage()
+        return appearance
+    }
+
+    internal final func applyContactsNavigationAppearance() {
+        let appearance = Self.makeContactsNavigationAppearance()
+        navigationItem.standardAppearance = appearance
+        navigationItem.scrollEdgeAppearance = appearance
+        navigationItem.compactAppearance = appearance
+        if #available(iOS 15.0, *) {
+            navigationItem.compactScrollEdgeAppearance = appearance
+        }
+    }
+
+    private var contactsNavigationPrefix: String {
+        isGroup ? "groups" : "contacts"
+    }
+
+    private func makeContactsBackButton() -> UIBarButtonItem {
+        let button = UIBarButtonItem(
+            image: imageLiteral("chevron.left"),
+            style: .plain,
+            target: self,
+            action: #selector(onBackButtonTouchUpInside)
+        )
+        button.accessibilityIdentifier = "\(contactsNavigationPrefix)_back_to_chats_button"
+        return button
+    }
+
+    private func makeContactsFilterButton() -> UIBarButtonItem {
+        let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .plain, target: self, action: nil)
+        button.accessibilityIdentifier = "\(contactsNavigationPrefix)_filter_menu_button"
+        return button
+    }
+
+    private func makeContactsAddButton() -> UIBarButtonItem {
+        let button = UIBarButtonItem(
+            image: UIImage(systemName: "plus"),
+            style: .plain,
+            target: self,
+            action: #selector(onAddButtonTouchUpInside)
+        )
+        button.accessibilityIdentifier = "\(contactsNavigationPrefix)_add_button"
+        return button
+    }
         
-    func configureBars() {
+    func configureBars(animated: Bool = false) {
         self.title = nil
         self.navigationItem.largeTitleDisplayMode = .never
         self.navigationController?.navigationBar.prefersLargeTitles = false//CommonConfigManager.shared.config.use_large_title
+        applyContactsNavigationAppearance()
         switch CommonConfigManager.shared.interfaceType {
             case .tabs:
                 break
@@ -1615,20 +1666,19 @@ class ContactsViewController: BaseViewController {
 //                break
 //                self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
                 
-                let sidebarButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
-                
                 if UIDevice.current.userInterfaceIdiom != .pad {
 //                    self.navigationItem.setHidesBackButton(true, animated: false)
-                    self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
+                    self.navigationItem.setLeftBarButton(makeContactsBackButton(), animated: animated)
                 }
         }
         if #available(iOS 16.0, *) {
             self.navigationItem.preferredSearchBarPlacement = .stacked
         }
+        self.navigationItem.hidesSearchBarWhenScrolling = false
         securityButton.target = self
         securityButton.action = #selector(onRegisterYubikey)
         
-        let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .plain, target: self, action: nil)
+        let button = makeContactsFilterButton()
         var childs: [UIMenuElement] = []
         if isGroup {
             childs = [
@@ -1833,24 +1883,19 @@ class ContactsViewController: BaseViewController {
         filterMenu = UIMenu(options: [.singleSelection], children: childs)
         button.menu = filterMenu
         
-         let addBarButton = UIBarButtonItem(
-            image: UIImage(systemName: "plus"),
-            style: .plain,
-            target: self,
-            action: #selector(onAddButtonTouchUpInside)
-        )
+        let addBarButton = makeContactsAddButton()
         let offlineButton = UIBarButtonItem(image: imageLiteral("person"), style: .plain, target: self, action: #selector(showOfflineSelector))
         if isGroup {
             if childs.count > 0 {
-                self.navigationItem.setRightBarButtonItems([button, addBarButton], animated: true)
+                self.navigationItem.setRightBarButtonItems([button, addBarButton], animated: animated)
             } else {
-                self.navigationItem.setRightBarButton(addBarButton, animated: true)
+                self.navigationItem.setRightBarButton(addBarButton, animated: animated)
             }
         } else {
             if childs.count > 0 {
-                self.navigationItem.setRightBarButtonItems([button, addBarButton], animated: true)
+                self.navigationItem.setRightBarButtonItems([button, addBarButton], animated: animated)
             } else {
-                self.navigationItem.setRightBarButtonItems([addBarButton], animated: true)
+                self.navigationItem.setRightBarButtonItems([addBarButton], animated: animated)
             }
         }
     }
@@ -1936,15 +1981,18 @@ class ContactsViewController: BaseViewController {
     }
     
     internal func configure() {
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
         view.addSubview(tableView)
         tableView.fillSuperview()
+        tableView.applyContinuousSplitInsetGroupedAppearance()
         tableView.dataSource = self
         tableView.delegate = self
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 92
-        self.tableView.tableFooterView = UIView()
         
         emptyView.isHidden = true
+        emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
+        emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
         view.addSubview(emptyView)
         emptyView.fillSuperview()
         view.bringSubviewToFront(emptyView)
@@ -1953,13 +2001,13 @@ class ContactsViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         configure()
-//        configureSearchBar()
+        configureSearchBar()
         self.navigationItem.title = nil
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
-        configureBars()
+        configureBars(animated: false)
         if self.category == nil {
             if isGroup {
                 self.category = "public"
@@ -1979,7 +2027,7 @@ class ContactsViewController: BaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        configureBars()
+        configureBars(animated: false)
         subscribe()
         NotifyManager.shared.setLastChats(displayed: false)
         updateTitle()
@@ -2053,7 +2101,7 @@ extension ContactsViewController: ContactsControllerFilterProtocol {
         }
         self.categoryDelegate?.filterDidSelect(account: self.filteredAccounts.first)
         self.runDatasetUpdateTask(force: true)
-        self.configureBars()
+        self.configureBars(animated: false)
     }
     
     func shouldFilterBy(category: String?) {
@@ -2075,7 +2123,7 @@ extension ContactsViewController: ContactsControllerFilterProtocol {
         } else {
             self.filter.accept(.all)
         }
-        self.configureBars()
+        self.configureBars(animated: false)
         self.updateTitle()
     }
 }

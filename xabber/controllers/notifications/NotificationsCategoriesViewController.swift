@@ -15,33 +15,25 @@ import RxSwift
 import CocoaLumberjack
 
 class NotificationsCategoriesViewController: BaseViewController {
-        
-    struct Datasource {
-        let title: String
-        let icon: String
-        let key: String
-        var subtitle: String
-        var color: UIColor
-        var isHeader: Bool
-    }
-    
-    var datasource: [[Datasource]] = []
+    var datasource: [[NotificationsListCoordinator.CategoryItem]] = []
     var bag: DisposeBag = DisposeBag()
-    
+    private var selectedFilter: NotificationsListViewController.Filter = .all
+    private let allowsCategoryRowFocus = false
+
     var filterDelegate: NotificationsControllerFilterProtocol? = nil
-    
-    
-    private let tableView: UITableView = {
+    var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
+
+    internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
         view.register(MenuItemTableCell.self, forCellReuseIdentifier: MenuItemTableCell.cellName)
         view.register(MenuItemHeaderTableCell.self, forCellReuseIdentifier: MenuItemHeaderTableCell.cellName)
         view.separatorStyle = .none
-        view.backgroundColor = .systemBackground
         view.allowsMultipleSelection = false
         view.rowHeight = UITableView.automaticDimension
-        view.estimatedRowHeight = 52
+        view.estimatedRowHeight = 44
+        view.applyContinuousSplitInsetGroupedAppearance()
         
         return view
     }()
@@ -60,11 +52,6 @@ class NotificationsCategoriesViewController: BaseViewController {
                     listMapper: { _, _ in [] }
                 )
                 .categoriesDatasource
-                .map { section in
-                    section.map {
-                        Datasource(title: $0.title, icon: $0.icon, key: $0.key, subtitle: $0.subtitle, color: $0.color, isHeader: $0.isHeader)
-                    }
-                }
         } catch {
             datasource = []
             DDLogDebug("NotificationsCategoriesViewController: \(#function). \(error.localizedDescription)")
@@ -79,12 +66,14 @@ class NotificationsCategoriesViewController: BaseViewController {
     
     func subscribe() {
         self.bag = DisposeBag()
+        loadDatasource()
         do {
             let realm = try WRealm.safe()
             let accounts = realm.objects(AccountStorageItem.self).filter("enabled == true")
             Observable.collection(from: accounts).subscribe { results in
                 self.loadDatasource()
                 self.tableView.reloadData()
+                self.selectFilter(self.selectedFilter, animated: false, notify: false)
             } onError: { _ in
                 
             } onCompleted: {
@@ -106,7 +95,9 @@ class NotificationsCategoriesViewController: BaseViewController {
     
     
     public func configure() {
-        self.title = nil//"Notifications"
+        self.title = nil
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
+        applyNavigationAppearance()
         if CommonConfigManager.shared.config.use_large_title {
             navigationItem.largeTitleDisplayMode = .automatic
         } else {
@@ -116,6 +107,7 @@ class NotificationsCategoriesViewController: BaseViewController {
         
         view.addSubview(tableView)
         tableView.fillSuperview()
+        tableView.applyContinuousSplitInsetGroupedAppearance()
         tableView.delegate = self
         tableView.dataSource = self
 //        bottomBar.configure()
@@ -135,18 +127,57 @@ class NotificationsCategoriesViewController: BaseViewController {
         observer()
         configure()
         subscribe()
-        let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
-        self.navigationItem.setLeftBarButton(backButton, animated: true)
-        self.tableView.selectRow(at: IndexPath(row: 0, section: 1), animated: true, scrollPosition: .none)
-        self.filterDelegate?.shouldFilterBy(category: "all")
+        configureLeadingNavigationItem()
+        selectFilter(.all, animated: false, notify: true)
 //        self.splitViewController?.displayModeButtonVisibility = .never
     }
-    
-    var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
+
+    private func applyNavigationAppearance() {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
+        appearance.shadowColor = .clear
+        appearance.shadowImage = UIImage()
+        navigationItem.standardAppearance = appearance
+        navigationItem.scrollEdgeAppearance = appearance
+        navigationItem.compactAppearance = appearance
+        if #available(iOS 15.0, *) {
+            navigationItem.compactScrollEdgeAppearance = appearance
+        }
+    }
+
+    internal func configureLeadingNavigationItem(
+        forRegularWidth: Bool = UIDevice.current.userInterfaceIdiom == .pad,
+        animated: Bool = false
+    ) {
+        if forRegularWidth {
+            let sidebarButton = UIBarButtonItem(
+                image: imageLiteral("sidebar.left"),
+                style: .plain,
+                target: self,
+                action: #selector(onSidebarButtonTouchUpInside)
+            )
+            sidebarButton.accessibilityIdentifier = "notifications_sidebar_menu_button"
+            navigationItem.setLeftBarButton(sidebarButton, animated: animated)
+        } else {
+            let backButton = UIBarButtonItem(
+                image: imageLiteral("chevron.left"),
+                style: .plain,
+                target: self,
+                action: #selector(onBackButtonTouchUpInside)
+            )
+            backButton.accessibilityIdentifier = "notifications_back_to_chats_button"
+            navigationItem.setLeftBarButton(backButton, animated: animated)
+        }
+    }
     
     @objc
     private final func onBackButtonTouchUpInside(_ sender: UIBarButtonItem) {
         self.leftMenuDelegate?.selectRootScreenAndCategory(screen: "chat", category: nil)
+    }
+
+    @objc
+    private final func onSidebarButtonTouchUpInside(_ sender: UIBarButtonItem) {
+        splitViewController?.show(.primary)
     }
     
     override func observer() {
@@ -164,7 +195,9 @@ class NotificationsCategoriesViewController: BaseViewController {
 
     @objc
     override func languageChanged() {
-//        print("Notification received")
+        loadDatasource()
+        tableView.reloadData()
+        selectFilter(selectedFilter, animated: false, notify: false)
     }
 
     private func removeNotificationObserer() {
@@ -185,6 +218,82 @@ class NotificationsCategoriesViewController: BaseViewController {
     }
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+    }
+
+    func selectFilter(_ filter: NotificationsListViewController.Filter, animated: Bool, notify: Bool) {
+        let previousFilter = selectedFilter
+        selectedFilter = filter
+        syncTableSelection(for: filter, animated: animated)
+        reconfigureVisibleCategoryRows(for: [previousFilter, filter])
+        if notify && (previousFilter != filter || filter == .all) {
+            filterDelegate?.shouldFilterBy(category: filter.rawValue)
+        }
+    }
+
+    private func syncTableSelection(for filter: NotificationsListViewController.Filter, animated: Bool) {
+        let selectedIndexPath = indexPath(for: filter)
+        tableView.indexPathsForSelectedRows?
+            .filter { indexPath in
+                selectedIndexPath.map { indexPath != $0 } ?? true
+            }
+            .forEach { tableView.deselectRow(at: $0, animated: false) }
+
+        guard let selectedIndexPath else {
+            return
+        }
+
+        tableView.selectRow(at: selectedIndexPath, animated: animated, scrollPosition: .none)
+    }
+
+    private func indexPath(for filter: NotificationsListViewController.Filter) -> IndexPath? {
+        for (sectionIndex, section) in datasource.enumerated() {
+            if let row = section.firstIndex(where: { !$0.isHeader && $0.key == filter.rawValue }) {
+                return IndexPath(row: row, section: sectionIndex)
+            }
+        }
+        return nil
+    }
+
+    private func item(at indexPath: IndexPath) -> NotificationsListCoordinator.CategoryItem? {
+        guard datasource.indices.contains(indexPath.section),
+              datasource[indexPath.section].indices.contains(indexPath.row) else {
+            return nil
+        }
+
+        return datasource[indexPath.section][indexPath.row]
+    }
+
+    private func isSelectableItem(at indexPath: IndexPath) -> Bool {
+        item(at: indexPath)?.isSelectable == true
+    }
+
+    private func configureCategoryCell(
+        _ cell: MenuItemTableCell,
+        with item: NotificationsListCoordinator.CategoryItem
+    ) {
+        cell.configure(title: item.title, badge: item.subtitle, icon: item.icon, isImportant: true)
+        cell.imageView?.tintColor = item.color
+        cell.applyPlainGroupedSystemBackground(
+            selectedColor: AccountSelectionHighlightStyle.tint50(owner: nil),
+            isSelected: item.key == selectedFilter.rawValue
+        )
+        cell.layer.cornerRadius = 0
+        cell.layer.masksToBounds = false
+        cell.layer.borderWidth = 0
+        cell.layer.shadowOpacity = 0
+    }
+
+    private func reconfigureVisibleCategoryRows(for filters: Set<NotificationsListViewController.Filter>) {
+        filters
+            .compactMap { indexPath(for: $0) }
+            .forEach { indexPath in
+                guard let cell = tableView.cellForRow(at: indexPath) as? MenuItemTableCell else {
+                    return
+                }
+                configureCategoryCell(cell, with: datasource[indexPath.section][indexPath.row])
+                cell.setNeedsLayout()
+                cell.layoutIfNeeded()
+            }
     }
 }
 
@@ -233,7 +342,8 @@ extension NotificationsCategoriesViewController: UITableViewDataSource {
             
             cell.configure(title: item.title, subtitle: item.subtitle, icon: item.icon, color: item.color, withCircle: true)
 
-            cell.selectionStyle = .none
+            cell.configureAsInformationalHeader()
+            cell.applyContinuousSplitStaticGlassBackground()
 
             return cell
         } else {
@@ -241,43 +351,36 @@ extension NotificationsCategoriesViewController: UITableViewDataSource {
                 fatalError()
             }
             
-            cell.configure(title: item.title, badge: item.subtitle, icon: item.icon, isImportant: true)
-            let selectionBackground = UIView()
-            selectionBackground.backgroundColor = AccountColorManager.shared.topPalette().tint50 | AccountColorManager.shared.topPalette().tint900
-            selectionBackground.layer.cornerRadius = 16
-            selectionBackground.clipsToBounds = true
-            cell.selectedBackgroundView = selectionBackground
+            configureCategoryCell(cell, with: item)
             
             return cell
         }
         
     }
-    
-    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        return UIView()
-    }
-    
-    func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
-        return nil
-    }
 }
 
 extension NotificationsCategoriesViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, canFocusRowAt indexPath: IndexPath) -> Bool {
+        allowsCategoryRowFocus && isSelectableItem(at: indexPath)
+    }
+
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        let item = self.datasource[indexPath.section][indexPath.row]
+        guard let item = item(at: indexPath) else {
+            return 44
+        }
         if item.isHeader {
             return UITableView.automaticDimension
         } else {
             return 44
         }
     }
-    
-    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
-        return .leastNormalMagnitude
+
+    func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
+        isSelectableItem(at: indexPath)
     }
-    
-    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        return 12
+
+    func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
+        isSelectableItem(at: indexPath) ? indexPath : nil
     }
     
     private func show(controller vc: UIViewController) {
@@ -296,21 +399,10 @@ extension NotificationsCategoriesViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-//        if tableView.indexPathsForSelectedRows?.filter({ $0.section == indexPath.section}).isNotEmpty ?? false {
-//            guard let selectedInSection = tableView.indexPathsForSelectedRows?.filter({ $0.row != indexPath.row && $0.section == indexPath.section }) else {
-//                return
-//            }
-//            selectedInSection.forEach { tableView.deselectRow(at: $0, animated: false) }
-//        }
-        let paths = tableView.indexPathsForSelectedRows?.filter({ $0 != indexPath })
-        paths?.forEach { tableView.deselectRow(at: $0, animated: false) }
-        
-        
-        switch indexPath.section {
-        case 1, 2:
-            self.filterDelegate?.shouldFilterBy(category: self.datasource[indexPath.section][indexPath.row].key)
-        default:
-            break
+        guard let item = item(at: indexPath), item.isSelectable else {
+            tableView.deselectRow(at: indexPath, animated: false)
+            return
         }
+        selectFilter(NotificationsListViewController.Filter(rawValue: item.key) ?? .all, animated: false, notify: true)
     }
 }

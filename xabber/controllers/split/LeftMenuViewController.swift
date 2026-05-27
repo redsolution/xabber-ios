@@ -783,6 +783,7 @@ extension LeftMenuViewController: UITableViewDataSource {
 
 class MenuItemHeaderTableCell: UITableViewCell {
     static let cellName: String = "MenuItemHeaderTableCell"
+    private var suppressSelectionFeedback = false
     
     let stack: UIStackView = {
         let stack = UIStackView()
@@ -853,6 +854,25 @@ class MenuItemHeaderTableCell: UITableViewCell {
         self.stack.setCustomSpacing(4, after: self.titleLabel)
         self.iconView.configuration = configuration
     }
+
+    func configureAsInformationalHeader() {
+        suppressSelectionFeedback = true
+        selectionStyle = .none
+        focusStyle = .custom
+        backgroundView = nil
+        selectedBackgroundView = nil
+        multipleSelectionBackgroundView = nil
+        layer.borderWidth = 0
+        layer.borderColor = UIColor.clear.cgColor
+        layer.shadowOpacity = 0
+        layer.shadowColor = nil
+        contentView.layer.borderWidth = 0
+        contentView.layer.borderColor = UIColor.clear.cgColor
+        contentView.layer.shadowOpacity = 0
+        contentView.layer.shadowColor = nil
+        super.setHighlighted(false, animated: false)
+        super.setSelected(false, animated: false)
+    }
     
     func setupSubviews() {
         self.backgroundColor = .systemBackground
@@ -881,6 +901,29 @@ class MenuItemHeaderTableCell: UITableViewCell {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         self.setupSubviews()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        suppressSelectionFeedback = false
+    }
+
+    override func setSelected(_ selected: Bool, animated: Bool) {
+        guard suppressSelectionFeedback else {
+            super.setSelected(selected, animated: animated)
+            return
+        }
+
+        super.setSelected(false, animated: animated)
+    }
+
+    override func setHighlighted(_ highlighted: Bool, animated: Bool) {
+        guard suppressSelectionFeedback else {
+            super.setHighlighted(highlighted, animated: animated)
+            return
+        }
+
+        super.setHighlighted(false, animated: animated)
     }
 }
 
@@ -1074,8 +1117,12 @@ extension LeftMenuViewController: UITableViewDelegate {
         let svc: UIViewController
         vc.resetState()
         if isNotifications {
-            svc = NotificationsListViewController()
-            (vc as? NotificationsCategoriesViewController)?.filterDelegate = (svc as? NotificationsListViewController)
+            let listController = notificationsVc ?? NotificationsListViewController()
+            notificationsVc = listController
+            svc = listController
+            (vc as? NotificationsCategoriesViewController)?.filterDelegate = listController
+            (vc as? NotificationsCategoriesViewController)?.leftMenuDelegate = leftMenuDelegate
+            listController.leftMenuDelegate = leftMenuDelegate
         } else if isCalls {
             let listController = callsVc ?? LastCallsViewController()
             callsVc = listController
@@ -1126,8 +1173,12 @@ extension LeftMenuViewController: UITableViewDelegate {
         let svc: UIViewController
         vc.resetState()
         if isNotifications {
-            svc = NotificationsListViewController()
-            (vc as? NotificationsCategoriesViewController)?.filterDelegate = (svc as? NotificationsListViewController)
+            let listController = notificationsVc ?? NotificationsListViewController()
+            notificationsVc = listController
+            svc = listController
+            (vc as? NotificationsCategoriesViewController)?.filterDelegate = listController
+            (vc as? NotificationsCategoriesViewController)?.leftMenuDelegate = leftMenuDelegate
+            listController.leftMenuDelegate = leftMenuDelegate
         } else if isCalls {
             let listController = callsVc ?? LastCallsViewController()
             callsVc = listController
@@ -1257,9 +1308,11 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                     self.archivedVc?.filter.accept(.archived)
                 }
                 if let vc = self.notificationsVc {
+                    vc.leftMenuDelegate = self
                     self.show(controller: vc, kind: .emptyChat)
                 } else {
                     let vc = NotificationsListViewController()
+                    vc.leftMenuDelegate = self
                     self.notificationsVc = vc
                     self.show(controller: vc, kind: .emptyChat)
                 }
@@ -1273,12 +1326,12 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                 if UIDevice.current.userInterfaceIdiom == .pad {
                     if let vc = self.notificationsCategoriesVc {
                         vc.leftMenuDelegate = self
-                        self.show(controller: vc, kind: .emptyChat, isNotifications: true)
+                        self.show(controller: vc, kind: .emptyChat, isNotifications: true, leftMenuDelegate: self)
                     } else {
                         let vc = NotificationsCategoriesViewController()
                         vc.leftMenuDelegate = self
                         self.notificationsCategoriesVc = vc
-                        self.show(controller: vc, kind: .emptyChat, isNotifications: true)
+                        self.show(controller: vc, kind: .emptyChat, isNotifications: true, leftMenuDelegate: self)
                     }
                 } else {
                     if let vc = self.notificationsVc {

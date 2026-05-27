@@ -89,6 +89,7 @@ struct CallsListCoordinator {
         let subtitle: String
         let color: UIColor
         let isHeader: Bool
+        let isSelectable: Bool
     }
 
     struct Counters: Equatable {
@@ -259,7 +260,8 @@ struct CallsListCoordinator {
                     key: CallsListFilter.all.rawValue,
                     subtitle: "Manage VoIP calls and settings".localizeString(id: "calls_categories_intro_subtitle", arguments: []),
                     color: .tintColor,
-                    isHeader: true
+                    isHeader: true,
+                    isSelectable: false
                 )
             ],
             CallsListFilter.visibleCategoryCases.map { filter in
@@ -269,7 +271,8 @@ struct CallsListCoordinator {
                     key: filter.rawValue,
                     subtitle: filter == .missed ? "\(filter.count(in: counters))" : "",
                     color: filter.categoryIconColor,
-                    isHeader: false
+                    isHeader: false,
+                    isSelectable: true
                 )
             }
         ]

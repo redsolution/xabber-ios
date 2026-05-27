@@ -390,6 +390,12 @@ extension UITableViewCell {
             background.backgroundColorTransformer = UIConfigurationColorTransformer { _ in
                 color
             }
+            background.strokeColor = .clear
+            background.strokeColorTransformer = UIConfigurationColorTransformer { _ in
+                .clear
+            }
+            background.strokeWidth = 0
+            background.strokeOutset = 0
             background.visualEffect = nil
             backgroundConfiguration = background
 
@@ -397,9 +403,18 @@ extension UITableViewCell {
             contentView.backgroundColor = .clear
             isOpaque = true
             selectionStyle = .none
+            focusStyle = .custom
             backgroundView = nil
             selectedBackgroundView = nil
             multipleSelectionBackgroundView = nil
+            layer.borderWidth = 0
+            layer.borderColor = UIColor.clear.cgColor
+            layer.shadowOpacity = 0
+            layer.shadowColor = nil
+            contentView.layer.borderWidth = 0
+            contentView.layer.borderColor = UIColor.clear.cgColor
+            contentView.layer.shadowOpacity = 0
+            contentView.layer.shadowColor = nil
         }
 
         let normalColor = UIColor.systemBackground
@@ -417,15 +432,30 @@ extension UITableViewCell {
             background.backgroundColorTransformer = UIConfigurationColorTransformer { _ in
                 color
             }
+            background.strokeColor = .clear
+            background.strokeColorTransformer = UIConfigurationColorTransformer { _ in
+                .clear
+            }
+            background.strokeWidth = 0
+            background.strokeOutset = 0
             background.visualEffect = nil
             cell.backgroundConfiguration = background
             cell.backgroundColor = color
             cell.contentView.backgroundColor = .clear
             cell.isOpaque = true
             cell.selectionStyle = .none
+            cell.focusStyle = .custom
             cell.backgroundView = nil
             cell.selectedBackgroundView = nil
             cell.multipleSelectionBackgroundView = nil
+            cell.layer.borderWidth = 0
+            cell.layer.borderColor = UIColor.clear.cgColor
+            cell.layer.shadowOpacity = 0
+            cell.layer.shadowColor = nil
+            cell.contentView.layer.borderWidth = 0
+            cell.contentView.layer.borderColor = UIColor.clear.cgColor
+            cell.contentView.layer.shadowOpacity = 0
+            cell.contentView.layer.shadowColor = nil
         }
         setNeedsUpdateConfiguration()
     }
@@ -471,6 +501,25 @@ extension UITableViewCell {
             cell.backgroundConfiguration = background
         }
         setNeedsUpdateConfiguration()
+    }
+
+    func applyContinuousSplitStaticGlassBackground() {
+        configurationUpdateHandler = nil
+
+        guard ContinuousSplitBackgroundExperiment.isActive else { return }
+
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+        isOpaque = false
+        backgroundView = nil
+        selectedBackgroundView = nil
+        multipleSelectionBackgroundView = nil
+        focusStyle = .custom
+
+        var background = UIBackgroundConfiguration.listGroupedCell()
+        background.visualEffect = ContinuousSplitCellBackgroundStyle.makeEffect(isHighlighted: false)
+        background.backgroundColor = ContinuousSplitCellBackgroundStyle.normalBackgroundColor
+        backgroundConfiguration = background
     }
 }
 

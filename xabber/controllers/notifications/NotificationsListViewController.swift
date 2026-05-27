@@ -24,6 +24,7 @@ struct NotificationsListCoordinator {
         let subtitle: String
         let color: UIColor
         let isHeader: Bool
+        let isSelectable: Bool
     }
 
     struct DerivedState {
@@ -52,12 +53,12 @@ struct NotificationsListCoordinator {
         let counters = NotificationsSupport.unreadCounters(in: realm, owners: owners)
         let visibleCounters = NotificationsSupport.visibleCounters(in: realm, owners: owners)
         let categoriesDatasource = [
-            [CategoryItem(title: "Notifications", icon: "bell.fill", key: "all", subtitle: "Manage security alerts, information updates, mentions, and other notifications.", color: .tintColor, isHeader: true)],
-            [CategoryItem(title: "Notifications", icon: "bell", key: "all", subtitle: "\(visibleCounters.total)", color: .tintColor, isHeader: false)],
+            [CategoryItem(title: "Notifications", icon: "bell.fill", key: "all", subtitle: "Manage security alerts, information updates, mentions, and other notifications.", color: .tintColor, isHeader: true, isSelectable: false)],
+            [CategoryItem(title: "Notifications", icon: "bell", key: "all", subtitle: "\(visibleCounters.total)", color: .tintColor, isHeader: false, isSelectable: true)],
             [
-                CategoryItem(title: "Security", icon: "checkerboard.shield", key: "security", subtitle: "\(visibleCounters.security)", color: .tintColor, isHeader: false),
-                CategoryItem(title: "Information", icon: "info.circle", key: "info", subtitle: "\(visibleCounters.info)", color: .tintColor, isHeader: false),
-                CategoryItem(title: "Mentions", icon: "at", key: "mentions", subtitle: "\(visibleCounters.mentions)", color: .tintColor, isHeader: false),
+                CategoryItem(title: "Security", icon: "checkerboard.shield", key: "security", subtitle: "\(visibleCounters.security)", color: .tintColor, isHeader: false, isSelectable: true),
+                CategoryItem(title: "Information", icon: "info.circle", key: "info", subtitle: "\(visibleCounters.info)", color: .tintColor, isHeader: false, isSelectable: true),
+                CategoryItem(title: "Mentions", icon: "at", key: "mentions", subtitle: "\(visibleCounters.mentions)", color: .tintColor, isHeader: false, isSelectable: true),
             ]
         ]
 
@@ -269,6 +270,7 @@ class NotificationsListViewController: SimpleBaseViewController {
         view.rowHeight = UITableView.automaticDimension
         view.estimatedRowHeight = 88
         view.cellLayoutMarginsFollowReadableWidth = true
+        view.applyContinuousSplitInsetGroupedAppearance()
         
         view.register(NotificationItemCell.self, forCellReuseIdentifier: NotificationItemCell.cellName)
         view.register(NotificationsSubscribtionsListViewController.ContactItemCell.self, forCellReuseIdentifier: NotificationsSubscribtionsListViewController.ContactItemCell.cellName)
@@ -327,8 +329,11 @@ class NotificationsListViewController: SimpleBaseViewController {
         super.setupSubviews()
         self.view.addSubview(self.tableView)
         self.tableView.fillSuperviewWithOffset(top: 0, bottom: 0, left: 0, right: 0)
+        self.tableView.applyContinuousSplitInsetGroupedAppearance()
         
         self.emptyView.isHidden = !self.emptyScreenShowObserver.value
+        self.emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
+        self.emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
         self.view.addSubview(self.emptyView)
         self.emptyView.fillSuperview()
         self.view.bringSubviewToFront(self.emptyView)
@@ -336,13 +341,31 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     override func configure() {
         super.configure()
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
+        applyNotificationsNavigationAppearance()
         if UIDevice.current.userInterfaceIdiom == .pad {
             self.title = nil
         } else {
         self.title = "Notifications"
         }
+        self.tableView.applyContinuousSplitInsetGroupedAppearance()
+        self.emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
+        self.emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
         self.tableView.dataSource = self
         self.tableView.delegate = self
+    }
+
+    private func applyNotificationsNavigationAppearance() {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
+        appearance.shadowColor = .clear
+        appearance.shadowImage = UIImage()
+        navigationItem.standardAppearance = appearance
+        navigationItem.scrollEdgeAppearance = appearance
+        navigationItem.compactAppearance = appearance
+        if #available(iOS 15.0, *) {
+            navigationItem.compactScrollEdgeAppearance = appearance
+        }
     }
     
     override func loadDatasource() {
@@ -434,9 +457,10 @@ class NotificationsListViewController: SimpleBaseViewController {
             .compactMap { $0.jid }
     }
     
-    func configureBars() {
+    func configureBars(animated: Bool = false) {
         lastConfiguredBarsState = (filter: filter.value, account: filterAccount.value)
         let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .plain, target: self, action: nil)
+        button.accessibilityIdentifier = "notifications_filter_menu_button"
         var childs: [UIMenuElement] = [
             UIAction(
                 title: "All",
@@ -526,10 +550,11 @@ class NotificationsListViewController: SimpleBaseViewController {
         button.menu = filterMenu
         
         let readAllNotificationsButton = UIBarButtonItem(image: imageLiteral("checkmark"), style: .plain, target: self, action: #selector(onReadAllNotifications))
-        if childs.count <= 1 {
-            self.navigationItem.setRightBarButtonItems([readAllNotificationsButton], animated: true)
+        readAllNotificationsButton.accessibilityIdentifier = "notifications_mark_all_read_button"
+        if childs.isEmpty {
+            self.navigationItem.setRightBarButtonItems([readAllNotificationsButton], animated: animated)
         } else {
-            self.navigationItem.setRightBarButtonItems([button, readAllNotificationsButton], animated: true)
+            self.navigationItem.setRightBarButtonItems([button, readAllNotificationsButton], animated: animated)
         }
     }
         
@@ -787,7 +812,7 @@ class NotificationsListViewController: SimpleBaseViewController {
             return
         }
         lastConfiguredBarsState = state
-        configureBars()
+        configureBars(animated: false)
     }
 
     private func scheduleDatasourceReload() {
@@ -842,6 +867,17 @@ class NotificationsListViewController: SimpleBaseViewController {
         }
     }
     
+    private func makeNotificationsBackButton() -> UIBarButtonItem {
+        let button = UIBarButtonItem(
+            image: imageLiteral("chevron.left"),
+            style: .plain,
+            target: self,
+            action: #selector(onBackButtonTouchUpInside)
+        )
+        button.accessibilityIdentifier = "notifications_back_to_chats_button"
+        return button
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         self.tabBarController?.tabBar.isHidden = false
@@ -858,13 +894,12 @@ class NotificationsListViewController: SimpleBaseViewController {
             case .split:
 //                self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
                 
-                let sidebarButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
-                
                 if UIDevice.current.userInterfaceIdiom != .pad {
                     self.navigationItem.setHidesBackButton(true, animated: false)
-                    self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
+                    self.navigationItem.setLeftBarButton(makeNotificationsBackButton(), animated: false)
                 }
         }
+        configureBars(animated: false)
     }
     
     var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
@@ -876,7 +911,7 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        self.configureBars()
+        self.configureBars(animated: false)
         self.tabBarController?.tabBar.isHidden = false
         self.tabBarController?.tabBar.layoutIfNeeded()
         AccountManager.shared.users.forEach {
@@ -1026,17 +1061,6 @@ extension NotificationsListViewController: UITableViewDataSource {
 //        return view
 //    }
     
-    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        if section == 0 && self.filter.value != .all {
-            return .leastNormalMagnitude
-        }
-        return 34
-    }
-    
-    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
-        return 0
-    }
-    
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if self.datasource[section].key == "contact" {
             return self.datasource[section].childs.count > 2 ? 2 : self.datasource[section].childs.count
@@ -1055,6 +1079,7 @@ extension NotificationsListViewController: UITableViewDataSource {
             cell.configure(title: item.title.string, subtitle: item.message?.string ?? "", icon: item.badgeIcon, color: .tintColor)
 
             cell.selectionStyle = .none
+            cell.applyContinuousSplitGlassBackground()
 
             return cell
         }
@@ -1084,6 +1109,7 @@ extension NotificationsListViewController: UITableViewDataSource {
 //                cell.selectedBackgroundView = view
                 
                 cell.accessoryType = .detailButton
+                cell.applyPlainGroupedSystemBackground()
                 
                 return cell
             case "notifications":
@@ -1107,6 +1133,7 @@ extension NotificationsListViewController: UITableViewDataSource {
 //                cell.selectedBackgroundView = view
                 
                 cell.accessoryType = .none
+                cell.applyPlainGroupedSystemBackground()
                 
                 return cell
             default:
@@ -1289,14 +1316,13 @@ extension NotificationsListViewController: NotificationsControllerFilterProtocol
     }
     
     func shouldFilterBy(category: String?) {
-        if category == "all" {
-            self.filter.accept(.all)
-        } else if let category = category {
-            let filterValue = Filter(rawValue: category) ?? .all
-            self.filter.accept(self.filter.value == filterValue ? .all : filterValue)
-        } else {
-            self.filter.accept(.all)
+        guard let category,
+              category != Filter.all.rawValue,
+              let filterValue = Filter(rawValue: category) else {
+            filter.accept(.all)
+            return
         }
+        filter.accept(filterValue)
     }
 }
 

@@ -10885,6 +10885,12 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertFalse(viewController.searchController.definesPresentationContext)
     }
 
+    func testChatRowsDoNotUseUIKitFocusOutline() {
+        let viewController = LastChatsViewController()
+
+        XCTAssertFalse(viewController.tableView(viewController.tableView, canFocusRowAt: IndexPath(row: 0, section: 0)))
+    }
+
     func testConfigureSearchBarKeepsSearchVisibleInNavigationArea() {
         let viewController = LastChatsViewController()
 
@@ -10921,6 +10927,7 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertNotNil(cell.configurationUpdateHandler)
         XCTAssertNil(cell.selectedBackgroundView)
         XCTAssertEqual(cell.selectionStyle, .none)
+        assertNoSelectionOutline(in: cell)
 
         viewController.setSelectedChat(
             jid: unselectedDatasource.jid,
@@ -10934,6 +10941,7 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
             cell.backgroundColor?.isEqual(AccountColorManager.shared.palette(for: owner).tint50) == true
         )
         XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
+        assertNoSelectionOutline(in: cell)
 
         let secondOwner = "last-chat-reused-\(UUID().uuidString)@example.com"
         registerAccountColor(owner: secondOwner, colorKey: "blue")
@@ -10950,11 +10958,13 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertTrue(
             cell.backgroundColor?.isEqual(AccountColorManager.shared.palette(for: secondOwner).tint50) == true
         )
+        assertNoSelectionOutline(in: cell)
 
         cell.prepareForReuse()
         viewController.configureChatCell(cell, with: unselectedDatasource)
 
         XCTAssertEqual(cell.backgroundColor, .systemBackground)
+        assertNoSelectionOutline(in: cell)
     }
 
     func testSpecialMessageCellDoesNotInstallTopHairlineAcrossReuse() {
@@ -11008,6 +11018,30 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         }
 
         XCTAssertTrue(visibleTopHairlines.isEmpty, file: file, line: line)
+    }
+
+    private func assertNoSelectionOutline(
+        in cell: UITableViewCell,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertNil(cell.backgroundConfiguration?.visualEffect, file: file, line: line)
+        XCTAssertTrue(
+            cell.backgroundConfiguration?.strokeColor == nil
+                || cell.backgroundConfiguration?.strokeColor == .clear,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(cell.backgroundConfiguration?.strokeWidth ?? 0, 0, file: file, line: line)
+        XCTAssertEqual(cell.backgroundConfiguration?.strokeOutset ?? 0, 0, file: file, line: line)
+        XCTAssertNil(cell.backgroundView, file: file, line: line)
+        XCTAssertNil(cell.selectedBackgroundView, file: file, line: line)
+        XCTAssertNil(cell.multipleSelectionBackgroundView, file: file, line: line)
+        XCTAssertEqual(cell.focusStyle, .custom, file: file, line: line)
+        XCTAssertEqual(cell.layer.borderWidth, 0, file: file, line: line)
+        XCTAssertEqual(cell.layer.shadowOpacity, 0, file: file, line: line)
+        XCTAssertEqual(cell.contentView.layer.borderWidth, 0, file: file, line: line)
+        XCTAssertEqual(cell.contentView.layer.shadowOpacity, 0, file: file, line: line)
     }
 
     private func registerAccountColor(owner: String, colorKey: String) {

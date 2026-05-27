@@ -24,12 +24,13 @@ import UIKit
 extension ContactsViewController {
     
     internal func configureSearchBar() {
-//        searchController.searchBar.backgroundColor = .
-        searchController.searchBar.barTintColor = .gray
-        searchController.searchBar.tintColor = .blue
-        searchController.searchBar.barStyle = .default
+        if #available(iOS 16.0, *) {
+            navigationItem.preferredSearchBarPlacement = .stacked
+        }
+        navigationItem.hidesSearchBarWhenScrolling = false
+        searchController.searchBar.searchBarStyle = .default
         navigationItem.searchController = searchController
-        searchController.searchBar.sizeToFit()
+        searchController.searchBar.searchBarStyle = .default
         (searchController.searchResultsUpdater as? SearchResultsViewController)?.presenter = self
         searchController.automaticallyShowsSearchResultsController = true
         searchController.delegate = self

@@ -24,6 +24,9 @@ import RealmSwift
 import CocoaLumberjack
 
 extension LastChatsViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, canFocusRowAt indexPath: IndexPath) -> Bool {
+        false
+    }
 
     internal static func unreadMentionOpenRequest(
         owner: String,

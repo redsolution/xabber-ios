@@ -33,6 +33,7 @@ class ContactsCategoryViewController: BaseViewController {
         var isImportant: Bool
         var value: Int
         var isHeader: Bool
+        var isSelectable: Bool = true
     }
     
     var datasource: [[Datasource]] = []
@@ -44,17 +45,21 @@ class ContactsCategoryViewController: BaseViewController {
     
     var filteredAccounts: Set<String> = Set()
     var filteredGroups: Set<String> = Set()
+    private var suppressNativeDeselectionCallbacks = false
+    private let allowsCategoryRowFocus = false
     
-    private let tableView: UITableView = {
+    internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
         view.register(MenuItemTableCell.self, forCellReuseIdentifier: MenuItemTableCell.cellName)
         view.register(MenuItemHeaderTableCell.self, forCellReuseIdentifier: MenuItemHeaderTableCell.cellName)
         view.separatorStyle = .none
-        view.backgroundColor = .systemBackground
-        view.allowsMultipleSelection = true
+        view.allowsMultipleSelection = false
         view.allowsSelection = true
+        view.rowHeight = UITableView.automaticDimension
+        view.estimatedRowHeight = 44
+        view.applyContinuousSplitInsetGroupedAppearance()
         
         return view
     }()
@@ -93,10 +98,8 @@ class ContactsCategoryViewController: BaseViewController {
         super.resetState()
         
         self.filteredGroups.removeAll()
-        self.tableView
-            .indexPathsForSelectedRows?
-            .filter({ $0.section == 3 })
-            .forEach { self.tableView.deselectRow(at: $0, animated: false) }
+        clearNativeSelection()
+        reconfigureVisibleCategoryRows()
     }
     
     func unsubscribe() {
@@ -118,6 +121,63 @@ class ContactsCategoryViewController: BaseViewController {
         tableView.reloadData()
         filterDidSelect(category: filterCategory)
         filterDidSelect(groups: Array(filteredGroups))
+    }
+
+    private func clearNativeSelection() {
+        guard let selectedRows = tableView.indexPathsForSelectedRows, selectedRows.isNotEmpty else {
+            return
+        }
+
+        suppressNativeDeselectionCallbacks = true
+        selectedRows.forEach { tableView.deselectRow(at: $0, animated: false) }
+        suppressNativeDeselectionCallbacks = false
+    }
+
+    private func reconfigureVisibleCategoryRows() {
+        clearNativeSelection()
+        (tableView.indexPathsForVisibleRows ?? []).forEach { indexPath in
+            guard datasource.indices.contains(indexPath.section),
+                  datasource[indexPath.section].indices.contains(indexPath.row),
+                  let cell = tableView.cellForRow(at: indexPath) as? MenuItemTableCell else {
+                return
+            }
+
+            configureCategoryCell(cell, with: datasource[indexPath.section][indexPath.row], at: indexPath)
+        }
+    }
+
+    private func configureCategoryCell(_ cell: MenuItemTableCell, with item: Datasource, at indexPath: IndexPath) {
+        cell.configure(title: item.title, badge: item.subtitle, icon: item.icon, isImportant: item.isImportant)
+        cell.applyPlainGroupedSystemBackground(
+            selectedColor: AccountSelectionHighlightStyle.tint50(owner: nil),
+            isSelected: isCategoryItemSelected(item, at: indexPath)
+        )
+        cell.layer.cornerRadius = 0
+        cell.layer.masksToBounds = false
+        cell.layer.borderWidth = 0
+        cell.layer.shadowOpacity = 0
+    }
+
+    private func isSectionOneCategorySelected() -> Bool {
+        guard datasource.indices.contains(1),
+              let filterCategory else {
+            return false
+        }
+
+        return datasource[1].contains { $0.key == filterCategory }
+    }
+
+    private func item(at indexPath: IndexPath) -> Datasource? {
+        guard datasource.indices.contains(indexPath.section),
+              datasource[indexPath.section].indices.contains(indexPath.row) else {
+            return nil
+        }
+
+        return datasource[indexPath.section][indexPath.row]
+    }
+
+    private func isSelectableItem(at indexPath: IndexPath) -> Bool {
+        item(at: indexPath)?.isSelectable == true
     }
 
     private func subscribeToCollections() {
@@ -157,6 +217,8 @@ class ContactsCategoryViewController: BaseViewController {
     
     public func configure() {
         self.title = nil
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
+        applyNavigationAppearance()
         
         if CommonConfigManager.shared.config.use_large_title {
             navigationItem.largeTitleDisplayMode = .automatic
@@ -167,9 +229,23 @@ class ContactsCategoryViewController: BaseViewController {
         
         view.addSubview(tableView)
         tableView.fillSuperview()
+        tableView.applyContinuousSplitInsetGroupedAppearance()
         tableView.delegate = self
         tableView.dataSource = self
         tableView.allowsMultipleSelectionDuringEditing = false
+    }
+
+    private func applyNavigationAppearance() {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
+        appearance.shadowColor = .clear
+        appearance.shadowImage = UIImage()
+        navigationItem.standardAppearance = appearance
+        navigationItem.scrollEdgeAppearance = appearance
+        navigationItem.compactAppearance = appearance
+        if #available(iOS 15.0, *) {
+            navigationItem.compactScrollEdgeAppearance = appearance
+        }
     }
     
     @objc
@@ -193,8 +269,33 @@ class ContactsCategoryViewController: BaseViewController {
         observer()
         configure()
         subscribe()
-        let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
-        self.navigationItem.setLeftBarButton(backButton, animated: false)
+        configureLeadingNavigationItem()
+    }
+
+    internal func configureLeadingNavigationItem(
+        forRegularWidth: Bool = UIDevice.current.userInterfaceIdiom == .pad,
+        animated: Bool = false
+    ) {
+        let prefix = isGroup ? "groups" : "contacts"
+        if forRegularWidth {
+            let sidebarButton = UIBarButtonItem(
+                image: imageLiteral("sidebar.left"),
+                style: .plain,
+                target: self,
+                action: #selector(onSidebarButtonTouchUpInside)
+            )
+            sidebarButton.accessibilityIdentifier = "\(prefix)_sidebar_menu_button"
+            navigationItem.setLeftBarButton(sidebarButton, animated: animated)
+        } else {
+            let backButton = UIBarButtonItem(
+                image: imageLiteral("chevron.left"),
+                style: .plain,
+                target: self,
+                action: #selector(onBackButtonTouchUpInside)
+            )
+            backButton.accessibilityIdentifier = "\(prefix)_back_to_chats_button"
+            navigationItem.setLeftBarButton(backButton, animated: animated)
+        }
     }
     
     var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
@@ -202,6 +303,11 @@ class ContactsCategoryViewController: BaseViewController {
     @objc
     private final func onBackButtonTouchUpInside(_ sender: UIBarButtonItem) {
         self.leftMenuDelegate?.selectRootScreenAndCategory(screen: "chat", category: nil)
+    }
+
+    @objc
+    private final func onSidebarButtonTouchUpInside(_ sender: UIBarButtonItem) {
+        splitViewController?.show(.primary)
     }
     
     override func observer() {
@@ -266,36 +372,25 @@ extension ContactsCategoryViewController: UITableViewDataSource {
             
             cell.configure(title: item.title, subtitle: item.subtitle, icon: item.icon, color: item.color, withCircle: true)
 
-            cell.selectionStyle = .none
+            cell.configureAsInformationalHeader()
+            cell.applyContinuousSplitStaticGlassBackground()
 
             return cell
         } else {
             guard let cell = tableView.dequeueReusableCell(withIdentifier: MenuItemTableCell.cellName, for: indexPath) as? MenuItemTableCell else {
                 fatalError()
             }
-            cell.configure(title: item.title, badge: item.subtitle, icon: item.icon, isImportant: item.isImportant)
-            let selectionView = UIView()
-            selectionView.backgroundColor = AccountColorManager.shared.topPalette().tint50 | AccountColorManager.shared.topPalette().tint900
-            selectionView.layer.cornerRadius = 16
-            selectionView.layer.masksToBounds = true
-
-            let containerView = UIView()
-            containerView.addSubview(selectionView)
-            selectionView.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                selectionView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 2),
-                selectionView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -2),
-                selectionView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
-                selectionView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8)
-            ])
-            cell.selectedBackgroundView = containerView
+            configureCategoryCell(cell, with: item, at: indexPath)
             
             return cell
         }
     }
-    
-    func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
-        return nil
+
+    private func isCategoryItemSelected(_ item: Datasource, at indexPath: IndexPath) -> Bool {
+        if indexPath.section == 3 {
+            return filteredGroups.contains(item.key)
+        }
+        return filterCategory == item.key
     }
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
@@ -307,10 +402,16 @@ extension ContactsCategoryViewController: UITableViewDataSource {
 }
 
 extension ContactsCategoryViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, canFocusRowAt indexPath: IndexPath) -> Bool {
+        allowsCategoryRowFocus && isSelectableItem(at: indexPath)
+    }
+
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        let item = self.datasource[indexPath.section][indexPath.row]
+        guard let item = item(at: indexPath) else {
+            return 44
+        }
         if item.isHeader {
-            return tableView.estimatedRowHeight
+            return UITableView.automaticDimension
         } else {
             if #available(iOS 26, *) {
                 return 52
@@ -318,17 +419,6 @@ extension ContactsCategoryViewController: UITableViewDelegate {
                 return 44
             }
         }
-    }
-    
-    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
-        return 8
-    }
-    
-    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        if section == 3 {
-            return tableView.estimatedSectionHeaderHeight
-        }
-        return 12
     }
     
     private func show(controller vc: UIViewController) {
@@ -345,45 +435,53 @@ extension ContactsCategoryViewController: UITableViewDelegate {
         }
         
     }
+
+    func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
+        isSelectableItem(at: indexPath)
+    }
+
+    func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
+        isSelectableItem(at: indexPath) ? indexPath : nil
+    }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        
-        if indexPath.section != 3 {
-            let paths = tableView.indexPathsForSelectedRows?.filter({ $0 != indexPath }).filter({ $0.section != 3 })
-            paths?.forEach { tableView.deselectRow(at: $0, animated: false) }
+        guard let item = item(at: indexPath), item.isSelectable else {
+            tableView.deselectRow(at: indexPath, animated: false)
+            return
         }
+
+        defer {
+            clearNativeSelection()
+            reconfigureVisibleCategoryRows()
+        }
+
         switch indexPath.section {
             case 1:
-                self.filterCategory = self.datasource[indexPath.section][indexPath.row].key
+                self.filterCategory = item.key
                 if self.filteredGroups.isNotEmpty {
                     self.filteredGroups.removeAll()
                     self.filterDelegate?.shouldFilterBy(groups: Array(self.filteredGroups))
-                    self.tableView.indexPathsForSelectedRows?.filter({ $0.section == 3 }).forEach {
-                        self.tableView.deselectRow(at: $0, animated: false)
-                    }
                 }
-                self.filterDelegate?.shouldFilterBy(category: self.datasource[indexPath.section][indexPath.row].key)
+                self.filterDelegate?.shouldFilterBy(category: item.key)
             case 2:
                 if filteredGroups.isNotEmpty {
                     self.filteredGroups.removeAll()
                     self.filterDelegate?.shouldFilterBy(groups: Array(self.filteredGroups))
                 }
-                self.filterCategory = self.datasource[indexPath.section][indexPath.row].key
-                self.filterDelegate?.shouldFilterBy(category: self.datasource[indexPath.section][indexPath.row].key)
-                if let selectedItems = tableView.indexPathsForSelectedRows?.filter({$0.section == 3}) {
-                    selectedItems.forEach { tableView.deselectRow(at: $0, animated: false) }
-                }
+                self.filterCategory = item.key
+                self.filterDelegate?.shouldFilterBy(category: item.key)
             case 3:
-                if let selectedItem = tableView.indexPathsForSelectedRows?.filter({ $0.section == 1 }),
-                   selectedItem.isEmpty {
-                    tableView.selectRow(at: IndexPath(row: 0, section: 1), animated: false, scrollPosition: .none)
-                    self.filterCategory = self.datasource[1][0].key
-                    self.filterDelegate?.shouldFilterBy(category: self.datasource[1][0].key)
+                if !isSectionOneCategorySelected(),
+                   datasource.indices.contains(1),
+                   let allContactsItem = datasource[1].first {
+                    self.filterCategory = allContactsItem.key
+                    self.filterDelegate?.shouldFilterBy(category: allContactsItem.key)
                 }
-                if let selectedItems = tableView.indexPathsForSelectedRows?.filter({$0.section == 2}) {
-                    selectedItems.forEach { tableView.deselectRow(at: $0, animated: false) }
+                if self.filteredGroups.contains(item.key) {
+                    self.filteredGroups.remove(item.key)
+                } else {
+                    self.filteredGroups.insert(item.key)
                 }
-                self.filteredGroups.insert(self.datasource[indexPath.section][indexPath.row].key)
                 self.filterDelegate?.shouldFilterBy(groups: Array(self.filteredGroups))
             default:
                 break
@@ -391,14 +489,19 @@ extension ContactsCategoryViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, willDeselectRowAt indexPath: IndexPath) -> IndexPath? {
-        if indexPath.section < 3 {
-            return nil
-        }
-        return indexPath
+        isSelectableItem(at: indexPath) ? indexPath : nil
     }
     
     
     func tableView(_ tableView: UITableView, didDeselectRowAt indexPath: IndexPath) {
+        guard !suppressNativeDeselectionCallbacks else {
+            return
+        }
+
+        guard isSelectableItem(at: indexPath) else {
+            return
+        }
+
         switch indexPath.section {
             case 1, 2:
                 self.filterDelegate?.shouldFilterBy(category: nil)
@@ -414,29 +517,8 @@ extension ContactsCategoryViewController: UITableViewDelegate {
 
 extension ContactsCategoryViewController: ContactsCategoryDelegate {
     func filterDidSelect(category: String?) {
-        if let category = category {
-            if self.filterCategory != category {
-                self.filterCategory = category
-            }
-            self.tableView.indexPathsForSelectedRows?.filter({ $0.section < 3 }).forEach {
-                self.tableView.deselectRow(at: $0, animated: false)
-            }
-            var indexPath: IndexPath? = nil
-            self.datasource.enumerated().forEach {
-                (section, item) in
-                if let row = item.firstIndex(where: { $0.key == category }) {
-                    indexPath = IndexPath(row: row, section: section)
-                }
-            }
-            if let indexPath = indexPath {
-                self.tableView.selectRow(at: indexPath, animated: true, scrollPosition: .none)
-            }
-        } else {
-            self.filterCategory = nil
-            self.tableView.indexPathsForSelectedRows?.filter({ $0.section < 3 }).forEach {
-                self.tableView.deselectRow(at: $0, animated: false)
-            }
-        }
+        filterCategory = category
+        reconfigureVisibleCategoryRows()
     }
     
     func filterDidSelect(account: String?) {
@@ -450,14 +532,7 @@ extension ContactsCategoryViewController: ContactsCategoryDelegate {
     
     func filterDidSelect(groups: [String]) {
         filteredGroups = Set(groups)
-        tableView.indexPathsForSelectedRows?.filter({ $0.section == 3 }).forEach {
-            tableView.deselectRow(at: $0, animated: false)
-        }
-        guard datasource.indices.contains(3) else { return }
-        datasource[3].enumerated().forEach { row, item in
-            guard filteredGroups.contains(item.key) else { return }
-            tableView.selectRow(at: IndexPath(row: row, section: 3), animated: false, scrollPosition: .none)
-        }
+        reconfigureVisibleCategoryRows()
     }
     
     

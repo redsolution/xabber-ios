@@ -544,8 +544,14 @@ class LastCallsViewController: BaseViewController {
         button.menu = makeCallsFilterMenu()
         return button
     }
+
+    private func makeCallsBackButton() -> UIBarButtonItem {
+        let button = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
+        button.accessibilityIdentifier = "calls_back_to_chats_button"
+        return button
+    }
     
-    internal func configureBars() {
+    internal func configureBars(animated: Bool = false) {
         self.title = "Calls".localizeString(id: "chat_calls_title", arguments: [])
 //        if CommonConfigManager.shared.config.use_large_title {
 //            self.navigationItem.largeTitleDisplayMode = .automatic
@@ -570,16 +576,19 @@ class LastCallsViewController: BaseViewController {
                     action: #selector(onAddButtonTouchUpInside)
                 )
                 if CommonConfigManager.shared.config.use_yubikey {
-                    self.navigationItem.setRightBarButtonItems([addBarButton, securityButton], animated: true)
+                    self.navigationItem.setRightBarButtonItems([addBarButton, securityButton], animated: animated)
                 } else {
-                    self.navigationItem.setRightBarButtonItems([addBarButton], animated: true)
+                    self.navigationItem.setRightBarButtonItems([addBarButton], animated: animated)
                 }
                 let leftBarButton = UIBarButtonItem(customView: accountNavButton)
-                self.navigationItem.setLeftBarButtonItems([filterBarButton, leftBarButton], animated: true)
+                self.navigationItem.setLeftBarButtonItems([filterBarButton, leftBarButton], animated: animated)
+                accountNavButton.removeTarget(self, action: #selector(showSettings), for: .touchUpInside)
                 accountNavButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
             case .split:
                 self.bottomBar.splitViewController = self.splitViewController
-                self.view.addSubview(bottomBar)
+                if bottomBar.superview == nil {
+                    self.view.addSubview(bottomBar)
+                }
                 self.view.bringSubviewToFront(bottomBar)
                 var inputHeight: CGFloat = 49
                 if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
@@ -597,11 +606,12 @@ class LastCallsViewController: BaseViewController {
 //                    self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
 //                }
                 if UIDevice.current.userInterfaceIdiom != .pad {
-                    let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
                     navigationItem.setHidesBackButton(true, animated: false)
-                    navigationItem.setLeftBarButtonItems([backButton, makeCallsFilterButton()], animated: true)
+                    navigationItem.setLeftBarButton(makeCallsBackButton(), animated: animated)
+                    navigationItem.setRightBarButton(makeCallsFilterButton(), animated: animated)
                 } else {
-                    navigationItem.setLeftBarButtonItems([], animated: true)
+                    navigationItem.setLeftBarButtonItems([], animated: animated)
+                    navigationItem.setRightBarButtonItems([], animated: animated)
                 }
                 self.bottomBar.isHidden = true
         }
@@ -683,6 +693,7 @@ class LastCallsViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         configure()
+        configureBars(animated: false)
 //        configureNavbar()
 //        configureSearchBar()
         load()
@@ -692,10 +703,6 @@ class LastCallsViewController: BaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
-        if CommonConfigManager.shared.interfaceType == .split && UIDevice.current.userInterfaceIdiom != .pad {
-            let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
-            self.navigationItem.setLeftBarButtonItems([backButton, makeCallsFilterButton()], animated: false)
-        }
         self.title = "Calls".localizeString(id: "chat_calls_title", arguments: [])
 //        if CommonConfigManager.shared.config.use_large_title {
 //            self.navigationItem.largeTitleDisplayMode = .automatic
@@ -719,7 +726,7 @@ class LastCallsViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         subscribe()
-        configureBars()
+        configureBars(animated: false)
         NotifyManager.shared.setLastChats(displayed: false)
         
         self.tabBarController?.tabBar.isHidden = false

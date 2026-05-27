@@ -132,6 +132,7 @@ extension ContactsViewController: UITableViewDataSource {
             cell.configure(title: item.title, subtitle: item.subtitle, icon: item.icon, color: .tintColor)
 
             cell.selectionStyle = .none
+            cell.applyContinuousSplitGlassBackground()
 
             return cell
         }
@@ -151,7 +152,7 @@ extension ContactsViewController: UITableViewDataSource {
             )
             cell.cellDelegate = self
             cell.setMask()
-            cell.selectionStyle = .none
+            cell.applyPlainGroupedSystemBackground()
             
             return cell
         } else if item.isContactRequest {
@@ -170,7 +171,7 @@ extension ContactsViewController: UITableViewDataSource {
             )
             cell.cellDelegate = self
             cell.setMask()
-            cell.selectionStyle = .none
+            cell.applyPlainGroupedSystemBackground()
             
             return cell
         } else if item.isInvite {
@@ -195,7 +196,7 @@ extension ContactsViewController: UITableViewDataSource {
             )
             cell.cellDelegate = self
             cell.setMask()
-            cell.selectionStyle = .none
+            cell.applyPlainGroupedSystemBackground()
             
             return cell
         } else if item.isButton {
@@ -204,7 +205,7 @@ extension ContactsViewController: UITableViewDataSource {
                 fatalError()
             }
             cell.configure(title: item.title, subtitle: item.subtitle)
-            cell.selectionStyle = .none
+            cell.applyPlainGroupedSystemBackground()
             
             return cell
         } else {
@@ -226,7 +227,7 @@ extension ContactsViewController: UITableViewDataSource {
                 status: item.status
             )
             cell.setMask()
-            cell.selectionStyle = .none
+            cell.applyPlainGroupedSystemBackground()
             
             return cell
         }

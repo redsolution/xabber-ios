@@ -17,6 +17,7 @@ class CallsCategoriesViewController: BaseViewController {
     var datasource: [[CallsListCoordinator.CategoryItem]] = []
     var bag: DisposeBag = DisposeBag()
     private var selectedFilter: CallsListFilter = .all
+    private let allowsCategoryRowFocus = false
 
     weak var filterDelegate: CallsControllerFilterProtocol?
     var leftMenuDelegate: LeftMenuSelectRootScreenDelegate?
@@ -119,14 +120,43 @@ class CallsCategoriesViewController: BaseViewController {
         observer()
         configure()
         subscribe()
-        let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
-        navigationItem.setLeftBarButton(backButton, animated: true)
+        configureLeadingNavigationItem()
         selectFilter(.all, animated: false, notify: true)
+    }
+
+    internal func configureLeadingNavigationItem(
+        forRegularWidth: Bool = UIDevice.current.userInterfaceIdiom == .pad,
+        animated: Bool = false
+    ) {
+        if forRegularWidth {
+            let sidebarButton = UIBarButtonItem(
+                image: imageLiteral("sidebar.left"),
+                style: .plain,
+                target: self,
+                action: #selector(onSidebarButtonTouchUpInside)
+            )
+            sidebarButton.accessibilityIdentifier = "calls_sidebar_menu_button"
+            navigationItem.setLeftBarButton(sidebarButton, animated: animated)
+        } else {
+            let backButton = UIBarButtonItem(
+                image: imageLiteral("chevron.left"),
+                style: .plain,
+                target: self,
+                action: #selector(onBackButtonTouchUpInside)
+            )
+            backButton.accessibilityIdentifier = "calls_back_to_chats_button"
+            navigationItem.setLeftBarButton(backButton, animated: animated)
+        }
     }
 
     @objc
     private final func onBackButtonTouchUpInside(_ sender: UIBarButtonItem) {
         leftMenuDelegate?.selectRootScreenAndCategory(screen: "chat", category: nil)
+    }
+
+    @objc
+    private final func onSidebarButtonTouchUpInside(_ sender: UIBarButtonItem) {
+        splitViewController?.show(.primary)
     }
 
     override func observer() {
@@ -188,6 +218,19 @@ class CallsCategoriesViewController: BaseViewController {
         return nil
     }
 
+    private func item(at indexPath: IndexPath) -> CallsListCoordinator.CategoryItem? {
+        guard datasource.indices.contains(indexPath.section),
+              datasource[indexPath.section].indices.contains(indexPath.row) else {
+            return nil
+        }
+
+        return datasource[indexPath.section][indexPath.row]
+    }
+
+    private func isSelectableItem(at indexPath: IndexPath) -> Bool {
+        item(at: indexPath)?.isSelectable == true
+    }
+
     private func configureCategoryCell(_ cell: MenuItemTableCell, with item: CallsListCoordinator.CategoryItem) {
         cell.configure(title: item.title, badge: item.subtitle, icon: item.icon, isImportant: true)
         cell.imageView?.tintColor = item.color
@@ -231,8 +274,8 @@ extension CallsCategoriesViewController: UITableViewDataSource {
                 fatalError()
             }
             cell.configure(title: item.title, subtitle: item.subtitle, icon: item.icon, color: item.color, withCircle: true)
-            cell.selectionStyle = .none
-            cell.applyContinuousSplitGlassBackground()
+            cell.configureAsInformationalHeader()
+            cell.applyContinuousSplitStaticGlassBackground()
             return cell
         }
 
@@ -247,17 +290,27 @@ extension CallsCategoriesViewController: UITableViewDataSource {
 }
 
 extension CallsCategoriesViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, canFocusRowAt indexPath: IndexPath) -> Bool {
+        allowsCategoryRowFocus && isSelectableItem(at: indexPath)
+    }
+
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        datasource[indexPath.section][indexPath.row].isHeader ? UITableView.automaticDimension : 44
+        item(at: indexPath)?.isHeader == true ? UITableView.automaticDimension : 44
+    }
+
+    func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
+        isSelectableItem(at: indexPath)
+    }
+
+    func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
+        isSelectableItem(at: indexPath) ? indexPath : nil
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let item = datasource[indexPath.section][indexPath.row]
-        guard !item.isHeader else {
+        guard let item = item(at: indexPath), item.isSelectable else {
             tableView.deselectRow(at: indexPath, animated: false)
             return
         }
-        let key = item.key
-        selectFilter(CallsListFilter(rawValue: key) ?? .all, animated: false, notify: true)
+        selectFilter(CallsListFilter(rawValue: item.key) ?? .all, animated: false, notify: true)
     }
 }

@@ -82,6 +82,8 @@
 		4E3100062F69000000ABC001 /* CallsSectionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3100052F69000000ABC001 /* CallsSectionCoordinator.swift */; };
 		4E3100082F69000000ABC001 /* CallsCategoriesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3100072F69000000ABC001 /* CallsCategoriesViewController.swift */; };
 		4E31000A2F69000000ABC001 /* CallsListCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3100092F69000000ABC001 /* CallsListCoordinatorTests.swift */; };
+		4E3200022F6A000000ABC001 /* ContactsListAppearanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3200012F6A000000ABC001 /* ContactsListAppearanceTests.swift */; };
+		4E3300022F6A100000ABC001 /* NotificationsListAppearanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3300012F6A100000ABC001 /* NotificationsListAppearanceTests.swift */; };
 		660093C722DEEDBD00C5F16B /* LastChatsViewController+UITableViewAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660093C622DEEDBD00C5F16B /* LastChatsViewController+UITableViewAction.swift */; };
 		660093C922DF2A5F00C5F16B /* LastCallsViewController+EmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660093C822DF2A5F00C5F16B /* LastCallsViewController+EmptyView.swift */; };
 		660093CB22DF2CFD00C5F16B /* LastCallsViewController+UITableViewAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660093CA22DF2CFD00C5F16B /* LastCallsViewController+UITableViewAction.swift */; };
@@ -1081,6 +1083,8 @@
 		4E3100052F69000000ABC001 /* CallsSectionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallsSectionCoordinator.swift; sourceTree = "<group>"; };
 		4E3100072F69000000ABC001 /* CallsCategoriesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallsCategoriesViewController.swift; sourceTree = "<group>"; };
 		4E3100092F69000000ABC001 /* CallsListCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallsListCoordinatorTests.swift; sourceTree = "<group>"; };
+		4E3200012F6A000000ABC001 /* ContactsListAppearanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactsListAppearanceTests.swift; sourceTree = "<group>"; };
+		4E3300012F6A100000ABC001 /* NotificationsListAppearanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsListAppearanceTests.swift; sourceTree = "<group>"; };
 		58D918EA4C5D9244619D4BEE /* Pods_xabberTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_xabberTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		5A01438B65BCB76802280911 /* Pods-xabber.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-xabber.release.xcconfig"; path = "Target Support Files/Pods-xabber/Pods-xabber.release.xcconfig"; sourceTree = "<group>"; };
 		660093C622DEEDBD00C5F16B /* LastChatsViewController+UITableViewAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+UITableViewAction.swift"; sourceTree = "<group>"; };
@@ -3659,6 +3663,8 @@
 					4E1000052F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift */,
 					4E2000032F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift */,
 					4E3100092F69000000ABC001 /* CallsListCoordinatorTests.swift */,
+					4E3200012F6A000000ABC001 /* ContactsListAppearanceTests.swift */,
+					4E3300012F6A100000ABC001 /* NotificationsListAppearanceTests.swift */,
 					66AE4E7724E12F7C00FF11DC /* xabberTests.swift */,
 					66AE4E7924E12F7C00FF11DC /* Info.plist */,
 					66AE4E7F24E189EF00FF11DC /* XabberXMPPTests.swift */,
@@ -5546,6 +5552,8 @@
 					4E2000042F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift in Sources */,
 					4E1000042F66000000ABC001 /* FloatingBottomBarViewTests.swift in Sources */,
 					4E31000A2F69000000ABC001 /* CallsListCoordinatorTests.swift in Sources */,
+					4E3200022F6A000000ABC001 /* ContactsListAppearanceTests.swift in Sources */,
+					4E3300022F6A100000ABC001 /* NotificationsListAppearanceTests.swift in Sources */,
 				4E1000062F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift in Sources */,
 				66D2B585253EFED100299578 /* XabberAssetsTests.swift in Sources */,
 			);
