@@ -82,108 +82,12 @@ class NetworkManager: NSObject {
     }
     
     private final func read(message stanza: DDXMLElement) {
-        if let message = stanza
-            .elements(forName: "result")
-            .first?
-            .elements(forName: "forwarded")
-            .first?
-            .elements(forName: "message")
-            .first {
-            var payload: [String: String] = ["stanza": stanza.compactXMLString()]
-            var groupchatReference: DDXMLElement? = nil
-            if let verificationMessage = verificationRequestMessage(from: message) {
-                let from = verificationMessage.attribute(forName: "from")?.stringValue?.split(separator: "@").first.map(String.init)
-                self.delegate?.didReceiveStartVerification(payload: ["from": from ?? "somebody"])
-                return
-            }
-            if let groupchatReferences = message.elements(forName: "x").first(where: { $0.xmlns() == "https://xabber.com/protocol/groups" })?.elements(forName: "reference") {
-                print("GROUPCHAT", groupchatReferences)
-                if let nickname = getGrouchatUserNickname(groupchatReferences) {
-                    payload["nickname"] = nickname
-                }
-                if let groupchatFrom = getGrouchatUserJid(groupchatReferences) {
-                    payload["groupchatFrom"] = groupchatFrom
-                }
-                groupchatReference = groupchatReferences.first
-            }
-            
-            if let invite = message.elements(forName: "invite").first(where: { $0.xmlns() == "https://xabber.com/protocol/groups#invite" }) {
-                payload["invite"] = "true"
-                if let inviteToJid = invite.attribute(forName: "jid")?.stringValue {
-                    payload["invite_to_jid"] = inviteToJid
-                }
-                if let privacy = message.elements(forName: "x").first(where: { $0.xmlns() == "https://xabber.com/protocol/groups" })?.elements(forName: "privacy").first?.stringValue {
-                    switch privacy {
-                    case "incognito": payload["invite_kind"] = "incognito"
-                    case "public": payload["invite_kind"] = "group"
-                    default: payload["invite_kind"] = "group"
-                    }
-                }
-                if (message.elements(forName: "x").first(where: { $0.xmlns() == "https://xabber.com/protocol/groups" })?.elements(forName: "parent-chat").count ?? 0) > 0 {
-                    payload["invite_kind"] = "peer-to-peer"
-                }
-            }
-            
-            if let from = message.attribute(forName: "from")?.stringValue?.split(separator: "/").first {
-                payload["from"] = "\(from)"
-            }
-            if let body = message.elements(forName: "body").first?.stringValue?.excludeFromBody(message.elements(forName: "reference"), groupchat: groupchatReference) {
-                payload["body"] = body
-            }
-            if let stanzaId = message
-                .elements(forName: "stanza-id")
-                .filter({ $0.attribute(forName: "by")?.stringValue == self.jid })
-                .first?
-                .attribute(forName: "id")?
-                .stringValue {
-                payload["stanzaId"] = stanzaId
-            }
-            let references = message.elements(forName: "reference")
-            var imagesCount: Int = 0
-            var filesCount: Int = 0
-            var filename: String = ""
-            var isVoiceMessage: Bool = false
-            for ref in references {
-                if ref.xmlns() == "https://xabber.com/protocol/references",
-                    let kind = getReferenceType(ref) {
-                    switch kind {
-                    case "voice":
-                        isVoiceMessage = true
-                    case "media":
-                        if let file = ref.elements(forName: "file-sharing").first?.elements(forName: "file").first,
-                            let uri = ref.elements(forName: "file-sharing").first?.elements(forName: "sources").first?.elements(forName: "uri").compactMap({ return $0.stringValue }).first(where: { URL(string: $0) != nil }) {
-                            if let mediaType = file.elements(forName: "media-type").first?.stringValue,
-                               mediaType == "image" {
-                                if !payload.keys.contains("imageUrls") {
-                                    payload["imageUrls"] = uri
-                                }
-                                imagesCount += 1
-                            } else {
-                                if let name = file.elements(forName: "name").first?.stringValue {
-                                    filename = name
-                                } else {
-                                    filename = URL(string: uri)?.lastPathComponent ?? uri
-                                }
-                                filesCount += 1
-                            }
-                        }
-                    default: break
-                    }
-                }
-            }
-            if (payload["body"]?.trimmingCharacters(in: .whitespaces) ?? "").isEmpty {
-                if isVoiceMessage {
-                    payload["body"] = "Voice message"
-                } else if filesCount > 0 {
-                    payload["body"] = (filesCount + imagesCount) == 1 ? "File: \(filename)" : "\(filesCount + imagesCount) files"
-                } else if imagesCount > 0 {
-                    payload["body"] = imagesCount == 1 ? "Image" : "\(imagesCount) images"
-                }
-            }
-            let out = payload
-            Task {
-                await delegate?.didUpdateContent(payload: out)
-            }
+        guard let preview = PushNotificationArchiveParser.parseArchivedMessage(stanza, owner: jid) else {
+            delegate?.didDisconnectWithError("failed to parse archived message")
+            return
+        }
+        Task {
+            await delegate?.didUpdateContent(preview: preview)
         }
     }
     
@@ -318,7 +222,6 @@ extension String {
 
 protocol PushPayloadDelegate {
     func didDisconnectWithError(_ error: String)
-    func didUpdateContent(payload: [String: String]) async
+    func didUpdateContent(preview: PushNotificationPreview) async
     func didReceiveSync(stanza: String)
-    func didReceiveStartVerification(payload: [String: String])
 }

@@ -63,6 +63,10 @@ class LastChatsStorageItem: Object {
     @objc dynamic var deliveredId: String? = nil
     @objc dynamic var lastLoadedMessageHistoryId: String? = nil
     @objc dynamic var unread: Int = 0
+    @objc dynamic var syncUnreadCount: Int = 0
+    @objc dynamic var syncUnreadAfterId: String? = nil
+    @objc dynamic var syncSnapshotLastArchiveId: String? = nil
+    @objc dynamic var runtimeUnreadCount: Int = 0
 //    @objc dynamic var isMuted: Bool = false
     @objc dynamic var isBlocked: Bool = false // TODO: make deprecated
     
@@ -95,6 +99,13 @@ class LastChatsStorageItem: Object {
     @objc dynamic var conversationType_: String = ClientSynchronizationManager.ConversationType.omemo.rawValue
     
     @objc dynamic var lastChatOffset: Float = 0
+    @objc dynamic var lastVisibleMessagePrimary: String? = nil
+    @objc dynamic var lastVisibleMessageArchivedId: String? = nil
+    @objc dynamic var lastVisibleMessageId: String? = nil
+    @objc dynamic var lastVisibleMessageDate: Date? = nil
+    @objc dynamic var lastVisiblePositionSavedAtLastMessageId: String? = nil
+    @objc dynamic var lastVisiblePositionSavedAtSnapshotLastArchiveId: String? = nil
+    @objc dynamic var lastVisiblePositionUpdatedAt: Date? = nil
     
     var conversationType: ClientSynchronizationManager.ConversationType {
         get {
@@ -172,6 +183,240 @@ class LastChatsStorageItem: Object {
     }
 }
 
+enum LastChatUnreadCounter {
+
+    static func applySynchronizationSnapshot(
+        to chat: LastChatsStorageItem,
+        count: Int,
+        afterId: String?,
+        snapshotLastArchiveId: String?,
+        in realm: Realm
+    ) {
+        chat.syncUnreadCount = max(count, 0)
+        chat.syncUnreadAfterId = normalizedId(afterId)
+        chat.syncSnapshotLastArchiveId = normalizedId(snapshotLastArchiveId)
+        chat.lastReadId = chat.syncUnreadAfterId
+        reconcileRuntimeContributionsAfterSnapshot(for: chat, in: realm)
+        refreshTotal(for: chat)
+    }
+
+    static func recordRuntimeUnread(for message: MessageStorageItem, in chat: LastChatsStorageItem) {
+        guard message.countsAsRuntimeUnread,
+              !message.outgoing,
+              !message.isRead,
+              !message.isDeleted,
+              message.unreadCounterBucket == .none,
+              isMessageAfterSnapshotBoundary(message, chat: chat) else {
+            refreshTotal(for: chat)
+            return
+        }
+
+        message.unreadCounterBucket = .runtime
+        chat.runtimeUnreadCount = max(chat.runtimeUnreadCount, 0) + 1
+        refreshTotal(for: chat)
+    }
+
+    static func clearAll(
+        to chat: LastChatsStorageItem,
+        boundaryId: String?,
+        realm: Realm
+    ) {
+        clearRuntimeContributions(for: chat, in: realm)
+        chat.syncUnreadCount = 0
+        chat.runtimeUnreadCount = 0
+        let normalizedBoundary = normalizedId(boundaryId)
+        chat.syncUnreadAfterId = normalizedBoundary
+        chat.lastReadId = normalizedBoundary
+        refreshTotal(for: chat)
+    }
+
+    static func markRead(
+        through message: MessageStorageItem,
+        in chat: LastChatsStorageItem,
+        clearWholeDialog: Bool,
+        realm: Realm
+    ) {
+        let boundaryId = readBoundaryId(from: message)
+        if clearWholeDialog {
+            clearAll(to: chat, boundaryId: boundaryId, realm: realm)
+            return
+        }
+
+        clearRuntimeContributions(
+            for: chat,
+            in: realm,
+            upTo: message.date
+        )
+
+        if isMessageAtOrAfterSnapshotLast(message, chat: chat) {
+            chat.syncUnreadCount = 0
+            chat.syncUnreadAfterId = normalizedId(boundaryId)
+            chat.lastReadId = chat.syncUnreadAfterId
+        }
+        refreshTotal(for: chat)
+    }
+
+    static func removeUnreadContribution(
+        for message: MessageStorageItem,
+        from chat: LastChatsStorageItem
+    ) {
+        guard message.unreadCounterBucket == .runtime else {
+            refreshTotal(for: chat)
+            return
+        }
+
+        message.unreadCounterBucket = .none
+        chat.runtimeUnreadCount = max(chat.runtimeUnreadCount - 1, 0)
+        refreshTotal(for: chat)
+    }
+
+    static func ignoreUnresolvedDisplayedMarker(on chat: LastChatsStorageItem) {
+        refreshTotal(for: chat)
+    }
+
+    static func setRuntimeUnreadCount(_ count: Int, for chat: LastChatsStorageItem) {
+        chat.runtimeUnreadCount = max(count, 0)
+        refreshTotal(for: chat)
+    }
+
+    static func recalculateRuntimeUnreadCount(for chat: LastChatsStorageItem, in realm: Realm) {
+        chat.runtimeUnreadCount = realm
+            .objects(MessageStorageItem.self)
+            .filter(
+                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND unreadCounterBucket_ == %@",
+                chat.owner,
+                chat.jid,
+                chat.conversationType.rawValue,
+                MessageStorageItem.UnreadCounterBucket.runtime.rawValue
+            )
+            .count
+        refreshTotal(for: chat)
+    }
+
+    static func refreshTotal(for chat: LastChatsStorageItem) {
+        chat.syncUnreadCount = max(chat.syncUnreadCount, 0)
+        chat.runtimeUnreadCount = max(chat.runtimeUnreadCount, 0)
+        chat.unread = max(0, chat.syncUnreadCount + chat.runtimeUnreadCount)
+    }
+
+    static func readBoundaryId(from message: MessageStorageItem?) -> String? {
+        guard let message else { return nil }
+        if let archivedId = normalizedId(message.archivedId) {
+            return archivedId
+        }
+        return normalizedId(message.messageId)
+    }
+
+    private static func reconcileRuntimeContributionsAfterSnapshot(
+        for chat: LastChatsStorageItem,
+        in realm: Realm
+    ) {
+        let snapshotLastArchiveId = normalizedId(chat.syncSnapshotLastArchiveId)
+        let runtimeMessages = realm
+            .objects(MessageStorageItem.self)
+            .filter(
+                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND unreadCounterBucket_ == %@",
+                chat.owner,
+                chat.jid,
+                chat.conversationType.rawValue,
+                MessageStorageItem.UnreadCounterBucket.runtime.rawValue
+            )
+
+        var preservedCount = 0
+        runtimeMessages.forEach { message in
+            if let snapshotLastArchiveId,
+               archiveId(message.archivedId, isNewerThan: snapshotLastArchiveId) {
+                preservedCount += 1
+            } else {
+                message.unreadCounterBucket = .none
+            }
+        }
+        chat.runtimeUnreadCount = preservedCount
+    }
+
+    private static func clearRuntimeContributions(
+        for chat: LastChatsStorageItem,
+        in realm: Realm,
+        upTo date: Date? = nil
+    ) {
+        var predicate = "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND unreadCounterBucket_ == %@"
+        var args: [Any] = [
+            chat.owner,
+            chat.jid,
+            chat.conversationType.rawValue,
+            MessageStorageItem.UnreadCounterBucket.runtime.rawValue
+        ]
+        if let date {
+            predicate += " AND date <= %@"
+            args.append(date)
+        }
+
+        let runtimeMessages = realm
+            .objects(MessageStorageItem.self)
+            .filter(NSPredicate(format: predicate, argumentArray: args))
+
+        var removed = 0
+        runtimeMessages.forEach { message in
+            if message.unreadCounterBucket == .runtime {
+                message.unreadCounterBucket = .none
+                removed += 1
+            }
+        }
+        chat.runtimeUnreadCount = max(chat.runtimeUnreadCount - removed, 0)
+    }
+
+    private static func isMessageAfterSnapshotBoundary(
+        _ message: MessageStorageItem,
+        chat: LastChatsStorageItem
+    ) -> Bool {
+        guard let snapshotLastArchiveId = normalizedId(chat.syncSnapshotLastArchiveId) else {
+            return true
+        }
+        return archiveId(message.archivedId, isNewerThan: snapshotLastArchiveId)
+    }
+
+    private static func isMessageAtOrAfterSnapshotLast(
+        _ message: MessageStorageItem,
+        chat: LastChatsStorageItem
+    ) -> Bool {
+        guard let snapshotLastArchiveId = normalizedId(chat.syncSnapshotLastArchiveId) else {
+            return false
+        }
+        return archiveId(message.archivedId, isAtOrNewerThan: snapshotLastArchiveId)
+    }
+
+    private static func archiveId(_ value: String?, isNewerThan boundary: String) -> Bool {
+        guard let lhs = archiveIdNumber(value),
+              let rhs = archiveIdNumber(boundary) else {
+            return false
+        }
+        return lhs > rhs
+    }
+
+    private static func archiveId(_ value: String?, isAtOrNewerThan boundary: String) -> Bool {
+        guard let lhs = archiveIdNumber(value),
+              let rhs = archiveIdNumber(boundary) else {
+            return false
+        }
+        return lhs >= rhs
+    }
+
+    private static func archiveIdNumber(_ value: String?) -> Int64? {
+        guard let value = normalizedId(value) else {
+            return nil
+        }
+        return Int64(value)
+    }
+
+    private static func normalizedId(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              value.isNotEmpty else {
+            return nil
+        }
+        return value
+    }
+}
+
 struct RegularChatArchiveIDRange: Codable, Equatable {
     let oldestArchiveId: String
     let newestArchiveId: String
@@ -180,6 +425,32 @@ struct RegularChatArchiveIDRange: Codable, Equatable {
 struct RegularChatArchiveGap: Codable, Equatable {
     let olderRangeNewestArchiveId: String
     let newerRangeOldestArchiveId: String
+}
+
+enum RegularArchiveCoverageUpdateKind: Equatable, Hashable {
+    case bootstrapNewest
+    case pageOlder(cursorArchiveId: String?)
+    case pageNewer(cursorArchiveId: String?)
+    case gapRepairOlder(cursorArchiveId: String?)
+    case gapRepairNewer(cursorArchiveId: String?)
+    case disjointWindow
+    case none
+
+    var adjacencyCursorArchiveId: String? {
+        switch self {
+        case .pageOlder(let cursorArchiveId),
+             .pageNewer(let cursorArchiveId),
+             .gapRepairOlder(let cursorArchiveId),
+             .gapRepairNewer(let cursorArchiveId):
+            return RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(cursorArchiveId)
+        case .bootstrapNewest, .disjointWindow, .none:
+            return nil
+        }
+    }
+
+    var shouldMutateCoverage: Bool {
+        self != .none
+    }
 }
 
 class RegularChatArchiveSyncStateStorageItem: Object {
@@ -236,13 +507,27 @@ class RegularChatArchiveSyncStateStorageItem: Object {
         }
     }
 
-    static func genPrimary(jid: String, owner: String) -> String {
-        return [jid, owner, ClientSynchronizationManager.ConversationType.regular.rawValue].prp()
+    static func genPrimary(
+        jid: String,
+        owner: String,
+        conversationType: ClientSynchronizationManager.ConversationType = .regular
+    ) -> String {
+        return [jid, owner, conversationType.rawValue].prp()
     }
 
     @discardableResult
     static func ensure(owner: String, jid: String, in realm: Realm) -> RegularChatArchiveSyncStateStorageItem {
-        let primary = genPrimary(jid: jid, owner: owner)
+        ensure(owner: owner, jid: jid, conversationType: .regular, in: realm)
+    }
+
+    @discardableResult
+    static func ensure(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        in realm: Realm
+    ) -> RegularChatArchiveSyncStateStorageItem {
+        let primary = genPrimary(jid: jid, owner: owner, conversationType: conversationType)
         if let existing = realm.object(ofType: RegularChatArchiveSyncStateStorageItem.self, forPrimaryKey: primary) {
             return existing
         }
@@ -251,7 +536,7 @@ class RegularChatArchiveSyncStateStorageItem: Object {
         state.primary = primary
         state.owner = owner
         state.jid = jid
-        state.conversationType = .regular
+        state.conversationType = conversationType
         realm.add(state, update: .modified)
         return state
     }
@@ -276,12 +561,31 @@ class RegularChatArchiveSyncStateStorageItem: Object {
         return RegularChatArchiveIDRange(oldestArchiveId: first, newestArchiveId: last)
     }
 
-    func mergeLoadedRange(first: String, last: String) {
+    func mergeLoadedRange(first: String, last: String, updateKind: RegularArchiveCoverageUpdateKind) {
+        guard updateKind.shouldMutateCoverage else {
+            return
+        }
         guard let range = Self.orderedRange(first: first, last: last) else {
             return
         }
 
-        var ranges = loadedRanges + [range]
+        let currentRanges = loadedRanges
+        var ranges: [RegularChatArchiveIDRange]
+        if let cursorArchiveId = updateKind.adjacencyCursorArchiveId,
+           let adjacencyIndex = currentRanges.firstIndex(where: { Self.range($0, contains: cursorArchiveId) }) {
+            ranges = currentRanges
+            let adjacentRange = currentRanges[adjacencyIndex]
+            ranges[adjacencyIndex] = Self.union(adjacentRange, range)
+        } else {
+            ranges = currentRanges + [range]
+        }
+
+        loadedRanges = Self.normalizedRanges(ranges)
+        recomputeBoundsAndGaps()
+    }
+
+    private static func normalizedRanges(_ ranges: [RegularChatArchiveIDRange]) -> [RegularChatArchiveIDRange] {
+        var ranges = ranges
         ranges.sort { lhs, rhs in
             (compareArchiveIds(lhs.oldestArchiveId, rhs.oldestArchiveId) ?? .orderedAscending) == .orderedAscending
         }
@@ -307,37 +611,36 @@ class RegularChatArchiveSyncStateStorageItem: Object {
             }
         }
 
-        loadedRanges = merged
-        recomputeBoundsAndGaps()
+        return merged
     }
 
     func recordKnownNewerGap(to snapshotArchiveId: String) {
-        guard let snapshotArchiveId = Self.normalizedArchiveId(snapshotArchiveId),
-              let newestLoadedArchiveId = newestLoadedArchiveId,
-              (isArchiveId(snapshotArchiveId, newerThan: newestLoadedArchiveId) ?? false) else {
-            return
-        }
-
-        var gaps = knownGaps
-        let gap = RegularChatArchiveGap(
-            olderRangeNewestArchiveId: newestLoadedArchiveId,
-            newerRangeOldestArchiveId: snapshotArchiveId
-        )
-        if !gaps.contains(gap) {
-            gaps.append(gap)
-        }
-        knownGaps = gaps
+        recomputeBoundsAndGaps()
     }
 
     func containsArchiveId(_ archiveId: String?) -> Bool {
         guard let archiveId = Self.normalizedArchiveId(archiveId) else {
             return false
         }
-        return loadedRanges.contains { range in
-            let lower = compareArchiveIds(archiveId, range.oldestArchiveId) ?? .orderedAscending
-            let upper = compareArchiveIds(archiveId, range.newestArchiveId) ?? .orderedDescending
-            return lower != .orderedAscending && upper != .orderedDescending
+        return loadedRange(containing: archiveId) != nil
+    }
+
+    func loadedRange(containing archiveId: String?) -> RegularChatArchiveIDRange? {
+        guard let archiveId = Self.normalizedArchiveId(archiveId) else {
+            return nil
         }
+        return loadedRanges.first { Self.range($0, contains: archiveId) }
+    }
+
+    func containsArchiveIdsInSameLoadedRange(_ archiveIds: [String?]) -> Bool {
+        let archiveIds = archiveIds.compactMap { Self.normalizedArchiveId($0) }
+        guard let firstArchiveId = archiveIds.first else {
+            return true
+        }
+        guard let firstRange = loadedRange(containing: firstArchiveId) else {
+            return false
+        }
+        return archiveIds.dropFirst().allSatisfy { Self.range(firstRange, contains: $0) }
     }
 
     func recomputeBoundsAndGaps() {
@@ -387,5 +690,24 @@ class RegularChatArchiveSyncStateStorageItem: Object {
             return "[]"
         }
         return json
+    }
+
+    private static func range(_ range: RegularChatArchiveIDRange, contains archiveId: String) -> Bool {
+        let lower = compareArchiveIds(archiveId, range.oldestArchiveId) ?? .orderedAscending
+        let upper = compareArchiveIds(archiveId, range.newestArchiveId) ?? .orderedDescending
+        return lower != .orderedAscending && upper != .orderedDescending
+    }
+
+    private static func union(
+        _ lhs: RegularChatArchiveIDRange,
+        _ rhs: RegularChatArchiveIDRange
+    ) -> RegularChatArchiveIDRange {
+        let oldest = (compareArchiveIds(lhs.oldestArchiveId, rhs.oldestArchiveId) ?? .orderedAscending) == .orderedDescending
+            ? rhs.oldestArchiveId
+            : lhs.oldestArchiveId
+        let newest = (compareArchiveIds(lhs.newestArchiveId, rhs.newestArchiveId) ?? .orderedAscending) == .orderedAscending
+            ? rhs.newestArchiveId
+            : lhs.newestArchiveId
+        return RegularChatArchiveIDRange(oldestArchiveId: oldest, newestArchiveId: newest)
     }
 }

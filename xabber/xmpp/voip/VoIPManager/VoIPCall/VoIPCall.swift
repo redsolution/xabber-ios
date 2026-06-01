@@ -340,8 +340,11 @@ extension VoIPCall {
 
     @discardableResult
     internal final func applyAccountConnectionSettings() -> String {
+        self.stream.certificatePeerName = self.stream.myJID?.domain
         guard let account = AccountManager.shared.find(for: owner),
               account.manuallySetHost else {
+            self.stream.hostName = nil
+            self.stream.hostPort = 5222
             return "default"
         }
 
@@ -1571,7 +1574,8 @@ extension VoIPCall: XMPPStreamDelegate {
             event: "tls_will_secure",
             details: [
                 "callId": self.callId,
-                "manualTrustEvaluation": settings[GCDAsyncSocketManuallyEvaluateTrust] as? Bool ?? false
+                "manualTrustEvaluation": settings[GCDAsyncSocketManuallyEvaluateTrust] as? Bool ?? false,
+                "tlsPeer": sender.effectiveCertificatePeerName ?? "none"
             ]
         )
     }
@@ -1581,12 +1585,16 @@ extension VoIPCall: XMPPStreamDelegate {
             completionHandler(false)
             return
         }
-        let shouldTrust = true
+        let shouldTrust = XMPPStreamTLSTrustEvaluator.evaluate(
+            trust,
+            peerName: sender.effectiveCertificatePeerName
+        )
         self.logConnectionDiagnostics(
             event: "tls_trust_evaluated",
             details: [
                 "callId": self.callId,
-                "shouldTrust": shouldTrust
+                "shouldTrust": shouldTrust,
+                "tlsPeer": sender.effectiveCertificatePeerName ?? "none"
             ]
         )
         completionHandler(shouldTrust)

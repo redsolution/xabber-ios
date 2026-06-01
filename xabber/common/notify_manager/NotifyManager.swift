@@ -147,11 +147,11 @@ class NotifyManager {
         case UndefinedAction
     }
     
-    public static let notificationMessageCategory = "com.xabber.ios.message"
-    public static let notificationPushMessageCategory = "com.xabber.ios.message.push"
-    public static let notificationSubscribtionCategory = "com.xabber.ios.subscribtion"
-    public static let notificationInviteCategory = "com.xabber.ios.invite"
-    public static let notificationVerificationCategory = "com.xabber.ios.verification"
+    public static let notificationMessageCategory = PushNotificationCategory.message
+    public static let notificationPushMessageCategory = PushNotificationCategory.pushMessage
+    public static let notificationSubscribtionCategory = PushNotificationCategory.subscription
+    public static let notificationInviteCategory = PushNotificationCategory.invite
+    public static let notificationVerificationCategory = PushNotificationCategory.verification
     public static let notificationMessageActionReply =          [notificationMessageCategory, ".reply"].joined()
     public static let notificationMessageActionMarkAsRead =     [notificationMessageCategory, ".read"].joined()
     public static let notificationMessageActionSetMute =        [notificationMessageCategory, ".mute"].joined()
@@ -199,6 +199,9 @@ class NotifyManager {
     public static let notificationCategories: [String] = [
         NotifyManager.notificationMessageCategory,
         NotifyManager.notificationPushMessageCategory,
+        NotifyManager.notificationSubscribtionCategory,
+        NotifyManager.notificationInviteCategory,
+        NotifyManager.notificationVerificationCategory,
     ]
 
     static func excludedDomains(from accounts: [String]) -> [String] {
@@ -358,13 +361,18 @@ class NotifyManager {
         
         do {
             let realm = try WRealm.safe()
-            if realm.isInWriteTransaction {
-                try realm.write {
-                    for item in self.unreadItems {
-                        if let chatItem = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: item.primary()) {
-                            chatItem.unread = item.count
-                        }
+            let updateCounters = {
+                for item in self.unreadItems {
+                    if let chatItem = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: item.primary()) {
+                        LastChatUnreadCounter.recalculateRuntimeUnreadCount(for: chatItem, in: realm)
                     }
+                }
+            }
+            if realm.isInWriteTransaction {
+                updateCounters()
+            } else {
+                try realm.write {
+                    updateCounters()
                 }
             }
         } catch {
@@ -393,10 +401,13 @@ class NotifyManager {
         content.body = text
         content.sound = MusicBox.shared.getNotificationSound()
         content.categoryIdentifier = NotifyManager.notificationInviteCategory
-        content.userInfo = [
-            "jid": jid,
-            "owner": owner,
-        ]
+        content.userInfo = PushNotificationRoutePayload.groupInvite(
+            owner: owner,
+            groupchat: jid,
+            inviteKind: "group",
+            inviterJid: nil,
+            inviterNickname: subtitle.isEmpty ? nil : subtitle
+        ).userInfo()
         
         
         
@@ -549,13 +560,17 @@ class NotifyManager {
                     content.attachments = [attachment]
                 }
             
-            content.userInfo = [
-                "owner":  self.message.from,
-                "jid": self.message.to,
-                "stanzaId": self.message.Id,
-                "timestamp": Date().timeIntervalSinceReferenceDate,
-                "conversation_type": self.message.conversationType
-            ]
+            content.userInfo = PushNotificationRoutePayload.message(
+                owner: self.message.from,
+                routeJid: self.message.to,
+                conversationType: self.message.conversationType,
+                stanzaId: self.message.Id,
+                messageId: nil,
+                stanza: nil,
+                senderJid: self.message.to,
+                senderNickname: self.message.username,
+                groupchat: self.message.conversationType == "group" ? self.message.to : nil
+            ).userInfo(timestamp: Date().timeIntervalSinceReferenceDate)
             content.title = ["📱", self.message.displayName].joined(separator: " ")
             if let username = self.message.username {
                 content.subtitle = username
@@ -570,10 +585,11 @@ class NotifyManager {
                 return
             }
             content.categoryIdentifier = NotifyManager.notificationSubscribtionCategory
-            content.userInfo = [
-                "owner": self.subscription.from,
-                "jid": self.subscription.to
-            ]
+            content.userInfo = PushNotificationRoutePayload.subscriptionRequest(
+                owner: self.subscription.from,
+                contactJid: self.subscription.to,
+                nickname: self.subscription.displayName.isEmpty ? nil : self.subscription.displayName
+            ).userInfo()
             content.title = self.subscription.displayName
             //content.subtitle = "📱"
             content.body = "Contact \(self.subscription.to) wants to add you to contact list".localizeString(id: "desktop_notifications_add_you_to_contact", arguments: ["\(self.subscription.to)"])
@@ -593,10 +609,11 @@ class NotifyManager {
         case .verification:
             DDLogDebug("notify of verification message")
             content.categoryIdentifier = NotifyManager.notificationVerificationCategory
-            content.userInfo = [
-                "owner": self.verification.owner!,
-                "sid": self.verification.Id
-            ]
+            content.userInfo = PushNotificationRoutePayload.verificationRequest(
+                owner: self.verification.owner ?? "",
+                senderJid: nil,
+                sid: self.verification.Id
+            ).userInfo()
             content.title = self.verification.displayName
             content.body = self.verification.message
             content.sound = MusicBox.shared.getNotificationSound(for: .newMessage)
@@ -935,7 +952,9 @@ class NotifyManager {
 
         let userInfo = response.notification.request.content.userInfo
         guard let owner = userInfo["owner"] as? String,
-            let jid = userInfo["groupchat"] as? String else {
+              let jid = userInfo["groupchat"] as? String
+                ?? userInfo["route_jid"] as? String
+                ?? userInfo["jid"] as? String else {
                 completionHandler?()
                 return false
         }
@@ -952,7 +971,9 @@ class NotifyManager {
 
         let userInfo = response.notification.request.content.userInfo
         guard let owner = userInfo["owner"] as? String,
-            let jid = userInfo["groupchat"] as? String else {
+              let jid = userInfo["groupchat"] as? String
+                ?? userInfo["route_jid"] as? String
+                ?? userInfo["jid"] as? String else {
                 completionHandler?()
                 return false
         }
@@ -962,15 +983,64 @@ class NotifyManager {
         completionHandler?()
         return true
     }
+
+    @discardableResult
+    public final func onTouchNotificationRoute(
+        userInfo: [AnyHashable: Any],
+        atStart: Bool,
+        handler completionHandler: (() -> Void)? = nil
+    ) -> Bool {
+        guard let route = PushNotificationRoutePayload(userInfo: userInfo) else {
+            completionHandler?()
+            return false
+        }
+        return onTouchNotificationRoute(route, atStart: atStart, handler: completionHandler)
+    }
+
+    @discardableResult
+    public final func onTouchNotificationRoute(
+        _ route: PushNotificationRoutePayload,
+        atStart: Bool,
+        handler completionHandler: (() -> Void)? = nil
+    ) -> Bool {
+        switch route.kind {
+        case .message:
+            onTouchMessageNotification(userInfo: route.userInfo(timestamp: route.timestamp), atStart: atStart, handler: completionHandler)
+            return true
+        case .subscriptionRequest:
+            guard let jid = route.routeJid else {
+                completionHandler?()
+                return false
+            }
+            let conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
+            let opened = openChatForNotification(owner: route.owner, jid: jid, conversationType: conversationType, openMessageRequest: nil, configure: nil)
+            completionHandler?()
+            return opened
+        case .groupInvite:
+            guard let jid = route.groupchat ?? route.routeJid else {
+                completionHandler?()
+                return false
+            }
+            let opened = openChatForNotification(owner: route.owner, jid: jid, conversationType: .group, openMessageRequest: nil) { vc in
+                vc?.showInviteActionsMenuFromNotification()
+            }
+            completionHandler?()
+            return opened
+        case .verificationRequest:
+            onTouchVerificationNotification(userInfo: route.userInfo(timestamp: route.timestamp), handler: completionHandler)
+            return true
+        }
+    }
     
     public final func onTouchMessageNotification(userInfo: [AnyHashable: Any], atStart: Bool, handler completionHandler: (() -> Void)? = nil) {
         guard canHandleNotificationContentAction(handler: completionHandler) else {
             return
         }
 
-        guard let owner = userInfo["owner"] as? String,
-            let jid = userInfo["jid"] as? String,
-            jid != owner else {
+        let route = PushNotificationRoutePayload(userInfo: userInfo)
+        guard let owner = route?.owner ?? (userInfo["owner"] as? String),
+              let jid = route?.routeJid ?? (userInfo["jid"] as? String),
+              jid != owner else {
                 completionHandler?()
                 return
         }
@@ -1042,9 +1112,10 @@ class NotifyManager {
             }
         }
         
-        if let conversationTypeRaw = userInfo["conversation_type"] as? String {
+        if let conversationTypeRaw = route?.conversationType ?? (userInfo["conversation_type"] as? String) {
             conversationType = ClientSynchronizationManager.ConversationType(rawValue: conversationTypeRaw) ?? ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
         }
+        let openMessageRequest = makeOpenMessageRequest(route: route, owner: owner, jid: jid, conversationType: conversationType)
         
         if UIApplication.shared.applicationState == .active {
 //            DispatchQueue.main.async {
@@ -1100,30 +1171,86 @@ class NotifyManager {
                         if !instance.isSynced {
                             instance.isPrereaded = true
                         }
-                        instance.unread = 0
+                        LastChatUnreadCounter.clearAll(
+                            to: instance,
+                            boundaryId: instance.lastMessageId,
+                            realm: realm
+                        )
                     }
                 }
             } catch {
                 DDLogDebug("NotifyManager: \(#function). \(error.localizedDescription)")
             }
             
-            let stanzaId = userInfo["stanzaId"]  as? String
-            if let leftMenuDelegate = self.leftMenuDelegate {
-                leftMenuDelegate.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType) { vc in
-                    if let stanzaId = stanzaId {
-                        vc?.scrollToMessageAtIndex(archivedId: stanzaId, date: Date())
-                    }
-                }
-            } else {
-                let opened = AppRootCoordinator.active?.route(.chat(owner: owner, jid: jid, conversationType: conversationType)) ?? false
-                if !opened {
-                    self.openViewControllerPayload = ["owner": owner, "jid": jid, "action": "foregroundChat"]
-                }
+            let opened = openChatForNotification(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                openMessageRequest: openMessageRequest,
+                configure: nil
+            )
+            if !opened {
+                self.openViewControllerPayload = ["owner": owner, "jid": jid, "action": "foregroundChat"]
             }
             Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { (_) in
                 completionHandler?()
             }
         }
+    }
+
+    private final func makeOpenMessageRequest(
+        route: PushNotificationRoutePayload?,
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> ChatOpenMessageRequest? {
+        guard let route,
+              route.stanzaId != nil || route.messageId != nil else {
+            return nil
+        }
+        let sourceDate = route.timestamp.map { Date(timeIntervalSinceReferenceDate: $0) } ?? Date()
+        return ChatOpenMessageRequest(
+            chatJid: jid,
+            owner: owner,
+            conversationType: conversationType,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: route.stanzaId,
+                messageId: route.messageId,
+                authorId: route.senderJid,
+                bodyFingerprint: nil,
+                sourceDate: sourceDate
+            ),
+            highlight: true,
+            markReadOnVisible: true,
+            source: .pushNotification
+        )
+    }
+
+    @discardableResult
+    private final func openChatForNotification(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        openMessageRequest: ChatOpenMessageRequest?,
+        configure: ((ChatViewController?) -> Void)?
+    ) -> Bool {
+        if let leftMenuDelegate = self.leftMenuDelegate {
+            leftMenuDelegate.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType) { vc in
+                configure?(vc)
+                if let openMessageRequest {
+                    vc?.queueOpenMessageRequest(openMessageRequest)
+                }
+            }
+            return true
+        }
+        return AppRootCoordinator.active?.route(.chatMessage(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType,
+            openMessageRequest: openMessageRequest,
+            configure: configure
+        )) ?? false
     }
     
     public final func onTouchVerificationNotification(userInfo: [AnyHashable: Any], handler completionHandler: (() -> Void)? = nil) {
@@ -1131,8 +1258,14 @@ class NotifyManager {
             return
         }
 
-        guard let owner = userInfo["owner"] as? String,
-              let sid = userInfo["sid"] as? String else {
+        let route = PushNotificationRoutePayload(userInfo: userInfo)
+        guard let owner = route?.owner ?? (userInfo["owner"] as? String) else {
+            completionHandler?()
+            return
+        }
+        guard let sid = route?.sid ?? (userInfo["sid"] as? String) else {
+            openVerificationFallback(owner: owner)
+            completionHandler?()
             return
         }
         
@@ -1140,24 +1273,17 @@ class NotifyManager {
             let realm = try WRealm.safe()
             let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid))
             if instance == nil {
+                openVerificationFallback(owner: owner)
+                completionHandler?()
                 return
             }
             
             switch instance!.state {
             case VerificationSessionStorageItem.VerififcationState.receivedRequest:
-                NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showConfirmationViewNotification,
-                                                object: self,
-                                                userInfo: [
-                                                    "owner": owner,
-                                                    "sid": sid
-                                                ])
+                openVerification(instance: instance!, owner: owner, sid: sid)
                 
             case VerificationSessionStorageItem.VerififcationState.receivedRequestAccept:
-                NotificationCenter.default.post(
-                    name: AuthenticatedKeyExchangeManager.showCodeInputViewNotification,
-                    object: self,
-                    userInfo: ["owner": owner, "sid": sid]
-                )
+                openVerification(instance: instance!, owner: owner, sid: sid)
                 
             case VerificationSessionStorageItem.VerififcationState.failed:
                 if let instance = instance {
@@ -1180,10 +1306,38 @@ class NotifyManager {
                     }
                 break
             default:
+                openVerificationFallback(owner: owner)
                 break
             }
         } catch {
             DDLogDebug("NotifyManager: \(#function). \(error.localizedDescription)")
+            openVerificationFallback(owner: owner)
+        }
+        completionHandler?()
+    }
+
+    private final func openVerification(
+        instance: VerificationSessionStorageItem,
+        owner: String,
+        sid: String
+    ) {
+        let vc = VerificationViewController()
+        vc.owner = owner
+        vc.state = instance.state
+        vc.jid = instance.jid
+        vc.sid = sid
+        vc.deviceId = String(instance.opponentDeviceId)
+        vc.code = instance.code
+        DispatchQueue.main.async {
+            showModal(vc, replaceParent: false)
+        }
+    }
+
+    private final func openVerificationFallback(owner: String) {
+        let vc = DevicesListViewController()
+        vc.configure(for: owner)
+        DispatchQueue.main.async {
+            showModal(vc, replaceParent: false)
         }
     }
     

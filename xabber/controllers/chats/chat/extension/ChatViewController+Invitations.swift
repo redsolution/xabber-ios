@@ -52,12 +52,51 @@ extension ChatViewController {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
         
-//        DispatchQueue.main.async {
-            self.showInviteActionsMenu()
-//        }
+        self.showInviteActionsMenu()
     }
     
+    internal func showInviteActionsMenuFromNotification() {
+        DispatchQueue.main.async {
+            guard self.presentedViewController == nil else {
+                return
+            }
+            let message: String
+            switch self.conversationType {
+            case .group:
+                message = "You are invited to join this group"
+            default:
+                message = "You are invited to join this chat"
+            }
+
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .actionSheet)
+            let joinTitle = self.conversationType == .group
+                ? "Join group".localizeString(id: "join_group", arguments: [])
+                : "Join chat".localizeString(id: "join_chat", arguments: [])
+            alert.addAction(UIAlertAction(title: joinTitle, style: .default) { _ in
+                self.onInviteActionSelected()
+                self.onAcceptInvite()
+            })
+            alert.addAction(UIAlertAction(title: "Decline".localizeString(id: "decline", arguments: []), style: .default) { _ in
+                self.onInviteActionSelected()
+                self.onDeclineInvite()
+            })
+            alert.addAction(UIAlertAction(title: "Block".localizeString(id: "contact_bar_block", arguments: []), style: .destructive) { _ in
+                self.onInviteActionSelected()
+                self.onBlockInvite()
+            })
+            alert.addAction(UIAlertAction(title: "Cancel".localizeString(id: "cancel", arguments: []), style: .cancel))
+            if let popover = alert.popoverPresentationController {
+                popover.sourceView = self.view
+                popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 0, height: 0)
+                popover.permittedArrowDirections = []
+            }
+            self.present(alert, animated: true)
+        }
+    }
+
     private final func showInviteActionsMenu() {
+        showInviteActionsMenuFromNotification()
+        return
 //        let incognitoMessage: String = "You are invited to join this incognito group"
 //            .localizeString(id: "incognito_group_invitation", arguments: [])
 //        let publicMessage: String = "You are invited to join this public group"

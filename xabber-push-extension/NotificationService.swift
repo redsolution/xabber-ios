@@ -226,6 +226,8 @@ class NotificationService: UNNotificationServiceExtension {
     
     var contentHandler: ((UNNotificationContent) -> Void)?
     var bestAttemptContent: UNMutableNotificationContent = UNMutableNotificationContent()
+    private let completionQueue = DispatchQueue(label: "com.xabber.notification-service.completion")
+    private var didCompleteContent = false
     
     var creditionals: [String: Any] = [:]
     var owner: String = ""
@@ -243,7 +245,19 @@ class NotificationService: UNNotificationServiceExtension {
     var retryCount: Int = 0
     
 
-    
+    private func completeContent(_ content: UNNotificationContent) {
+        var handler: ((UNNotificationContent) -> Void)?
+        completionQueue.sync {
+            guard !didCompleteContent else {
+                return
+            }
+            didCompleteContent = true
+            handler = contentHandler
+            contentHandler = nil
+        }
+        handler?(content)
+    }
+
     internal func getAccounts(_ payload: [AnyHashable: Any]) -> [String: Any] {
         func convertCredionals(_ text: String) -> [String: String]? {
             if let data = text.data(using: .utf8) {
@@ -318,7 +332,7 @@ class NotificationService: UNNotificationServiceExtension {
         print("NOTIFICATIONREC", request)
         self.contentHandler = contentHandler
         guard let bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent) else {
-            contentHandler(request.content)
+            completeContent(request.content)
             return
         }
         identifier = request.identifier
@@ -330,14 +344,14 @@ class NotificationService: UNNotificationServiceExtension {
             let payload_decoded = parse(payload: body) else {
             self.bestAttemptContent.title = CommonConfigManager.shared.config.app_name
             self.bestAttemptContent.body = "fail to parse"
-            contentHandler(bestAttemptContent)
+            completeContent(bestAttemptContent)
             return
         }
         
         guard let node = bestAttemptContent.userInfo["target"] as? String else {
             bestAttemptContent.title = CommonConfigManager.shared.config.app_name
             bestAttemptContent.body = "bad node: \(request.content.userInfo["target"] as? String ?? "")"
-            contentHandler(bestAttemptContent)
+            completeContent(bestAttemptContent)
             return
         }
         self.loadCredentials(for: node, payload: payload_decoded)
@@ -345,7 +359,7 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     override func serviceExtensionTimeWillExpire() {
-        contentHandler?(bestAttemptContent)
+        completeContent(bestAttemptContent)
     }
     
     internal func action(for payload: PayloadData) {
@@ -362,7 +376,7 @@ class NotificationService: UNNotificationServiceExtension {
     internal func onHide(_ payload: PayloadData) {
         bestAttemptContent.title = CommonConfigManager.shared.config.app_name
         bestAttemptContent.body = "New \(payload.action.rawValue)"
-        contentHandler?(bestAttemptContent)
+        completeContent(bestAttemptContent)
     }
 
     private func fallbackVisibleNotification(for action: Actions, reason: String? = nil) {
@@ -378,7 +392,7 @@ class NotificationService: UNNotificationServiceExtension {
         if action == .marker {
             suppressCurrentNotification()
         } else {
-            contentHandler?(bestAttemptContent)
+            completeContent(bestAttemptContent)
         }
     }
 
@@ -388,7 +402,7 @@ class NotificationService: UNNotificationServiceExtension {
         bestAttemptContent.subtitle = ""
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
-        contentHandler?(bestAttemptContent)
+        completeContent(bestAttemptContent)
     }
     
     internal func onMessage(_ payload: PayloadData) {
@@ -414,13 +428,19 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     internal func onSubscribe(_ payload: PayloadData) {
-        bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-        if let from = payload.subscribtionRequestFrom(key: pushData?.secret ?? "") {
-            bestAttemptContent.body = "Incoming chat request from \(from)"
-        } else {
+        guard let from = payload.subscribtionRequestFrom(key: pushData?.secret ?? "")?.split(separator: "/").first.map(String.init) else {
+            bestAttemptContent.title = CommonConfigManager.shared.config.app_name
             bestAttemptContent.body = "Incoming chat request"
+            completeContent(bestAttemptContent)
+            return
         }
-        contentHandler?(bestAttemptContent)
+        let metadata = CommonContactsMetadataManager.shared.getItem(owner: owner, jid: from)
+        let route = PushNotificationRoutePayload.subscriptionRequest(
+            owner: owner,
+            contactJid: from,
+            nickname: metadata.username
+        )
+        renderSubscriptionRequest(route: route, displayName: metadata.username ?? from)
         return
 //        guard password.isNotEmpty || token.isNotEmpty,
 //            let content = self.bestAttemptContent,
@@ -465,7 +485,7 @@ class NotificationService: UNNotificationServiceExtension {
         guard let secret = creditionals["secret"] as? String else {
             bestAttemptContent.title = "Xabber"
             bestAttemptContent.body = "New \(payload.action.rawValue)"
-            contentHandler?(bestAttemptContent)
+            completeContent(bestAttemptContent)
             return
         }
         
@@ -533,281 +553,207 @@ class NotificationService: UNNotificationServiceExtension {
 }
 
 extension NotificationService: PushPayloadDelegate {
-    func didReceiveStartVerification(payload: [String : String]) {
-        bestAttemptContent.body = "\(payload["from"] ?? "Somebody") ask you to verify yourself"
-        bestAttemptContent.title = "New verification request"
-
-        contentHandler?(bestAttemptContent)
-    }
-    
     func didReceiveSync(stanza: String) {
         let defaults  = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup())
         defaults?.set(stanza, forKey: "com.xabber.sync.temporary.\(owner)")
     }
     
     func didDisconnectWithError(_ error: String) {
-//        if retryCount < 5 {
-//            Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { _ in
-//                self.ws?.connect()
-//                self.retryCount += 1
-//            }
-//        } else {
-                bestAttemptContent.title = "New message"
-                bestAttemptContent.body = "You receive new message"//.localizeString(id: "new_chat_messages", arguments: [])
-//                if owner.isNotEmpty {
-//                    bestAttemptContent.body = "To \(self.owner)"
-//                }
-                contentHandler?(bestAttemptContent)
-//        }
+        bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+        bestAttemptContent.body = "New message"
+        completeContent(bestAttemptContent)
     }
-    
-    private final func updateContentFor(message payload: [String : String]) async {
-//        if let bestAttemptContent = bestAttemptContent {
-            bestAttemptContent.userInfo["timestamp"] = Date().timeIntervalSinceReferenceDate
-            if let stanzaId = payload["stanzaId"] {
-                bestAttemptContent.userInfo["stanzaId"] = stanzaId
-                UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
-                    if notifications
-                        .first(where: { $0.request.content.userInfo["stanzaId"] as? String == stanzaId }) != nil {
-                        self.contentHandler = nil
-                        UNUserNotificationCenter
-                            .current()
-                            .removePendingNotificationRequests(withIdentifiers: [self.identifier])
-                    }
-                }
-            }
-            if payload["invite"] != nil {
-                self.notificationType = .invite
-                var inviteKind: InviteKind = .group
-                if let kind = payload["invite_kind"] {
-                    inviteKind = InviteKind(rawValue: kind) ?? .group
-                    bestAttemptContent.userInfo["invite_kind"] = inviteKind.rawValue
-                }
-                if let from = payload["from"],
-                   let inviteToJid = payload["invite_to_jid"] {
-                    var displayName: String = from
-//                    let realm = try? Realm(configuration: realmConfig)
-//                    if let instance = realm?.object(ofType: RosterDisplayNameStorageItem.self,
-//                                                   forPrimaryKey: [from, owner].joined(separator: "_")) {
-//                        displayName = instance.displayName
-//                    }
-                    bestAttemptContent.title = inviteToJid
-                    switch inviteKind {
-                    case .group:
-                        bestAttemptContent.body = "Invitation to public group from \(displayName)"//.localizeString(id: "public_group_invitation", arguments: ["\(displayName)"])
-                    case .incognito:
-                        bestAttemptContent.body = "Invitation to incognito group from \(displayName)"//.localizeString(id: "incognito_group_invitation", arguments: [])
-                    case .peerToPeer:
-                        bestAttemptContent.body = "Invitation to private chat"//.localizeString(id: "chat_message_private_invitation", arguments: [])
-                    }
-//                    self.bestAttemptContent = bestAttemptContent
-                    self.notificationType = .invite
-                    return
-                }
-//                self.bestAttemptContent = bestAttemptContent
-            } else {
-                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-                let metadata = CommonContactsMetadataManager.shared.getItem(owner: owner, jid: payload["from"] ?? "none")
-                if let body = payload["body"] {
-                    bestAttemptContent.body = body
-                }
-                if let groupchatFrom = payload["groupchatFrom"] {
-                    if groupchatFrom == owner {
-                        bestAttemptContent.subtitle = "Group carbons"//.localizeString(id: "group_carbons", arguments: [])
-                    }
-                }
-                let conversationId = "xabber:\(owner.lowercased()):\(metadata.jid.lowercased())"
-                if let from = payload["from"] {
-                    bestAttemptContent.userInfo["jid"] = from
-                    bestAttemptContent.userInfo["owner"] = owner
-                    bestAttemptContent.threadIdentifier = conversationId
-                    if from == owner {
-                        bestAttemptContent.subtitle = "Carbon message"//.localizeString(id: "carbon_message", arguments: [])
-                    }
-                    bestAttemptContent.subtitle = from
 
-                    bestAttemptContent.subtitle = from
-                    if !editMark.isEmpty {
-                        bestAttemptContent.subtitle = [editMark, bestAttemptContent.title].joined(separator: " ")
-                    } else {
-                        bestAttemptContent.subtitle = ["", bestAttemptContent.title].joined(separator: " ")
-                    }
-                }
-                if let nickname = payload["nickname"] ?? metadata.username {
-//                    if !editMark.isEmpty {
-//                        
-//                    } else {
-//                        bestAttemptContent.subtitle = nickname//["💨", nickname].joined(separator: " ")
-//                    }
-                    bestAttemptContent.subtitle = nickname
-                }
-                if let imageUrls = payload["imageUrls"] {
-                    let urls = imageUrls
-                        .split(separator: " ")
-                        .compactMap{ return "\($0)" }
-                        .compactMap{ return URL(string: $0) }
-                    let attaches = urls.compactMap { url -> UNNotificationAttachment? in
-                        return try? UNNotificationAttachment(
-                            identifier: url.lastPathComponent,
-                            url: url,
-                            options: nil
-                        )
-                    }
-                    bestAttemptContent.attachments = attaches
-                }
-                
-                bestAttemptContent.sound = .default
-                bestAttemptContent.categoryIdentifier = "com.xabber.ios.message.push"
-                                
-                let handle = INPersonHandle(value: metadata.jid, type: .unknown)
-                
-                var avatar: INImage
-                if let avatarUrl = metadata.avatarUrl,
-                    let url = URL(string: avatarUrl),
-                    let image = INImage(url: url) {
-                    avatar = image
-                } else {
-                    avatar = INImage(named: "person.2.circle.fill")
-                }
-                let sender = INPerson(
-                    personHandle: handle,
-                    nameComponents: nil,
-                    displayName: metadata.username ?? metadata.jid,
-                    image: avatar,
-                    contactIdentifier: nil,//metadata.contactID,   // ← здесь главное
-                    customIdentifier: nil
-                )
-                
-                let intent = INSendMessageIntent(recipients: nil,
-                                                 outgoingMessageType: .outgoingMessageText,
-                                                 content: payload["body"] ?? "body",
-                                                 speakableGroupName: nil,
-                                                 conversationIdentifier: conversationId,
-                                                 serviceName: nil,
-                                                 sender: sender,
-                                                 attachments: nil)
-                
-                let interaction = INInteraction(intent: intent, response: nil)
-                interaction.direction = .incoming
-                
-                do {
-                    try await interaction.donate()
-                    let updatedContent = try bestAttemptContent.updating(from: intent)
-                    contentHandler?(updatedContent)
-                } catch {
-                    return
+    func didUpdateContent(preview: PushNotificationPreview) async {
+        switch preview.route.kind {
+        case .message:
+            await renderMessage(preview)
+        case .groupInvite:
+            renderGroupInvite(preview)
+        case .verificationRequest:
+            renderVerificationRequest(preview)
+        case .subscriptionRequest:
+            renderSubscriptionRequest(
+                route: preview.route,
+                displayName: preview.route.senderNickname ?? preview.route.routeJid ?? "Someone"
+            )
+        }
+    }
+
+    private final func applyRoute(_ route: PushNotificationRoutePayload) {
+        let timestamp = Date().timeIntervalSinceReferenceDate
+        route.userInfo(timestamp: timestamp).forEach {
+            bestAttemptContent.userInfo[$0.key] = $0.value
+        }
+        if let stanzaId = route.stanzaId {
+            UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
+                if notifications.first(where: { $0.request.content.userInfo["stanzaId"] as? String == stanzaId }) != nil {
+                    UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [self.identifier])
                 }
             }
-//        } else {
-//            self.contentHandler = nil
-//            UNUserNotificationCenter
-//                .current()
-//                .removeDeliveredNotifications(withIdentifiers: [identifier])
-//            UNUserNotificationCenter
-//                .current()
-//                .removePendingNotificationRequests(withIdentifiers: [identifier])
-//        }
+        }
     }
-    
-    private final func updateContentFor(invite payload: [String : String]) {
-//        guard let content = bestAttemptContent else {
-//            self.contentHandler?(bestAttemptContent!)
-//            return
-//        }
-        if let nickname = payload["nickname"] {
-            bestAttemptContent.title = nickname
+
+    private final func renderMessage(_ preview: PushNotificationPreview) async {
+        guard let routeJid = preview.route.routeJid else {
+            bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+            bestAttemptContent.body = preview.body
+            completeContent(bestAttemptContent)
+            return
         }
-        if let from = payload["invite_to_jid"] {
-            bestAttemptContent.userInfo["jid"] = from
-            bestAttemptContent.userInfo["owner"] = owner
-        }
-        
-        bestAttemptContent.categoryIdentifier = "com.xabber.ios.invite"
+
+        applyRoute(preview.route)
+        bestAttemptContent.categoryIdentifier = PushNotificationCategory.pushMessage
         bestAttemptContent.sound = .default
-        if let base64String = payload["avatarBase64"] {
-//            if let image = base64ToImage(base64String),
-//                let attach = UNNotificationAttachment(
-//                    identifier: payload["nickname"] ?? payload["from"] ?? "avatar",
-//                    image: image,
-//                    options: nil
-//                ) {
-//                content.attachments = [attach]
-//            }
+        bestAttemptContent.body = preview.body
+        bestAttemptContent.attachments = await imageAttachments(for: preview.imageURLs)
+
+        let isGroup = preview.route.groupchat != nil || preview.route.conversationType == "group"
+        let routeMetadata = CommonContactsMetadataManager.shared.getItem(owner: owner, jid: routeJid)
+        let routeDisplayName = routeMetadata.username ?? preview.groupName ?? routeJid
+        let senderDisplayName = isGroup
+            ? (preview.route.senderNickname ?? preview.route.senderJid ?? routeDisplayName)
+            : (routeMetadata.username ?? routeJid)
+        let conversationId = "xabber:\(owner.lowercased()):\(routeJid.lowercased())"
+
+        bestAttemptContent.threadIdentifier = conversationId
+        bestAttemptContent.title = isGroup ? routeDisplayName : senderDisplayName
+        bestAttemptContent.subtitle = isGroup ? senderDisplayName : editMark
+        if !editMark.isEmpty {
+            bestAttemptContent.subtitle = [editMark, bestAttemptContent.subtitle].filter { !$0.isEmpty }.joined(separator: " ")
         }
-        self.contentHandler?(bestAttemptContent)
+
+        let handleValue = isGroup
+            ? (preview.route.senderJid ?? preview.route.senderNickname ?? routeJid)
+            : routeJid
+        let sender = INPerson(
+            personHandle: INPersonHandle(value: handleValue, type: .unknown),
+            nameComponents: nil,
+            displayName: senderDisplayName,
+            image: intentImage(avatarURL: routeMetadata.avatarUrl),
+            contactIdentifier: routeMetadata.contactID,
+            customIdentifier: nil
+        )
+        let groupName = isGroup ? INSpeakableString(spokenPhrase: routeDisplayName) : nil
+        let intent = INSendMessageIntent(
+            recipients: nil,
+            outgoingMessageType: .outgoingMessageText,
+            content: preview.body,
+            speakableGroupName: groupName,
+            conversationIdentifier: conversationId,
+            serviceName: nil,
+            sender: sender,
+            attachments: nil
+        )
+        let interaction = INInteraction(intent: intent, response: nil)
+        interaction.direction = .incoming
+        do {
+            try await interaction.donate()
+            let updatedContent = try bestAttemptContent.updating(from: intent)
+            completeContent(updatedContent)
+        } catch {
+            completeContent(bestAttemptContent)
+        }
     }
-    
-    private final func updateContentFor(subscribtion payload: [String : String]) {
-        /*
-         if let avatarBase64String = vcard.elements(forName: "PHOTO").first?.elements(forName: "BINVAL").first?.stringValue {
-             payload["avatarBase64"] = avatarBase64String
-         }
-         */
-//        guard let content = bestAttemptContent else {
-//            return
-//        }
-        var nickname = payload["nickname"]
-        if nickname == nil {
-            nickname = [payload["given"], payload["family"]]
-                .compactMap({ return $0 })
-                .joined(separator: " ")
-                .trimmingCharacters(in: .whitespaces)
-            if nickname?.isEmpty ?? false {
-                nickname = nil
-            }
+
+    private final func renderGroupInvite(_ preview: PushNotificationPreview) {
+        applyRoute(preview.route)
+        guard let groupchat = preview.route.groupchat ?? preview.route.routeJid else {
+            bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+            bestAttemptContent.body = preview.body
+            completeContent(bestAttemptContent)
+            return
         }
-        if nickname == nil {
-            nickname = payload["fn"]
-        }
-        if nickname == nil {
-            nickname = payload["from"]
-        }
-        bestAttemptContent.title = ""
-        bestAttemptContent.subtitle = "PUSH"
-        if let nickname = nickname,
-            let from = payload["from"] {
-            bestAttemptContent.body = "\(nickname) (\(from)) asks to see your presence information"//.localizeString(id: "chat_contact_asks_presence_information", arguments: ["\(nickname)", "\(from)"])
+        let groupMetadata = CommonContactsMetadataManager.shared.getItem(owner: owner, jid: groupchat)
+        let inviterName = preview.route.inviterNickname
+            ?? preview.route.senderNickname
+            ?? preview.route.inviterJid
+            ?? preview.route.senderJid
+        let groupName = groupMetadata.username ?? preview.groupName ?? groupchat
+        bestAttemptContent.title = groupName
+        if let inviterName {
+            bestAttemptContent.subtitle = inviterName
+            bestAttemptContent.body = "\(preview.body) from \(inviterName)"
         } else {
-            bestAttemptContent.body = "\(payload["from"] ?? "Someone") asks to see your presence information"//.localizeString(id: "person_asks_to_see_presence", arguments: ["\(payload["from"] ?? "Someone")"])
+            bestAttemptContent.body = preview.body
         }
-        
-        bestAttemptContent.userInfo["owner"] = owner
-        if let from = payload["from"] {
-            bestAttemptContent.userInfo["jid"] = from
-            bestAttemptContent.categoryIdentifier = "com.xabber.ios.subscribtion"
-            bestAttemptContent.sound = .default
-        }
-        
-        if let base64String = payload["avatarBase64"] {
-//            if let image = base64ToImage(base64String),
-//                let attach = UNNotificationAttachment(
-//                    identifier: payload["nickname"] ?? payload["from"] ?? "avatar",
-//                    image: image,
-//                    options: nil
-//                ) {
-//                content.attachments = [attach]
-//            }
-        }
-        
+        bestAttemptContent.categoryIdentifier = PushNotificationCategory.invite
         bestAttemptContent.sound = .default
-        self.contentHandler?(bestAttemptContent)
+        completeContent(bestAttemptContent)
     }
-    
-    func didUpdateContent(payload: [String : String]) async {
-//        print(#function, notificationType, payload)
-        switch notificationType {
-        case .invite: updateContentFor(invite: payload)
-        case .message: await updateContentFor(message: payload)
-        case .subscribe: updateContentFor(subscribtion: payload)
-        case .update: await updateContentFor(message: payload)
-        default:
-            self.contentHandler = nil
-            UNUserNotificationCenter
-                .current()
-                .removeDeliveredNotifications(withIdentifiers: [identifier])
-            UNUserNotificationCenter
-                .current()
-                .removePendingNotificationRequests(withIdentifiers: [identifier])
+
+    private final func renderSubscriptionRequest(route: PushNotificationRoutePayload, displayName: String) {
+        applyRoute(route)
+        let jid = route.routeJid ?? displayName
+        bestAttemptContent.title = displayName
+        bestAttemptContent.subtitle = jid == displayName ? "" : jid
+        bestAttemptContent.body = "\(displayName) asks to see your presence information"
+        bestAttemptContent.categoryIdentifier = PushNotificationCategory.subscription
+        bestAttemptContent.sound = .default
+        completeContent(bestAttemptContent)
+    }
+
+    private final func renderVerificationRequest(_ preview: PushNotificationPreview) {
+        applyRoute(preview.route)
+        let sender = preview.route.senderNickname ?? preview.route.senderJid ?? "Somebody"
+        bestAttemptContent.title = "New verification request"
+        bestAttemptContent.body = "\(sender) asks you to verify yourself"
+        bestAttemptContent.categoryIdentifier = PushNotificationCategory.verification
+        bestAttemptContent.sound = .default
+        completeContent(bestAttemptContent)
+    }
+
+    private final func intentImage(avatarURL: String?) -> INImage {
+        if let avatarURL,
+           let url = URL(string: avatarURL),
+           let image = INImage(url: url) {
+            return image
         }
+        return INImage(named: "person.2.circle.fill")
+    }
+
+    private final func imageAttachments(for urlStrings: [String]) async -> [UNNotificationAttachment] {
+        var attachments: [UNNotificationAttachment] = []
+        for urlString in urlStrings.prefix(2) {
+            guard let url = URL(string: urlString),
+                  let attachment = await imageAttachment(for: url) else {
+                continue
+            }
+            attachments.append(attachment)
+        }
+        return attachments
+    }
+
+    private final func imageAttachment(for url: URL) async -> UNNotificationAttachment? {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 2.5
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 2.5
+        configuration.timeoutIntervalForResource = 3.0
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        do {
+            let (downloadedURL, response) = try await session.download(for: request)
+            if let expectedLength = (response as? HTTPURLResponse)?.expectedContentLength,
+               expectedLength > 10 * 1024 * 1024 {
+                return nil
+            }
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("xabber-notification-media", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+            let filename = localAttachmentFilename(for: url)
+            let destination = directory.appendingPathComponent(filename)
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.copyItem(at: downloadedURL, to: destination)
+            return try UNNotificationAttachment(identifier: filename, url: destination, options: nil)
+        } catch {
+            return nil
+        }
+    }
+
+    private final func localAttachmentFilename(for url: URL) -> String {
+        let base = url.deletingPathExtension().lastPathComponent
+        let safeBase = base.isEmpty ? UUID().uuidString : base
+        let ext = url.pathExtension.isEmpty ? "jpg" : url.pathExtension
+        return "\(safeBase)-\(UUID().uuidString).\(ext)"
     }
 }

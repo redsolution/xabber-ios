@@ -121,6 +121,7 @@ struct XMPPAuthenticationFailure: Equatable {
 }
 
 enum XMPPAuthenticationFailureClientAction: Equatable {
+    case retryAuthentication(message: String)
     case removeAccount(alertMessage: String)
     case refreshDeviceSecret
     case rejectPassword(message: String)
@@ -150,6 +151,14 @@ struct XMPPAuthenticationFailureResolution: Equatable {
         source: XMPPAuthenticationFailureSource = .primaryAccount
     ) -> XMPPAuthenticationFailureResolution {
         switch failure.reason {
+        case .temporaryAuthFailure:
+            let message = failure.text ?? Self.genericAuthenticationFailureMessage
+            return XMPPAuthenticationFailureResolution(
+                action: .retryAuthentication(message: message),
+                statusMessage: message,
+                shouldLogRawFailure: true
+            )
+
         case .accountDisabled:
             let message = Self.revokedDeviceMessage(from: failure.text)
             guard source == .primaryAccount else {
@@ -193,7 +202,6 @@ struct XMPPAuthenticationFailureResolution: Equatable {
              .invalidMechanism,
              .malformedRequest,
              .mechanismTooWeak,
-             .temporaryAuthFailure,
              .missingCondition,
              .unknown:
             let message = failure.text ?? Self.genericAuthenticationFailureMessage

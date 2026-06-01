@@ -167,7 +167,7 @@ public class AccountManager: NSObject {
 //        let appDelegate = UIApplication.shared.delegate as? AppDelegate
 //        appDelegate?.addBlurredScreen()
         self.users.forEach {
-            $0.disconnect(hard: true)
+            $0.disconnect(hard: true, cause: .backgroundSuspension)
         }
         XMPPUIActionManager.shared.close(disconnect: true)
     }
@@ -292,7 +292,7 @@ public class AccountManager: NSObject {
     
     func reloadAccount(withJid jid: String, autoConnect: Bool = true) {
         if let index = self.users.firstIndex(where: { $0.jid == jid }) {
-            self.users[index].disconnect(hard: true)
+            self.users[index].disconnect(hard: true, cause: .intentionalShutdown)
             self.users.remove(at: index)
         }
         self.add(withJid: jid, autoConnect: autoConnect)
@@ -387,7 +387,7 @@ public class AccountManager: NSObject {
         self.find(for: jid)?.unsafeAction({ user, stream in
             CredentialsManager.shared.removePushCredentials(for: user.push.node)
             user.devices.revoke(stream, uids: [user.devices.deviceId ?? ""])
-            user.disconnect(hard: hard)
+            user.disconnect(hard: hard, cause: .accountDeletion)
         })
         changeNewUserState(for: jid, to: .none)
         NotifyManager.shared.clearNotificationsFor(account: jid)
@@ -625,10 +625,16 @@ public class AccountManager: NSObject {
     }
     
     final func prepareForForeground() {
+        self.users.forEach {
+            $0.connectionResilience.setForegroundActive(true)
+        }
         load()
     }
     
     final func prepareForBackground() {
+        self.users.forEach {
+            $0.connectionResilience.setForegroundActive(false)
+        }
         NotifyManager.shared.clearAllNotifications()
         NotifyManager.shared.setLastChats(displayed: false)
     }

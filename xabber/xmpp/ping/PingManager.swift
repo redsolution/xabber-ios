@@ -42,7 +42,7 @@ class PingManager: AbstractXMPPManager {
         return namespaces().first!
     }
     
-    func send(onSuccess: (DDXMLElement)->Void, onFailure: ()->Void) {
+    func send(onSuccess: (XMPPIQ) -> Void, onFailure: () -> Void) {
         let elementId: String = UUID().uuidString
         self.queryIds.insert(elementId)
         if self.queryIds.count > self.undeliveredQueryLimit {
@@ -66,6 +66,18 @@ class PingManager: AbstractXMPPManager {
         }
         queryIds.remove(elementId)
         return true
+    }
+
+    final func isTrackedResult(_ iq: XMPPIQ) -> Bool {
+        guard let elementId = iq.elementID,
+              iq.iqType == .result else {
+            return false
+        }
+        return queryIds.contains(elementId)
+    }
+
+    final func resetState() {
+        queryIds.removeAll()
     }
     
     private final func readRequest(_ iq: XMPPIQ) -> Bool {
@@ -95,4 +107,3 @@ class PingManager: AbstractXMPPManager {
         }
     }
 }
-

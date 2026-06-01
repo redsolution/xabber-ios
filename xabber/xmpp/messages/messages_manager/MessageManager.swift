@@ -106,30 +106,7 @@ class MessageManager: AbstractXMPPManager {
         super.init(withOwner: owner)
         subscribe(activeStream)
         if activeStream {
-            do {
-                let realm = try  WRealm.safe()
-                let states = [
-                    MessageStorageItem.MessageSendingState.sending.rawValue,
-                    MessageStorageItem.MessageSendingState.uploading.rawValue,
-                ]
-                let collection = realm
-                    .objects(MessageStorageItem.self)
-                    .filter("owner == %@ AND state_ IN %@", self.owner, states)
-                if !realm.isInWriteTransaction {
-                    try realm.write {
-                        collection.forEach {
-                            $0.state = .error
-                            $0.messageError = "Internal error".localizeString(id: "message_manager_error_internal", arguments: [])
-                            $0.references.forEach({
-                                $0.hasError = true
-                            })
-                            realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: $0.opponent, owner: $0.owner, conversationType: $0.conversationType))?.hasErrorInChat = true
-                        }
-                    }
-                }
-            } catch {
-                DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
-            }
+            AccountSendCoordinator.restoreRecoverableRegularMessages(owner: self.owner)
         }
     }
     
@@ -156,6 +133,9 @@ class MessageManager: AbstractXMPPManager {
                 var toResend: Set<String> = Set<String>()
                 sendingMessages.forEach {
                     message in
+                    if message.displayAs == .text && message.conversationType == .regular {
+                        return
+                    }
                     if [.text].contains(message.displayAs) {
                         if Date().timeIntervalSince(message.date) > 10 {
                             let primary = message.primary
@@ -231,8 +211,11 @@ class MessageManager: AbstractXMPPManager {
             } else {
                 if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)) {
                     try realm.write {
-                        instance.unread = 0
-                        instance.lastReadId = nil
+                        LastChatUnreadCounter.clearAll(
+                            to: instance,
+                            boundaryId: instance.lastMessageId,
+                            realm: realm
+                        )
                     }
                     let messageId = instance.lastMessageId
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
@@ -256,27 +239,15 @@ class MessageManager: AbstractXMPPManager {
                                                 owner: self.owner,
                                                 conversationType: message.conversationType)),
                    instance.unread > 0 {
-                    let messagesCollection = realm
-                        .objects(MessageStorageItem.self)
-                        .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND isRead == false AND conversationType_ == %@ AND date <= %@", message.owner, message.opponent, message.conversationType.rawValue, message.date)
-                        .sorted(byKeyPath: "date", ascending: false)
                     if !realm.isInWriteTransaction {
                         try realm.write {
                             if instance.isInvalidated { return }
-                            if last {
-                                instance.unread = 0
-                                instance.lastReadId = nil
-//                                messagesCollection.forEach {
-//                                    $0.isRead = true
-//                                }
-                            } else {
-                                instance.unread -= messagesCollection.count + 1
-                                instance.lastReadId = message.archivedId
-//                                messagesCollection.forEach {
-//                                    $0.isRead = true
-//                                }
-                            }
-//                            message.isRead = true
+                            LastChatUnreadCounter.markRead(
+                                through: message,
+                                in: instance,
+                                clearWholeDialog: last,
+                                realm: realm
+                            )
                         }
                     }
                 }
@@ -440,6 +411,10 @@ class MessageManager: AbstractXMPPManager {
                     })
                     realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: instance.opponent, owner: instance.owner, conversationType: instance.conversationType))?.hasErrorInChat = true
                 }
+                AccountManager.shared.find(for: self.owner)?.sendCoordinator.terminalFailure(
+                    originId: elementId,
+                    error: errorMessage
+                )
             }
         } catch {
             DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")

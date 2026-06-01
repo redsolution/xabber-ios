@@ -92,6 +92,173 @@ final class ChatFloatingHeaderLayoutPolicyTests: XCTestCase {
     }
 }
 
+final class StackedNavigationRoutePolicyTests: XCTestCase {
+    private func route(
+        interfaceType: CommonConfigManager.InterfaceType,
+        isPhone: Bool = false,
+        hasSplitViewController: Bool = true,
+        isSplitCollapsed: Bool = false,
+        splitHorizontalSizeClass: UIUserInterfaceSizeClass = .regular,
+        windowHorizontalSizeClass: UIUserInterfaceSizeClass = .regular,
+        presenterHorizontalSizeClass: UIUserInterfaceSizeClass = .regular
+    ) -> StackedNavigationRoute {
+        StackedNavigationRoutePolicy.route(
+            for: StackedNavigationRouteContext(
+                interfaceType: interfaceType,
+                isPhone: isPhone,
+                hasSplitViewController: hasSplitViewController,
+                isSplitCollapsed: isSplitCollapsed,
+                splitHorizontalSizeClass: splitHorizontalSizeClass,
+                windowHorizontalSizeClass: windowHorizontalSizeClass,
+                presenterHorizontalSizeClass: presenterHorizontalSizeClass
+            )
+        )
+    }
+
+    func testTabsAlwaysUsesCurrentNavigationPush() {
+        let route = route(interfaceType: .tabs)
+
+        XCTAssertEqual(route, .currentNavigationPush)
+        XCTAssertFalse(route.usesNavigationControllerWrapper)
+        XCTAssertNil(route.targetColumn)
+    }
+
+    func testSplitPhoneUsesCurrentNavigationPush() {
+        let route = route(
+            interfaceType: .split,
+            isPhone: true
+        )
+
+        XCTAssertEqual(route, .currentNavigationPush)
+        XCTAssertFalse(route.usesNavigationControllerWrapper)
+        XCTAssertFalse(route.requiresDeferredPrimaryHide)
+        XCTAssertNil(route.targetColumn)
+    }
+
+    func testSplitWithoutControllerUsesCurrentNavigationPush() {
+        let route = route(
+            interfaceType: .split,
+            hasSplitViewController: false
+        )
+
+        XCTAssertEqual(route, .currentNavigationPush)
+        XCTAssertFalse(route.usesNavigationControllerWrapper)
+    }
+
+    func testSplitCollapsedUsesCurrentNavigationPush() {
+        let route = route(
+            interfaceType: .split,
+            isSplitCollapsed: true
+        )
+
+        XCTAssertEqual(route, .currentNavigationPush)
+        XCTAssertFalse(route.usesNavigationControllerWrapper)
+        XCTAssertNil(route.targetColumn)
+    }
+
+    func testSplitCompactWidthUsesCurrentNavigationPush() {
+        let route = route(
+            interfaceType: .split,
+            splitHorizontalSizeClass: .compact,
+            windowHorizontalSizeClass: .compact
+        )
+
+        XCTAssertEqual(route, .currentNavigationPush)
+        XCTAssertFalse(route.usesNavigationControllerWrapper)
+    }
+
+    func testExpandedRegularSplitUsesSecondaryDetailReplacementAndDeferredPrimaryHide() {
+        let route = route(interfaceType: .split)
+
+        XCTAssertEqual(route, .splitDetailReplacement)
+        XCTAssertTrue(route.usesNavigationControllerWrapper)
+        XCTAssertTrue(route.requiresDeferredPrimaryHide)
+        XCTAssertEqual(route.targetColumn, .secondary)
+    }
+
+    func testExpandedRegularSplitIgnoresCompactPresenterColumn() {
+        let route = route(
+            interfaceType: .split,
+            splitHorizontalSizeClass: .regular,
+            windowHorizontalSizeClass: .regular,
+            presenterHorizontalSizeClass: .compact
+        )
+
+        XCTAssertEqual(route, .splitDetailReplacement)
+        XCTAssertTrue(route.usesNavigationControllerWrapper)
+        XCTAssertTrue(route.requiresDeferredPrimaryHide)
+        XCTAssertEqual(route.targetColumn, .secondary)
+    }
+}
+
+final class NavigationTransitionMutationPolicyTests: XCTestCase {
+    func testLastChatsQueuesNonCriticalMutationsDuringNavigationTransition() {
+        XCTAssertTrue(
+            LastChatsNavigationTransitionMutationPolicy.shouldDeferMutation(
+                isTransitionActive: true,
+                isCriticalForFirstFrame: false
+            )
+        )
+        XCTAssertFalse(
+            LastChatsNavigationTransitionMutationPolicy.shouldDeferMutation(
+                isTransitionActive: true,
+                isCriticalForFirstFrame: true
+            )
+        )
+        XCTAssertFalse(
+            LastChatsNavigationTransitionMutationPolicy.shouldDeferMutation(
+                isTransitionActive: false,
+                isCriticalForFirstFrame: false
+            )
+        )
+    }
+
+    func testChatInitialDatasourcePopulationIsNonAnimatedForPreparedFirstFrame() {
+        XCTAssertFalse(
+            ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+                requestedAnimated: true,
+                isTransitionActive: false,
+                isPreparingFirstFrame: true
+            )
+        )
+        XCTAssertFalse(
+            ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+                requestedAnimated: true,
+                isTransitionActive: true,
+                isPreparingFirstFrame: false
+            )
+        )
+        XCTAssertTrue(
+            ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+                requestedAnimated: true,
+                isTransitionActive: false,
+                isPreparingFirstFrame: false
+            )
+        )
+    }
+
+    func testPendingOpenMessageRequestsWaitForNavigationTransitionCompletion() {
+        XCTAssertTrue(
+            ChatNavigationTransitionMutationPolicy.shouldDeferOpenMessageRequest(
+                isTransitionActive: true,
+                hasPendingRequest: true
+            )
+        )
+        XCTAssertFalse(
+            ChatNavigationTransitionMutationPolicy.shouldDeferOpenMessageRequest(
+                isTransitionActive: true,
+                hasPendingRequest: false
+            )
+        )
+        XCTAssertFalse(
+            ChatNavigationTransitionMutationPolicy.shouldDeferOpenMessageRequest(
+                isTransitionActive: false,
+                hasPendingRequest: true
+            )
+        )
+    }
+}
+
 final class ChatSubscriptionPresentationPolicyTests: XCTestCase {
     private typealias Subscribtion = RosterStorageItem.Subsccribtion
     private typealias Ask = RosterStorageItem.Ask
@@ -1464,6 +1631,59 @@ final class VoIPTerminationReasonTests: XCTestCase {
         }
     }
 
+    func testVoIPStreamConnectionSettingsClearStaleManualHostInAutomaticMode() throws {
+        try withInMemoryRealm {
+            let owner = "owner@example.com"
+            let account = installAccount(owner: owner, deviceId: "iphone-device")
+            defer { AccountManager.shared.users.removeAll { $0.jid == owner } }
+            account.manuallySetHost = false
+            account.host = ""
+            account.port = 5222
+            let call = VoIPCall(
+                owner: owner,
+                fullJid: "peer@example.com/resource",
+                callId: "call-id",
+                callUUID: UUID(),
+                outgoing: true
+            )
+            let stream = CapturingXMPPStream()
+            stream.hostName = "stale.manual.example.com"
+            stream.hostPort = 5223
+            call.stream = stream
+
+            call.start(shouldConfirmOnAuthenticate: false)
+            call.queue.sync {}
+
+            XCTAssertNil(stream.hostName)
+            XCTAssertEqual(stream.hostPort, UInt16(5222))
+            XCTAssertEqual(stream.capturedConnectTimeout, 15.0)
+            XCTAssertEqual(stream.myJID?.domain, "example.com")
+        }
+    }
+
+    func testAccountAutomaticConnectClearsStaleManualHost() throws {
+        try withInMemoryRealm {
+            let owner = "owner@example.com"
+            let account = installAccount(owner: owner, deviceId: "iphone-device")
+            defer { AccountManager.shared.users.removeAll { $0.jid == owner } }
+            let stream = CapturingXMPPStream()
+            stream.hostName = "stale.manual.example.com"
+            stream.hostPort = 5223
+            account.xmppStream = stream
+            account.manuallySetHost = false
+            account.host = ""
+            account.port = 5222
+
+            let started = account.requestConnect(trigger: .initialLoad)
+
+            XCTAssertTrue(started)
+            XCTAssertNil(stream.hostName)
+            XCTAssertEqual(stream.hostPort, UInt16(5222))
+            XCTAssertEqual(stream.capturedConnectTimeout, 15.0)
+            XCTAssertEqual(stream.myJID?.domain, "example.com")
+        }
+    }
+
     func testQueuedProposeSurvivesPreAuthenticationDisconnectDuringStartup() {
         let owner = "owner@example.com"
         let call = VoIPCall(
@@ -2027,7 +2247,7 @@ final class XMPPAuthenticationFailureTests: XCTestCase {
         XCTAssertEqual(resolution.action, .refreshDeviceSecret)
     }
 
-    func testResolverLogsAndReportsGenericFailureForTemporaryAuthFailure() throws {
+    func testResolverRetriesTemporaryAuthFailureWithoutRevokingCredentials() throws {
         let failure = try makeFailure(xml: """
         <failure xmlns="urn:ietf:params:xml:ns:xmpp-sasl">
           <temporary-auth-failure/>
@@ -2040,8 +2260,9 @@ final class XMPPAuthenticationFailureTests: XCTestCase {
             credentialKind: .secret
         )
 
-        XCTAssertEqual(resolution.action, .reportGeneric(message: "Try again later"))
+        XCTAssertEqual(resolution.action, .retryAuthentication(message: "Try again later"))
         XCTAssertTrue(resolution.shouldLogRawFailure)
+        XCTAssertEqual(resolution.releaseOutcome, .authFailedRecoverable)
     }
 
     func testCounterTrackerReservesNextCounterBeforeSuccess() throws {
@@ -2235,6 +2456,765 @@ final class XMPPAuthenticationFailureTests: XCTestCase {
     func testOCRAHotpFormattingUsesRequestedDigitCount() {
         XCTAssertEqual(DevicesOCRA.hotpString(forTruncatedHash: 123, digits: 8), "00000123")
         XCTAssertEqual(DevicesOCRA.hotpString(forTruncatedHash: 123456789, digits: 4), "6789")
+    }
+}
+
+final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
+
+    func testPingSuccessResetsLivenessTimer() {
+        let harness = makeHarness()
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidReachOnline(resumed: false)
+
+        harness.scheduler.advance(by: 15)
+        XCTAssertEqual(harness.recorder.sendPingCount, 1)
+
+        harness.scheduler.advance(by: 7.9)
+        harness.coordinator.notePingResult(success: true)
+        harness.scheduler.advance(by: 8)
+
+        XCTAssertTrue(harness.recorder.forceCloseCauses.isEmpty)
+
+        harness.scheduler.advance(by: 7.1)
+        XCTAssertEqual(harness.recorder.sendPingCount, 2)
+    }
+
+    func testPingTimeoutForcesAccidentalDisconnectAndReconnect() {
+        let harness = makeHarness(canResume: true)
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidReachOnline(resumed: false)
+
+        harness.scheduler.advance(by: 15)
+        harness.scheduler.advance(by: 8)
+
+        XCTAssertEqual(harness.recorder.forceCloseCauses, [.pingTimeout])
+        XCTAssertEqual(harness.recorder.reconnectTriggers, [.resilienceRetry])
+        XCTAssertEqual(harness.recorder.staleReasons, [.pingTimeout])
+    }
+
+    func testForegroundOnlineWithoutConfirmedTrafficMarksSuspectedStaleAndReconnects() {
+        let policy = AccountConnectionResiliencePolicy(
+            pingInterval: 45,
+            pingTimeout: 8,
+            maxMissedPings: 1,
+            staleActivityTimeout: 40,
+            pathDebounce: 0.75,
+            stableOnlineReset: 60,
+            reconnectBaseDelay: 2,
+            reconnectMaxDelay: 60,
+            jitterRatio: 0.2,
+            fastResumeDelays: [0, 1],
+            outboundConfirmationTimeout: 8,
+            jitter: { 0 }
+        )
+        let harness = makeHarness(policy: policy)
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidReachOnline(resumed: false)
+        harness.scheduler.advance(by: 45)
+
+        XCTAssertEqual(harness.recorder.forceCloseCauses, [.pingTimeout])
+        XCTAssertEqual(harness.recorder.reconnectTriggers, [.resilienceRetry])
+        XCTAssertEqual(harness.recorder.staleReasons, [.noConfirmedTraffic])
+        XCTAssertTrue(harness.coordinator.healthSnapshot.isSuspectedStale)
+    }
+
+    func testOutboundApplicationStanzaWithoutConfirmationMarksStaleAndReconnects() {
+        let harness = makeHarness()
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidReachOnline(resumed: false)
+        harness.coordinator.noteOutboundApplicationStanza(id: "message-1")
+        harness.scheduler.advance(by: 8)
+
+        XCTAssertEqual(harness.recorder.forceCloseCauses, [.pingTimeout])
+        XCTAssertEqual(harness.recorder.reconnectTriggers, [.resilienceRetry])
+        XCTAssertEqual(harness.recorder.staleReasons, [.outboundConfirmationTimeout])
+        XCTAssertEqual(harness.coordinator.healthSnapshot.lastOutboundStanzaAt, 0)
+    }
+
+    func testBlockedStreamQueueModelStillTimesOutLivenessWatchdog() {
+        let harness = makeHarness(canResume: true)
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidReachOnline(resumed: false)
+        harness.scheduler.advance(by: 15)
+
+        XCTAssertEqual(harness.recorder.sendPingCount, 1)
+
+        harness.scheduler.advance(by: 8)
+
+        XCTAssertEqual(harness.recorder.forceCloseCauses, [.pingTimeout])
+        XCTAssertEqual(harness.recorder.reconnectTriggers, [.resilienceRetry])
+    }
+
+    func testIntentionalDisconnectDoesNotAutoReconnect() {
+        let harness = makeHarness()
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidReachOnline(resumed: false)
+        harness.coordinator.streamDidDisconnect(cause: .backgroundSuspension)
+
+        harness.scheduler.advance(by: 120)
+
+        XCTAssertTrue(harness.recorder.sendPingCount == 0 || harness.recorder.forceCloseCauses.isEmpty)
+        XCTAssertTrue(harness.recorder.reconnectTriggers.isEmpty)
+    }
+
+    func testPathUnsatisfiedPausesRetries() {
+        let harness = makeHarness()
+
+        harness.coordinator.networkPathDidChange(.init(status: .unsatisfied, interfaces: [.wifi]))
+        harness.scheduler.advance(by: 0.75)
+        harness.coordinator.streamDidDisconnect(cause: .accidentalSocket)
+        harness.scheduler.advance(by: 120)
+
+        XCTAssertTrue(harness.recorder.reconnectTriggers.isEmpty)
+    }
+
+    func testPathRecoveryStartsImmediateReconnect() {
+        let harness = makeHarness()
+
+        harness.coordinator.networkPathDidChange(.init(status: .unsatisfied, interfaces: [.wifi]))
+        harness.scheduler.advance(by: 0.75)
+        harness.coordinator.streamDidDisconnect(cause: .accidentalSocket)
+        harness.scheduler.advance(by: 10)
+
+        harness.coordinator.networkPathDidChange(.init(status: .satisfied, interfaces: [.cellular]))
+        harness.scheduler.advance(by: 0.75)
+
+        XCTAssertEqual(harness.recorder.reconnectTriggers, [.pathRecovery])
+    }
+
+    func testPathRecoveryProbesClaimedOnlineStream() {
+        let harness = makeHarness()
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidReachOnline(resumed: false)
+        harness.coordinator.networkPathDidChange(.init(status: .unsatisfied, interfaces: [.wifi]))
+        harness.scheduler.advance(by: 0.75)
+        harness.coordinator.networkPathDidChange(.init(status: .satisfied, interfaces: [.cellular]))
+        harness.scheduler.advance(by: 0.75)
+
+        XCTAssertEqual(harness.recorder.probeOnlineStreamCount, 1)
+    }
+
+    func testPathInterfaceChangeInvalidatesEndpointResolutionCache() {
+        let harness = makeHarness()
+
+        harness.coordinator.networkPathDidChange(.init(status: .satisfied, interfaces: [.wifi]))
+        harness.scheduler.advance(by: 0.75)
+        harness.coordinator.networkPathDidChange(.init(status: .satisfied, interfaces: [.cellular]))
+        harness.scheduler.advance(by: 0.75)
+
+        XCTAssertEqual(harness.recorder.endpointResolutionInvalidationReasons, ["path-changed"])
+    }
+
+    func testForegroundRecoveryInvalidatesEndpointResolutionCache() {
+        let harness = makeHarness()
+
+        harness.coordinator.setForegroundActive(false)
+        harness.coordinator.setForegroundActive(true)
+
+        XCTAssertEqual(harness.recorder.endpointResolutionInvalidationReasons, ["foreground-active"])
+    }
+
+    func testSMResumeSuccessSkipsFullSetup() {
+        let harness = makeHarness()
+
+        harness.coordinator.streamManagementResumeCompleted(didResume: true, responseName: "resumed")
+
+        XCTAssertEqual(harness.recorder.skipFullSetupCount, 1)
+        XCTAssertEqual(harness.recorder.fullSetupCount, 0)
+    }
+
+    func testSMResumeFailureFallsBackToFullSetup() {
+        let harness = makeHarness()
+
+        harness.coordinator.streamManagementResumeCompleted(didResume: false, responseName: "failed")
+
+        XCTAssertEqual(harness.recorder.skipFullSetupCount, 0)
+        XCTAssertEqual(harness.recorder.fullSetupCount, 1)
+    }
+
+    func testDuplicateReconnectAttemptsAreStillBlockedByLifecycleGate() {
+        let gate = AccountStreamLifecycleGate()
+        let harness = makeHarness(canResume: true, gate: gate)
+
+        harness.coordinator.scheduleReconnect(cause: .accidentalSocket, trigger: .resilienceRetry)
+        harness.scheduler.advance(by: 0)
+        harness.coordinator.scheduleReconnect(cause: .accidentalSocket, trigger: .resilienceRetry)
+        harness.scheduler.advance(by: 1)
+
+        XCTAssertEqual(harness.recorder.reconnectWasStarted, [true, false])
+    }
+
+    private func makeHarness(
+        canResume: Bool = false,
+        gate: AccountStreamLifecycleGate? = nil,
+        policy: AccountConnectionResiliencePolicy = .aggressive(jitter: { 0 })
+    ) -> AccountConnectionResilienceHarness {
+        let scheduler = TestAccountConnectionResilienceScheduler()
+        let recorder = AccountConnectionResilienceActionRecorder(canResume: canResume, gate: gate)
+        let coordinator = AccountConnectionResilienceCoordinator(
+            policy: policy,
+            scheduler: scheduler,
+            actions: recorder.actions
+        )
+        return AccountConnectionResilienceHarness(
+            coordinator: coordinator,
+            scheduler: scheduler,
+            recorder: recorder
+        )
+    }
+}
+
+private struct AccountConnectionResilienceHarness {
+    let coordinator: AccountConnectionResilienceCoordinator
+    let scheduler: TestAccountConnectionResilienceScheduler
+    let recorder: AccountConnectionResilienceActionRecorder
+}
+
+private final class AccountConnectionResilienceActionRecorder {
+    private let canResume: Bool
+    private let gate: AccountStreamLifecycleGate?
+    private(set) var sendPingCount = 0
+    private(set) var forceCloseCauses: [AccountDisconnectCause] = []
+    private(set) var reconnectTriggers: [AccountConnectTrigger] = []
+    private(set) var reconnectWasStarted: [Bool] = []
+    private(set) var probeOnlineStreamCount = 0
+    private(set) var skipFullSetupCount = 0
+    private(set) var fullSetupCount = 0
+    private(set) var diagnosticsEvents: [String] = []
+    private(set) var endpointResolutionInvalidationReasons: [String] = []
+    private(set) var staleReasons: [AccountConnectionStaleReason] = []
+    private(set) var healthSnapshots: [AccountConnectionHealthSnapshot] = []
+
+    init(canResume: Bool, gate: AccountStreamLifecycleGate?) {
+        self.canResume = canResume
+        self.gate = gate
+    }
+
+    var actions: AccountConnectionResilienceActions {
+        AccountConnectionResilienceActions(
+            sendPing: { [weak self] in
+                self?.sendPingCount += 1
+                return true
+            },
+            forceClose: { [weak self] cause in
+                self?.forceCloseCauses.append(cause)
+            },
+            requestReconnect: { [weak self] trigger, _ in
+                self?.reconnectTriggers.append(trigger)
+                guard let gate = self?.gate else {
+                    self?.reconnectWasStarted.append(true)
+                    return true
+                }
+                switch gate.beginConnect(trigger: trigger) {
+                case .start:
+                    self?.reconnectWasStarted.append(true)
+                    return true
+                case .skip:
+                    self?.reconnectWasStarted.append(false)
+                    return false
+                }
+            },
+            probeOnlineStream: { [weak self] in
+                self?.probeOnlineStreamCount += 1
+            },
+            canResumeStream: { [weak self] in
+                self?.canResume ?? false
+            },
+            skipFullSetupAfterResume: { [weak self] in
+                self?.skipFullSetupCount += 1
+            },
+            runFullSetupAfterAuthentication: { [weak self] in
+                self?.fullSetupCount += 1
+            },
+            invalidateEndpointResolutionCache: { [weak self] reason in
+                self?.endpointResolutionInvalidationReasons.append(reason)
+            },
+            markSuspectedStale: { [weak self] reason, _ in
+                self?.staleReasons.append(reason)
+            },
+            healthChanged: { [weak self] snapshot in
+                self?.healthSnapshots.append(snapshot)
+            },
+            log: { [weak self] event, _ in
+                self?.diagnosticsEvents.append(event)
+            }
+        )
+    }
+}
+
+private final class TestAccountConnectionResilienceScheduler: AccountConnectionResilienceScheduling {
+    private final class Scheduled: AccountConnectionResilienceCancellable {
+        let id: Int
+        let due: TimeInterval
+        let block: () -> Void
+        var isCancelled = false
+
+        init(id: Int, due: TimeInterval, block: @escaping () -> Void) {
+            self.id = id
+            self.due = due
+            self.block = block
+        }
+
+        func cancel() {
+            isCancelled = true
+        }
+    }
+
+    private(set) var now: TimeInterval = 0
+    private var nextID = 0
+    private var scheduled: [Scheduled] = []
+
+    func schedule(after delay: TimeInterval, _ block: @escaping () -> Void) -> AccountConnectionResilienceCancellable {
+        nextID += 1
+        let item = Scheduled(id: nextID, due: now + max(delay, 0), block: block)
+        scheduled.append(item)
+        return item
+    }
+
+    func advance(by interval: TimeInterval) {
+        now += interval
+        while let next = scheduled
+            .filter({ !$0.isCancelled && $0.due <= now })
+            .sorted(by: { lhs, rhs in
+                if lhs.due == rhs.due {
+                    return lhs.id < rhs.id
+                }
+                return lhs.due < rhs.due
+            })
+            .first {
+            next.cancel()
+            next.block()
+        }
+        scheduled.removeAll { $0.isCancelled }
+    }
+}
+
+final class AccountSendReadinessCoordinatorTests: XCTestCase {
+
+    func testReadinessStaysFalseUntilStreamManagementIsEnabled() {
+        let coordinator = AccountSendReadinessCoordinator()
+
+        coordinator.markConnecting(trigger: .initialLoad)
+        coordinator.markAuthenticating()
+        coordinator.markBinding()
+        coordinator.markStreamManagementEnableRequested()
+
+        XCTAssertFalse(coordinator.snapshot.canFlushApplicationStanzas)
+
+        coordinator.markStreamManagementEnabled()
+
+        XCTAssertTrue(coordinator.snapshot.canFlushApplicationStanzas)
+        XCTAssertEqual(coordinator.snapshot.phase, .ready(.streamManagementEnabled))
+    }
+
+    func testSuccessfulResumeBecomesSendReadyWithoutEnableRoundTrip() {
+        let coordinator = AccountSendReadinessCoordinator()
+
+        coordinator.markConnecting(trigger: .xmppReconnect)
+        coordinator.markResuming()
+        coordinator.markStreamManagementResumeSucceeded()
+
+        XCTAssertTrue(coordinator.snapshot.canFlushApplicationStanzas)
+        XCTAssertEqual(coordinator.snapshot.phase, .ready(.streamManagementResumed))
+    }
+
+    func testStreamManagementEnableFailureKeepsStrictQueueNotReady() {
+        let coordinator = AccountSendReadinessCoordinator()
+
+        coordinator.markConnecting(trigger: .initialLoad)
+        coordinator.markStreamManagementEnableRequested()
+        coordinator.markStreamManagementEnableFailed(reason: "failed")
+
+        XCTAssertFalse(coordinator.snapshot.canFlushApplicationStanzas)
+        XCTAssertEqual(coordinator.snapshot.phase, .streamManagementFailed)
+    }
+
+    func testDisconnectBackgroundAndStreamErrorClearReadiness() {
+        let coordinator = AccountSendReadinessCoordinator()
+
+        coordinator.markStreamManagementEnabled()
+        XCTAssertTrue(coordinator.snapshot.canFlushApplicationStanzas)
+
+        coordinator.markDisconnected(cause: .backgroundSuspension)
+        XCTAssertFalse(coordinator.snapshot.canFlushApplicationStanzas)
+        XCTAssertEqual(coordinator.snapshot.phase, .backgroundSuspended)
+
+        coordinator.markStreamManagementEnabled()
+        coordinator.markStreamError()
+        XCTAssertFalse(coordinator.snapshot.canFlushApplicationStanzas)
+        XCTAssertEqual(coordinator.snapshot.phase, .streamError)
+    }
+
+    func testSuspectedStaleClearsSendReadiness() {
+        let coordinator = AccountSendReadinessCoordinator()
+
+        coordinator.markStreamManagementEnabled()
+        XCTAssertTrue(coordinator.snapshot.canFlushApplicationStanzas)
+
+        coordinator.markSuspectedStale(reason: AccountConnectionStaleReason.noConfirmedTraffic.rawValue)
+
+        XCTAssertFalse(coordinator.snapshot.canFlushApplicationStanzas)
+        XCTAssertEqual(coordinator.snapshot.phase, .suspectedStale)
+        XCTAssertEqual(coordinator.snapshot.reason, AccountConnectionStaleReason.noConfirmedTraffic.rawValue)
+    }
+
+    func testConnectingUsersDoesNotAffectSendReadiness() {
+        let coordinator = AccountSendReadinessCoordinator()
+        let jid = "send-readiness-\(UUID().uuidString)@example.com"
+
+        AccountManager.shared.markAsConnecting(jid: jid)
+        AccountManager.shared.markAsConnected(jid: jid)
+
+        XCTAssertFalse(coordinator.snapshot.canFlushApplicationStanzas)
+
+        AccountManager.shared.markAsNotConnecting(
+            jid: jid,
+            reason: "test-cleanup",
+            clearAuthentication: true
+        )
+    }
+}
+
+final class AccountSendCoordinatorTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+
+    override func setUp() {
+        super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "AccountSendCoordinatorTests-\(name)-\(UUID().uuidString)"
+        )
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    override func tearDown() {
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        super.tearDown()
+    }
+
+    func testQueuedMessageDoesNotFlushBeforeSendReady() throws {
+        var isReady = false
+        let recorder = AccountSendCoordinatorRecorder()
+        let coordinator = makeCoordinator(isReady: { isReady }, recorder: recorder)
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+
+        XCTAssertTrue(recorder.sentMessages.isEmpty)
+
+        isReady = true
+        coordinator.accountDidBecomeSendReady()
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1"])
+    }
+
+    func testPerChatOrderingWaitsForReceiptBeforeNextSend() throws {
+        let isReady = true
+        let recorder = AccountSendCoordinatorRecorder()
+        let coordinator = makeCoordinator(isReady: { isReady }, recorder: recorder)
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1", createdAt: Date(timeIntervalSince1970: 1)))
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-2", createdAt: Date(timeIntervalSince1970: 2)))
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1"])
+
+        coordinator.deliveryReceiptReceived(originId: "message-1", stanzaId: "archive-1")
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1", "message-2"])
+    }
+
+    func testSuccessfulResumeDoesNotDuplicateAwaitingReceiptMessage() throws {
+        var isReady = true
+        let recorder = AccountSendCoordinatorRecorder()
+        let coordinator = makeCoordinator(isReady: { isReady }, recorder: recorder)
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+        XCTAssertEqual(recorder.sentMessages.count, 1)
+
+        isReady = false
+        coordinator.streamDidDisconnect(canResume: true)
+        isReady = true
+        coordinator.streamManagementResumeSucceeded()
+
+        XCTAssertEqual(recorder.sentMessages.count, 1)
+    }
+
+    func testFullReconnectReplaysWithSameOriginIdAndRetryMarkup() throws {
+        var isReady = true
+        let recorder = AccountSendCoordinatorRecorder()
+        let coordinator = makeCoordinator(isReady: { isReady }, recorder: recorder)
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+
+        isReady = false
+        coordinator.streamDidDisconnect(canResume: true)
+        coordinator.streamManagementResumeFailed()
+        isReady = true
+        coordinator.accountDidBecomeSendReady()
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1", "message-1"])
+        XCTAssertNotNil(recorder.sentMessages.last?.element(forName: "retry", xmlns: "https://xabber.com/protocol/delivery"))
+        XCTAssertEqual(
+            recorder.sentMessages.last?.element(forName: "origin-id", xmlns: "urn:xmpp:sid:0")?.attributeStringValue(forName: "id"),
+            "message-1"
+        )
+    }
+
+    func testServerErrorMarksQueueTerminalAndStopsRetry() throws {
+        let isReady = true
+        let recorder = AccountSendCoordinatorRecorder()
+        let coordinator = makeCoordinator(isReady: { isReady }, recorder: recorder)
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+        coordinator.terminalFailure(originId: "message-1", error: "Forbidden")
+        coordinator.accountDidBecomeSendReady()
+
+        XCTAssertEqual(recorder.sentMessages.count, 1)
+        let realm = try WRealm.safe()
+        let item = try XCTUnwrap(realm.objects(OutgoingMessageQueueItem.self).first)
+        XCTAssertEqual(item.state, .terminalFailed)
+        XCTAssertEqual(item.lastError, "Forbidden")
+    }
+
+    func testMessageManagerInitPreservesRecoverablePendingSend() throws {
+        let owner = "owner@example.com"
+        let message = try storeRecoverableMessage(owner: owner, originId: "pending-1")
+
+        let manager = MessageManager(withOwner: owner, activeStream: true)
+        manager.updateSendingMessagesTimer?.invalidate()
+        manager.updateSendingMessagesTimer = nil
+
+        let realm = try WRealm.safe()
+        let stored = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: message.primary))
+        XCTAssertEqual(stored.state, .sending)
+        XCTAssertNil(stored.messageError)
+        XCTAssertEqual(realm.objects(OutgoingMessageQueueItem.self).filter("messagePrimary == %@", message.primary).count, 1)
+    }
+
+    func testQueuedMessageDoesNotFlushWhileSuspectedStaleAndFlushesAfterReady() throws {
+        var isReady = false
+        let recorder = AccountSendCoordinatorRecorder()
+        let coordinator = makeCoordinator(isReady: { isReady }, recorder: recorder)
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+
+        XCTAssertTrue(recorder.sentMessages.isEmpty)
+
+        isReady = true
+        coordinator.accountDidBecomeSendReady()
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1"])
+    }
+
+    private func makeCoordinator(
+        owner: String = "owner@example.com",
+        isReady: @escaping () -> Bool,
+        recorder: AccountSendCoordinatorRecorder
+    ) -> AccountSendCoordinator {
+        AccountSendCoordinator(
+            environment: AccountSendCoordinator.Environment(
+                owner: owner,
+                isSendReady: isReady,
+                decorateMessage: { message, retry, missRetryElement in
+                    if retry && !missRetryElement {
+                        message.addChild(DDXMLElement(name: "retry", xmlns: "https://xabber.com/protocol/delivery"))
+                    }
+                    return message
+                },
+                sendMessage: { message in
+                    recorder.sentMessages.append(message.copy() as! XMPPMessage)
+                },
+                log: { _, _ in }
+            )
+        )
+    }
+
+    private func makeRequest(
+        owner: String = "owner@example.com",
+        opponent: String = "romeo@example.com",
+        originId: String,
+        createdAt: Date = Date(timeIntervalSince1970: 1)
+    ) -> AccountQueuedMessageSendRequest {
+        AccountQueuedMessageSendRequest(
+            owner: owner,
+            conversationJid: opponent,
+            conversationType: .regular,
+            messagePrimary: MessageStorageItem.genPrimary(messageId: originId, owner: owner),
+            originId: originId,
+            stanzaXML: """
+            <message type='chat' to='\(opponent)' id='\(originId)' from='\(owner)'>
+              <body>Hello</body>
+              <origin-id xmlns='urn:xmpp:sid:0' id='\(originId)'/>
+            </message>
+            """,
+            createdAt: createdAt,
+            replayRequired: false
+        )
+    }
+
+    @discardableResult
+    private func storeRecoverableMessage(owner: String, originId: String) throws -> MessageStorageItem {
+        let realm = try WRealm.safe()
+        let message = MessageStorageItem()
+        message.owner = owner
+        message.opponent = "romeo@example.com"
+        message.outgoing = true
+        message.messageId = originId
+        message.primary = MessageStorageItem.genPrimary(messageId: originId, owner: owner)
+        message.conversationType = .regular
+        message.displayAs = .text
+        message.body = "Hello"
+        message.legacyBody = "Hello"
+        message.state = .sending
+        message.date = Date(timeIntervalSince1970: 1)
+        message.sentDate = message.date
+
+        let stanza = MessageStanzaStorageItem()
+        stanza.set(
+            originId,
+            for: owner,
+            with: """
+            <message type='chat' to='romeo@example.com' id='\(originId)' from='\(owner)'>
+              <body>Hello</body>
+              <origin-id xmlns='urn:xmpp:sid:0' id='\(originId)'/>
+            </message>
+            """,
+            at: message.date,
+            primary: message.primary
+        )
+
+        try realm.write {
+            realm.add(message, update: .modified)
+            realm.add(stanza, update: .modified)
+        }
+        return message
+    }
+}
+
+private final class AccountSendCoordinatorRecorder {
+    var sentMessages: [XMPPMessage] = []
+}
+
+final class ReliableMessageDeliveryReceiptProcessorTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+
+    override func setUp() {
+        super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ReliableMessageDeliveryReceiptProcessorTests-\(name)-\(UUID().uuidString)"
+        )
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    override func tearDown() {
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        super.tearDown()
+    }
+
+    func testReceiptAppliesMessageStateAndAdvancesOutgoingQueue() throws {
+        let owner = "owner@example.com"
+        let recorder = AccountSendCoordinatorRecorder()
+        let coordinator = AccountSendCoordinator(
+            environment: AccountSendCoordinator.Environment(
+                owner: owner,
+                isSendReady: { true },
+                decorateMessage: { message, _, _ in message },
+                sendMessage: { message in
+                    recorder.sentMessages.append(message.copy() as! XMPPMessage)
+                },
+                log: { _, _ in }
+            )
+        )
+        try storeSendingMessage(owner: owner, originId: "message-1")
+        try storeSendingMessage(owner: owner, originId: "message-2")
+        try coordinator.enqueueRegularMessage(makeRequest(owner: owner, originId: "message-1", createdAt: Date(timeIntervalSince1970: 1)))
+        try coordinator.enqueueRegularMessage(makeRequest(owner: owner, originId: "message-2", createdAt: Date(timeIntervalSince1970: 2)))
+
+        let receipt = XabberDeliveryReceipt(
+            originId: "message-1",
+            stanzaId: "archive-1",
+            stamp: Date(timeIntervalSince1970: 100)
+        )
+        let applied = ReliableMessageDeliveryReceiptProcessor.apply(owner: owner, receipt: receipt) { originId, stanzaId in
+            coordinator.deliveryReceiptReceived(originId: originId, stanzaId: stanzaId)
+        }
+
+        XCTAssertTrue(applied)
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1", "message-2"])
+
+        let realm = try WRealm.safe()
+        let stored = try XCTUnwrap(realm.object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: MessageStorageItem.genPrimary(messageId: "message-1", owner: owner)
+        ))
+        XCTAssertEqual(stored.state, .sended)
+        XCTAssertEqual(stored.archivedId, "archive-1")
+        XCTAssertEqual(stored.date, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(
+            realm.objects(OutgoingMessageQueueItem.self)
+                .filter("owner == %@ AND originId == %@", owner, "message-1")
+                .count,
+            0
+        )
+    }
+
+    private func makeRequest(
+        owner: String,
+        opponent: String = "romeo@example.com",
+        originId: String,
+        createdAt: Date
+    ) -> AccountQueuedMessageSendRequest {
+        AccountQueuedMessageSendRequest(
+            owner: owner,
+            conversationJid: opponent,
+            conversationType: .regular,
+            messagePrimary: MessageStorageItem.genPrimary(messageId: originId, owner: owner),
+            originId: originId,
+            stanzaXML: """
+            <message type='chat' to='\(opponent)' id='\(originId)' from='\(owner)'>
+              <body>Hello</body>
+              <origin-id xmlns='urn:xmpp:sid:0' id='\(originId)'/>
+            </message>
+            """,
+            createdAt: createdAt,
+            replayRequired: false
+        )
+    }
+
+    private func storeSendingMessage(owner: String, originId: String) throws {
+        let realm = try WRealm.safe()
+        let message = MessageStorageItem()
+        message.owner = owner
+        message.opponent = "romeo@example.com"
+        message.outgoing = true
+        message.messageId = originId
+        message.primary = MessageStorageItem.genPrimary(messageId: originId, owner: owner)
+        message.conversationType = .regular
+        message.displayAs = .text
+        message.body = "Hello"
+        message.legacyBody = "Hello"
+        message.state = .sending
+        message.date = Date(timeIntervalSince1970: 1)
+        message.sentDate = message.date
+
+        try realm.write {
+            realm.add(message, update: .modified)
+        }
     }
 }
 
@@ -2521,6 +3501,143 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
 
         wait(for: [completed], timeout: 1)
         XCTAssertEqual(events, ["foreground"])
+    }
+
+    func testDuplicateSnapshotRepairKeyCoalescesPendingTask() {
+        let scheduler = AccountXMPPTaskScheduler(
+            configuration: .test(defaultCooldown: 0),
+            startsImmediately: false
+        )
+        var events: [String] = []
+        let completed = expectation(description: "snapshot repair completed")
+
+        scheduler.enqueue(
+            priority: .background,
+            resource: .mamArchive,
+            deduplicationKey: "snapshot-repair.owner@example.com.romeo@example.com.urn:xabber:chat"
+        ) { finish in
+            events.append("first")
+            completed.fulfill()
+            finish()
+        }
+        scheduler.enqueue(
+            priority: .background,
+            resource: .mamArchive,
+            deduplicationKey: "snapshot-repair.owner@example.com.romeo@example.com.urn:xabber:chat"
+        ) { finish in
+            events.append("duplicate")
+            finish()
+        }
+
+        scheduler.resume()
+
+        wait(for: [completed], timeout: 1)
+        XCTAssertEqual(events, ["first"])
+    }
+
+    func testDuplicateSnapshotRepairKeyDoesNotQueueWhileRunning() {
+        let scheduler = AccountXMPPTaskScheduler(configuration: .test(defaultCooldown: 0))
+        let firstStarted = expectation(description: "first snapshot repair started")
+        let duplicateStarted = expectation(description: "duplicate snapshot repair should not start")
+        duplicateStarted.isInverted = true
+        var finishFirst: (() -> Void)?
+        var events: [String] = []
+
+        scheduler.enqueue(
+            priority: .background,
+            resource: .mamArchive,
+            deduplicationKey: "snapshot-repair.owner@example.com.romeo@example.com.urn:xabber:chat"
+        ) { finish in
+            events.append("first")
+            finishFirst = finish
+            firstStarted.fulfill()
+        }
+
+        wait(for: [firstStarted], timeout: 1)
+
+        scheduler.enqueue(
+            priority: .background,
+            resource: .mamArchive,
+            deduplicationKey: "snapshot-repair.owner@example.com.romeo@example.com.urn:xabber:chat"
+        ) { finish in
+            events.append("duplicate")
+            duplicateStarted.fulfill()
+            finish()
+        }
+
+        finishFirst?()
+        wait(for: [duplicateStarted], timeout: 0.1)
+        XCTAssertEqual(events, ["first"])
+    }
+
+    func testInteractiveMamTaskOutranksBackgroundSnapshotRepair() {
+        let scheduler = AccountXMPPTaskScheduler(
+            configuration: .test(defaultCooldown: 0),
+            startsImmediately: false
+        )
+        var events: [String] = []
+        let completed = expectation(description: "both MAM tasks completed")
+        completed.expectedFulfillmentCount = 2
+
+        scheduler.enqueue(
+            priority: .background,
+            resource: .mamArchive,
+            deduplicationKey: "snapshot-repair.owner@example.com.romeo@example.com.urn:xabber:chat"
+        ) { finish in
+            events.append("snapshot-repair")
+            completed.fulfill()
+            finish()
+        }
+        scheduler.enqueue(
+            priority: .interactive,
+            resource: .mamArchive,
+            deduplicationKey: "interactive-open.owner@example.com.romeo@example.com.urn:xabber:chat"
+        ) { finish in
+            events.append("interactive-open")
+            completed.fulfill()
+            finish()
+        }
+
+        scheduler.resume()
+
+        wait(for: [completed], timeout: 1)
+        XCTAssertEqual(events, ["interactive-open", "snapshot-repair"])
+    }
+
+    func testSnapshotRepairsForTwoDialogsUseMamLaneSequentially() {
+        let scheduler = AccountXMPPTaskScheduler(configuration: .test(defaultCooldown: 0))
+        let firstStarted = expectation(description: "first repair started")
+        let secondDidNotStartEarly = expectation(description: "second repair waits")
+        secondDidNotStartEarly.isInverted = true
+        let secondStarted = expectation(description: "second repair started after first")
+        var finishFirst: (() -> Void)?
+        var checkingEarlyStart = true
+
+        scheduler.enqueue(
+            priority: .background,
+            resource: .mamArchive,
+            deduplicationKey: "snapshot-repair.owner@example.com.first@example.com.urn:xabber:chat"
+        ) { finish in
+            finishFirst = finish
+            firstStarted.fulfill()
+        }
+        scheduler.enqueue(
+            priority: .background,
+            resource: .mamArchive,
+            deduplicationKey: "snapshot-repair.owner@example.com.second@example.com.urn:xabber:chat"
+        ) { finish in
+            if checkingEarlyStart {
+                secondDidNotStartEarly.fulfill()
+            }
+            secondStarted.fulfill()
+            finish()
+        }
+
+        wait(for: [firstStarted], timeout: 1)
+        wait(for: [secondDidNotStartEarly], timeout: 0.1)
+        checkingEarlyStart = false
+        finishFirst?()
+        wait(for: [secondStarted], timeout: 1)
     }
 }
 
@@ -3111,6 +4228,16 @@ final class ConnectionDiagnosticsLoggerTests: XCTestCase {
                 "count": 1
             ]
         )
+        let resilience = ConnectionDiagnosticsLogger.line(
+            event: "resilience_ping_timeout",
+            stream: .primary,
+            jid: "alice@example.com",
+            trigger: .livenessProbe,
+            details: [
+                "missedPings": 2,
+                "limit": 2
+            ]
+        )
 
         XCTAssertTrue(lifecycle.contains("event=xmpp_stream_features"))
         XCTAssertTrue(lifecycle.contains("phase=tlsNegotiating"))
@@ -3123,6 +4250,9 @@ final class ConnectionDiagnosticsLoggerTests: XCTestCase {
         XCTAssertTrue(accountState.contains("event=account_manager_mark_connecting"))
         XCTAssertTrue(accountState.contains("set=connectingUsers"))
         XCTAssertTrue(accountState.contains("wasPresent=false"))
+        XCTAssertTrue(resilience.contains("event=resilience_ping_timeout"))
+        XCTAssertTrue(resilience.contains("trigger=livenessProbe"))
+        XCTAssertTrue(resilience.contains("missedPings=2"))
     }
 
     func testRawXMLLineUsesRedactedPayloadWhenEnabled() {
@@ -4931,6 +6061,15 @@ final class MessageReceiverBatchingTests: XCTestCase {
 
     private let owner = "igor.boldin@xmppdev01.xabber.com"
 
+    override func setUp() {
+        super.setUp()
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "MessageReceiverBatchingTests-\(name)")
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
     private func makeMessage(id: String) throws -> XMPPMessage {
         let document = try DDXMLDocument(xmlString: """
         <message type='chat' id='\(id)' from='alexey.boldin@xmppdev01.xabber.com' to='\(owner)'>
@@ -4970,6 +6109,62 @@ final class MessageReceiverBatchingTests: XCTestCase {
         manager.enqueue(collection: [first, second])
 
         XCTAssertEqual(manager.messagesQueue.value.count, 2)
+    }
+
+    func testDuplicateMessageMergesArchiveProducingQueryMetadata() throws {
+        let realm = try WRealm.safe()
+        let existing = MessageStorageItem()
+        existing.primary = MessageStorageItem.genPrimary(messageId: "m1", owner: owner)
+        existing.owner = owner
+        existing.opponent = "alexey.boldin@xmppdev01.xabber.com"
+        existing.messageId = "m1"
+        existing.queryIds = "existing-history"
+
+        try realm.write {
+            realm.add(existing, update: .modified)
+        }
+
+        let incoming = MessageStorageItem()
+        incoming.primary = existing.primary
+        incoming.owner = owner
+        incoming.opponent = existing.opponent
+        incoming.messageId = "m1"
+        incoming.queryIds = "MAM next history: archive-page"
+        incoming.shouldPersistArchiveQueryId = true
+
+        try realm.write {
+            _ = incoming.applyMessagePersistence(in: realm)
+        }
+
+        XCTAssertEqual(existing.queryIds, "existing-history,MAM next history: archive-page")
+    }
+
+    func testDuplicateMessageIgnoresNonArchiveQueryMetadata() throws {
+        let realm = try WRealm.safe()
+        let existing = MessageStorageItem()
+        existing.primary = MessageStorageItem.genPrimary(messageId: "m1", owner: owner)
+        existing.owner = owner
+        existing.opponent = "alexey.boldin@xmppdev01.xabber.com"
+        existing.messageId = "m1"
+        existing.queryIds = "existing-history"
+
+        try realm.write {
+            realm.add(existing, update: .modified)
+        }
+
+        let incoming = MessageStorageItem()
+        incoming.primary = existing.primary
+        incoming.owner = owner
+        incoming.opponent = existing.opponent
+        incoming.messageId = "m1"
+        incoming.queryIds = "MAM search: result"
+        incoming.shouldPersistArchiveQueryId = false
+
+        try realm.write {
+            _ = incoming.applyMessagePersistence(in: realm)
+        }
+
+        XCTAssertEqual(existing.queryIds, "existing-history")
     }
 }
 
@@ -5826,6 +7021,92 @@ final class ChatBootstrapStateTests: XCTestCase {
         )
     }
 
+    func testInitialUnreadBoundaryAnchorUsesBootstrapSkeletonUntilResolution() {
+        XCTAssertEqual(
+            ChatBootstrapViewState.resolve(
+                messageCount: 3,
+                isSynced: true,
+                isInitialBootstrapInFlight: false,
+                hasPendingInitialAnchorRequest: true
+            ),
+            .skeleton
+        )
+        XCTAssertEqual(
+            ChatAnchorLoadingPresentationPolicy.presentation(isBootstrapNavigation: true),
+            .skeleton
+        )
+        XCTAssertTrue(
+            ChatInitialAnchorBootstrapPolicy.shouldBlockBootstrap(
+                source: .initialUnreadBoundary,
+                isSynced: true,
+                messageCount: 3,
+                hasLocalAnchor: true,
+                isShowingBootstrapPlaceholder: true
+            )
+        )
+    }
+
+    func testSavedVisiblePositionWithSyncedLocalAnchorDoesNotKeepBootstrapSkeleton() {
+        let hasPendingInitialAnchorRequest = ChatInitialAnchorBootstrapPolicy.shouldBlockBootstrap(
+            source: .savedVisiblePosition,
+            isSynced: true,
+            messageCount: 3,
+            hasLocalAnchor: true,
+            isShowingBootstrapPlaceholder: true
+        )
+
+        XCTAssertFalse(hasPendingInitialAnchorRequest)
+        XCTAssertEqual(
+            ChatBootstrapViewState.resolve(
+                messageCount: 3,
+                isSynced: true,
+                isInitialBootstrapInFlight: false,
+                hasPendingInitialAnchorRequest: hasPendingInitialAnchorRequest
+            ),
+            .content
+        )
+    }
+
+    func testSavedVisiblePositionWithoutLocalAnchorStillUsesBootstrapLoadingPath() {
+        XCTAssertTrue(
+            ChatInitialAnchorBootstrapPolicy.shouldBlockBootstrap(
+                source: .savedVisiblePosition,
+                isSynced: true,
+                messageCount: 3,
+                hasLocalAnchor: false,
+                isShowingBootstrapPlaceholder: true
+            )
+        )
+    }
+
+    func testSavedVisiblePositionForUnsyncedChatStillUsesBootstrapLoadingPath() {
+        XCTAssertTrue(
+            ChatInitialAnchorBootstrapPolicy.shouldBlockBootstrap(
+                source: .savedVisiblePosition,
+                isSynced: false,
+                messageCount: 3,
+                hasLocalAnchor: true,
+                isShowingBootstrapPlaceholder: true
+            )
+        )
+    }
+
+    func testContentStateReloadsWhenDatasourceStillContainsSkeletonPlaceholder() {
+        XCTAssertTrue(
+            ChatBootstrapContentRenderPolicy.shouldReloadInitialWindow(
+                forceRender: false,
+                isShowingBootstrapPlaceholder: true
+            )
+        )
+
+        XCTAssertFalse(
+            ChatBootstrapContentRenderPolicy.shouldReloadInitialWindow(
+                forceRender: false,
+                isShowingBootstrapPlaceholder: false
+            )
+        )
+    }
+
     func testBootstrapStateKeepsSkeletonWhenBootstrapIsInFlightWithLocalMessages() {
         XCTAssertEqual(
             ChatBootstrapViewState.resolve(
@@ -6230,12 +7511,32 @@ final class MessageArchiveRequestClassificationTests: XCTestCase {
             .pageNewer,
             .jump,
             .gapRepair,
+            .snapshotRepair,
             .search,
             .latest,
             .media
         ]
 
         XCTAssertTrue(purposes.allSatisfy { !$0.marksInitialArchiveLoaded })
+    }
+
+    func testArchiveProducingPurposesAreClassifiedExplicitly() {
+        let archiveProducing: [MessageArchiveManager.RequestPurpose] = [
+            .bootstrap,
+            .pageOlder,
+            .pageNewer,
+            .jump,
+            .gapRepair,
+            .snapshotRepair
+        ]
+        let nonArchiveProducing: [MessageArchiveManager.RequestPurpose] = [
+            .search,
+            .latest,
+            .media
+        ]
+
+        XCTAssertTrue(archiveProducing.allSatisfy(\.isArchiveHistoryProducing))
+        XCTAssertTrue(nonArchiveProducing.allSatisfy { !$0.isArchiveHistoryProducing })
     }
 
     func testPersistedOlderCursorUsesOldestRsmBoundaryForBootstrap() {
@@ -6259,6 +7560,18 @@ final class MessageArchiveRequestClassificationTests: XCTestCase {
                 current: "existing-cursor"
             ),
             "older-boundary"
+        )
+    }
+
+    func testOlderBeforeFlipPageCursorKeepsRsmLastAsNextOlderCursor() {
+        XCTAssertEqual(
+            MessageArchiveManager.HistoryCursorPolicy.persistedOlderCursorId(
+                purpose: .pageOlder,
+                first: "newest-delivered-boundary",
+                last: "oldest-delivered-boundary",
+                current: "previous-oldest"
+            ),
+            "oldest-delivered-boundary"
         )
     }
 
@@ -6588,6 +7901,50 @@ final class MessageArchiveRequestClassificationTests: XCTestCase {
         XCTAssertEqual(task?.max, 1)
         XCTAssertEqual(task?.archiveEndEligibility, false)
     }
+
+    func testDirectSnapshotRepairRequestQueuesDirectConversationTypeTask() {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let target = MessageArchiveManager.SnapshotRepairTarget(
+            jid: jid,
+            conversationType: .omemo1
+        )
+
+        let queryId = manager.startSnapshotArchiveRepair(
+            XMPPStream(),
+            target: target,
+            queryId: "snapshot-direct"
+        )
+
+        let task = queuedTask(manager, queryId: try! XCTUnwrap(queryId))
+        XCTAssertEqual(task?.purpose, .snapshotRepair)
+        XCTAssertEqual(task?.jid, jid)
+        XCTAssertEqual(task?.conversationType, .omemo1)
+        XCTAssertFalse(task?.isGroupchat ?? true)
+        XCTAssertEqual(task?.nextPage, "")
+        XCTAssertNil(task?.prevPage)
+    }
+
+    func testGroupSnapshotRepairRequestQueuesGroupAddressedTask() {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let target = MessageArchiveManager.SnapshotRepairTarget(
+            jid: "group@example.com",
+            conversationType: .group
+        )
+
+        let queryId = manager.startSnapshotArchiveRepair(
+            XMPPStream(),
+            target: target,
+            queryId: "snapshot-group"
+        )
+
+        let task = queuedTask(manager, queryId: try! XCTUnwrap(queryId))
+        XCTAssertEqual(task?.purpose, .snapshotRepair)
+        XCTAssertEqual(task?.jid, "group@example.com")
+        XCTAssertEqual(task?.conversationType, .group)
+        XCTAssertTrue(task?.isGroupchat ?? false)
+        XCTAssertEqual(task?.nextPage, "")
+        XCTAssertNil(task?.prevPage)
+    }
 }
 
 final class MessageArchivePagingRequestTests: XCTestCase {
@@ -6671,6 +8028,75 @@ final class MessageArchivePagingRequestTests: XCTestCase {
         XCTAssertEqual(plan.max, 1)
         XCTAssertTrue(plan.usesServerArchiveId)
     }
+
+    func testSnapshotRepairPlanUsesNewestPageWhenNoLoadedNewestIdExists() {
+        let plan = MessageArchiveManager.snapshotRepairRequestPlan(
+            jid: "romeo@example.com",
+            conversationType: .saved,
+            newestLoadedArchiveId: nil,
+            pageSize: 100
+        )
+
+        XCTAssertEqual(plan.kind, .snapshotRepair)
+        XCTAssertEqual(plan.conversationType, .saved)
+        XCTAssertEqual(plan.purpose, .snapshotRepair)
+        XCTAssertEqual(plan.nextPage, "")
+        XCTAssertNil(plan.prevPage)
+        XCTAssertFalse(plan.usesServerArchiveId)
+    }
+
+    func testSnapshotRepairPlanUsesServerArchiveAfterCursorWhenNewestLoadedIdExists() {
+        let plan = MessageArchiveManager.snapshotRepairRequestPlan(
+            jid: "group@example.com",
+            conversationType: .group,
+            newestLoadedArchiveId: "1776840442467416",
+            pageSize: 100
+        )
+
+        XCTAssertEqual(plan.kind, .snapshotRepair)
+        XCTAssertEqual(plan.conversationType, .group)
+        XCTAssertNil(plan.nextPage)
+        XCTAssertEqual(plan.prevPage, "1776840442467416")
+        XCTAssertTrue(plan.usesServerArchiveId)
+    }
+
+    func testRegularGapRepairOlderPlanUsesNewerGapBoundaryAsBeforeCursor() {
+        let gap = RegularChatArchiveGap(
+            olderRangeNewestArchiveId: "200",
+            newerRangeOldestArchiveId: "400"
+        )
+        let plan = MessageArchiveManager.regularGapRepairRequestPlan(
+            jid: "romeo@example.com",
+            gap: gap,
+            direction: .older,
+            pageSize: 100
+        )
+
+        XCTAssertEqual(plan.kind, .gapRepair)
+        XCTAssertEqual(plan.purpose, .gapRepair)
+        XCTAssertEqual(plan.nextPage, "400")
+        XCTAssertNil(plan.prevPage)
+        XCTAssertTrue(plan.usesServerArchiveId)
+    }
+
+    func testRegularGapRepairNewerPlanUsesOlderGapBoundaryAsAfterCursor() {
+        let gap = RegularChatArchiveGap(
+            olderRangeNewestArchiveId: "200",
+            newerRangeOldestArchiveId: "400"
+        )
+        let plan = MessageArchiveManager.regularGapRepairRequestPlan(
+            jid: "romeo@example.com",
+            gap: gap,
+            direction: .newer,
+            pageSize: 100
+        )
+
+        XCTAssertEqual(plan.kind, .gapRepair)
+        XCTAssertEqual(plan.purpose, .gapRepair)
+        XCTAssertNil(plan.nextPage)
+        XCTAssertEqual(plan.prevPage, "200")
+        XCTAssertTrue(plan.usesServerArchiveId)
+    }
 }
 
 final class RegularChatArchiveSyncStateTests: XCTestCase {
@@ -6691,8 +8117,8 @@ final class RegularChatArchiveSyncStateTests: XCTestCase {
         let realm = try WRealm.safe()
         try realm.write {
             let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
-            state.mergeLoadedRange(first: "300", last: "200")
-            state.mergeLoadedRange(first: "250", last: "100")
+            state.mergeLoadedRange(first: "300", last: "200", updateKind: .bootstrapNewest)
+            state.mergeLoadedRange(first: "250", last: "100", updateKind: .disjointWindow)
         }
 
         let state = try XCTUnwrap(realm.object(
@@ -6709,8 +8135,8 @@ final class RegularChatArchiveSyncStateTests: XCTestCase {
         let realm = try WRealm.safe()
         try realm.write {
             let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
-            state.mergeLoadedRange(first: "200", last: "100")
-            state.mergeLoadedRange(first: "500", last: "400")
+            state.mergeLoadedRange(first: "200", last: "100", updateKind: .bootstrapNewest)
+            state.mergeLoadedRange(first: "500", last: "400", updateKind: .disjointWindow)
         }
 
         let state = try XCTUnwrap(realm.object(
@@ -6721,6 +8147,118 @@ final class RegularChatArchiveSyncStateTests: XCTestCase {
             state.knownGaps,
             [RegularChatArchiveGap(olderRangeNewestArchiveId: "200", newerRangeOldestArchiveId: "400")]
         )
+    }
+
+    func testOlderExclusiveRsmPageMergesByRequestAdjacency() throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
+            state.mergeLoadedRange(first: "500", last: "400", updateKind: .bootstrapNewest)
+            state.mergeLoadedRange(first: "399", last: "300", updateKind: .pageOlder(cursorArchiveId: "400"))
+        }
+
+        let state = try XCTUnwrap(realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
+        ))
+        XCTAssertEqual(state.loadedRanges, [RegularChatArchiveIDRange(oldestArchiveId: "300", newestArchiveId: "500")])
+        XCTAssertTrue(state.knownGaps.isEmpty)
+    }
+
+    func testNewerExclusiveRsmPageMergesByRequestAdjacency() throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
+            state.mergeLoadedRange(first: "200", last: "100", updateKind: .bootstrapNewest)
+            state.mergeLoadedRange(first: "300", last: "201", updateKind: .pageNewer(cursorArchiveId: "200"))
+        }
+
+        let state = try XCTUnwrap(realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
+        ))
+        XCTAssertEqual(state.loadedRanges, [RegularChatArchiveIDRange(oldestArchiveId: "100", newestArchiveId: "300")])
+        XCTAssertTrue(state.knownGaps.isEmpty)
+    }
+
+    func testPartialGapRepairShrinksKnownGap() throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
+            state.mergeLoadedRange(first: "200", last: "100", updateKind: .bootstrapNewest)
+            state.mergeLoadedRange(first: "500", last: "400", updateKind: .disjointWindow)
+            state.mergeLoadedRange(first: "399", last: "300", updateKind: .gapRepairOlder(cursorArchiveId: "400"))
+        }
+
+        let state = try XCTUnwrap(realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
+        ))
+        XCTAssertEqual(
+            state.loadedRanges,
+            [
+                RegularChatArchiveIDRange(oldestArchiveId: "100", newestArchiveId: "200"),
+                RegularChatArchiveIDRange(oldestArchiveId: "300", newestArchiveId: "500")
+            ]
+        )
+        XCTAssertEqual(
+            state.knownGaps,
+            [RegularChatArchiveGap(olderRangeNewestArchiveId: "200", newerRangeOldestArchiveId: "300")]
+        )
+    }
+
+    func testGapRepairPageThatReachesOlderRangeRemovesKnownGap() throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
+            state.mergeLoadedRange(first: "200", last: "100", updateKind: .bootstrapNewest)
+            state.mergeLoadedRange(first: "500", last: "400", updateKind: .disjointWindow)
+            state.mergeLoadedRange(first: "399", last: "150", updateKind: .gapRepairOlder(cursorArchiveId: "400"))
+        }
+
+        let state = try XCTUnwrap(realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
+        ))
+        XCTAssertEqual(state.loadedRanges, [RegularChatArchiveIDRange(oldestArchiveId: "100", newestArchiveId: "500")])
+        XCTAssertTrue(state.knownGaps.isEmpty)
+    }
+
+    func testSnapshotIdentityDoesNotCreateKnownGapWithoutLoadedNewerWindow() throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
+            state.mergeLoadedRange(first: "200", last: "100", updateKind: .bootstrapNewest)
+            state.recordKnownNewerGap(to: "500")
+        }
+
+        let state = try XCTUnwrap(realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
+        ))
+        XCTAssertTrue(state.knownGaps.isEmpty)
+    }
+
+    func testArchiveStatePrimaryIncludesConversationType() throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            _ = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, conversationType: .regular, in: realm)
+            _ = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, conversationType: .group, in: realm)
+        }
+
+        let regular = realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        )
+        let group = realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .group)
+        )
+
+        XCTAssertNotNil(regular)
+        XCTAssertNotNil(group)
+        XCTAssertNotEqual(regular?.primary, group?.primary)
+        XCTAssertEqual(group?.conversationType, .group)
     }
 }
 
@@ -7341,6 +8879,527 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         )
         XCTAssertTrue(manager.callbacksQueue.isEmpty)
     }
+
+    func testSnapshotRepairMergesLoadedRangeAndClearsSyncedWhenOnePageCoversSnapshot() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = XMPPStream()
+        let jid = "romeo@example.com"
+        try insertLastChat(jid: jid, conversationType: .regular)
+        let realm = try WRealm.safe()
+        try realm.write {
+            let chat = try XCTUnwrap(realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+            ))
+            chat.isSynced = false
+            LastChatUnreadCounter.refreshTotal(for: chat)
+            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, conversationType: .regular, in: realm)
+            state.lastSnapshotArchiveId = "500"
+            state.newerLiveEdgeReached = false
+        }
+
+        let queryId = try XCTUnwrap(manager.startSnapshotArchiveRepair(
+            stream,
+            target: .init(jid: jid, conversationType: .regular),
+            queryId: "snapshot-clear"
+        ))
+
+        let iq = try makeIQ(xml: """
+        <iq type='result' id='\(queryId)'>
+          <fin xmlns='urn:xmpp:mam:2' complete='false' queryid='\(queryId)'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <count>1</count>
+              <first>500</first>
+              <last>400</last>
+            </set>
+          </fin>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(stream, withIQ: iq))
+
+        let chat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        ))
+        let state = try XCTUnwrap(realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        ))
+        XCTAssertTrue(chat.isSynced)
+        XCTAssertEqual(state.loadedRanges, [RegularChatArchiveIDRange(oldestArchiveId: "400", newestArchiveId: "500")])
+        XCTAssertTrue(state.newerLiveEdgeReached)
+        XCTAssertTrue(manager.callbacksQueue.isEmpty)
+    }
+
+    func testSnapshotRepairLeavesUnsyncedWhenSnapshotArchiveIdIsOutsideOnePage() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = XMPPStream()
+        let jid = "romeo@example.com"
+        try insertLastChat(jid: jid, conversationType: .regular)
+        let realm = try WRealm.safe()
+        try realm.write {
+            let chat = try XCTUnwrap(realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+            ))
+            chat.isSynced = false
+            LastChatUnreadCounter.refreshTotal(for: chat)
+            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, conversationType: .regular, in: realm)
+            state.lastSnapshotArchiveId = "900"
+        }
+
+        let queryId = try XCTUnwrap(manager.startSnapshotArchiveRepair(
+            stream,
+            target: .init(jid: jid, conversationType: .regular),
+            queryId: "snapshot-missing"
+        ))
+
+        let iq = try makeIQ(xml: """
+        <iq type='result' id='\(queryId)'>
+          <fin xmlns='urn:xmpp:mam:2' complete='false' queryid='\(queryId)'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <count>1</count>
+              <first>500</first>
+              <last>400</last>
+            </set>
+          </fin>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(stream, withIQ: iq))
+
+        let chat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        ))
+        XCTAssertFalse(chat.isSynced)
+    }
+
+    func testSnapshotRepairRequestsOnlyOnePageWhenResultIsNotComplete() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = XMPPStream()
+        let jid = "group@example.com"
+        try insertLastChat(jid: jid, conversationType: .group)
+        let realm = try WRealm.safe()
+        try realm.write {
+            let chat = try XCTUnwrap(realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .group)
+            ))
+            chat.isSynced = false
+            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, conversationType: .group, in: realm)
+            state.lastSnapshotArchiveId = "900"
+        }
+
+        let queryId = try XCTUnwrap(manager.startSnapshotArchiveRepair(
+            stream,
+            target: .init(jid: jid, conversationType: .group),
+            queryId: "snapshot-one-page"
+        ))
+
+        let iq = try makeIQ(xml: """
+        <iq type='result' id='\(queryId)'>
+          <fin xmlns='urn:xmpp:mam:2' complete='false' queryid='\(queryId)'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <count>100</count>
+              <first>500</first>
+              <last>400</last>
+            </set>
+          </fin>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(stream, withIQ: iq))
+
+        XCTAssertTrue(manager.callbacksQueue.isEmpty)
+        let chat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .group)
+        ))
+        XCTAssertFalse(chat.isSynced)
+    }
+
+    func testSnapshotRepairWithUnreadBoundaryOutsideOnePageRemainsUnsynced() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = XMPPStream()
+        let jid = "romeo@example.com"
+        try insertLastChat(jid: jid, conversationType: .regular)
+        let realm = try WRealm.safe()
+        try realm.write {
+            let chat = try XCTUnwrap(realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+            ))
+            chat.isSynced = false
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat,
+                count: 102,
+                afterId: "100",
+                snapshotLastArchiveId: "500",
+                in: realm
+            )
+            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, conversationType: .regular, in: realm)
+            state.lastSnapshotArchiveId = "500"
+        }
+
+        let queryId = try XCTUnwrap(manager.startSnapshotArchiveRepair(
+            stream,
+            target: .init(jid: jid, conversationType: .regular),
+            queryId: "snapshot-unread-gap"
+        ))
+
+        let iq = try makeIQ(xml: """
+        <iq type='result' id='\(queryId)'>
+          <fin xmlns='urn:xmpp:mam:2' complete='false' queryid='\(queryId)'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <count>1</count>
+              <first>500</first>
+              <last>400</last>
+            </set>
+          </fin>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(stream, withIQ: iq))
+
+        let chat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        ))
+        XCTAssertFalse(chat.isSynced)
+    }
+
+    func testSnapshotRepairDoesNotClearSyncWhenSnapshotAndUnreadBoundaryAreSeparatedByKnownGap() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = XMPPStream()
+        let jid = "romeo@example.com"
+        try insertLastChat(jid: jid, conversationType: .regular)
+        let realm = try WRealm.safe()
+        try realm.write {
+            let chat = try XCTUnwrap(realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+            ))
+            chat.isSynced = false
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat,
+                count: 1,
+                afterId: "100",
+                snapshotLastArchiveId: "500",
+                in: realm
+            )
+            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, conversationType: .regular, in: realm)
+            state.lastSnapshotArchiveId = "500"
+            state.mergeLoadedRange(first: "150", last: "50", updateKind: .bootstrapNewest)
+            state.mergeLoadedRange(first: "500", last: "400", updateKind: .disjointWindow)
+        }
+
+        let queryId = try XCTUnwrap(manager.startSnapshotArchiveRepair(
+            stream,
+            target: .init(jid: jid, conversationType: .regular),
+            queryId: "snapshot-separated-gap"
+        ))
+
+        let iq = try makeIQ(xml: """
+        <iq type='result' id='\(queryId)'>
+          <fin xmlns='urn:xmpp:mam:2' complete='true' queryid='\(queryId)'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <count>0</count>
+            </set>
+          </fin>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(stream, withIQ: iq))
+
+        let chat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        ))
+        XCTAssertFalse(chat.isSynced)
+    }
+}
+
+final class LastChatUnreadCounterTests: XCTestCase {
+
+    private let owner = "owner@example.com"
+    private let jid = "romeo@example.com"
+
+    override func setUp() {
+        super.setUp()
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "LastChatUnreadCounterTests-\(name)")
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    @discardableResult
+    private func insertChat() throws -> LastChatsStorageItem {
+        let realm = try WRealm.safe()
+        let chat = LastChatsStorageItem()
+        chat.owner = owner
+        chat.jid = jid
+        chat.conversationType = .regular
+        chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        chat.messageDate = Date(timeIntervalSince1970: 1_711_283_200)
+
+        try realm.write {
+            realm.add(chat, update: .modified)
+        }
+
+        return try XCTUnwrap(realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: chat.primary))
+    }
+
+    private func makeMessage(
+        primary: String,
+        archivedId: String,
+        date: TimeInterval,
+        outgoing: Bool = false,
+        isRead: Bool = false,
+        countsAsRuntimeUnread: Bool = false
+    ) -> MessageStorageItem {
+        let message = MessageStorageItem()
+        message.primary = primary
+        message.owner = owner
+        message.opponent = jid
+        message.conversationType = .regular
+        message.body = "hello"
+        message.legacyBody = "hello"
+        message.displayAs = .text
+        message.messageId = primary
+        message.archivedId = archivedId
+        message.date = Date(timeIntervalSince1970: date)
+        message.sentDate = message.date
+        message.outgoing = outgoing
+        message.isRead = isRead
+        message.state = outgoing ? .sended : .deliver
+        message.countsAsRuntimeUnread = countsAsRuntimeUnread
+        return message
+    }
+
+    private func chat() throws -> LastChatsStorageItem {
+        try XCTUnwrap(
+            try WRealm.safe().object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+            )
+        )
+    }
+
+    func testSnapshotUnreadCountDoesNotRecountLocalMessages() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let localOne = makeMessage(primary: "local-1", archivedId: "501", date: 1_711_283_201)
+        let localTwo = makeMessage(primary: "local-2", archivedId: "502", date: 1_711_283_202)
+
+        try realm.write {
+            realm.add([localOne, localTwo], update: .modified)
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat,
+                count: 102,
+                afterId: "100",
+                snapshotLastArchiveId: "500",
+                in: realm
+            )
+        }
+
+        XCTAssertEqual(chat.syncUnreadCount, 102)
+        XCTAssertEqual(chat.runtimeUnreadCount, 0)
+        XCTAssertEqual(chat.unread, 102)
+        XCTAssertEqual(chat.syncUnreadAfterId, "100")
+        XCTAssertEqual(chat.lastReadId, "100")
+    }
+
+    func testLiveIncomingAfterSnapshotIncrementsRuntimeTotal() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let message = makeMessage(primary: "live-1", archivedId: "600", date: 1_711_283_203, countsAsRuntimeUnread: true)
+
+        try realm.write {
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat,
+                count: 102,
+                afterId: "100",
+                snapshotLastArchiveId: "500",
+                in: realm
+            )
+            _ = message.applyMessagePersistence(in: realm, silentNotifications: true)
+        }
+
+        XCTAssertEqual(chat.syncUnreadCount, 102)
+        XCTAssertEqual(chat.runtimeUnreadCount, 1)
+        XCTAssertEqual(chat.unread, 103)
+        XCTAssertEqual(message.unreadCounterBucket, .runtime)
+    }
+
+    func testArchiveReplayDoesNotIncrementRuntimeUnread() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let message = makeMessage(primary: "archive-1", archivedId: "600", date: 1_711_283_203, isRead: true)
+
+        try realm.write {
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat,
+                count: 102,
+                afterId: "100",
+                snapshotLastArchiveId: "500",
+                in: realm
+            )
+            _ = message.applyMessagePersistence(in: realm, silentNotifications: true)
+        }
+
+        XCTAssertEqual(chat.runtimeUnreadCount, 0)
+        XCTAssertEqual(chat.unread, 102)
+        XCTAssertEqual(message.unreadCounterBucket, .none)
+    }
+
+    func testDuplicateLiveAndArchiveReplayDoNotDoubleCount() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let live = makeMessage(primary: "dup-1", archivedId: "600", date: 1_711_283_203, countsAsRuntimeUnread: true)
+        let duplicateLive = makeMessage(primary: "dup-1", archivedId: "600", date: 1_711_283_203, countsAsRuntimeUnread: true)
+        let archiveReplay = makeMessage(primary: "dup-1", archivedId: "600", date: 1_711_283_203, isRead: true)
+
+        try realm.write {
+            _ = live.applyMessagePersistence(in: realm, silentNotifications: true)
+            _ = duplicateLive.applyMessagePersistence(in: realm, silentNotifications: true)
+            _ = archiveReplay.applyMessagePersistence(in: realm, silentNotifications: true)
+        }
+
+        XCTAssertEqual(chat.runtimeUnreadCount, 1)
+        XCTAssertEqual(chat.unread, 1)
+        XCTAssertEqual(try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "dup-1")).unreadCounterBucket, .runtime)
+    }
+
+    func testOutgoingMessageClearsSnapshotAndRuntimeCounters() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let live = makeMessage(primary: "live-1", archivedId: "600", date: 1_711_283_203, countsAsRuntimeUnread: true)
+        let outgoing = makeMessage(primary: "outgoing-1", archivedId: "601", date: 1_711_283_204, outgoing: true, isRead: true)
+
+        try realm.write {
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat,
+                count: 102,
+                afterId: "100",
+                snapshotLastArchiveId: "500",
+                in: realm
+            )
+            _ = live.applyMessagePersistence(in: realm, silentNotifications: true)
+            _ = outgoing.applyMessagePersistence(in: realm, silentNotifications: true)
+        }
+
+        XCTAssertEqual(chat.syncUnreadCount, 0)
+        XCTAssertEqual(chat.runtimeUnreadCount, 0)
+        XCTAssertEqual(chat.unread, 0)
+        XCTAssertEqual(live.unreadCounterBucket, .none)
+    }
+
+    func testReadMarkerDoesNotRecountLocalGapMessages() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let localGapMessage = makeMessage(primary: "gap-local", archivedId: "250", date: 1_711_283_203)
+
+        try realm.write {
+            realm.add(localGapMessage, update: .modified)
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat,
+                count: 102,
+                afterId: "100",
+                snapshotLastArchiveId: "500",
+                in: realm
+            )
+            LastChatUnreadCounter.markRead(through: localGapMessage, in: chat, clearWholeDialog: false, realm: realm)
+        }
+
+        XCTAssertEqual(chat.syncUnreadCount, 102)
+        XCTAssertEqual(chat.runtimeUnreadCount, 0)
+        XCTAssertEqual(chat.unread, 102)
+    }
+
+    func testExplicitReadMarkerClearsWithoutLocalRecount() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let lastMessage = makeMessage(primary: "last", archivedId: "600", date: 1_711_283_204)
+
+        try realm.write {
+            realm.add(lastMessage, update: .modified)
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat,
+                count: 102,
+                afterId: "100",
+                snapshotLastArchiveId: "500",
+                in: realm
+            )
+            LastChatUnreadCounter.markRead(through: lastMessage, in: chat, clearWholeDialog: true, realm: realm)
+        }
+
+        XCTAssertEqual(chat.syncUnreadCount, 0)
+        XCTAssertEqual(chat.runtimeUnreadCount, 0)
+        XCTAssertEqual(chat.unread, 0)
+        XCTAssertEqual(chat.lastReadId, "600")
+    }
+
+    func testUnresolvedSiblingDisplayedMarkerLeavesCountersUnchanged() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+
+        try realm.write {
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat,
+                count: 4,
+                afterId: "100",
+                snapshotLastArchiveId: "500",
+                in: realm
+            )
+            LastChatUnreadCounter.ignoreUnresolvedDisplayedMarker(on: chat)
+        }
+
+        XCTAssertEqual(chat.syncUnreadCount, 4)
+        XCTAssertEqual(chat.runtimeUnreadCount, 0)
+        XCTAssertEqual(chat.unread, 4)
+        XCTAssertEqual(chat.lastReadId, "100")
+    }
+
+    func testDeletingRuntimeUnreadMessageDecrementsOnce() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let message = makeMessage(primary: "delete-runtime", archivedId: "600", date: 1_711_283_203, countsAsRuntimeUnread: true)
+
+        try realm.write {
+            _ = message.applyMessagePersistence(in: realm, silentNotifications: true)
+            LastChatUnreadCounter.removeUnreadContribution(for: message, from: chat)
+            LastChatUnreadCounter.removeUnreadContribution(for: message, from: chat)
+        }
+
+        XCTAssertEqual(chat.runtimeUnreadCount, 0)
+        XCTAssertEqual(chat.unread, 0)
+        XCTAssertEqual(message.unreadCounterBucket, .none)
+    }
+
+    func testDeletingReadOrArchiveReplayMessageDoesNotDecrement() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let archiveMessage = makeMessage(primary: "archive-read", archivedId: "600", date: 1_711_283_203, isRead: true)
+
+        try realm.write {
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat,
+                count: 5,
+                afterId: "100",
+                snapshotLastArchiveId: "500",
+                in: realm
+            )
+            _ = archiveMessage.applyMessagePersistence(in: realm, silentNotifications: true)
+            LastChatUnreadCounter.removeUnreadContribution(for: archiveMessage, from: chat)
+        }
+
+        XCTAssertEqual(chat.syncUnreadCount, 5)
+        XCTAssertEqual(chat.runtimeUnreadCount, 0)
+        XCTAssertEqual(chat.unread, 5)
+    }
 }
 
 final class ChatHistoryPagingPolicyTests: XCTestCase {
@@ -7369,6 +9428,110 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 totalCount: 300
             ),
             .older
+        )
+    }
+
+    func testOlderPagingTriggersAtLocalStartWhenRemoteOlderHistoryIsAvailable() {
+        XCTAssertEqual(
+            ChatHistoryPagingPolicy.triggerDirection(
+                isUserScrolling: true,
+                canLoadDatasource: true,
+                gestureTranslationY: 48,
+                boundaryContext: boundaryContext(visibleRealSections: [0, 1, 2]),
+                currentPageMinIndex: 0,
+                currentPageMaxIndex: 100,
+                totalCount: 100,
+                hasRemoteOlderAvailable: true
+            ),
+            .older
+        )
+    }
+
+    func testOlderPagingDoesNotTriggerAtLocalStartWhenRemoteOlderHistoryIsUnavailable() {
+        XCTAssertNil(
+            ChatHistoryPagingPolicy.triggerDirection(
+                isUserScrolling: true,
+                canLoadDatasource: true,
+                gestureTranslationY: 48,
+                boundaryContext: boundaryContext(visibleRealSections: [0, 1, 2]),
+                currentPageMinIndex: 0,
+                currentPageMaxIndex: 100,
+                totalCount: 100,
+                hasRemoteOlderAvailable: false
+            )
+        )
+    }
+
+    func testLocalOlderPagingStillTriggersWhenLocalOlderMessagesExist() {
+        XCTAssertEqual(
+            ChatHistoryPagingPolicy.triggerDirection(
+                isUserScrolling: true,
+                canLoadDatasource: true,
+                gestureTranslationY: 48,
+                boundaryContext: boundaryContext(visibleRealSections: [0, 1, 2]),
+                currentPageMinIndex: 20,
+                currentPageMaxIndex: 120,
+                totalCount: 120,
+                hasRemoteOlderAvailable: false
+            ),
+            .older
+        )
+    }
+
+    func testSecondTopBoundaryScrollAfterRemotePrependCanStillTriggerOlderPage() {
+        let directionAfterFirstRemotePage = ChatHistoryPagingPolicy.triggerDirection(
+            isUserScrolling: true,
+            canLoadDatasource: true,
+            gestureTranslationY: 48,
+            boundaryContext: boundaryContext(visibleRealSections: [0, 1, 2]),
+            currentPageMinIndex: 0,
+            currentPageMaxIndex: 150,
+            totalCount: 150,
+            hasRemoteOlderAvailable: true
+        )
+
+        XCTAssertEqual(directionAfterFirstRemotePage, .older)
+    }
+
+    func testArchiveEndSuppressesRemoteOlderTriggerOnlyAfterEndIsEffective() {
+        let shouldProbeArchiveEnd = ChatArchiveEndVerificationPolicy.shouldProbePersistedArchiveEnd(
+            persistedArchiveEnded: true,
+            hasConfirmedArchiveEndThisSession: false,
+            hasUsedVerificationProbe: false
+        )
+        let archiveEndDuringProbe = ChatArchiveEndVerificationPolicy.effectiveArchiveEnded(
+            persistedArchiveEnded: true,
+            shouldProbePersistedArchiveEnd: shouldProbeArchiveEnd
+        )
+        XCTAssertEqual(
+            ChatHistoryPagingPolicy.triggerDirection(
+                isUserScrolling: true,
+                canLoadDatasource: true,
+                gestureTranslationY: 48,
+                boundaryContext: boundaryContext(visibleRealSections: [0, 1, 2]),
+                currentPageMinIndex: 0,
+                currentPageMaxIndex: 100,
+                totalCount: 100,
+                hasRemoteOlderAvailable: !archiveEndDuringProbe
+            ),
+            .older
+        )
+
+        let archiveEndAfterConfirmation = ChatArchiveEndVerificationPolicy.effectiveArchiveEnded(
+            persistedArchiveEnded: true,
+            shouldProbePersistedArchiveEnd: false
+        )
+        XCTAssertNil(
+            ChatHistoryPagingPolicy.triggerDirection(
+                isUserScrolling: true,
+                canLoadDatasource: true,
+                gestureTranslationY: 48,
+                boundaryContext: boundaryContext(visibleRealSections: [0, 1, 2]),
+                currentPageMinIndex: 0,
+                currentPageMaxIndex: 100,
+                totalCount: 100,
+                hasRemoteOlderAvailable: !archiveEndAfterConfirmation
+            )
         )
     }
 
@@ -7553,7 +9716,7 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
         )
     }
 
-    func testOlderPagingDoesNotSplitLocalRemainderAndRemotePageIntoSeparateInteractions() {
+    func testOlderPagingUsesLocalRemainderBeforeRemoteArchiveWhenRequestedWindowOvershoots() {
         XCTAssertEqual(
             ChatHistoryPagingPolicy.loadDecision(
                 direction: .older,
@@ -7563,7 +9726,85 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 totalCount: 120,
                 isArchiveEnded: false
             ),
+            .localOnly
+        )
+    }
+
+    func testOlderPagingUsesLocalRemainderBeforeArchiveEndWhenRequestedWindowOvershoots() {
+        XCTAssertEqual(
+            ChatHistoryPagingPolicy.loadDecision(
+                direction: .older,
+                currentWindow: ChatDatasetWindow(minIndex: 20, maxIndex: 120),
+                requestedWindow: ChatDatasetWindow(minIndex: -80, maxIndex: 120),
+                localWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 120),
+                totalCount: 120,
+                isArchiveEnded: true
+            ),
+            .localOnly
+        )
+    }
+
+    func testOlderPagingRequestsRemoteArchiveAfterLocalStartIsVisible() {
+        XCTAssertEqual(
+            ChatHistoryPagingPolicy.loadDecision(
+                direction: .older,
+                currentWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 120),
+                requestedWindow: ChatDatasetWindow(minIndex: -100, maxIndex: 120),
+                localWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 120),
+                totalCount: 120,
+                isArchiveEnded: false
+            ),
             .remoteOlderPage
+        )
+    }
+
+    func testOlderPagingStopsAfterLocalStartIsVisibleAndArchiveEndReached() {
+        XCTAssertEqual(
+            ChatHistoryPagingPolicy.loadDecision(
+                direction: .older,
+                currentWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 120),
+                requestedWindow: ChatDatasetWindow(minIndex: -100, maxIndex: 120),
+                localWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 120),
+                totalCount: 120,
+                isArchiveEnded: true
+            ),
+            .endReached
+        )
+    }
+
+    func testOlderPagingChoosesGapRepairBeforeCrossingKnownGap() {
+        let gap = RegularChatArchiveGap(
+            olderRangeNewestArchiveId: "200",
+            newerRangeOldestArchiveId: "400"
+        )
+
+        XCTAssertEqual(
+            ChatArchiveGapPagingPolicy.loadDecision(
+                direction: .older,
+                currentWindow: ChatDatasetWindow(minIndex: 6, maxIndex: 11),
+                requestedWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 11),
+                archivedIdsByIndex: ["100", "120", "140", "160", "180", "200", "400", "420", "440", "460", "480"],
+                knownGaps: [gap]
+            ),
+            .remoteGapRepairOlder(gap)
+        )
+    }
+
+    func testNewerPagingChoosesGapRepairBeforeCrossingKnownGap() {
+        let gap = RegularChatArchiveGap(
+            olderRangeNewestArchiveId: "200",
+            newerRangeOldestArchiveId: "400"
+        )
+
+        XCTAssertEqual(
+            ChatArchiveGapPagingPolicy.loadDecision(
+                direction: .newer,
+                currentWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 6),
+                requestedWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 11),
+                archivedIdsByIndex: ["100", "120", "140", "160", "180", "200", "400", "420", "440", "460", "480"],
+                knownGaps: [gap]
+            ),
+            .remoteGapRepairNewer(gap)
         )
     }
 
@@ -7580,6 +9821,25 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 currentPageMinIndex: 100,
                 currentPageMaxIndex: 200,
                 totalCount: 300
+            ),
+            .older
+        )
+    }
+
+    func testShortContentDragFallbackRequestsRemoteOlderAtLocalStartWhenAvailable() {
+        XCTAssertEqual(
+            ChatHistoryPagingPolicy.fallbackDirectionForShortContentDrag(
+                canLoadDatasource: true,
+                gestureTranslationY: 52,
+                boundaryContext: boundaryContext(
+                    firstRealSection: 0,
+                    lastRealSection: 6,
+                    visibleRealSections: [0, 1, 2]
+                ),
+                currentPageMinIndex: 0,
+                currentPageMaxIndex: 100,
+                totalCount: 100,
+                hasRemoteOlderAvailable: true
             ),
             .older
         )
@@ -7740,6 +10000,236 @@ final class ChatObserverLookupPolicyTests: XCTestCase {
     }
 }
 
+final class ChatInitialPositionPolicyTests: XCTestCase {
+
+    private let owner = "owner@example.com"
+    private let jid = "romeo@example.com"
+    private let sourceDate = Date(timeIntervalSince1970: 1_711_283_200)
+
+    private func makeExplicitRequest() -> ChatOpenMessageRequest {
+        ChatOpenMessageRequest(
+            chatJid: jid,
+            owner: owner,
+            conversationType: .regular,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: "explicit-primary",
+                archivedId: "explicit-archived",
+                messageId: "explicit-message",
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: sourceDate
+            ),
+            highlight: true,
+            markReadOnVisible: true,
+            source: .pushNotification
+        )
+    }
+
+    private func makeState(
+        unread: Int = 0,
+        syncUnreadAfterId: String? = nil,
+        lastReadId: String? = nil,
+        lastMessageId: String = "last-message",
+        syncSnapshotLastArchiveId: String? = "snapshot-last",
+        savedPosition: ChatSavedVisiblePosition? = nil,
+        savedAtLastMessageId: String? = nil,
+        savedAtSnapshotLastArchiveId: String? = nil
+    ) -> ChatInitialPositionPolicy.ChatState {
+        ChatInitialPositionPolicy.ChatState(
+            owner: owner,
+            jid: jid,
+            conversationType: .regular,
+            unread: unread,
+            syncUnreadAfterId: syncUnreadAfterId,
+            lastReadId: lastReadId,
+            lastMessageId: lastMessageId,
+            syncSnapshotLastArchiveId: syncSnapshotLastArchiveId,
+            messageDate: sourceDate,
+            savedPosition: savedPosition,
+            savedAtLastMessageId: savedAtLastMessageId,
+            savedAtSnapshotLastArchiveId: savedAtSnapshotLastArchiveId
+        )
+    }
+
+    func testExplicitRequestWinsOverUnreadAndSavedPosition() {
+        let explicit = makeExplicitRequest()
+        let saved = ChatSavedVisiblePosition(
+            messagePrimary: "saved-primary",
+            archivedId: "saved-archived",
+            messageId: "saved-message",
+            sourceDate: sourceDate
+        )
+        let state = makeState(
+            unread: 3,
+            syncUnreadAfterId: "1711283295000000",
+            savedPosition: saved,
+            savedAtLastMessageId: "last-message",
+            savedAtSnapshotLastArchiveId: "snapshot-last"
+        )
+
+        XCTAssertEqual(
+            ChatInitialPositionPolicy.decision(for: state, explicitRequest: explicit),
+            .open(explicit)
+        )
+    }
+
+    func testUnreadAnchorWinsOverSavedPosition() {
+        let saved = ChatSavedVisiblePosition(
+            messagePrimary: "saved-primary",
+            archivedId: "saved-archived",
+            messageId: "saved-message",
+            sourceDate: sourceDate
+        )
+        let state = makeState(
+            unread: 2,
+            syncUnreadAfterId: "1711283295000000",
+            savedPosition: saved,
+            savedAtLastMessageId: "last-message",
+            savedAtSnapshotLastArchiveId: "snapshot-last"
+        )
+
+        guard case .open(let request) = ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil) else {
+            return XCTFail("Expected unread boundary request")
+        }
+
+        XCTAssertEqual(request.source, .initialUnreadBoundary)
+        XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
+        XCTAssertEqual(request.anchor.sourceDate, Date(timeIntervalSince1970: 1_711_283_295))
+        XCTAssertFalse(request.highlight)
+        XCTAssertFalse(request.markReadOnVisible)
+        XCTAssertEqual(request.targetResolution, .firstIncomingAfterBoundary("1711283295000000"))
+    }
+
+    func testSavedPositionRestoresOnlyWhenChatEdgesMatch() {
+        let saved = ChatSavedVisiblePosition(
+            messagePrimary: "saved-primary",
+            archivedId: "saved-archived",
+            messageId: "saved-message",
+            sourceDate: sourceDate
+        )
+        let state = makeState(
+            unread: 0,
+            savedPosition: saved,
+            savedAtLastMessageId: "last-message",
+            savedAtSnapshotLastArchiveId: "snapshot-last"
+        )
+
+        guard case .open(let request) = ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil) else {
+            return XCTFail("Expected saved-position request")
+        }
+
+        XCTAssertEqual(request.source, .savedVisiblePosition)
+        XCTAssertEqual(request.anchor.messagePrimary, "saved-primary")
+        XCTAssertEqual(request.anchor.archivedId, "saved-archived")
+        XCTAssertEqual(request.anchor.messageId, "saved-message")
+        XCTAssertFalse(request.highlight)
+        XCTAssertFalse(request.markReadOnVisible)
+    }
+
+    func testSavedPositionIsIgnoredWhenLastMessageEdgeChanged() {
+        let saved = ChatSavedVisiblePosition(
+            messagePrimary: "saved-primary",
+            archivedId: "saved-archived",
+            messageId: "saved-message",
+            sourceDate: sourceDate
+        )
+        let state = makeState(
+            unread: 0,
+            lastMessageId: "new-last-message",
+            savedPosition: saved,
+            savedAtLastMessageId: "old-last-message",
+            savedAtSnapshotLastArchiveId: "snapshot-last"
+        )
+
+        XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
+    }
+
+    func testSavedPositionIsIgnoredWhenSnapshotEdgeChanged() {
+        let saved = ChatSavedVisiblePosition(
+            messagePrimary: "saved-primary",
+            archivedId: "saved-archived",
+            messageId: "saved-message",
+            sourceDate: sourceDate
+        )
+        let state = makeState(
+            unread: 0,
+            syncSnapshotLastArchiveId: "new-snapshot",
+            savedPosition: saved,
+            savedAtLastMessageId: "last-message",
+            savedAtSnapshotLastArchiveId: "old-snapshot"
+        )
+
+        XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
+    }
+
+    func testUnreadAnchorUsesSyncUnreadAfterIdAndFallsBackToLastReadId() {
+        let syncState = makeState(
+            unread: 1,
+            syncUnreadAfterId: "1711283295000000",
+            lastReadId: "1711283294000000"
+        )
+        let fallbackState = makeState(
+            unread: 1,
+            syncUnreadAfterId: nil,
+            lastReadId: "1711283294000000"
+        )
+
+        guard case .open(let syncRequest) = ChatInitialPositionPolicy.decision(for: syncState, explicitRequest: nil),
+              case .open(let fallbackRequest) = ChatInitialPositionPolicy.decision(for: fallbackState, explicitRequest: nil) else {
+            return XCTFail("Expected unread boundary requests")
+        }
+
+        XCTAssertEqual(syncRequest.anchor.archivedId, "1711283295000000")
+        XCTAssertEqual(fallbackRequest.anchor.archivedId, "1711283294000000")
+    }
+
+    func testUnreadBoundaryWithoutAnchorOpensBottom() {
+        let state = makeState(unread: 1, syncUnreadAfterId: nil, lastReadId: nil)
+
+        XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
+    }
+
+    func testClearedSavedPositionWithUnchangedEdgesOpensBottom() {
+        let clearedSavedPosition = ChatSavedVisiblePosition(
+            messagePrimary: nil,
+            archivedId: nil,
+            messageId: nil,
+            sourceDate: sourceDate
+        )
+        let state = makeState(
+            unread: 0,
+            savedPosition: clearedSavedPosition,
+            savedAtLastMessageId: "last-message",
+            savedAtSnapshotLastArchiveId: "snapshot-last"
+        )
+
+        XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
+    }
+
+    func testUnreadAnchorWinsOverClearedSavedPosition() {
+        let clearedSavedPosition = ChatSavedVisiblePosition(
+            messagePrimary: nil,
+            archivedId: nil,
+            messageId: nil,
+            sourceDate: sourceDate
+        )
+        let state = makeState(
+            unread: 1,
+            syncUnreadAfterId: "1711283295000000",
+            savedPosition: clearedSavedPosition,
+            savedAtLastMessageId: "last-message",
+            savedAtSnapshotLastArchiveId: "snapshot-last"
+        )
+
+        guard case .open(let request) = ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil) else {
+            return XCTFail("Expected unread boundary request")
+        }
+
+        XCTAssertEqual(request.source, .initialUnreadBoundary)
+        XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
+    }
+}
+
 final class ChatMessageAnchorPolicyTests: XCTestCase {
 
     private func makeDatasource(
@@ -7834,6 +10324,247 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             highlight: false,
             markReadOnVisible: false,
             source: source
+        )
+    }
+
+    private func visibleCandidate(
+        primary: String,
+        archivedId: String? = nil,
+        messageId: String? = nil,
+        rowKind: ChatVisiblePositionPolicy.RowKind = .message,
+        isFakeMessage: Bool = false,
+        frame: CGRect
+    ) -> ChatVisiblePositionPolicy.Candidate {
+        ChatVisiblePositionPolicy.Candidate(
+            primary: primary,
+            archivedId: archivedId,
+            messageId: messageId,
+            sentDate: Date(timeIntervalSince1970: 1_700_000_000),
+            rowKind: rowKind,
+            isFakeMessage: isFakeMessage,
+            frame: frame
+        )
+    }
+
+    func testUnreadBoundaryTargetPrefersFirstIncomingMessageAfterBoundary() {
+        let boundary = ChatUnreadBoundaryTargetPolicy.Candidate(
+            primary: "boundary",
+            archivedId: "1711283295000000",
+            messageId: "boundary-id",
+            sourceDate: Date(timeIntervalSince1970: 1_711_283_295),
+            isOutgoing: false
+        )
+        let outgoingAfterBoundary = ChatUnreadBoundaryTargetPolicy.Candidate(
+            primary: "outgoing-after",
+            archivedId: "1711283295000001",
+            messageId: "outgoing-id",
+            sourceDate: Date(timeIntervalSince1970: 1_711_283_296),
+            isOutgoing: true
+        )
+        let incomingAfterBoundary = ChatUnreadBoundaryTargetPolicy.Candidate(
+            primary: "incoming-after",
+            archivedId: "1711283295000002",
+            messageId: "incoming-id",
+            sourceDate: Date(timeIntervalSince1970: 1_711_283_297),
+            isOutgoing: false
+        )
+
+        let target = ChatUnreadBoundaryTargetPolicy.target(
+            boundaryArchivedId: "1711283295000000",
+            fallback: boundary,
+            loadedMessages: [incomingAfterBoundary, outgoingAfterBoundary, boundary]
+        )
+
+        XCTAssertEqual(target, incomingAfterBoundary)
+    }
+
+    func testUnreadBoundaryTargetUsesBoundaryWhenFirstIncomingUnreadIsNotLoaded() {
+        let boundary = ChatUnreadBoundaryTargetPolicy.Candidate(
+            primary: "boundary",
+            archivedId: "1711283295000000",
+            messageId: "boundary-id",
+            sourceDate: Date(timeIntervalSince1970: 1_711_283_295),
+            isOutgoing: false
+        )
+
+        let target = ChatUnreadBoundaryTargetPolicy.target(
+            boundaryArchivedId: "1711283295000000",
+            fallback: boundary,
+            loadedMessages: [boundary]
+        )
+
+        XCTAssertEqual(target, boundary)
+    }
+
+    func testVisiblePositionSelectionIgnoresFakeSkeletonDateUnreadAndInitialRows() {
+        let candidates = [
+            visibleCandidate(primary: "date", rowKind: .date, isFakeMessage: true, frame: CGRect(x: 0, y: 100, width: 320, height: 20)),
+            visibleCandidate(primary: "unread", rowKind: .unread, isFakeMessage: true, frame: CGRect(x: 0, y: 160, width: 320, height: 20)),
+            visibleCandidate(primary: "initial", rowKind: .initial, isFakeMessage: true, frame: CGRect(x: 0, y: 200, width: 320, height: 20)),
+            visibleCandidate(primary: "skeleton", rowKind: .skeleton, isFakeMessage: true, frame: CGRect(x: 0, y: 240, width: 320, height: 44)),
+            visibleCandidate(primary: "real", archivedId: "real-archived", messageId: "real-id", frame: CGRect(x: 0, y: 420, width: 320, height: 60))
+        ]
+
+        let position = ChatVisiblePositionPolicy.savedPosition(
+            candidates: candidates,
+            viewportCenterY: 180
+        )
+
+        XCTAssertEqual(position?.messagePrimary, "real")
+        XCTAssertEqual(position?.archivedId, "real-archived")
+        XCTAssertEqual(position?.messageId, "real-id")
+    }
+
+    func testVisiblePositionSelectionChoosesRealMessageClosestToViewportCenter() {
+        let candidates = [
+            visibleCandidate(primary: "top", archivedId: "100", frame: CGRect(x: 0, y: 80, width: 320, height: 60)),
+            visibleCandidate(primary: "center", archivedId: "200", frame: CGRect(x: 0, y: 225, width: 320, height: 50)),
+            visibleCandidate(primary: "bottom", archivedId: "300", frame: CGRect(x: 0, y: 360, width: 320, height: 70))
+        ]
+
+        let position = ChatVisiblePositionPolicy.savedPosition(
+            candidates: candidates,
+            viewportCenterY: 250
+        )
+
+        XCTAssertEqual(position?.messagePrimary, "center")
+        XCTAssertEqual(position?.archivedId, "200")
+    }
+
+    func testVisiblePositionPersistenceClearsSavedAnchorAtLiveBottom() {
+        let candidates = [
+            visibleCandidate(primary: "newest", archivedId: "300", frame: CGRect(x: 0, y: 360, width: 320, height: 70))
+        ]
+        let isLiveBottom = ChatVisiblePositionPersistencePolicy.isLiveBottom(
+            isNearBottom: true,
+            lastRealDatasourcePrimary: "newest",
+            observerPrimaryIndexMap: ["older": 0, "newest": 1],
+            observerCount: 2
+        )
+
+        let action = ChatVisiblePositionPersistencePolicy.action(
+            candidates: candidates,
+            viewportCenterY: 390,
+            viewportHeight: 640,
+            isShowingSkeleton: false,
+            isBlockedByAnchorNavigation: false,
+            allowsBlockedLiveBottomClear: false,
+            isLiveBottom: isLiveBottom
+        )
+
+        XCTAssertEqual(action, .clearSavedPosition)
+    }
+
+    func testVisiblePositionPersistenceDoesNotClearBottomOfOldLocalWindow() {
+        let candidates = [
+            visibleCandidate(primary: "window-bottom", archivedId: "200", frame: CGRect(x: 0, y: 360, width: 320, height: 70))
+        ]
+        let isLiveBottom = ChatVisiblePositionPersistencePolicy.isLiveBottom(
+            isNearBottom: true,
+            lastRealDatasourcePrimary: "window-bottom",
+            observerPrimaryIndexMap: ["older": 0, "window-bottom": 1, "newest": 2],
+            observerCount: 3
+        )
+
+        let action = ChatVisiblePositionPersistencePolicy.action(
+            candidates: candidates,
+            viewportCenterY: 390,
+            viewportHeight: 640,
+            isShowingSkeleton: false,
+            isBlockedByAnchorNavigation: false,
+            allowsBlockedLiveBottomClear: false,
+            isLiveBottom: isLiveBottom
+        )
+
+        guard case .saveAnchor(let position) = action else {
+            return XCTFail("Expected old local window bottom to keep a saved anchor")
+        }
+
+        XCTAssertEqual(position.messagePrimary, "window-bottom")
+    }
+
+    func testVisiblePositionPersistenceSavesCenterAnchorAwayFromBottom() {
+        let candidates = [
+            visibleCandidate(primary: "top", archivedId: "100", frame: CGRect(x: 0, y: 80, width: 320, height: 60)),
+            visibleCandidate(primary: "center", archivedId: "200", frame: CGRect(x: 0, y: 225, width: 320, height: 50))
+        ]
+
+        let action = ChatVisiblePositionPersistencePolicy.action(
+            candidates: candidates,
+            viewportCenterY: 250,
+            viewportHeight: 640,
+            isShowingSkeleton: false,
+            isBlockedByAnchorNavigation: false,
+            allowsBlockedLiveBottomClear: false,
+            isLiveBottom: false
+        )
+
+        XCTAssertEqual(action, .saveAnchor(ChatSavedVisiblePosition(
+            messagePrimary: "center",
+            archivedId: "200",
+            messageId: nil,
+            sourceDate: Date(timeIntervalSince1970: 1_700_000_000)
+        )))
+    }
+
+    func testVisiblePositionPersistenceSkipsFakeOnlyRows() {
+        let candidates = [
+            visibleCandidate(primary: "date", rowKind: .date, isFakeMessage: true, frame: CGRect(x: 0, y: 100, width: 320, height: 20)),
+            visibleCandidate(primary: "unread", rowKind: .unread, isFakeMessage: true, frame: CGRect(x: 0, y: 160, width: 320, height: 20)),
+            visibleCandidate(primary: "initial", rowKind: .initial, isFakeMessage: true, frame: CGRect(x: 0, y: 200, width: 320, height: 20)),
+            visibleCandidate(primary: "skeleton", rowKind: .skeleton, isFakeMessage: true, frame: CGRect(x: 0, y: 240, width: 320, height: 44))
+        ]
+
+        let action = ChatVisiblePositionPersistencePolicy.action(
+            candidates: candidates,
+            viewportCenterY: 200,
+            viewportHeight: 640,
+            isShowingSkeleton: false,
+            isBlockedByAnchorNavigation: false,
+            allowsBlockedLiveBottomClear: false,
+            isLiveBottom: true
+        )
+
+        XCTAssertEqual(action, .skip)
+    }
+
+    func testVisiblePositionPersistenceSkipsWhenBlockedButDisappearCanClearLiveBottom() {
+        let candidates = [
+            visibleCandidate(primary: "newest", archivedId: "300", frame: CGRect(x: 0, y: 360, width: 320, height: 70))
+        ]
+
+        XCTAssertEqual(
+            ChatVisiblePositionPersistencePolicy.action(
+                candidates: candidates,
+                viewportCenterY: 390,
+                viewportHeight: 640,
+                isShowingSkeleton: false,
+                isBlockedByAnchorNavigation: true,
+                allowsBlockedLiveBottomClear: false,
+                isLiveBottom: true
+            ),
+            .skip
+        )
+        XCTAssertEqual(
+            ChatVisiblePositionPersistencePolicy.action(
+                candidates: candidates,
+                viewportCenterY: 390,
+                viewportHeight: 640,
+                isShowingSkeleton: false,
+                isBlockedByAnchorNavigation: true,
+                allowsBlockedLiveBottomClear: true,
+                isLiveBottom: true
+            ),
+            .clearSavedPosition
+        )
+    }
+
+    func testOpenReadMarkingPolicyDoesNotReadLastMessageJustBecauseUnreadChatOpened() {
+        XCTAssertFalse(
+            ChatOpenReadMarkingPolicy.shouldReadLastMessageOnOpen(
+                isSynced: true,
+                unread: 5
+            )
         )
     }
 
@@ -8171,6 +10902,44 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         XCTAssertEqual(plan.newerPageSize, 36)
         XCTAssertEqual(plan.olderPageSize, 45)
         XCTAssertTrue(plan.requiresRemoteFetch)
+    }
+
+    func testSavedVisiblePositionContextPrefetchRunsInBackgroundWhenLocalAnchorExists() {
+        let plan = ChatAnchorContextPrefetchPolicy.plan(
+            observerIndex: 1,
+            totalCount: 3,
+            pageSize: ChatHistoryPagingConfiguration.pageSize,
+            archivedId: "archived-42"
+        )
+
+        XCTAssertTrue(plan.requiresRemoteFetch)
+        XCTAssertEqual(
+            ChatAnchorContextPrefetchModePolicy.mode(
+                for: .savedVisiblePosition,
+                hasLocalMatch: true,
+                isSynced: true
+            ),
+            .background
+        )
+    }
+
+    func testExplicitRemoteAnchorContextPrefetchStillBlocksWhenLocalAnchorIsMissing() {
+        XCTAssertEqual(
+            ChatAnchorContextPrefetchModePolicy.mode(
+                for: .search,
+                hasLocalMatch: false,
+                isSynced: true
+            ),
+            .blocking
+        )
+        XCTAssertEqual(
+            ChatAnchorContextPrefetchModePolicy.mode(
+                for: .pushNotification,
+                hasLocalMatch: false,
+                isSynced: true
+            ),
+            .blocking
+        )
     }
 
     func testAnchorContextPrefetchSkipsRemoteLoadsWithoutArchivedId() {
@@ -9698,6 +12467,9 @@ final class ClientSynchronizationManagerTests: XCTestCase {
             forPrimaryKey: LastChatsStorageItem.genPrimary(jid: "romeo@xmppdev01.xabber.com", owner: owner, conversationType: .regular)
         )
         XCTAssertEqual(chat?.unread, 2)
+        XCTAssertEqual(chat?.syncUnreadCount, 2)
+        XCTAssertEqual(chat?.runtimeUnreadCount, 0)
+        XCTAssertEqual(chat?.syncUnreadAfterId, "1711283295000000")
         XCTAssertEqual(chat?.lastReadId, "1711283295000000")
         XCTAssertEqual(chat?.lastMessageId, "sync-last-message-1")
     }
@@ -9750,6 +12522,287 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XCTAssertEqual(archiveState.lastSnapshotArchiveId, "1776840442467416")
         XCTAssertEqual(archiveState.lastSnapshotMessageId, "remote-last-message")
         XCTAssertFalse(archiveState.newerLiveEdgeReached)
+    }
+
+    func testChangedUnreadDialogEnqueuesBackgroundSnapshotRepair() throws {
+        try prepareManagedAccount()
+        let jid = "romeo@xmppdev01.xabber.com"
+        try insertLastChat(jid: jid, conversationType: .regular)
+        let realm = try WRealm.safe()
+        try realm.write {
+            let chat = try XCTUnwrap(realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+            ))
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat,
+                count: 1,
+                afterId: "old-boundary",
+                snapshotLastArchiveId: nil,
+                in: realm
+            )
+            chat.isSynced = true
+            _ = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, conversationType: .regular, in: realm)
+        }
+        var observed: [(MessageArchiveManager.SnapshotRepairTarget, AccountXMPPTaskScheduler.Priority, String)] = []
+        AccountManager.shared.find(for: owner)?.mam.snapshotRepairEnqueueObserver = { target, priority, key in
+            observed.append((target, priority, key))
+        }
+        let manager = ClientSynchronizationManager(withOwner: owner)
+
+        let iq = try makeIQ(xml: """
+        <iq type='set' id='push-unread-repair'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1776840442469439'>
+            <conversation jid='\(jid)' type='urn:xabber:chat' stamp='1776840442469439' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'>
+                <unread count='2' after='new-boundary'/>
+              </metadata>
+            </conversation>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+
+        XCTAssertEqual(observed.count, 1)
+        XCTAssertEqual(observed.first?.0, .init(jid: jid, conversationType: .regular))
+        XCTAssertEqual(observed.first?.1, .background)
+        XCTAssertEqual(observed.first?.2, "snapshot-repair.\(owner).\(jid).urn:xabber:chat")
+        let chat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        ))
+        XCTAssertFalse(chat.isSynced)
+    }
+
+    func testChangedLastMessageWithZeroUnreadEnqueuesSnapshotRepair() throws {
+        try prepareManagedAccount()
+        let jid = "romeo@xmppdev01.xabber.com"
+        try insertLastChat(jid: jid, conversationType: .regular)
+        let realm = try WRealm.safe()
+        try realm.write {
+            let chat = try XCTUnwrap(realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+            ))
+            chat.lastMessageId = "local-last-message"
+            LastChatUnreadCounter.refreshTotal(for: chat)
+            chat.isSynced = true
+            _ = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, conversationType: .regular, in: realm)
+        }
+        var observed: [MessageArchiveManager.SnapshotRepairTarget] = []
+        AccountManager.shared.find(for: owner)?.mam.snapshotRepairEnqueueObserver = { target, _, _ in
+            observed.append(target)
+        }
+        let manager = ClientSynchronizationManager(withOwner: owner)
+
+        let iq = try makeIQ(xml: """
+        <iq type='set' id='push-last-message-repair'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1776840442469439'>
+            <conversation jid='\(jid)' type='urn:xabber:chat' stamp='1776840442469439' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'>
+                <unread count='0'/>
+                <last-message>
+                  <message from='\(jid)' to='\(owner)' id='remote-last-message'>
+                    <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='1776840442467416'/>
+                    <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>
+                    <body>Hello Juliet</body>
+                  </message>
+                </last-message>
+              </metadata>
+            </conversation>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+
+        XCTAssertEqual(observed, [.init(jid: jid, conversationType: .regular)])
+    }
+
+    func testUnchangedDialogDoesNotEnqueueSnapshotRepair() throws {
+        try prepareManagedAccount()
+        let jid = "romeo@xmppdev01.xabber.com"
+        try insertLastChat(jid: jid, conversationType: .regular)
+        let realm = try WRealm.safe()
+        try realm.write {
+            let chat = try XCTUnwrap(realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+            ))
+            chat.lastMessageId = "same-message"
+            LastChatUnreadCounter.refreshTotal(for: chat)
+            chat.isSynced = true
+            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, conversationType: .regular, in: realm)
+            state.lastSnapshotArchiveId = "1776840442467416"
+            state.lastSnapshotMessageId = "same-message"
+        }
+        var observed: [MessageArchiveManager.SnapshotRepairTarget] = []
+        AccountManager.shared.find(for: owner)?.mam.snapshotRepairEnqueueObserver = { target, _, _ in
+            observed.append(target)
+        }
+        let manager = ClientSynchronizationManager(withOwner: owner)
+
+        let iq = try makeIQ(xml: """
+        <iq type='set' id='push-unchanged'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1776840442469439'>
+            <conversation jid='\(jid)' type='urn:xabber:chat' stamp='1776840442469439' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'>
+                <unread count='0'/>
+                <last-message>
+                  <message from='\(jid)' to='\(owner)' id='same-message'>
+                    <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='1776840442467416'/>
+                    <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>
+                    <body>Hello Juliet</body>
+                  </message>
+                </last-message>
+              </metadata>
+            </conversation>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+
+        XCTAssertTrue(observed.isEmpty)
+    }
+
+    func testMissingArchiveStateEnqueuesSnapshotRepair() throws {
+        try prepareManagedAccount()
+        let jid = "romeo@xmppdev01.xabber.com"
+        try insertLastChat(jid: jid, conversationType: .regular)
+        let realm = try WRealm.safe()
+        try realm.write {
+            let chat = try XCTUnwrap(realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+            ))
+            chat.lastMessageId = "same-message"
+            LastChatUnreadCounter.refreshTotal(for: chat)
+            chat.isSynced = true
+        }
+        var observed: [MessageArchiveManager.SnapshotRepairTarget] = []
+        AccountManager.shared.find(for: owner)?.mam.snapshotRepairEnqueueObserver = { target, _, _ in
+            observed.append(target)
+        }
+        let manager = ClientSynchronizationManager(withOwner: owner)
+
+        let iq = try makeIQ(xml: """
+        <iq type='set' id='push-missing-archive-state'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1776840442469439'>
+            <conversation jid='\(jid)' type='urn:xabber:chat' stamp='1776840442469439' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'>
+                <unread count='0'/>
+                <last-message>
+                  <message from='\(jid)' to='\(owner)' id='same-message'>
+                    <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='1776840442467416'/>
+                    <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>
+                    <body>Hello Juliet</body>
+                  </message>
+                </last-message>
+              </metadata>
+            </conversation>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+
+        XCTAssertEqual(observed, [.init(jid: jid, conversationType: .regular)])
+    }
+
+    func testSnapshotRepairIncludesGroupEncryptedAndSavedConversationTypes() throws {
+        try prepareManagedAccount()
+        let types: [ClientSynchronizationManager.ConversationType] = [
+            .group,
+            .omemo,
+            .omemo1,
+            .axolotl,
+            .saved
+        ]
+        let jidsByType: [ClientSynchronizationManager.ConversationType: String] = [
+            .group: "snapshot-group@example.com",
+            .omemo: "snapshot-omemo@example.com",
+            .omemo1: "snapshot-omemo1@example.com",
+            .axolotl: "snapshot-axolotl@example.com",
+            .saved: "snapshot-saved@example.com"
+        ]
+        let realm = try WRealm.safe()
+        try realm.write {
+            types.forEach { conversationType in
+                let jid = jidsByType[conversationType] ?? "snapshot@example.com"
+                let chat = LastChatsStorageItem()
+                chat.owner = owner
+                chat.jid = jid
+                chat.conversationType = conversationType
+                chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)
+                LastChatUnreadCounter.refreshTotal(for: chat)
+                chat.isSynced = true
+                realm.add(chat, update: .modified)
+                _ = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, conversationType: conversationType, in: realm)
+            }
+        }
+        var observed: [MessageArchiveManager.SnapshotRepairTarget] = []
+        AccountManager.shared.find(for: owner)?.mam.snapshotRepairEnqueueObserver = { target, _, _ in
+            observed.append(target)
+        }
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        let conversations = types.map { conversationType -> String in
+            let jid = jidsByType[conversationType] ?? "snapshot@example.com"
+            return """
+            <conversation jid='\(jid)' type='\(conversationType.rawValue)' stamp='1776840442469439' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'>
+                <unread count='1' after='1776840442467000'/>
+              </metadata>
+            </conversation>
+            """
+        }.joined(separator: "\n")
+        let iq = try makeIQ(xml: """
+        <iq type='set' id='push-supported-types'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1776840442469439'>
+            \(conversations)
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+
+        XCTAssertEqual(observed.map(\.conversationType), types)
+    }
+
+    func testSnapshotRepairIgnoresChannelNotificationsAndServerRows() throws {
+        try prepareManagedAccount()
+        var observed: [MessageArchiveManager.SnapshotRepairTarget] = []
+        AccountManager.shared.find(for: owner)?.mam.snapshotRepairEnqueueObserver = { target, _, _ in
+            observed.append(target)
+        }
+        let manager = ClientSynchronizationManager(withOwner: owner)
+
+        let iq = try makeIQ(xml: """
+        <iq type='set' id='push-ignored-types'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1776840442469439'>
+            <conversation jid='channel@example.com' type='https://xabber.com/protocol/channels' stamp='1776840442469439' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'>
+                <unread count='1' after='1776840442467000'/>
+              </metadata>
+            </conversation>
+            <conversation jid='notifications.example.com' type='urn:xabber:xen:0' stamp='1776840442469439' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'>
+                <unread count='1' after='1776840442467000'/>
+              </metadata>
+            </conversation>
+            <conversation jid='xmppdev01.xabber.com' type='urn:xabber:chat' stamp='1776840442469439' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'>
+                <unread count='1' after='1776840442467000'/>
+              </metadata>
+            </conversation>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+
+        XCTAssertTrue(observed.isEmpty)
     }
 
     func testNotificationSnapshotUnreadStatePersistsUnreadBoundaryAndKeepsExistingNode() throws {
@@ -10066,7 +13119,11 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         jid: String = "group@example.com",
         conversationType: ClientSynchronizationManager.ConversationType = .group,
         mentionId: String? = nil,
-        unread: Int = 0
+        unread: Int = 0,
+        syncUnreadAfterId: String? = nil,
+        lastReadId: String? = nil,
+        lastMessageId: String = "",
+        syncSnapshotLastArchiveId: String? = nil
     ) throws {
         let realm = try WRealm.safe()
         let chat = LastChatsStorageItem()
@@ -10075,7 +13132,12 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         chat.conversationType = conversationType
         chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)
         chat.mentionId = mentionId
-        chat.unread = unread
+        chat.syncUnreadCount = max(unread, 0)
+        chat.syncUnreadAfterId = syncUnreadAfterId
+        chat.lastReadId = lastReadId
+        chat.lastMessageId = lastMessageId
+        chat.syncSnapshotLastArchiveId = syncSnapshotLastArchiveId
+        LastChatUnreadCounter.refreshTotal(for: chat)
         chat.messageDate = Date(timeIntervalSince1970: 1_711_283_200)
 
         try realm.write {
@@ -10368,6 +13430,32 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         XCTAssertEqual(controller.tableView.numberOfRows(inSection: 0), 0)
     }
 
+    func testLastChatsViewControllerUnreadFilterUsesMirroredUnreadTotal() throws {
+        try insertLastChat(
+            jid: "romeo@example.com",
+            conversationType: .regular,
+            unread: 5
+        )
+
+        let controller = LastChatsViewController()
+        controller.loadViewIfNeeded()
+        controller.enabledAccounts.accept(Set([owner]))
+        controller.updateDatasource(.unread)
+        controller.showSkeleton.accept(false)
+
+        waitFor {
+            controller.datasource.contains {
+                $0.jid == "romeo@example.com" && $0.owner == self.owner && $0.unread == 5
+            }
+        }
+
+        XCTAssertTrue(
+            controller.datasource.contains {
+                $0.jid == "romeo@example.com" && $0.owner == self.owner && $0.unread == 5
+            }
+        )
+    }
+
     func testLastChatsViewControllerMapsUnreadMentionFlagFromStorage() throws {
         try insertLastChat(
             jid: "group@example.com",
@@ -10522,6 +13610,34 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         XCTAssertNil(request.anchor.messageId)
         XCTAssertNil(request.anchor.authorId)
         XCTAssertEqual(request.anchor.sourceDate, Date(timeIntervalSince1970: 1_711_283_200))
+    }
+
+    func testLastChatsNormalSelectionCreatesInitialUnreadBoundaryRequest() throws {
+        try insertLastChat(
+            jid: "romeo@example.com",
+            conversationType: .regular,
+            unread: 4,
+            syncUnreadAfterId: "1711283295000000",
+            lastReadId: "1711283294000000"
+        )
+        let realm = try WRealm.safe()
+
+        let request = try XCTUnwrap(
+            LastChatsViewController.initialOpenRequest(
+                owner: owner,
+                jid: "romeo@example.com",
+                conversationType: .regular,
+                explicitOpenMessageRequest: nil,
+                in: realm
+            )
+        )
+
+        XCTAssertEqual(request.source, .initialUnreadBoundary)
+        XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
+        XCTAssertEqual(request.anchor.sourceDate, Date(timeIntervalSince1970: 1_711_283_295))
+        XCTAssertFalse(request.highlight)
+        XCTAssertFalse(request.markReadOnVisible)
+        XCTAssertEqual(request.targetResolution, .firstIncomingAfterBoundary("1711283295000000"))
     }
 
     func testSearchChatListMapperCarriesUnreadMentionFlagForGroupResults() throws {

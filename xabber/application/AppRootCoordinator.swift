@@ -455,10 +455,22 @@ private final class EULAAcceptanceNavigationController: UINavigationController {
 
 enum AppRoute {
     case chat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType)
+    case chatMessage(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        openMessageRequest: ChatOpenMessageRequest?,
+        configure: ((ChatViewController?) -> Void)?
+    )
+    case notification(PushNotificationRoutePayload)
     case externalURL(URL)
     case userActivity(NSUserActivity)
 
     static func notification(userInfo: [AnyHashable: Any]?) -> AppRoute? {
+        if let route = PushNotificationRoutePayload(userInfo: userInfo) {
+            return .notification(route)
+        }
+
         guard let owner = userInfo?["owner"] as? String,
               let jid = userInfo?["jid"] as? String else {
             return nil
@@ -591,7 +603,7 @@ final class AppRootCoordinator: NSObject {
             ]
         )
         AccountManager.shared.users.forEach { user in
-            user.disconnect(hard: true)
+            user.disconnect(hard: true, cause: .backgroundSuspension)
         }
 
         if UIDevice.current.userInterfaceIdiom == .pad {
@@ -640,6 +652,16 @@ final class AppRootCoordinator: NSObject {
         switch route {
         case let .chat(owner, jid, conversationType):
             return openChat(owner: owner, jid: jid, conversationType: conversationType)
+        case let .chatMessage(owner, jid, conversationType, openMessageRequest, configure):
+            return openChat(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                openMessageRequest: openMessageRequest,
+                configure: configure
+            )
+        case let .notification(route):
+            return NotifyManager.shared.onTouchNotificationRoute(route, atStart: false, handler: nil)
         case .externalURL:
             return false
         case .userActivity:
@@ -746,7 +768,8 @@ final class AppRootCoordinator: NSObject {
         let emptyChatVc = EmptyChatViewController()
         var chatViewController: ChatViewController? = nil
 
-        if let jid = userInfo?["jid"] as? String,
+        if PushNotificationRoutePayload(userInfo: userInfo) == nil,
+           let jid = userInfo?["jid"] as? String,
            let owner = userInfo?["owner"] as? String {
             chatViewController = ChatViewController()
             chatViewController?.jid = jid
@@ -837,12 +860,19 @@ final class AppRootCoordinator: NSObject {
     private func openChat(
         owner: String,
         jid: String,
-        conversationType: ClientSynchronizationManager.ConversationType
+        conversationType: ClientSynchronizationManager.ConversationType,
+        openMessageRequest: ChatOpenMessageRequest? = nil,
+        configure configureCallback: ((ChatViewController?) -> Void)? = nil
     ) -> Bool {
         switch CommonConfigManager.shared.interfaceType {
         case .split:
             if let leftMenuDelegate = NotifyManager.shared.leftMenuDelegate {
-                leftMenuDelegate.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType, configure: nil)
+                leftMenuDelegate.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType) { vc in
+                    configureCallback?(vc)
+                    if let openMessageRequest {
+                        vc?.queueOpenMessageRequest(openMessageRequest)
+                    }
+                }
                 return true
             }
 
@@ -850,8 +880,16 @@ final class AppRootCoordinator: NSObject {
             vc.owner = owner
             vc.jid = jid
             vc.conversationType = conversationType
-            splitController?.showDetailViewController(NavBarController(rootViewController: vc), sender: splitController)
-            splitController?.hide(.primary)
+            if let openMessageRequest {
+                vc.pendingOpenMessageRequest = openMessageRequest
+            }
+            configureCallback?(vc)
+            if let presenter = splitController?.viewControllers
+                .compactMap({ $0 as? UINavigationController })
+                .first(where: { $0.topViewController is LastChatsViewController })?
+                .topViewController ?? splitController {
+                showStacked(vc, in: presenter)
+            }
             return splitController != nil
 
         case .tabs:
@@ -863,12 +901,22 @@ final class AppRootCoordinator: NSObject {
             tabController.selectedIndex = 0
             let root = navigationController.viewControllers.first
             if let lastChats = root as? LastChatsViewController {
-                lastChats.stackNewChat(owner: owner, jid: jid, conversationType: conversationType)
+                lastChats.stackNewChat(
+                    owner: owner,
+                    jid: jid,
+                    conversationType: conversationType,
+                    openMessageRequest: openMessageRequest,
+                    configure: configureCallback
+                )
             } else {
                 let vc = ChatViewController()
                 vc.owner = owner
                 vc.jid = jid
                 vc.conversationType = conversationType
+                if let openMessageRequest {
+                    vc.pendingOpenMessageRequest = openMessageRequest
+                }
+                configureCallback?(vc)
                 navigationController.pushViewController(vc, animated: false)
             }
             return true

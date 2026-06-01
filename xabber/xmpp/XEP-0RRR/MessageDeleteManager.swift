@@ -137,6 +137,11 @@ class MessageDeleteManager: AbstractXMPPManager {
             if messages.isEmpty { return false }
             try realm.write {
                 if !(instance?.isInvalidated ?? true) {
+                    if let instance {
+                        messages.forEach {
+                            LastChatUnreadCounter.removeUnreadContribution(for: $0, from: instance)
+                        }
+                    }
                     instance?.lastMessage = nil
                     instance?.retractVersion = version
 //                    instance?.isSynced = false
@@ -179,7 +184,6 @@ class MessageDeleteManager: AbstractXMPPManager {
                 .filter("owner == %@ AND opponent == %@ AND archivedId == %@ AND conversationType_ == %@", owner, conversation, stanzaId, conversationTypeRaw)
                 .first {
                 try realm.write {
-                    realm.delete(instance)
                     if let lastChat = realm.object(
                         ofType: LastChatsStorageItem.self,
                         forPrimaryKey: LastChatsStorageItem.genPrimary(
@@ -188,6 +192,8 @@ class MessageDeleteManager: AbstractXMPPManager {
                             conversationType: conversationType
                         )
                     ) {
+                        LastChatUnreadCounter.removeUnreadContribution(for: instance, from: lastChat)
+                        realm.delete(instance)
                         let lastMessage = realm
                             .objects(MessageStorageItem.self)
                             .filter(
@@ -204,6 +210,8 @@ class MessageDeleteManager: AbstractXMPPManager {
                         }
 //                        lastChat.isSynced = false
                         lastChat.retractVersion = version
+                    } else {
+                        realm.delete(instance)
                     }
                 }
                 LastChats.updateErrorState(for: conversation, owner: self.owner, conversationType: conversationType)
@@ -394,10 +402,19 @@ class MessageDeleteManager: AbstractXMPPManager {
         do {
             let realm = try WRealm.safe()
             try realm.write {
-                realm
+                let messages = realm
                     .objects(MessageStorageItem.self)
                     .filter("owner == %@ AND opponent == %@ AND conversationType_ == %@", owner, jid, conversationType.rawValue)
-                    .forEach { $0.isDeleted = true }
+                let chat = realm.object(
+                    ofType: LastChatsStorageItem.self,
+                    forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType)
+                )
+                messages.forEach {
+                    if let chat {
+                        LastChatUnreadCounter.removeUnreadContribution(for: $0, from: chat)
+                    }
+                    $0.isDeleted = true
+                }
             }
             LastChats.updateErrorState(for: jid, owner: self.owner, conversationType: conversationType)
         } catch {

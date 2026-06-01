@@ -23,7 +23,6 @@ import UIKit
 import RxSwift
 import RxCocoa
 import RxRealm
-import CocoaLumberjack
 
 extension ChatViewController: UICollectionViewDataSourcePrefetching {
 
@@ -37,12 +36,26 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         }
     }
 
+    private func hasRemoteOlderHistoryAvailable(_ archiveState: ChatArchiveStateSnapshot) -> Bool {
+        let shouldProbePersistedArchiveEnd = ChatArchiveEndVerificationPolicy.shouldProbePersistedArchiveEnd(
+            persistedArchiveEnded: archiveState.fullArchiveLoaded,
+            hasConfirmedArchiveEndThisSession: self.hasConfirmedArchiveEndThisSession,
+            hasUsedVerificationProbe: self.hasUsedArchiveEndVerificationProbe
+        )
+        let effectiveArchiveEnded = ChatArchiveEndVerificationPolicy.effectiveArchiveEnded(
+            persistedArchiveEnded: archiveState.fullArchiveLoaded,
+            shouldProbePersistedArchiveEnd: shouldProbePersistedArchiveEnd
+        )
+        return !effectiveArchiveEnded
+    }
+
     private func triggerInteractiveBoundaryPagingIfNeeded(_ scrollView: UIScrollView) {
         let boundaryContext = self.pagingBoundaryContext(
             visibleSections: self.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
         )
         let archiveState = self.loadChatArchiveStateSnapshot()
-        guard let pageDirection = ChatHistoryPagingPolicy.triggerDirection(
+        let hasRemoteOlderAvailable = self.hasRemoteOlderHistoryAvailable(archiveState)
+        let pageDirection = ChatHistoryPagingPolicy.triggerDirection(
             isUserScrolling: scrollView.isDragging || scrollView.isDecelerating || scrollView.isTracking,
             canLoadDatasource: self.canLoadDatasource,
             gestureTranslationY: scrollView.panGestureRecognizer.translation(in: scrollView).y,
@@ -50,8 +63,10 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             currentPageMinIndex: self.currentPage.minIndex,
             currentPageMaxIndex: self.currentPage.maxIndex,
             totalCount: self.messagesObserver?.count ?? 0,
+            hasRemoteOlderAvailable: hasRemoteOlderAvailable,
             hasRemoteNewerAvailable: archiveState.hasKnownNewerGap || !archiveState.newerLiveEdgeReached
-        ) else {
+        )
+        guard let pageDirection else {
             return
         }
 
@@ -63,15 +78,18 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             visibleSections: self.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
         )
         let archiveState = self.loadChatArchiveStateSnapshot()
-        guard let pageDirection = ChatHistoryPagingPolicy.fallbackDirectionForShortContentDrag(
+        let hasRemoteOlderAvailable = self.hasRemoteOlderHistoryAvailable(archiveState)
+        let pageDirection = ChatHistoryPagingPolicy.fallbackDirectionForShortContentDrag(
             canLoadDatasource: self.canLoadDatasource,
             gestureTranslationY: scrollView.panGestureRecognizer.translation(in: scrollView).y,
             boundaryContext: boundaryContext,
             currentPageMinIndex: self.currentPage.minIndex,
             currentPageMaxIndex: self.currentPage.maxIndex,
             totalCount: self.messagesObserver?.count ?? 0,
+            hasRemoteOlderAvailable: hasRemoteOlderAvailable,
             hasRemoteNewerAvailable: archiveState.hasKnownNewerGap || !archiveState.newerLiveEdgeReached
-        ) else {
+        )
+        guard let pageDirection else {
             return
         }
 

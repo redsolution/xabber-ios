@@ -89,6 +89,34 @@ func realmMigrations(scheme: UInt64) {
                 // Existing LastChatsStorageItem rows remain authoritative until a regular MAM page
                 // establishes durable archive bounds for that dialog.
             }
+            if oldSchemaVersion < 7 {
+                migration.enumerateObjects(ofType: LastChatsStorageItem.className()) { oldObject, newObject in
+                    let legacyUnread = max((oldObject?["unread"] as? Int) ?? 0, 0)
+                    newObject?["syncUnreadCount"] = legacyUnread
+                    newObject?["syncUnreadAfterId"] = oldObject?["lastReadId"] as? String
+                    newObject?["syncSnapshotLastArchiveId"] = nil
+                    newObject?["runtimeUnreadCount"] = 0
+                    newObject?["unread"] = legacyUnread
+                }
+                migration.enumerateObjects(ofType: MessageStorageItem.className()) { _, newObject in
+                    newObject?["unreadCounterBucket_"] = MessageStorageItem.UnreadCounterBucket.none.rawValue
+                }
+            }
+            if oldSchemaVersion < 8 {
+                migration.enumerateObjects(ofType: LastChatsStorageItem.className()) { _, newObject in
+                    newObject?["lastVisibleMessagePrimary"] = nil
+                    newObject?["lastVisibleMessageArchivedId"] = nil
+                    newObject?["lastVisibleMessageId"] = nil
+                    newObject?["lastVisibleMessageDate"] = nil
+                    newObject?["lastVisiblePositionSavedAtLastMessageId"] = nil
+                    newObject?["lastVisiblePositionSavedAtSnapshotLastArchiveId"] = nil
+                    newObject?["lastVisiblePositionUpdatedAt"] = nil
+                }
+            }
+            if oldSchemaVersion < 9 {
+                // OutgoingMessageQueueItem is a new table for durable regular-message replay.
+                // Existing recoverable sending messages are reconstructed by MessageManager startup.
+            }
         },
         deleteRealmIfMigrationNeeded: true) { total, used in
             let limit = 100 * 1024 * 1024

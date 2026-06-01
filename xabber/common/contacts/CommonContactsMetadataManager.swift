@@ -93,7 +93,7 @@ class CommonContactsMetadataManager: NSObject {
     
     public func getItem(owner: String, jid: String) -> Metadata {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
-            fatalError()
+            return Metadata(jid: jid, owner: owner, username: nil, avatarUrl: nil, contactID: nil)
         }
         if let metadata: [String: Any] = userDefaults.dictionary(forKey: ["contacts_metadata", owner, jid].prp()) {
             return Metadata(

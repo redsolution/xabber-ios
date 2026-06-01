@@ -257,8 +257,20 @@ extension ChatViewController {
             .skip(1)
             .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
+                if self.deferUntilNavigationTransitionCompletesIfNeeded({ [weak self] in
+                    self?.inSearchMode.accept(value)
+                }) {
+                    return
+                }
                 if value {
-                    self.configureSearchBar()
+                    self.configureSearchBar(
+                        activateKeyboard: !self.isNavigationTransitionActive,
+                        animated: ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+                            requestedAnimated: true,
+                            isTransitionActive: self.isNavigationTransitionActive,
+                            isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
+                        )
+                    )
                     self.xabberInputView.changeState(to: .search)
                     self.shouldShowScrollDownButton.accept(false)
                     if self.shouldShowUnreadMentionsNavigator.value {
@@ -268,7 +280,15 @@ extension ChatViewController {
                     self.searchTextObserver.accept(nil)
                     self.configureNavbar()
                     self.xabberInputView.changeState(to: self.xabberInputView.state)
-                    self.applyChatDatasource(self.datasource, mode: .fullReload())
+                    self.applyChatDatasource(
+                        self.datasource,
+                        mode: .fullReload(),
+                        animated: ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+                            requestedAnimated: true,
+                            isTransitionActive: self.isNavigationTransitionActive,
+                            isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
+                        )
+                    )
                     self.refreshUnreadMentionsNavigatorState(animated: true)
                 }
             })
@@ -334,6 +354,16 @@ extension ChatViewController {
                     }
                 }
                 self.refreshUnreadMentionsNavigatorState(animated: true)
+            }
+            .disposed(by: bag)
+
+        self.contentOffsetObserver
+            .asObservable()
+            .skip(1)
+            .debounce(.milliseconds(500), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe { _ in
+                self.saveCurrentVisibleMessagePositionIfNeeded()
             }
             .disposed(by: bag)
 
@@ -540,17 +570,6 @@ extension ChatViewController {
         let shouldShowSkeleton = state == .skeleton
         if self.showSkeletonObserver.value != shouldShowSkeleton {
             self.applyBootstrapViewState(state)
-
-            if item.isSynced {
-                if item.unread > 0 {
-                    self.updateQueue
-                        .asyncAfter(deadline: .now() + 3) {
-                            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                                user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                            })
-                        }
-                }
-            }
         } else if !shouldShowSkeleton {
             self.reloadInitialWindowAfterBootstrapIfNeeded()
         }

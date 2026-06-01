@@ -111,12 +111,22 @@ class MessageArchiveManager: AbstractXMPPManager {
         case pageNewer
         case jump
         case gapRepair
+        case snapshotRepair
         case search
         case latest
         case media
 
         var marksInitialArchiveLoaded: Bool {
             self == .bootstrap
+        }
+
+        var isArchiveHistoryProducing: Bool {
+            switch self {
+            case .bootstrap, .pageOlder, .pageNewer, .jump, .gapRepair, .snapshotRepair:
+                return true
+            case .search, .latest, .media:
+                return false
+            }
         }
     }
 
@@ -132,10 +142,18 @@ class MessageArchiveManager: AbstractXMPPManager {
         case newer
         case exactAnchor
         case dateWindow
+        case gapRepair
+        case snapshotRepair
+    }
+
+    enum RegularArchiveGapRepairDirection {
+        case older
+        case newer
     }
 
     enum RegularChatArchiveRequestPriority {
         case interactive
+        case background
         case idle
     }
 
@@ -151,6 +169,16 @@ class MessageArchiveManager: AbstractXMPPManager {
         let end: Date?
         let max: Int
         let usesServerArchiveId: Bool
+        let coverageUpdateKind: RegularArchiveCoverageUpdateKind
+    }
+
+    struct SnapshotRepairTarget: Hashable {
+        let jid: String
+        let conversationType: ClientSynchronizationManager.ConversationType
+
+        func deduplicationKey(owner: String) -> String {
+            "snapshot-repair.\(owner).\(jid).\(conversationType.rawValue)"
+        }
     }
 
     struct RegularChatArchiveRequestKey: Hashable {
@@ -203,7 +231,8 @@ class MessageArchiveManager: AbstractXMPPManager {
             start: nil,
             end: nil,
             max: request.max,
-            usesServerArchiveId: false
+            usesServerArchiveId: false,
+            coverageUpdateKind: .bootstrapNewest
         )
     }
 
@@ -220,7 +249,8 @@ class MessageArchiveManager: AbstractXMPPManager {
             start: nil,
             end: nil,
             max: request.max,
-            usesServerArchiveId: oldestLoadedArchiveId?.isNotEmpty == true
+            usesServerArchiveId: oldestLoadedArchiveId?.isNotEmpty == true,
+            coverageUpdateKind: .pageOlder(cursorArchiveId: oldestLoadedArchiveId)
         )
     }
 
@@ -237,7 +267,8 @@ class MessageArchiveManager: AbstractXMPPManager {
             start: nil,
             end: nil,
             max: request.max,
-            usesServerArchiveId: true
+            usesServerArchiveId: true,
+            coverageUpdateKind: .pageNewer(cursorArchiveId: newestLoadedArchiveId)
         )
     }
 
@@ -253,7 +284,8 @@ class MessageArchiveManager: AbstractXMPPManager {
             start: nil,
             end: nil,
             max: 1,
-            usesServerArchiveId: true
+            usesServerArchiveId: true,
+            coverageUpdateKind: .disjointWindow
         )
     }
 
@@ -269,7 +301,94 @@ class MessageArchiveManager: AbstractXMPPManager {
             start: start,
             end: end,
             max: max,
-            usesServerArchiveId: false
+            usesServerArchiveId: false,
+            coverageUpdateKind: .disjointWindow
+        )
+    }
+
+    static func regularGapRepairRequestPlan(
+        jid: String,
+        gap: RegularChatArchiveGap,
+        direction: RegularArchiveGapRepairDirection,
+        pageSize: Int
+    ) -> RegularChatArchiveRequestPlan {
+        let pageSize = regularArchivePageSize(requested: pageSize)
+        switch direction {
+        case .older:
+            let cursor = gap.newerRangeOldestArchiveId
+            let request = olderPageRequest(messageId: cursor, pageSize: pageSize)
+            return RegularChatArchiveRequestPlan(
+                kind: .gapRepair,
+                jid: jid,
+                conversationType: .regular,
+                purpose: .gapRepair,
+                nextPage: request.nextPage,
+                prevPage: request.prevPage,
+                ids: nil,
+                start: nil,
+                end: nil,
+                max: request.max,
+                usesServerArchiveId: true,
+                coverageUpdateKind: .gapRepairOlder(cursorArchiveId: cursor)
+            )
+        case .newer:
+            let cursor = gap.olderRangeNewestArchiveId
+            let request = newerPageRequest(messageId: cursor, pageSize: pageSize)
+            return RegularChatArchiveRequestPlan(
+                kind: .gapRepair,
+                jid: jid,
+                conversationType: .regular,
+                purpose: .gapRepair,
+                nextPage: request.nextPage,
+                prevPage: request.prevPage,
+                ids: nil,
+                start: nil,
+                end: nil,
+                max: request.max,
+                usesServerArchiveId: true,
+                coverageUpdateKind: .gapRepairNewer(cursorArchiveId: cursor)
+            )
+        }
+    }
+
+    static func snapshotRepairRequestPlan(
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        newestLoadedArchiveId: String?,
+        pageSize: Int
+    ) -> RegularChatArchiveRequestPlan {
+        if let newestLoadedArchiveId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(newestLoadedArchiveId) {
+            let request = newerPageRequest(messageId: newestLoadedArchiveId, pageSize: pageSize)
+            return RegularChatArchiveRequestPlan(
+                kind: .snapshotRepair,
+                jid: jid,
+                conversationType: conversationType,
+                purpose: .snapshotRepair,
+                nextPage: request.nextPage,
+                prevPage: request.prevPage,
+                ids: nil,
+                start: nil,
+                end: nil,
+                max: request.max,
+                usesServerArchiveId: true,
+                coverageUpdateKind: .pageNewer(cursorArchiveId: newestLoadedArchiveId)
+            )
+        }
+
+        let request = newestBootstrapPageRequest(pageSize: pageSize)
+        return RegularChatArchiveRequestPlan(
+            kind: .snapshotRepair,
+            jid: jid,
+            conversationType: conversationType,
+            purpose: .snapshotRepair,
+            nextPage: request.nextPage,
+            prevPage: request.prevPage,
+            ids: nil,
+            start: nil,
+            end: nil,
+            max: request.max,
+            usesServerArchiveId: false,
+            coverageUpdateKind: .bootstrapNewest
         )
     }
 
@@ -315,11 +434,14 @@ class MessageArchiveManager: AbstractXMPPManager {
         let searchText: String?
         let queryId: String?
         let afterId: String?
+        let nextPage: String?
+        let prevPage: String?
         let max: Int
         let tags: [Tags]
         let start: Date?
         let end: Date?
         let purpose: RequestPurpose
+        let coverageUpdateKind: RegularArchiveCoverageUpdateKind
         let archiveEndEligibility: Bool
         let consumerManagesArchiveEnd: Bool
         let consumerManagesHistoryCursor: Bool
@@ -375,6 +497,9 @@ class MessageArchiveManager: AbstractXMPPManager {
     private var regularArchiveInFlightByKey: [RegularChatArchiveRequestKey: RegularArchiveInFlightEntry] = [:]
     private var regularArchiveRequestKeyByQueryId: [String: RegularChatArchiveRequestKey] = [:]
     private var regularIdleBackfillInProgress: Bool = false
+    private let archiveQueryPurposeLock = NSLock()
+    private var archiveQueryPurposeByQueryId: [String: RequestPurpose] = [:]
+    var snapshotRepairEnqueueObserver: ((SnapshotRepairTarget, AccountXMPPTaskScheduler.Priority, String) -> Void)?
     
     override init(withOwner owner: String) {
         self.isInitialArchiveRequested = SettingManager.shared.getKey(for: owner, scope: .messageArchive, key: "initial") == nil
@@ -400,6 +525,41 @@ class MessageArchiveManager: AbstractXMPPManager {
             callbacks.onMessage?(item, queryId)
             self.temporaryMessageReceiverDelegate?.didReceiveMessage(item, queryId: queryId)
         }
+    }
+
+    internal func shouldPersistArchiveQueryId(_ queryId: String?) -> Bool {
+        guard let queryId,
+              queryId.isNotEmpty else {
+            return false
+        }
+        archiveQueryPurposeLock.lock()
+        defer { archiveQueryPurposeLock.unlock() }
+        return archiveQueryPurposeByQueryId[queryId]?.isArchiveHistoryProducing ?? false
+    }
+
+    private func registerArchiveQueryId(_ queryId: String, purpose: RequestPurpose) {
+        guard purpose.isArchiveHistoryProducing,
+              queryId.isNotEmpty else {
+            return
+        }
+        archiveQueryPurposeLock.lock()
+        archiveQueryPurposeByQueryId[queryId] = purpose
+        archiveQueryPurposeLock.unlock()
+    }
+
+    private func unregisterArchiveQueryId(_ queryId: String) {
+        guard queryId.isNotEmpty else {
+            return
+        }
+        archiveQueryPurposeLock.lock()
+        archiveQueryPurposeByQueryId.removeValue(forKey: queryId)
+        archiveQueryPurposeLock.unlock()
+    }
+
+    private func clearArchiveQueryPurposeRegistry() {
+        archiveQueryPurposeLock.lock()
+        archiveQueryPurposeByQueryId.removeAll()
+        archiveQueryPurposeLock.unlock()
     }
 
     private func accountCreatedAtForArchiveLimit(conversationType: ClientSynchronizationManager.ConversationType) -> Date? {
@@ -515,7 +675,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     func makeInitialMessageVisible(jid: String, conversationType: ClientSynchronizationManager.ConversationType, queryId: String) throws {
-        if !queryId.contains("history") {
+        if !shouldPersistArchiveQueryId(queryId) {
             return
         }
         let realm = try WRealm.safe()
@@ -696,11 +856,11 @@ class MessageArchiveManager: AbstractXMPPManager {
                         }
                     }
                 }
-                if item.task.conversationType == .regular,
-                   self.regularArchiveRequestKeyByQueryId[queryId] != nil {
+                if self.regularArchiveRequestKeyByQueryId[queryId] != nil {
                     let state = self.makePageEndState(for: item.task, queryId: queryId, queryExhausted: false)
                     self.finishRegularArchiveRequest(queryId: queryId, item: item, state: state, first: first, last: last, count: item.task.max)
                 }
+                self.unregisterArchiveQueryId(queryId)
                 self.callbacksQueue.remove(item)
             }
 //        }
@@ -863,7 +1023,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             stream,
             jid: plan.jid,
             isContinues: false,
-            conversationType: .regular,
+            conversationType: plan.conversationType,
             purpose: plan.purpose,
             queryId: queryId,
             ids: plan.ids,
@@ -873,6 +1033,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             nextPage: plan.nextPage,
             prevPage: plan.prevPage,
             max: plan.max,
+            coverageUpdateKind: plan.coverageUpdateKind,
             consumerManagesArchiveEnd: true,
             consumerManagesHistoryCursor: true,
             callback: regularArchiveCompletion(primary: callback, entry: entry),
@@ -889,16 +1050,16 @@ class MessageArchiveManager: AbstractXMPPManager {
         last: String,
         count: Int
     ) {
-        guard item.task.conversationType == .regular,
-              let key = regularArchiveRequestKeyByQueryId.removeValue(forKey: queryId) else {
+        guard let key = regularArchiveRequestKeyByQueryId.removeValue(forKey: queryId) else {
+            unregisterArchiveQueryId(queryId)
             return
         }
+        unregisterArchiveQueryId(queryId)
 
         let entry = regularArchiveInFlightByKey.removeValue(forKey: key)
         if let state {
-            applyRegularArchivePageResult(
-                jid: item.jid,
-                purpose: item.task.purpose,
+            applyConversationArchivePageResult(
+                task: item.task,
                 state: state,
                 first: first,
                 last: last,
@@ -912,27 +1073,36 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
     }
 
-    private func applyRegularArchivePageResult(
-        jid: String,
-        purpose: RequestPurpose,
+    private func applyConversationArchivePageResult(
+        task: MAMRequestItem,
         state: MessageArchivePageEndState,
         first: String,
         last: String,
         count: Int
     ) {
-        guard jid.isNotEmpty else {
+        guard let jid = task.jid,
+              jid.isNotEmpty else {
             return
         }
 
         do {
             let realm = try WRealm.safe()
-            let primary = LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: .regular)
+            let primary = LastChatsStorageItem.genPrimary(
+                jid: jid,
+                owner: self.owner,
+                conversationType: task.conversationType
+            )
             try realm.write {
-                let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(owner: self.owner, jid: jid, in: realm)
+                let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(
+                    owner: self.owner,
+                    jid: jid,
+                    conversationType: task.conversationType,
+                    in: realm
+                )
                 if count > 0 {
-                    archiveState.mergeLoadedRange(first: first, last: last)
+                    archiveState.mergeLoadedRange(first: first, last: last, updateKind: task.coverageUpdateKind)
                 }
-                switch purpose {
+                switch task.purpose {
                 case .bootstrap:
                     archiveState.newerLiveEdgeReached = true
                     if state.archiveEnded {
@@ -946,6 +1116,10 @@ class MessageArchiveManager: AbstractXMPPManager {
                     if state.queryExhausted {
                         archiveState.newerLiveEdgeReached = true
                     }
+                case .snapshotRepair:
+                    if task.nextPage == "" || state.queryExhausted {
+                        archiveState.newerLiveEdgeReached = true
+                    }
                 case .jump, .gapRepair:
                     break
                 case .search, .latest, .media:
@@ -955,15 +1129,19 @@ class MessageArchiveManager: AbstractXMPPManager {
 
                 if let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary) {
                     chat.lastLoadedMessageHistoryId = archiveState.oldestLoadedArchiveId ?? chat.lastLoadedMessageHistoryId
-                    chat.fullArchiveLoaded = archiveState.olderArchiveEndReached
-                    if purpose == .bootstrap {
+                    if task.conversationType == .regular {
+                        chat.fullArchiveLoaded = archiveState.olderArchiveEndReached
+                    }
+                    if task.purpose == .bootstrap {
                         chat.isInitialArchiveLoaded = true
                         if archiveState.newerLiveEdgeReached {
                             chat.isSynced = true
                         }
-                    } else if purpose == .pageNewer,
-                              archiveState.newerLiveEdgeReached,
-                              archiveState.lastSnapshotArchiveId == nil || archiveState.containsArchiveId(archiveState.lastSnapshotArchiveId) {
+                    } else if task.purpose == .pageNewer,
+                              canClearSnapshotUnsynced(chat: chat, archiveState: archiveState) {
+                        chat.isSynced = true
+                    } else if task.purpose == .snapshotRepair,
+                              canClearSnapshotUnsynced(chat: chat, archiveState: archiveState) {
                         chat.isSynced = true
                     }
                 }
@@ -972,9 +1150,48 @@ class MessageArchiveManager: AbstractXMPPManager {
             DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
         }
     }
+
+    private func canClearSnapshotUnsynced(
+        chat: LastChatsStorageItem,
+        archiveState: RegularChatArchiveSyncStateStorageItem
+    ) -> Bool {
+        guard archiveState.newerLiveEdgeReached else {
+            return false
+        }
+
+        let snapshotArchiveId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(archiveState.lastSnapshotArchiveId)
+        let snapshotLastCovered: Bool
+        if let snapshotArchiveId,
+           snapshotArchiveId.isNotEmpty {
+            snapshotLastCovered = archiveState.containsArchiveId(snapshotArchiveId)
+        } else if let snapshotMessageId = archiveState.lastSnapshotMessageId,
+                  snapshotMessageId.isNotEmpty {
+            snapshotLastCovered = chat.lastMessageId == snapshotMessageId ||
+                chat.lastMessage?.messageId == snapshotMessageId
+        } else {
+            snapshotLastCovered = true
+        }
+
+        guard snapshotLastCovered else {
+            return false
+        }
+
+        if chat.syncUnreadCount <= 0 {
+            return true
+        }
+
+        guard let unreadAfterId = chat.syncUnreadAfterId,
+              unreadAfterId.isNotEmpty else {
+            return false
+        }
+        if let snapshotArchiveId {
+            return archiveState.containsArchiveIdsInSameLoadedRange([snapshotArchiveId, unreadAfterId])
+        }
+        return archiveState.containsArchiveId(unreadAfterId)
+    }
     
     
-    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, consumerManagesArchiveEnd: Bool = false, consumerManagesHistoryCursor: Bool = false, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
+    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, coverageUpdateKind: RegularArchiveCoverageUpdateKind = .none, consumerManagesArchiveEnd: Bool = false, consumerManagesHistoryCursor: Bool = false, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
         let isGroupchat = [.group, .channel].contains(conversationType)
         let elementId = queryId ?? "MAM: \(NanoID.new(8))"
         let dateConstraint = self.archiveDateConstraint(
@@ -992,6 +1209,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             return
         }
         let effectiveStart = dateConstraint.start
+        registerArchiveQueryId(elementId, purpose: purpose)
         let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
         query.addAttribute(withName: "queryid", stringValue: elementId)
         let x = DDXMLElement(name: "x", xmlns: "jabber:x:data")
@@ -1127,11 +1345,14 @@ class MessageArchiveManager: AbstractXMPPManager {
                     searchText: searchText,
                     queryId: queryId,
                     afterId: afterId,
+                    nextPage: nextPage,
+                    prevPage: prevPage,
                     max: max ?? pageSize,
                     tags: tags,
                     start: effectiveStart,
                     end: end,
                     purpose: purpose,
+                    coverageUpdateKind: coverageUpdateKind,
                     archiveEndEligibility: archiveEndEligibility,
                     consumerManagesArchiveEnd: consumerManagesArchiveEnd,
                     consumerManagesHistoryCursor: consumerManagesHistoryCursor
@@ -1459,6 +1680,35 @@ class MessageArchiveManager: AbstractXMPPManager {
         )
         return requestQueryId
     }
+
+    @discardableResult
+    internal func getRegularGapRepairHistory(
+        _ stream: XMPPStream,
+        for jid: String,
+        gap: RegularChatArchiveGap,
+        direction: RegularArchiveGapRepairDirection,
+        pageSize: Int? = nil,
+        queryId: String? = nil,
+        callback: (() -> Void)? = nil,
+        requestCallbacks: RequestCallbacks = .none
+    ) -> String {
+        let effectivePageSize = Self.regularArchivePageSize(requested: pageSize, defaultPageSize: self.pageSize)
+        let plan = Self.regularGapRepairRequestPlan(
+            jid: jid,
+            gap: gap,
+            direction: direction,
+            pageSize: effectivePageSize
+        )
+        let requestQueryId = queryId ?? "MAM gap repair history: \(NanoID.new(6))"
+        return startRegularArchiveRequest(
+            stream,
+            plan: plan,
+            queryId: requestQueryId,
+            joinDuplicateRequests: queryId == nil,
+            callback: callback,
+            requestCallbacks: requestCallbacks
+        )
+    }
     
     private final func checkShouldLoadFullHistory(for jid: String, conversationType: ClientSynchronizationManager.ConversationType) throws -> Bool {
         
@@ -1553,6 +1803,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             end: task.end,
             nextPage: nextPage,
             max: task.max,
+            coverageUpdateKind: task.coverageUpdateKind,
             callback: callback,
             requestCallbacks: requestCallbacks
         )
@@ -1752,6 +2003,102 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
     }
 
+    internal func scheduleSnapshotArchiveRepairs(_ targets: [SnapshotRepairTarget]) {
+        guard targets.isNotEmpty,
+              let account = AccountManager.shared.find(for: self.owner) else {
+            return
+        }
+
+        var seen = Set<SnapshotRepairTarget>()
+        targets.forEach { target in
+            guard target.conversationType.supportsSnapshotArchiveRepair,
+                  seen.insert(target).inserted else {
+                return
+            }
+
+            let deduplicationKey = target.deduplicationKey(owner: self.owner)
+            snapshotRepairEnqueueObserver?(target, .background, deduplicationKey)
+            account.xmppTaskScheduler.enqueueAccountTask(
+                priority: .background,
+                resource: .mamArchive,
+                deduplicationKey: deduplicationKey,
+                requiresAuthenticatedStream: true
+            ) { [weak self] user, stream, finish in
+                guard let self else {
+                    finish()
+                    return
+                }
+                _ = user.mam.startSnapshotArchiveRepair(
+                    stream,
+                    target: target,
+                    callback: finish
+                )
+            }
+        }
+    }
+
+    @discardableResult
+    internal func startSnapshotArchiveRepair(
+        _ stream: XMPPStream,
+        target: SnapshotRepairTarget,
+        queryId: String? = nil,
+        callback: (() -> Void)? = nil,
+        requestCallbacks: RequestCallbacks = .none
+    ) -> String? {
+        guard target.conversationType.supportsSnapshotArchiveRepair,
+              target.jid.isNotEmpty else {
+            callback?()
+            return nil
+        }
+
+        let pageSize = Self.regularArchivePageSize(requested: nil, defaultPageSize: self.pageSize)
+        let newestLoadedArchiveId: String?
+        do {
+            let realm = try WRealm.safe()
+            let primary = RegularChatArchiveSyncStateStorageItem.genPrimary(
+                jid: target.jid,
+                owner: self.owner,
+                conversationType: target.conversationType
+            )
+            if let state = realm.object(ofType: RegularChatArchiveSyncStateStorageItem.self, forPrimaryKey: primary) {
+                newestLoadedArchiveId = state.newestLoadedArchiveId
+            } else {
+                var loadedArchiveId: String?
+                try realm.write {
+                    let state = RegularChatArchiveSyncStateStorageItem.ensure(
+                        owner: self.owner,
+                        jid: target.jid,
+                        conversationType: target.conversationType,
+                        in: realm
+                    )
+                    loadedArchiveId = state.newestLoadedArchiveId
+                }
+                newestLoadedArchiveId = loadedArchiveId
+            }
+        } catch {
+            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
+            callback?()
+            return nil
+        }
+
+        let plan = Self.snapshotRepairRequestPlan(
+            jid: target.jid,
+            conversationType: target.conversationType,
+            newestLoadedArchiveId: newestLoadedArchiveId,
+            pageSize: pageSize
+        )
+        let requestQueryId = queryId ?? "MAM snapshot repair: \(NanoID.new(6))"
+        return startRegularArchiveRequest(
+            stream,
+            plan: plan,
+            queryId: requestQueryId,
+            priority: .background,
+            joinDuplicateRequests: true,
+            callback: callback,
+            requestCallbacks: requestCallbacks
+        )
+    }
+
     private func startNextRegularIdleBackfillIfNeeded() {
         guard !regularIdleBackfillInProgress else {
             return
@@ -1821,6 +2168,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         self.persistedMessageCountsByQueryId.removeAll()
         self.regularArchiveInFlightByKey.removeAll()
         self.regularArchiveRequestKeyByQueryId.removeAll()
+        self.clearArchiveQueryPurposeRegistry()
         self.regularIdleBackfillInProgress = false
     }
 }

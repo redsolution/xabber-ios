@@ -64,9 +64,6 @@ extension LastChatsViewController {
                 .sorted(byKeyPath: "messageDate", ascending: false)
 
             let unreadLastChatsArray = collection.toArray()
-            try realm.write {
-                collection.forEach { $0.unread = 0 }
-            }
             self.enabledAccounts.value.forEach {
                 AccountManager.shared.find(for: $0)?.unsafeAction({ user, stream in
                     user.messages.readAllMessages()

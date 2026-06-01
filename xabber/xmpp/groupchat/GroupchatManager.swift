@@ -2330,7 +2330,7 @@ class GroupchatManager: AbstractXMPPManager {
                                 conversationType: .group
                             )
                         ) {
-                            instance.unread = 1
+                            LastChatUnreadCounter.setRuntimeUnreadCount(max(instance.runtimeUnreadCount, 1), for: instance)
                             if instance.lastMessage == nil && instance.lastMessageId.isNotEmpty {
                                 instance.lastMessage = realm.objects(MessageStorageItem.self).filter("owner == %@ AND messageId == %@", self.owner, instance.lastMessageId).first
                             }
@@ -2352,7 +2352,7 @@ class GroupchatManager: AbstractXMPPManager {
                             conversationType: .group
                         )
                     ) {
-                        instance.unread = 1
+                        LastChatUnreadCounter.setRuntimeUnreadCount(max(instance.runtimeUnreadCount, 1), for: instance)
                         if instance.lastMessage == nil && instance.lastMessageId.isNotEmpty {
                             instance.lastMessage = realm.objects(MessageStorageItem.self).filter("owner == %@ AND messageId == %@", self.owner, instance.lastMessageId).first
                         }

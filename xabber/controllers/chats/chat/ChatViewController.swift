@@ -44,15 +44,22 @@ enum ChatOpenMessageRequestSource: String {
     case composerReferencePreview = "composer-reference-preview"
     case composerEditPreview = "composer-edit-preview"
     case pinnedMessage = "pinned-message"
+    case initialUnreadBoundary = "initial-unread-boundary"
+    case savedVisiblePosition = "saved-visible-position"
 
     var usesTransientHighlight: Bool {
         switch self {
         case .voicePlayer, .composerReferencePreview, .composerEditPreview, .pinnedMessage:
             return true
-        case .mentionNotification, .pushNotification, .search, .external:
+        case .mentionNotification, .pushNotification, .search, .external, .initialUnreadBoundary, .savedVisiblePosition:
             return false
         }
     }
+}
+
+enum ChatOpenMessageTargetResolution: Equatable {
+    case anchor
+    case firstIncomingAfterBoundary(String)
 }
 
 struct ChatMessageAnchorRef: Equatable {
@@ -72,6 +79,64 @@ struct ChatOpenMessageRequest: Equatable {
     let highlight: Bool
     let markReadOnVisible: Bool
     let source: ChatOpenMessageRequestSource
+    let targetResolution: ChatOpenMessageTargetResolution
+
+    init(
+        chatJid: String,
+        owner: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        anchor: ChatMessageAnchorRef,
+        highlight: Bool,
+        markReadOnVisible: Bool,
+        source: ChatOpenMessageRequestSource,
+        targetResolution: ChatOpenMessageTargetResolution = .anchor
+    ) {
+        self.chatJid = chatJid
+        self.owner = owner
+        self.conversationType = conversationType
+        self.anchor = anchor
+        self.highlight = highlight
+        self.markReadOnVisible = markReadOnVisible
+        self.source = source
+        self.targetResolution = targetResolution
+    }
+}
+
+struct ChatSavedVisiblePosition: Equatable {
+    let messagePrimary: String?
+    let archivedId: String?
+    let messageId: String?
+    let sourceDate: Date
+
+    var hasAnchor: Bool {
+        messagePrimary?.isNotEmpty == true
+            || archivedId?.isNotEmpty == true
+            || messageId?.isNotEmpty == true
+    }
+}
+
+enum ChatNavigationTransitionMutationPolicy {
+    static func shouldDeferMutation(
+        isTransitionActive: Bool,
+        isCriticalForFirstFrame: Bool
+    ) -> Bool {
+        isTransitionActive && !isCriticalForFirstFrame
+    }
+
+    static func shouldAnimateMutation(
+        requestedAnimated: Bool,
+        isTransitionActive: Bool,
+        isPreparingFirstFrame: Bool
+    ) -> Bool {
+        requestedAnimated && !isTransitionActive && !isPreparingFirstFrame
+    }
+
+    static func shouldDeferOpenMessageRequest(
+        isTransitionActive: Bool,
+        hasPendingRequest: Bool
+    ) -> Bool {
+        isTransitionActive && hasPendingRequest
+    }
 }
 
 private extension CGRect {
@@ -1080,6 +1145,13 @@ class ChatViewController: MessagesViewController {
     var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var currentSearchQueryId: String? = nil
     var pendingOpenMessageRequest: ChatOpenMessageRequest? = nil
+    internal var isNavigationTransitionActive: Bool = false
+    internal var isPreparingStackedNavigationPresentation: Bool = false
+    internal var shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion: Bool = false
+    internal var didDeferOpenMessageRequestForNavigationTransition: Bool = false
+    private var pendingNavigationTransitionWork: [() -> Void] = []
+    internal var didScheduleNavigationDisappearanceCleanup: Bool = false
+    internal var didRunNavigationDisappearanceCleanup: Bool = false
     var activeAnchorExecutionState: ChatAnchorExecutionState? = nil
     var activeAnchorExecutionHooks: ChatAnchorExecutionHooks? = nil
     var isExecutingOpenMessageRequest: Bool = false
@@ -1133,6 +1205,51 @@ class ChatViewController: MessagesViewController {
         } else {
             DispatchQueue.main.async(execute: block)
         }
+    }
+
+    internal func beginNavigationTransitionDeferralIfNeeded() {
+        guard let coordinator = self.transitionCoordinator else {
+            return
+        }
+        self.isNavigationTransitionActive = true
+        coordinator.animate(alongsideTransition: nil) { [weak self] context in
+            self?.completeNavigationTransitionDeferral(cancelled: context.isCancelled)
+        }
+    }
+
+    private func completeNavigationTransitionDeferral(cancelled: Bool) {
+        self.isNavigationTransitionActive = false
+        self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = false
+        guard !cancelled else {
+            self.pendingNavigationTransitionWork.removeAll()
+            self.didDeferOpenMessageRequestForNavigationTransition = false
+            return
+        }
+        self.flushPendingNavigationTransitionWork()
+    }
+
+    @discardableResult
+    internal func deferUntilNavigationTransitionCompletesIfNeeded(_ work: @escaping () -> Void) -> Bool {
+        guard self.isNavigationTransitionActive
+                || self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion else {
+            return false
+        }
+        self.pendingNavigationTransitionWork.append(work)
+        return true
+    }
+
+    internal func flushPendingNavigationTransitionWork() {
+        let work = self.pendingNavigationTransitionWork
+        self.pendingNavigationTransitionWork.removeAll()
+        work.forEach { $0() }
+    }
+
+    internal var shouldDeferOpenMessageRequestsForNavigationTransition: Bool {
+        ChatNavigationTransitionMutationPolicy.shouldDeferOpenMessageRequest(
+            isTransitionActive: self.isNavigationTransitionActive
+                || self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion,
+            hasPendingRequest: self.pendingOpenMessageRequest != nil
+        )
     }
 
     internal func setLoadingIndicatorVisible(_ isVisible: Bool) {
@@ -1944,7 +2061,7 @@ class ChatViewController: MessagesViewController {
         return palettes[index]
     }
     
-    func configureSearchBar() {
+    func configureSearchBar(activateKeyboard: Bool = true, animated: Bool = true) {
         if #available(iOS 26.0, *) {
             self.cancelSearchBarButton.action = #selector(self.pnCancelButtonTouchUp)
             self.cancelSearchBarButton.target = self
@@ -1970,49 +2087,53 @@ class ChatViewController: MessagesViewController {
                 searchBar.searchTextField.borderStyle = .roundedRect
                 let panel = UIBarButtonItem(customView: searchBar)
                 panel.hidesSharedBackground = true
-                self.navigationItem.setRightBarButtonItems([self.cancelSearchBarButton, panel], animated: true)
+                self.navigationItem.setRightBarButtonItems([self.cancelSearchBarButton, panel], animated: animated)
 //                self.navigationItem.setRightBarButton(self.cancelSearchBarButton, animated: true)
             } else {
                 self.searchBar.sizeToFit()
                 let panel = UIBarButtonItem(customView: searchBar)
                 panel.hidesSharedBackground = true
-                self.navigationItem.setRightBarButton(panel, animated: true)
+                self.navigationItem.setRightBarButton(panel, animated: animated)
             }
             self.navigationItem.titleView = nil
             self.searchBar.delegate = self
-            self.navigationItem.setHidesBackButton(true, animated: true)
-            self.searchBar.becomeFirstResponder()
-            self.searchBar.searchTextField.becomeFirstResponder()
+            self.navigationItem.setHidesBackButton(true, animated: animated)
+            if activateKeyboard {
+                self.searchBar.becomeFirstResponder()
+                self.searchBar.searchTextField.becomeFirstResponder()
+            }
             if self.searchMessagesQueue.isEmpty {
                 self.xabberInputView.searchPanel.changeState(to: .empty)
             } else {
                 self.xabberInputView.searchPanel.changeState(to: .withResults)
             }
             self.xabberInputView.changeState(to: .search)
-            self.searchBar.setShowsCancelButton(true, animated: true)
+            self.searchBar.setShowsCancelButton(true, animated: animated)
         } else {
             self.cancelSearchBarButton.action = #selector(self.pnCancelButtonTouchUp)
             self.cancelSearchBarButton.target = self
             if UIDevice.current.userInterfaceIdiom == .pad {
                 self.searchBar.frame = CGRect(width: self.view.bounds.width - 150, height: 44)
-                self.navigationItem.setLeftBarButton(UIBarButtonItem(customView: searchBar), animated: true)
-                self.navigationItem.setRightBarButton(self.cancelSearchBarButton, animated: true)
+                self.navigationItem.setLeftBarButton(UIBarButtonItem(customView: searchBar), animated: animated)
+                self.navigationItem.setRightBarButton(self.cancelSearchBarButton, animated: animated)
             } else {
                 self.searchBar.sizeToFit()
-                self.navigationItem.setRightBarButton(UIBarButtonItem(customView: searchBar), animated: true)
+                self.navigationItem.setRightBarButton(UIBarButtonItem(customView: searchBar), animated: animated)
             }
             self.navigationItem.titleView = nil
             self.searchBar.delegate = self
-            self.navigationItem.setHidesBackButton(true, animated: true)
-            self.searchBar.becomeFirstResponder()
-            self.searchBar.searchTextField.becomeFirstResponder()
+            self.navigationItem.setHidesBackButton(true, animated: animated)
+            if activateKeyboard {
+                self.searchBar.becomeFirstResponder()
+                self.searchBar.searchTextField.becomeFirstResponder()
+            }
             if self.searchMessagesQueue.isEmpty {
                 self.xabberInputView.searchPanel.changeState(to: .empty)
             } else {
                 self.xabberInputView.searchPanel.changeState(to: .withResults)
             }
             self.xabberInputView.changeState(to: .search)
-            self.searchBar.setShowsCancelButton(true, animated: true)
+            self.searchBar.setShowsCancelButton(true, animated: animated)
         }
         
     }
@@ -2153,8 +2274,17 @@ class ChatViewController: MessagesViewController {
         guard wasHidden else {
             return
         }
-        UIView.animate(withDuration: 0.1) {
+        let updates = {
             self.updateFloatingBubblesVisibility(animated: false)
+        }
+        if ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+            requestedAnimated: true,
+            isTransitionActive: self.isNavigationTransitionActive,
+            isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
+        ) {
+            UIView.animate(withDuration: 0.1, animations: updates)
+        } else {
+            UIView.performWithoutAnimation(updates)
         }
         
     }
@@ -2164,8 +2294,17 @@ class ChatViewController: MessagesViewController {
             return
         }
         sharedAudioPlayerPanel.isHidden = true
-        UIView.animate(withDuration: 0.1) {
+        let updates = {
             self.updateFloatingBubblesVisibility(animated: false)
+        }
+        if ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+            requestedAnimated: true,
+            isTransitionActive: self.isNavigationTransitionActive,
+            isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
+        ) {
+            UIView.animate(withDuration: 0.1, animations: updates)
+        } else {
+            UIView.performWithoutAnimation(updates)
         }
         
     }
@@ -2274,7 +2413,14 @@ class ChatViewController: MessagesViewController {
         self.configureBackground()
         self.configureNavbar()
         if self.inSearchMode.value {
-            self.configureSearchBar()
+            self.configureSearchBar(
+                activateKeyboard: !self.isPreparingStackedNavigationPresentation,
+                animated: ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+                    requestedAnimated: true,
+                    isTransitionActive: self.isNavigationTransitionActive,
+                    isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
+                )
+            )
         } else {
             self.searchTextObserver.accept(nil)
         }
@@ -2432,7 +2578,7 @@ class ChatViewController: MessagesViewController {
             ])
         }
 
-        navigationItem.setLeftBarButton(nil, animated: true)
+        navigationItem.setLeftBarButton(nil, animated: false)
         titleStack.isUserInteractionEnabled = false
         titleStack.alignment = .fill
         titleLabel.textAlignment = .center
@@ -2561,6 +2707,11 @@ class ChatViewController: MessagesViewController {
         let shouldHideStack = visibleHeights.isEmpty
         let visibilityChanged = floatingBubblesStackView.isHidden != shouldHideStack
         let heightChanged = abs(floatingBubblesHeight - height) > 0.5
+        let shouldAnimate = ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+            requestedAnimated: animated,
+            isTransitionActive: self.isNavigationTransitionActive,
+            isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
+        )
 
         let updates = {
             if visibilityChanged {
@@ -2570,12 +2721,12 @@ class ChatViewController: MessagesViewController {
                 self.floatingBubblesHeight = height
             }
             self.updateChatCollectionInsets()
-            if animated {
+            if shouldAnimate {
                 self.view.layoutIfNeeded()
             }
         }
 
-        if animated, visibilityChanged || heightChanged {
+        if shouldAnimate, visibilityChanged || heightChanged {
             UIView.animate(
                 withDuration: 0.2,
                 delay: 0,
@@ -2808,15 +2959,23 @@ class ChatViewController: MessagesViewController {
         self.updateScrollDownButtonFrame(animated: false)
         self.updateInitialMessageOverlayFrame()
         
-        (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
-            .cache.invalidate()
-        self.messagesCollectionView.reloadData()
-        self.messagesCollectionView.layoutIfNeeded()
-        self.updateChatCollectionInsets(inputHeight: inputHeight)
-        if wasNearBottom {
-            self.scrollToBottom(animated: false)
-        } else if let visibleAnchor {
-            self.restorePagingAnchor(visibleAnchor)
+        let collectionUpdates = {
+            (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
+                .cache.invalidate()
+            self.messagesCollectionView.reloadData()
+            self.messagesCollectionView.layoutIfNeeded()
+            self.updateChatCollectionInsets(inputHeight: inputHeight)
+            if wasNearBottom {
+                self.scrollToBottom(animated: false)
+            } else if let visibleAnchor {
+                self.restorePagingAnchor(visibleAnchor)
+            }
+        }
+
+        if self.isNavigationTransitionActive || self.isPreparingStackedNavigationPresentation {
+            UIView.performWithoutAnimation(collectionUpdates)
+        } else {
+            collectionUpdates()
         }
     }
     
@@ -2826,6 +2985,27 @@ class ChatViewController: MessagesViewController {
         self.cancelInitialBootstrapLocalHistoryFallback()
         VoiceMessagePlaybackCoordinator.shared.removeObserver(self.voiceMessageStateObserverToken)
         self.voiceMessageStateObserverToken = nil
+    }
+
+    internal func runNavigationDisappearanceCleanupIfNeeded() {
+        guard !self.didRunNavigationDisappearanceCleanup else {
+            return
+        }
+        self.didRunNavigationDisappearanceCleanup = true
+        self.didScheduleNavigationDisappearanceCleanup = false
+        AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
+        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            user.mam.allowHistoryFixTask = false
+            user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+        })
+        LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
+        self.saveCurrentVisibleMessagePositionIfNeeded(reason: .viewWillDisappear)
+
+        unsubscribe()
+        removeObservers()
+        (navigationController as? NavBarController)?.topToolbar.isHidden = false
+        XMPPUIActionManager.shared.mam?.endLoadHistory(jid: self.jid, conversationType: conversationType)
+        AccountManager.shared.find(for: self.owner)?.mam.endLoadHistory(jid: self.jid, conversationType: conversationType)
     }
     
     
@@ -3031,6 +3211,9 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        self.beginNavigationTransitionDeferralIfNeeded()
+        self.didRunNavigationDisappearanceCleanup = false
+        self.didScheduleNavigationDisappearanceCleanup = false
         print(#function)
         do {
             try self.subscribe()
@@ -3061,11 +3244,22 @@ class ChatViewController: MessagesViewController {
         self.hasCompletedInitialHistoryViewAppearance = false
         if self.datasource.isEmpty {
             self.setFloatingDateVisible(false)
-            self.loadInitialDatasource()
+            self.loadInitialDatasource(
+                performPendingOpenMessageRequest: !self.shouldDeferOpenMessageRequestsForNavigationTransition
+            )
         }
-        self.configureNavbar()
+        UIView.performWithoutAnimation {
+            self.configureNavbar()
+        }
         if self.inSearchMode.value {
-            self.configureSearchBar()
+            self.configureSearchBar(
+                activateKeyboard: !self.isNavigationTransitionActive,
+                animated: ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+                    requestedAnimated: true,
+                    isTransitionActive: self.isNavigationTransitionActive,
+                    isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
+                )
+            )
         } else {
             self.searchTextObserver.accept(nil)
         }
@@ -3097,6 +3291,12 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        self.isNavigationTransitionActive = false
+        self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = false
+        self.flushPendingNavigationTransitionWork()
+        if self.inSearchMode.value {
+            self.configureSearchBar(activateKeyboard: true, animated: false)
+        }
         self.suppressScrollDownButtonVisibilityAfterAppearance()
         self.hasCompletedInitialHistoryViewAppearance = true
         self.finishInitialHistoryAppearanceIfPossible()
@@ -3127,45 +3327,32 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        self.beginNavigationTransitionDeferralIfNeeded()
         self.cancelActiveAudioRecordingForLifecycle()
         omemoDeviceListTimer?.invalidate()
         omemoDeviceListTimer = nil
-        AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            user.mam.allowHistoryFixTask = false
-            user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-        })
-        LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
-        do {
-            let realm = try WRealm.safe()
-            let offset = self.messagesCollectionView.contentOffset.y
-            try realm.write {
-                realm.object(
-                    ofType: LastChatsStorageItem.self,
-                    forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType)
-                )?.lastChatOffset = Float(offset)
-                realm.object(
-                    ofType: LastChatsStorageItem.self,
-                    forPrimaryKey: LastChatsStorageItem.genPrimary(
-                        jid: self.jid,
-                        owner: self.owner,
-                        conversationType: self.conversationType
-                    )
-                )?.lastReadId = self.messagesObserver?.last?.messageId
+
+        if let coordinator = self.transitionCoordinator {
+            self.didScheduleNavigationDisappearanceCleanup = true
+            coordinator.animate(alongsideTransition: nil) { [weak self] context in
+                guard let self else { return }
+                self.isNavigationTransitionActive = false
+                guard !context.isCancelled else {
+                    self.didScheduleNavigationDisappearanceCleanup = false
+                    return
+                }
+                self.runNavigationDisappearanceCleanupIfNeeded()
             }
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        } else {
+            self.runNavigationDisappearanceCleanupIfNeeded()
         }
-        
-        unsubscribe()
-        removeObservers()
     }
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        (navigationController as? NavBarController)?.topToolbar.isHidden = false
-        XMPPUIActionManager.shared.mam?.endLoadHistory(jid: self.jid, conversationType: conversationType)
-        AccountManager.shared.find(for: self.owner)?.mam.endLoadHistory(jid: self.jid, conversationType: conversationType)
+        if !self.didScheduleNavigationDisappearanceCleanup {
+            self.runNavigationDisappearanceCleanupIfNeeded()
+        }
     }
     
 //    internal final func scrollToLastUnreadMessage(select: Bool = false) {
@@ -3416,6 +3603,41 @@ extension ChatViewController {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             return fallback
         }
+    }
+}
+
+extension ChatViewController: StackedNavigationPresentationPreparing {
+    func prepareForStackedNavigationPresentation(targetBounds: CGRect?) {
+        self.isPreparingStackedNavigationPresentation = true
+        self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = true
+        self.loadViewIfNeeded()
+
+        if let targetBounds,
+           targetBounds.width > 0,
+           targetBounds.height > 0 {
+            self.view.frame = CGRect(origin: .zero, size: targetBounds.size)
+        }
+
+        UIView.performWithoutAnimation {
+            self.configureNavbar()
+            self.initialHistoryAppearancePending = ChatInitialHistoryAppearancePolicy.shouldStart(
+                isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
+            )
+            self.hasRenderedStableInitialHistory = false
+            self.hasCompletedInitialHistoryViewAppearance = false
+            if self.datasource.isEmpty {
+                self.setFloatingDateVisible(false)
+                self.loadInitialDatasource(performPendingOpenMessageRequest: false)
+            }
+            self.updateChatCollectionInsets()
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
+            self.messagesCollectionView.collectionViewLayout.invalidateLayout()
+            self.messagesCollectionView.layoutIfNeeded()
+            self.messagesCollectionView.layer.removeAllAnimations()
+        }
+
+        self.isPreparingStackedNavigationPresentation = false
     }
 }
 

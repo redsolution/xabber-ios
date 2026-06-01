@@ -77,15 +77,25 @@ extension MessageManager {
 
     internal func scheduleQueuedMessagesDrainIfNeeded() {
         self.performMessageQueueSync {
-            guard self.isReceiverActive,
-                  !self.isQueuedMessagesDrainScheduled,
-                  !self.queuedMessages.isEmpty else {
-                return
-            }
-            self.isQueuedMessagesDrainScheduled = true
-            self.queue.async { [weak self] in
-                self?.drainQueuedMessagesAndPersist()
-            }
+            self.scheduleQueuedMessagesDrainOnQueue()
+        }
+    }
+
+    internal func scheduleQueuedMessagesDrainWithoutWaiting() {
+        self.queue.async { [weak self] in
+            self?.scheduleQueuedMessagesDrainOnQueue()
+        }
+    }
+
+    private func scheduleQueuedMessagesDrainOnQueue() {
+        guard self.isReceiverActive,
+              !self.isQueuedMessagesDrainScheduled,
+              !self.queuedMessages.isEmpty else {
+            return
+        }
+        self.isQueuedMessagesDrainScheduled = true
+        self.queue.async { [weak self] in
+            self?.drainQueuedMessagesAndPersist()
         }
     }
 
@@ -143,8 +153,10 @@ extension MessageManager {
         var groupchatUserCard: DDXMLElement? = nil
         var readDate: Date? = nil
         var messageId: String? = nil
+        var shouldPersistArchiveQueryId: Bool = false
+        var countsAsRuntimeUnread: Bool = false
         
-        init(_ message: XMPPMessage, messageId: String?, archivedFrom: String?, isRead: Bool, date: Date, state: MessageStorageItem.MessageSendingState, forceUnreadState: Bool? = nil, clientSyncMessage: Bool = false, queryId: String?, groupchatUserCard: DDXMLElement? = nil, readDate: Date? = nil) {
+        init(_ message: XMPPMessage, messageId: String?, archivedFrom: String?, isRead: Bool, date: Date, state: MessageStorageItem.MessageSendingState, forceUnreadState: Bool? = nil, clientSyncMessage: Bool = false, queryId: String?, shouldPersistArchiveQueryId: Bool = false, countsAsRuntimeUnread: Bool = false, groupchatUserCard: DDXMLElement? = nil, readDate: Date? = nil) {
             self.message = message
             self.archivedFrom = archivedFrom
             self.isRead = isRead
@@ -154,6 +166,8 @@ extension MessageManager {
             self.clientSyncMessage = clientSyncMessage
             self.groupchatUserCard = groupchatUserCard
             self.queryId = queryId
+            self.shouldPersistArchiveQueryId = shouldPersistArchiveQueryId
+            self.countsAsRuntimeUnread = countsAsRuntimeUnread
             self.readDate = readDate
             self.messageId = messageId
         }
@@ -230,13 +244,19 @@ extension MessageManager {
     public func receiveArchived(_ message: XMPPMessage) {
         if let date = getDelayedDate(message),
             let messageBare = getArchivedMessageContainer(message) {
+            let queryId = getMAMQueryId(message)
+            let shouldPersistArchiveQueryId = AccountManager.shared
+                .find(for: owner)?
+                .mam
+                .shouldPersistArchiveQueryId(queryId) ?? false
             enqueue(MessageQueueItem(messageBare,
                                      messageId: getOriginId(messageBare),
                                      archivedFrom: message.from?.bare,
                                      isRead: true,
                                      date: getDeliveryTime(messageBare, owner: owner) ?? date,
                                      state: .deliver,
-                                     queryId: getMAMQueryId(message)))
+                                     queryId: queryId,
+                                     shouldPersistArchiveQueryId: shouldPersistArchiveQueryId))
         }
     }
     
@@ -287,7 +307,8 @@ extension MessageManager {
                                      isRead: false,
                                      date: getDeliveryTime(messageBare, owner: owner) ?? Date(),
                                      state: .sended,
-                                     queryId: getMAMQueryId(message)))
+                                     queryId: getMAMQueryId(message),
+                                     countsAsRuntimeUnread: true))
         }
     }
     
@@ -298,7 +319,8 @@ extension MessageManager {
                                  isRead: false,
                                  date: getDeliveryTime(message, owner: owner) ?? Date(),
                                  state: .sended,
-                                 queryId: getMAMQueryId(message)))
+                                 queryId: getMAMQueryId(message),
+                                 countsAsRuntimeUnread: true))
     }
     
     
@@ -470,7 +492,13 @@ extension MessageManager {
                 instance.afterburnInterval = afterburnInterval
             }
             
-            instance.queryIds = item.queryId
+            instance.queryIds = item.shouldPersistArchiveQueryId ? item.queryId : nil
+            instance.shouldPersistArchiveQueryId = item.shouldPersistArchiveQueryId
+            instance.countsAsRuntimeUnread = item.countsAsRuntimeUnread &&
+                !item.originalOutgoing &&
+                !instance.isRead &&
+                item.forceUnreadState == nil &&
+                !item.clientSyncMessage
             
             if hasSignElement {
                 instance.errorMetadata = errorMetadata

@@ -244,6 +244,17 @@ extension MessageManager {
             stanza.addAttribute(withName: "from", stringValue: owner)
             stanzaToSave.addAttribute(withName: "from", stringValue: owner)
             let missRetryElementOnResend = item.messageErrorCode == "405"
+            let shouldUseDurableRegularQueue = item.conversationType == .regular && item.displayAs == .text
+            let durableQueueRequest = AccountQueuedMessageSendRequest(
+                owner: item.owner,
+                conversationJid: item.opponent,
+                conversationType: item.conversationType,
+                messagePrimary: item.primary,
+                originId: item.messageId,
+                stanzaXML: stanzaToSave.xmlString,
+                createdAt: item.date,
+                replayRequired: retry
+            )
             try realm.write {
                 if item.displayAs != .system {
                     if item.conversationType.isEncrypted {
@@ -310,15 +321,29 @@ extension MessageManager {
                     item.storeStanza()
                 }
             }
+            if shouldUseDurableRegularQueue {
+                try AccountSendCoordinator.persistRegularMessage(durableQueueRequest)
+                AccountManager.shared.find(for: owner)?.sendCoordinator.drainReadyQueue()
+                LastChats.updateErrorState(for: item.opponent, owner: self.owner, conversationType: item.conversationType)
+                return
+            }
+            let deferredMessageId = item.messageId
+            let deferredConversationType = item.conversationType.rawValue
             AccountManager.shared.find(for: owner)?.unsafeAction({ (user, stream) in
                 stanza.addChild(user.chatMarkers.child)
                 let stanzaToSend = user.deliveryManager.apply(to: stanza, retry: retry, missRetryElement: missRetryElementOnResend)
-                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                guard user.sendReadiness.snapshot.canFlushApplicationStanzas else {
+                    user.logConnectionDiagnostics(
+                        event: "application_message_send_deferred_no_replay_policy",
+                        details: [
+                            "messageId": deferredMessageId,
+                            "conversationType": deferredConversationType
+                        ]
+                    )
+                    return
+                }
+                user.action { _, stream in
                     stream.send(stanzaToSend)
-                } fail: {
-                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                        stream.send(stanzaToSend)
-                    })
                 }
             })
             LastChats.updateErrorState(for: item.opponent, owner: self.owner, conversationType: item.conversationType)
@@ -553,7 +578,6 @@ extension MessageManager {
                     instance.isDeleted = true
                 }
                 let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType))
-                chat?.lastReadId = nil
                 chat?.draftMessage = nil
             }
             
@@ -581,7 +605,6 @@ extension MessageManager {
             instance.displayAs = .system
             try realm.write {
                 _ = instance.save(commitTransaction: false)
-                realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType))?.lastReadId = nil
             }
             
             self.processSender(item: instance.primary, childs: childs)
@@ -618,7 +641,6 @@ extension MessageManager {
            
             try realm.write {
                 _ = instance.save(commitTransaction: false)
-                realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType))?.lastReadId = nil
             }
             let primary = instance.primary
             return primary

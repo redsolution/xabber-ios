@@ -35,11 +35,13 @@ extension AppDelegate : UNUserNotificationCenterDelegate {
         let notificationInAppAlertLastChats = SettingManager.shared.get(bool: SettingsViewController.Datasource.Keys.notificationInAppAlertLastChats.rawValue)
         let notificationInAppSound = SettingManager.shared.get(bool: SettingsViewController.Datasource.Keys.notificationInAppSound.rawValue)
         let messageCategory = NotifyManager.notificationMessageCategory
+        let pushMessageCategory = NotifyManager.notificationPushMessageCategory
         let subscriptionCategory = NotifyManager.notificationSubscribtionCategory
+        let inviteCategory = NotifyManager.notificationInviteCategory
         let verificationCategory = NotifyManager.notificationVerificationCategory
         
         switch category {
-        case messageCategory, subscriptionCategory:
+        case messageCategory, pushMessageCategory, subscriptionCategory, inviteCategory:
             if notificationInAppAlertLastChats {
                 if notificationInAppSound {
                     completionHandler([.banner, .sound])
@@ -107,20 +109,25 @@ extension AppDelegate : UNUserNotificationCenterDelegate {
             _ = NotifyManager.shared.onDeclineGroupNotification(response: response, handler: completionHandler)
         default:
             switch content.categoryIdentifier {
-                case NotifyManager.notificationMessageCategory, NotifyManager.notificationPushMessageCategory:
+            case NotifyManager.notificationMessageCategory,
+                NotifyManager.notificationPushMessageCategory,
+                NotifyManager.notificationSubscribtionCategory,
+                NotifyManager.notificationInviteCategory,
+                NotifyManager.notificationVerificationCategory:
                 if let id = content.userInfo["stanzaId"] as? String {
                     NotifyManager.shared.deliveredNotificationsIds.insert(id)
                 }
-                NotifyManager
-                    .shared
-                    .onTouchMessageNotification(userInfo: content.userInfo,
-                                                atStart: false,
-                                                handler: completionHandler)
-                break
-            case NotifyManager.notificationVerificationCategory:
-                NotifyManager.shared.onTouchVerificationNotification(userInfo: content.userInfo, handler: completionHandler)
+                let handled = NotifyManager.shared.onTouchNotificationRoute(
+                    userInfo: content.userInfo,
+                    atStart: false,
+                    handler: completionHandler
+                )
+                if !handled {
+                    completionHandler()
+                }
                 break
             default:
+                completionHandler()
                 break
             }
         }

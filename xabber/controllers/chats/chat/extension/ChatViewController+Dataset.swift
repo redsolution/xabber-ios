@@ -118,6 +118,8 @@ enum ChatHistoryPagingLoadDecision: Equatable {
     case localOnly
     case remoteOlderPage
     case remoteNewerPage
+    case remoteGapRepairOlder(RegularChatArchiveGap)
+    case remoteGapRepairNewer(RegularChatArchiveGap)
     case endReached
 }
 
@@ -134,6 +136,7 @@ struct ChatInteractiveHistoryPageLoadContext {
     let preLoadFullArchiveLoaded: Bool
     let remoteFetchStarted: Bool
     let isArchiveEndVerificationProbe: Bool
+    let canMutateOlderArchiveEnd: Bool
     let expectedWindowMaxIndex: Int
     var didReceiveEndPage: Bool = false
     var queryExhausted: Bool = false
@@ -286,6 +289,7 @@ struct ChatArchiveStateSnapshot: Equatable {
     let newestCursorId: String?
     let newerLiveEdgeReached: Bool
     let hasKnownNewerGap: Bool
+    let knownGaps: [RegularChatArchiveGap]
 
     init(
         primaryKey: String,
@@ -293,7 +297,8 @@ struct ChatArchiveStateSnapshot: Equatable {
         fullArchiveLoaded: Bool,
         newestCursorId: String? = nil,
         newerLiveEdgeReached: Bool = true,
-        hasKnownNewerGap: Bool = false
+        hasKnownNewerGap: Bool = false,
+        knownGaps: [RegularChatArchiveGap] = []
     ) {
         self.primaryKey = primaryKey
         self.persistedCursorId = persistedCursorId
@@ -301,6 +306,7 @@ struct ChatArchiveStateSnapshot: Equatable {
         self.newestCursorId = newestCursorId
         self.newerLiveEdgeReached = newerLiveEdgeReached
         self.hasKnownNewerGap = hasKnownNewerGap
+        self.knownGaps = knownGaps
     }
 }
 
@@ -726,12 +732,14 @@ enum ChatHistoryPagingPolicy {
         currentPageMinIndex: Int,
         currentPageMaxIndex: Int,
         totalCount: Int,
+        hasRemoteOlderAvailable: Bool = false,
         hasRemoteNewerAvailable: Bool = false
     ) -> (olderVisible: Bool, newerVisible: Bool) {
         let minVisibleSection = boundaryContext.visibleRealSections.min()
         let maxVisibleSection = boundaryContext.visibleRealSections.max()
+        let hasOlderAvailable = currentPageMinIndex > 0 || hasRemoteOlderAvailable
 
-        let olderVisible = currentPageMinIndex > 0 && (minVisibleSection.flatMap { visibleSection in
+        let olderVisible = hasOlderAvailable && (minVisibleSection.flatMap { visibleSection in
             boundaryContext.firstRealSection.map { visibleSection <= $0 }
         } ?? false)
         let newerVisible = (currentPageMaxIndex < totalCount || hasRemoteNewerAvailable) && (maxVisibleSection.flatMap { visibleSection in
@@ -771,6 +779,7 @@ enum ChatHistoryPagingPolicy {
         currentPageMinIndex: Int,
         currentPageMaxIndex: Int,
         totalCount: Int,
+        hasRemoteOlderAvailable: Bool = false,
         hasRemoteNewerAvailable: Bool = false
     ) -> ChatHistoryPageDirection? {
         guard isUserScrolling,
@@ -784,6 +793,7 @@ enum ChatHistoryPagingPolicy {
             currentPageMinIndex: currentPageMinIndex,
             currentPageMaxIndex: currentPageMaxIndex,
             totalCount: totalCount,
+            hasRemoteOlderAvailable: hasRemoteOlderAvailable,
             hasRemoteNewerAvailable: hasRemoteNewerAvailable
         )
 
@@ -810,6 +820,9 @@ enum ChatHistoryPagingPolicy {
             }
             return (hasKnownNewerGap || !newerLiveEdgeReached) ? .remoteNewerPage : .endReached
         case .older:
+            if localWindow.minIndex < currentWindow.minIndex {
+                return .localOnly
+            }
             guard requestedWindow.minIndex < 0 else {
                 return .localOnly
             }
@@ -824,6 +837,7 @@ enum ChatHistoryPagingPolicy {
         currentPageMinIndex: Int,
         currentPageMaxIndex: Int,
         totalCount: Int,
+        hasRemoteOlderAvailable: Bool = false,
         hasRemoteNewerAvailable: Bool = false
     ) -> ChatHistoryPageDirection? {
         guard canLoadDatasource,
@@ -836,6 +850,7 @@ enum ChatHistoryPagingPolicy {
             currentPageMinIndex: currentPageMinIndex,
             currentPageMaxIndex: currentPageMaxIndex,
             totalCount: totalCount,
+            hasRemoteOlderAvailable: hasRemoteOlderAvailable,
             hasRemoteNewerAvailable: hasRemoteNewerAvailable
         )
 
@@ -843,6 +858,81 @@ enum ChatHistoryPagingPolicy {
             gestureTranslationY: gestureTranslationY,
             boundary: boundary
         )
+    }
+}
+
+enum ChatArchiveGapPagingPolicy {
+    static func loadDecision(
+        direction: ChatHistoryPageDirection,
+        currentWindow: ChatDatasetWindow,
+        requestedWindow: ChatDatasetWindow,
+        archivedIdsByIndex: [String?],
+        knownGaps: [RegularChatArchiveGap]
+    ) -> ChatHistoryPagingLoadDecision? {
+        guard knownGaps.isNotEmpty else {
+            return nil
+        }
+
+        let currentArchiveIds = archiveIds(in: currentWindow, archivedIdsByIndex: archivedIdsByIndex)
+        let requestedArchiveIds = archiveIds(in: requestedWindow, archivedIdsByIndex: archivedIdsByIndex)
+        guard currentArchiveIds.isNotEmpty,
+              requestedArchiveIds.isNotEmpty else {
+            return nil
+        }
+
+        switch direction {
+        case .older:
+            let sortedGaps = knownGaps.sorted {
+                (compareArchiveIds($0.newerRangeOldestArchiveId, $1.newerRangeOldestArchiveId) ?? .orderedAscending) == .orderedDescending
+            }
+            return sortedGaps.first(where: { gap in
+                containsNewerSide(of: gap, in: currentArchiveIds) &&
+                containsOlderSide(of: gap, in: requestedArchiveIds)
+            }).map { .remoteGapRepairOlder($0) }
+        case .newer:
+            let sortedGaps = knownGaps.sorted {
+                (compareArchiveIds($0.olderRangeNewestArchiveId, $1.olderRangeNewestArchiveId) ?? .orderedAscending) == .orderedAscending
+            }
+            return sortedGaps.first(where: { gap in
+                containsOlderSide(of: gap, in: currentArchiveIds) &&
+                containsNewerSide(of: gap, in: requestedArchiveIds)
+            }).map { .remoteGapRepairNewer($0) }
+        }
+    }
+
+    private static func archiveIds(
+        in window: ChatDatasetWindow,
+        archivedIdsByIndex: [String?]
+    ) -> [String] {
+        guard archivedIdsByIndex.isNotEmpty else {
+            return []
+        }
+        let minIndex = max(0, window.minIndex)
+        let maxIndex = min(archivedIdsByIndex.count, window.maxIndex)
+        guard minIndex < maxIndex else {
+            return []
+        }
+        return archivedIdsByIndex[minIndex..<maxIndex].compactMap {
+            RegularChatArchiveSyncStateStorageItem.normalizedArchiveId($0)
+        }
+    }
+
+    private static func containsOlderSide(
+        of gap: RegularChatArchiveGap,
+        in archiveIds: [String]
+    ) -> Bool {
+        archiveIds.contains {
+            (compareArchiveIds($0, gap.olderRangeNewestArchiveId) ?? .orderedDescending) != .orderedDescending
+        }
+    }
+
+    private static func containsNewerSide(
+        of gap: RegularChatArchiveGap,
+        in archiveIds: [String]
+    ) -> Bool {
+        archiveIds.contains {
+            (compareArchiveIds($0, gap.newerRangeOldestArchiveId) ?? .orderedAscending) != .orderedAscending
+        }
     }
 }
 
@@ -940,6 +1030,15 @@ enum ChatInitialHistoryAppearancePolicy {
 
     static func shouldForceNonAnimatedApplyForInitialPopulation(oldItemCount: Int, newItemCount: Int) -> Bool {
         oldItemCount == 0 && newItemCount > 0
+    }
+}
+
+enum ChatBootstrapContentRenderPolicy {
+    static func shouldReloadInitialWindow(
+        forceRender: Bool,
+        isShowingBootstrapPlaceholder: Bool
+    ) -> Bool {
+        forceRender || isShowingBootstrapPlaceholder
     }
 }
 
@@ -1451,9 +1550,14 @@ extension ChatViewController {
                 isAnchorNavigationInFlight: self.isMessageAnchorNavigationInFlight
             )
             && !containsOnlyFakeMessages
-        let shouldAnimateApply = animated && !ChatInitialHistoryAppearancePolicy.shouldForceNonAnimatedApplyForInitialPopulation(
+        let requestedAnimatedApply = animated && !ChatInitialHistoryAppearancePolicy.shouldForceNonAnimatedApplyForInitialPopulation(
             oldItemCount: previousSnapshot.items.count,
             newItemCount: newSnapshot.items.count
+        )
+        let shouldAnimateApply = ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+            requestedAnimated: requestedAnimatedApply,
+            isTransitionActive: self.isNavigationTransitionActive,
+            isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
         )
 
         let finish: () -> Void = {
@@ -1982,7 +2086,8 @@ extension ChatViewController {
                 fullArchiveLoaded: regularArchiveState?.olderArchiveEndReached ?? chat?.fullArchiveLoaded ?? false,
                 newestCursorId: regularArchiveState?.newestLoadedArchiveId,
                 newerLiveEdgeReached: regularArchiveState?.newerLiveEdgeReached ?? true,
-                hasKnownNewerGap: regularArchiveState?.knownGaps.isNotEmpty ?? false
+                hasKnownNewerGap: regularArchiveState?.knownGaps.isNotEmpty ?? false,
+                knownGaps: regularArchiveState?.knownGaps ?? []
             )
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
@@ -2009,7 +2114,8 @@ extension ChatViewController {
             fullArchiveLoaded: plan.fullArchiveLoaded,
             newestCursorId: snapshot.newestCursorId,
             newerLiveEdgeReached: snapshot.newerLiveEdgeReached,
-            hasKnownNewerGap: snapshot.hasKnownNewerGap
+            hasKnownNewerGap: snapshot.hasKnownNewerGap,
+            knownGaps: snapshot.knownGaps
         )
 
         guard plan.needsWrite else {
@@ -2037,9 +2143,6 @@ extension ChatViewController {
                     ofType: RegularChatArchiveSyncStateStorageItem.self,
                     forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: self.jid, owner: self.owner)
                    ) {
-                    if plan.shouldWriteCursor {
-                        regularState.oldestLoadedArchiveId = plan.resolvedCursorId
-                    }
                     if plan.shouldWriteFullArchiveLoaded {
                         regularState.olderArchiveEndReached = plan.fullArchiveLoaded
                     }
@@ -2453,8 +2556,8 @@ extension ChatViewController {
                 self.hasUsedArchiveEndVerificationProbe = true
             }
         case .emptyExhausted:
-            nextFullArchiveLoaded = true
-            self.hasConfirmedArchiveEndThisSession = true
+            nextFullArchiveLoaded = context.canMutateOlderArchiveEnd
+            self.hasConfirmedArchiveEndThisSession = context.canMutateOlderArchiveEnd
             if context.isArchiveEndVerificationProbe {
                 self.hasUsedArchiveEndVerificationProbe = true
             }
@@ -2533,7 +2636,13 @@ extension ChatViewController {
     }
 
     internal var shouldAnimateInitialHistoryAppearance: Bool {
-        ChatInitialHistoryAppearancePolicy.shouldAnimateDatasourceApply(isInitialHistoryAppearancePending: self.initialHistoryAppearancePending)
+        ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+            requestedAnimated: ChatInitialHistoryAppearancePolicy.shouldAnimateDatasourceApply(
+                isInitialHistoryAppearancePending: self.initialHistoryAppearancePending
+            ),
+            isTransitionActive: self.isNavigationTransitionActive,
+            isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
+        )
     }
 
     internal func finishInitialHistoryAppearanceIfPossible() {
@@ -2560,7 +2669,7 @@ extension ChatViewController {
             messageCount: self.messagesObserver?.count ?? 0,
             isSynced: chatInstance?.isSynced ?? false,
             isInitialBootstrapInFlight: self.isInitialBootstrapInFlight,
-            hasPendingInitialAnchorRequest: self.hasPendingInitialAnchorRequest(),
+            hasPendingInitialAnchorRequest: self.hasPendingInitialAnchorRequest(chatInstance: chatInstance),
             allowsStaleLocalHistory: self.allowsStaleLocalHistoryDuringInitialBootstrap
         )
     }
@@ -2583,20 +2692,23 @@ extension ChatViewController {
                 messageCount: self.messagesObserver?.count ?? 0,
                 isSynced: false,
                 isInitialBootstrapInFlight: self.isInitialBootstrapInFlight,
-                hasPendingInitialAnchorRequest: self.hasPendingInitialAnchorRequest(),
+                hasPendingInitialAnchorRequest: self.hasPendingInitialAnchorRequest(chatInstance: nil),
                 allowsStaleLocalHistory: self.allowsStaleLocalHistoryDuringInitialBootstrap
             )
         }
     }
 
-    internal func hasPendingInitialAnchorRequest() -> Bool {
+    internal func hasPendingInitialAnchorRequest(chatInstance: LastChatsStorageItem? = nil) -> Bool {
         if let executionState = self.activeAnchorExecutionState,
            executionState.request.owner == self.owner,
            executionState.request.chatJid == self.jid,
            executionState.request.conversationType == self.conversationType,
            executionState.usesBootstrapLoading,
            !executionState.isPositioning {
-            return true
+            return self.shouldBlockBootstrapForInitialAnchorRequest(
+                executionState.request,
+                chatInstance: chatInstance
+            )
         }
 
         guard self.isShowingBootstrapPlaceholder,
@@ -2607,13 +2719,53 @@ extension ChatViewController {
             return false
         }
 
-        return true
+        return self.shouldBlockBootstrapForInitialAnchorRequest(
+            request,
+            chatInstance: chatInstance
+        )
+    }
+
+    private func shouldBlockBootstrapForInitialAnchorRequest(
+        _ request: ChatOpenMessageRequest,
+        chatInstance: LastChatsStorageItem?
+    ) -> Bool {
+        let hasLocalAnchor = ChatInitialAnchorBootstrapPolicy.needsLocalAnchorLookup(source: request.source)
+            ? self.hasLocalAnchorForBootstrap(request)
+            : false
+
+        return ChatInitialAnchorBootstrapPolicy.shouldBlockBootstrap(
+            source: request.source,
+            isSynced: chatInstance?.isSynced ?? self.currentChatIsSyncedForBootstrap(),
+            messageCount: self.messagesObserver?.count ?? 0,
+            hasLocalAnchor: hasLocalAnchor,
+            isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
+        )
+    }
+
+    private func currentChatIsSyncedForBootstrap() -> Bool {
+        do {
+            let realm = try WRealm.safe()
+            return realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: self.jid,
+                    owner: self.owner,
+                    conversationType: self.conversationType
+                )
+            )?.isSynced ?? false
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return false
+        }
     }
 
     @discardableResult
     internal func reloadInitialWindowAfterBootstrapIfNeeded(force: Bool = false) -> Bool {
         let state = self.currentBootstrapViewState()
-        guard force || self.isShowingBootstrapPlaceholder else { return false }
+        guard ChatBootstrapContentRenderPolicy.shouldReloadInitialWindow(
+            forceRender: force,
+            isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
+        ) else { return false }
 
         switch state {
         case .skeleton:
@@ -3116,7 +3268,7 @@ extension ChatViewController {
         }
     }
     
-    internal final func loadInitialDatasource() {
+    internal final func loadInitialDatasource(performPendingOpenMessageRequest: Bool = true) {
         do {
             let realm = try WRealm.safe()
             let chatInstance = realm.object(
@@ -3125,8 +3277,17 @@ extension ChatViewController {
                                                                owner: self.owner,
                                                                conversationType: self.conversationType))
             self.rebuildUnreadMentionItems()
-            self.applyBootstrapViewState(self.bootstrapViewState(chatInstance: chatInstance), forceRender: true)
-            self.performPendingOpenMessageRequestIfNeeded()
+            let render = {
+                self.applyBootstrapViewState(self.bootstrapViewState(chatInstance: chatInstance), forceRender: true)
+            }
+            if self.isNavigationTransitionActive || self.isPreparingStackedNavigationPresentation {
+                UIView.performWithoutAnimation(render)
+            } else {
+                render()
+            }
+            if performPendingOpenMessageRequest {
+                self.performPendingOpenMessageRequestIfNeeded()
+            }
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
@@ -3172,7 +3333,21 @@ extension ChatViewController {
             persistedArchiveEnded: persistedArchiveEnded,
             shouldProbePersistedArchiveEnd: shouldProbePersistedArchiveEnd
         )
-        let decision = ChatHistoryPagingPolicy.loadDecision(
+        let archivedIdsByIndex: [String?]
+        if self.conversationType == .regular,
+           chatArchiveState.knownGaps.isNotEmpty {
+            archivedIdsByIndex = (0..<self.messagesObserver.count).map { self.messagesObserver[$0].archivedId }
+        } else {
+            archivedIdsByIndex = []
+        }
+        let gapDecision = ChatArchiveGapPagingPolicy.loadDecision(
+            direction: direction,
+            currentWindow: currentWindow,
+            requestedWindow: requestedWindow,
+            archivedIdsByIndex: archivedIdsByIndex,
+            knownGaps: chatArchiveState.knownGaps
+        )
+        let decision = gapDecision ?? ChatHistoryPagingPolicy.loadDecision(
             direction: direction,
             currentWindow: currentWindow,
             requestedWindow: requestedWindow,
@@ -3210,6 +3385,7 @@ extension ChatViewController {
                 preLoadFullArchiveLoaded: shouldProbePersistedArchiveEnd ? false : persistedArchiveEnded,
                 remoteFetchStarted: true,
                 isArchiveEndVerificationProbe: shouldProbePersistedArchiveEnd,
+                canMutateOlderArchiveEnd: true,
                 expectedWindowMaxIndex: requestedWindow.maxIndex
             )
             self.currentPage.locked = true
@@ -3278,6 +3454,7 @@ extension ChatViewController {
                 preLoadFullArchiveLoaded: effectiveArchiveEnded,
                 remoteFetchStarted: true,
                 isArchiveEndVerificationProbe: false,
+                canMutateOlderArchiveEnd: false,
                 expectedWindowMaxIndex: requestedWindow.maxIndex
             )
             self.currentPage.locked = true
@@ -3289,6 +3466,132 @@ extension ChatViewController {
                     for: self.jid,
                     conversationType: self.conversationType,
                     messageId: archivedId,
+                    pageSize: self.datasourcePageSize,
+                    queryId: queryId,
+                    callback: nil,
+                    requestCallbacks: requestCallbacks
+                )
+            }
+
+            let requestFallbackHistory = {
+                guard let account = AccountManager.shared.find(for: self.owner) else {
+                    DispatchQueue.main.async {
+                        self.abortInteractiveHistoryPageLoad()
+                    }
+                    return
+                }
+
+                account.action { user, stream in
+                    _ = requestRemoteHistory(stream, user.mam)
+                }
+            }
+
+            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                if let mam = session.mam {
+                    _ = requestRemoteHistory(stream, mam)
+                } else {
+                    requestFallbackHistory()
+                }
+            } fail: {
+                requestFallbackHistory()
+            }
+        case .remoteGapRepairOlder(let gap):
+            let archivedId = gap.newerRangeOldestArchiveId
+            let queryId = "MAM gap repair history: \(NanoID.new(6))"
+            let requestCallbacks = MessageArchiveManager.RequestCallbacks(
+                onMessage: nil,
+                onEndPage: { [weak self] queryId, state, first, last, count in
+                    self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
+                }
+            )
+            self.interactiveHistoryPageLoadContext = ChatInteractiveHistoryPageLoadContext(
+                queryId: queryId,
+                direction: direction,
+                chatPrimaryKey: chatArchiveState.primaryKey,
+                persistedCursorId: chatArchiveState.persistedCursorId,
+                persistedFullArchiveLoaded: chatArchiveState.fullArchiveLoaded,
+                requestedCursorId: archivedId,
+                requestedWindow: requestedWindow,
+                preLoadObserverCount: self.messagesObserver.count,
+                preLoadOldestArchivedId: self.observedOldestArchivedId(),
+                preLoadFullArchiveLoaded: effectiveArchiveEnded,
+                remoteFetchStarted: true,
+                isArchiveEndVerificationProbe: false,
+                canMutateOlderArchiveEnd: false,
+                expectedWindowMaxIndex: requestedWindow.maxIndex
+            )
+            self.currentPage.locked = true
+            self.setArchiveLoading(true)
+
+            let requestRemoteHistory: (XMPPStream, MessageArchiveManager) -> String = { stream, mam in
+                mam.getRegularGapRepairHistory(
+                    stream,
+                    for: self.jid,
+                    gap: gap,
+                    direction: .older,
+                    pageSize: self.datasourcePageSize,
+                    queryId: queryId,
+                    callback: nil,
+                    requestCallbacks: requestCallbacks
+                )
+            }
+
+            let requestFallbackHistory = {
+                guard let account = AccountManager.shared.find(for: self.owner) else {
+                    DispatchQueue.main.async {
+                        self.abortInteractiveHistoryPageLoad()
+                    }
+                    return
+                }
+
+                account.action { user, stream in
+                    _ = requestRemoteHistory(stream, user.mam)
+                }
+            }
+
+            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                if let mam = session.mam {
+                    _ = requestRemoteHistory(stream, mam)
+                } else {
+                    requestFallbackHistory()
+                }
+            } fail: {
+                requestFallbackHistory()
+            }
+        case .remoteGapRepairNewer(let gap):
+            let archivedId = gap.olderRangeNewestArchiveId
+            let queryId = "MAM gap repair history: \(NanoID.new(6))"
+            let requestCallbacks = MessageArchiveManager.RequestCallbacks(
+                onMessage: nil,
+                onEndPage: { [weak self] queryId, state, first, last, count in
+                    self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
+                }
+            )
+            self.interactiveHistoryPageLoadContext = ChatInteractiveHistoryPageLoadContext(
+                queryId: queryId,
+                direction: direction,
+                chatPrimaryKey: chatArchiveState.primaryKey,
+                persistedCursorId: chatArchiveState.newestCursorId,
+                persistedFullArchiveLoaded: chatArchiveState.fullArchiveLoaded,
+                requestedCursorId: archivedId,
+                requestedWindow: requestedWindow,
+                preLoadObserverCount: self.messagesObserver.count,
+                preLoadOldestArchivedId: self.observedOldestArchivedId(),
+                preLoadFullArchiveLoaded: effectiveArchiveEnded,
+                remoteFetchStarted: true,
+                isArchiveEndVerificationProbe: false,
+                canMutateOlderArchiveEnd: false,
+                expectedWindowMaxIndex: requestedWindow.maxIndex
+            )
+            self.currentPage.locked = true
+            self.setArchiveLoading(true)
+
+            let requestRemoteHistory: (XMPPStream, MessageArchiveManager) -> String = { stream, mam in
+                mam.getRegularGapRepairHistory(
+                    stream,
+                    for: self.jid,
+                    gap: gap,
+                    direction: .newer,
                     pageSize: self.datasourcePageSize,
                     queryId: queryId,
                     callback: nil,
@@ -3366,11 +3669,13 @@ extension ChatViewController {
                     if let index = self.unreadMessagePositionId {
                         if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
                             self.scrollToBottom(animated: false)
+                            self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: false)
                         } else {
                             self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: false)
                         }
                     } else {
                         self.scrollToBottom(animated: false)
+                        self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: false)
                     }
                     self.setFloatingDateVisible(true)
                 })
@@ -3380,12 +3685,14 @@ extension ChatViewController {
         if let index = self.unreadMessagePositionId {
             if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
                 self.scrollToBottom(animated: shouldAnimateScroll)
+                self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: shouldAnimateScroll)
             } else {
                 self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: shouldAnimateScroll)
             }
         } else {
             if self.datasource.isNotEmpty {
                 self.scrollToBottom(animated: shouldAnimateScroll)
+                self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: shouldAnimateScroll)
             }
         }
     }

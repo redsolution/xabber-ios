@@ -30,6 +30,22 @@ import MaterialComponents.MDCPalettes
 import XMPPFramework.XMPPJID
 import AVFoundation
 
+enum LastChatsNavigationTransitionMutationPolicy {
+    static func shouldDeferMutation(
+        isTransitionActive: Bool,
+        isCriticalForFirstFrame: Bool
+    ) -> Bool {
+        isTransitionActive && !isCriticalForFirstFrame
+    }
+
+    static func shouldAnimateMutation(
+        requestedAnimated: Bool,
+        isTransitionActive: Bool
+    ) -> Bool {
+        requestedAnimated && !isTransitionActive
+    }
+}
+
 public final class ChangesWithIndexPath {
     public let insertedSections: IndexSet
     public let deletedSections: IndexSet
@@ -706,6 +722,10 @@ class LastChatsViewController: BaseViewController {
     internal var isFirstLayoutSearchController: Bool = false
     
     internal var isAppeared: Bool = false
+    internal var isNavigationTransitionActive: Bool = false
+    private var pendingNavigationTransitionWork: [() -> Void] = []
+    private var pendingDatasetUpdateAfterNavigationTransition: Bool = false
+    private var shouldSuppressNextDatasetAnimation: Bool = false
     
     internal var datasource: [Datasource] = []
     internal var datasourceIndexByKey: [String: Int] = [:]
@@ -770,6 +790,51 @@ class LastChatsViewController: BaseViewController {
 
         return view
     }()
+
+    internal func beginNavigationTransitionDeferralIfNeeded() {
+        guard let coordinator = self.transitionCoordinator else {
+            return
+        }
+        self.isNavigationTransitionActive = true
+        coordinator.animate(alongsideTransition: nil) { [weak self] context in
+            self?.completeNavigationTransitionDeferral(cancelled: context.isCancelled)
+        }
+    }
+
+    private func completeNavigationTransitionDeferral(cancelled: Bool) {
+        self.isNavigationTransitionActive = false
+        guard !cancelled else {
+            self.pendingNavigationTransitionWork.removeAll()
+            self.pendingDatasetUpdateAfterNavigationTransition = false
+            self.shouldSuppressNextDatasetAnimation = false
+            return
+        }
+        self.flushPendingNavigationTransitionWork()
+    }
+
+    @discardableResult
+    internal func deferUntilNavigationTransitionCompletesIfNeeded(_ work: @escaping () -> Void) -> Bool {
+        guard LastChatsNavigationTransitionMutationPolicy.shouldDeferMutation(
+            isTransitionActive: self.isNavigationTransitionActive,
+            isCriticalForFirstFrame: false
+        ) else {
+            return false
+        }
+        self.pendingNavigationTransitionWork.append(work)
+        return true
+    }
+
+    internal func flushPendingNavigationTransitionWork() {
+        let work = self.pendingNavigationTransitionWork
+        let shouldRefreshDataset = self.pendingDatasetUpdateAfterNavigationTransition
+        self.pendingNavigationTransitionWork.removeAll()
+        self.pendingDatasetUpdateAfterNavigationTransition = false
+
+        work.forEach { $0() }
+        if shouldRefreshDataset {
+            self.runDatasetUpdateTask()
+        }
+    }
     
     override func resetState() {
         super.resetState()
@@ -797,6 +862,11 @@ class LastChatsViewController: BaseViewController {
     }
 
     private func handleVoiceMessageStateChange(_ change: VoiceMessageStateChange) {
+        if self.deferUntilNavigationTransitionCompletesIfNeeded({ [weak self] in
+            self?.renderPinnedVoicePlayer(snapshot: VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot)
+        }) {
+            return
+        }
         self.renderPinnedVoicePlayer(snapshot: VoiceMessagePlaybackCoordinator.shared.currentPlaybackSnapshot)
     }
 
@@ -1329,13 +1399,20 @@ class LastChatsViewController: BaseViewController {
     }
 
     internal final func reloadTableViewOrDeferForActiveSwipe() {
+        if self.deferUntilNavigationTransitionCompletesIfNeeded({ [weak self] in
+            self?.reloadTableViewOrDeferForActiveSwipe()
+        }) {
+            return
+        }
         guard activeSwipeActionDatasourceKey == nil else {
             pendingSwipeActionTableReload = true
             pendingSwipeActionReloadDatasourceKey = activeSwipeActionDatasourceKey
             return
         }
-        tableView.reloadData()
-        syncSelectedChatSelection()
+        UIView.performWithoutAnimation {
+            tableView.reloadData()
+            syncSelectedChatSelection()
+        }
     }
 
     internal final func finishActiveSwipeActionEditing() {
@@ -1958,9 +2035,16 @@ class LastChatsViewController: BaseViewController {
     public final func runDatasetUpdateTask() {
         if !Thread.isMainThread {
             DispatchQueue.main.async {
-                self.preprocessDataset()
-                self.postprocessDataset()
+                self.runDatasetUpdateTask()
             }
+            return
+        }
+        if LastChatsNavigationTransitionMutationPolicy.shouldDeferMutation(
+            isTransitionActive: self.isNavigationTransitionActive,
+            isCriticalForFirstFrame: false
+        ) {
+            self.pendingDatasetUpdateAfterNavigationTransition = true
+            self.shouldSuppressNextDatasetAnimation = true
             return
         }
         preprocessDataset()
@@ -1976,7 +2060,8 @@ class LastChatsViewController: BaseViewController {
         let oldSections = self.datasourceSections
         let oldShowsSkeleton = self.datasourceShowsSkeleton
         let newShowsSkeleton = self.showSkeleton.value
-        let shouldAnimate = self.isFirstLayout
+        let shouldAnimate = self.isFirstLayout && !self.shouldSuppressNextDatasetAnimation
+        self.shouldSuppressNextDatasetAnimation = false
         self.updateQueue.async {
             let newDataset = self.mapDataset()
             let newSections = Self.makeDatasourceSections(
@@ -2566,6 +2651,10 @@ class LastChatsViewController: BaseViewController {
 
     internal func configureBars() {
         //self.title = "Chats"
+        let shouldAnimateNavigationItems = LastChatsNavigationTransitionMutationPolicy.shouldAnimateMutation(
+            requestedAnimated: true,
+            isTransitionActive: self.isNavigationTransitionActive
+        )
         self.updateTitle(self.filter.value)
         if CommonConfigManager.shared.config.use_large_title {
             self.navigationItem.largeTitleDisplayMode = .automatic
@@ -2601,23 +2690,23 @@ class LastChatsViewController: BaseViewController {
                     action: #selector(onFilterButtonTouchUpInside)
                 )
                 if CommonConfigManager.shared.config.use_yubikey {
-                    self.navigationItem.setRightBarButtonItems([filterButton, addBarButton, securityButton], animated: true)
+                    self.navigationItem.setRightBarButtonItems([filterButton, addBarButton, securityButton], animated: shouldAnimateNavigationItems)
                 } else {
-                    self.navigationItem.setRightBarButtonItems([filterButton, addBarButton], animated: true)
+                    self.navigationItem.setRightBarButtonItems([filterButton, addBarButton], animated: shouldAnimateNavigationItems)
                 }
                 let leftBarButton = UIBarButtonItem(customView: accountNavButton)
 //                leftBarButton.target = self
 //                leftBarButton.action = #selector(showSettings)
-                self.navigationItem.setLeftBarButton(leftBarButton, animated: true)
+                self.navigationItem.setLeftBarButton(leftBarButton, animated: shouldAnimateNavigationItems)
                 accountNavButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
             case .split:
                 self.bottomBar.isHidden = true
                 self.playerViewToolbar.frame = CGRect(0, 0, self.view.frame.width, AudioPlayerBarView.Metrics.height)
-                self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
+                self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: shouldAnimateNavigationItems)
                 
                 let sidebarButton = UIBarButtonItem(image: imageLiteral("sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
                 self.navigationItem.setHidesBackButton(true, animated: false)
-                self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
+                self.navigationItem.setLeftBarButton(sidebarButton, animated: shouldAnimateNavigationItems)
                 
                 let addBarButton = UIBarButtonItem(
                     image: imageLiteral("plus"),//UIImage(systemName: "plus"),
@@ -2630,7 +2719,7 @@ class LastChatsViewController: BaseViewController {
                 self.filterButton = UIBarButtonItem(image: imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
                                                                        ), style: .plain, target: self, action: #selector(onFilterButtonTouchUpInside))
 
-                self.navigationItem.setRightBarButtonItems([addBarButton, filterButton!], animated: true)
+                self.navigationItem.setRightBarButtonItems([addBarButton, filterButton!], animated: shouldAnimateNavigationItems)
                 
         }
         self.updateFloatingToolbarFilterButtonState()
@@ -2645,26 +2734,13 @@ class LastChatsViewController: BaseViewController {
     
     func onTitleBarButtonTapped() {
         if self.filter.value == .unread {
-            do {
-                let realm = try  WRealm.safe()
-                let collection = realm
-                    .objects(LastChatsStorageItem.self)
-                    .filter("isArchived == false AND unread > 0 AND owner IN %@", Array(self.enabledAccounts.value))
-                    .sorted(byKeyPath: "messageDate", ascending: false)
-
-                try realm.write {
-                    collection.forEach { $0.unread = 0 }
-                }
-                self.enabledAccounts.value.forEach {
-                    AccountManager.shared.find(for: $0)?.unsafeAction({ user, stream in
-                        user.messages.readAllMessages()
-                    })
-                }
-                self.canUpdateDataset = true
-                self.runDatasetUpdateTask()
-            } catch {
-                DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+            self.enabledAccounts.value.forEach {
+                AccountManager.shared.find(for: $0)?.unsafeAction({ user, stream in
+                    user.messages.readAllMessages()
+                })
             }
+            self.canUpdateDataset = true
+            self.runDatasetUpdateTask()
             self.filter.accept(normalState)
         }
     }
@@ -2771,26 +2847,45 @@ class LastChatsViewController: BaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        searchController.isActive = false
+        beginNavigationTransitionDeferralIfNeeded()
+        if !self.deferUntilNavigationTransitionCompletesIfNeeded({ [weak self] in
+            self?.searchController.isActive = false
+        }) {
+            searchController.isActive = false
+        }
         NotifyManager.shared.setLastChats(displayed: true)
         isAppeared = true
         self.tabBarController?.tabBar.isHidden = false
         self.tabBarController?.tabBar.layoutIfNeeded()
-        subscribe()
+        if !self.deferUntilNavigationTransitionCompletesIfNeeded({ [weak self] in
+            self?.subscribe()
+        }) {
+            subscribe()
+        }
         if SignatureManager.shared.certificate != nil {
             self.securityButton.tintColor = .systemGreen
         } else {
             self.securityButton.tintColor = .systemRed
         }
-        configureBars()
-        self.showPlayerViewIfNeeded()
+        UIView.performWithoutAnimation {
+            configureBars()
+        }
+        if !self.deferUntilNavigationTransitionCompletesIfNeeded({ [weak self] in
+            self?.showPlayerViewIfNeeded()
+        }) {
+            self.showPlayerViewIfNeeded()
+        }
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        self.isNavigationTransitionActive = false
+        self.flushPendingNavigationTransitionWork()
         updateTitle(filter.value)
         self.navigationItem.backButtonTitle = "Chats"
-        syncSelectedChatSelection()
+        UIView.performWithoutAnimation {
+            syncSelectedChatSelection()
+        }
         NotifyManager.shared.setLastChats(displayed: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             let center = UNUserNotificationCenter.current()

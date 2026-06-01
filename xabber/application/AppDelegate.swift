@@ -74,7 +74,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
 
-        realmMigrations(scheme: 6)
+        realmMigrations(scheme: 9)
         #if RELEASE
         _DEBUG = false
         DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
@@ -200,7 +200,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         AccountManager.shared.users.forEach {
             user in
-            user.disconnect(hard: true)
+            user.disconnect(hard: true, cause: .backgroundSuspension)
         }
         if UIDevice.current.userInterfaceIdiom == .pad {
 //            self.splitViewController?.show(.supplementary)
@@ -318,6 +318,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             intentIdentifiers: [],
             options: []
         )
+
+        let verificationCategory = UNNotificationCategory(
+            identifier: NotifyManager.notificationVerificationCategory,
+            actions: [],
+            intentIdentifiers: [],
+            options: []
+        )
         
         UNUserNotificationCenter
             .current()
@@ -325,7 +332,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 messageCategory,
                 pushMessageCategory,
                 subscribtionCategory,
-                inviteCategory
+                inviteCategory,
+                verificationCategory
             ])
         
         UIApplication.shared.registerForRemoteNotifications()

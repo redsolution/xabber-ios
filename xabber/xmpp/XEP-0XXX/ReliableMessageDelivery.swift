@@ -25,8 +25,52 @@ import RxSwift
 import RxCocoa
 import CocoaLumberjack
 
+struct XabberDeliveryReceipt: Equatable {
+    let originId: String
+    let stanzaId: String
+    let stamp: Date?
+}
+
+enum ReliableMessageDeliveryReceiptProcessor {
+    @discardableResult
+    static func apply(
+        owner: String,
+        receipt: XabberDeliveryReceipt,
+        onApplied: (String, String) -> Void
+    ) -> Bool {
+        do {
+            let realm = try WRealm.safe()
+            realm.refresh()
+            let messages = realm
+                .objects(MessageStorageItem.self)
+                .filter("owner == %@ AND messageId == %@", owner, receipt.originId)
+            guard !messages.isEmpty else {
+                return false
+            }
+            let messageSnapshot = Array(messages)
+            try realm.write {
+                messageSnapshot.forEach { instance in
+                    if instance.state == .sending {
+                        instance.state = .sended
+                    }
+                    if let stamp = receipt.stamp {
+                        instance.date = stamp
+                        instance.sentDate = stamp
+                    }
+                    instance.archivedId = receipt.stanzaId
+                }
+            }
+            onApplied(receipt.originId, receipt.stanzaId)
+            return true
+        } catch {
+            DDLogDebug("ReliableMessageDeliveryReceiptProcessor: apply failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+}
 
 class ReliableMessageDeliveryManager: AbstractXMPPManager {
+    private static let receiptRetryQueue = DispatchQueue(label: "com.xabber.reliable-delivery.receipt-retry", qos: .utility)
     
     open var isAvailable: Bool = false
     
@@ -120,6 +164,10 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
                     })
                     realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: instance.opponent, owner: instance.owner, conversationType: instance.conversationType))?.hasErrorInChat = true
                 }
+                AccountManager.shared.find(for: self.owner)?.sendCoordinator.terminalFailure(
+                    originId: elementId,
+                    error: errorMessage
+                )
                 return true
             }
         } catch {
@@ -166,50 +214,40 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
             let stanzaId = received.element(forName: "stanza-id")?.attributeStringValue(forName: "id") else {
                 return false
         }
-        do {
-            let realm = try  WRealm.safe()
-            realm.refresh()
-            if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: elementId, owner: owner)) {
-                try realm.write {
-                    realm.objects(MessageStorageItem.self).filter("owner == %@ AND messageId == %@", self.owner, elementId).forEach {
-                        instance in
-                        if instance.state == .sending {
-                            instance.state =  .sended // sended
-                        }
-                        if let stamp = received.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate {
-                            instance.date = stamp
-                            instance.sentDate = stamp
-                        }
-                        instance.archivedId = stanzaId
-                    }
-                }
-            } else {
-                AccountManager.shared.find(for: self.owner)?.queue.asyncAfter(deadline: .now() + 1) {
-                    do {
-                        let realm = try WRealm.safe()
-                        try realm.write {
-                            realm.objects(MessageStorageItem.self).filter("owner == %@ AND messageId == %@", self.owner, elementId).forEach {
-                                instance in
-                                if instance.state == .sending {
-                                    instance.state = .sended
-                                }
-                                if let stamp = received.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate {
-                                    instance.date = stamp
-                                    instance.sentDate = stamp
-                                }
-                                instance.archivedId = stanzaId
-                            }
-                        }
-                    } catch {
-                        
-                    }
-                }
-            }
-        } catch {
-            DDLogDebug("\(#function). Cant load message for messageId: \(elementId). \(error.localizedDescription)")
-            
+        let receipt = XabberDeliveryReceipt(
+            originId: elementId,
+            stanzaId: stanzaId,
+            stamp: received.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate
+        )
+        if !applyDeliveryReceipt(receipt) {
+            scheduleDeliveryReceiptRetry(receipt, attemptsRemaining: 2)
         }
         return true
+    }
+
+    @discardableResult
+    internal func applyDeliveryReceipt(_ receipt: XabberDeliveryReceipt) -> Bool {
+        ReliableMessageDeliveryReceiptProcessor.apply(owner: self.owner, receipt: receipt) { [weak self] originId, stanzaId in
+            guard let self else { return }
+            if let account = AccountManager.shared.find(for: self.owner) {
+                account.connectionResilience.noteDeliveryReceipt(originId: originId, stanzaId: stanzaId)
+                account.sendCoordinator.deliveryReceiptReceived(originId: originId, stanzaId: stanzaId)
+                account.logConnectionDiagnostics(
+                    event: "delivery_receipt_applied",
+                    details: ["originId": originId, "stanzaId": stanzaId]
+                )
+            }
+        }
+    }
+
+    private func scheduleDeliveryReceiptRetry(_ receipt: XabberDeliveryReceipt, attemptsRemaining: Int) {
+        guard attemptsRemaining > 0 else { return }
+        Self.receiptRetryQueue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self else { return }
+            if !self.applyDeliveryReceipt(receipt) {
+                self.scheduleDeliveryReceiptRetry(receipt, attemptsRemaining: attemptsRemaining - 1)
+            }
+        }
     }
     
     internal func readEcho(_ message: XMPPMessage) -> Bool {

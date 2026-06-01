@@ -54,6 +54,11 @@ class MessageStorageItem: Object {
         case visible
         case autoDeleted
     }
+
+    enum UnreadCounterBucket: String {
+        case none
+        case runtime
+    }
     
     override static func primaryKey() -> String? {
         return "primary"
@@ -100,6 +105,7 @@ class MessageStorageItem: Object {
     @objc dynamic var autoDeleteExpiresAt: Double = -1
     @objc dynamic var autoDeletePolicyVersion: Int = 0
     @objc dynamic var deleteState_: String = DeleteState.visible.rawValue
+    @objc dynamic var unreadCounterBucket_: String = UnreadCounterBucket.none.rawValue
     
     @objc dynamic var errorMetadata_: String? = nil
     @objc dynamic var systemMetadata_: String? = nil
@@ -236,12 +242,22 @@ class MessageStorageItem: Object {
     
     var forceUnreadState: Bool? = nil
     var isInvite: Bool = false
-    
+    var shouldPersistArchiveQueryId: Bool = false
+    var countsAsRuntimeUnread: Bool = false
+
     override static func ignoredProperties() -> [String] {
-        return ["originalStanza", "forceUnreadState", "isInvite"]
+        return ["originalStanza", "forceUnreadState", "isInvite", "shouldPersistArchiveQueryId", "countsAsRuntimeUnread"]
     }
     
     var originalStanza: XMPPMessage? = nil
+
+    var unreadCounterBucket: UnreadCounterBucket {
+        get {
+            return UnreadCounterBucket(rawValue: unreadCounterBucket_) ?? .none
+        } set {
+            unreadCounterBucket_ = newValue.rawValue
+        }
+    }
 
     static let reportHiddenMessageText: String = "This message was hidden after your report."
         .localizeString(id: "report_hidden_message_placeholder", arguments: [])
@@ -1013,13 +1029,14 @@ class MessageStorageItem: Object {
                 instance.trustedSource = true
                 instance.previousId = self.previousId
             }
-            if (self.queryIds?.contains("history") ?? false) {
-                if let oldQueryIds = instance.queryIds {
-                    if let newQueryIds = self.queryIds {
-                        instance.queryIds = [oldQueryIds, newQueryIds].joined(separator: ",")
-                    }
+            if shouldPersistArchiveQueryId,
+               let newQueryIds = self.queryIds,
+               newQueryIds.isNotEmpty {
+                if let oldQueryIds = instance.queryIds,
+                   oldQueryIds.isNotEmpty {
+                    instance.queryIds = [oldQueryIds, newQueryIds].joined(separator: ",")
                 } else {
-                    instance.queryIds = self.queryIds
+                    instance.queryIds = newQueryIds
                 }
             }
             return nil
@@ -1036,6 +1053,7 @@ class MessageStorageItem: Object {
                 conversationType: self.conversationType
             )
         ) {
+            let previousReadBoundaryId = LastChatUnreadCounter.readBoundaryId(from: instance.lastMessage)
             if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int,
                instance.afterburnIntervalLastUpdate < self.date.timeIntervalSince1970 {
                 instance.applyAutoDeleteTimer(Double(timer), updatedAt: self.date.timeIntervalSince1970, updatedBy: self.owner)
@@ -1097,10 +1115,14 @@ class MessageStorageItem: Object {
                     }
                 }
 
-                if !self.isRead && !self.outgoing && self.forceUnreadState == nil {
-                    instance.unread += 1
-                } else if self.outgoing {
-                    instance.unread = 0
+                if self.outgoing {
+                    LastChatUnreadCounter.clearAll(
+                        to: instance,
+                        boundaryId: previousReadBoundaryId ?? LastChatUnreadCounter.readBoundaryId(from: self),
+                        realm: realm
+                    )
+                } else {
+                    LastChatUnreadCounter.recordRuntimeUnread(for: self, in: instance)
                 }
             }
         } else {
@@ -1157,6 +1179,16 @@ class MessageStorageItem: Object {
 
             displayNameForNotification = instance.rosterItem?.displayName
             shouldNotify = true
+
+            if self.outgoing {
+                LastChatUnreadCounter.clearAll(
+                    to: instance,
+                    boundaryId: LastChatUnreadCounter.readBoundaryId(from: self),
+                    realm: realm
+                )
+            } else {
+                LastChatUnreadCounter.recordRuntimeUnread(for: self, in: instance)
+            }
         }
 
         let notification: SaveNotificationPayload?

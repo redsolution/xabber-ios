@@ -97,7 +97,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         let lastMessageArchiveId: String?
     }
 
-    struct RegularSnapshotLastMessageIdentity: Equatable {
+    struct ConversationSnapshotLastMessageIdentity: Equatable {
         let archiveId: String?
         let messageId: String?
         let senderId: String?
@@ -105,9 +105,11 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         let date: Date?
     }
 
-    enum RegularSnapshotSyncPolicy {
+    typealias RegularSnapshotLastMessageIdentity = ConversationSnapshotLastMessageIdentity
+
+    enum ConversationSnapshotSyncPolicy {
         static func matchesLocalLastMessage(
-            snapshot: RegularSnapshotLastMessageIdentity,
+            snapshot: ConversationSnapshotLastMessageIdentity,
             localLastMessageId: String,
             localLastMessage: MessageStorageItem?,
             owner: String,
@@ -138,6 +140,29 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 
             return datesMatch && senderMatches && bodyMatches
         }
+    }
+
+    enum RegularSnapshotSyncPolicy {
+        static func matchesLocalLastMessage(
+            snapshot: ConversationSnapshotLastMessageIdentity,
+            localLastMessageId: String,
+            localLastMessage: MessageStorageItem?,
+            owner: String,
+            jid: String
+        ) -> Bool {
+            ConversationSnapshotSyncPolicy.matchesLocalLastMessage(
+                snapshot: snapshot,
+                localLastMessageId: localLastMessageId,
+                localLastMessage: localLastMessage,
+                owner: owner,
+                jid: jid
+            )
+        }
+    }
+
+    private struct SyncPayloadApplyResult {
+        let detectedInvite: Bool
+        let snapshotRepairTargets: [MessageArchiveManager.SnapshotRepairTarget]
     }
 
     enum SyncPhase {
@@ -188,6 +213,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             get {
                 return [.omemo, .omemo1, .axolotl].contains(self)
             }
+        }
+
+        var supportsSnapshotArchiveRepair: Bool {
+            [.regular, .group, .omemo, .omemo1, .axolotl, .saved].contains(self)
         }
     }
     
@@ -309,8 +338,16 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     private func applySyncPayload(
         conversations: [DDXMLElement],
         accountCreateDate: Date?
-    ) throws -> Bool {
+    ) throws -> SyncPayloadApplyResult {
         try beforeApplyingSyncPayload?()
+        var snapshotRepairTargets: [MessageArchiveManager.SnapshotRepairTarget] = []
+        var seenSnapshotRepairTargets = Set<MessageArchiveManager.SnapshotRepairTarget>()
+        let recordSnapshotRepairTarget: (MessageArchiveManager.SnapshotRepairTarget) -> Void = { target in
+            guard seenSnapshotRepairTargets.insert(target).inserted else {
+                return
+            }
+            snapshotRepairTargets.append(target)
+        }
         let realm = try WRealm.safe()
         let result = try ClientSyncPageApplier.apply(
             realm: realm,
@@ -318,12 +355,23 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             accountCreateDate: accountCreateDate,
             applyConversationState: self.readConversationMetadata(_:realm:),
             readInvites: self.readInvites(_:realm:),
-            readConversation: self.readConversation(_:realm:accountCreateDate:),
+            readConversation: { conversation, realm, accountCreateDate in
+                self.readConversation(
+                    conversation,
+                    realm: realm,
+                    accountCreateDate: accountCreateDate,
+                    recordSnapshotRepairTarget: recordSnapshotRepairTarget
+                )
+            },
             readMarkers: self.readMessageMarkers(_:realm:),
             readPresence: self.readPresence(_:realm:)
         )
         processQueueItems(result.queueItems)
-        return result.detectedInvite
+        AccountManager.shared.find(for: self.owner)?.mam.scheduleSnapshotArchiveRepairs(snapshotRepairTargets)
+        return SyncPayloadApplyResult(
+            detectedInvite: result.detectedInvite,
+            snapshotRepairTargets: snapshotRepairTargets
+        )
     }
 
     private func beginApplyingPage(snapshotStamp: String) {
@@ -373,13 +421,13 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         return dateFromSyncStamp(syncStamp(from: messageElement, fallback: fallbackSyncStamp))
     }
 
-    private func regularSnapshotIdentity(
+    private func conversationSnapshotIdentity(
         from messageStanza: XMPPMessage,
         fallbackDate: Date
-    ) -> RegularSnapshotLastMessageIdentity {
+    ) -> ConversationSnapshotLastMessageIdentity {
         let archiveId = Self.normalizedArchiveId(getStanzaId(messageStanza, owner: self.owner))
         let messageId = getUniqueMessageId(messageStanza, owner: self.owner)
-        return RegularSnapshotLastMessageIdentity(
+        return ConversationSnapshotLastMessageIdentity(
             archiveId: archiveId,
             messageId: messageId.isNotEmpty ? messageId : nil,
             senderId: messageStanza.from?.bare,
@@ -388,40 +436,69 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         )
     }
 
-    private func applyRegularSnapshotArchiveState(
+    private func applyConversationSnapshotArchiveState(
         jid: String,
-        snapshot: RegularSnapshotLastMessageIdentity,
+        conversationType: ConversationType,
+        snapshot: ConversationSnapshotLastMessageIdentity?,
         lastChat: LastChatsStorageItem,
-        realm: Realm
+        previousSyncUnreadCount: Int,
+        previousSyncUnreadAfterId: String?,
+        previousLastMessageId: String,
+        previousLastMessage: MessageStorageItem?,
+        isNewChatInstance: Bool,
+        realm: Realm,
+        recordRepairTarget: (MessageArchiveManager.SnapshotRepairTarget) -> Void
     ) {
-        guard lastChat.conversationType == .regular else {
+        guard conversationType.supportsSnapshotArchiveRepair else {
             return
         }
 
-        let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(owner: self.owner, jid: jid, in: realm)
-        archiveState.lastSnapshotArchiveId = snapshot.archiveId
-        archiveState.lastSnapshotMessageId = snapshot.messageId
-        archiveState.lastSnapshotSenderId = snapshot.senderId
-        archiveState.lastSnapshotBodyFingerprint = snapshot.bodyFingerprint
-        archiveState.lastSnapshotDate = snapshot.date
-        archiveState.updatedAt = Date()
-
-        let matches = RegularSnapshotSyncPolicy.matchesLocalLastMessage(
-            snapshot: snapshot,
-            localLastMessageId: lastChat.lastMessageId,
-            localLastMessage: lastChat.lastMessage,
+        let statePrimary = RegularChatArchiveSyncStateStorageItem.genPrimary(
+            jid: jid,
             owner: self.owner,
-            jid: jid
+            conversationType: conversationType
         )
-        guard !matches else {
+        let existingArchiveState = realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: statePrimary
+        )
+        let unreadChanged = previousSyncUnreadCount != lastChat.syncUnreadCount
+        let unreadBoundaryChanged = previousSyncUnreadAfterId != lastChat.syncUnreadAfterId
+        let lastMessageChanged: Bool
+        if let snapshot {
+            lastMessageChanged = !ConversationSnapshotSyncPolicy.matchesLocalLastMessage(
+                snapshot: snapshot,
+                localLastMessageId: previousLastMessageId,
+                localLastMessage: previousLastMessage,
+                owner: self.owner,
+                jid: jid
+            )
+        } else {
+            lastMessageChanged = false
+        }
+        let localStateMissingOrStale = existingArchiveState == nil || isNewChatInstance || !lastChat.isSynced
+
+        guard unreadChanged || unreadBoundaryChanged || lastMessageChanged || localStateMissingOrStale else {
             return
         }
 
+        let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(
+            owner: self.owner,
+            jid: jid,
+            conversationType: conversationType,
+            in: realm
+        )
+        if let snapshot {
+            archiveState.lastSnapshotArchiveId = snapshot.archiveId
+            archiveState.lastSnapshotMessageId = snapshot.messageId
+            archiveState.lastSnapshotSenderId = snapshot.senderId
+            archiveState.lastSnapshotBodyFingerprint = snapshot.bodyFingerprint
+            archiveState.lastSnapshotDate = snapshot.date
+        }
+        archiveState.updatedAt = Date()
         lastChat.isSynced = false
         archiveState.newerLiveEdgeReached = false
-        if let archiveId = snapshot.archiveId {
-            archiveState.recordKnownNewerGap(to: archiveId)
-        }
+        recordRepairTarget(.init(jid: jid, conversationType: conversationType))
     }
 
     private static func syncMetadata(from conversation: DDXMLElement) -> DDXMLElement? {
@@ -710,12 +787,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             let accountCreateDate = try WRealm.safe()
                 .object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner)?
                 .createdAt
-            let shouldRunInviteFallback = try applySyncPayload(
+            let applyResult = try applySyncPayload(
                 conversations: query.elements(forName: "conversation"),
                 accountCreateDate: accountCreateDate
             )
             markLastRecognizedEventStamp(stamp)
-            if shouldRunInviteFallback {
+            if applyResult.detectedInvite {
                 AccountManager.shared.find(for: owner)?.groupchats.getInvitesFallback()
             }
             AccountManager.shared.find(for: owner)?.mam.scheduleRegularIdleBackfillIfNeeded()
@@ -837,11 +914,11 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         applyQueue.async {
             do {
                 let accountCreateDate = try WRealm.safe().object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner)?.createdAt
-                let detectedInvite = try self.applySyncPayload(
+                let applyResult = try self.applySyncPayload(
                     conversations: page.conversations,
                     accountCreateDate: accountCreateDate
                 )
-                if detectedInvite {
+                if applyResult.detectedInvite {
                     self.noteInviteFallbackNeeded()
                 }
 
@@ -986,7 +1063,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         return false
     }
     
-    internal func readConversation(_ conversation: DDXMLElement, realm: Realm, accountCreateDate: Date? = nil) -> MessageManager.MessageQueueItem? {
+    internal func readConversation(
+        _ conversation: DDXMLElement,
+        realm: Realm,
+        accountCreateDate: Date? = nil,
+        recordSnapshotRepairTarget: ((MessageArchiveManager.SnapshotRepairTarget) -> Void)? = nil
+    ) -> MessageManager.MessageQueueItem? {
         guard let jid = conversation.attributeStringValue(forName: "jid"),
               jid.isNotEmpty else {
             return nil
@@ -1110,6 +1192,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             ) == nil
             
             let instance = try getChat(realm, jid: jid, conversationType: conversationType)
+            let previousSyncUnreadCount = instance.syncUnreadCount
+            let previousSyncUnreadAfterId = instance.syncUnreadAfterId
+            let previousLastMessageId = instance.lastMessageId
+            let previousLastMessage = instance.lastMessage
             instance.conversationType_ = conversationType.rawValue
             let mute = conversation.attributeDoubleValue(forName: "mute", withDefaultValue: -1)
             instance.muteExpired = mute
@@ -1142,8 +1228,18 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             }
             instance.displayedId = metadata.element(forName: "displayed")?.attributeStringValue(forName: "id")
             instance.deliveredId = metadata.element(forName: "delivered")?.attributeStringValue(forName: "id")
-            instance.lastReadId = metadata.element(forName: "unread")?.attributeStringValue(forName: "after")
-            instance.unread = metadata.element(forName: "unread")?.attributeIntegerValue(forName: "count") ?? 0
+            let syncUnreadState = unreadState(from: conversation) ?? SyncUnreadState(
+                count: 0,
+                afterId: nil,
+                lastMessageArchiveId: nil
+            )
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: instance,
+                count: syncUnreadState.count,
+                afterId: syncUnreadState.afterId,
+                snapshotLastArchiveId: syncUnreadState.lastMessageArchiveId,
+                in: realm
+            )
             instance.isPrereaded = false
 
             if conversationType == .group {
@@ -1234,6 +1330,21 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 instance.isFreshNotEmptyEncryptedChat = true
                 instance.isSynced = false//!firstSync
             }
+            if messageElement == nil {
+                applyConversationSnapshotArchiveState(
+                    jid: jid,
+                    conversationType: conversationType,
+                    snapshot: nil,
+                    lastChat: instance,
+                    previousSyncUnreadCount: previousSyncUnreadCount,
+                    previousSyncUnreadAfterId: previousSyncUnreadAfterId,
+                    previousLastMessageId: previousLastMessageId,
+                    previousLastMessage: previousLastMessage,
+                    isNewChatInstance: isNewChatInstance,
+                    realm: realm,
+                    recordRepairTarget: recordSnapshotRepairTarget ?? { _ in }
+                )
+            }
             if let messageElement {
                 if let date = getDeliveryDate(XMPPMessage(from: messageElement)) {
                     if conversationType.isEncrypted, let accountCreateDate = accountCreateDate {
@@ -1241,6 +1352,23 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                             instance.isFreshNotEmptyEncryptedChat = true
                             instance.isSynced = false//!firstSync
                             instance.lastMessageId = getOriginId(XMPPMessage(from: messageElement)) ?? XMPPMessage(from: messageElement).elementID ?? getStanzaId(XMPPMessage(from: messageElement), owner: self.owner)
+                            let messageStanza = XMPPMessage(from: messageElement)
+                            applyConversationSnapshotArchiveState(
+                                jid: jid,
+                                conversationType: conversationType,
+                                snapshot: conversationSnapshotIdentity(
+                                    from: messageStanza,
+                                    fallbackDate: conversationDate
+                                ),
+                                lastChat: instance,
+                                previousSyncUnreadCount: previousSyncUnreadCount,
+                                previousSyncUnreadAfterId: previousSyncUnreadAfterId,
+                                previousLastMessageId: previousLastMessageId,
+                                previousLastMessage: previousLastMessage,
+                                isNewChatInstance: isNewChatInstance,
+                                realm: realm,
+                                recordRepairTarget: recordSnapshotRepairTarget ?? { _ in }
+                            )
                             return nil
                         }
                     }
@@ -1276,16 +1404,23 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                           [self.owner, jid].contains(to) else {
                         return nil
                     }
-                    if conversationType == .regular {
-                        let snapshot = self.regularSnapshotIdentity(
+                    if conversationType.supportsSnapshotArchiveRepair {
+                        let snapshot = self.conversationSnapshotIdentity(
                             from: messageStanza,
                             fallbackDate: conversationDate
                         )
-                        self.applyRegularSnapshotArchiveState(
+                        self.applyConversationSnapshotArchiveState(
                             jid: jid,
+                            conversationType: conversationType,
                             snapshot: snapshot,
                             lastChat: instance,
-                            realm: realm
+                            previousSyncUnreadCount: previousSyncUnreadCount,
+                            previousSyncUnreadAfterId: previousSyncUnreadAfterId,
+                            previousLastMessageId: previousLastMessageId,
+                            previousLastMessage: previousLastMessage,
+                            isNewChatInstance: isNewChatInstance,
+                            realm: realm,
+                            recordRepairTarget: recordSnapshotRepairTarget ?? { _ in }
                         )
                     } else if instance.lastMessageId != getUniqueMessageId(messageStanza, owner: self.owner) {
                         instance.isSynced = false//!firstSync

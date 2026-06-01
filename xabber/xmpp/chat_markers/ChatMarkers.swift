@@ -349,9 +349,12 @@ class ChatMarkersManager: AbstractXMPPManager {
                 try realm.write {
                     if instance.isInvalidated { return }
                     if let chatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: instance.conversationType)) {
-                        if chatInstance.lastMessage?.primary == instance.primary {
-                            chatInstance.unread = 0
-                        }
+                        LastChatUnreadCounter.markRead(
+                            through: instance,
+                            in: chatInstance,
+                            clearWholeDialog: chatInstance.lastMessage?.primary == instance.primary,
+                            realm: realm
+                        )
 //                        chatInstance.updateTS = Date().timeIntervalSince1970
                     }
                     

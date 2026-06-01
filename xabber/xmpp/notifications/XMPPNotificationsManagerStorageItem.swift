@@ -70,7 +70,9 @@ extension XMPPNotificationsManagerStorageItem {
             return
         }
         notifications.forEach { notification in
-            if !notification.isRead {
+            if let readState = notificationUnreadBoundaryReadState(stanzaId: notification.stanzaId, storage: storage) {
+                notification.isRead = readState
+            } else {
                 notification.isRead = notification.date.compare(notificationDate) == .orderedAscending
             }
         }

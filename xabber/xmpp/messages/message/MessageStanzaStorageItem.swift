@@ -41,3 +41,89 @@ class MessageStanzaStorageItem: Object {
         self.timestamp = date
     }
 }
+
+class OutgoingMessageQueueItem: Object {
+    enum State: String {
+        case queued
+        case awaitingReceipt
+        case terminalFailed
+    }
+
+    override static func primaryKey() -> String? {
+        return "primary"
+    }
+
+    override static func indexedProperties() -> [String] {
+        return ["owner", "conversationJid", "conversationType_", "messagePrimary", "originId", "state_"]
+    }
+
+    @objc dynamic var primary: String = ""
+    @objc dynamic var owner: String = ""
+    @objc dynamic var conversationJid: String = ""
+    @objc dynamic var conversationType_: String = ClientSynchronizationManager.ConversationType.regular.rawValue
+    @objc dynamic var messagePrimary: String = ""
+    @objc dynamic var originId: String = ""
+    @objc dynamic var stanzaXML: String = ""
+    @objc dynamic var createdAt: Date = Date()
+    @objc dynamic var createdOrder: Double = 0
+    @objc dynamic var attemptCount: Int = 0
+    @objc dynamic var awaitingReceipt: Bool = false
+    @objc dynamic var replayRequired: Bool = false
+    @objc dynamic var lastError: String? = nil
+    @objc dynamic var lastAttemptAt: Date? = nil
+    @objc dynamic var state_: String = State.queued.rawValue
+
+    var conversationType: ClientSynchronizationManager.ConversationType {
+        get {
+            ClientSynchronizationManager.ConversationType(rawValue: conversationType_) ?? .regular
+        } set {
+            conversationType_ = newValue.rawValue
+        }
+    }
+
+    var state: State {
+        get {
+            State(rawValue: state_) ?? .queued
+        } set {
+            state_ = newValue.rawValue
+            awaitingReceipt = newValue == .awaitingReceipt
+        }
+    }
+
+    static func genPrimary(
+        owner: String,
+        conversationJid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        messagePrimary: String
+    ) -> String {
+        [owner, conversationJid, conversationType.rawValue, messagePrimary].prp()
+    }
+
+    func configure(
+        owner: String,
+        conversationJid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        messagePrimary: String,
+        originId: String,
+        stanzaXML: String,
+        createdAt: Date,
+        replayRequired: Bool
+    ) {
+        self.primary = OutgoingMessageQueueItem.genPrimary(
+            owner: owner,
+            conversationJid: conversationJid,
+            conversationType: conversationType,
+            messagePrimary: messagePrimary
+        )
+        self.owner = owner
+        self.conversationJid = conversationJid
+        self.conversationType = conversationType
+        self.messagePrimary = messagePrimary
+        self.originId = originId
+        self.stanzaXML = stanzaXML
+        self.createdAt = createdAt
+        self.createdOrder = createdAt.timeIntervalSince1970
+        self.replayRequired = replayRequired
+        self.state = .queued
+    }
+}

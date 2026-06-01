@@ -32,6 +32,7 @@ enum ChatAnchorLookupMatchSource: String, Equatable {
     case primary = "primary"
     case archivedId = "archived-id"
     case messageId = "message-id"
+    case unreadBoundaryAfter = "unread-boundary-after"
     case metadataFallback = "metadata-fallback"
 }
 
@@ -104,6 +105,25 @@ enum ChatAnchorContextPrefetchResumeAction: Equatable {
     case readyToPosition
 }
 
+enum ChatAnchorContextPrefetchMode: Equatable {
+    case blocking
+    case background
+}
+
+enum ChatAnchorContextPrefetchModePolicy {
+    static func mode(
+        for source: ChatOpenMessageRequestSource,
+        hasLocalMatch: Bool,
+        isSynced: Bool
+    ) -> ChatAnchorContextPrefetchMode {
+        if source == .savedVisiblePosition && hasLocalMatch && isSynced {
+            return .background
+        }
+
+        return .blocking
+    }
+}
+
 enum ChatAnchorContextPrefetchPolicy {
     static func plan(
         observerIndex: Int,
@@ -172,6 +192,352 @@ enum ChatInitialScrollPolicy {
         isAnchorNavigationInFlight: Bool
     ) -> Bool {
         hasPendingAnchorRequest || isAnchorNavigationInFlight
+    }
+}
+
+enum ChatInitialAnchorBootstrapPolicy {
+    static func shouldBlockBootstrap(
+        source: ChatOpenMessageRequestSource,
+        isSynced: Bool,
+        messageCount: Int,
+        hasLocalAnchor: Bool,
+        isShowingBootstrapPlaceholder: Bool
+    ) -> Bool {
+        guard isShowingBootstrapPlaceholder else {
+            return false
+        }
+
+        if source == .savedVisiblePosition,
+           isSynced,
+           messageCount > 0,
+           hasLocalAnchor {
+            return false
+        }
+
+        return true
+    }
+
+    static func needsLocalAnchorLookup(source: ChatOpenMessageRequestSource) -> Bool {
+        source == .savedVisiblePosition
+    }
+}
+
+enum ChatInitialPositionPolicy {
+    enum Decision: Equatable {
+        case open(ChatOpenMessageRequest)
+        case bottom
+    }
+
+    struct ChatState: Equatable {
+        let owner: String
+        let jid: String
+        let conversationType: ClientSynchronizationManager.ConversationType
+        let unread: Int
+        let syncUnreadAfterId: String?
+        let lastReadId: String?
+        let lastMessageId: String
+        let syncSnapshotLastArchiveId: String?
+        let messageDate: Date
+        let savedPosition: ChatSavedVisiblePosition?
+        let savedAtLastMessageId: String?
+        let savedAtSnapshotLastArchiveId: String?
+    }
+
+    static func decision(
+        for chat: ChatState,
+        explicitRequest: ChatOpenMessageRequest?
+    ) -> Decision {
+        if let explicitRequest {
+            return .open(explicitRequest)
+        }
+
+        if chat.unread > 0,
+           let boundaryId = normalizedId(chat.syncUnreadAfterId) ?? normalizedId(chat.lastReadId) {
+            let sourceDate = archiveDate(from: boundaryId) ?? chat.messageDate
+            return .open(
+                ChatOpenMessageRequest(
+                    chatJid: chat.jid,
+                    owner: chat.owner,
+                    conversationType: chat.conversationType,
+                    anchor: ChatMessageAnchorRef(
+                        messagePrimary: nil,
+                        archivedId: boundaryId,
+                        messageId: nil,
+                        authorId: nil,
+                        bodyFingerprint: nil,
+                        sourceDate: sourceDate
+                    ),
+                    highlight: false,
+                    markReadOnVisible: false,
+                    source: .initialUnreadBoundary,
+                    targetResolution: .firstIncomingAfterBoundary(boundaryId)
+                )
+            )
+        }
+
+        if chat.unread == 0,
+           let savedPosition = chat.savedPosition,
+           savedPosition.hasAnchor,
+           chat.savedAtLastMessageId == chat.lastMessageId,
+           chat.savedAtSnapshotLastArchiveId == chat.syncSnapshotLastArchiveId {
+            return .open(
+                ChatOpenMessageRequest(
+                    chatJid: chat.jid,
+                    owner: chat.owner,
+                    conversationType: chat.conversationType,
+                    anchor: ChatMessageAnchorRef(
+                        messagePrimary: normalizedId(savedPosition.messagePrimary),
+                        archivedId: normalizedId(savedPosition.archivedId),
+                        messageId: normalizedId(savedPosition.messageId),
+                        authorId: nil,
+                        bodyFingerprint: nil,
+                        sourceDate: savedPosition.sourceDate
+                    ),
+                    highlight: false,
+                    markReadOnVisible: false,
+                    source: .savedVisiblePosition
+                )
+            )
+        }
+
+        return .bottom
+    }
+
+    static func archiveDate(from archivedId: String) -> Date? {
+        guard let value = Double(archivedId) else {
+            return nil
+        }
+
+        return Date(timeIntervalSince1970: value / 1_000_000)
+    }
+
+    static func normalizedId(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              value.isNotEmpty else {
+            return nil
+        }
+
+        return value
+    }
+}
+
+enum ChatUnreadBoundaryTargetPolicy {
+    struct Candidate: Equatable {
+        let primary: String
+        let archivedId: String?
+        let messageId: String?
+        let sourceDate: Date
+        let isOutgoing: Bool
+    }
+
+    static func target(
+        boundaryArchivedId: String,
+        fallback: Candidate,
+        loadedMessages: [Candidate]
+    ) -> Candidate {
+        guard let boundaryValue = Double(boundaryArchivedId) else {
+            return fallback
+        }
+
+        return loadedMessages
+            .filter { candidate in
+                guard !candidate.isOutgoing,
+                      let archivedId = candidate.archivedId,
+                      let archivedValue = Double(archivedId) else {
+                    return false
+                }
+
+                return archivedValue > boundaryValue
+            }
+            .min { lhs, rhs in
+                (Double(lhs.archivedId ?? "") ?? .greatestFiniteMagnitude)
+                    < (Double(rhs.archivedId ?? "") ?? .greatestFiniteMagnitude)
+            } ?? fallback
+    }
+}
+
+enum ChatVisiblePositionPolicy {
+    enum RowKind {
+        case message
+        case date
+        case unread
+        case initial
+        case skeleton
+    }
+
+    struct Candidate {
+        let primary: String
+        let archivedId: String?
+        let messageId: String?
+        let sentDate: Date
+        let rowKind: RowKind
+        let isFakeMessage: Bool
+        let frame: CGRect?
+    }
+
+    static func rowKind(for kind: MessageKind) -> RowKind {
+        switch kind {
+        case .date:
+            return .date
+        case .unread:
+            return .unread
+        case .initial:
+            return .initial
+        case .skeleton:
+            return .skeleton
+        default:
+            return .message
+        }
+    }
+
+    static func savedPosition(
+        candidates: [Candidate],
+        viewportCenterY: CGFloat
+    ) -> ChatSavedVisiblePosition? {
+        let realCandidates = candidates
+            .filter { candidate in
+                guard !candidate.isFakeMessage else {
+                    return false
+                }
+
+                switch candidate.rowKind {
+                case .message:
+                    return true
+                case .date, .unread, .initial, .skeleton:
+                    return false
+                }
+            }
+            .filter { candidate in
+                candidate.primary.isNotEmpty
+                    || candidate.archivedId?.isNotEmpty == true
+                    || candidate.messageId?.isNotEmpty == true
+            }
+
+        let framedCandidates = realCandidates.filter { $0.frame != nil }
+        let selected: Candidate?
+        if framedCandidates.isNotEmpty {
+            selected = framedCandidates.min(by: { lhs, rhs in
+                guard let lhsFrame = lhs.frame,
+                      let rhsFrame = rhs.frame else {
+                    return lhs.frame != nil
+                }
+
+                let lhsDistance = abs(lhsFrame.midY - viewportCenterY)
+                let rhsDistance = abs(rhsFrame.midY - viewportCenterY)
+                if lhsDistance == rhsDistance {
+                    return lhsFrame.minY < rhsFrame.minY
+                }
+
+                return lhsDistance < rhsDistance
+            })
+        } else {
+            selected = realCandidates.first
+        }
+
+        guard let selected = selected else {
+            return nil
+        }
+
+        return ChatSavedVisiblePosition(
+            messagePrimary: selected.primary.isNotEmpty ? selected.primary : nil,
+            archivedId: selected.archivedId?.isNotEmpty == true ? selected.archivedId : nil,
+            messageId: selected.messageId?.isNotEmpty == true ? selected.messageId : nil,
+            sourceDate: selected.sentDate
+        )
+    }
+}
+
+enum ChatVisiblePositionPersistencePolicy {
+    enum Action: Equatable {
+        case skip
+        case clearSavedPosition
+        case saveAnchor(ChatSavedVisiblePosition)
+    }
+
+    static func isLiveBottom(
+        isNearBottom: Bool,
+        lastRealDatasourcePrimary: String?,
+        observerPrimaryIndexMap: [String: Int],
+        observerCount: Int
+    ) -> Bool {
+        guard isNearBottom,
+              observerCount > 0,
+              let lastRealDatasourcePrimary,
+              let observerIndex = observerPrimaryIndexMap[lastRealDatasourcePrimary] else {
+            return false
+        }
+
+        return observerIndex == observerCount - 1
+    }
+
+    static func action(
+        candidates: [ChatVisiblePositionPolicy.Candidate],
+        viewportCenterY: CGFloat,
+        viewportHeight: CGFloat,
+        isShowingSkeleton: Bool,
+        isBlockedByAnchorNavigation: Bool,
+        allowsBlockedLiveBottomClear: Bool,
+        isLiveBottom: Bool
+    ) -> Action {
+        guard viewportHeight > 0,
+              !isShowingSkeleton,
+              candidates.contains(where: isRealMessageCandidate) else {
+            return .skip
+        }
+
+        if isLiveBottom {
+            guard !isBlockedByAnchorNavigation || allowsBlockedLiveBottomClear else {
+                return .skip
+            }
+
+            return .clearSavedPosition
+        }
+
+        guard !isBlockedByAnchorNavigation,
+              let position = ChatVisiblePositionPolicy.savedPosition(
+                candidates: candidates,
+                viewportCenterY: viewportCenterY
+              ) else {
+            return .skip
+        }
+
+        return .saveAnchor(position)
+    }
+
+    private static func isRealMessageCandidate(_ candidate: ChatVisiblePositionPolicy.Candidate) -> Bool {
+        guard !candidate.isFakeMessage else {
+            return false
+        }
+
+        switch candidate.rowKind {
+        case .message:
+            return candidate.primary.isNotEmpty
+                || candidate.archivedId?.isNotEmpty == true
+                || candidate.messageId?.isNotEmpty == true
+        case .date, .unread, .initial, .skeleton:
+            return false
+        }
+    }
+}
+
+enum ChatVisiblePositionPersistenceReason {
+    case debouncedScroll
+    case viewWillDisappear
+    case programmaticBottom
+
+    var allowsBlockedLiveBottomClear: Bool {
+        switch self {
+        case .debouncedScroll:
+            return false
+        case .viewWillDisappear, .programmaticBottom:
+            return true
+        }
+    }
+}
+
+enum ChatOpenReadMarkingPolicy {
+    static func shouldReadLastMessageOnOpen(isSynced: Bool, unread: Int) -> Bool {
+        false
     }
 }
 
@@ -324,6 +690,18 @@ enum ChatAnchorExecutionPolicy {
 enum ChatLoadedMessageNavigationPolicy {
     static func index(
         in items: [ChatViewController.Datasource],
+        for request: ChatOpenMessageRequest
+    ) -> Int? {
+        if case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution,
+           let target = firstIncomingAfterBoundaryIndex(in: items, boundaryArchivedId: boundaryArchivedId) {
+            return target
+        }
+
+        return index(in: items, for: request.anchor)
+    }
+
+    static func index(
+        in items: [ChatViewController.Datasource],
         for anchor: ChatMessageAnchorRef
     ) -> Int? {
         let anchorableItems = items.enumerated().filter { _, item in
@@ -349,6 +727,32 @@ enum ChatLoadedMessageNavigationPolicy {
         }
 
         return nil
+    }
+
+    private static func firstIncomingAfterBoundaryIndex(
+        in items: [ChatViewController.Datasource],
+        boundaryArchivedId: String
+    ) -> Int? {
+        guard let boundary = Double(boundaryArchivedId) else {
+            return nil
+        }
+
+        return items.enumerated()
+            .filter { _, item in
+                guard isAnchorable(item),
+                      !item.isOutgoing,
+                      let archivedId = item.archivedId,
+                      let value = Double(archivedId) else {
+                    return false
+                }
+
+                return value > boundary
+            }
+            .min { lhs, rhs in
+                (Double(lhs.element.archivedId ?? "") ?? .greatestFiniteMagnitude)
+                    < (Double(rhs.element.archivedId ?? "") ?? .greatestFiniteMagnitude)
+            }?
+            .offset
     }
 
     private static func isAnchorable(_ item: ChatViewController.Datasource) -> Bool {
@@ -449,6 +853,141 @@ extension ChatViewController {
         self.isMessageAnchorNavigationInFlight = self.pendingOpenMessageRequest != nil || self.activeAnchorExecutionState != nil
     }
 
+    internal func saveCurrentVisibleMessagePositionIfNeeded(
+        reason: ChatVisiblePositionPersistenceReason = .debouncedScroll
+    ) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.saveCurrentVisibleMessagePositionIfNeeded(reason: reason)
+            }
+            return
+        }
+
+        let candidates = self.visiblePositionPersistenceCandidates()
+        let viewportCenterY = self.messagesCollectionView.contentOffset.y + (self.messagesCollectionView.bounds.height / 2)
+        self.ensureObserverLookupMaps()
+        let isLiveBottom = ChatVisiblePositionPersistencePolicy.isLiveBottom(
+            isNearBottom: self.isNearBottom(),
+            lastRealDatasourcePrimary: self.lastRealDatasourceMessagePrimary(),
+            observerPrimaryIndexMap: self.observerPrimaryIndexMap,
+            observerCount: self.messagesObserver?.count ?? 0
+        )
+        let isBlockedByAnchorNavigation = self.isApplyingBootstrapAnchorWindow
+            || self.pendingOpenMessageRequest != nil
+            || self.activeAnchorExecutionState != nil
+            || self.isMessageAnchorNavigationInFlight
+        let action = ChatVisiblePositionPersistencePolicy.action(
+            candidates: candidates,
+            viewportCenterY: viewportCenterY,
+            viewportHeight: self.messagesCollectionView.bounds.height,
+            isShowingSkeleton: self.showSkeletonObserver.value,
+            isBlockedByAnchorNavigation: isBlockedByAnchorNavigation,
+            allowsBlockedLiveBottomClear: reason.allowsBlockedLiveBottomClear,
+            isLiveBottom: isLiveBottom
+        )
+
+        guard action != .skip else {
+            return
+        }
+
+        do {
+            let realm = try WRealm.safe()
+            guard let chat = realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: self.jid,
+                    owner: self.owner,
+                    conversationType: self.conversationType
+                )
+            ) else {
+                return
+            }
+
+            let savedAtLastMessageId = chat.lastMessageId
+            let savedAtSnapshotLastArchiveId = chat.syncSnapshotLastArchiveId
+            try realm.write {
+                switch action {
+                case .skip:
+                    break
+                case .clearSavedPosition:
+                    chat.lastVisibleMessagePrimary = nil
+                    chat.lastVisibleMessageArchivedId = nil
+                    chat.lastVisibleMessageId = nil
+                    chat.lastVisibleMessageDate = nil
+                case .saveAnchor(let position):
+                    chat.lastVisibleMessagePrimary = position.messagePrimary
+                    chat.lastVisibleMessageArchivedId = position.archivedId
+                    chat.lastVisibleMessageId = position.messageId
+                    chat.lastVisibleMessageDate = position.sourceDate
+                }
+                chat.lastVisiblePositionSavedAtLastMessageId = savedAtLastMessageId
+                chat.lastVisiblePositionSavedAtSnapshotLastArchiveId = savedAtSnapshotLastArchiveId
+                chat.lastVisiblePositionUpdatedAt = Date()
+            }
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    private func visiblePositionPersistenceCandidates() -> [ChatVisiblePositionPolicy.Candidate] {
+        let layout = self.messagesCollectionView.collectionViewLayout
+        let visibleIndexPaths = self.messagesCollectionView.indexPathsForVisibleItems.sorted {
+            if $0.section != $1.section {
+                return $0.section < $1.section
+            }
+            return $0.item < $1.item
+        }
+
+        return visibleIndexPaths.compactMap { indexPath in
+            guard self.datasource.indices.contains(indexPath.section) else {
+                return nil
+            }
+
+            let item = self.datasource[indexPath.section]
+            let frame = layout.layoutAttributesForItem(at: indexPath)?.frame
+                ?? self.messagesCollectionView.cellForItem(at: indexPath)?.frame
+
+            return ChatVisiblePositionPolicy.Candidate(
+                primary: item.primary,
+                archivedId: item.archivedId,
+                messageId: item.messageId,
+                sentDate: item.sentDate,
+                rowKind: ChatVisiblePositionPolicy.rowKind(for: item.kind),
+                isFakeMessage: item.isFakeMessage,
+                frame: frame
+            )
+        }
+    }
+
+    private func lastRealDatasourceMessagePrimary() -> String? {
+        self.datasource.last { item in
+            guard !item.isFakeMessage,
+                  item.primary.isNotEmpty else {
+                return false
+            }
+
+            return ChatVisiblePositionPolicy.rowKind(for: item.kind) == .message
+        }?.primary
+    }
+
+    internal func scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: Bool) {
+        let flush: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.messagesCollectionView.layoutIfNeeded()
+            self.saveCurrentVisibleMessagePositionIfNeeded(reason: .programmaticBottom)
+        }
+
+        DispatchQueue.main.async {
+            flush()
+        }
+
+        if animated {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                flush()
+            }
+        }
+    }
+
     internal func indexPathForLoadedMessage(anchor: ChatMessageAnchorRef) -> IndexPath? {
         guard let section = ChatLoadedMessageNavigationPolicy.index(in: self.datasource, for: anchor),
               section < self.datasource.count else {
@@ -460,6 +999,15 @@ extension ChatViewController {
 
     internal func containsLoadedMessage(anchor: ChatMessageAnchorRef) -> Bool {
         self.indexPathForLoadedMessage(anchor: anchor) != nil
+    }
+
+    private func indexPathForLoadedMessage(request: ChatOpenMessageRequest) -> IndexPath? {
+        guard let section = ChatLoadedMessageNavigationPolicy.index(in: self.datasource, for: request),
+              section < self.datasource.count else {
+            return nil
+        }
+
+        return IndexPath(row: 0, section: section)
     }
 
     @discardableResult
@@ -532,7 +1080,7 @@ extension ChatViewController {
         guard request.owner == self.owner,
               request.chatJid == self.jid,
               request.conversationType == self.conversationType,
-              let indexPath = self.indexPathForLoadedMessage(anchor: request.anchor),
+              let indexPath = self.indexPathForLoadedMessage(request: request),
               indexPath.section < self.datasource.count else {
             return false
         }
@@ -540,6 +1088,11 @@ extension ChatViewController {
         let target = self.datasource[indexPath.section]
         let activeHooks = hooks ?? self.activeAnchorExecutionHooks
         let usesTransientHighlight = request.source.usesTransientHighlight && request.highlight
+        let contextPrefetchMode = ChatAnchorContextPrefetchModePolicy.mode(
+            for: request.source,
+            hasLocalMatch: true,
+            isSynced: self.currentChatIsSyncedForAnchorBootstrap()
+        )
 
         self.pendingOpenMessageRequest = nil
         self.activeAnchorExecutionState = nil
@@ -551,11 +1104,11 @@ extension ChatViewController {
         self.setDatasourceLoadingEnabled(true)
         self.currentPage.unlock()
 
-        self.scrollToLoadedMessage(
-            anchor: request.anchor,
-            centered: true,
-            animated: activeHooks?.animatedScroll ?? false,
+        self.positionMessage(
+            primary: target.primary,
+            archivedId: target.archivedId,
             highlight: request.highlight && !usesTransientHighlight,
+            animated: activeHooks?.animatedScroll ?? false,
             completion: {
                 if usesTransientHighlight {
                     self.applyTransientMessageHighlight(primary: target.primary)
@@ -565,6 +1118,15 @@ extension ChatViewController {
                     positionedPrimary: target.primary
                 )
                 activeHooks?.onPositioned?()
+                if contextPrefetchMode == .background {
+                    self.startBackgroundContextPrefetchIfNeeded(
+                        around: ResolvedJumpTarget(
+                            primary: target.primary,
+                            archivedId: target.archivedId
+                        ),
+                        request: request
+                    )
+                }
             }
         )
         return true
@@ -575,8 +1137,39 @@ extension ChatViewController {
     ) -> ChatAnchorExecutionState {
         ChatAnchorExecutionState(
             request: request,
-            usesBootstrapLoading: self.isShowingBootstrapPlaceholder
+            usesBootstrapLoading: self.shouldUseBootstrapLoading(for: request)
         )
+    }
+
+    private func shouldUseBootstrapLoading(for request: ChatOpenMessageRequest) -> Bool {
+        let hasLocalAnchor = ChatInitialAnchorBootstrapPolicy.needsLocalAnchorLookup(source: request.source)
+            ? self.hasLocalAnchorForBootstrap(request)
+            : false
+
+        return ChatInitialAnchorBootstrapPolicy.shouldBlockBootstrap(
+            source: request.source,
+            isSynced: self.currentChatIsSyncedForAnchorBootstrap(),
+            messageCount: self.messagesObserver?.count ?? 0,
+            hasLocalAnchor: hasLocalAnchor,
+            isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
+        )
+    }
+
+    private func currentChatIsSyncedForAnchorBootstrap() -> Bool {
+        do {
+            let realm = try WRealm.safe()
+            return realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: self.jid,
+                    owner: self.owner,
+                    conversationType: self.conversationType
+                )
+            )?.isSynced ?? false
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return false
+        }
     }
 
     private func beginBootstrapAnchorContentTransitionIfNeeded() {
@@ -723,11 +1316,95 @@ extension ChatViewController {
         }
     }
 
+    private func unreadBoundaryCandidate(for message: MessageStorageItem) -> ChatUnreadBoundaryTargetPolicy.Candidate {
+        ChatUnreadBoundaryTargetPolicy.Candidate(
+            primary: message.primary,
+            archivedId: message.archivedId.isNotEmpty ? message.archivedId : nil,
+            messageId: message.messageId.isNotEmpty ? message.messageId : nil,
+            sourceDate: message.date,
+            isOutgoing: message.outgoing
+        )
+    }
+
+    private func firstLoadedIncomingMessageAfterUnreadBoundary(
+        _ boundaryArchivedId: String
+    ) -> MessageStorageItem? {
+        guard self.messagesObserver != nil,
+              Double(boundaryArchivedId) != nil else {
+            return nil
+        }
+
+        let candidates = Array(self.messagesObserver.map { self.unreadBoundaryCandidate(for: $0) })
+        let fallback = ChatUnreadBoundaryTargetPolicy.Candidate(
+            primary: "",
+            archivedId: boundaryArchivedId,
+            messageId: nil,
+            sourceDate: Date(),
+            isOutgoing: false
+        )
+        let target = ChatUnreadBoundaryTargetPolicy.target(
+            boundaryArchivedId: boundaryArchivedId,
+            fallback: fallback,
+            loadedMessages: candidates
+        )
+        guard target.primary.isNotEmpty else {
+            return nil
+        }
+
+        self.ensureObserverLookupMaps()
+        guard let index = self.observerPrimaryIndexMap[target.primary],
+              index < self.messagesObserver.count else {
+            return nil
+        }
+
+        return self.messagesObserver[index]
+    }
+
+    private func resolvedTargetAfterContextPrefetch(
+        for request: ChatOpenMessageRequest,
+        fallback: ResolvedJumpTarget
+    ) -> ResolvedJumpTarget {
+        guard case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution,
+              let targetMessage = self.firstLoadedIncomingMessageAfterUnreadBoundary(boundaryArchivedId),
+              let target = self.resolvedJumpTarget(for: targetMessage) else {
+            return fallback
+        }
+
+        return target
+    }
+
     private func localAnchorMessage(
+        for request: ChatOpenMessageRequest
+    ) -> (message: MessageStorageItem, matchSource: ChatAnchorLookupMatchSource)? {
+        if let observerMatch = self.observerAnchorMessage(for: request) {
+            return observerMatch
+        }
+
+        if let savedPositionMatch = self.savedVisiblePositionMessageFromLocalRealm(for: request) {
+            return savedPositionMatch
+        }
+
+        guard request.source != .savedVisiblePosition else {
+            return nil
+        }
+
+        return self.metadataFallbackAnchorMessage(for: request)
+    }
+
+    internal func hasLocalAnchorForBootstrap(_ request: ChatOpenMessageRequest) -> Bool {
+        self.localAnchorMessage(for: request) != nil
+    }
+
+    private func observerAnchorMessage(
         for request: ChatOpenMessageRequest
     ) -> (message: MessageStorageItem, matchSource: ChatAnchorLookupMatchSource)? {
         self.ensureObserverLookupMaps()
         let anchor = request.anchor
+
+        if case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution,
+           let message = self.firstLoadedIncomingMessageAfterUnreadBoundary(boundaryArchivedId) {
+            return (message, .unreadBoundaryAfter)
+        }
 
         if let messagePrimary = anchor.messagePrimary,
            messagePrimary.isNotEmpty,
@@ -749,6 +1426,70 @@ extension ChatViewController {
            observerIndex < self.messagesObserver.count {
             return (self.messagesObserver[observerIndex], .messageId)
         }
+
+        return nil
+    }
+
+    private func savedVisiblePositionMessageFromLocalRealm(
+        for request: ChatOpenMessageRequest
+    ) -> (message: MessageStorageItem, matchSource: ChatAnchorLookupMatchSource)? {
+        guard request.source == .savedVisiblePosition else {
+            return nil
+        }
+
+        let anchor = request.anchor
+
+        do {
+            let realm = try WRealm.safe()
+            let messages = realm
+                .objects(MessageStorageItem.self)
+                .filter(
+                    "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@",
+                    request.owner,
+                    request.chatJid,
+                    request.conversationType.rawValue
+                )
+
+            if let messagePrimary = anchor.messagePrimary,
+               messagePrimary.isNotEmpty,
+               let message = messages.filter("primary == %@", messagePrimary).first {
+                self.ensureObserverLookupMaps(force: true)
+                guard self.observerPrimaryIndexMap[message.primary] != nil else {
+                    return nil
+                }
+                return (message, .primary)
+            }
+
+            if let archivedId = anchor.archivedId,
+               archivedId.isNotEmpty,
+               let message = messages.filter("archivedId == %@", archivedId).first {
+                self.ensureObserverLookupMaps(force: true)
+                guard self.observerPrimaryIndexMap[message.primary] != nil else {
+                    return nil
+                }
+                return (message, .archivedId)
+            }
+
+            if let messageId = anchor.messageId,
+               messageId.isNotEmpty,
+               let message = messages.filter("messageId == %@", messageId).first {
+                self.ensureObserverLookupMaps(force: true)
+                guard self.observerPrimaryIndexMap[message.primary] != nil else {
+                    return nil
+                }
+                return (message, .messageId)
+            }
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+
+        return nil
+    }
+
+    private func metadataFallbackAnchorMessage(
+        for request: ChatOpenMessageRequest
+    ) -> (message: MessageStorageItem, matchSource: ChatAnchorLookupMatchSource)? {
+        let anchor = request.anchor
 
         do {
             let realm = try WRealm.safe()
@@ -1096,6 +1837,80 @@ extension ChatViewController {
         return true
     }
 
+    private func startBackgroundContextPrefetchIfNeeded(
+        around target: ResolvedJumpTarget,
+        request: ChatOpenMessageRequest
+    ) {
+        guard self.messagesObserver != nil else {
+            return
+        }
+
+        self.ensureObserverLookupMaps()
+        guard let observerIndex = self.observerPrimaryIndexMap[target.primary] else {
+            return
+        }
+
+        let effectiveArchivedId = request.anchor.archivedId ?? target.archivedId
+        let plan = ChatAnchorContextPrefetchPolicy.plan(
+            observerIndex: observerIndex,
+            totalCount: self.messagesObserver.count,
+            pageSize: self.datasourcePageSize,
+            archivedId: effectiveArchivedId
+        )
+
+        guard plan.requiresRemoteFetch,
+              let archivedId = effectiveArchivedId,
+              archivedId.isNotEmpty else {
+            return
+        }
+
+        self.performArchiveAction({ stream, mam in
+            if let newerPageSize = plan.newerPageSize {
+                _ = mam.getPrevHistory(
+                    stream,
+                    for: self.jid,
+                    conversationType: self.conversationType,
+                    messageId: archivedId,
+                    pageSize: newerPageSize,
+                    queryId: nil,
+                    callback: nil,
+                    requestCallbacks: .none
+                )
+            }
+
+            if let olderPageSize = plan.olderPageSize {
+                _ = mam.getNextHistory(
+                    stream,
+                    for: self.jid,
+                    conversationType: self.conversationType,
+                    messageId: archivedId,
+                    pageSize: olderPageSize,
+                    queryId: nil,
+                    callback: nil,
+                    requestCallbacks: .none
+                )
+            }
+        })
+    }
+
+    private func revealLocalContentForSavedPositionIfNeeded(
+        request: ChatOpenMessageRequest,
+        hasLocalMatch: Bool
+    ) {
+        guard request.source == .savedVisiblePosition,
+              hasLocalMatch,
+              self.currentChatIsSyncedForAnchorBootstrap(),
+              (self.messagesObserver?.count ?? 0) > 0 else {
+            return
+        }
+
+        self.setShouldShowInitialMessage(false)
+        self.setLoadingIndicatorVisible(false)
+        self.setArchiveLoading(false)
+        self.setSkeletonVisible(false)
+        self.setDatasourceLoadingEnabled(true)
+    }
+
     private func resumeAnchorExecutionIfNeeded(trigger: ChatAnchorExecutionResumeTrigger) {
         guard let request = self.pendingOpenMessageRequest,
               request.owner == self.owner,
@@ -1132,7 +1947,18 @@ extension ChatViewController {
             self.activeAnchorExecutionState = executionState
             self.syncAnchorExecutionFlags()
 
-            if self.prepareContextPrefetchIfNeeded(around: resolved, request: request) {
+            let contextPrefetchMode = ChatAnchorContextPrefetchModePolicy.mode(
+                for: request.source,
+                hasLocalMatch: true,
+                isSynced: self.currentChatIsSyncedForAnchorBootstrap()
+            )
+            self.revealLocalContentForSavedPositionIfNeeded(
+                request: request,
+                hasLocalMatch: true
+            )
+
+            if contextPrefetchMode == .blocking,
+               self.prepareContextPrefetchIfNeeded(around: resolved, request: request) {
                 return
             }
 
@@ -1140,6 +1966,10 @@ extension ChatViewController {
                 return
             }
 
+            let positionTarget = self.resolvedTargetAfterContextPrefetch(
+                for: request,
+                fallback: resolved
+            )
             resolvedExecutionState.isPositioning = true
             self.activeAnchorExecutionState = resolvedExecutionState
             self.syncAnchorExecutionFlags()
@@ -1148,7 +1978,7 @@ extension ChatViewController {
             let direction = hooks?.direction ?? .up
             self.chatScrollDirection = direction
             self.applyWindowAndResolveJump(
-                for: resolved,
+                for: positionTarget,
                 direction: direction
             ) { target in
                 let usesTransientHighlight = request.source.usesTransientHighlight && request.highlight
@@ -1167,6 +1997,12 @@ extension ChatViewController {
                             positionedPrimary: target.primary
                         )
                         hooks?.onPositioned?()
+                        if contextPrefetchMode == .background {
+                            self.startBackgroundContextPrefetchIfNeeded(
+                                around: target,
+                                request: request
+                            )
+                        }
                     }
                 )
             }
@@ -1185,6 +2021,18 @@ extension ChatViewController {
         trigger: ChatAnchorExecutionResumeTrigger = .manual
     ) {
         guard let request = self.pendingOpenMessageRequest else {
+            return
+        }
+        if self.shouldDeferOpenMessageRequestsForNavigationTransition {
+            guard !self.didDeferOpenMessageRequestForNavigationTransition else {
+                return
+            }
+            self.didDeferOpenMessageRequestForNavigationTransition = true
+            self.deferUntilNavigationTransitionCompletesIfNeeded { [weak self] in
+                guard let self else { return }
+                self.didDeferOpenMessageRequestForNavigationTransition = false
+                self.performPendingOpenMessageRequestIfNeeded(trigger: trigger)
+            }
             return
         }
 

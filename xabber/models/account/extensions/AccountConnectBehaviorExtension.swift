@@ -42,7 +42,10 @@ extension Account {
         registerRegularPushForAccount()
         registerVoIPPushForAccount()
         self.configureBase()
-        if self.sm.didResume {
+        let didResume = self.sm.didResume
+        if didResume {
+            self.sendReadiness.markStreamManagementResumeSucceeded()
+            self.sendCoordinator.streamManagementResumeSucceeded()
             AccountManager.shared.markAsConnected(jid: self.jid)
 //            self.presence()
             DispatchQueue.main.async {
@@ -61,7 +64,12 @@ extension Account {
                 }
             }
             self.roster.request(self.xmppStream)
+            self.sendCoordinator.streamManagementResumeFailed()
         }
+        self.connectionResilience.streamManagementResumeCompleted(
+            didResume: didResume,
+            responseName: didResume ? "resumed" : "full-auth"
+        )
         self.connectionGate.markOnline()
         AccountManager.shared.markAsNotConnecting(
             jid: self.jid,
@@ -103,7 +111,7 @@ extension Account {
 
         func failToConnect(_ errorName: String) {
             self.reconnect.autoReconnect = false
-            self.disconnect(hard: true)
+            self.disconnect(hard: true, cause: .permanentAuthFailure)
             switch errorName {
                 case "conflict":
                     self.updateResource("\(self.resource)\(arc4random() % 16380)")
@@ -146,18 +154,8 @@ extension Account {
         }
         
         func tryToReconnect(_ errorName: String) {
-            self.reconnect.autoReconnect = true
             self.connectionGate.markDisconnected()
-            self.queue.asyncAfter(deadline: .now() + 1) {
-                guard !self.xmppStream.isConnected,
-                      !self.xmppStream.isConnecting,
-                      !self.xmppStream.isAuthenticating,
-                      !self.xmppStream.isAuthenticated else {
-                    DDLogDebug("skip reconnect from stream error jid=\(self.jid) error=\(errorName)")
-                    return
-                }
-                self.reconnect.manualStart()
-            }
+            self.connectionResilience.scheduleReconnect(cause: .serverStreamError, trigger: .resilienceRetry)
         }
         
         if let errorName = error
@@ -217,27 +215,34 @@ extension Account {
         self.reconnect.autoReconnect = false
         self.cancelDelayedConnectTimer()
         credentialsItem.release(resolution.releaseOutcome)
-        self.disconnect(hard: true)
         self.resetConfigs()
         self.statusMessage.accept(resolution.statusMessage)
 
         switch resolution.action {
+        case .retryAuthentication:
+            self.disconnect(hard: true, cause: .retryableAuthFailure)
+            AccountManager.shared.changeNewUserState(for: self.jid, to: .failure(resolution.statusMessage))
+
         case .removeAccount(let alertMessage):
+            self.disconnect(hard: true, cause: .permanentAuthFailure)
             ApplicationStateManager.shared.removeAccountForAuthenticationFailure(
                 jid: self.jid,
                 message: alertMessage
             )
 
         case .refreshDeviceSecret:
+            self.disconnect(hard: true, cause: .permanentAuthFailure)
             self.tokenShouldUpdate()
 
         case .rejectPassword(let message):
+            self.disconnect(hard: true, cause: .permanentAuthFailure)
             self.statusMessage.accept(message)
             AccountManager
                 .shared
                 .changeNewUserState(for: self.jid, to: .failure(message))
 
         case .reportGeneric(let message):
+            self.disconnect(hard: true, cause: .permanentAuthFailure)
             self.statusMessage.accept(message)
             AccountManager
                 .shared
@@ -247,7 +252,7 @@ extension Account {
     
     public final func tokenShouldUpdate() {
         self.reconnect.autoReconnect = false
-        self.disconnect(hard: true)
+        self.disconnect(hard: true, cause: .permanentAuthFailure)
         DispatchQueue.main.async {
             CredentialsExpiredPresenter(jid: self.jid).present(animated: true)
         }

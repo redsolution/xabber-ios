@@ -122,6 +122,7 @@ extension Account: XMPPStreamDelegate {
         delayedConnectTimer?.invalidate()
         delayedConnectTimer = nil
         self.connectionGate.markAuthenticating()
+        self.sendReadiness.markAuthenticating()
 //        DispatchQueue.main.async {
 //            ToastPresenter(message: "Stream connected").present(animated: true)
 //        }
@@ -265,6 +266,17 @@ extension Account: XMPPStreamDelegate {
             event: "authentication_succeeded",
             details: ["resource": sender.myJID?.resource ?? "none"]
         )
+        var resumedStanzaIds: NSArray?
+        var resumeResponse: DDXMLElement?
+        let didResume = self.sm.didResume(withAckedStanzaIds: &resumedStanzaIds, serverResponse: &resumeResponse)
+        self.logConnectionDiagnostics(
+            event: didResume ? "stream_management_resume_succeeded" : "stream_management_resume_not_used",
+            details: [
+                "ackedCount": resumedStanzaIds?.count ?? 0,
+                "response": resumeResponse?.name ?? "none"
+            ],
+            rawXML: resumeResponse?.xmlString
+        )
         self.cancelDelayedConnectTimer()
         self.connectionGate.markPostAuthSetup()
         self.logConnectionDiagnostics(event: "post_auth_setup_started")
@@ -302,6 +314,7 @@ extension Account: XMPPStreamDelegate {
         )
         if hasStartTLS {
             self.connectionGate.markTLSNegotiating()
+            self.sendReadiness.markTLSNegotiating()
             self.logConnectionDiagnostics(
                 event: "starttls_required_detected",
                 details: [
@@ -313,6 +326,7 @@ extension Account: XMPPStreamDelegate {
         }
         if hasBind {
             self.connectionGate.markBinding()
+            self.sendReadiness.markBinding()
             self.logConnectionDiagnostics(event: "resource_binding_available")
         }
         syncManager.checkAvailability(features)
@@ -337,6 +351,7 @@ extension Account: XMPPStreamDelegate {
             rawXML: error.xmlString
         )
         self.didReceiveError(error)
+        self.sendReadiness.markStreamError(self.streamErrorName(error))
     }
     
     func xmppStreamWasTold(toDisconnect sender: XMPPStream) {
@@ -353,9 +368,11 @@ extension Account: XMPPStreamDelegate {
         self.resetConfigs()
         self.carbonsEnabled = false
         self.connectionGate.markDisconnected()
-        if self.reconnect.autoReconnect {
-            self.reconnect.manualStart()
-        }
+        let cause = self.pendingDisconnectCause ?? .serverStreamError
+        self.pendingDisconnectCause = nil
+        self.sendReadiness.markDisconnected(cause: cause)
+        self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
+        self.connectionResilience.streamDidDisconnect(cause: cause)
     }
     
     func xmppStream(_ sender: XMPPStream, didReceiveError error: DDXMLElement) {
@@ -370,6 +387,7 @@ extension Account: XMPPStreamDelegate {
             rawXML: error.xmlString
         )
         self.didReceiveError(error)
+        self.sendReadiness.markStreamError(self.streamErrorName(error))
     }
     
     func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
@@ -399,9 +417,11 @@ extension Account: XMPPStreamDelegate {
             reason: "stream_disconnect",
             clearAuthentication: true
         )
-        if self.reconnect.autoReconnect {
-            self.reconnect.manualStart()
-        }
+        let cause = self.pendingDisconnectCause ?? .accidentalSocket
+        self.pendingDisconnectCause = nil
+        self.sendReadiness.markDisconnected(cause: cause)
+        self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
+        self.connectionResilience.streamDidDisconnect(cause: cause)
     }
     
     func xmppStream(_ sender: XMPPStream, didSend iq: XMPPIQ) {
@@ -431,6 +451,10 @@ extension Account: XMPPStreamDelegate {
             ],
             rawXML: iq.xmlString
         )
+        let isTrackedPingResult = self.ping.isTrackedResult(iq)
+        if !isTrackedPingResult {
+            self.connectionResilience.noteInboundActivity("iq")
+        }
         switch true {
             case self.syncManager.read(withIQ: iq):
                 AccountManager.shared.markAsConnected(jid: jid)
@@ -440,7 +464,7 @@ extension Account: XMPPStreamDelegate {
             case self.avatarUploader.read(withIQ: iq): break
             case self.roster.read(withIQ: iq): break
             case self.mam.read(sender, withIQ: iq):
-                self.messages.storeMessagesNow()
+                self.messages.scheduleQueuedMessagesDrainWithoutWaiting()
                 break
             case self.push.read(withIQ: iq):
                 break
@@ -456,7 +480,11 @@ extension Account: XMPPStreamDelegate {
             case self.vcards.read(withIQ: iq):
                 _ = self.avatarManager.readFromVcard(iq)
                 break
-            case self.ping.read(withIQ: iq): break
+            case self.ping.read(withIQ: iq):
+                if isTrackedPingResult {
+                    self.connectionResilience.notePingResult(success: true)
+                }
+                break
             case self.disco.read(withIQ: iq):
                 AccountManager.shared.markAsConnected(jid: jid)
                 break
@@ -480,6 +508,7 @@ extension Account: XMPPStreamDelegate {
             ],
             rawXML: presence.xmlString
         )
+        self.connectionResilience.noteInboundActivity("presence")
         if presence.from?.bare == sender.myJID?.bare {
             _ = self.devices.read(withPresence: presence, commitTransaction: true)
         }
@@ -535,6 +564,7 @@ extension Account: XMPPStreamDelegate {
             ],
             rawXML: message.xmlString
         )
+        self.connectionResilience.noteInboundActivity("message")
         if SettingManager.logEnabled {
             DDLogInfo("R. message: to \(message.to?.bare ?? "none"), from \(message.from?.bare ?? "none"), id \(message.elementID ?? "none")")
         }
@@ -745,6 +775,10 @@ extension Account: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didSend message: XMPPMessage) {
+        self.connectionResilience.noteOutboundApplicationStanza(id: message.elementID)
+        if self.sendReadiness.snapshot.canFlushApplicationStanzas {
+            self.sm.requestAck()
+        }
         self.logConnectionDiagnostics(
             event: "stanza_send_message",
             details: [
@@ -771,6 +805,9 @@ extension Account: XMPPStreamDelegate {
             error: error
         )
 //        self.messages.changeMessageState(message, to: .error)
+        if self.sendCoordinator.localSendFailed(message: message, error: error) {
+            return
+        }
         self.messages.fail(message: message)
     }
 
@@ -825,22 +862,33 @@ extension Account: XMPPStreamDelegate {
         self.markStartTLSDelegateCallbackEntered()
         self.logConnectionDiagnostics(
             event: "tls_delegate_callback_entered",
-            details: ["willSetManualTrustEvaluation": true]
+            details: [
+                "willSetManualTrustEvaluation": false,
+                "tlsPeer": sender.effectiveCertificatePeerName ?? "none"
+            ]
         )
-        settings[GCDAsyncSocketManuallyEvaluateTrust] = true
         self.logConnectionDiagnostics(
             event: "tls_will_secure",
-            details: ["manualTrustEvaluation": true]
+            details: [
+                "manualTrustEvaluation": false,
+                "tlsPeer": sender.effectiveCertificatePeerName ?? "none"
+            ]
         )
     }
     
     func xmppStream(_ sender: XMPPStream, didReceive trust: SecTrust, completionHandler: @escaping (Bool) -> Void) {
 //        print(trust)
         self.logConnectionDiagnostics(event: "tls_trust_callback_entered")
-        let shouldTrust = true
+        let shouldTrust = XMPPStreamTLSTrustEvaluator.evaluate(
+            trust,
+            peerName: sender.effectiveCertificatePeerName
+        )
         self.logConnectionDiagnostics(
             event: "tls_trust_evaluated",
-            details: ["shouldTrust": shouldTrust]
+            details: [
+                "shouldTrust": shouldTrust,
+                "tlsPeer": sender.effectiveCertificatePeerName ?? "none"
+            ]
         )
         self.logConnectionDiagnostics(
             event: "tls_trust_completion_called",
@@ -905,6 +953,8 @@ extension Account: XMPPStreamManagementDelegate {
             event: "stream_management_enabled",
             rawXML: enabled.xmlString
         )
+        self.sendReadiness.markStreamManagementEnabled()
+        self.connectionResilience.noteInboundActivity("stream-management-enabled")
     }
     
     func xmppStreamManagement(_ sender: XMPPStreamManagement, wasNotEnabled failed: DDXMLElement) {
@@ -912,12 +962,12 @@ extension Account: XMPPStreamManagementDelegate {
             event: "stream_management_not_enabled",
             rawXML: failed.xmlString
         )
+        self.sendReadiness.markStreamManagementEnableFailed(reason: failed.name)
 //        AccountManager.shared.markAsConnecting(jid: self.jid)
 //        self.smStorage.removeAll(for: self.xmppStream)
 //        self.disconnect(hard: true)
 //        self.resetStream()
 //        self.asyncConnect()
-        self.presence()
         if failed.element(forName: "item-not-found") != nil {
             DispatchQueue.main.async {
                 ToastPresenter().presentError(message: "SM session not found")
@@ -927,19 +977,7 @@ extension Account: XMPPStreamManagementDelegate {
                 ToastPresenter().presentError(message: "SM session error. \(failed.children?.compactMap({ return $0.name }).reduce(" ", +) ?? "" )")
             }
         }
-        
-        self.configureExtensions()
-        self.disco.configure(self.xmppStream)
-        if self.roster.version != nil {
-            if self.syncManager.isAvailable {
-                self.statusMessage.accept("Synchronization")
-            }
-        }
-        self.roster.request(self.xmppStream)
-        self.queue.asyncAfter(deadline: .now() + 1) {
-            _ = self.syncManager.sync(self.xmppStream)
-            self.devices.requestList(self.xmppStream)
-        }
+        DDLogDebug("strict send readiness keeps account gated after stream management enable failure jid=\(self.jid)")
     }
 
     func xmppStreamManagementDidRequestAck(_ sender: XMPPStreamManagement) {
@@ -951,5 +989,6 @@ extension Account: XMPPStreamManagementDelegate {
             event: "stream_management_ack_received",
             details: ["ackedCount": stanzaIds.count]
         )
+        self.connectionResilience.noteStreamManagementAck()
     }
 }

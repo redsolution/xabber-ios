@@ -19,11 +19,13 @@
 //
 
 import Foundation
+import Network
 import XMPPFramework
 import RealmSwift
 import RxSwift
 import RxCocoa
 import SwiftKeychainWrapper
+import UIKit
 import MaterialComponents.MaterialPalettes
 
 final class AccountXMPPTaskScheduler {
@@ -176,7 +178,7 @@ final class AccountXMPPTaskScheduler {
                 return
             }
             account.action { user, stream in
-                guard !requiresAuthenticatedStream || stream.isAuthenticated else {
+                guard !requiresAuthenticatedStream || user.sendReadiness.snapshot.canFlushApplicationStanzas else {
                     finish()
                     return
                 }
@@ -322,6 +324,9 @@ enum AccountConnectTrigger: String {
     case resourceUpdate
     case timeoutRetry
     case xmppReconnect
+    case pathRecovery
+    case livenessProbe
+    case resilienceRetry
     case deviceReregister
     case legacyDirect
     case uiActionOpen
@@ -498,6 +503,1329 @@ final class AccountStreamLifecycleGate {
             phase = newPhase
         }
         lock.unlock()
+    }
+}
+
+enum AccountDisconnectCause: String, Equatable {
+    case intentionalShutdown
+    case accountDeletion
+    case resourceUpdate
+    case backgroundSuspension
+    case accidentalSocket
+    case pingTimeout
+    case retryableAuthFailure
+    case permanentAuthFailure
+    case serverStreamError
+
+    var isIntentional: Bool {
+        switch self {
+        case .intentionalShutdown, .accountDeletion, .resourceUpdate, .backgroundSuspension, .permanentAuthFailure:
+            return true
+        case .accidentalSocket, .pingTimeout, .retryableAuthFailure, .serverStreamError:
+            return false
+        }
+    }
+
+    var allowsAutoReconnect: Bool {
+        !isIntentional
+    }
+}
+
+enum AccountNetworkPathStatus: String, Equatable {
+    case satisfied
+    case unsatisfied
+    case requiresConnection
+}
+
+enum AccountNetworkInterface: String, Hashable {
+    case wifi
+    case cellular
+    case wiredEthernet
+    case loopback
+    case other
+}
+
+struct AccountNetworkPathSnapshot: Equatable {
+    let status: AccountNetworkPathStatus
+    let interfaces: Set<AccountNetworkInterface>
+    let isExpensive: Bool
+    let isConstrained: Bool
+
+    init(
+        status: AccountNetworkPathStatus,
+        interfaces: Set<AccountNetworkInterface> = [],
+        isExpensive: Bool = false,
+        isConstrained: Bool = false
+    ) {
+        self.status = status
+        self.interfaces = interfaces
+        self.isExpensive = isExpensive
+        self.isConstrained = isConstrained
+    }
+
+    var isSatisfied: Bool {
+        status == .satisfied
+    }
+
+    static func from(_ path: NWPath) -> AccountNetworkPathSnapshot {
+        let status: AccountNetworkPathStatus
+        switch path.status {
+        case .satisfied:
+            status = .satisfied
+        case .requiresConnection:
+            status = .requiresConnection
+        case .unsatisfied:
+            status = .unsatisfied
+        @unknown default:
+            status = .unsatisfied
+        }
+
+        var interfaces = Set<AccountNetworkInterface>()
+        if path.usesInterfaceType(.wifi) {
+            interfaces.insert(.wifi)
+        }
+        if path.usesInterfaceType(.cellular) {
+            interfaces.insert(.cellular)
+        }
+        if path.usesInterfaceType(.wiredEthernet) {
+            interfaces.insert(.wiredEthernet)
+        }
+        if path.usesInterfaceType(.loopback) {
+            interfaces.insert(.loopback)
+        }
+        if path.usesInterfaceType(.other) {
+            interfaces.insert(.other)
+        }
+
+        return AccountNetworkPathSnapshot(
+            status: status,
+            interfaces: interfaces,
+            isExpensive: path.isExpensive,
+            isConstrained: path.isConstrained
+        )
+    }
+}
+
+protocol AccountNetworkPathMonitoring: AnyObject {
+    var pathUpdateHandler: ((AccountNetworkPathSnapshot) -> Void)? { get set }
+    func start(queue: DispatchQueue)
+    func cancel()
+}
+
+final class AccountNWPathMonitor: AccountNetworkPathMonitoring {
+    private let monitor = NWPathMonitor()
+    var pathUpdateHandler: ((AccountNetworkPathSnapshot) -> Void)?
+
+    func start(queue: DispatchQueue) {
+        monitor.pathUpdateHandler = { [weak self] path in
+            self?.pathUpdateHandler?(AccountNetworkPathSnapshot.from(path))
+        }
+        monitor.start(queue: queue)
+    }
+
+    func cancel() {
+        monitor.cancel()
+    }
+}
+
+protocol AccountConnectionResilienceCancellable: AnyObject {
+    func cancel()
+}
+
+protocol AccountConnectionResilienceScheduling: AnyObject {
+    var now: TimeInterval { get }
+    func schedule(after delay: TimeInterval, _ block: @escaping () -> Void) -> AccountConnectionResilienceCancellable
+}
+
+private final class DispatchAccountConnectionResilienceCancellable: AccountConnectionResilienceCancellable {
+    private let item: DispatchWorkItem
+
+    init(item: DispatchWorkItem) {
+        self.item = item
+    }
+
+    func cancel() {
+        item.cancel()
+    }
+}
+
+final class DispatchAccountConnectionResilienceScheduler: AccountConnectionResilienceScheduling {
+    private let queue: DispatchQueue
+
+    init(queue: DispatchQueue) {
+        self.queue = queue
+    }
+
+    var now: TimeInterval {
+        ProcessInfo.processInfo.systemUptime
+    }
+
+    func schedule(after delay: TimeInterval, _ block: @escaping () -> Void) -> AccountConnectionResilienceCancellable {
+        let item = DispatchWorkItem(block: block)
+        queue.asyncAfter(deadline: .now() + max(delay, 0), execute: item)
+        return DispatchAccountConnectionResilienceCancellable(item: item)
+    }
+}
+
+enum XMPPStreamTLSTrustEvaluator {
+    static func evaluate(_ trust: SecTrust, peerName: String?) -> Bool {
+        let name = peerName?.isEmpty == false ? peerName : nil
+        let policy = SecPolicyCreateSSL(true, name.map { $0 as CFString })
+        _ = SecTrustSetPolicies(trust, policy)
+        var error: CFError?
+        return SecTrustEvaluateWithError(trust, &error)
+    }
+}
+
+struct AccountConnectionResiliencePolicy {
+    let pingInterval: TimeInterval
+    let pingTimeout: TimeInterval
+    let maxMissedPings: Int
+    let staleActivityTimeout: TimeInterval
+    let pathDebounce: TimeInterval
+    let stableOnlineReset: TimeInterval
+    let reconnectBaseDelay: TimeInterval
+    let reconnectMaxDelay: TimeInterval
+    let jitterRatio: Double
+    let fastResumeDelays: [TimeInterval]
+    let outboundConfirmationTimeout: TimeInterval
+    let jitter: () -> Double
+
+    static func aggressive(jitter: @escaping () -> Double = { Double.random(in: -1...1) }) -> AccountConnectionResiliencePolicy {
+        AccountConnectionResiliencePolicy(
+            pingInterval: 15,
+            pingTimeout: 8,
+            maxMissedPings: 1,
+            staleActivityTimeout: 40,
+            pathDebounce: 0.75,
+            stableOnlineReset: 60,
+            reconnectBaseDelay: 2,
+            reconnectMaxDelay: 60,
+            jitterRatio: 0.2,
+            fastResumeDelays: [0, 1],
+            outboundConfirmationTimeout: 8,
+            jitter: jitter
+        )
+    }
+}
+
+enum AccountConnectionStaleReason: String, Equatable {
+    case noConfirmedTraffic
+    case pingTimeout
+    case outboundConfirmationTimeout
+}
+
+struct AccountConnectionHealthSnapshot: Equatable {
+    let lastInboundStanzaAt: TimeInterval?
+    let lastStreamManagementAckAt: TimeInterval?
+    let lastDeliveryReceiptAt: TimeInterval?
+    let lastSuccessfulPingAt: TimeInterval?
+    let lastOutboundStanzaAt: TimeInterval?
+    let pendingOutgoingCount: Int
+    let lastConfirmedActivityAt: TimeInterval?
+    let lastActivityAge: TimeInterval?
+    let isSuspectedStale: Bool
+    let suspectedStaleReason: AccountConnectionStaleReason?
+}
+
+struct AccountConnectionResilienceActions {
+    let sendPing: () -> Bool
+    let forceClose: (AccountDisconnectCause) -> Void
+    let requestReconnect: (AccountConnectTrigger, AccountDisconnectCause) -> Bool
+    let probeOnlineStream: () -> Void
+    let canResumeStream: () -> Bool
+    let skipFullSetupAfterResume: () -> Void
+    let runFullSetupAfterAuthentication: () -> Void
+    let invalidateEndpointResolutionCache: (String) -> Void
+    let markSuspectedStale: (AccountConnectionStaleReason, AccountConnectionHealthSnapshot) -> Void
+    let healthChanged: (AccountConnectionHealthSnapshot) -> Void
+    let log: (String, [String: Any?]) -> Void
+}
+
+final class AccountConnectionResilienceCoordinator {
+    private let policy: AccountConnectionResiliencePolicy
+    private let scheduler: AccountConnectionResilienceScheduling
+    private let actions: AccountConnectionResilienceActions
+    private let stateLock = NSRecursiveLock()
+
+    private var isForegroundActive = false
+    private var isOnline = false
+    private var currentPath: AccountNetworkPathSnapshot?
+    private var pendingPing = false
+    private var missedPings = 0
+    private var retryAttempt = 0
+    private var fastResumeAttempt = 0
+    private var lastActivityAt: TimeInterval?
+    private var lastInboundStanzaAt: TimeInterval?
+    private var lastStreamManagementAckAt: TimeInterval?
+    private var lastDeliveryReceiptAt: TimeInterval?
+    private var lastSuccessfulPingAt: TimeInterval?
+    private var lastOutboundStanzaAt: TimeInterval?
+    private var pendingOutgoingCount = 0
+    private var isSuspectedStale = false
+    private var suspectedStaleReason: AccountConnectionStaleReason?
+    private var livenessTimer: AccountConnectionResilienceCancellable?
+    private var pingTimeoutTimer: AccountConnectionResilienceCancellable?
+    private var outboundConfirmationTimer: AccountConnectionResilienceCancellable?
+    private var retryTimer: AccountConnectionResilienceCancellable?
+    private var pathDebounceTimer: AccountConnectionResilienceCancellable?
+    private var stableOnlineTimer: AccountConnectionResilienceCancellable?
+    private var pausedReconnect: (cause: AccountDisconnectCause, trigger: AccountConnectTrigger)?
+
+    var healthSnapshot: AccountConnectionHealthSnapshot {
+        withStateLock {
+            makeHealthSnapshot(now: scheduler.now)
+        }
+    }
+
+    init(
+        policy: AccountConnectionResiliencePolicy = .aggressive(),
+        scheduler: AccountConnectionResilienceScheduling,
+        actions: AccountConnectionResilienceActions
+    ) {
+        self.policy = policy
+        self.scheduler = scheduler
+        self.actions = actions
+    }
+
+    func setForegroundActive(_ active: Bool) {
+        withStateLock {
+            setForegroundActiveLocked(active)
+        }
+    }
+
+    private func setForegroundActiveLocked(_ active: Bool) {
+        isForegroundActive = active
+        actions.log(
+            active ? "resilience_foreground_active" : "resilience_foreground_inactive",
+            ["online": isOnline]
+        )
+        if active {
+            actions.invalidateEndpointResolutionCache("foreground-active")
+            scheduleLivenessTick()
+        } else {
+            cancelLiveness()
+        }
+    }
+
+    func streamDidReachOnline(resumed: Bool) {
+        withStateLock {
+            streamDidReachOnlineLocked(resumed: resumed)
+        }
+    }
+
+    private func streamDidReachOnlineLocked(resumed: Bool) {
+        isOnline = true
+        pendingPing = false
+        missedPings = 0
+        isSuspectedStale = false
+        suspectedStaleReason = nil
+        recordConfirmedActivity(reason: resumed ? "stream-management-resumed" : "stream-online", kind: .inboundStanza)
+        cancelRetry()
+        scheduleStableOnlineReset()
+        scheduleLivenessTick()
+        actions.log(
+            "resilience_stream_online",
+            ["resumed": resumed]
+        )
+    }
+
+    func streamDidDisconnect(cause: AccountDisconnectCause) {
+        withStateLock {
+            streamDidDisconnectLocked(cause: cause)
+        }
+    }
+
+    private func streamDidDisconnectLocked(cause: AccountDisconnectCause) {
+        isOnline = false
+        pendingPing = false
+        missedPings = 0
+        lastActivityAt = nil
+        cancelLiveness()
+        outboundConfirmationTimer?.cancel()
+        outboundConfirmationTimer = nil
+        stableOnlineTimer?.cancel()
+        stableOnlineTimer = nil
+        actions.log(
+            "resilience_stream_disconnected",
+            ["cause": cause.rawValue, "willReconnect": cause.allowsAutoReconnect]
+        )
+        guard cause.allowsAutoReconnect else {
+            cancelRetry()
+            pausedReconnect = nil
+            return
+        }
+        scheduleReconnect(cause: cause, trigger: .resilienceRetry)
+    }
+
+    func noteInboundActivity(_ reason: String) {
+        withStateLock {
+            recordConfirmedActivity(reason: reason, kind: .inboundStanza)
+            scheduleLivenessTick()
+        }
+    }
+
+    func noteStreamManagementAck() {
+        withStateLock {
+            recordConfirmedActivity(reason: "stream-management-ack", kind: .streamManagementAck)
+            scheduleLivenessTick()
+        }
+    }
+
+    func noteDeliveryReceipt(originId: String, stanzaId: String) {
+        withStateLock {
+            recordConfirmedActivity(reason: "delivery-receipt", kind: .deliveryReceipt)
+            actions.log(
+                "resilience_delivery_receipt_observed",
+                ["originId": originId, "stanzaId": stanzaId]
+            )
+            scheduleLivenessTick()
+        }
+    }
+
+    func noteOutboundApplicationStanza(id: String?) {
+        withStateLock {
+            lastOutboundStanzaAt = scheduler.now
+            publishHealthSnapshot()
+            actions.log(
+                "resilience_outbound_stanza_observed",
+                ["id": id ?? "none", "timeout": policy.outboundConfirmationTimeout]
+            )
+            scheduleOutboundConfirmationTimeout()
+        }
+    }
+
+    func updatePendingOutgoingCount(_ count: Int) {
+        withStateLock {
+            pendingOutgoingCount = max(0, count)
+            publishHealthSnapshot()
+        }
+    }
+
+    func notePingResult(success: Bool) {
+        withStateLock {
+            actions.log(
+                success ? "resilience_ping_result" : "resilience_ping_error",
+                ["success": success]
+            )
+            if success {
+                recordConfirmedActivity(reason: "ping-result", kind: .successfulPing)
+                scheduleLivenessTick()
+            } else {
+                handlePingTimeout()
+            }
+        }
+    }
+
+    func networkPathDidChange(_ snapshot: AccountNetworkPathSnapshot) {
+        withStateLock {
+            pathDebounceTimer?.cancel()
+            pathDebounceTimer = scheduler.schedule(after: policy.pathDebounce) { [weak self] in
+                self?.withStateLock {
+                    self?.applyNetworkPath(snapshot)
+                }
+            }
+        }
+    }
+
+    func streamManagementResumeCompleted(didResume: Bool, responseName: String?) {
+        withStateLock {
+            actions.log(
+                didResume ? "stream_management_resume_succeeded" : "stream_management_resume_failed",
+                ["response": responseName ?? "none"]
+            )
+            if didResume {
+                actions.skipFullSetupAfterResume()
+            } else {
+                actions.runFullSetupAfterAuthentication()
+            }
+            streamDidReachOnlineLocked(resumed: didResume)
+        }
+    }
+
+    func scheduleReconnect(cause: AccountDisconnectCause, trigger: AccountConnectTrigger) {
+        withStateLock {
+            scheduleReconnectLocked(cause: cause, trigger: trigger)
+        }
+    }
+
+    private func scheduleReconnectLocked(cause: AccountDisconnectCause, trigger: AccountConnectTrigger) {
+        guard cause.allowsAutoReconnect else { return }
+        guard retryTimer == nil else { return }
+        guard currentPath?.isSatisfied ?? true else {
+            pausedReconnect = (cause, trigger)
+            actions.log(
+                "resilience_reconnect_paused_path_unsatisfied",
+                ["cause": cause.rawValue, "trigger": trigger.rawValue]
+            )
+            return
+        }
+
+        let delay = reconnectDelay()
+        actions.log(
+            "resilience_reconnect_scheduled",
+            ["cause": cause.rawValue, "trigger": trigger.rawValue, "delay": delay]
+        )
+        retryTimer = scheduler.schedule(after: delay) { [weak self] in
+            self?.withStateLock {
+                self?.fireReconnect(cause: cause, trigger: trigger)
+            }
+        }
+    }
+
+    private func applyNetworkPath(_ snapshot: AccountNetworkPathSnapshot) {
+        let previous = currentPath
+        currentPath = snapshot
+        if let previous, previous != snapshot {
+            actions.invalidateEndpointResolutionCache("path-changed")
+        }
+        actions.log(
+            "resilience_path_changed",
+            [
+                "status": snapshot.status.rawValue,
+                "interfaces": snapshot.interfaces.map(\.rawValue).sorted().joined(separator: ","),
+                "isExpensive": snapshot.isExpensive,
+                "isConstrained": snapshot.isConstrained
+            ]
+        )
+
+        guard snapshot.isSatisfied else {
+            cancelLiveness()
+            return
+        }
+
+        let recovered = previous?.isSatisfied == false
+        let interfaceChanged = previous != nil && previous?.interfaces != snapshot.interfaces
+        guard recovered || interfaceChanged else { return }
+
+        if isOnline {
+            actions.probeOnlineStream()
+            sendLivenessProbeNow()
+        } else if let pausedReconnect {
+            self.pausedReconnect = nil
+            scheduleReconnect(cause: pausedReconnect.cause, trigger: .pathRecovery)
+        } else {
+            scheduleReconnect(cause: .accidentalSocket, trigger: .pathRecovery)
+        }
+    }
+
+    private func scheduleLivenessTick() {
+        guard isForegroundActive, isOnline, !isSuspectedStale, currentPath?.isSatisfied ?? true else { return }
+        livenessTimer?.cancel()
+        livenessTimer = scheduler.schedule(after: policy.pingInterval) { [weak self] in
+            self?.withStateLock {
+                self?.sendLivenessProbeNow()
+            }
+        }
+    }
+
+    private func sendLivenessProbeNow() {
+        guard isForegroundActive, isOnline, !isSuspectedStale, currentPath?.isSatisfied ?? true else { return }
+        guard !pendingPing else { return }
+
+        if let lastActivityAt,
+           scheduler.now - lastActivityAt >= policy.staleActivityTimeout {
+            actions.log(
+                "resilience_liveness_stale_activity",
+                ["age": scheduler.now - lastActivityAt]
+            )
+            forceCloseAfterLivenessFailure(reason: .noConfirmedTraffic)
+            return
+        }
+
+        pendingPing = true
+        actions.log("resilience_ping_enqueue", ["timeout": policy.pingTimeout])
+        guard actions.sendPing() else {
+            handlePingTimeout()
+            return
+        }
+        pingTimeoutTimer?.cancel()
+        pingTimeoutTimer = scheduler.schedule(after: policy.pingTimeout) { [weak self] in
+            self?.withStateLock {
+                self?.handlePingTimeout()
+            }
+        }
+    }
+
+    private func handlePingTimeout() {
+        guard pendingPing, isOnline, !isSuspectedStale else { return }
+        pendingPing = false
+        pingTimeoutTimer?.cancel()
+        pingTimeoutTimer = nil
+        missedPings += 1
+        actions.log(
+            "resilience_ping_timeout",
+            ["missedPings": missedPings, "limit": policy.maxMissedPings]
+        )
+
+        guard missedPings >= policy.maxMissedPings else {
+            scheduleLivenessTick()
+            return
+        }
+        forceCloseAfterLivenessFailure(reason: .pingTimeout)
+    }
+
+    private func forceCloseAfterLivenessFailure(reason: AccountConnectionStaleReason) {
+        cancelLiveness()
+        markSuspectedStale(reason)
+        isOnline = false
+        actions.forceClose(.pingTimeout)
+        scheduleReconnectLocked(cause: .pingTimeout, trigger: .resilienceRetry)
+    }
+
+    private func scheduleOutboundConfirmationTimeout() {
+        guard isForegroundActive, isOnline, !isSuspectedStale else { return }
+        outboundConfirmationTimer?.cancel()
+        outboundConfirmationTimer = scheduler.schedule(after: policy.outboundConfirmationTimeout) { [weak self] in
+            self?.withStateLock {
+                self?.handleOutboundConfirmationTimeout()
+            }
+        }
+    }
+
+    private func handleOutboundConfirmationTimeout() {
+        guard isOnline, !isSuspectedStale else { return }
+        actions.log(
+            "resilience_outbound_confirmation_timeout",
+            ["timeout": policy.outboundConfirmationTimeout]
+        )
+        forceCloseAfterLivenessFailure(reason: .outboundConfirmationTimeout)
+    }
+
+    private func fireReconnect(cause: AccountDisconnectCause, trigger: AccountConnectTrigger) {
+        retryTimer = nil
+        guard currentPath?.isSatisfied ?? true else {
+            pausedReconnect = (cause, trigger)
+            actions.log(
+                "resilience_reconnect_paused_path_unsatisfied",
+                ["cause": cause.rawValue, "trigger": trigger.rawValue]
+            )
+            return
+        }
+        let started = actions.requestReconnect(trigger, cause)
+        actions.log(
+            started ? "resilience_reconnect_started" : "resilience_reconnect_skipped",
+            ["cause": cause.rawValue, "trigger": trigger.rawValue]
+        )
+    }
+
+    private func reconnectDelay() -> TimeInterval {
+        if actions.canResumeStream(), fastResumeAttempt < policy.fastResumeDelays.count {
+            let delay = policy.fastResumeDelays[fastResumeAttempt]
+            fastResumeAttempt += 1
+            return delay
+        }
+
+        let exponent = min(retryAttempt, 10)
+        retryAttempt += 1
+        let base = min(policy.reconnectMaxDelay, policy.reconnectBaseDelay * pow(2, Double(exponent)))
+        let boundedJitter = max(-1, min(1, policy.jitter()))
+        return max(0, base + (base * policy.jitterRatio * boundedJitter))
+    }
+
+    private func scheduleStableOnlineReset() {
+        stableOnlineTimer?.cancel()
+        stableOnlineTimer = scheduler.schedule(after: policy.stableOnlineReset) { [weak self] in
+            self?.withStateLock {
+                self?.retryAttempt = 0
+                self?.fastResumeAttempt = 0
+                self?.actions.log("resilience_backoff_reset", [:])
+            }
+        }
+    }
+
+    private func cancelLiveness() {
+        livenessTimer?.cancel()
+        livenessTimer = nil
+        pingTimeoutTimer?.cancel()
+        pingTimeoutTimer = nil
+        outboundConfirmationTimer?.cancel()
+        outboundConfirmationTimer = nil
+        pendingPing = false
+    }
+
+    private func cancelRetry() {
+        retryTimer?.cancel()
+        retryTimer = nil
+        pausedReconnect = nil
+    }
+
+    private enum ConfirmedActivityKind {
+        case inboundStanza
+        case streamManagementAck
+        case deliveryReceipt
+        case successfulPing
+    }
+
+    @discardableResult
+    private func withStateLock<T>(_ block: () -> T) -> T {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return block()
+    }
+
+    private func recordConfirmedActivity(reason: String, kind: ConfirmedActivityKind) {
+        guard !isSuspectedStale else {
+            actions.log("resilience_activity_ignored_after_stale", ["reason": reason])
+            return
+        }
+
+        let now = scheduler.now
+        lastActivityAt = now
+        switch kind {
+        case .inboundStanza:
+            lastInboundStanzaAt = now
+        case .streamManagementAck:
+            lastStreamManagementAckAt = now
+        case .deliveryReceipt:
+            lastDeliveryReceiptAt = now
+        case .successfulPing:
+            lastSuccessfulPingAt = now
+        }
+        pendingPing = false
+        missedPings = 0
+        pingTimeoutTimer?.cancel()
+        pingTimeoutTimer = nil
+        outboundConfirmationTimer?.cancel()
+        outboundConfirmationTimer = nil
+        actions.log(
+            "resilience_activity_observed",
+            ["reason": reason]
+        )
+        publishHealthSnapshot()
+    }
+
+    private func markSuspectedStale(_ reason: AccountConnectionStaleReason) {
+        guard !isSuspectedStale else { return }
+        isSuspectedStale = true
+        suspectedStaleReason = reason
+        let snapshot = makeHealthSnapshot(now: scheduler.now)
+        actions.log(
+            "connection_health_suspected_stale",
+            ["reason": reason.rawValue, "lastActivityAge": snapshot.lastActivityAge]
+        )
+        actions.healthChanged(snapshot)
+        actions.markSuspectedStale(reason, snapshot)
+    }
+
+    private func publishHealthSnapshot() {
+        actions.healthChanged(makeHealthSnapshot(now: scheduler.now))
+    }
+
+    private func makeHealthSnapshot(now: TimeInterval) -> AccountConnectionHealthSnapshot {
+        AccountConnectionHealthSnapshot(
+            lastInboundStanzaAt: lastInboundStanzaAt,
+            lastStreamManagementAckAt: lastStreamManagementAckAt,
+            lastDeliveryReceiptAt: lastDeliveryReceiptAt,
+            lastSuccessfulPingAt: lastSuccessfulPingAt,
+            lastOutboundStanzaAt: lastOutboundStanzaAt,
+            pendingOutgoingCount: pendingOutgoingCount,
+            lastConfirmedActivityAt: lastActivityAt,
+            lastActivityAge: lastActivityAt.map { max(0, now - $0) },
+            isSuspectedStale: isSuspectedStale,
+            suspectedStaleReason: suspectedStaleReason
+        )
+    }
+}
+
+enum AccountSendReadinessReadyKind: String, Equatable {
+    case streamManagementEnabled
+    case streamManagementResumed
+}
+
+enum AccountSendReadinessPhase: Equatable {
+    case disconnected
+    case connecting
+    case tlsNegotiating
+    case authenticating
+    case binding
+    case enablingStreamManagement
+    case resuming
+    case ready(AccountSendReadinessReadyKind)
+    case suspectedStale
+    case backgroundSuspended
+    case streamError
+    case streamManagementFailed
+
+    var canFlushApplicationStanzas: Bool {
+        if case .ready = self {
+            return true
+        }
+        return false
+    }
+}
+
+struct AccountSendReadinessSnapshot: Equatable {
+    let phase: AccountSendReadinessPhase
+    let updatedAt: Date
+    let reason: String?
+
+    var canFlushApplicationStanzas: Bool {
+        phase.canFlushApplicationStanzas
+    }
+}
+
+final class AccountSendReadinessCoordinator {
+    private let lock = NSRecursiveLock()
+    private var currentSnapshot: AccountSendReadinessSnapshot
+    var snapshot: AccountSendReadinessSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return currentSnapshot
+    }
+    var onReadinessChanged: ((AccountSendReadinessSnapshot) -> Void)?
+
+    init(initialDate: Date = Date()) {
+        self.currentSnapshot = AccountSendReadinessSnapshot(
+            phase: .disconnected,
+            updatedAt: initialDate,
+            reason: nil
+        )
+    }
+
+    func markConnecting(trigger: AccountConnectTrigger) {
+        transition(to: .connecting, reason: trigger.rawValue)
+    }
+
+    func markTLSNegotiating() {
+        transition(to: .tlsNegotiating)
+    }
+
+    func markAuthenticating() {
+        transition(to: .authenticating)
+    }
+
+    func markBinding() {
+        transition(to: .binding)
+    }
+
+    func markStreamManagementEnableRequested() {
+        transition(to: .enablingStreamManagement)
+    }
+
+    func markResuming() {
+        transition(to: .resuming)
+    }
+
+    func markStreamManagementEnabled() {
+        transition(to: .ready(.streamManagementEnabled))
+    }
+
+    func markStreamManagementResumeSucceeded() {
+        transition(to: .ready(.streamManagementResumed))
+    }
+
+    func markStreamManagementResumeFailed(reason: String? = nil) {
+        transition(to: .enablingStreamManagement, reason: reason)
+    }
+
+    func markStreamManagementEnableFailed(reason: String? = nil) {
+        transition(to: .streamManagementFailed, reason: reason)
+    }
+
+    func markSuspectedStale(reason: String? = nil) {
+        transition(to: .suspectedStale, reason: reason)
+    }
+
+    func markDisconnected(cause: AccountDisconnectCause) {
+        if cause == .backgroundSuspension {
+            transition(to: .backgroundSuspended, reason: cause.rawValue)
+        } else {
+            transition(to: .disconnected, reason: cause.rawValue)
+        }
+    }
+
+    func markStreamError(_ reason: String? = nil) {
+        transition(to: .streamError, reason: reason)
+    }
+
+    private func transition(to phase: AccountSendReadinessPhase, reason: String? = nil) {
+        let nextSnapshot = AccountSendReadinessSnapshot(
+            phase: phase,
+            updatedAt: Date(),
+            reason: reason
+        )
+        lock.lock()
+        currentSnapshot = nextSnapshot
+        let callback = onReadinessChanged
+        lock.unlock()
+        callback?(nextSnapshot)
+    }
+}
+
+struct AccountQueuedMessageSendRequest {
+    let owner: String
+    let conversationJid: String
+    let conversationType: ClientSynchronizationManager.ConversationType
+    let messagePrimary: String
+    let originId: String
+    let stanzaXML: String
+    let createdAt: Date
+    let replayRequired: Bool
+}
+
+final class AccountSendCoordinator {
+    struct Environment {
+        let owner: String
+        let isSendReady: () -> Bool
+        let decorateMessage: (XMPPMessage, Bool, Bool) -> XMPPMessage
+        let sendMessage: (XMPPMessage) -> Void
+        let updatePendingOutgoingCount: (Int) -> Void
+        let log: (String, [String: Any?]) -> Void
+
+        init(
+            owner: String,
+            isSendReady: @escaping () -> Bool,
+            decorateMessage: @escaping (XMPPMessage, Bool, Bool) -> XMPPMessage,
+            sendMessage: @escaping (XMPPMessage) -> Void,
+            updatePendingOutgoingCount: @escaping (Int) -> Void = { _ in },
+            log: @escaping (String, [String: Any?]) -> Void
+        ) {
+            self.owner = owner
+            self.isSendReady = isSendReady
+            self.decorateMessage = decorateMessage
+            self.sendMessage = sendMessage
+            self.updatePendingOutgoingCount = updatePendingOutgoingCount
+            self.log = log
+        }
+    }
+
+    private struct SendCandidate {
+        let queuePrimary: String
+        let originId: String
+        let stanzaXML: String
+        let replayRequired: Bool
+        let missRetryElement: Bool
+    }
+
+    private let environment: Environment
+
+    init(environment: Environment) {
+        self.environment = environment
+    }
+
+    convenience init(account: Account) {
+        self.init(
+            environment: Environment(
+                owner: account.jid,
+                isSendReady: { [weak account] in
+                    account?.sendReadiness.snapshot.canFlushApplicationStanzas ?? false
+                },
+                decorateMessage: { [weak account] message, retry, missRetryElement in
+                    guard let account else { return message }
+                    message.addChild(account.chatMarkers.child)
+                    return account.deliveryManager.apply(
+                        to: message,
+                        retry: retry,
+                        missRetryElement: missRetryElement
+                    )
+                },
+                sendMessage: { [weak account] message in
+                    account?.xmppStream.send(message)
+                },
+                updatePendingOutgoingCount: { [weak account] count in
+                    account?.connectionResilience.updatePendingOutgoingCount(count)
+                },
+                log: { [weak account] event, details in
+                    account?.logConnectionDiagnostics(event: event, details: details)
+                }
+            )
+        )
+    }
+
+    @discardableResult
+    func enqueueRegularMessage(_ request: AccountQueuedMessageSendRequest) throws -> Bool {
+        let didPersist = try AccountSendCoordinator.persistRegularMessage(request)
+        if didPersist {
+            notifyPendingOutgoingCount()
+            drainReadyQueue()
+        }
+        return didPersist
+    }
+
+    @discardableResult
+    static func persistRegularMessage(_ request: AccountQueuedMessageSendRequest) throws -> Bool {
+        guard request.conversationType == .regular else {
+            return false
+        }
+
+        let realm = try WRealm.safe()
+        let primary = OutgoingMessageQueueItem.genPrimary(
+            owner: request.owner,
+            conversationJid: request.conversationJid,
+            conversationType: request.conversationType,
+            messagePrimary: request.messagePrimary
+        )
+        try realm.write {
+            let item = realm.object(ofType: OutgoingMessageQueueItem.self, forPrimaryKey: primary)
+                ?? OutgoingMessageQueueItem()
+            item.configure(
+                owner: request.owner,
+                conversationJid: request.conversationJid,
+                conversationType: request.conversationType,
+                messagePrimary: request.messagePrimary,
+                originId: request.originId,
+                stanzaXML: request.stanzaXML,
+                createdAt: request.createdAt,
+                replayRequired: request.replayRequired
+            )
+            realm.add(item, update: .modified)
+        }
+        return true
+    }
+
+    static func restoreRecoverableRegularMessages(owner: String) {
+        do {
+            let realm = try WRealm.safe()
+            let messages = realm
+                .objects(MessageStorageItem.self)
+                .filter(
+                    "owner == %@ AND outgoing == true AND conversationType_ == %@ AND messageType == %@ AND state_ == %@",
+                    owner,
+                    ClientSynchronizationManager.ConversationType.regular.rawValue,
+                    MessageStorageItem.MessageDisplayType.text.rawValue,
+                    MessageStorageItem.MessageSendingState.sending.rawValue
+                )
+            guard !messages.isEmpty else { return }
+            try realm.write {
+                messages.forEach { message in
+                    guard let storedStanza = realm.object(
+                        ofType: MessageStanzaStorageItem.self,
+                        forPrimaryKey: [message.primary, "_stanza"].joined()
+                    ), storedStanza.stanza.isNotEmpty else {
+                        return
+                    }
+                    let primary = OutgoingMessageQueueItem.genPrimary(
+                        owner: message.owner,
+                        conversationJid: message.opponent,
+                        conversationType: message.conversationType,
+                        messagePrimary: message.primary
+                    )
+                    guard realm.object(ofType: OutgoingMessageQueueItem.self, forPrimaryKey: primary) == nil else {
+                        return
+                    }
+                    let item = OutgoingMessageQueueItem()
+                    item.configure(
+                        owner: message.owner,
+                        conversationJid: message.opponent,
+                        conversationType: message.conversationType,
+                        messagePrimary: message.primary,
+                        originId: message.messageId,
+                        stanzaXML: storedStanza.stanza,
+                        createdAt: message.date,
+                        replayRequired: false
+                    )
+                    realm.add(item, update: .modified)
+                }
+            }
+        } catch {
+            DDLogDebug("AccountSendCoordinator: restoreRecoverableRegularMessages failed: \(error.localizedDescription)")
+        }
+    }
+
+    func accountDidBecomeSendReady() {
+        AccountSendCoordinator.restoreRecoverableRegularMessages(owner: environment.owner)
+        notifyPendingOutgoingCount()
+        drainReadyQueue()
+    }
+
+    func streamDidDisconnect(canResume: Bool) {
+        environment.log(
+            "account_send_coordinator_stream_disconnected",
+            ["canResume": canResume]
+        )
+    }
+
+    func streamManagementResumeSucceeded() {
+        drainReadyQueue()
+    }
+
+    func streamManagementResumeFailed() {
+        do {
+            let realm = try WRealm.safe()
+            let awaiting = realm
+                .objects(OutgoingMessageQueueItem.self)
+                .filter(
+                    "owner == %@ AND state_ == %@",
+                    environment.owner,
+                    OutgoingMessageQueueItem.State.awaitingReceipt.rawValue
+                )
+            guard !awaiting.isEmpty else { return }
+            let awaitingItems = Array(awaiting)
+            try realm.write {
+                awaitingItems.forEach { item in
+                    if let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: item.messagePrimary),
+                       message.archivedId.isNotEmpty || message.state != .sending {
+                        realm.delete(item)
+                    } else {
+                        item.state = .queued
+                        item.replayRequired = true
+                        item.lastError = "stream-management-resume-failed"
+                    }
+                }
+            }
+            notifyPendingOutgoingCount()
+        } catch {
+            DDLogDebug("AccountSendCoordinator: streamManagementResumeFailed failed: \(error.localizedDescription)")
+        }
+    }
+
+    func deliveryReceiptReceived(originId: String, stanzaId: String) {
+        do {
+            let realm = try WRealm.safe()
+            let completedItems = realm
+                .objects(OutgoingMessageQueueItem.self)
+                .filter("owner == %@ AND originId == %@", environment.owner, originId)
+            let completed = Array(completedItems)
+            let chatKeys = completed.map {
+                ($0.conversationJid, $0.conversationType)
+            }
+            try realm.write {
+                realm.delete(completed)
+            }
+            notifyPendingOutgoingCount()
+            chatKeys.forEach { conversationJid, conversationType in
+                drainNextReadyMessage(conversationJid: conversationJid, conversationType: conversationType)
+            }
+        } catch {
+            DDLogDebug("AccountSendCoordinator: deliveryReceiptReceived failed: \(error.localizedDescription)")
+        }
+    }
+
+    func terminalFailure(originId: String, error: String) {
+        do {
+            let realm = try WRealm.safe()
+            let failedItems = realm
+                .objects(OutgoingMessageQueueItem.self)
+                .filter("owner == %@ AND originId == %@", environment.owner, originId)
+            guard !failedItems.isEmpty else { return }
+            let failed = Array(failedItems)
+            let chatKeys = failed.map {
+                QueueChatKey(jid: $0.conversationJid, type: $0.conversationType)
+            }
+            try realm.write {
+                failed.forEach { item in
+                    item.state = .terminalFailed
+                    item.lastError = error
+                }
+            }
+            notifyPendingOutgoingCount()
+            chatKeys.forEach {
+                drainNextReadyMessage(conversationJid: $0.jid, conversationType: $0.type)
+            }
+        } catch {
+            DDLogDebug("AccountSendCoordinator: terminalFailure failed: \(error.localizedDescription)")
+        }
+    }
+
+    @discardableResult
+    func localSendFailed(message: XMPPMessage, error: Error) -> Bool {
+        guard let originId = message.elementID else {
+            return false
+        }
+        do {
+            let realm = try WRealm.safe()
+            guard let item = realm
+                .objects(OutgoingMessageQueueItem.self)
+                .filter(
+                    "owner == %@ AND originId == %@ AND state_ == %@",
+                    environment.owner,
+                    originId,
+                    OutgoingMessageQueueItem.State.awaitingReceipt.rawValue
+                )
+                .first else {
+                return false
+            }
+            try realm.write {
+                item.state = .queued
+                item.lastError = error.localizedDescription
+                item.lastAttemptAt = nil
+            }
+            notifyPendingOutgoingCount()
+            return true
+        } catch {
+            DDLogDebug("AccountSendCoordinator: localSendFailed failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    func drainReadyQueue() {
+        guard environment.isSendReady() else {
+            return
+        }
+        do {
+            try pruneResolvedQueuedMessages()
+            let realm = try WRealm.safe()
+            let queued = realm
+                .objects(OutgoingMessageQueueItem.self)
+                .filter(
+                    "owner == %@ AND state_ == %@",
+                    environment.owner,
+                    OutgoingMessageQueueItem.State.queued.rawValue
+                )
+            let chatKeys = Set(queued.map { QueueChatKey(jid: $0.conversationJid, type: $0.conversationType) })
+            chatKeys.forEach {
+                drainNextReadyMessage(conversationJid: $0.jid, conversationType: $0.type)
+            }
+        } catch {
+            DDLogDebug("AccountSendCoordinator: drainReadyQueue failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func drainNextReadyMessage(
+        conversationJid: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) {
+        guard environment.isSendReady() else {
+            return
+        }
+        guard let candidate = reserveNextCandidate(conversationJid: conversationJid, conversationType: conversationType) else {
+            return
+        }
+        guard let message = makeMessage(from: candidate.stanzaXML) else {
+            markCandidateTerminal(candidate, error: "invalid-stanza")
+            drainNextReadyMessage(conversationJid: conversationJid, conversationType: conversationType)
+            return
+        }
+        let decorated = environment.decorateMessage(
+            message,
+            candidate.replayRequired,
+            candidate.missRetryElement
+        )
+        environment.sendMessage(decorated)
+    }
+
+    private func reserveNextCandidate(
+        conversationJid: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> SendCandidate? {
+        do {
+            let realm = try WRealm.safe()
+            let awaiting = realm
+                .objects(OutgoingMessageQueueItem.self)
+                .filter(
+                    "owner == %@ AND conversationJid == %@ AND conversationType_ == %@ AND state_ == %@",
+                    environment.owner,
+                    conversationJid,
+                    conversationType.rawValue,
+                    OutgoingMessageQueueItem.State.awaitingReceipt.rawValue
+                )
+            guard awaiting.isEmpty else {
+                return nil
+            }
+            guard let item = realm
+                .objects(OutgoingMessageQueueItem.self)
+                .filter(
+                    "owner == %@ AND conversationJid == %@ AND conversationType_ == %@ AND state_ == %@",
+                    environment.owner,
+                    conversationJid,
+                    conversationType.rawValue,
+                    OutgoingMessageQueueItem.State.queued.rawValue
+                )
+                .sorted(by: [
+                    SortDescriptor(keyPath: "createdOrder", ascending: true),
+                    SortDescriptor(keyPath: "primary", ascending: true)
+                ])
+                .first else {
+                return nil
+            }
+            let candidate = SendCandidate(
+                queuePrimary: item.primary,
+                originId: item.originId,
+                stanzaXML: item.stanzaXML,
+                replayRequired: item.replayRequired,
+                missRetryElement: messageMissesRetryElementOnResend(item, realm: realm)
+            )
+            try realm.write {
+                item.state = .awaitingReceipt
+                item.attemptCount += 1
+                item.lastAttemptAt = Date()
+                item.lastError = nil
+            }
+            notifyPendingOutgoingCount()
+            return candidate
+        } catch {
+            DDLogDebug("AccountSendCoordinator: reserveNextCandidate failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func makeMessage(from xml: String) -> XMPPMessage? {
+        do {
+            let document = try DDXMLDocument(xmlString: xml, options: 0)
+            guard let root = document.rootElement() else {
+                return nil
+            }
+            return XMPPMessage(from: root)
+        } catch {
+            DDLogDebug("AccountSendCoordinator: invalid queued stanza XML: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func markCandidateTerminal(_ candidate: SendCandidate, error: String) {
+        do {
+            let realm = try WRealm.safe()
+            guard let item = realm.object(ofType: OutgoingMessageQueueItem.self, forPrimaryKey: candidate.queuePrimary) else {
+                return
+            }
+            try realm.write {
+                item.state = .terminalFailed
+                item.lastError = error
+            }
+            notifyPendingOutgoingCount()
+        } catch {
+            DDLogDebug("AccountSendCoordinator: markCandidateTerminal failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func messageMissesRetryElementOnResend(_ item: OutgoingMessageQueueItem, realm: Realm) -> Bool {
+        guard let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: item.messagePrimary) else {
+            return false
+        }
+        return message.messageErrorCode == "405"
+    }
+
+    private func pruneResolvedQueuedMessages() throws {
+        let realm = try WRealm.safe()
+        let items = realm
+            .objects(OutgoingMessageQueueItem.self)
+            .filter("owner == %@ AND state_ != %@", environment.owner, OutgoingMessageQueueItem.State.terminalFailed.rawValue)
+        guard !items.isEmpty else { return }
+        let queuedItems = Array(items)
+        try realm.write {
+            queuedItems.forEach { item in
+                guard let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: item.messagePrimary) else {
+                    return
+                }
+                if message.archivedId.isNotEmpty || [.sended, .deliver, .read, .error].contains(message.state) {
+                    realm.delete(item)
+                }
+            }
+        }
+        notifyPendingOutgoingCount()
+    }
+
+    private func notifyPendingOutgoingCount() {
+        do {
+            let realm = try WRealm.safe()
+            let count = realm
+                .objects(OutgoingMessageQueueItem.self)
+                .filter(
+                    "owner == %@ AND state_ != %@",
+                    environment.owner,
+                    OutgoingMessageQueueItem.State.terminalFailed.rawValue
+                )
+                .count
+            environment.updatePendingOutgoingCount(count)
+        } catch {
+            DDLogDebug("AccountSendCoordinator: notifyPendingOutgoingCount failed: \(error.localizedDescription)")
+        }
+    }
+
+    private struct QueueChatKey: Hashable {
+        let jid: String
+        let type: ClientSynchronizationManager.ConversationType
     }
 }
 
@@ -824,6 +2152,70 @@ final class Account: NSObject {
     lazy var xmppTaskScheduler: AccountXMPPTaskScheduler = AccountXMPPTaskScheduler(account: self)
     let authenticationCounterTracker = XMPPAuthenticationCounterTracker()
     let connectionGate = AccountStreamLifecycleGate()
+    let sendReadiness = AccountSendReadinessCoordinator()
+    lazy var sendCoordinator: AccountSendCoordinator = AccountSendCoordinator(account: self)
+    private lazy var connectionResilienceQueue = DispatchQueue(label: "com.xabber.account.connection-resilience.\(self.jid)")
+    private lazy var connectionResilienceScheduler = DispatchAccountConnectionResilienceScheduler(queue: self.connectionResilienceQueue)
+    private var lastEndpointResolutionSettingsKey: String?
+    lazy var connectionResilience = AccountConnectionResilienceCoordinator(
+        policy: .aggressive(),
+        scheduler: self.connectionResilienceScheduler,
+        actions: AccountConnectionResilienceActions(
+            sendPing: { [weak self] in
+                self?.sendResiliencePing() ?? false
+            },
+            forceClose: { [weak self] cause in
+                self?.forceCloseForResilience(cause: cause)
+            },
+            requestReconnect: { [weak self] trigger, cause in
+                self?.requestResilienceReconnect(trigger: trigger, cause: cause) ?? false
+            },
+            probeOnlineStream: { [weak self] in
+                self?.logConnectionDiagnostics(event: "resilience_probe_online_stream")
+            },
+            canResumeStream: { [weak self] in
+                self?.sm.canResumeStream() ?? false
+            },
+            skipFullSetupAfterResume: { [weak self] in
+                self?.logConnectionDiagnostics(event: "stream_management_resume_skip_full_setup")
+            },
+            runFullSetupAfterAuthentication: { [weak self] in
+                self?.logConnectionDiagnostics(event: "stream_management_resume_run_full_setup")
+            },
+            invalidateEndpointResolutionCache: { [weak self] reason in
+                XMPPSRVResolver.invalidateCache(withReason: reason)
+                self?.logConnectionDiagnostics(
+                    event: "resolver_cache_invalidated",
+                    details: ["reason": reason]
+                )
+            },
+            markSuspectedStale: { [weak self] reason, snapshot in
+                self?.handleConnectionSuspectedStale(reason: reason, snapshot: snapshot)
+            },
+            healthChanged: { [weak self] snapshot in
+                self?.logConnectionDiagnostics(
+                    event: "connection_health_snapshot",
+                    details: [
+                        "lastInboundAge": snapshot.lastInboundStanzaAt.map { ProcessInfo.processInfo.systemUptime - $0 },
+                        "lastAckAge": snapshot.lastStreamManagementAckAt.map { ProcessInfo.processInfo.systemUptime - $0 },
+                        "lastReceiptAge": snapshot.lastDeliveryReceiptAt.map { ProcessInfo.processInfo.systemUptime - $0 },
+                        "lastPingAge": snapshot.lastSuccessfulPingAt.map { ProcessInfo.processInfo.systemUptime - $0 },
+                        "lastOutboundAge": snapshot.lastOutboundStanzaAt.map { ProcessInfo.processInfo.systemUptime - $0 },
+                        "pendingOutgoingCount": snapshot.pendingOutgoingCount,
+                        "lastActivityAge": snapshot.lastActivityAge,
+                        "isSuspectedStale": snapshot.isSuspectedStale,
+                        "staleReason": snapshot.suspectedStaleReason?.rawValue
+                    ]
+                )
+            },
+            log: { [weak self] event, details in
+                self?.logConnectionDiagnostics(event: event, details: details)
+            }
+        )
+    )
+    private var networkPathMonitor: AccountNetworkPathMonitoring?
+    private var isConnectionResilienceMonitoringStarted = false
+    var pendingDisconnectCause: AccountDisconnectCause?
 //  XMPPFramework modules
     var reconnect: XMPPReconnect
 //  custom modules
@@ -883,6 +2275,8 @@ final class Account: NSObject {
 //  service data
     var delayedConnectTimer: Timer?
     var isPresenceUpdateRequestSend: Bool = false
+    private var shouldSendBroadcastPresenceWhenReady: Bool = false
+    private var pendingPresenceTargetJids: Set<String> = []
     var watchConnectionTimer: Timer?
     let connectionDiagnosticsLock = NSLock()
     var connectionDiagnosticsHeartbeatID: UInt64 = 0
@@ -961,7 +2355,24 @@ final class Account: NSObject {
         self.abuse = XMPPAbuseManager(withOwner: self.jid)
         // start init NSObject
         super.init()
+        self.sendReadiness.onReadinessChanged = { [weak self] snapshot in
+            guard let self else { return }
+            self.logConnectionDiagnostics(
+                event: "send_readiness_changed",
+                details: [
+                    "phase": "\(snapshot.phase)",
+                    "canFlush": snapshot.canFlushApplicationStanzas,
+                    "reason": snapshot.reason
+                ]
+            )
+            if snapshot.canFlushApplicationStanzas {
+                self.flushPendingPresenceSends()
+                self.sendCoordinator.accountDidBecomeSendReady()
+            }
+        }
+        AccountSendCoordinator.restoreRecoverableRegularMessages(owner: self.jid)
         self.registerModules()
+        self.startConnectionResilienceMonitoring()
         self.lastChats.resetSyncedStatus()
         self.groupchats.reset()
         self.load()
@@ -969,6 +2380,36 @@ final class Account: NSObject {
 //        self.asyncConnect()
     }
     
+    private func startConnectionResilienceMonitoring() {
+        guard !isConnectionResilienceMonitoringStarted else { return }
+        isConnectionResilienceMonitoringStarted = true
+        connectionResilience.setForegroundActive(UIApplication.shared.applicationState != .background)
+        let monitor = AccountNWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] snapshot in
+            self?.connectionResilience.networkPathDidChange(snapshot)
+        }
+        monitor.start(queue: self.connectionResilienceQueue)
+        networkPathMonitor = monitor
+    }
+
+    private func configureStreamManagementForCurrentStream() {
+        self.sm.removeDelegate(self)
+        if self.sm.xmppStream !== self.xmppStream {
+            self.sm.deactivate()
+            self.sm.activate(self.xmppStream)
+        }
+        self.sm.autoResume = true
+        self.sm.addDelegate(self, delegateQueue: self.queue)
+        self.sm.automaticallyRequestAcks(afterStanzaCount: 1, orTimeout: 4)
+        self.logConnectionDiagnostics(
+            event: "stream_management_prepared",
+            details: [
+                "autoResume": self.sm.autoResume,
+                "canResume": self.sm.canResumeStream()
+            ]
+        )
+    }
+
     func configureStream() {
         let privacyLevelRaw = SettingManager.shared.getString(for: "privacy_level") ?? CommonConfigManager.shared.config.default_privacy_level
         let privacyLevel = SettingManager.PrivacyLevel(rawValue: privacyLevelRaw) ?? .incognito
@@ -991,6 +2432,7 @@ final class Account: NSObject {
         self.xmppStream.removeDelegate(self, delegateQueue: self.queue)
         self.xmppStream.removeDelegate(self)
         self.xmppStream.addDelegate(self, delegateQueue: self.queue)
+        self.configureStreamManagementForCurrentStream()
         DDLogDebug("configured primary stream jid=\(self.jid) resource=\(self.xmppStream.myJID?.resource ?? "none") delegateAssigned=true streamState=\(self.streamStateDescription)")
         self.logConnectionDiagnostics(
             event: "stream_configured",
@@ -1007,6 +2449,8 @@ final class Account: NSObject {
         self.xmppTaskScheduler.reset()
         self.cancelDelayedConnectTimer()
         self.connectionGate.reset()
+        self.sendReadiness.markDisconnected(cause: self.pendingDisconnectCause ?? .accidentalSocket)
+        self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
         self.statusState.accept(.offline)
         self.statusMessage.accept(RosterUtils.shared.convertStatus(.offline))
         self.xmppStream.abortConnecting()
@@ -1066,25 +2510,28 @@ final class Account: NSObject {
 **/
     func configureBase() {
 //        DefaultAvatarManager.shared.updateAvatars(for: self.jid)
-        self.sm.autoResume = true
-        self.sm.activate(self.xmppStream)
-        self.sm.addDelegate(self, delegateQueue: self.queue)
-        self.sm.automaticallyRequestAcks(afterStanzaCount: 1, orTimeout: 4)
-        self.sm.enable(withResumption: true, maxTimeout: 3600)
-        self.logConnectionDiagnostics(
-            event: "stream_management_configured",
-            details: [
-                "autoResume": self.sm.autoResume,
-                "resumptionTimeout": 3600
-            ]
-        )
+        self.configureStreamManagementForCurrentStream()
+        if !self.sm.didResume {
+            self.sendReadiness.markStreamManagementEnableRequested()
+            self.sm.enable(withResumption: true, maxTimeout: 3600)
+            self.logConnectionDiagnostics(
+                event: "stream_management_configured",
+                details: [
+                    "autoResume": self.sm.autoResume,
+                    "resumptionTimeout": 3600
+                ]
+            )
+        } else {
+            self.sendReadiness.markStreamManagementResumeSucceeded()
+            self.logConnectionDiagnostics(event: "stream_management_enable_skipped_resumed")
+        }
         if isConfigured {
             return
         }
         isConfigured = true
         self.reconnect.activate(self.xmppStream)
         self.reconnect.addDelegate(self, delegateQueue: self.queue)
-        self.reconnect.autoReconnect = true
+        self.reconnect.autoReconnect = false
         self.reconnect.reconnectDelay = 1
         self.reconnect.reconnectTimerInterval = 2
         self.logConnectionDiagnostics(
@@ -1192,6 +2639,7 @@ final class Account: NSObject {
                 trigger: trigger,
                 details: ["forceReset": forceReset]
             )
+            self.sendReadiness.markConnecting(trigger: trigger)
             prepareStream?()
             self.performConnect(attemptID: attemptID, trigger: trigger)
             return true
@@ -1227,6 +2675,27 @@ final class Account: NSObject {
                 details: details
             )
             return false
+        }
+    }
+
+    private func configureEndpointResolutionForConnect() {
+        let endpointSettingsKey = "\(self.manuallySetHost)|\(self.host)|\(self.port)"
+        if endpointSettingsKey != self.lastEndpointResolutionSettingsKey {
+            XMPPSRVResolver.invalidateCache(withReason: "account-endpoint-settings-changed")
+            self.lastEndpointResolutionSettingsKey = endpointSettingsKey
+            self.logConnectionDiagnostics(
+                event: "resolver_cache_invalidated",
+                details: ["reason": "account-endpoint-settings-changed"]
+            )
+        }
+
+        self.xmppStream.certificatePeerName = self.xmppStream.myJID?.domain
+        if self.manuallySetHost {
+            self.xmppStream.hostName = self.host
+            self.xmppStream.hostPort = UInt16(self.port)
+        } else {
+            self.xmppStream.hostName = nil
+            self.xmppStream.hostPort = 5222
         }
     }
 
@@ -1285,10 +2754,7 @@ final class Account: NSObject {
         } else {
             self.xmppStream.myJID = XMPPJID(string: self.jid, resource: AccountManager.defaultResource)
         }
-        if self.manuallySetHost {
-            self.xmppStream.hostName = self.host
-            self.xmppStream.hostPort = UInt16(self.port)
-        }
+        self.configureEndpointResolutionForConnect()
         if self.push.node != "" && self.push.service != "" {
             self.pushStatusMessage.accept(true)
 //            Account§Manager.shared.markAsConnecting(jid: self.jid)
@@ -1320,6 +2786,7 @@ final class Account: NSObject {
                 error: error
             )
             self.connectionGate.markFailed()
+            self.sendReadiness.markStreamError(error.localizedDescription)
             self.statusMessage.accept("Offline")
             AccountManager.shared.changeNewUserState(for: self.jid, to: .failure("Server not found"))
             AccountManager.shared.markAsNotConnecting(
@@ -1330,6 +2797,98 @@ final class Account: NSObject {
 //            this.$store.state.current_org_id
         }
         self.isBinded = false
+    }
+
+    private func sendResiliencePing() -> Bool {
+        self.queue.async { [weak self] in
+            guard let self else { return }
+            guard self.xmppStream.isAuthenticated else {
+                self.logConnectionDiagnostics(event: "resilience_ping_send_skipped", trigger: .livenessProbe, details: ["reason": "notAuthenticated"])
+                self.connectionResilience.notePingResult(success: false)
+                return
+            }
+
+            self.ping.send(
+                onSuccess: { iq in
+                    self.logConnectionDiagnostics(
+                        event: "resilience_ping_iq_sent",
+                        trigger: .livenessProbe,
+                        details: ["id": iq.elementID ?? "none"]
+                    )
+                    self.xmppStream.send(iq)
+                },
+                onFailure: {
+                    self.logConnectionDiagnostics(event: "resilience_ping_queue_limit", trigger: .livenessProbe)
+                    self.connectionResilience.notePingResult(success: false)
+                }
+            )
+        }
+        return true
+    }
+
+    private func handleConnectionSuspectedStale(
+        reason: AccountConnectionStaleReason,
+        snapshot: AccountConnectionHealthSnapshot
+    ) {
+        self.sendReadiness.markSuspectedStale(reason: reason.rawValue)
+        self.statusState.accept(.offline)
+        self.statusMessage.accept("Reconnecting")
+        self.logConnectionDiagnostics(
+            event: "connection_health_marked_stale",
+            trigger: .livenessProbe,
+            details: [
+                "reason": reason.rawValue,
+                "lastActivityAge": snapshot.lastActivityAge,
+                "pendingOutgoingCount": snapshot.pendingOutgoingCount
+            ]
+        )
+    }
+
+    private func forceCloseForResilience(cause: AccountDisconnectCause) {
+        self.sendReadiness.markDisconnected(cause: cause)
+        self.statusState.accept(.offline)
+        self.statusMessage.accept("Offline")
+        self.queue.async { [weak self] in
+            guard let self else { return }
+            self.pendingDisconnectCause = cause
+            self.reconnect.autoReconnect = false
+            self.logConnectionDiagnostics(
+                event: "resilience_force_close",
+                trigger: .livenessProbe,
+                details: ["cause": cause.rawValue]
+            )
+            self.xmppStream.abortConnecting()
+            self.xmppStream.disconnect()
+            self.xmppStream.asyncSocket.disconnect()
+            self.connectionGate.markDisconnected()
+            self.sendReadiness.markDisconnected(cause: cause)
+            self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
+            AccountManager.shared.markAsConnecting(jid: self.jid)
+        }
+    }
+
+    private func requestResilienceReconnect(
+        trigger: AccountConnectTrigger,
+        cause: AccountDisconnectCause
+    ) -> Bool {
+        self.logConnectionDiagnostics(
+            event: "resilience_reconnect_requested",
+            trigger: trigger,
+            details: [
+                "cause": cause.rawValue,
+                "canResume": self.sm.canResumeStream()
+            ]
+        )
+        self.queue.async { [weak self] in
+            guard let self else { return }
+            self.resetStream()
+            _ = self.requestConnect(
+                trigger: trigger,
+                forceReset: true,
+                prepareStream: { self.configureStream() }
+            )
+        }
+        return true
     }
 
     final func scheduleConnectRetry(after delay: TimeInterval, trigger: AccountConnectTrigger, attemptID: UInt64?) {
@@ -1556,30 +3115,40 @@ final class Account: NSObject {
  *    stop user XMPP session, change account status to offline
  *    if @hard is true, session close without sending unavailable presence to server
  **/
-    func disconnect(hard: Bool = false) {
+    func disconnect(hard: Bool = false, cause: AccountDisconnectCause? = nil) {
         let wasDisconnected = self.xmppStream.isDisconnected
-        DDLogDebug("account disconnect requested jid=\(self.jid) hard=\(hard) phase=\(self.connectionGate.snapshot().phase.rawValue) streamState=\(self.streamStateDescription)")
+        let resolvedCause = cause ?? .intentionalShutdown
+        self.pendingDisconnectCause = resolvedCause
+        self.sendReadiness.markDisconnected(cause: resolvedCause)
+        self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
+        DDLogDebug("account disconnect requested jid=\(self.jid) hard=\(hard) cause=\(resolvedCause.rawValue) phase=\(self.connectionGate.snapshot().phase.rawValue) streamState=\(self.streamStateDescription)")
         self.logConnectionDiagnostics(
             event: "disconnect_requested",
             details: [
                 "hard": hard,
-                "wasDisconnected": wasDisconnected
+                "wasDisconnected": wasDisconnected,
+                "cause": resolvedCause.rawValue
             ]
         )
         self.cancelDelayedConnectTimer()
+        if resolvedCause.isIntentional {
+            self.reconnect.autoReconnect = false
+        }
         AccountManager.shared.markAsNotConnecting(
             jid: self.jid,
-            reason: hard ? "local_hard_disconnect" : "local_soft_disconnect",
+            reason: resolvedCause.rawValue,
             clearAuthentication: true
         )
         if wasDisconnected {
             self.connectionGate.markDisconnected()
+            self.connectionResilience.streamDidDisconnect(cause: resolvedCause)
             DDLogDebug("account disconnect completed locally jid=\(self.jid) hard=\(hard) reason=streamAlreadyDisconnected")
             self.logConnectionDiagnostics(
                 event: "disconnect_completed_local",
                 details: [
                     "hard": hard,
-                    "reason": "streamAlreadyDisconnected"
+                    "reason": "streamAlreadyDisconnected",
+                    "cause": resolvedCause.rawValue
                 ]
             )
         } else {
@@ -1594,7 +3163,9 @@ final class Account: NSObject {
             self.xmppStream.disconnect()
 //            self.xmppStream.asyncSocket.disconnect()
         } else {
-            self.reconnect.autoReconnect = false
+            if resolvedCause.isIntentional {
+                self.reconnect.autoReconnect = false
+            }
             guard !wasDisconnected else { return }
             self.xmppStream.send(XMPPPresence(type: .unavailable))
             self.xmppStream.disconnectAfterSending()
@@ -1605,7 +3176,42 @@ final class Account: NSObject {
 /**
  *    update presence status by last setted in settings
  **/
+    private func deferPresenceUntilReady(_ opponentJid: XMPPJID?) {
+        if let opponentJid {
+            pendingPresenceTargetJids.insert(opponentJid.full)
+        } else {
+            shouldSendBroadcastPresenceWhenReady = true
+            pendingPresenceTargetJids.removeAll()
+        }
+        self.logConnectionDiagnostics(
+            event: "presence_deferred_until_send_ready",
+            details: [
+                "target": opponentJid?.full ?? "broadcast",
+                "sendReady": self.sendReadiness.snapshot.canFlushApplicationStanzas
+            ]
+        )
+    }
+
+    private func flushPendingPresenceSends() {
+        let shouldBroadcast = shouldSendBroadcastPresenceWhenReady
+        let targetJids = pendingPresenceTargetJids
+        shouldSendBroadcastPresenceWhenReady = false
+        pendingPresenceTargetJids.removeAll()
+
+        if shouldBroadcast {
+            presence(nil)
+            return
+        }
+        targetJids
+            .compactMap { XMPPJID(string: $0) }
+            .forEach { presence($0) }
+    }
+
     func presence(_ opponentJid: XMPPJID? = nil) {
+        guard self.sendReadiness.snapshot.canFlushApplicationStanzas else {
+            deferPresenceUntilReady(opponentJid)
+            return
+        }
         do {
             let realm = try  WRealm.safe()
             if let instance = realm
@@ -1653,7 +3259,7 @@ final class Account: NSObject {
             if newStatus == .offline {
                 return
             } else {
-                if self.xmppStream.isAuthenticated {
+                if self.sendReadiness.snapshot.canFlushApplicationStanzas {
                     if newMessage == nil {
                         self.statusMessage.accept(RosterUtils.shared.convertStatus(newStatus))
                     } else {
@@ -1665,7 +3271,10 @@ final class Account: NSObject {
                                                 ver: self.disco.generateVer(),
                                                 to: nil)
                 } else {
-                    self.asyncConnect(trigger: .statusUpdate)
+                    self.deferPresenceUntilReady(nil)
+                    if !self.xmppStream.isAuthenticated {
+                        self.asyncConnect(trigger: .statusUpdate)
+                    }
                 }
             }
         }
@@ -1716,6 +3325,7 @@ final class Account: NSObject {
     func resetConfigs() {
         self.isRequestedAway = false
         self.isInitialMAMRequestSend = false
+        self.ping.resetState()
     }
     
 /**
@@ -1854,7 +3464,7 @@ final class Account: NSObject {
  **/
     func updateResource(_ resource: String, callback: ((String?) -> Void)? = nil) {
         print(#function)
-        disconnect(hard: true)
+        disconnect(hard: true, cause: .resourceUpdate)
         do {
             let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: ResourceStorageItem.self,
@@ -1954,7 +3564,7 @@ final class Account: NSObject {
         APNSManager.shared.sendDeleteRequest(jid: jid, voip: true)
         APNSManager.shared.sendDeleteRequest(jid: jid, voip: false)
         PushNotificationsManager.removeDefaultsForPush(target: push.node, jid: jid)
-        self.disconnect(hard: false)
+        self.disconnect(hard: false, cause: .intentionalShutdown)
     }
     
 /**
@@ -1965,7 +3575,7 @@ final class Account: NSObject {
         if self.supportTokens {
             self.xTokens.revoke(self.xmppStream, uids: [self.tokenUid])
         }
-        self.disconnect(hard: false)
+        self.disconnect(hard: false, cause: .accountDeletion)
     }
     
     static func remove(for owner: String, commitTransaction: Bool) {
@@ -2149,6 +3759,7 @@ extension Account: XMPPReconnectDelegate {
         self.statusMessage.accept("Offline")
         self.showReconnectStatus(connectionFlags: connectionFlags)
         AccountManager.shared.markAsConnecting(jid: self.jid)
+        self.connectionResilience.scheduleReconnect(cause: .accidentalSocket, trigger: .resilienceRetry)
     }
     
     func xmppReconnect(_ sender: XMPPReconnect, shouldAttemptAutoReconnect connectionFlags: SCNetworkConnectionFlags) -> Bool {

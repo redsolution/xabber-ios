@@ -9,6 +9,77 @@
 import Foundation
 import UIKit
 
+enum StackedNavigationRoute: Equatable {
+    case currentNavigationPush
+    case splitDetailReplacement
+
+    var usesNavigationControllerWrapper: Bool {
+        self == .splitDetailReplacement
+    }
+
+    var requiresDeferredPrimaryHide: Bool {
+        self == .splitDetailReplacement
+    }
+
+    var targetColumn: UISplitViewController.Column? {
+        switch self {
+        case .currentNavigationPush:
+            return nil
+        case .splitDetailReplacement:
+            return .secondary
+        }
+    }
+}
+
+struct StackedNavigationRouteContext: Equatable {
+    let interfaceType: CommonConfigManager.InterfaceType
+    let isPhone: Bool
+    let hasSplitViewController: Bool
+    let isSplitCollapsed: Bool
+    let splitHorizontalSizeClass: UIUserInterfaceSizeClass
+    let windowHorizontalSizeClass: UIUserInterfaceSizeClass
+    let presenterHorizontalSizeClass: UIUserInterfaceSizeClass
+
+    init(
+        interfaceType: CommonConfigManager.InterfaceType,
+        isPhone: Bool,
+        hasSplitViewController: Bool,
+        isSplitCollapsed: Bool,
+        splitHorizontalSizeClass: UIUserInterfaceSizeClass,
+        windowHorizontalSizeClass: UIUserInterfaceSizeClass,
+        presenterHorizontalSizeClass: UIUserInterfaceSizeClass
+    ) {
+        self.interfaceType = interfaceType
+        self.isPhone = isPhone
+        self.hasSplitViewController = hasSplitViewController
+        self.isSplitCollapsed = isSplitCollapsed
+        self.splitHorizontalSizeClass = splitHorizontalSizeClass
+        self.windowHorizontalSizeClass = windowHorizontalSizeClass
+        self.presenterHorizontalSizeClass = presenterHorizontalSizeClass
+    }
+}
+
+enum StackedNavigationRoutePolicy {
+    static func route(for context: StackedNavigationRouteContext) -> StackedNavigationRoute {
+        switch context.interfaceType {
+        case .tabs:
+            return .currentNavigationPush
+        case .split:
+            if context.isPhone || !context.hasSplitViewController || context.isSplitCollapsed {
+                return .currentNavigationPush
+            }
+            if context.splitHorizontalSizeClass == .compact || context.windowHorizontalSizeClass == .compact {
+                return .currentNavigationPush
+            }
+            return .splitDetailReplacement
+        }
+    }
+}
+
+protocol StackedNavigationPresentationPreparing: AnyObject {
+    func prepareForStackedNavigationPresentation(targetBounds: CGRect?)
+}
+
 @discardableResult
 func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil, replaceParent: Bool = true) -> Bool {
     var parent: UIViewController? = parentVc
@@ -55,37 +126,132 @@ func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil,
     return true
 }
 
+private func splitController(for presenter: UIViewController) -> UISplitViewController? {
+    (presenter as? UISplitViewController) ?? presenter.splitViewController ?? AppRootCoordinator.active?.splitController
+}
+
+func stackedNavigationRoute(for presenter: UIViewController) -> StackedNavigationRoute {
+    let splitViewController = splitController(for: presenter)
+    let context = StackedNavigationRouteContext(
+        interfaceType: CommonConfigManager.shared.interfaceType,
+        isPhone: UIDevice.current.userInterfaceIdiom == .phone,
+        hasSplitViewController: splitViewController != nil,
+        isSplitCollapsed: splitViewController?.isCollapsed ?? true,
+        splitHorizontalSizeClass: splitViewController?.traitCollection.horizontalSizeClass ?? .unspecified,
+        windowHorizontalSizeClass: splitViewController?.view.window?.traitCollection.horizontalSizeClass ?? .unspecified,
+        presenterHorizontalSizeClass: presenter.traitCollection.horizontalSizeClass
+    )
+    return StackedNavigationRoutePolicy.route(for: context)
+}
+
+private func currentNavigationController(for presenter: UIViewController) -> UINavigationController? {
+    if let navigationController = presenter as? UINavigationController {
+        return navigationController
+    }
+    if let navigationController = presenter.navigationController {
+        return navigationController
+    }
+    guard let splitController = splitController(for: presenter) else {
+        return nil
+    }
+    let navigationControllers = splitController.viewControllers.compactMap { $0 as? UINavigationController }
+    return navigationControllers.first { $0.topViewController is LastChatsViewController }
+        ?? navigationControllers.last
+}
+
+private func prepareStackedDestination(_ vc: UIViewController, targetBounds: CGRect?) {
+    (vc as? StackedNavigationPresentationPreparing)?
+        .prepareForStackedNavigationPresentation(targetBounds: targetBounds)
+}
+
+private func splitSecondaryTargetBounds(
+    splitViewController: UISplitViewController?,
+    presenter: UIViewController
+) -> CGRect? {
+    if let secondary = splitViewController?.viewController(for: .secondary),
+       !secondary.view.bounds.isEmpty {
+        return secondary.view.bounds
+    }
+    if let splitViewController,
+       !splitViewController.view.bounds.isEmpty {
+        return splitViewController.view.bounds
+    }
+    return presenter.view.bounds.isEmpty ? nil : presenter.view.bounds
+}
+
+private func hidePrimaryAfterDetailTransition(_ splitViewController: UISplitViewController?) {
+    guard let splitViewController else {
+        return
+    }
+    let hidePrimary: () -> Void = { [weak splitViewController] in
+        splitViewController?.hide(.primary)
+    }
+
+    if let coordinator = splitViewController.transitionCoordinator {
+        coordinator.animate(alongsideTransition: nil) { context in
+            guard !context.isCancelled else { return }
+            hidePrimary()
+        }
+        return
+    }
+
+    DispatchQueue.main.async(execute: hidePrimary)
+}
+
 public func showStacked(_ vc: UIViewController, in presenter: UIViewController) {
-    switch CommonConfigManager.shared.interfaceType {
-        case .tabs:
+    let splitViewController = splitController(for: presenter)
+    let route = stackedNavigationRoute(for: presenter)
+
+    switch route {
+    case .currentNavigationPush:
+        let navigationController = currentNavigationController(for: presenter)
+        let targetBounds = navigationController?.view.bounds ?? presenter.view.bounds
+        prepareStackedDestination(vc, targetBounds: targetBounds)
 //            presenter.splitViewController?.showDetailViewController(NavBarController(rootViewController: vc), sender: presenter)
-            presenter.navigationController?.pushViewController(vc, animated: true)
-        case .split:
+        if let navigationController {
+            navigationController.pushViewController(vc, animated: true)
+        } else {
+            presenter.show(vc, sender: presenter)
+        }
+    case .splitDetailReplacement:
+        guard let splitViewController else {
+            let navigationController = currentNavigationController(for: presenter)
+            prepareStackedDestination(vc, targetBounds: navigationController?.view.bounds ?? presenter.view.bounds)
+            navigationController?.pushViewController(vc, animated: true)
+            return
+        }
 //            presenter.splitViewController?.showDetailViewController(vc, sender: presenter)
-            let nvc = UINavigationController(rootViewController: vc)
-            nvc.applyTransparentSplitAppearance()
+        let nvc = UINavigationController(rootViewController: vc)
+        nvc.applyTransparentSplitAppearance()
 //            nvc.setNavigationBarHidden(false, animated: false)
 //            nvc.setToolbarHidden(false, animated: false)
-            
-            
-            presenter.splitViewController?.showDetailViewController(nvc, sender: presenter)
-            presenter.splitViewController?.hide(.primary)
+        prepareStackedDestination(
+            vc,
+            targetBounds: splitSecondaryTargetBounds(
+                splitViewController: splitViewController,
+                presenter: presenter
+            )
+        )
+        splitViewController.setViewController(nvc, for: .secondary)
+        splitViewController.show(.secondary)
+        hidePrimaryAfterDetailTransition(splitViewController)
     }
 }
 
 public func showDetail(_ vc: UIViewController, currentVc: UIViewController?) {
-    switch CommonConfigManager.shared.interfaceType {
-        case .tabs:
-            break
-        case .split:
-            if let currentVc = currentVc {
-                currentVc.dismiss(animated: true) {
-                    AppRootCoordinator.active?.splitController?.showDetailViewController(NavBarController(rootViewController: vc), sender: currentVc)
-                    AppRootCoordinator.active?.splitController?.hide(.primary)
-                }
-            } else {
-                AppRootCoordinator.active?.splitController?.showDetailViewController(NavBarController(rootViewController: vc), sender: currentVc)
-                AppRootCoordinator.active?.splitController?.hide(.primary)
-            }
+    let presenter = currentVc
+        ?? AppRootCoordinator.active?.splitController
+        ?? SceneWindowProvider.presentationRootViewController
+    guard let presenter else {
+        return
+    }
+
+    let present: () -> Void = {
+        showStacked(vc, in: presenter)
+    }
+    if let currentVc {
+        currentVc.dismiss(animated: true, completion: present)
+    } else {
+        present()
     }
 }

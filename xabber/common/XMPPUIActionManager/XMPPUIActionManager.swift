@@ -819,6 +819,8 @@ class XMPPUIActionManager: NSObject {
         self.close(disconnect: true)
 
         switch resolution.action {
+        case .retryAuthentication(let message):
+            AccountManager.shared.changeNewUserState(for: jid, to: .failure(message))
         case .removeAccount(let message):
             AccountManager.shared.changeNewUserState(for: jid, to: .failure(message))
         case .refreshDeviceSecret:

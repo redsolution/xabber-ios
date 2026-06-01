@@ -96,6 +96,55 @@ extension LastChatsViewController: UITableViewDelegate {
         )
     }
 
+    internal static func initialOpenRequest(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        explicitOpenMessageRequest: ChatOpenMessageRequest?,
+        in realm: Realm
+    ) -> ChatOpenMessageRequest? {
+        let chat = realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                jid: jid,
+                owner: owner,
+                conversationType: conversationType
+            )
+        )
+
+        guard let chat = chat else {
+            return explicitOpenMessageRequest
+        }
+
+        let savedPosition = ChatSavedVisiblePosition(
+            messagePrimary: ChatInitialPositionPolicy.normalizedId(chat.lastVisibleMessagePrimary),
+            archivedId: ChatInitialPositionPolicy.normalizedId(chat.lastVisibleMessageArchivedId),
+            messageId: ChatInitialPositionPolicy.normalizedId(chat.lastVisibleMessageId),
+            sourceDate: chat.lastVisibleMessageDate ?? chat.messageDate
+        )
+        let state = ChatInitialPositionPolicy.ChatState(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType,
+            unread: chat.unread,
+            syncUnreadAfterId: chat.syncUnreadAfterId,
+            lastReadId: chat.lastReadId,
+            lastMessageId: chat.lastMessageId,
+            syncSnapshotLastArchiveId: chat.syncSnapshotLastArchiveId,
+            messageDate: chat.messageDate,
+            savedPosition: savedPosition.hasAnchor ? savedPosition : nil,
+            savedAtLastMessageId: chat.lastVisiblePositionSavedAtLastMessageId,
+            savedAtSnapshotLastArchiveId: chat.lastVisiblePositionSavedAtSnapshotLastArchiveId
+        )
+
+        switch ChatInitialPositionPolicy.decision(for: state, explicitRequest: explicitOpenMessageRequest) {
+        case .open(let request):
+            return request
+        case .bottom:
+            return nil
+        }
+    }
+
     internal func unreadMentionOpenRequest(
         owner: String,
         jid: String,
@@ -112,6 +161,27 @@ extension LastChatsViewController: UITableViewDelegate {
         } catch {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    internal func initialOpenRequest(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        explicitOpenMessageRequest: ChatOpenMessageRequest? = nil
+    ) -> ChatOpenMessageRequest? {
+        do {
+            let realm = try WRealm.safe()
+            return Self.initialOpenRequest(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                explicitOpenMessageRequest: explicitOpenMessageRequest,
+                in: realm
+            )
+        } catch {
+            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+            return explicitOpenMessageRequest
         }
     }
 
@@ -175,6 +245,8 @@ extension LastChatsViewController: UITableViewDelegate {
         openMessageRequest: ChatOpenMessageRequest? = nil,
         configure configureCallback: ((ChatViewController?) -> Void)? = nil
     ) {
+        let route = stackedNavigationRoute(for: self)
+        let usesSplitDetailColumn = route == .splitDetailReplacement
         setSelectedChat(
             jid: jid,
             owner: owner,
@@ -182,13 +254,25 @@ extension LastChatsViewController: UITableViewDelegate {
             animated: true
         )
 
-        if let oldVc = self.currentChatVC,
+        if !usesSplitDetailColumn {
+            self.currentChatVC = nil
+        }
+
+        if usesSplitDetailColumn,
+           let oldVc = self.currentChatVC,
            oldVc.jid == jid, oldVc.owner == owner, oldVc.conversationType == conversationType {
+            self.playerViewToolbar.delegate = oldVc
             configureCallback?(oldVc)
             if let openMessageRequest {
                 oldVc.queueOpenMessageRequest(openMessageRequest)
-            } else if oldVc.pendingOpenMessageRequest != nil {
+            } else if oldVc.pendingOpenMessageRequest != nil || oldVc.activeAnchorExecutionState != nil {
                 oldVc.performPendingOpenMessageRequestIfNeeded()
+            } else if let initialRequest = self.initialOpenRequest(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType
+            ) {
+                oldVc.queueOpenMessageRequest(initialRequest)
             } else {
                 oldVc.scrollToLastOrUnreadItem()
             }
@@ -196,6 +280,13 @@ extension LastChatsViewController: UITableViewDelegate {
         }
         self.currentChatVC = nil
         let vc = ChatViewController()
+        let genericInitialOpenRequest = openMessageRequest == nil
+            ? self.initialOpenRequest(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType
+            )
+            : nil
         vc.owner = owner
         vc.jid = jid
         vc.conversationType = conversationType
@@ -205,9 +296,16 @@ extension LastChatsViewController: UITableViewDelegate {
             vc.pendingOpenMessageRequest = openMessageRequest
         }
         configureCallback?(vc)
-        if UIDevice.current.userInterfaceIdiom == .pad && CommonConfigManager.shared.config.interface_type == "split" {
+        if vc.pendingOpenMessageRequest == nil,
+           vc.activeAnchorExecutionState == nil,
+           let genericInitialOpenRequest {
+            vc.pendingOpenMessageRequest = genericInitialOpenRequest
+        }
+        if usesSplitDetailColumn {
             self.currentChatVC = vc
             self.playerViewToolbar.delegate = vc
+        } else {
+            self.currentChatVC = nil
         }
         showStacked(vc, in: self)
     }

@@ -201,7 +201,7 @@ extension XMPPAccountDeleteManager: XMPPStreamDelegate {
         )
         if let jid = self.jid {
             AccountManager.shared.find(for: jid)?.reconnect.autoReconnect = false
-            AccountManager.shared.find(for: jid)?.disconnect(hard: true)
+            AccountManager.shared.find(for: jid)?.disconnect(hard: true, cause: .accountDeletion)
             AccountManager.shared.find(for: jid)?.resetStream()
         }
         let query = DDXMLElement(name: "query", xmlns: "jabber:iq:register")
