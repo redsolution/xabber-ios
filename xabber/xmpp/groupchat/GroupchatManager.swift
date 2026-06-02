@@ -430,7 +430,6 @@ class GroupchatManager: AbstractXMPPManager {
     
     public final func requestInvitedUsers(_ xmppStream: XMPPStream, groupchat: String) {
         let elementId = "GC: \(NanoID.new(6))"
-        // V3: <invites xmlns='...'/>, Old: <query xmlns='...#invite'>
         xmppStream.send(XMPPIQ(iqType: .get,
                                to: fullJid(groupchat),
                                elementID: elementId,
@@ -1061,7 +1060,10 @@ class GroupchatManager: AbstractXMPPManager {
                     if instance.isInvalidated { return }
                     update(instance)
                 }
-            } else {
+            } else if realm.object(
+                ofType: GroupchatInvitesStorageItem.self,
+                forPrimaryKey: GroupchatInvitesStorageItem.genIncomingPrimary(groupchat: from, owner: owner)
+            ) == nil {
                 let instance = GroupChatStorageItem()
                 instance.jid = from
                 instance.owner = owner
@@ -1885,9 +1887,7 @@ class GroupchatManager: AbstractXMPPManager {
             let from = iq.from?.bare else {
                 return false
         }
-        // V3: <invites xmlns='...'>, Old: <query xmlns='...#invite'>
-        guard let query = iq.element(forName: "invites", xmlns: getPrimaryNamespace())
-                ?? iq.element(forName: "query", xmlns: xmlns("invite")) else {
+        guard let query = iq.element(forName: "invites", xmlns: getPrimaryNamespace()) else {
             return false
         }
 //        queryIds.remove(elementId)
@@ -1972,154 +1972,52 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func isInvite(_ message: XMPPMessage) -> Bool {
-        // V3: <invite xmlns='...'>, Old: <invite xmlns='...#invite'>
-        return message.element(forName: "invite", xmlns: getPrimaryNamespace()) != nil
-            || message.element(forName: "invite", xmlns: xmlns("invite")) != nil
+        return GroupchatInviteV3Parser.isInvite(message)
     }
 
     public final func readInvite(in message: XMPPMessage, date: Date, isRead: Bool?, commit: Bool = true) -> Bool {
-        // V3: <invite xmlns='...'>, Old: <invite xmlns='...#invite'>
-        guard let invite = message.element(forName: "invite", xmlns: getPrimaryNamespace())
-                ?? message.element(forName: "invite", xmlns: xmlns("invite")),
-            let groupchat = invite.attributeStringValue(forName: "jid"),
-            let elementId = getUniqueMessageId(message, owner: self.owner).isEmpty ? nil : getUniqueMessageId(message, owner: self.owner) else {
-            return false
-        }
-        guard let from = message.from?.bare,
-            from != owner,
-            let to = message.to?.bare else {
-            return true
-        }
-        do {
-            let realm = try  WRealm.safe()
-            let primary = [elementId, owner].prp()
-            if realm.object(ofType: GroupchatInvitesStorageItem.self, forPrimaryKey: primary) != nil {
-                return false
-            }
-            
-            var lastInviteDate: Date = Date(timeIntervalSince1970: 1)
-            
-            let reason = invite.element(forName: "reason")?.stringValue
-            
-            if let instance = realm
-                .objects(GroupchatInvitesStorageItem.self)
-                .filter("owner == %@ AND groupchat == %@", owner, groupchat)
-                .sorted(byKeyPath: "date", ascending: false)
-                .first {
-                lastInviteDate = instance.date
-                if instance.date < date {
-                    if commit {
-                        try realm.write {
-                            instance.isRead = true
-                        }
-                    } else {
-                        instance.isRead = true
-                    }
-                }
-            }
-            
-            let isReadInvite = lastInviteDate < date ? isRead ?? (from == owner) : true
-            let instance = GroupchatInvitesStorageItem()
-//            instance.inviteId = elementId
-            instance.owner = owner
-            instance.primary = primary
-            instance.groupchat = groupchat
-            instance.outgoing = from == owner
-            instance.reason = reason
-            instance.isRead = isReadInvite
-            instance.isProcessed = lastInviteDate <= date ? false : true// false
-            instance.date = date
-            instance.jid = from == owner ? to : from
-//            instance.temporary = true
-            // V3: <group xmlns='...' privacy='incognito'>, Old: <x xmlns='...'><privacy>incognito</privacy>
-            let v3Group = message.element(forName: "group", xmlns: getPrimaryNamespace())
-            let oldX = message.element(forName: "x", xmlns: getPrimaryNamespace())
-            let invitePrivacy: String? = v3Group?.attributeStringValue(forName: "privacy")
-                ?? oldX?.element(forName: "privacy")?.stringValue
-            instance.isAnonymous = invitePrivacy == "incognito"
+        let result = makeInvitePersistenceService().receive(
+            message: message,
+            date: date,
+            isRead: isRead,
+            commit: commit
+        )
+        return result.shouldConsume
+    }
 
-            let rosterItem = RosterStorageItem()
-            rosterItem.jid = groupchat
-            rosterItem.owner = self.owner
-            rosterItem.primary = RosterStorageItem.genPrimary(jid: groupchat, owner: self.owner)
-            rosterItem.isContact = false
-            rosterItem.subscribtion = .none
-            rosterItem.ask = .none
+    public final func readArchivedInviteEnvelope(_ message: XMPPMessage, isRead: Bool?, commit: Bool = true) -> Bool {
+        let result = makeInvitePersistenceService().receiveArchivedEnvelope(
+            message,
+            isRead: isRead,
+            commit: commit
+        )
+        return result.shouldConsume
+    }
 
-            let groupInfoElement = v3Group ?? oldX
-            if let x = groupInfoElement {
-                var entity: RosterItemEntity = .groupchat
+    private final func makeInvitePersistenceService() -> GroupchatInvitePersistenceService {
+        GroupchatInvitePersistenceService(
+            owner: owner,
+            followUp: GroupchatInviteFollowUp(
+                requestGroupInfo: { [weak self] groupchat in
+                    self?.requestInviteDetails(groupchat: groupchat)
+                },
+                requestMembers: { [weak self] groupchat in
+                    self?.requestInviteMembers(groupchat: groupchat)
+                }
+            )
+        )
+    }
 
-                if x.element(forName: "parent-chat") != nil {
-                    entity = .privateChat
-                } else if (v3Group?.attributeStringValue(forName: "privacy") ?? x.element(forName: "privacy")?.stringValue) == "incognito" {
-                    entity = .incognitoChat
-                }
-                
-//                instance.entity = .groupchat
-                
-                let resource = ResourceStorageItem()
-                resource.owner = owner
-                resource.jid = groupchat
-                resource.resource = owner
-                resource.status = .offline
-                resource.entity = entity
-                resource.type = .groupchat
-                resource.priority = -5
-                resource.isTemporary = true
-                resource.primary = ResourceStorageItem.genPrimary(jid: groupchat, owner: owner, resource: owner)
-                
-                if commit {
-                    try realm.write {
-                        realm.add(resource, update: .all)
-                    }
-                } else {
-                    realm.add(resource, update: .all)
-                }
-            }
-            
-            
-            
-            if commit {
-                
-                try realm.write {
-                    realm.add(instance, update: .modified)
-                    realm.add(rosterItem, update: .modified)
-                    let primary = UINotificationStorageItem.genPrimary(owner: owner, jid: groupchat)
-                    if !isReadInvite {
-                        let uiNotifyObject = UINotificationStorageItem()
-                        uiNotifyObject.primary = primary
-                        uiNotifyObject.owner = owner
-                        uiNotifyObject.jid = groupchat
-                        uiNotifyObject.kind = .invite
-                        uiNotifyObject.date = Date()
-                        uiNotifyObject.readAt = nil
-                        realm.add(uiNotifyObject, update: .modified)
-                    }
-                    
-                }
-            } else {
-                realm.add(instance, update: .modified)
-                realm.add(rosterItem, update: .modified)
-                let primary = UINotificationStorageItem.genPrimary(owner: owner, jid: groupchat)
-                if !isReadInvite {
-                    let uiNotifyObject = UINotificationStorageItem()
-                    uiNotifyObject.primary = primary
-                    uiNotifyObject.owner = owner
-                    uiNotifyObject.jid = groupchat
-                    uiNotifyObject.kind = .invite
-                    uiNotifyObject.date = Date()
-                    uiNotifyObject.readAt = nil
-                    realm.add(uiNotifyObject, update: .modified)
-                }
-            }
-        } catch {
-            DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
-        }
-        if isRead != nil {
-            self.onNewInvites(commitTransaction: commit)
-        }
-        return true
+    private final func requestInviteDetails(groupchat: String) {
+        AccountManager.shared.find(for: owner)?.action({ user, stream in
+            user.groupchats.getGroupInfo(stream, groupchat: groupchat)
+        })
+    }
+
+    private final func requestInviteMembers(groupchat: String) {
+        AccountManager.shared.find(for: owner)?.action({ user, stream in
+            user.groupchats.requestUsers(stream, groupchat: groupchat)
+        })
     }
     
     public final func getInvitesFallback() {
@@ -2165,199 +2063,24 @@ class GroupchatManager: AbstractXMPPManager {
             let unprocessedInvites = realm
                 .objects(GroupchatInvitesStorageItem.self)
                 .filter("owner == %@ AND isRead == %@ AND isProcessed == %@", owner, false, false)
-            var query: [MessageStorageItem] = []
-            for item in unprocessedInvites {
-                let jid = item.groupchat
-                let primary = item.primary
-                
-                if realm
-                    .object(ofType: RosterStorageItem.self,
-                            forPrimaryKey: [jid, owner].prp())?
-                    .subscribtion == .both {
-                    if commitTransaction {
-                        try realm.write {
-                            realm.object(ofType: GroupchatInvitesStorageItem.self, forPrimaryKey: primary)?.isProcessed = true
-                        }
-                    } else {
-                        realm.object(ofType: GroupchatInvitesStorageItem.self, forPrimaryKey: primary)?.isProcessed = true
-                    }
-                    continue
+            let mutation = {
+                unprocessedInvites.forEach { invite in
+                    let primary = UINotificationStorageItem.genPrimary(owner: self.owner, jid: invite.groupchat)
+                    let notification = realm.object(ofType: UINotificationStorageItem.self, forPrimaryKey: primary)
+                        ?? UINotificationStorageItem()
+                    notification.primary = primary
+                    notification.owner = self.owner
+                    notification.jid = invite.groupchat
+                    notification.kind = .invite
+                    notification.date = Date()
+                    notification.readAt = nil
+                    realm.add(notification, update: .modified)
                 }
-                if AccountManager.shared.find(for: owner)?.syncManager.isSynced() ?? true {
-                    AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-                        _ = user.vcards.requestItem(stream, jid: jid)
-                    })
-                }
-                
-                let groupchatInstance = GroupChatStorageItem()
-                groupchatInstance.owner = self.owner
-                groupchatInstance.jid = jid
-                groupchatInstance.privacy = item.isAnonymous ? .incognito : .publicChat
-                groupchatInstance.primary = GroupChatStorageItem.genPrimary(jid: jid, owner: self.owner)
-                
-                if commitTransaction {
-                    try realm.write {
-                        realm.add(groupchatInstance, update: .modified)
-                        if !item.isRead {
-                            realm.delete(realm
-                                .objects(MessageStorageItem.self)
-                                .filter("owner == %@ AND opponent == %@", self.owner, jid))
-                        }
-                    }
-                } else {
-                    realm.add(groupchatInstance, update: .modified)
-                    if !item.isRead {
-                        realm.delete(realm
-                            .objects(MessageStorageItem.self)
-                            .filter("owner == %@ AND opponent == %@", self.owner, jid))
-                    }
-                }
-                
-                let entity: RosterItemEntity = .groupchat//item.entity
-                
-                
-                if item.isRead { continue }
-                
-                let groupchatJid = item.groupchat
-                let userJid = item.jid
-                if AccountManager.shared.find(for: self.owner)?.syncManager.isSynced() ?? true {
-                    AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                        user.vcards.requestItem(stream, jid: groupchatJid)
-                    })
-                }
-                
-                let resource = ResourceStorageItem()
-                resource.owner = owner
-                resource.jid = jid
-                resource.resource = owner
-                resource.status = .online
-                resource.entity = entity
-                resource.type = .groupchat
-                resource.priority = -5
-                resource.isTemporary = true
-                resource.primary = ResourceStorageItem.genPrimary(jid: jid, owner: owner, resource: owner)
-                let resourcePrimary = resource.primary
-                if realm.object(ofType: ResourceStorageItem.self, forPrimaryKey: resourcePrimary) == nil {
-                    if commitTransaction {
-                        try realm.write {
-                            realm.add(resource, update: .modified)
-                        }
-                    } else {
-                        realm.add(resource, update: .modified)
-                    }
-                }
-                
-                DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 5) {
-                    var displayedName: String = groupchatJid
-                    var userName: String = userJid
-                    do {
-                        let realm = try  WRealm.safe()
-                        if let name = realm.object(ofType: vCardStorageItem.self,
-                                                   forPrimaryKey: groupchatJid)?.generatedNickname {
-                            displayedName = name
-                        }
-                        if let name = realm.object(ofType: RosterStorageItem.self,
-                                                   forPrimaryKey: [userJid, self.owner].prp())?.displayName {
-                            userName = name
-                        }
-                    } catch {
-                        DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
-                    }
-                    
-                    var message = ""
-                    
-                    switch entity {
-                    case .groupchat:
-                        message = "\(userName) invited you to join this group".localizeString(id: "chat_group_invitation", arguments: ["\(userName)"])
-                    case .incognitoChat:
-                        message = "\(userName) invited you to join this incognito group".localizeString(id: "chat_incognito_chat_invitation", arguments: ["\(userName)"])
-                    case .privateChat:
-                        message = "\(userName) invited you to join private chat".localizeString(id: "chat_private_chat_invitation", arguments: ["\(userName)"])
-                    default: break
-                    }
-                    
-                    do {
-                        let realm = try  WRealm.safe()
-                        let notifyId = [jid, self.owner, NotifyManager.notificationInviteCategory].prp()
-                        if realm.object(ofType: ShowedNotificationRequests.self, forPrimaryKey: notifyId) != nil {
-                            return
-                        }
-                        
-                        let instance = ShowedNotificationRequests()
-                        instance.primary = notifyId
-                        instance.jid = jid
-                        instance.owner = self.owner
-                        
-                        try realm.write {
-                            realm.add(instance, update: .modified)
-                        }
-                    } catch {
-                        DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
-                    }
-                    
-                    
-                    DispatchQueue.main.async {
-                        NotifyManager.shared.showInviteNotification(
-                            title: displayedName,
-                            subtitle: "",
-                            text: message,
-                            jid: groupchatJid,
-                            owner: self.owner
-                        )
-                    }
-                    
-                }
-                
             }
-            
-            var jids: [String] = []
-            
-            if commitTransaction {
-                try realm.write {
-                    query.forEach {
-                        if $0.save(commitTransaction: false) {
-                            jids.append($0.opponent)
-                        }
-                    }
-                }
-                try realm.write {
-                    jids.forEach {
-                        if let instance = realm.object(
-                            ofType: LastChatsStorageItem.self,
-                            forPrimaryKey: LastChatsStorageItem.genPrimary(
-                                jid: $0,
-                                owner: self.owner,
-                                conversationType: .group
-                            )
-                        ) {
-                            LastChatUnreadCounter.setRuntimeUnreadCount(max(instance.runtimeUnreadCount, 1), for: instance)
-                            if instance.lastMessage == nil && instance.lastMessageId.isNotEmpty {
-                                instance.lastMessage = realm.objects(MessageStorageItem.self).filter("owner == %@ AND messageId == %@", self.owner, instance.lastMessageId).first
-                            }
-                        }
-                    }
-                }
+            if commitTransaction && !realm.isInWriteTransaction {
+                try realm.write(mutation)
             } else {
-                query.forEach {
-                    if $0.save(commitTransaction: false) {
-                        jids.append($0.opponent)
-                    }
-                }
-                jids.forEach {
-                    if let instance = realm.object(
-                        ofType: LastChatsStorageItem.self,
-                        forPrimaryKey: LastChatsStorageItem.genPrimary(
-                            jid: $0,
-                            owner: self.owner,
-                            conversationType: .group
-                        )
-                    ) {
-                        LastChatUnreadCounter.setRuntimeUnreadCount(max(instance.runtimeUnreadCount, 1), for: instance)
-                        if instance.lastMessage == nil && instance.lastMessageId.isNotEmpty {
-                            instance.lastMessage = realm.objects(MessageStorageItem.self).filter("owner == %@ AND messageId == %@", self.owner, instance.lastMessageId).first
-                        }
-                    }
-                }
+                mutation()
             }
         } catch {
             DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")

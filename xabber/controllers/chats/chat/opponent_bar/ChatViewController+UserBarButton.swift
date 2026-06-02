@@ -339,3 +339,258 @@ extension ChatViewController {
         }
     }
 }
+
+enum ChatNavigationAvatarItemFactory {
+    static let accessibilityIdentifier = "chat_navigation_avatar_button"
+    static let imageSize: CGFloat = 32
+    private static let savedIconSize: CGFloat = 16
+
+    static func makeItem(
+        image: UIImage?,
+        target: AnyObject?,
+        action: Selector
+    ) -> UIBarButtonItem {
+        let item = UIBarButtonItem(
+            image: image?.withRenderingMode(.alwaysOriginal),
+            style: .plain,
+            target: target,
+            action: action
+        )
+        item.accessibilityIdentifier = accessibilityIdentifier
+        item.accessibilityLabel = "Chat info".localizeString(id: "chat_info", arguments: [])
+        return item
+    }
+
+    static func avatarImage(from image: UIImage?) -> UIImage? {
+        guard let image else {
+            return nil
+        }
+        return renderAvatarImage(
+            image: image,
+            backgroundColor: nil,
+            iconTintColor: nil,
+            prefersSquareMask: AccountMasksManager.shared.load() == "square"
+        )
+    }
+
+    static func savedMessagesImage(
+        backgroundColor: UIColor,
+        iconTintColor: UIColor
+    ) -> UIImage? {
+        let icon = imageLiteral(XMPPFavoritesManagerStorageItem.imageName, dimension: savedIconSize)?
+            .withTintColor(iconTintColor, renderingMode: .alwaysOriginal)
+        return renderAvatarImage(
+            image: icon,
+            backgroundColor: backgroundColor,
+            iconTintColor: iconTintColor,
+            prefersSquareMask: AccountMasksManager.shared.load() == "square"
+        )
+    }
+
+    private static func renderAvatarImage(
+        image: UIImage?,
+        backgroundColor: UIColor?,
+        iconTintColor: UIColor?,
+        prefersSquareMask: Bool
+    ) -> UIImage? {
+        let size = CGSize(width: imageSize, height: imageSize)
+        let bounds = CGRect(origin: .zero, size: size)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { _ in
+            let path = UIBezierPath(
+                roundedRect: bounds,
+                cornerRadius: prefersSquareMask ? 7 : imageSize / 2
+            )
+            path.addClip()
+
+            if let backgroundColor {
+                backgroundColor.setFill()
+                UIRectFill(bounds)
+            } else {
+                UIColor.clear.setFill()
+                UIRectFill(bounds)
+            }
+
+            guard let image else {
+                return
+            }
+
+            let drawRect: CGRect
+            if backgroundColor != nil {
+                let origin = CGPoint(
+                    x: (imageSize - savedIconSize) / 2,
+                    y: (imageSize - savedIconSize) / 2
+                )
+                drawRect = CGRect(origin: origin, size: CGSize(width: savedIconSize, height: savedIconSize))
+            } else {
+                drawRect = aspectFillRect(for: image.size, in: bounds)
+            }
+
+            if let iconTintColor, backgroundColor != nil {
+                iconTintColor.setFill()
+            }
+            image.draw(in: drawRect)
+        }
+    }
+
+    private static func aspectFillRect(for imageSize: CGSize, in bounds: CGRect) -> CGRect {
+        guard imageSize.width > 0, imageSize.height > 0 else {
+            return bounds
+        }
+
+        let scale = max(bounds.width / imageSize.width, bounds.height / imageSize.height)
+        let scaledSize = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+        return CGRect(
+            x: bounds.midX - scaledSize.width / 2,
+            y: bounds.midY - scaledSize.height / 2,
+            width: scaledSize.width,
+            height: scaledSize.height
+        )
+    }
+}
+
+extension ChatViewController {
+    internal func invalidateNavigationAvatarItem() {
+        navigationAvatarGeneration = UUID()
+        navigationAvatarRequestKey = nil
+        navigationAvatarBag = DisposeBag()
+        navigationAvatarItem = nil
+    }
+
+    internal var isTopVisibleChatController: Bool {
+        guard isViewLoaded else {
+            return false
+        }
+        guard let navigationController else {
+            return false
+        }
+        return navigationController.topViewController === self
+            && navigationController.visibleViewController === self
+    }
+
+    internal func currentNavigationAvatarPlaceholderImage() -> UIImage? {
+        if conversationType == .saved {
+            let palette = AccountColorManager.shared.palette(for: owner)
+            return ChatNavigationAvatarItemFactory.savedMessagesImage(
+                backgroundColor: palette.tint100,
+                iconTintColor: palette.tint900
+            )
+        }
+
+        let displayName = currentNavigationAvatarDisplayName()
+        return ChatNavigationAvatarItemFactory.avatarImage(
+            from: UIImageView.getDefaultAvatar(
+                for: displayName,
+                owner: owner,
+                size: ChatNavigationAvatarItemFactory.imageSize
+            )
+        )
+    }
+
+    internal func startNavigationAvatarObservation() {
+        guard conversationType != .saved else {
+            return
+        }
+
+        do {
+            let realm = try WRealm.safe()
+            Observable
+                .collection(from: realm
+                    .objects(RosterStorageItem.self)
+                .filter("owner == %@ AND jid == %@", self.owner, self.jid))
+                .observe(on: MainScheduler.asyncInstance)
+                .subscribe(onNext: { [weak self] _ in
+                    guard let self, self.isTopVisibleChatController else {
+                        return
+                    }
+                    self.refreshNavigationAvatarImage()
+                })
+                .disposed(by: navigationAvatarBag)
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    internal func refreshNavigationAvatarImage() {
+        guard conversationType != .saved else {
+            updateNavigationAvatarImageIfCurrent(currentNavigationAvatarPlaceholderImage())
+            return
+        }
+
+        let avatarUrl = currentNavigationAvatarURL()
+        let displayName = currentNavigationAvatarDisplayName()
+        let requestKey = [owner, jid, avatarUrl ?? "", displayName].joined(separator: "|")
+        let generation = navigationAvatarGeneration
+        navigationAvatarRequestKey = requestKey
+
+        let fallback = currentNavigationAvatarPlaceholderImage()
+        updateNavigationAvatarImageIfCurrent(fallback)
+
+        DefaultAvatarManager.shared.getAvatar(
+            url: avatarUrl,
+            jid: jid,
+            owner: owner,
+            size: ChatNavigationAvatarItemFactory.imageSize
+        ) { [weak self] image in
+            DispatchQueue.main.async {
+                guard let self else {
+                    return
+                }
+                guard self.navigationAvatarGeneration == generation,
+                      self.navigationAvatarRequestKey == requestKey,
+                      self.isTopVisibleChatController,
+                      !self.inSearchMode.value else {
+                    return
+                }
+                self.updateNavigationAvatarImageIfCurrent(
+                    ChatNavigationAvatarItemFactory.avatarImage(from: image) ?? fallback
+                )
+            }
+        }
+    }
+
+    private func updateNavigationAvatarImageIfCurrent(_ image: UIImage?) {
+        guard !inSearchMode.value else {
+            return
+        }
+        navigationAvatarItem?.image = image?.withRenderingMode(.alwaysOriginal)
+    }
+
+    private func currentNavigationAvatarURL() -> String? {
+        do {
+            let realm = try WRealm.safe()
+            let rosterItem = realm.object(
+                ofType: RosterStorageItem.self,
+                forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)
+            )
+            return rosterItem?.avatarMinUrl ?? rosterItem?.avatarMaxUrl ?? rosterItem?.oldschoolAvatarKey
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func currentNavigationAvatarDisplayName() -> String {
+        do {
+            let realm = try WRealm.safe()
+            if conversationType == .group,
+               let group = realm.object(
+                ofType: GroupChatStorageItem.self,
+                forPrimaryKey: GroupChatStorageItem.genPrimary(jid: jid, owner: owner)
+               ) {
+                return group.name
+            }
+
+            if let rosterItem = realm.object(
+                ofType: RosterStorageItem.self,
+                forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)
+            ) {
+                return rosterItem.displayName
+            }
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+
+        return jid
+    }
+}

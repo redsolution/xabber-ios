@@ -328,6 +328,11 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
         case .chat:
             if isArchivedMessage(message) {
                 if let bareMessage = getArchivedMessageContainer(message) {
+                    if GroupchatInvitePersistenceService(owner: sender.myJID!.bare)
+                        .receiveArchivedEnvelope(message, isRead: nil)
+                        .shouldConsume {
+                        return
+                    }
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: sender.myJID!.bare, archivedDate: getDeliveryTime(message, owner: sender.myJID!.bare) ?? getDelayedDate(message)) {
                         return
                     }
@@ -337,6 +342,11 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 }
                 
             } else {
+                if GroupchatInvitePersistenceService(owner: sender.myJID!.bare)
+                    .receive(message: message, date: getDeliveryTime(message, owner: sender.myJID!.bare) ?? Date(), isRead: false)
+                    .shouldConsume {
+                    return
+                }
                 if VoIPManager.shared.onReceiveMessage(message, owner: sender.myJID!.bare, archivedDate: nil, runtime: true) {
                     return
                 }

@@ -323,15 +323,24 @@ extension ChatViewController {
             .skip(1)
             .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
+                let shouldAnimate = ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+                    requestedAnimated: true,
+                    isTransitionActive: self.isNavigationTransitionActive,
+                    isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
+                )
                 if value {
-                    self.navigationItem.setRightBarButton(self.cancelSelectionBarButton, animated: true)
-                    self.navigationItem.setHidesBackButton(true, animated: true)
-                    self.navigationItem.setLeftBarButton(self.deleteSelectionBarButton, animated: true)
+                    self.invalidateNavigationAvatarItem()
+                    NavigationBarItemOwnership.apply(
+                        to: self.navigationItem,
+                        left: .item(self.deleteSelectionBarButton),
+                        right: .item(self.cancelSelectionBarButton),
+                        animated: shouldAnimate
+                    )
+                    self.navigationItem.setHidesBackButton(true, animated: shouldAnimate)
                     self.xabberInputView.showSelectionPanel()
                     self.navigationItem.titleView = self.selectionCountLabel
                 } else {
-                    self.navigationItem.setHidesBackButton(false, animated: true)
-                    self.navigationItem.setLeftBarButton(nil, animated: true)
+                    self.navigationItem.setHidesBackButton(false, animated: shouldAnimate)
                     self.xabberInputView.hideSelectionPanel()
                     self.configureNavbar()
                 }

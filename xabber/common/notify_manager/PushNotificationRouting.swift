@@ -365,7 +365,6 @@ enum PushNotificationArchiveParser {
         static let files = "https://xabber.com/protocol/files"
         static let voiceMessages = "https://xabber.com/protocol/voice-messages"
         static let groups = "https://xabber.com/protocol/groups"
-        static let groupsInvite = "https://xabber.com/protocol/groups#invite"
         static let forward = "urn:xmpp:forward:0"
         static let trust = "urn:xmpp:trust:0"
         static let xen = "urn:xabber:xen:0"
@@ -453,33 +452,27 @@ enum PushNotificationArchiveParser {
     }
 
     private static func parseInvite(_ message: DDXMLElement, owner: String) -> PushNotificationPreview? {
-        guard let invite = message.firstChild(named: "invite", xmlns: XMLNS.groups)
-                ?? message.firstChild(named: "invite", xmlns: XMLNS.groupsInvite),
-              let groupchat = trimmed(invite.attributeString("jid")) else {
+        guard let payload = GroupchatInviteV3Parser.parse(message, owner: owner, date: Date(), archiveId: nil) else {
             return nil
         }
 
         let groupElement = message.firstChild(named: "group", xmlns: XMLNS.groups)
-        let legacyGroupElement = message.firstChild(named: "x", xmlns: XMLNS.groups)
-        let privacy = trimmed(groupElement?.attributeString("privacy"))
-            ?? trimmed(legacyGroupElement?.firstChild(named: "privacy")?.stringValue)
         let inviteKind: String
-        if groupElement?.firstChild(named: "parent-chat") != nil || legacyGroupElement?.firstChild(named: "parent-chat") != nil {
+        if groupElement?.firstChild(named: "parent-chat") != nil {
             inviteKind = "peer-to-peer"
-        } else if privacy == "incognito" {
+        } else if payload.isAnonymous {
             inviteKind = "incognito"
         } else {
             inviteKind = "group"
         }
 
-        let inviterJid = bareJid(message.attributeString("from") ?? "")
-        let groupName = trimmed(groupElement?.firstChild(named: "name")?.stringValue)
-            ?? trimmed(legacyGroupElement?.firstChild(named: "name")?.stringValue)
+        let groupName = trimmed(groupElement?.firstChild(named: "info")?.firstChild(named: "name")?.stringValue)
+            ?? trimmed(groupElement?.firstChild(named: "name")?.stringValue)
         let route = PushNotificationRoutePayload.groupInvite(
             owner: owner,
-            groupchat: groupchat,
+            groupchat: payload.groupchat,
             inviteKind: inviteKind,
-            inviterJid: inviterJid.isEmpty ? nil : inviterJid,
+            inviterJid: payload.sender.isEmpty ? nil : payload.sender,
             inviterNickname: nil
         )
         let body: String

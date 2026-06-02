@@ -1102,6 +1102,7 @@ class MessageStorageItem: Object {
                     realm.add(instance)
                 }
                 instance.lastMessageId = self.messageId
+                clearSavedVisiblePosition(on: instance)
 
                 if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
                     instance.applyAutoDeleteTimer(Double(timer), updatedAt: self.date.timeIntervalSince1970, updatedBy: self.owner)
@@ -1215,6 +1216,13 @@ class MessageStorageItem: Object {
         }
 
         return SaveSideEffects(shouldStoreStanza: true, notification: notification)
+    }
+
+    private func clearSavedVisiblePosition(on chat: LastChatsStorageItem) {
+        chat.lastVisibleMessagePrimary = nil
+        chat.lastVisibleMessageArchivedId = nil
+        chat.lastVisibleMessageId = nil
+        chat.lastVisibleMessageDate = nil
     }
 
     private func normalizedIncomingTextBody(from messageContainer: XMPPMessage) -> String {

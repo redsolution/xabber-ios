@@ -713,6 +713,8 @@ enum AccountConnectionStaleReason: String, Equatable {
     case noConfirmedTraffic
     case pingTimeout
     case outboundConfirmationTimeout
+    case primaryStreamAckTimeout
+    case primaryStreamTrackingLimit
 }
 
 struct AccountConnectionHealthSnapshot: Equatable {
@@ -892,6 +894,34 @@ final class AccountConnectionResilienceCoordinator {
                 ["id": id ?? "none", "timeout": policy.outboundConfirmationTimeout]
             )
             scheduleOutboundConfirmationTimeout()
+        }
+    }
+
+    func notePrimaryStreamAckTimeout(stanzaId: String?, generation: UInt64) {
+        withStateLock {
+            guard isOnline, !isSuspectedStale else {
+                actions.log(
+                    "resilience_primary_stream_ack_timeout_ignored",
+                    ["id": stanzaId ?? "none", "generation": generation, "online": isOnline]
+                )
+                return
+            }
+            actions.log(
+                "resilience_primary_stream_ack_timeout",
+                ["id": stanzaId ?? "none", "generation": generation]
+            )
+            forceCloseAfterLivenessFailure(reason: .primaryStreamAckTimeout)
+        }
+    }
+
+    func notePrimaryStreamTrackingLimitRejected(_ violation: PrimaryStreamTrackingLimitViolation) {
+        withStateLock {
+            actions.log(
+                "resilience_primary_stream_tracking_limit_rejected",
+                ["violation": String(describing: violation), "online": isOnline]
+            )
+            guard isOnline, !isSuspectedStale else { return }
+            forceCloseAfterLivenessFailure(reason: .primaryStreamTrackingLimit)
         }
     }
 
@@ -1421,7 +1451,22 @@ final class AccountSendCoordinator {
                     )
                 },
                 sendMessage: { [weak account] message in
-                    account?.xmppStream.send(message)
+                    guard let account else { return }
+                    let originId = PrimaryStreamStanzaIdentifier.ensureID(on: message)
+                    let result = account.sendPrimaryStanza(
+                        message,
+                        replayPolicy: .durableRegularMessage(originId: originId)
+                    )
+                    if case .rejected(let violation) = result {
+                        let error = NSError(
+                            domain: "AccountPrimaryStreamStanzaTracker",
+                            code: 1,
+                            userInfo: [
+                                NSLocalizedDescriptionKey: "primary stream stanza tracking rejected: \(violation)"
+                            ]
+                        )
+                        _ = account.sendCoordinator.localSendFailed(message: message, error: error)
+                    }
                 },
                 updatePendingOutgoingCount: { [weak account] count in
                     account?.connectionResilience.updatePendingOutgoingCount(count)
@@ -2213,6 +2258,16 @@ final class Account: NSObject {
             }
         )
     )
+    lazy var primaryStreamStanzaTracker = AccountPrimaryStreamStanzaTracker(
+        configuration: .production,
+        scheduler: self.connectionResilienceScheduler,
+        onAckTimeout: { [weak self] stanza in
+            self?.connectionResilience.notePrimaryStreamAckTimeout(
+                stanzaId: stanza.stanzaId,
+                generation: stanza.generation
+            )
+        }
+    )
     private var networkPathMonitor: AccountNetworkPathMonitoring?
     private var isConnectionResilienceMonitoringStarted = false
     var pendingDisconnectCause: AccountDisconnectCause?
@@ -2379,6 +2434,103 @@ final class Account: NSObject {
 //        xuploads.confi-gure()
 //        self.asyncConnect()
     }
+
+    @discardableResult
+    func sendPrimaryStanza(
+        _ stanza: XMPPElement,
+        replayPolicy: PrimaryStreamReplayPolicy = .notReplayable
+    ) -> PrimaryStreamSendResult {
+        let stanzaId = PrimaryStreamStanzaIdentifier.ensureID(on: stanza)
+        if shouldTrackPrimaryStreamStanza {
+            let result = primaryStreamStanzaTracker.track(
+                stanzaId: stanzaId,
+                kind: primaryStreamStanzaKind(for: stanza),
+                replayPolicy: replayPolicy
+            )
+            if case .rejected(let violation) = result {
+                logPrimaryStreamTrackingRejected(stanza: stanza, violation: violation)
+                connectionResilience.notePrimaryStreamTrackingLimitRejected(violation)
+                return .rejected(violation)
+            }
+        } else {
+            logConnectionDiagnostics(
+                event: "primary_stream_send_untracked_sm_not_ready",
+                details: [
+                    "id": stanzaId,
+                    "kind": primaryStreamStanzaKind(for: stanza).rawValue,
+                    "sendReady": sendReadiness.snapshot.canFlushApplicationStanzas
+                ]
+            )
+        }
+
+        xmppStream.send(stanza)
+        return .sent(stanzaId: stanzaId)
+    }
+
+    func preparePrimaryStreamStanzaForSend(
+        _ stanza: XMPPElement,
+        replayPolicy: PrimaryStreamReplayPolicy = .notReplayable
+    ) -> Bool {
+        guard shouldTrackPrimaryStreamStanza else { return true }
+
+        let stanzaId = PrimaryStreamStanzaIdentifier.ensureID(on: stanza)
+        let result = primaryStreamStanzaTracker.track(
+            stanzaId: stanzaId,
+            kind: primaryStreamStanzaKind(for: stanza),
+            replayPolicy: replayPolicy
+        )
+        if case .rejected(let violation) = result {
+            logPrimaryStreamTrackingRejected(stanza: stanza, violation: violation)
+            connectionResilience.notePrimaryStreamTrackingLimitRejected(violation)
+            return false
+        }
+        return true
+    }
+
+    func notePrimaryStreamStanzaDidSend(_ stanza: XMPPElement) {
+        guard primaryStreamStanzaTracker.contains(stanzaId: stanza.elementID) else { return }
+        connectionResilience.noteOutboundApplicationStanza(id: stanza.elementID)
+        if sendReadiness.snapshot.canFlushApplicationStanzas {
+            sm.requestAck()
+        }
+    }
+
+    func notePrimaryStreamStanzaDidFailToSend(_ stanza: XMPPElement) {
+        _ = primaryStreamStanzaTracker.noteSendFailed(id: stanza.elementID)
+    }
+
+    func snapshotTrackedPrimaryStanzas() -> [PrimaryStreamTrackedStanza] {
+        primaryStreamStanzaTracker.snapshotTrackedPrimaryStanzas()
+    }
+
+    private var shouldTrackPrimaryStreamStanza: Bool {
+        sendReadiness.snapshot.canFlushApplicationStanzas
+    }
+
+    private func primaryStreamStanzaKind(for stanza: XMPPElement) -> PrimaryStreamStanzaKind {
+        if stanza is XMPPIQ || stanza.name == "iq" {
+            return .iq
+        }
+        if stanza is XMPPPresence || stanza.name == "presence" {
+            return .presence
+        }
+        return .message
+    }
+
+    private func logPrimaryStreamTrackingRejected(
+        stanza: XMPPElement,
+        violation: PrimaryStreamTrackingLimitViolation
+    ) {
+        logConnectionDiagnostics(
+            event: "primary_stream_stanza_tracking_rejected",
+            details: [
+                "id": stanza.elementID ?? "none",
+                "kind": primaryStreamStanzaKind(for: stanza).rawValue,
+                "violation": String(describing: violation)
+            ],
+            rawXML: stanza.xmlString
+        )
+    }
     
     private func startConnectionResilienceMonitoring() {
         guard !isConnectionResilienceMonitoringStarted else { return }
@@ -2451,6 +2603,7 @@ final class Account: NSObject {
         self.connectionGate.reset()
         self.sendReadiness.markDisconnected(cause: self.pendingDisconnectCause ?? .accidentalSocket)
         self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
+        self.primaryStreamStanzaTracker.noteStreamDidDisconnect(canResume: self.sm.canResumeStream())
         self.statusState.accept(.offline)
         self.statusMessage.accept(RosterUtils.shared.convertStatus(.offline))
         self.xmppStream.abortConnecting()
@@ -2815,7 +2968,7 @@ final class Account: NSObject {
                         trigger: .livenessProbe,
                         details: ["id": iq.elementID ?? "none"]
                     )
-                    self.xmppStream.send(iq)
+                    self.sendPrimaryStanza(iq, replayPolicy: .notReplayable)
                 },
                 onFailure: {
                     self.logConnectionDiagnostics(event: "resilience_ping_queue_limit", trigger: .livenessProbe)
@@ -2863,6 +3016,7 @@ final class Account: NSObject {
             self.connectionGate.markDisconnected()
             self.sendReadiness.markDisconnected(cause: cause)
             self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
+            self.primaryStreamStanzaTracker.noteStreamDidDisconnect(canResume: self.sm.canResumeStream())
             AccountManager.shared.markAsConnecting(jid: self.jid)
         }
     }
@@ -3121,6 +3275,7 @@ final class Account: NSObject {
         self.pendingDisconnectCause = resolvedCause
         self.sendReadiness.markDisconnected(cause: resolvedCause)
         self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
+        self.primaryStreamStanzaTracker.noteStreamDidDisconnect(canResume: self.sm.canResumeStream())
         DDLogDebug("account disconnect requested jid=\(self.jid) hard=\(hard) cause=\(resolvedCause.rawValue) phase=\(self.connectionGate.snapshot().phase.rawValue) streamState=\(self.streamStateDescription)")
         self.logConnectionDiagnostics(
             event: "disconnect_requested",
@@ -3167,7 +3322,10 @@ final class Account: NSObject {
                 self.reconnect.autoReconnect = false
             }
             guard !wasDisconnected else { return }
-            self.xmppStream.send(XMPPPresence(type: .unavailable))
+            self.sendPrimaryStanza(
+                XMPPPresence(type: .unavailable),
+                replayPolicy: .latestPresence(scope: "account-unavailable")
+            )
             self.xmppStream.disconnectAfterSending()
 //            self.xmppStream.asyncSocket.disconnectAfterReadingAndWriting()
         }

@@ -28,6 +28,10 @@ extension LastChatsViewController: UITableViewDelegate {
         false
     }
 
+    func tableView(_ tableView: UITableView, shouldIndentWhileEditingRowAt indexPath: IndexPath) -> Bool {
+        false
+    }
+
     internal static func unreadMentionOpenRequest(
         owner: String,
         jid: String,
@@ -78,7 +82,7 @@ extension LastChatsViewController: UITableViewDelegate {
             ?? (chat.messageDate == Date(timeIntervalSince1970: 0) ? nil : chat.messageDate)
             ?? Date()
 
-        return ChatOpenMessageRequest(
+        let request = ChatOpenMessageRequest(
             chatJid: jid,
             owner: owner,
             conversationType: conversationType,
@@ -94,6 +98,8 @@ extension LastChatsViewController: UITableViewDelegate {
             markReadOnVisible: true,
             source: .mentionNotification
         )
+
+        return request
     }
 
     internal static func initialOpenRequest(
@@ -137,12 +143,15 @@ extension LastChatsViewController: UITableViewDelegate {
             savedAtSnapshotLastArchiveId: chat.lastVisiblePositionSavedAtSnapshotLastArchiveId
         )
 
-        switch ChatInitialPositionPolicy.decision(for: state, explicitRequest: explicitOpenMessageRequest) {
+        let decision = ChatInitialPositionPolicy.decision(for: state, explicitRequest: explicitOpenMessageRequest)
+        let result: ChatOpenMessageRequest?
+        switch decision {
         case .open(let request):
-            return request
+            result = request
         case .bottom:
-            return nil
+            result = nil
         }
+        return result
     }
 
     internal func unreadMentionOpenRequest(
@@ -229,12 +238,29 @@ extension LastChatsViewController: UITableViewDelegate {
                     owner: item.owner,
                     jid: item.jid,
                     conversationType: item.conversationType,
-                    openMessageRequest: self.unreadMentionOpenRequest(
-                        owner: item.owner,
-                        jid: item.jid,
-                        conversationType: item.conversationType
-                    )
-                )
+                    openMessageRequest: nil
+                ) { [weak self] chatVc in
+                    guard let self,
+                          let chatVc,
+                          item.conversationType == .group else {
+                        return
+                    }
+                    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                        guard let self else { return }
+                        let openMessageRequest = self.unreadMentionOpenRequest(
+                            owner: item.owner,
+                            jid: item.jid,
+                            conversationType: item.conversationType
+                        )
+                        DispatchQueue.main.async {
+                            if let openMessageRequest {
+                                chatVc.queueOpenMessageRequest(openMessageRequest)
+                            } else {
+                                chatVc.performPendingOpenMessageRequestIfNeeded()
+                            }
+                        }
+                    }
+                }
         }
     }
     
@@ -267,39 +293,54 @@ extension LastChatsViewController: UITableViewDelegate {
                 oldVc.queueOpenMessageRequest(openMessageRequest)
             } else if oldVc.pendingOpenMessageRequest != nil || oldVc.activeAnchorExecutionState != nil {
                 oldVc.performPendingOpenMessageRequestIfNeeded()
-            } else if let initialRequest = self.initialOpenRequest(
-                owner: owner,
-                jid: jid,
-                conversationType: conversationType
-            ) {
-                oldVc.queueOpenMessageRequest(initialRequest)
             } else {
-                oldVc.scrollToLastOrUnreadItem()
+                DispatchQueue.global(qos: .userInitiated).async { [weak self, weak oldVc] in
+                    guard let self,
+                          let oldVc else {
+                        return
+                    }
+                    let initialRequest = self.initialOpenRequest(
+                        owner: owner,
+                        jid: jid,
+                        conversationType: conversationType
+                    )
+                    DispatchQueue.main.async {
+                        if oldVc.pendingOpenMessageRequest != nil || oldVc.activeAnchorExecutionState != nil {
+                            oldVc.performPendingOpenMessageRequestIfNeeded()
+                            return
+                        }
+                        if let initialRequest {
+                            oldVc.queueOpenMessageRequest(initialRequest)
+                        } else {
+                            oldVc.scrollToLastOrUnreadItem()
+                        }
+                    }
+                }
             }
             return
         }
         self.currentChatVC = nil
         let vc = ChatViewController()
-        let genericInitialOpenRequest = openMessageRequest == nil
-            ? self.initialOpenRequest(
-                owner: owner,
-                jid: jid,
-                conversationType: conversationType
-            )
-            : nil
         vc.owner = owner
         vc.jid = jid
         vc.conversationType = conversationType
         vc.sharedPlayerPaneldelegae = self
         vc.lastChatsDisplayDelegate = self
         if let openMessageRequest {
-            vc.pendingOpenMessageRequest = openMessageRequest
+            vc.queueOpenMessageRequest(openMessageRequest)
         }
         configureCallback?(vc)
         if vc.pendingOpenMessageRequest == nil,
            vc.activeAnchorExecutionState == nil,
-           let genericInitialOpenRequest {
-            vc.pendingOpenMessageRequest = genericInitialOpenRequest
+           openMessageRequest == nil {
+            let initialRequest = self.initialOpenRequest(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType
+            )
+            if let initialRequest {
+                vc.queueOpenMessageRequest(initialRequest)
+            }
         }
         if usesSplitDetailColumn {
             self.currentChatVC = vc

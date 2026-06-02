@@ -8,6 +8,7 @@
 
 import Foundation
 import UIKit
+import CocoaLumberjack
 
 enum StackedNavigationRoute: Equatable {
     case currentNavigationPush
@@ -160,8 +161,12 @@ private func currentNavigationController(for presenter: UIViewController) -> UIN
 }
 
 private func prepareStackedDestination(_ vc: UIViewController, targetBounds: CGRect?) {
+    let start = CFAbsoluteTimeGetCurrent()
     (vc as? StackedNavigationPresentationPreparing)?
         .prepareForStackedNavigationPresentation(targetBounds: targetBounds)
+#if DEBUG
+    DDLogDebug("showStacked.prepareStackedDestination for \(type(of: vc)) took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - start))s")
+#endif
 }
 
 private func splitSecondaryTargetBounds(
@@ -199,6 +204,7 @@ private func hidePrimaryAfterDetailTransition(_ splitViewController: UISplitView
 }
 
 public func showStacked(_ vc: UIViewController, in presenter: UIViewController) {
+    let start = CFAbsoluteTimeGetCurrent()
     let splitViewController = splitController(for: presenter)
     let route = stackedNavigationRoute(for: presenter)
 
@@ -224,7 +230,6 @@ public func showStacked(_ vc: UIViewController, in presenter: UIViewController) 
         let nvc = UINavigationController(rootViewController: vc)
         nvc.applyTransparentSplitAppearance()
 //            nvc.setNavigationBarHidden(false, animated: false)
-//            nvc.setToolbarHidden(false, animated: false)
         prepareStackedDestination(
             vc,
             targetBounds: splitSecondaryTargetBounds(
@@ -236,6 +241,9 @@ public func showStacked(_ vc: UIViewController, in presenter: UIViewController) 
         splitViewController.show(.secondary)
         hidePrimaryAfterDetailTransition(splitViewController)
     }
+#if DEBUG
+    DDLogDebug("showStacked route:\(route) for \(type(of: vc)) took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - start))s")
+#endif
 }
 
 public func showDetail(_ vc: UIViewController, currentVc: UIViewController?) {

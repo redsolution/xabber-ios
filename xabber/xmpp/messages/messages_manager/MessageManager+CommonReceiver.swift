@@ -244,6 +244,9 @@ extension MessageManager {
     public func receiveArchived(_ message: XMPPMessage) {
         if let date = getDelayedDate(message),
             let messageBare = getArchivedMessageContainer(message) {
+            if AccountManager.shared.find(for: owner)?.groupchats.readInvite(in: messageBare, date: getDeliveryTime(messageBare, owner: owner) ?? date, isRead: nil) ?? GroupchatInviteV3Parser.isInvite(messageBare) {
+                return
+            }
             let queryId = getMAMQueryId(message)
             let shouldPersistArchiveQueryId = AccountManager.shared
                 .find(for: owner)?
@@ -262,6 +265,9 @@ extension MessageManager {
     
     public func receiveCarbon(_ message: XMPPMessage) {
         if let messageBare = getCarbonCopyMessageContainer(message) {
+            if AccountManager.shared.find(for: owner)?.groupchats.readInvite(in: messageBare, date: getDeliveryTime(messageBare, owner: owner) ?? Date(), isRead: nil) ?? GroupchatInviteV3Parser.isInvite(messageBare) {
+                return
+            }
             enqueue(MessageQueueItem(messageBare,
                                      messageId: getOriginId(messageBare),
                                      archivedFrom: messageBare.from?.bare,
@@ -301,6 +307,9 @@ extension MessageManager {
     
     public func receiveCarbonForwarded(_ message: XMPPMessage) {
         if let messageBare = getCarbonForwardedMessageContainer(message) {
+            if AccountManager.shared.find(for: owner)?.groupchats.readInvite(in: messageBare, date: getDeliveryTime(messageBare, owner: owner) ?? Date(), isRead: nil) ?? GroupchatInviteV3Parser.isInvite(messageBare) {
+                return
+            }
             enqueue(MessageQueueItem(messageBare,
                                      messageId: getOriginId(messageBare),
                                      archivedFrom: message.from?.bare,
@@ -313,6 +322,9 @@ extension MessageManager {
     }
     
     public func receiveRuntime(_ message: XMPPMessage) {
+        if AccountManager.shared.find(for: owner)?.groupchats.readInvite(in: message, date: getDeliveryTime(message, owner: owner) ?? Date(), isRead: false) ?? GroupchatInviteV3Parser.isInvite(message) {
+            return
+        }
         enqueue(MessageQueueItem(message,
                                  messageId: getOriginId(message),
                                  archivedFrom: message.from?.bare,
@@ -379,6 +391,9 @@ extension MessageManager {
         
         sortedItems.forEach { (item) in
             if isVoIPMessage(item.message) {
+                return
+            }
+            if AccountManager.shared.find(for: owner)?.groupchats.readInvite(in: item.message, date: item.date, isRead: item.forceUnreadState ?? item.isRead) ?? GroupchatInviteV3Parser.isInvite(item.message) {
                 return
             }
             let instance: MessageStorageItem = MessageStorageItem()

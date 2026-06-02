@@ -640,6 +640,7 @@ class LastChatsViewController: BaseViewController {
         view.register(SkeletonCell.self, forCellReuseIdentifier: SkeletonCell.cellName)
         view.register(SpecialMessageTableViewCell.self, forCellReuseIdentifier: SpecialMessageTableViewCell.cellName)
         view.contentInsetAdjustmentBehavior = .scrollableAxes
+        
         view.applyContinuousSplitInsetGroupedAppearance()
 //        view.allowsMultipleSelection = false
 //        view.allowsMultipleSelectionDuringEditing = false
@@ -748,10 +749,6 @@ class LastChatsViewController: BaseViewController {
     internal var archivedSectionSubtitleText: NSAttributedString = NSAttributedString()
     
     internal var editedIndexPath: IndexPath? = nil
-    internal var activeSwipeActionDatasourceKey: String? = nil
-    internal var pendingSwipeActionReloadDatasourceKey: String? = nil
-    internal var pendingSwipeActionReconfigureDatasourceKey: String? = nil
-    internal var pendingSwipeActionTableReload: Bool = false
     internal var datasourceShowsSkeleton: Bool = true
 
     public var archivedMode: Bool = false
@@ -973,29 +970,7 @@ class LastChatsViewController: BaseViewController {
     }
     
     internal func updateTitle(_ value: Filter) {
-        do {
-            let realm = try WRealm.safe()
-            let accounts = Set(realm.objects(AccountStorageItem.self).toArray().compactMap { return $0.jid })
-            let filteredConnectingUsers = AccountManager.shared.connectingUsers.value.filter({ accounts.contains($0) })
-            if filteredConnectingUsers.isNotEmpty {
-                self.bottomBar.connectionState = .connecting
-                self.title = "Connecting".localizeString(id: "account_state_connecting", arguments: [])
-            } else {
-                self.bottomBar.connectionState = .normal
-                switch value {
-                case .chats, .saved:
-                        self.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
-                    case .unread:
-                        self.title = "Unread".localizeString(id: "unread_chats", arguments: [])
-                    case .archived:
-                        self.title = "Archived".localizeString(id: "archived_chats", arguments: [])
-                }
-            }
-            
-        } catch {
-            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
-        }
-        
+        self.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
     }
     
     private final func scrollTableViewToTop(animated: Bool) {
@@ -1327,16 +1302,6 @@ class LastChatsViewController: BaseViewController {
         return datasourceSections[section].kind
     }
 
-    private func indexPathForSwipeActionDatasourceKey(_ key: String) -> IndexPath? {
-        for (sectionIndex, section) in datasourceSections.enumerated() {
-            guard section.kind == .chats else { continue }
-            if let row = section.rows.firstIndex(where: { Self.swipeActionDatasourceKey(for: $0) == key }) {
-                return IndexPath(row: row, section: sectionIndex)
-            }
-        }
-        return nil
-    }
-
     private final func setDatasource(
         _ newDatasource: [Datasource],
         sections newSections: [DatasourceSection],
@@ -1374,28 +1339,28 @@ class LastChatsViewController: BaseViewController {
             || changes.moves.isNotEmpty
     }
 
-    private final func filteredReloadIndexPathsPreservingActiveSwipe(_ indexPaths: [IndexPath]) -> [IndexPath] {
-        let filtered = Self.filterReloadIndexPaths(
-            indexPaths,
-            sections: self.datasourceSections,
-            activeSwipeActionDatasourceKey: self.activeSwipeActionDatasourceKey
-        )
-        if filtered.count != indexPaths.count, let activeSwipeActionDatasourceKey {
-            self.pendingSwipeActionReloadDatasourceKey = activeSwipeActionDatasourceKey
-        }
-        return filtered
+    internal final var floatingBottomBarTitle: String? {
+        floatingBottomBarView.titleLabel.text
     }
 
-    private final func filteredReconfigureIndexPathsPreservingActiveSwipe(_ indexPaths: [IndexPath]) -> [IndexPath] {
-        let filtered = Self.filterReloadIndexPaths(
-            indexPaths,
-            sections: self.datasourceSections,
-            activeSwipeActionDatasourceKey: self.activeSwipeActionDatasourceKey
-        )
-        if filtered.count != indexPaths.count, let activeSwipeActionDatasourceKey {
-            self.pendingSwipeActionReconfigureDatasourceKey = activeSwipeActionDatasourceKey
+    internal var hasConnectingEnabledAccounts: Bool {
+        !AccountManager.shared.connectingUsers.value.isDisjoint(with: self.enabledAccounts.value)
+    }
+
+    internal final func floatingBottomBarTitle(forUnreadChatsCount unreadChatsCount: Int) -> String {
+        if hasConnectingEnabledAccounts {
+            return "Connecting".localizeString(id: "plurals.accounts_of_connecting.item_0", arguments: [])
         }
-        return filtered
+
+        if unreadChatsCount == 0 {
+            return CommonConfigManager.shared.config.app_name
+        }
+
+        if unreadChatsCount == 1 {
+            return "1 unread chat"
+        }
+
+        return "\(unreadChatsCount) unread chats"
     }
 
     internal final func reloadTableViewOrDeferForActiveSwipe() {
@@ -1404,54 +1369,9 @@ class LastChatsViewController: BaseViewController {
         }) {
             return
         }
-        guard activeSwipeActionDatasourceKey == nil else {
-            pendingSwipeActionTableReload = true
-            pendingSwipeActionReloadDatasourceKey = activeSwipeActionDatasourceKey
-            return
-        }
         UIView.performWithoutAnimation {
             tableView.reloadData()
             syncSelectedChatSelection()
-        }
-    }
-
-    internal final func finishActiveSwipeActionEditing() {
-        let shouldReloadTable = pendingSwipeActionTableReload
-        let reloadKey = pendingSwipeActionReloadDatasourceKey
-        let reconfigureKey = pendingSwipeActionReconfigureDatasourceKey
-
-        activeSwipeActionDatasourceKey = nil
-        pendingSwipeActionTableReload = false
-        pendingSwipeActionReloadDatasourceKey = nil
-        pendingSwipeActionReconfigureDatasourceKey = nil
-
-        guard shouldReloadTable || reloadKey != nil || reconfigureKey != nil else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            guard self.activeSwipeActionDatasourceKey == nil else {
-                if shouldReloadTable {
-                    self.pendingSwipeActionTableReload = true
-                }
-                self.pendingSwipeActionReloadDatasourceKey = reloadKey ?? self.activeSwipeActionDatasourceKey
-                self.pendingSwipeActionReconfigureDatasourceKey = reconfigureKey ?? self.activeSwipeActionDatasourceKey
-                return
-            }
-            if shouldReloadTable {
-                self.tableView.reloadData()
-                self.syncSelectedChatSelection()
-                return
-            }
-            if let reloadKey,
-               let indexPath = self.indexPathForSwipeActionDatasourceKey(reloadKey) {
-                UIView.performWithoutAnimation {
-                    self.tableView.reloadRows(at: [indexPath], with: .none)
-                }
-            }
-            if reloadKey == nil,
-               let reconfigureKey,
-               let indexPath = self.indexPathForSwipeActionDatasourceKey(reconfigureKey) {
-                self.reconfigureVisibleRow(at: indexPath)
-            }
         }
     }
 
@@ -1737,14 +1657,22 @@ class LastChatsViewController: BaseViewController {
                 }
             }
             if invites.isNotEmpty {
-                let rosterItems = invites.compactMap({ return realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: $0.jid, owner: $0.owner)) })
-                let groupItems = invites.compactMap({ return realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: $0.jid, owner: $0.owner)) })
-                let avatars = rosterItems.prefix(3).compactMap { AvatarStructItem(jid: $0.jid, owner: $0.owner, name: $0.displayName, url: $0.avatarUrl, isGroup: false, uuid: "")}
-                if let groupInstance = groupItems.first {
+                let senderRosterItems = invites.compactMap {
+                    realm.object(
+                        ofType: RosterStorageItem.self,
+                        forPrimaryKey: RosterStorageItem.genPrimary(jid: $0.sender.isNotEmpty ? $0.sender : $0.jid, owner: $0.owner)
+                    )
+                }
+                let avatars = senderRosterItems.prefix(3).compactMap { AvatarStructItem(jid: $0.jid, owner: $0.owner, name: $0.displayName, url: $0.avatarUrl, isGroup: false, uuid: "")}
+                if let firstInvite = invites.first {
+                    let groupInstance = realm.object(
+                        ofType: GroupChatStorageItem.self,
+                        forPrimaryKey: GroupChatStorageItem.genPrimary(jid: firstInvite.groupchat, owner: firstInvite.owner)
+                    )
                     out.append(Datasource(
-                        jid: groupInstance.jid,
-                        owner: groupInstance.owner,
-                        username: groupInstance.name,
+                        jid: firstInvite.groupchat,
+                        owner: firstInvite.owner,
+                        username: groupInstance?.name.isNotEmpty == true ? groupInstance!.name : firstInvite.groupchat,
                         attributedUsername: nil,
                         message: "",
                         date: nil,
@@ -1754,7 +1682,7 @@ class LastChatsViewController: BaseViewController {
                         status: .offline,
                         entity: .groupchat,
                         conversationType: .group,
-                        unread: rosterItems.count,
+                        unread: invites.count,
                         unreadString: nil,
                         hasUnreadMention: false,
                         color: .brown,
@@ -2170,12 +2098,13 @@ class LastChatsViewController: BaseViewController {
         return (reloads, reconfigures)
     }
 
-    private final func applyReplacementUpdates(
+    internal final func applyReplacementUpdates(
+        changes: ChangesWithIndexPath,
+        oldSections: [DatasourceSection],
+        newSections: [DatasourceSection],
         reloads: [IndexPath],
         reconfigures: [IndexPath]
     ) {
-        let reloads = self.filteredReloadIndexPathsPreservingActiveSwipe(reloads)
-        let reconfigures = self.filteredReconfigureIndexPathsPreservingActiveSwipe(reconfigures)
         guard reloads.isNotEmpty || reconfigures.isNotEmpty else { return }
 
         UIView.performWithoutAnimation {
@@ -2188,7 +2117,7 @@ class LastChatsViewController: BaseViewController {
         }
     }
 
-    private final func apply(
+    internal final func apply(
         changes: ChangesWithIndexPath,
         oldSections: [DatasourceSection],
         newSections: [DatasourceSection],
@@ -2216,7 +2145,13 @@ class LastChatsViewController: BaseViewController {
                 newShowsSkeleton: newShowsSkeleton
             )
             prepare()
-            self.applyReplacementUpdates(reloads: replacementPlan.reloads, reconfigures: replacementPlan.reconfigures)
+            self.applyReplacementUpdates(
+                changes: changes,
+                oldSections: oldSections,
+                newSections: newSections,
+                reloads: replacementPlan.reloads,
+                reconfigures: replacementPlan.reconfigures
+            )
             self.finishDatasetUpdateCycle()
             return
         }
@@ -2228,7 +2163,7 @@ class LastChatsViewController: BaseViewController {
             oldShowsSkeleton: oldShowsSkeleton,
             newShowsSkeleton: newShowsSkeleton
         )
-        
+
         self.tableView.performBatchUpdates({
             prepare()
             if !changes.deletedSections.isEmpty {
@@ -2250,7 +2185,13 @@ class LastChatsViewController: BaseViewController {
                 }
             }
         }, completion: { result in
-            self.applyReplacementUpdates(reloads: replacementPlan.reloads, reconfigures: replacementPlan.reconfigures)
+            self.applyReplacementUpdates(
+                changes: changes,
+                oldSections: oldSections,
+                newSections: newSections,
+                reloads: replacementPlan.reloads,
+                reconfigures: replacementPlan.reconfigures
+            )
             self.finishDatasetUpdateCycle()
         })
     }
@@ -2300,6 +2241,7 @@ class LastChatsViewController: BaseViewController {
                             self.isSkeletonShowed = true
                         }
                     }
+                    self.updateUnreadChatsCounter()
                 } catch {
                     
                 }
@@ -2461,7 +2403,7 @@ class LastChatsViewController: BaseViewController {
         self.updateTableInsetsForFloatingToolbar()
     }
 
-    private final func updateUnreadChatsCounter(count: Int? = nil) {
+    internal final func updateUnreadChatsCounter(count: Int? = nil) {
         let unreadChatsCount: Int
 
         if let count = count {
@@ -2482,16 +2424,7 @@ class LastChatsViewController: BaseViewController {
             }
         }
 
-        let counterText: String
-        if unreadChatsCount == 0 {
-            counterText = CommonConfigManager.shared.config.app_name
-        } else if unreadChatsCount == 1 {
-            counterText = "1 unread chat"
-        } else {
-            counterText = "\(unreadChatsCount) unread chats"
-        }
-
-        self.floatingBottomBarView.setTitle(counterText)
+        self.floatingBottomBarView.setTitle(self.floatingBottomBarTitle(forUnreadChatsCount: unreadChatsCount))
         self.updateFloatingToolbarFilterButtonState()
     }
 
@@ -2655,6 +2588,7 @@ class LastChatsViewController: BaseViewController {
             requestedAnimated: true,
             isTransitionActive: self.isNavigationTransitionActive
         )
+        NavigationBarItemOwnership.clear(self.navigationItem, animated: false)
         self.updateTitle(self.filter.value)
         if CommonConfigManager.shared.config.use_large_title {
             self.navigationItem.largeTitleDisplayMode = .automatic
@@ -2681,32 +2615,35 @@ class LastChatsViewController: BaseViewController {
                     target: self,
                     action: #selector(onAddButtonTouchUpInside)
                 )
-                let filterButton = UIBarButtonItem(
-                    image: imageLiteral("line.3.horizontal.decrease.circle")?
-                        .upscale(dimension: 24)
-                        .withRenderingMode(.alwaysTemplate),
-                    style: .plain,
-                    target: self,
-                    action: #selector(onFilterButtonTouchUpInside)
-                )
-                if CommonConfigManager.shared.config.use_yubikey {
-                    self.navigationItem.setRightBarButtonItems([filterButton, addBarButton, securityButton], animated: shouldAnimateNavigationItems)
-                } else {
-                    self.navigationItem.setRightBarButtonItems([filterButton, addBarButton], animated: shouldAnimateNavigationItems)
-                }
+            if CommonConfigManager.shared.config.use_yubikey {
                 let leftBarButton = UIBarButtonItem(customView: accountNavButton)
+                NavigationBarItemOwnership.apply(
+                    to: self.navigationItem,
+                    left: .item(leftBarButton),
+                    right: .items([addBarButton, securityButton]),
+                    animated: shouldAnimateNavigationItems
+                )
+            } else {
+                let leftBarButton = UIBarButtonItem(customView: accountNavButton)
+                NavigationBarItemOwnership.apply(
+                    to: self.navigationItem,
+                    left: .item(leftBarButton),
+                    right: .item(addBarButton),
+                    animated: shouldAnimateNavigationItems
+                )
+            }
 //                leftBarButton.target = self
 //                leftBarButton.action = #selector(showSettings)
-                self.navigationItem.setLeftBarButton(leftBarButton, animated: shouldAnimateNavigationItems)
                 accountNavButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
             case .split:
                 self.bottomBar.isHidden = true
                 self.playerViewToolbar.frame = CGRect(0, 0, self.view.frame.width, AudioPlayerBarView.Metrics.height)
-                self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: shouldAnimateNavigationItems)
+                if let splitNavigationItem = self.splitViewController?.navigationItem {
+                    NavigationBarItemOwnership.clear(splitNavigationItem, sides: [.left], animated: false)
+                }
                 
                 let sidebarButton = UIBarButtonItem(image: imageLiteral("sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
                 self.navigationItem.setHidesBackButton(true, animated: false)
-                self.navigationItem.setLeftBarButton(sidebarButton, animated: shouldAnimateNavigationItems)
                 
                 let addBarButton = UIBarButtonItem(
                     image: imageLiteral("plus"),//UIImage(systemName: "plus"),
@@ -2716,10 +2653,12 @@ class LastChatsViewController: BaseViewController {
                     target: self,
                     action: #selector(onAddButtonTouchUpInside)
                 )
-                self.filterButton = UIBarButtonItem(image: imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
-                                                                       ), style: .plain, target: self, action: #selector(onFilterButtonTouchUpInside))
-
-                self.navigationItem.setRightBarButtonItems([addBarButton, filterButton!], animated: shouldAnimateNavigationItems)
+                NavigationBarItemOwnership.apply(
+                    to: self.navigationItem,
+                    left: .item(sidebarButton),
+                    right: .item(addBarButton),
+                    animated: shouldAnimateNavigationItems
+                )
                 
         }
         self.updateFloatingToolbarFilterButtonState()
@@ -2727,8 +2666,6 @@ class LastChatsViewController: BaseViewController {
         self.updateTableInsetsForFloatingToolbar()
         
     }
-    
-    var filterButton: UIBarButtonItem? = nil
     
     var normalState: Filter = .chats
     
@@ -2752,7 +2689,7 @@ class LastChatsViewController: BaseViewController {
                 title = CommonConfigManager.shared.config.app_name
                 bottomBar.titleButton.setTitleColor(.label, for: .normal)
                 let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
-                self.navigationItem.setLeftBarButton(backButton, animated: false)
+                NavigationBarItemOwnership.set(.item(backButton), on: self.navigationItem, side: .left, animated: false)
             case .unread:
                 title = "Mark all as read".localizeString(id: "mark_all_as_read_button", arguments: [])
                 bottomBar.titleButton.setTitleColor(.systemBlue, for: .normal)
@@ -2761,11 +2698,11 @@ class LastChatsViewController: BaseViewController {
                 bottomBar.titleButton.setTitleColor(.label, for: .normal)
                 let sidebarButton = UIBarButtonItem(image: imageLiteral("sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
                 self.navigationItem.setHidesBackButton(true, animated: false)
-                self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
+                NavigationBarItemOwnership.set(.item(sidebarButton), on: self.navigationItem, side: .left, animated: false)
             case .saved:
                 bottomBar.isHidden = true
                 let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
-                self.navigationItem.setLeftBarButton(backButton, animated: false)
+                NavigationBarItemOwnership.set(.item(backButton), on: self.navigationItem, side: .left, animated: false)
         }
         bottomBar.titleButton.setTitle(title, for: .normal)
         self.updateFloatingToolbarFilterButtonState()
@@ -2810,7 +2747,6 @@ class LastChatsViewController: BaseViewController {
         } else {
             self.filter.accept(self.normalState)
         }
-        filterButton?.image = imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
         self.bottomBar.leftButton.setImage(UIImage(systemName: self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
         self.updateFloatingToolbarFilterButtonState()
         self.updateUnreadChatsCounter()
@@ -2848,11 +2784,7 @@ class LastChatsViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         beginNavigationTransitionDeferralIfNeeded()
-        if !self.deferUntilNavigationTransitionCompletesIfNeeded({ [weak self] in
-            self?.searchController.isActive = false
-        }) {
-            searchController.isActive = false
-        }
+        searchController.isActive = false
         NotifyManager.shared.setLastChats(displayed: true)
         isAppeared = true
         self.tabBarController?.tabBar.isHidden = false

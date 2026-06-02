@@ -215,6 +215,17 @@ class ServerDiscoManager: AbstractXMPPManager {
                         if !caps.contains(item) {
                             caps.append(item)
                         }
+                    case "http://xabber.com/protocol/archive", "https://xabber.com/protocol/archive":
+                        let item = "archive"
+                        if !caps.contains(item) {
+                            caps.append(item)
+                        }
+                        if AccountManager.shared.find(for: self.owner)?.mam.isExtendedArchiveAvailable != true {
+                            AccountManager.shared.find(for: self.owner)?.mam.isExtendedArchiveAvailable = true
+                            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                                user.mam.requestInviteRecovery(stream)
+                            })
+                        }
                     default: break
                     }
                 }

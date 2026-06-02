@@ -34,10 +34,6 @@ extension LastChatsViewController {
         "hand.raised.fill"
     ]
 
-    internal static func swipeActionDatasourceKey(for item: Datasource) -> String {
-        [item.jid, item.owner, item.conversationType.rawValue].prp()
-    }
-
     internal static func canShowCallAction(for item: Datasource) -> Bool {
         guard item.specialMessageKind == .none else { return false }
         return [.regular, .omemo, .omemo1, .axolotl].contains(item.conversationType)
@@ -46,32 +42,6 @@ extension LastChatsViewController {
     internal static func canShowBlockAction(for item: Datasource) -> Bool {
         guard item.specialMessageKind == .none else { return false }
         return ![.saved, .notifications].contains(item.conversationType)
-    }
-
-    internal static func filterReloadIndexPaths(
-        _ indexPaths: [IndexPath],
-        sections: [DatasourceSection],
-        activeSwipeActionDatasourceKey: String?
-    ) -> [IndexPath] {
-        guard let activeSwipeActionDatasourceKey else { return indexPaths }
-        return indexPaths.filter { indexPath in
-            guard let item = item(at: indexPath, in: sections) else {
-                return true
-            }
-            return swipeActionDatasourceKey(for: item) != activeSwipeActionDatasourceKey
-        }
-    }
-
-    internal static func filterReloadIndexPaths(
-        _ indexPaths: [IndexPath],
-        datasource: [Datasource],
-        activeSwipeActionDatasourceKey: String?
-    ) -> [IndexPath] {
-        filterReloadIndexPaths(
-            indexPaths,
-            sections: makeDatasourceSections(from: datasource, showsSkeleton: false),
-            activeSwipeActionDatasourceKey: activeSwipeActionDatasourceKey
-        )
     }
 
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
@@ -94,7 +64,7 @@ extension LastChatsViewController {
         deleteAction.backgroundColor = .systemRed
 
         let archiveAction = UIContextualAction(style: .normal,
-                                               title: "Archive".localizeString(id: "archive_chat", arguments: [])) {
+                                             title: "Archive".localizeString(id: "archive_chat", arguments: [])) {
             (action, view, handler) in
             let jid = item.jid
             let owner = item.owner
@@ -148,23 +118,23 @@ extension LastChatsViewController {
 
         var actions: [UIContextualAction] = []
         switch item.specialMessageKind {
-            case .none:
-                if filter.value == .archived {
-                    actions = [unarchiveAction, deleteAction, muteAction]
-                } else {
-                    actions = [archiveAction, deleteAction, muteAction]
-                }
-                if Self.canShowBlockAction(for: item) {
-                    actions.append(blockAction)
-                }
-                if AccountManager.shared.connectingUsers.value.isEmpty {
-                    let configuration = UISwipeActionsConfiguration(actions: actions)
-                    return configuration
-                } else {
-                    return nil
-                }
-            default:
-                break
+        case .none:
+            if filter.value == .archived {
+                actions = [unarchiveAction, deleteAction, muteAction]
+            } else {
+                actions = [archiveAction, deleteAction, muteAction]
+            }
+            if Self.canShowBlockAction(for: item) {
+                actions.append(blockAction)
+            }
+            if AccountManager.shared.connectingUsers.value.isEmpty {
+                let configuration = UISwipeActionsConfiguration(actions: actions)
+                return configuration
+            } else {
+                return nil
+            }
+        default:
+            break
         }
         return nil
     }
@@ -204,17 +174,5 @@ extension LastChatsViewController {
         } else {
             return nil
         }
-    }
-
-    func tableView(_ tableView: UITableView, willBeginEditingRowAt indexPath: IndexPath) {
-        guard let item = self.item(at: indexPath) else {
-            activeSwipeActionDatasourceKey = nil
-            return
-        }
-        activeSwipeActionDatasourceKey = Self.swipeActionDatasourceKey(for: item)
-    }
-
-    func tableView(_ tableView: UITableView, didEndEditingRowAt indexPath: IndexPath?) {
-        finishActiveSwipeActionEditing()
     }
 }

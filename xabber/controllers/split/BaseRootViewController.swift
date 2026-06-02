@@ -381,7 +381,12 @@ extension UITableViewCell {
         applyPlainGroupedSystemBackground(selectedColor: selectedColor, isSelected: false)
     }
 
-    func applyPlainGroupedSystemBackground(selectedColor: UIColor? = nil, isSelected: Bool = false) {
+    func applyPlainGroupedSystemBackground(
+        selectedColor: UIColor? = nil,
+        isSelected: Bool = false,
+        usesHighlightedStateForSelection: Bool = true,
+        usesStateDrivenSelection: Bool = true
+    ) {
         configurationUpdateHandler = nil
 
         func applyBackground(color: UIColor) {
@@ -421,10 +426,12 @@ extension UITableViewCell {
         let selectedBackgroundColor = selectedColor ?? normalColor
         applyBackground(color: isSelected ? selectedBackgroundColor : normalColor)
 
-        guard let selectedColor else { return }
+        guard let selectedColor, usesStateDrivenSelection else { return }
 
         configurationUpdateHandler = { cell, state in
-            let color = isSelected || state.isSelected || state.isHighlighted
+            let color = isSelected
+                || state.isSelected
+                || (usesHighlightedStateForSelection && state.isHighlighted)
                 ? selectedColor
                 : normalColor
             var background = UIBackgroundConfiguration.listGroupedCell()

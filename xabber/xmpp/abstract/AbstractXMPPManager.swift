@@ -19,8 +19,7 @@
 //
 
 import Foundation
-import XMPPFramework.XMPPStream
-import XMPPFramework.XMPPIQ
+import XMPPFramework
 import RxSwift
 import RxCocoa
 
@@ -58,6 +57,21 @@ open class AbstractXMPPManager: NSObject {
     
     func getPrimaryNamespace() -> String {
         return ""
+    }
+
+    @discardableResult
+    func sendPrimaryAware(
+        _ stanza: XMPPElement,
+        on stream: XMPPStream,
+        replayPolicy: PrimaryStreamReplayPolicy = .notReplayable
+    ) -> PrimaryStreamSendResult {
+        if let account = PrimaryStreamSendRouting.primaryAccount(owner: owner, stream: stream) {
+            return account.sendPrimaryStanza(stanza, replayPolicy: replayPolicy)
+        }
+
+        let stanzaId = stanza.attributeStringValue(forName: "id") ?? ""
+        stream.send(stanza)
+        return .sent(stanzaId: stanzaId)
     }
     
     deinit {

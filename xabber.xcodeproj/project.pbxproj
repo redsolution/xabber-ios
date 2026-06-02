@@ -13,6 +13,14 @@
 		4E4100022F6B000000ABC001 /* PushNotificationRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4100012F6B000000ABC001 /* PushNotificationRouting.swift */; };
 		4E4100032F6B000000ABC001 /* PushNotificationRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4100012F6B000000ABC001 /* PushNotificationRouting.swift */; };
 		4E4100052F6B000000ABC001 /* PushNotificationRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4100042F6B000000ABC001 /* PushNotificationRoutingTests.swift */; };
+		4E5200022F70000000ABC001 /* AccountPrimaryStreamStanzaTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5200012F70000000ABC001 /* AccountPrimaryStreamStanzaTracker.swift */; };
+		4E5200042F70000000ABC001 /* AccountPrimaryStreamStanzaQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5200032F70000000ABC001 /* AccountPrimaryStreamStanzaQueueTests.swift */; };
+		4E5300082F71000000ABC001 /* GroupchatInviteV3Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5300072F71000000ABC001 /* GroupchatInviteV3Tests.swift */; };
+		4E5300102F71000000ABC001 /* GroupchatInviteV3Parser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E53000E2F71000000ABC001 /* GroupchatInviteV3Parser.swift */; };
+		4E5300112F71000000ABC001 /* GroupchatInviteV3Parser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E53000E2F71000000ABC001 /* GroupchatInviteV3Parser.swift */; };
+		4E5300122F71000000ABC001 /* GroupchatInvitePersistenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E53000F2F71000000ABC001 /* GroupchatInvitePersistenceService.swift */; };
+		4E5400022F72000000ABC001 /* NavigationBarItemOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5400012F72000000ABC001 /* NavigationBarItemOwnership.swift */; };
+		4E5400042F72000000ABC001 /* ChatNavigationBarStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5400032F72000000ABC001 /* ChatNavigationBarStateTests.swift */; };
 		16345A174ECC23AC3F97AF2E /* AccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 163452C65A63992FE656E475 /* AccountManager.swift */; };
 		16345A67514437CA9DA437F7 /* LastChats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16345968863BF3D05325BFCF /* LastChats.swift */; };
 		1A1FDE9327B6809D008B240F /* ContactInfoViewControllerExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1FDE9227B6809D008B240F /* ContactInfoViewControllerExtensions.swift */; };
@@ -803,6 +811,13 @@
 		163457817B9EDAF9D7FB6FF8 /* NotifyManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NotifyManager.swift; sourceTree = "<group>"; };
 		4E4100012F6B000000ABC001 /* PushNotificationRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationRouting.swift; sourceTree = "<group>"; };
 		4E4100042F6B000000ABC001 /* PushNotificationRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationRoutingTests.swift; sourceTree = "<group>"; };
+		4E5200012F70000000ABC001 /* AccountPrimaryStreamStanzaTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountPrimaryStreamStanzaTracker.swift; sourceTree = "<group>"; };
+		4E5200032F70000000ABC001 /* AccountPrimaryStreamStanzaQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountPrimaryStreamStanzaQueueTests.swift; sourceTree = "<group>"; };
+		4E5300072F71000000ABC001 /* GroupchatInviteV3Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatInviteV3Tests.swift; sourceTree = "<group>"; };
+		4E53000E2F71000000ABC001 /* GroupchatInviteV3Parser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatInviteV3Parser.swift; sourceTree = "<group>"; };
+		4E53000F2F71000000ABC001 /* GroupchatInvitePersistenceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatInvitePersistenceService.swift; sourceTree = "<group>"; };
+		4E5400012F72000000ABC001 /* NavigationBarItemOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationBarItemOwnership.swift; sourceTree = "<group>"; };
+		4E5400032F72000000ABC001 /* ChatNavigationBarStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatNavigationBarStateTests.swift; sourceTree = "<group>"; };
 		16345968863BF3D05325BFCF /* LastChats.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = LastChats.swift; sourceTree = "<group>"; };
 		1A1FDE9227B6809D008B240F /* ContactInfoViewControllerExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactInfoViewControllerExtensions.swift; sourceTree = "<group>"; };
 		1A24A7C827B292B60052F12B /* VideosMediaCollectionCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideosMediaCollectionCell.swift; sourceTree = "<group>"; };
@@ -3068,6 +3083,8 @@
 				66F2B3852EB25D18004A3F76 /* GroupchatRightsDelegateProtocol.swift */,
 				669A9A34237D33E800A4BF51 /* GroupchatManager.swift */,
 				66605F722395207E00383EF1 /* GroupchatInvitesStorageItem.swift */,
+				4E53000E2F71000000ABC001 /* GroupchatInviteV3Parser.swift */,
+				4E53000F2F71000000ABC001 /* GroupchatInvitePersistenceService.swift */,
 				66D89D2E231931E20051A1DA /* GroupchatStorageItem.swift */,
 				66BA7DDC23681383009753DD /* GroupchatUserStorageItem.swift */,
 			);
@@ -3115,6 +3132,7 @@
 				6608562E2071FC92003E0122 /* extensions */,
 				66802904205A58A2005F0C9A /* delegates */,
 				66159E35201F550A00B1CF92 /* Account.swift */,
+				4E5200012F70000000ABC001 /* AccountPrimaryStreamStanzaTracker.swift */,
 				66BA99BF2420BE3B00D20CE2 /* AccountStorageItem.swift */,
 				1A93993127D9DAC700CEEBF6 /* AccountQuotaStorageItem.swift */,
 			);
@@ -3672,6 +3690,9 @@
 					4E3200012F6A000000ABC001 /* ContactsListAppearanceTests.swift */,
 					4E3300012F6A100000ABC001 /* NotificationsListAppearanceTests.swift */,
 					4E4100042F6B000000ABC001 /* PushNotificationRoutingTests.swift */,
+					4E5200032F70000000ABC001 /* AccountPrimaryStreamStanzaQueueTests.swift */,
+					4E5300072F71000000ABC001 /* GroupchatInviteV3Tests.swift */,
+					4E5400032F72000000ABC001 /* ChatNavigationBarStateTests.swift */,
 					66AE4E7724E12F7C00FF11DC /* xabberTests.swift */,
 					66AE4E7924E12F7C00FF11DC /* Info.plist */,
 					66AE4E7F24E189EF00FF11DC /* XabberXMPPTests.swift */,
@@ -3812,6 +3833,7 @@
 				66FA15DE2BD7C4F8009AAC55 /* bottom_bar */,
 				66AD011522D714E900823398 /* tab_bar */,
 				6644E27B213D0FBA001726DD /* NavBarController.swift */,
+				4E5400012F72000000ABC001 /* NavigationBarItemOwnership.swift */,
 			);
 			path = bars;
 			sourceTree = "<group>";
@@ -5000,6 +5022,7 @@
 				1A9ED07A279FFD1300F3543D /* InfoScreenFooterView+UICollectionViewDelegate.swift in Sources */,
 				6666EDE222436C7B005FB8F7 /* CallMetadataStorageItem.swift in Sources */,
 				669A9A35237D33E800A4BF51 /* GroupchatManager.swift in Sources */,
+				4E5300102F71000000ABC001 /* GroupchatInviteV3Parser.swift in Sources */,
 				66B3700420A4521D0022F71B /* XabberTabBar.swift in Sources */,
 				66A7BDAD2668F401007DE2DD /* SignInCreditionalsViewController.swift in Sources */,
 				6643F32121C2650E00333229 /* SeparatorLine.swift in Sources */,
@@ -5236,6 +5259,7 @@
 				66B7992022E08167001589A5 /* SearchResultsViewController+UITableViewDatasource.swift in Sources */,
 				1A999D8627DF497A0093A011 /* CloudStorageViewController.swift in Sources */,
 				66605F732395207E00383EF1 /* GroupchatInvitesStorageItem.swift in Sources */,
+				4E5300122F71000000ABC001 /* GroupchatInvitePersistenceService.swift in Sources */,
 				669F92EE27FC40C00035658C /* CommonConfigManager.swift in Sources */,
 				6643F32221C2650E00333229 /* Avatar.swift in Sources */,
 				66BC5C7825CD238500CEC418 /* NewCallSearchViewController.swift in Sources */,
@@ -5309,6 +5333,7 @@
 				4D63943C28607A2F0063A07E /* AccountInfoViewController+Flow.swift in Sources */,
 				66D89D2F231931E20051A1DA /* GroupchatStorageItem.swift in Sources */,
 				66159E36201F550A00B1CF92 /* Account.swift in Sources */,
+				4E5200022F70000000ABC001 /* AccountPrimaryStreamStanzaTracker.swift in Sources */,
 				669BAF0D2DE8672A0072B1F4 /* UIButton+Extension.swift in Sources */,
 				66E9219226F4C4B5006B8E40 /* Base64Extras.swift in Sources */,
 				6680AE65257E4F39007FD793 /* EncryptedPushData.swift in Sources */,
@@ -5339,6 +5364,7 @@
 				84B8E7412C4A8F5000DCB86E /* XabberActivity.swift in Sources */,
 				6678DFFB2497813400B3640B /* GroupchatContactInfoViewController+UITableViewDelegate.swift in Sources */,
 				6644E27C213D0FBA001726DD /* NavBarController.swift in Sources */,
+				4E5400022F72000000ABC001 /* NavigationBarItemOwnership.swift in Sources */,
 				66E6A14C248FAEB9006F6968 /* GroupchatInfoViewController+InfoScreenHeaderButtonDelegate.swift in Sources */,
 				4D9C8FD928534E45003E35BE /* SettingsViewController+InfoScreenHeaderButtonDelegate.swift in Sources */,
 				1A939B2A27E49EC100014E43 /* MasksSelectionViewController+TableViewDelegate.swift in Sources */,
@@ -5544,6 +5570,7 @@
 				66F339422F1FC73800EFB5B7 /* CredentialsManager.swift in Sources */,
 				66F339432F1FC74800EFB5B7 /* CommonConfigManager.swift in Sources */,
 				4E4100032F6B000000ABC001 /* PushNotificationRouting.swift in Sources */,
+				4E5300112F71000000ABC001 /* GroupchatInviteV3Parser.swift in Sources */,
 				665A79612F1FCB0500709663 /* ArrayExtension.swift in Sources */,
 				6629C1822F3C6AF10051C625 /* SharedRosterUtils.swift in Sources */,
 				665A79622F1FCB2200709663 /* CommonContactsMetadataManager.swift in Sources */,
@@ -5564,6 +5591,9 @@
 					4E31000A2F69000000ABC001 /* CallsListCoordinatorTests.swift in Sources */,
 					4E3200022F6A000000ABC001 /* ContactsListAppearanceTests.swift in Sources */,
 					4E3300022F6A100000ABC001 /* NotificationsListAppearanceTests.swift in Sources */,
+					4E5200042F70000000ABC001 /* AccountPrimaryStreamStanzaQueueTests.swift in Sources */,
+					4E5300082F71000000ABC001 /* GroupchatInviteV3Tests.swift in Sources */,
+					4E5400042F72000000ABC001 /* ChatNavigationBarStateTests.swift in Sources */,
 				4E1000062F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift in Sources */,
 				66D2B585253EFED100299578 /* XabberAssetsTests.swift in Sources */,
 			);

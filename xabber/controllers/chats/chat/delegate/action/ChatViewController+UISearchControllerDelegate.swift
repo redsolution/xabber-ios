@@ -46,10 +46,11 @@ extension ChatViewController: UISearchBarDelegate {
         self.inSearchMode.accept(false)
         self.becomeFirstResponder()
         self.searchTextObserver.accept(nil)
-        self.navigationItem.setLeftBarButton(self.navigationItem.backBarButtonItem, animated: true)
-        self.navigationItem.setHidesBackButton(false, animated: true)
+        self.navigationItem.setHidesBackButton(false, animated: false)
         self.messagesCollectionView.reloadDataAndKeepOffset()
-        self.configureNavbar()
+        UIView.performWithoutAnimation {
+            self.configureNavbar()
+        }
     }
     
     @objc
@@ -65,4 +66,3 @@ extension ChatViewController: UISearchBarDelegate {
         
     }
 }
-

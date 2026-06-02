@@ -27,6 +27,10 @@ class GroupchatInvitesStorageItem: Object {
     public static func genPrimary(jid: String, groupchat: String, owner: String) -> String {
         return [jid, owner].prp()
     }
+
+    public static func genIncomingPrimary(groupchat: String, owner: String) -> String {
+        return [groupchat, owner].prp()
+    }
     
     override static func primaryKey() -> String? {
         return "primary"
@@ -44,5 +48,8 @@ class GroupchatInvitesStorageItem: Object {
     @objc dynamic var isProcessed: Bool = false
     @objc dynamic var isAnonymous: Bool = false
     @objc dynamic var messageId: String = ""
+    @objc dynamic var originId: String = ""
+    @objc dynamic var stanzaId: String = ""
+    @objc dynamic var archiveId: String = ""
     @objc dynamic var isFromGroupchat: Bool = false
 }

@@ -425,7 +425,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                     
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: sender.myJID!.bare, archivedDate: getDeliveryTime(message, owner: sender.myJID!.bare) ?? getDelayedDate(message)) {
                         return
-                    } else if self.groupchat?.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) ?? false {
+                    } else if self.groupchat?.readArchivedInviteEnvelope(message, isRead: nil) ?? false {
                         return
                     }
                 }

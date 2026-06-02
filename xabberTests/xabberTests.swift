@@ -7454,6 +7454,168 @@ final class ChatInitialHistoryAppearancePolicyTests: XCTestCase {
             ChatInitialHistoryAppearancePolicy.shouldFinish(itemCount: 0, containsOnlyFakeMessages: false)
         )
     }
+
+    func testStackedNavigationPreparationLoadsInitialDatasourceForEmptyOrSkeletonFirstFrame() {
+        XCTAssertTrue(
+            ChatStackedNavigationPreparationPolicy.shouldLoadInitialDatasource(
+                isDatasourceEmpty: true,
+                isShowingBootstrapPlaceholder: true
+            )
+        )
+        XCTAssertTrue(
+            ChatStackedNavigationPreparationPolicy.shouldLoadInitialDatasource(
+                isDatasourceEmpty: false,
+                isShowingBootstrapPlaceholder: true
+            )
+        )
+        XCTAssertFalse(
+            ChatStackedNavigationPreparationPolicy.shouldLoadInitialDatasource(
+                isDatasourceEmpty: false,
+                isShowingBootstrapPlaceholder: false
+            )
+        )
+    }
+
+    func testSavedPositionFirstFrameUsesAnchorWindowForSyncedLocalAnchor() {
+        XCTAssertEqual(
+            ChatSavedPositionFirstFramePolicy.decision(
+                requestSource: .savedVisiblePosition,
+                isSynced: true,
+                observerCount: 180,
+                localAnchorIndex: 120,
+                pageSize: 100
+            ),
+            .savedPosition(
+                anchorIndex: 120,
+                window: ChatDatasetWindow(minIndex: 70, maxIndex: 170)
+            )
+        )
+    }
+
+    func testSavedPositionFirstFrameSkipsWhenLocalAnchorIsMissing() {
+        XCTAssertEqual(
+            ChatSavedPositionFirstFramePolicy.decision(
+                requestSource: .savedVisiblePosition,
+                isSynced: true,
+                observerCount: 180,
+                localAnchorIndex: nil,
+                pageSize: 100
+            ),
+            .standardContent
+        )
+    }
+
+    func testSavedPositionFirstFrameSkipsWhenChatIsUnsynced() {
+        XCTAssertEqual(
+            ChatSavedPositionFirstFramePolicy.decision(
+                requestSource: .savedVisiblePosition,
+                isSynced: false,
+                observerCount: 180,
+                localAnchorIndex: 120,
+                pageSize: 100
+            ),
+            .standardContent
+        )
+    }
+
+    func testSavedPositionFirstFrameSkipsWhenPageSwitchIsLocked() {
+        XCTAssertEqual(
+            ChatSavedPositionFirstFramePolicy.decision(
+                requestSource: .savedVisiblePosition,
+                isSynced: true,
+                observerCount: 180,
+                localAnchorIndex: 120,
+                pageSize: 100,
+                isPageUnlocked: false
+            ),
+            .standardContent
+        )
+    }
+
+    func testSavedPositionFirstFrameDoesNotHandleOtherAnchorSources() {
+        let sources: [ChatOpenMessageRequestSource] = [
+            .initialUnreadBoundary,
+            .pushNotification,
+            .search,
+            .mentionNotification
+        ]
+
+        sources.forEach { source in
+            XCTAssertEqual(
+                ChatSavedPositionFirstFramePolicy.decision(
+                    requestSource: source,
+                    isSynced: true,
+                    observerCount: 180,
+                    localAnchorIndex: 120,
+                    pageSize: 100
+                ),
+                .standardContent,
+                "\(source) should use the existing anchor pipeline"
+            )
+        }
+    }
+
+    func testSavedPositionFirstFrameCancellationKeepsPendingRequest() {
+        XCTAssertEqual(
+            ChatSavedPositionFirstFrameCompletionPolicy.mappingCancellationAction(
+                requestSource: .savedVisiblePosition
+            ),
+            .recoverPendingRequest
+        )
+    }
+
+    func testSavedPositionFirstFrameMissingRenderedAnchorKeepsPendingRequest() {
+        XCTAssertEqual(
+            ChatSavedPositionFirstFrameCompletionPolicy.renderedWindowAction(
+                requestSource: .savedVisiblePosition,
+                targetExistsInSnapshot: false
+            ),
+            .recoverPendingRequest
+        )
+    }
+
+    func testSavedPositionFirstFrameRenderedAnchorFinishesPendingRequest() {
+        XCTAssertEqual(
+            ChatSavedPositionFirstFrameCompletionPolicy.renderedWindowAction(
+                requestSource: .savedVisiblePosition,
+                targetExistsInSnapshot: true
+            ),
+            .finishRequest
+        )
+    }
+}
+
+final class ChatAnchorFailurePresentationPolicyTests: XCTestCase {
+
+    func testSavedVisiblePositionFailureSuppressesDefaultToastPresentation() {
+        XCTAssertFalse(
+            ChatAnchorFailureRecoveryPolicy.shouldRunDefaultFailurePresentation(
+                requestSource: .savedVisiblePosition,
+                usesBootstrapLoading: false,
+                hasFailureHook: false
+            )
+        )
+    }
+
+    func testExplicitAnchorFailuresKeepDefaultToastPresentation() {
+        let sources: [ChatOpenMessageRequestSource] = [
+            .mentionNotification,
+            .pushNotification,
+            .search,
+            .external
+        ]
+
+        sources.forEach { source in
+            XCTAssertTrue(
+                ChatAnchorFailureRecoveryPolicy.shouldRunDefaultFailurePresentation(
+                    requestSource: source,
+                    usesBootstrapLoading: false,
+                    hasFailureHook: false
+                ),
+                "\(source) should keep the existing missing-message toast behavior"
+            )
+        }
+    }
 }
 
 final class MessageArchiveRequestClassificationTests: XCTestCase {
@@ -9188,6 +9350,38 @@ final class LastChatUnreadCounterTests: XCTestCase {
         )
     }
 
+    private func seedSavedVisiblePosition(on chat: LastChatsStorageItem) {
+        chat.lastVisibleMessagePrimary = "saved-primary"
+        chat.lastVisibleMessageArchivedId = "saved-archived"
+        chat.lastVisibleMessageId = "saved-message"
+        chat.lastVisibleMessageDate = Date(timeIntervalSince1970: 1_711_283_100)
+        chat.lastVisiblePositionSavedAtLastMessageId = chat.lastMessageId
+        chat.lastVisiblePositionSavedAtSnapshotLastArchiveId = chat.syncSnapshotLastArchiveId
+        chat.lastVisiblePositionUpdatedAt = Date(timeIntervalSince1970: 1_711_283_101)
+    }
+
+    private func assertSavedVisiblePositionCleared(
+        _ chat: LastChatsStorageItem,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertNil(chat.lastVisibleMessagePrimary, file: file, line: line)
+        XCTAssertNil(chat.lastVisibleMessageArchivedId, file: file, line: line)
+        XCTAssertNil(chat.lastVisibleMessageId, file: file, line: line)
+        XCTAssertNil(chat.lastVisibleMessageDate, file: file, line: line)
+    }
+
+    private func assertSavedVisiblePositionPreserved(
+        _ chat: LastChatsStorageItem,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(chat.lastVisibleMessagePrimary, "saved-primary", file: file, line: line)
+        XCTAssertEqual(chat.lastVisibleMessageArchivedId, "saved-archived", file: file, line: line)
+        XCTAssertEqual(chat.lastVisibleMessageId, "saved-message", file: file, line: line)
+        XCTAssertEqual(chat.lastVisibleMessageDate, Date(timeIntervalSince1970: 1_711_283_100), file: file, line: line)
+    }
+
     func testSnapshotUnreadCountDoesNotRecountLocalMessages() throws {
         let chat = try insertChat()
         let realm = try WRealm.safe()
@@ -9253,6 +9447,64 @@ final class LastChatUnreadCounterTests: XCTestCase {
         XCTAssertEqual(chat.runtimeUnreadCount, 0)
         XCTAssertEqual(chat.unread, 102)
         XCTAssertEqual(message.unreadCounterBucket, .none)
+    }
+
+    func testIncomingNewestMessageClearsSavedVisiblePosition() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let incoming = makeMessage(primary: "incoming-newest", archivedId: "600", date: 1_711_283_203, countsAsRuntimeUnread: true)
+
+        try realm.write {
+            seedSavedVisiblePosition(on: chat)
+            _ = incoming.applyMessagePersistence(in: realm, silentNotifications: true)
+        }
+
+        assertSavedVisiblePositionCleared(chat)
+    }
+
+    func testOutgoingNewestMessageClearsSavedVisiblePositionAndUnreadCounters() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let live = makeMessage(primary: "live-1", archivedId: "600", date: 1_711_283_203, countsAsRuntimeUnread: true)
+        let outgoing = makeMessage(primary: "outgoing-newest", archivedId: "601", date: 1_711_283_204, outgoing: true, isRead: true)
+
+        try realm.write {
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat,
+                count: 2,
+                afterId: "100",
+                snapshotLastArchiveId: "500",
+                in: realm
+            )
+            seedSavedVisiblePosition(on: chat)
+            _ = live.applyMessagePersistence(in: realm, silentNotifications: true)
+            seedSavedVisiblePosition(on: chat)
+            _ = outgoing.applyMessagePersistence(in: realm, silentNotifications: true)
+        }
+
+        assertSavedVisiblePositionCleared(chat)
+        XCTAssertEqual(chat.syncUnreadCount, 0)
+        XCTAssertEqual(chat.runtimeUnreadCount, 0)
+        XCTAssertEqual(chat.unread, 0)
+        XCTAssertEqual(live.unreadCounterBucket, .none)
+    }
+
+    func testOlderReplayMessageDoesNotClearSavedVisiblePosition() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let newest = makeMessage(primary: "newest", archivedId: "700", date: 1_711_283_300)
+        let olderReplay = makeMessage(primary: "older-replay", archivedId: "600", date: 1_711_283_203, isRead: true)
+
+        try realm.write {
+            realm.add(newest, update: .modified)
+            chat.lastMessage = newest
+            chat.lastMessageId = newest.messageId
+            chat.messageDate = newest.sentDate
+            seedSavedVisiblePosition(on: chat)
+            _ = olderReplay.applyMessagePersistence(in: realm, silentNotifications: true)
+        }
+
+        assertSavedVisiblePositionPreserved(chat)
     }
 
     func testDuplicateLiveAndArchiveReplayDoNotDoubleCount() throws {
@@ -10124,6 +10376,42 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
         XCTAssertEqual(request.anchor.messageId, "saved-message")
         XCTAssertFalse(request.highlight)
         XCTAssertFalse(request.markReadOnVisible)
+    }
+
+    func testZeroUnreadWithUnreadAfterIdAndNoSavedPositionOpensBottom() {
+        let state = makeState(
+            unread: 0,
+            syncUnreadAfterId: "1711283295000000",
+            lastReadId: "1711283295000000"
+        )
+
+        XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
+    }
+
+    func testZeroUnreadWithUnreadAfterIdRestoresValidSavedPosition() {
+        let saved = ChatSavedVisiblePosition(
+            messagePrimary: "saved-primary",
+            archivedId: "saved-archived",
+            messageId: "saved-message",
+            sourceDate: sourceDate
+        )
+        let state = makeState(
+            unread: 0,
+            syncUnreadAfterId: "1711283295000000",
+            lastReadId: "1711283295000000",
+            savedPosition: saved,
+            savedAtLastMessageId: "last-message",
+            savedAtSnapshotLastArchiveId: "snapshot-last"
+        )
+
+        guard case .open(let request) = ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil) else {
+            return XCTFail("Expected saved-position request")
+        }
+
+        XCTAssertEqual(request.source, .savedVisiblePosition)
+        XCTAssertEqual(request.anchor.messagePrimary, "saved-primary")
+        XCTAssertEqual(request.anchor.archivedId, "saved-archived")
+        XCTAssertEqual(request.anchor.messageId, "saved-message")
     }
 
     func testSavedPositionIsIgnoredWhenLastMessageEdgeChanged() {
@@ -12324,7 +12612,7 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         let inviteDate = ISO8601DateFormatter().date(from: "2026-03-24T12:34:56Z")!
 
         XCTAssertTrue(manager.readInvite(in: inviteMessage, date: inviteDate, isRead: false))
-        XCTAssertFalse(manager.readInvite(in: inviteMessage, date: inviteDate, isRead: false))
+        XCTAssertTrue(manager.readInvite(in: inviteMessage, date: inviteDate, isRead: false))
 
         let storedInvites = try WRealm.safe()
             .objects(GroupchatInvitesStorageItem.self)
@@ -14040,7 +14328,7 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertEqual(cell.backgroundColor, .systemBackground)
         XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
         XCTAssertEqual(cell.contentView.backgroundColor, .clear)
-        XCTAssertNotNil(cell.configurationUpdateHandler)
+        XCTAssertNil(cell.configurationUpdateHandler)
         XCTAssertNil(cell.selectedBackgroundView)
         XCTAssertEqual(cell.selectionStyle, .none)
         assertNoSelectionOutline(in: cell)
@@ -14056,6 +14344,7 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertTrue(
             cell.backgroundColor?.isEqual(AccountColorManager.shared.palette(for: owner).tint50) == true
         )
+        XCTAssertNil(cell.configurationUpdateHandler)
         XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
         assertNoSelectionOutline(in: cell)
 
@@ -14074,13 +14363,254 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertTrue(
             cell.backgroundColor?.isEqual(AccountColorManager.shared.palette(for: secondOwner).tint50) == true
         )
+        XCTAssertNil(cell.configurationUpdateHandler)
         assertNoSelectionOutline(in: cell)
 
         cell.prepareForReuse()
         viewController.configureChatCell(cell, with: unselectedDatasource)
 
         XCTAssertEqual(cell.backgroundColor, .systemBackground)
+        XCTAssertNil(cell.configurationUpdateHandler)
         assertNoSelectionOutline(in: cell)
+    }
+
+    func testChatListCellLayoutDoesNotJumpDuringSwipeStartStates() {
+        let cell = ChatListTableViewCell(style: .default, reuseIdentifier: ChatListTableViewCell.cellName)
+        cell.frame = CGRect(x: 0, y: 0, width: 393, height: 84)
+        cell.contentView.frame = cell.bounds
+        cell.configure(
+            "romeo@example.com",
+            owner: "owner@example.com",
+            username: "Romeo",
+            attributedUsername: nil,
+            message: "Hello",
+            date: Date(timeIntervalSince1970: 1_711_283_200),
+            deliveryState: nil,
+            isMute: false,
+            isSynced: true,
+            isGroupchat: false,
+            status: .offline,
+            entity: .contact,
+            conversationType: .regular,
+            unread: 0,
+            unreadString: nil,
+            hasUnreadMention: false,
+            indicator: .systemBlue,
+            isDraft: false,
+            isAttachment: false,
+            groupchatNickname: nil,
+            isSystem: false,
+            isPinned: false,
+            subRequest: false,
+            avatarUrl: nil,
+            hasErrorInChat: false,
+            verAction: false
+        )
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+
+        let initialFrames = chatCellLayoutFrames(cell)
+
+        [
+            { cell.setHighlighted(true, animated: false) },
+            { cell.setSelected(true, animated: false) },
+            { cell.setEditing(true, animated: false) },
+            { cell.setHighlighted(false, animated: false) },
+            { cell.setSelected(false, animated: false) },
+            { cell.setEditing(false, animated: false) }
+        ].forEach { mutate in
+            mutate()
+            cell.setNeedsLayout()
+            cell.layoutIfNeeded()
+            assertChatCellLayoutFrames(
+                chatCellLayoutFrames(cell),
+                equalTo: initialFrames
+            )
+        }
+    }
+
+    func testSelectedConfiguredChatListCellLayoutDoesNotJumpDuringSwipeStartStates() {
+        let owner = "last-chat-selected-layout-\(UUID().uuidString)@example.com"
+        registerAccountColor(owner: owner, colorKey: "blue")
+        let viewController = LastChatsViewController()
+        let datasource = makeChatDatasource(owner: owner)
+        let cell = ChatListTableViewCell(style: .default, reuseIdentifier: ChatListTableViewCell.cellName)
+        cell.frame = CGRect(x: 0, y: 0, width: 393, height: 84)
+        cell.contentView.frame = cell.bounds
+        viewController.setSelectedChat(
+            jid: datasource.jid,
+            owner: datasource.owner,
+            conversationType: datasource.conversationType,
+            animated: false
+        )
+
+        viewController.configureChatCell(cell, with: datasource)
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+
+        let selectedTint = AccountColorManager.shared.palette(for: owner).tint50
+        let initialFrames = chatCellLayoutFrames(cell)
+        XCTAssertNil(cell.configurationUpdateHandler)
+        XCTAssertTrue(cell.backgroundColor?.isEqual(selectedTint) == true)
+
+        [
+            { cell.setHighlighted(true, animated: false) },
+            { cell.setSelected(true, animated: false) },
+            { cell.setEditing(true, animated: false) },
+            { cell.setHighlighted(false, animated: false) },
+            { cell.setSelected(false, animated: false) },
+            { cell.setEditing(false, animated: false) }
+        ].forEach { mutate in
+            mutate()
+            cell.updateConfiguration(using: cell.configurationState)
+            cell.setNeedsLayout()
+            cell.layoutIfNeeded()
+            assertChatCellLayoutFrames(
+                chatCellLayoutFrames(cell),
+                equalTo: initialFrames
+            )
+            XCTAssertNil(cell.configurationUpdateHandler)
+            XCTAssertTrue(cell.backgroundColor?.isEqual(selectedTint) == true)
+        }
+    }
+
+    func testPlainGroupedBackgroundUsesStateDrivenSelectionByDefault() {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        let selectedColor = UIColor.systemGreen
+
+        cell.applyPlainGroupedSystemBackground(selectedColor: selectedColor)
+
+        XCTAssertNotNil(cell.configurationUpdateHandler)
+        XCTAssertEqual(cell.backgroundColor, .systemBackground)
+
+        cell.setHighlighted(true, animated: false)
+        cell.updateConfiguration(using: cell.configurationState)
+
+        XCTAssertTrue(cell.backgroundColor?.isEqual(selectedColor) == true)
+        XCTAssertEqual(cell.contentView.backgroundColor, .clear)
+        XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
+    }
+
+    func testPlainGroupedBackgroundCanIgnoreHighlightDrivenSelectedColor() {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        let selectedColor = UIColor.systemGreen
+
+        cell.applyPlainGroupedSystemBackground(
+            selectedColor: selectedColor,
+            isSelected: false,
+            usesHighlightedStateForSelection: false
+        )
+        XCTAssertNotNil(cell.configurationUpdateHandler)
+
+        cell.setHighlighted(true, animated: false)
+        cell.updateConfiguration(using: cell.configurationState)
+
+        XCTAssertEqual(cell.backgroundColor, .systemBackground)
+        XCTAssertEqual(cell.contentView.backgroundColor, .clear)
+        XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
+    }
+
+    func testPlainGroupedBackgroundCanUseStaticExplicitSelectedColor() {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        let selectedColor = UIColor.systemGreen
+
+        cell.applyPlainGroupedSystemBackground(
+            selectedColor: selectedColor,
+            isSelected: true,
+            usesHighlightedStateForSelection: false,
+            usesStateDrivenSelection: false
+        )
+        XCTAssertNil(cell.configurationUpdateHandler)
+
+        cell.setHighlighted(true, animated: false)
+        cell.updateConfiguration(using: cell.configurationState)
+        cell.setSelected(true, animated: false)
+        cell.updateConfiguration(using: cell.configurationState)
+        cell.setEditing(true, animated: false)
+        cell.updateConfiguration(using: cell.configurationState)
+
+        XCTAssertTrue(cell.backgroundColor?.isEqual(selectedColor) == true)
+        XCTAssertEqual(cell.contentView.backgroundColor, .clear)
+        XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
+        XCTAssertNil(cell.configurationUpdateHandler)
+    }
+
+    func testConfigureChatCellKeepsNonSelectedRowPlainWhenHighlightedForSwipe() {
+        let owner = "last-chat-highlight-\(UUID().uuidString)@example.com"
+        registerAccountColor(owner: owner, colorKey: "orange")
+        let viewController = LastChatsViewController()
+        let cell = ChatListTableViewCell(style: .default, reuseIdentifier: ChatListTableViewCell.cellName)
+        let datasource = makeChatDatasource(owner: owner)
+
+        viewController.configureChatCell(cell, with: datasource)
+
+        XCTAssertEqual(cell.backgroundColor, .systemBackground)
+        XCTAssertEqual(cell.contentView.backgroundColor, .clear)
+        XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
+        XCTAssertNil(cell.configurationUpdateHandler)
+
+        cell.setHighlighted(true, animated: false)
+        cell.updateConfiguration(using: cell.configurationState)
+
+        XCTAssertEqual(cell.backgroundColor, .systemBackground)
+        XCTAssertEqual(cell.contentView.backgroundColor, .clear)
+        XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
+        XCTAssertNil(cell.configurationUpdateHandler)
+
+        cell.setEditing(true, animated: false)
+        cell.updateConfiguration(using: cell.configurationState)
+
+        XCTAssertEqual(cell.backgroundColor, .systemBackground)
+        XCTAssertEqual(cell.contentView.backgroundColor, .clear)
+        XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
+        XCTAssertNil(cell.configurationUpdateHandler)
+        assertNoSelectionOutline(in: cell)
+    }
+
+    func testConfigureChatCellKeepsSelectedRowTintWhenHighlightedForSwipe() {
+        let owner = "last-chat-selected-highlight-\(UUID().uuidString)@example.com"
+        registerAccountColor(owner: owner, colorKey: "blue")
+        let viewController = LastChatsViewController()
+        let cell = ChatListTableViewCell(style: .default, reuseIdentifier: ChatListTableViewCell.cellName)
+        let datasource = makeChatDatasource(owner: owner)
+        viewController.setSelectedChat(
+            jid: datasource.jid,
+            owner: datasource.owner,
+            conversationType: datasource.conversationType,
+            animated: false
+        )
+
+        viewController.configureChatCell(cell, with: datasource)
+        XCTAssertNil(cell.configurationUpdateHandler)
+        XCTAssertTrue(
+            cell.backgroundColor?.isEqual(AccountColorManager.shared.palette(for: owner).tint50) == true
+        )
+
+        cell.setHighlighted(true, animated: false)
+        cell.updateConfiguration(using: cell.configurationState)
+        cell.setSelected(true, animated: false)
+        cell.updateConfiguration(using: cell.configurationState)
+        cell.setEditing(true, animated: false)
+        cell.updateConfiguration(using: cell.configurationState)
+
+        XCTAssertTrue(
+            cell.backgroundColor?.isEqual(AccountColorManager.shared.palette(for: owner).tint50) == true
+        )
+        XCTAssertEqual(cell.contentView.backgroundColor, .clear)
+        XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
+        XCTAssertNil(cell.configurationUpdateHandler)
+        assertNoSelectionOutline(in: cell)
+    }
+
+    func testLastChatsRowsDoNotIndentWhileEditingForSwipe() {
+        let viewController = LastChatsViewController()
+
+        XCTAssertFalse(
+            viewController.tableView(
+                viewController.tableView,
+                shouldIndentWhileEditingRowAt: IndexPath(row: 0, section: 0)
+            )
+        )
     }
 
     func testSpecialMessageCellDoesNotInstallTopHairlineAcrossReuse() {
@@ -14158,6 +14688,34 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertEqual(cell.layer.shadowOpacity, 0, file: file, line: line)
         XCTAssertEqual(cell.contentView.layer.borderWidth, 0, file: file, line: line)
         XCTAssertEqual(cell.contentView.layer.shadowOpacity, 0, file: file, line: line)
+    }
+
+    private func chatCellLayoutFrames(_ cell: ChatListTableViewCell) -> [String: CGRect] {
+        [
+            "account": cell.accountIndicator.convert(cell.accountIndicator.bounds, to: cell),
+            "avatarContainer": cell.userImageView.convert(cell.userImageView.bounds, to: cell),
+            "avatar": cell.avatarView.convert(cell.avatarView.bounds, to: cell),
+            "status": cell.statusIndicator.convert(cell.statusIndicator.bounds, to: cell),
+            "info": cell.infoStack.convert(cell.infoStack.bounds, to: cell)
+        ]
+    }
+
+    private func assertChatCellLayoutFrames(
+        _ actual: [String: CGRect],
+        equalTo expected: [String: CGRect],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        expected.forEach { key, expectedFrame in
+            guard let actualFrame = actual[key] else {
+                XCTFail("Missing frame for \(key)", file: file, line: line)
+                return
+            }
+            XCTAssertEqual(actualFrame.minX, expectedFrame.minX, accuracy: 0.001, file: file, line: line)
+            XCTAssertEqual(actualFrame.minY, expectedFrame.minY, accuracy: 0.001, file: file, line: line)
+            XCTAssertEqual(actualFrame.width, expectedFrame.width, accuracy: 0.001, file: file, line: line)
+            XCTAssertEqual(actualFrame.height, expectedFrame.height, accuracy: 0.001, file: file, line: line)
+        }
     }
 
     private func registerAccountColor(owner: String, colorKey: String) {
@@ -14253,52 +14811,6 @@ final class LastChatsSwipeActionTests: XCTestCase {
             XCTAssertFalse(LastChatsViewController.canShowCallAction(for: item))
             XCTAssertFalse(LastChatsViewController.canShowBlockAction(for: item))
         }
-    }
-
-    func testActiveSwipeRowReloadFilteringRemovesOnlyActiveRow() {
-        let contactRequest = makeDatasource(jid: "request@example.com", conversationType: .regular, specialMessageKind: .contact)
-        let direct = makeDatasource(jid: "romeo@example.com", conversationType: .regular)
-        let group = makeDatasource(jid: "room@example.com", conversationType: .group)
-        let sections = LastChatsViewController.makeDatasourceSections(
-            from: [contactRequest, direct, group],
-            showsSkeleton: false
-        )
-        let activeKey = LastChatsViewController.swipeActionDatasourceKey(for: group)
-
-        let filtered = LastChatsViewController.filterReloadIndexPaths(
-            [
-                IndexPath(row: 0, section: 0),
-                IndexPath(row: 0, section: 1),
-                IndexPath(row: 1, section: 1),
-                IndexPath(row: 2, section: 1)
-            ],
-            sections: sections,
-            activeSwipeActionDatasourceKey: activeKey
-        )
-
-        XCTAssertEqual(filtered, [
-            IndexPath(row: 0, section: 0),
-            IndexPath(row: 0, section: 1),
-            IndexPath(row: 2, section: 1)
-        ])
-    }
-
-    func testActiveSwipeRowReloadFilteringCanRemoveAllReloads() {
-        let contactRequest = makeDatasource(jid: "request@example.com", conversationType: .regular, specialMessageKind: .contact)
-        let direct = makeDatasource(jid: "romeo@example.com", conversationType: .regular)
-        let sections = LastChatsViewController.makeDatasourceSections(
-            from: [contactRequest, direct],
-            showsSkeleton: false
-        )
-        let activeKey = LastChatsViewController.swipeActionDatasourceKey(for: direct)
-
-        let filtered = LastChatsViewController.filterReloadIndexPaths(
-            [IndexPath(row: 0, section: 1)],
-            sections: sections,
-            activeSwipeActionDatasourceKey: activeKey
-        )
-
-        XCTAssertTrue(filtered.isEmpty)
     }
 
     func testReloadOnlyChangesDoNotRequireStructuralTableBatch() {
@@ -15997,6 +16509,82 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertEqual(effectFrame.minY, 0, accuracy: 0.001)
         XCTAssertEqual(effectFrame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
         XCTAssertEqual(inputView.bounds.maxY - effectFrame.maxY, NativeGlassBarStyle.bottomOffset, accuracy: 0.001)
+    }
+
+    func testComposerCollapsedControlsHeightAndAlignmentOnCompactWidth() throws {
+        for width in [375.0, 360.0] {
+            let inputView = ModernXabberInputView(frame: CGRect(
+                x: 0,
+                y: 0,
+                width: width,
+                height: ModernXabberInputView.defaultBarHeight
+            ))
+            inputView.shouldHideTimer = false
+            inputView.changeState(to: .normal)
+            inputView.layoutIfNeeded()
+
+            let textSurface = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+            let textSurfaceFrame = textSurface.convert(textSurface.bounds, to: inputView)
+            let attachFrame = inputView.attachButton.convert(inputView.attachButton.bounds, to: inputView)
+            let timerFrame = inputView.timerButton.convert(inputView.timerButton.bounds, to: inputView)
+            let sendFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)
+
+            XCTAssertEqual(textSurfaceFrame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+            XCTAssertEqual(attachFrame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+            XCTAssertEqual(timerFrame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+            XCTAssertEqual(sendFrame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+
+            XCTAssertEqual(inputView.bounds.maxY - textSurfaceFrame.maxY, NativeGlassBarStyle.bottomOffset, accuracy: 0.001)
+            XCTAssertEqual(textSurfaceFrame.maxY, attachFrame.maxY, accuracy: 0.001)
+            XCTAssertEqual(textSurfaceFrame.maxY, timerFrame.maxY, accuracy: 0.001)
+            XCTAssertEqual(textSurfaceFrame.maxY, sendFrame.maxY, accuracy: 0.001)
+            XCTAssertEqual(attachFrame.maxX, textSurfaceFrame.maxX - 8, accuracy: 0.001)
+
+            if #available(iOS 26.0, *) {
+                XCTAssertTrue(textSurface.effect is UIGlassEffect)
+            } else {
+                XCTAssertTrue(textSurface.effect is UIBlurEffect)
+            }
+
+            for button in [inputView.attachButton, inputView.timerButton, inputView.sendButton] {
+                XCTAssertEqual(button.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+
+                if #available(iOS 26.0, *) {
+                    XCTAssertNotNil(button.configuration)
+                } else {
+                    XCTAssertNotNil(detachedButtonEffectView(in: button))
+                    XCTAssertTrue(detachedButtonEffectView(in: button)?.effect is UIBlurEffect)
+                }
+            }
+        }
+    }
+
+    func testComposerTextSurfaceExpandsForMultilineInput() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 360,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.changeState(to: .normal)
+        inputView.layoutIfNeeded()
+
+        let collapsedTextSurface = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+        let collapsedFrame = collapsedTextSurface.convert(collapsedTextSurface.bounds, to: inputView)
+
+        inputView.textField.text = "First input line\nSecond input line\nThird input line"
+        inputView.textViewDidChange(force: true)
+        inputView.layoutIfNeeded()
+
+        let expandedTextSurface = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+        let expandedFrame = expandedTextSurface.convert(expandedTextSurface.bounds, to: inputView)
+
+        XCTAssertEqual(collapsedFrame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertGreaterThan(expandedFrame.height, NativeGlassBarStyle.minimumHeight)
+        XCTAssertGreaterThan(expandedFrame.height, collapsedFrame.height)
+        XCTAssertEqual(inputView.sendButton.bounds.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertEqual(inputView.attachButton.bounds.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertEqual(inputView.timerButton.bounds.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
     }
 
     func testComposerTextFieldAndStateButtonRemainClearAndBorderlessInsideGlass() {

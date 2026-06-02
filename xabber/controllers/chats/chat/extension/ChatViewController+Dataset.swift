@@ -1033,6 +1033,69 @@ enum ChatInitialHistoryAppearancePolicy {
     }
 }
 
+enum ChatStackedNavigationPreparationPolicy {
+    static func shouldLoadInitialDatasource(
+        isDatasourceEmpty: Bool,
+        isShowingBootstrapPlaceholder: Bool
+    ) -> Bool {
+        isDatasourceEmpty || isShowingBootstrapPlaceholder
+    }
+}
+
+enum ChatSavedPositionFirstFrameDecision: Equatable {
+    case standardContent
+    case savedPosition(anchorIndex: Int, window: ChatDatasetWindow)
+}
+
+enum ChatSavedPositionFirstFramePolicy {
+    static func decision(
+        requestSource: ChatOpenMessageRequestSource?,
+        isSynced: Bool,
+        observerCount: Int,
+        localAnchorIndex: Int?,
+        pageSize: Int,
+        isPageUnlocked: Bool = true
+    ) -> ChatSavedPositionFirstFrameDecision {
+        guard requestSource == .savedVisiblePosition,
+              isSynced,
+              isPageUnlocked,
+              observerCount > 0,
+              let localAnchorIndex,
+              localAnchorIndex >= 0,
+              localAnchorIndex < observerCount else {
+            return .standardContent
+        }
+
+        let window = ChatDatasetCoordinator(pageSize: pageSize)
+            .replacementWindow(around: localAnchorIndex, totalCount: observerCount)
+        return .savedPosition(anchorIndex: localAnchorIndex, window: window)
+    }
+}
+
+enum ChatSavedPositionFirstFrameCompletionAction: Equatable {
+    case finishRequest
+    case recoverPendingRequest
+}
+
+enum ChatSavedPositionFirstFrameCompletionPolicy {
+    static func mappingCancellationAction(
+        requestSource: ChatOpenMessageRequestSource
+    ) -> ChatSavedPositionFirstFrameCompletionAction {
+        requestSource == .savedVisiblePosition ? .recoverPendingRequest : .finishRequest
+    }
+
+    static func renderedWindowAction(
+        requestSource: ChatOpenMessageRequestSource,
+        targetExistsInSnapshot: Bool
+    ) -> ChatSavedPositionFirstFrameCompletionAction {
+        guard requestSource == .savedVisiblePosition else {
+            return .finishRequest
+        }
+
+        return targetExistsInSnapshot ? .finishRequest : .recoverPendingRequest
+    }
+}
+
 enum ChatBootstrapContentRenderPolicy {
     static func shouldReloadInitialWindow(
         forceRender: Bool,
@@ -1766,6 +1829,37 @@ extension ChatViewController {
 
     internal func visibleWindow() -> ChatDatasetWindow {
         self.datasetCoordinator.visibleWindow(currentPage: self.currentPage)
+    }
+
+    private func messageWindowSliceForMapping(_ window: ChatDatasetWindow) -> (window: ChatDatasetWindow, items: [MessageStorageItem]) {
+        do {
+            let realm = try WRealm.safe()
+            let query = realm.objects(MessageStorageItem.self)
+                .filter(
+                    "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@",
+                    self.owner,
+                    self.jid,
+                    self.conversationType.rawValue
+                )
+                .sorted(byKeyPath: "date", ascending: true)
+            let totalCount = query.count
+            let normalizedWindow = self.datasetCoordinator.clamp(window, totalCount: totalCount)
+
+            guard normalizedWindow.count > 0 else {
+                return (normalizedWindow, [])
+            }
+
+            return (
+                normalizedWindow,
+                Array(query
+                    .prefix(upTo: normalizedWindow.maxIndex)
+                    .suffix(normalizedWindow.count))
+                    .map { $0.freeze() }
+            )
+        } catch {
+            DDLogDebug("ChatViewController.messageWindowSliceForMapping: \(error.localizedDescription)")
+            return (.empty, [])
+        }
     }
 
     internal func sliceForWindow(_ window: ChatDatasetWindow) -> [MessageStorageItem] {
@@ -2608,13 +2702,13 @@ extension ChatViewController {
         completion: (() -> Void)? = nil,
         cancelledCompletion: (() -> Void)? = nil
     ) {
-        let normalizedWindow = self.datasetCoordinator.clamp(window, totalCount: self.messagesObserver?.count ?? 0)
-        let slice = self.sliceForWindow(normalizedWindow)
-
         self.datasetMappingGeneration += 1
         let generation = self.datasetMappingGeneration
 
         self.datasetMappingQueue.async {
+            let mappedWindow = self.messageWindowSliceForMapping(window)
+            let normalizedWindow = mappedWindow.window
+            let slice = mappedWindow.items
             let mappedDatasource = self.mapDataset(dataset: slice)
 
             DispatchQueue.main.async {
@@ -2626,7 +2720,13 @@ extension ChatViewController {
                     return
                 }
                 self.syncCurrentPage(with: normalizedWindow)
-                self.applyChatDatasource(mappedDatasource, mode: mode, animated: animated, invalidateLayout: invalidateLayout, completion: completion)
+                self.applyChatDatasource(
+                    mappedDatasource,
+                    mode: mode,
+                    animated: animated,
+                    invalidateLayout: invalidateLayout,
+                    completion: completion
+                )
             }
         }
     }
@@ -2776,6 +2876,9 @@ extension ChatViewController {
             self.setShouldShowInitialMessage(false)
         case .content:
             self.rebuildUnreadMentionItems()
+            if self.applySavedPositionFirstFrameWindowIfNeeded(isSynced: self.currentChatIsSyncedForBootstrap()) {
+                return true
+            }
             let window = self.datasetCoordinator.initialWindow(totalCount: self.messagesObserver?.count ?? 0)
             self.syncCurrentPage(with: window)
             self.setShouldShowInitialMessage(false)

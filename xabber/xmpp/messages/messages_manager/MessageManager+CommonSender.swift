@@ -343,7 +343,11 @@ extension MessageManager {
                     return
                 }
                 user.action { _, stream in
-                    stream.send(stanzaToSend)
+                    if stream === user.xmppStream {
+                        user.sendPrimaryStanza(stanzaToSend, replayPolicy: .notReplayable)
+                    } else {
+                        stream.send(stanzaToSend)
+                    }
                 }
             })
             LastChats.updateErrorState(for: item.opponent, owner: self.owner, conversationType: item.conversationType)

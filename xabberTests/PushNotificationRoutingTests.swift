@@ -158,6 +158,26 @@ final class PushNotificationRoutingTests: XCTestCase {
         XCTAssertEqual(userInfo["route_jid"] as? String, "stage@conference.example.com")
     }
 
+    func testLegacyGroupInvitePayloadsAreNotParsedAsInviteRoutes() throws {
+        XCTAssertNotEqual(parseOptionalArchivedMessage(
+            """
+            <message from='juliet@example.com/mobile' to='romeo@example.com'>
+              <invite xmlns='https://xabber.com/protocol/groups#invite' jid='stage@conference.example.com'/>
+            </message>
+            """
+        )?.route.kind, .groupInvite)
+        XCTAssertNotEqual(parseOptionalArchivedMessage(
+            """
+            <message from='juliet@example.com/mobile' to='romeo@example.com'>
+              <x xmlns='https://xabber.com/protocol/groups'>
+                <jid>stage@conference.example.com</jid>
+                <privacy>incognito</privacy>
+              </x>
+            </message>
+            """
+        )?.route.kind, .groupInvite)
+    }
+
     func testXenWrappedVerificationRequestValidatesOFromAndParsesSid() throws {
         let preview = try parseArchivedMessage(
             """
@@ -198,6 +218,10 @@ final class PushNotificationRoutingTests: XCTestCase {
     }
 
     private func parseArchivedMessage(_ messageXML: String) throws -> PushNotificationPreview {
+        try XCTUnwrap(parseOptionalArchivedMessage(messageXML))
+    }
+
+    private func parseOptionalArchivedMessage(_ messageXML: String) -> PushNotificationPreview? {
         let archiveXML = """
         <message>
           <result>
@@ -207,6 +231,6 @@ final class PushNotificationRoutingTests: XCTestCase {
           </result>
         </message>
         """
-        return try XCTUnwrap(PushNotificationArchiveParser.parseArchivedMessage(xmlString: archiveXML, owner: owner))
+        return PushNotificationArchiveParser.parseArchivedMessage(xmlString: archiveXML, owner: owner)
     }
 }

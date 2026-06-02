@@ -840,9 +840,10 @@ class ChatViewController: MessagesViewController {
             }
         }
         
-        public final func setCustomPage(_ newPage: Int, autoUnlock: Bool = true, callback: (() -> Void)? = nil) {
+        @discardableResult
+        public final func setCustomPage(_ newPage: Int, autoUnlock: Bool = true, callback: (() -> Void)? = nil) -> Bool {
             if self.locked {
-                return
+                return false
             }
             self.locked = true
             self.page = newPage
@@ -850,6 +851,7 @@ class ChatViewController: MessagesViewController {
             if autoUnlock {
                 self.unlock()
             }
+            return true
         }
         
         public final func prevPage() {
@@ -1104,6 +1106,10 @@ class ChatViewController: MessagesViewController {
 // Status
     var statusTextObserver: BehaviorRelay<String> = BehaviorRelay(value: " ")
     var shouldShowNormalStatus: Bool = false
+    internal var navigationAvatarBag: DisposeBag = DisposeBag()
+    internal var navigationAvatarRequestKey: String? = nil
+    internal var navigationAvatarGeneration = UUID()
+    internal var navigationAvatarItem: UIBarButtonItem? = nil
 
 // Pin message bar
     internal var pinnedMessageId: BehaviorRelay<String?> = BehaviorRelay(value: nil)
@@ -1591,12 +1597,6 @@ class ChatViewController: MessagesViewController {
         return bar
     }()
     
-    internal let userBarButton: UserBarButton = {
-        let button = UserBarButton(frame: CGRect(square: 42))
-        
-        return button
-    }()
-
     internal let chatViewLoadingOverlay: UIView = {
         let view = UIView()
         
@@ -2062,6 +2062,12 @@ class ChatViewController: MessagesViewController {
     }
     
     func configureSearchBar(activateKeyboard: Bool = true, animated: Bool = true) {
+        let shouldAnimate = ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+            requestedAnimated: animated,
+            isTransitionActive: self.isNavigationTransitionActive,
+            isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
+        )
+        self.invalidateNavigationAvatarItem()
         if #available(iOS 26.0, *) {
             self.cancelSearchBarButton.action = #selector(self.pnCancelButtonTouchUp)
             self.cancelSearchBarButton.target = self
@@ -2087,17 +2093,27 @@ class ChatViewController: MessagesViewController {
                 searchBar.searchTextField.borderStyle = .roundedRect
                 let panel = UIBarButtonItem(customView: searchBar)
                 panel.hidesSharedBackground = true
-                self.navigationItem.setRightBarButtonItems([self.cancelSearchBarButton, panel], animated: animated)
+                NavigationBarItemOwnership.apply(
+                    to: self.navigationItem,
+                    left: .none,
+                    right: .items([self.cancelSearchBarButton, panel]),
+                    animated: shouldAnimate
+                )
 //                self.navigationItem.setRightBarButton(self.cancelSearchBarButton, animated: true)
             } else {
                 self.searchBar.sizeToFit()
                 let panel = UIBarButtonItem(customView: searchBar)
                 panel.hidesSharedBackground = true
-                self.navigationItem.setRightBarButton(panel, animated: animated)
+                NavigationBarItemOwnership.apply(
+                    to: self.navigationItem,
+                    left: .none,
+                    right: .item(panel),
+                    animated: shouldAnimate
+                )
             }
             self.navigationItem.titleView = nil
             self.searchBar.delegate = self
-            self.navigationItem.setHidesBackButton(true, animated: animated)
+            self.navigationItem.setHidesBackButton(true, animated: shouldAnimate)
             if activateKeyboard {
                 self.searchBar.becomeFirstResponder()
                 self.searchBar.searchTextField.becomeFirstResponder()
@@ -2108,21 +2124,30 @@ class ChatViewController: MessagesViewController {
                 self.xabberInputView.searchPanel.changeState(to: .withResults)
             }
             self.xabberInputView.changeState(to: .search)
-            self.searchBar.setShowsCancelButton(true, animated: animated)
+            self.searchBar.setShowsCancelButton(true, animated: shouldAnimate)
         } else {
             self.cancelSearchBarButton.action = #selector(self.pnCancelButtonTouchUp)
             self.cancelSearchBarButton.target = self
             if UIDevice.current.userInterfaceIdiom == .pad {
                 self.searchBar.frame = CGRect(width: self.view.bounds.width - 150, height: 44)
-                self.navigationItem.setLeftBarButton(UIBarButtonItem(customView: searchBar), animated: animated)
-                self.navigationItem.setRightBarButton(self.cancelSearchBarButton, animated: animated)
+                NavigationBarItemOwnership.apply(
+                    to: self.navigationItem,
+                    left: .item(UIBarButtonItem(customView: searchBar)),
+                    right: .item(self.cancelSearchBarButton),
+                    animated: shouldAnimate
+                )
             } else {
                 self.searchBar.sizeToFit()
-                self.navigationItem.setRightBarButton(UIBarButtonItem(customView: searchBar), animated: animated)
+                NavigationBarItemOwnership.apply(
+                    to: self.navigationItem,
+                    left: .none,
+                    right: .item(UIBarButtonItem(customView: searchBar)),
+                    animated: shouldAnimate
+                )
             }
             self.navigationItem.titleView = nil
             self.searchBar.delegate = self
-            self.navigationItem.setHidesBackButton(true, animated: animated)
+            self.navigationItem.setHidesBackButton(true, animated: shouldAnimate)
             if activateKeyboard {
                 self.searchBar.becomeFirstResponder()
                 self.searchBar.searchTextField.becomeFirstResponder()
@@ -2133,7 +2158,7 @@ class ChatViewController: MessagesViewController {
                 self.xabberInputView.searchPanel.changeState(to: .withResults)
             }
             self.xabberInputView.changeState(to: .search)
-            self.searchBar.setShowsCancelButton(true, animated: animated)
+            self.searchBar.setShowsCancelButton(true, animated: shouldAnimate)
         }
         
     }
@@ -2142,6 +2167,7 @@ class ChatViewController: MessagesViewController {
         // Configure cancel button action
         self.cancelSearchBarButton.action = #selector(self.pnCancelButtonTouchUp)
         self.cancelSearchBarButton.target = self
+        self.invalidateNavigationAvatarItem()
         
         if UIDevice.current.userInterfaceIdiom == .pad {
             // iPad: Dynamic width based on nav bar (handles iPadOS 26 multitasking/menu bar)
@@ -2149,25 +2175,36 @@ class ChatViewController: MessagesViewController {
             self.searchBar.frame = CGRect(x: 0, y: 0, width: navBarWidth - 150, height: 44)
 //            self.navigationItem.setLeftBarButton(UIBarButtonItem(customView: searchBar), animated: true)
             
+            let searchItem: UIBarButtonItem
             if #available(iOS 26.0, *) {
                 let barButtonItem = UIBarButtonItem(customView: searchBar)
                 barButtonItem.sharesBackground = false  // Prevents merging with adjacent buttons
-                navigationItem.leftBarButtonItem = barButtonItem
+                searchItem = barButtonItem
             } else {
-                navigationItem.leftBarButtonItem = UIBarButtonItem(customView: searchBar)
+                searchItem = UIBarButtonItem(customView: searchBar)
             }
             
-            self.navigationItem.setRightBarButton(self.cancelSearchBarButton, animated: true)
+            NavigationBarItemOwnership.apply(
+                to: self.navigationItem,
+                left: .item(searchItem),
+                right: .item(self.cancelSearchBarButton),
+                animated: false
+            )
         } else {
             // iPhone: Auto-size; iOS 26 keeps nav search top by default
             self.searchBar.sizeToFit()
-            self.navigationItem.setRightBarButton(UIBarButtonItem(customView: searchBar), animated: true)
+            NavigationBarItemOwnership.apply(
+                to: self.navigationItem,
+                left: .none,
+                right: .item(UIBarButtonItem(customView: searchBar)),
+                animated: false
+            )
         }
         
         // Standard search mode setup
         self.navigationItem.titleView = nil
         self.searchBar.delegate = self
-        self.navigationItem.setHidesBackButton(true, animated: true)
+        self.navigationItem.setHidesBackButton(true, animated: false)
         
         // Focus the search bar (single call suffices)
         self.searchBar.becomeFirstResponder()
@@ -2181,7 +2218,7 @@ class ChatViewController: MessagesViewController {
         self.xabberInputView.changeState(to: .search)
         
         // Animate cancel button visibility (iOS 26 enhances fluid animations automatically)
-        self.searchBar.setShowsCancelButton(true, animated: true)
+        self.searchBar.setShowsCancelButton(true, animated: false)
     }
     
     public func onSearchPanelChangeConversationType(_ oldConversationType: ClientSynchronizationManager.ConversationType) {
@@ -2459,7 +2496,7 @@ class ChatViewController: MessagesViewController {
 //        }
         
 //        self.self.navigationController?.navigationBar.isTranslucent = true
-//        button./
+        //        button./
         self.view.addSubview(self.pinnedDateView)
     }
     
@@ -2524,11 +2561,17 @@ class ChatViewController: MessagesViewController {
     }
     
     final func configureNavbar() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.configureNavbar()
+            }
+            return
+        }
         setupNavigationBar()
     }
 
     private func setupNavigationBar() {
-        self.navigationItem.setRightBarButtonItems([], animated: false)
+        NavigationBarItemOwnership.clear(self.navigationItem, animated: false)
         let appearance = UINavigationBarAppearance()
         appearance.configureWithDefaultBackground()
 
@@ -2548,6 +2591,7 @@ class ChatViewController: MessagesViewController {
 
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.backButtonDisplayMode = .minimal
+        navigationItem.setHidesBackButton(false, animated: false)
         navigationItem.leftItemsSupplementBackButton = true
         clearLegacyAdditionalNavigationPanel()
 
@@ -2560,8 +2604,6 @@ class ChatViewController: MessagesViewController {
     }
 
     private func setupNavigationTitleView() {
-        userBarButton.gradient.colors = [UIColor.white.cgColor,
-                                         AccountColorManager.shared.palette(for: self.owner).tint700.cgColor]
         if titleStack.arrangedSubviews.isEmpty {
             titleStack.addArrangedSubview(titleLabel)
             titleStack.addArrangedSubview(statusLabel)
@@ -2578,7 +2620,6 @@ class ChatViewController: MessagesViewController {
             ])
         }
 
-        navigationItem.setLeftBarButton(nil, animated: false)
         titleStack.isUserInteractionEnabled = false
         titleStack.alignment = .fill
         titleLabel.textAlignment = .center
@@ -2592,23 +2633,17 @@ class ChatViewController: MessagesViewController {
     }
 
     private func setupNavigationAvatarItem() {
-        if userBarButton.gestureRecognizers?.isEmpty ?? true {
-            let gesture = UITapGestureRecognizer(target: self, action: #selector(showInfo))
-            userBarButton.addGestureRecognizer(gesture)
-        }
-        let accountButton = UIBarButtonItem(customView: userBarButton)
-        if #available(iOS 26.0, *) {
-            accountButton.hidesSharedBackground = true
-        }
-        navigationItem.setRightBarButtonItems([accountButton], animated: false)
-        
-        userBarButton.configure(owner: owner, jid: jid)
-        if conversationType == .saved {
-            userBarButton.avatar.image = imageLiteral(XMPPFavoritesManagerStorageItem.imageName, dimension: 16)
-            userBarButton.avatar.tintColor = AccountColorManager.shared.palette(for: owner).tint900
-            userBarButton.avatar.backgroundColor = AccountColorManager.shared.palette(for: owner).tint100
-            userBarButton.avatar.contentMode = .center
-        }
+        invalidateNavigationAvatarItem()
+
+        let item = ChatNavigationAvatarItemFactory.makeItem(
+            image: currentNavigationAvatarPlaceholderImage(),
+            target: self,
+            action: #selector(showInfo)
+        )
+        navigationAvatarItem = item
+        NavigationBarItemOwnership.set(.item(item), on: navigationItem, side: .right, animated: false)
+        startNavigationAvatarObservation()
+        refreshNavigationAvatarImage()
     }
 
     private func clearLegacyAdditionalNavigationPanel() {
@@ -3205,7 +3240,6 @@ class ChatViewController: MessagesViewController {
     
     override func reloadDatasource() {
         updateCornerStyle()
-        userBarButton.setMask()
         self.applyChatDatasource(self.datasource, mode: .fullReload())
     }
     
@@ -3214,7 +3248,6 @@ class ChatViewController: MessagesViewController {
         self.beginNavigationTransitionDeferralIfNeeded()
         self.didRunNavigationDisappearanceCleanup = false
         self.didScheduleNavigationDisappearanceCleanup = false
-        print(#function)
         do {
             try self.subscribe()
             if self.conversationType == .group {
@@ -3242,9 +3275,8 @@ class ChatViewController: MessagesViewController {
         )
         self.hasRenderedStableInitialHistory = false
         self.hasCompletedInitialHistoryViewAppearance = false
-        if self.datasource.isEmpty {
-            self.setFloatingDateVisible(false)
-            self.loadInitialDatasource(
+        if self.datasource.isEmpty || self.pendingOpenMessageRequest != nil || self.activeAnchorExecutionState != nil {
+            self.scheduleInitialDatasourceLoadAfterNavigationStart(
                 performPendingOpenMessageRequest: !self.shouldDeferOpenMessageRequestsForNavigationTransition
             )
         }
@@ -3262,6 +3294,18 @@ class ChatViewController: MessagesViewController {
             )
         } else {
             self.searchTextObserver.accept(nil)
+        }
+    }
+
+    internal func scheduleInitialDatasourceLoadAfterNavigationStart(
+        performPendingOpenMessageRequest: Bool
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.setFloatingDateVisible(false)
+            self.loadInitialDatasource(
+                performPendingOpenMessageRequest: performPendingOpenMessageRequest
+            )
         }
     }
     
@@ -3296,6 +3340,8 @@ class ChatViewController: MessagesViewController {
         self.flushPendingNavigationTransitionWork()
         if self.inSearchMode.value {
             self.configureSearchBar(activateKeyboard: true, animated: false)
+        } else {
+            self.refreshNavigationAvatarImage()
         }
         self.suppressScrollDownButtonVisibilityAfterAppearance()
         self.hasCompletedInitialHistoryViewAppearance = true
@@ -3328,6 +3374,10 @@ class ChatViewController: MessagesViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         self.beginNavigationTransitionDeferralIfNeeded()
+        if self.isMovingFromParent || self.isBeingDismissed || self.navigationController?.isBeingDismissed == true {
+            self.invalidateNavigationAvatarItem()
+            NavigationBarItemOwnership.clear(self.navigationItem, sides: [.right], animated: false)
+        }
         self.cancelActiveAudioRecordingForLifecycle()
         omemoDeviceListTimer?.invalidate()
         omemoDeviceListTimer = nil
@@ -3625,16 +3675,14 @@ extension ChatViewController: StackedNavigationPresentationPreparing {
             )
             self.hasRenderedStableInitialHistory = false
             self.hasCompletedInitialHistoryViewAppearance = false
-            if self.datasource.isEmpty {
-                self.setFloatingDateVisible(false)
+            self.updateChatCollectionInsets()
+            self.setFloatingDateVisible(false)
+            if ChatStackedNavigationPreparationPolicy.shouldLoadInitialDatasource(
+                isDatasourceEmpty: self.datasource.isEmpty,
+                isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
+            ) {
                 self.loadInitialDatasource(performPendingOpenMessageRequest: false)
             }
-            self.updateChatCollectionInsets()
-            self.view.setNeedsLayout()
-            self.view.layoutIfNeeded()
-            self.messagesCollectionView.collectionViewLayout.invalidateLayout()
-            self.messagesCollectionView.layoutIfNeeded()
-            self.messagesCollectionView.layer.removeAllAnimations()
         }
 
         self.isPreparingStackedNavigationPresentation = false

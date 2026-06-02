@@ -139,7 +139,7 @@ class ChatListTableViewCell: UITableViewCell {
     }()
     
     let userImageView: UIView = {
-        let view = UIView(frame: CGRect(square: 64))
+        let view = UIView()
         
         view.backgroundColor = .clear
         
@@ -147,7 +147,7 @@ class ChatListTableViewCell: UITableViewCell {
     }()
     
     let avatarView: UIImageView = {
-        let view = UIImageView(frame: CGRect(square: 64))
+        let view = UIImageView()
         if let image = UIImage(named: AccountMasksManager.shared.mask56pt)?.upscale(dimension: 64), AccountMasksManager.shared.load() != "square" {
             view.mask = UIImageView(image: image)
         } else {
@@ -162,11 +162,6 @@ class ChatListTableViewCell: UITableViewCell {
     
     let statusIndicator: RoundedStatusView = {
         let view = RoundedStatusView()
-        
-        view.frame = CGRect(x: 49,
-                            y: 49,
-                            width: 12,
-                            height: 12)
 
         view.border(1)
         view.setStatus(status: .offline, entity: .contact)
@@ -343,6 +338,10 @@ class ChatListTableViewCell: UITableViewCell {
     private var appliedAvatarRequestKey: String?
     private var avatarIdentityKey: String?
     private var defaultAvatarImage: UIImage?
+    private var statusIndicatorWidthConstraint: NSLayoutConstraint!
+    private var statusIndicatorHeightConstraint: NSLayoutConstraint!
+    private var statusIndicatorTrailingConstraint: NSLayoutConstraint!
+    private var statusIndicatorBottomConstraint: NSLayoutConstraint!
 
     private func makeAvatarRequestKey(owner: String, jid: String, avatarUrl: String?, size: CGFloat) -> String {
         [owner, jid, avatarUrl ?? "", String(Int(size))].joined(separator: "|")
@@ -468,20 +467,10 @@ class ChatListTableViewCell: UITableViewCell {
         syncedIndicator.alpha = isSynced ? 0.0 : 0.87
         
         accountIndicator.backgroundColor = color
-                    
-        if [.incognitoChat, .groupchat, .server, .privateChat, .issue].contains(entity) {
-            statusIndicator.frame = CGRect(x: 47,
-                                           y: 47,
-                                           width: 16,
-                                           height: 16)
-            statusIndicator.border(1)
-        } else {
-            statusIndicator.frame = CGRect(x: 49,
-                                           y: 49,
-                                           width: 12,
-                                           height: 12)
-            statusIndicator.border(1)
-        }
+
+        updateStatusIndicatorLayout(
+            isProminent: [.incognitoChat, .groupchat, .server, .privateChat, .issue].contains(entity)
+        )
         
         statusIndicator.setStatus(status: status, entity: entity)
         
@@ -599,13 +588,7 @@ class ChatListTableViewCell: UITableViewCell {
         if bottomStack.layoutMargins.right > 8 {
             bottomStack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 0, right: 8)
         }
-//        if statusIndicator.frame.width > 14 {
-        statusIndicator.frame = CGRect(x: 49,
-                                       y: 49,
-                                       width: 12,
-                                       height: 12)
-        statusIndicator.border(1)
-//        }
+        updateStatusIndicatorLayout(isProminent: false)
     }
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -620,8 +603,6 @@ class ChatListTableViewCell: UITableViewCell {
 //        backgroundColor = .clear//.systemBackground
         
         
-        accountIndicator.frame = CGRect(x: 0.5, y: 1, width: 2, height: 74)
-        userImageView.frame = CGRect(x: 16, y: 10, width: 64, height: 64)
         contentView.addSubview(accountIndicator)
         contentView.addSubview(userImageView) 
         
@@ -673,7 +654,33 @@ class ChatListTableViewCell: UITableViewCell {
     }
     
     private func activateConstraints() {
+        accountIndicator.translatesAutoresizingMaskIntoConstraints = false
+        userImageView.translatesAutoresizingMaskIntoConstraints = false
+        avatarView.translatesAutoresizingMaskIntoConstraints = false
+        statusIndicator.translatesAutoresizingMaskIntoConstraints = false
+
+        statusIndicatorWidthConstraint = statusIndicator.widthAnchor.constraint(equalToConstant: 12)
+        statusIndicatorHeightConstraint = statusIndicator.heightAnchor.constraint(equalToConstant: 12)
+        statusIndicatorTrailingConstraint = statusIndicator.trailingAnchor.constraint(equalTo: userImageView.trailingAnchor, constant: -3)
+        statusIndicatorBottomConstraint = statusIndicator.bottomAnchor.constraint(equalTo: userImageView.bottomAnchor, constant: -3)
+
         NSLayoutConstraint.activate([
+            accountIndicator.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 0.5),
+            accountIndicator.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 1),
+            accountIndicator.widthAnchor.constraint(equalToConstant: 2),
+            accountIndicator.heightAnchor.constraint(equalToConstant: 74),
+            userImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            userImageView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
+            userImageView.widthAnchor.constraint(equalToConstant: 64),
+            userImageView.heightAnchor.constraint(equalToConstant: 64),
+            avatarView.leadingAnchor.constraint(equalTo: userImageView.leadingAnchor),
+            avatarView.trailingAnchor.constraint(equalTo: userImageView.trailingAnchor),
+            avatarView.topAnchor.constraint(equalTo: userImageView.topAnchor),
+            avatarView.bottomAnchor.constraint(equalTo: userImageView.bottomAnchor),
+            statusIndicatorWidthConstraint,
+            statusIndicatorHeightConstraint,
+            statusIndicatorTrailingConstraint,
+            statusIndicatorBottomConstraint,
             bottomStack.heightAnchor.constraint(equalToConstant: 44),
             deliveryIndicator.widthAnchor.constraint(equalToConstant: 16),
 //            deliveryIndicator.heightAnchor.constraint(equalToConstant: 16),
@@ -698,6 +705,14 @@ class ChatListTableViewCell: UITableViewCell {
             errorIndicator.widthAnchor.constraint(equalToConstant: 24),
 //            errorIndicator.heightAnchor.constraint(equalToConstant: 24),
         ])
+    }
+
+    private func updateStatusIndicatorLayout(isProminent: Bool) {
+        statusIndicatorWidthConstraint?.constant = isProminent ? 16 : 12
+        statusIndicatorHeightConstraint?.constant = isProminent ? 16 : 12
+        statusIndicatorTrailingConstraint?.constant = isProminent ? -1 : -3
+        statusIndicatorBottomConstraint?.constant = isProminent ? -1 : -3
+        statusIndicator.border(1)
     }
     
     required init?(coder aDecoder: NSCoder) {

@@ -277,6 +277,12 @@ extension Account: XMPPStreamDelegate {
             ],
             rawXML: resumeResponse?.xmlString
         )
+        let ackedIds = (resumedStanzaIds as? [Any])?.compactMap { $0 as? String } ?? []
+        if didResume {
+            _ = self.primaryStreamStanzaTracker.noteResumeSucceeded(ackedIds: ackedIds)
+        } else {
+            _ = self.primaryStreamStanzaTracker.noteResumeFailedOrFullReconnect()
+        }
         self.cancelDelayedConnectTimer()
         self.connectionGate.markPostAuthSetup()
         self.logConnectionDiagnostics(event: "post_auth_setup_started")
@@ -421,10 +427,17 @@ extension Account: XMPPStreamDelegate {
         self.pendingDisconnectCause = nil
         self.sendReadiness.markDisconnected(cause: cause)
         self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
+        self.primaryStreamStanzaTracker.noteStreamDidDisconnect(canResume: self.sm.canResumeStream())
         self.connectionResilience.streamDidDisconnect(cause: cause)
+    }
+
+    func xmppStream(_ sender: XMPPStream, willSend iq: XMPPIQ) -> XMPPIQ? {
+        guard sender === self.xmppStream else { return iq }
+        return self.preparePrimaryStreamStanzaForSend(iq) ? iq : nil
     }
     
     func xmppStream(_ sender: XMPPStream, didSend iq: XMPPIQ) {
+        self.notePrimaryStreamStanzaDidSend(iq)
         self.logConnectionDiagnostics(
             event: "stanza_send_iq",
             details: [
@@ -523,7 +536,20 @@ extension Account: XMPPStreamDelegate {
         }
     }
     
+    func xmppStream(_ sender: XMPPStream, willSend presence: XMPPPresence) -> XMPPPresence? {
+        guard sender === self.xmppStream else { return presence }
+        let scope = [
+            presence.type ?? "available",
+            presence.to?.bare ?? "broadcast"
+        ].joined(separator: ":")
+        return self.preparePrimaryStreamStanzaForSend(
+            presence,
+            replayPolicy: .latestPresence(scope: scope)
+        ) ? presence : nil
+    }
+
     func xmppStream(_ sender: XMPPStream, didSend presence: XMPPPresence) {
+        self.notePrimaryStreamStanzaDidSend(presence)
         self.logConnectionDiagnostics(
             event: "stanza_send_presence",
             details: [
@@ -608,7 +634,7 @@ extension Account: XMPPStreamDelegate {
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message)) {
                         return
                     }
-                    if self.groupchats.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) {
+                    if self.groupchats.readArchivedInviteEnvelope(message, isRead: nil) {
                         return
                     }
                     if self.xTokens.receive(sender, withMessage: bareMessage) {
@@ -643,6 +669,8 @@ extension Account: XMPPStreamDelegate {
                     if self.chatStates.read(withMessage: bareMessage) {
                         return
                     } else if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message), runtime: true, outgoing: true) {
+                        return
+                    } else if self.groupchats.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) {
                         return
                     }
                 }
@@ -771,14 +799,12 @@ extension Account: XMPPStreamDelegate {
     }
 
     func xmppStream(_ sender: XMPPStream, willSend message: XMPPMessage) -> XMPPMessage? {
-        return message
+        guard sender === self.xmppStream else { return message }
+        return self.preparePrimaryStreamStanzaForSend(message) ? message : nil
     }
     
     func xmppStream(_ sender: XMPPStream, didSend message: XMPPMessage) {
-        self.connectionResilience.noteOutboundApplicationStanza(id: message.elementID)
-        if self.sendReadiness.snapshot.canFlushApplicationStanzas {
-            self.sm.requestAck()
-        }
+        self.notePrimaryStreamStanzaDidSend(message)
         self.logConnectionDiagnostics(
             event: "stanza_send_message",
             details: [
@@ -795,6 +821,7 @@ extension Account: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didFailToSend message: XMPPMessage, error: Error) {
+        self.notePrimaryStreamStanzaDidFailToSend(message)
         self.logConnectionDiagnostics(
             event: "stanza_send_failed_message",
             details: [
@@ -812,6 +839,7 @@ extension Account: XMPPStreamDelegate {
     }
 
     func xmppStream(_ sender: XMPPStream, didFailToSend iq: XMPPIQ, error: Error) {
+        self.notePrimaryStreamStanzaDidFailToSend(iq)
         self.logConnectionDiagnostics(
             event: "stanza_send_failed_iq",
             details: [
@@ -827,6 +855,7 @@ extension Account: XMPPStreamDelegate {
     }
 
     func xmppStream(_ sender: XMPPStream, didFailToSend presence: XMPPPresence, error: Error) {
+        self.notePrimaryStreamStanzaDidFailToSend(presence)
         self.logConnectionDiagnostics(
             event: "stanza_send_failed_presence",
             details: [
@@ -985,10 +1014,16 @@ extension Account: XMPPStreamManagementDelegate {
     }
 
     func xmppStreamManagement(_ sender: XMPPStreamManagement, didReceiveAckForStanzaIds stanzaIds: [Any]) {
+        let ackedIds = stanzaIds.compactMap { $0 as? String }
+        _ = self.primaryStreamStanzaTracker.noteAck(ids: ackedIds)
         self.logConnectionDiagnostics(
             event: "stream_management_ack_received",
             details: ["ackedCount": stanzaIds.count]
         )
         self.connectionResilience.noteStreamManagementAck()
+    }
+
+    func xmppStreamManagement(_ sender: XMPPStreamManagement, stanzaIdForSentElement element: XMPPElement) -> Any? {
+        PrimaryStreamStanzaIdentifier.ensureID(on: element)
     }
 }

@@ -98,7 +98,10 @@ extension Account {
         if iq.xmlns() == "jabber:client"
             && iq.iqType == .get
             && iq.element(forName: "ping") != nil {
-            self.xmppStream.send(XMPPIQ(iqType: .result, to: iq.from, elementID: iq.elementID))
+            self.sendPrimaryStanza(
+                XMPPIQ(iqType: .result, to: iq.from, elementID: iq.elementID),
+                replayPolicy: .notReplayable
+            )
             return true
         }
         return false

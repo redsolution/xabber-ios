@@ -282,38 +282,14 @@ extension ChatViewController {
                             realm.delete(instance)
                         }
                     }
-                    if let instance = realm
-                        .objects(LastChatsStorageItem.self)
-                        .filter("owner == %@ AND jid == %@", self.owner, self.jid)
-                        .first {
+                    if let notification = realm.object(
+                        ofType: UINotificationStorageItem.self,
+                        forPrimaryKey: UINotificationStorageItem.genPrimary(owner: self.owner, jid: self.jid)
+                    ) {
                         try realm.write {
-                            if instance.isInvalidated { return }
-                            realm.delete(instance)
+                            if notification.isInvalidated { return }
+                            realm.delete(notification)
                         }
-                    }
-                    if let instance = realm
-                        .objects(RosterStorageItem.self)
-                        .filter("owner == %@ AND jid == %@", self.owner, self.jid)
-                        .first {
-                        try realm.write {
-                            if instance.isInvalidated { return }
-                            realm.delete(instance)
-                        }
-                    }
-                    if let instance = realm
-                        .objects(GroupChatStorageItem.self)
-                        .filter("owner == %@ AND jid == %@", self.owner, self.jid)
-                        .first {
-                        try realm.write {
-                            if instance.isInvalidated { return }
-                            realm.delete(instance)
-                        }
-                    }
-                    let resources = realm
-                        .objects(ResourceStorageItem.self)
-                        .filter("owner == %@ AND jid == %@", self.owner, self.jid)
-                    try realm.write {
-                        realm.delete(resources)
                     }
                 } catch {
                     DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")

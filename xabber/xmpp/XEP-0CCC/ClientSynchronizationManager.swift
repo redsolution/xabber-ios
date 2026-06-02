@@ -1041,26 +1041,41 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     @discardableResult
     internal func readInvites(_ conversation: DDXMLElement, realm: Realm) -> Bool {
         let timestamp = conversation.attributeDoubleValue(forName: "stamp")
-        if let messageElement = conversation.elements(forName: "metadata").first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization" })?.element(forName: "last-message")?.element(forName: "message"),
-            (AccountManager.shared.find(for: owner)?.groupchats.isInvite(XMPPMessage(from: messageElement.copy() as! DDXMLElement)) ?? false) {
-            let inviteMessage = XMPPMessage(from: messageElement.copy() as! DDXMLElement)
-            let uniqueId = getUniqueMessageId(inviteMessage, owner: self.owner)
-            if uniqueId.isNotEmpty,
-               realm.object(ofType: GroupchatInvitesStorageItem.self, forPrimaryKey: [uniqueId, owner].prp()) != nil {
-                conversation.removeAttribute(forName: "jid")
-                return false
-            }
-            if AccountManager
-                .shared
-                .find(for: owner)?
-                .groupchats
-                .readInvite(in: inviteMessage,
-                            date: Date(timeIntervalSince1970: timestamp / 1000000), isRead: false, commit: false) ?? false {
-                conversation.removeAttribute(forName: "jid")
-                return true
-            }
+        guard let messageElement = conversation.elements(forName: "metadata")
+            .first(where: { $0.attributeStringValue(forName: "node") == ClientSynchronizationManager.primaryNamespace })?
+            .element(forName: "last-message")?
+            .element(forName: "message") else {
+            return false
         }
-        return false
+
+        let inviteMessage = XMPPMessage(from: messageElement.copy() as! DDXMLElement)
+        let result = GroupchatInvitePersistenceService(
+            owner: owner,
+            followUp: GroupchatInviteFollowUp(
+                requestGroupInfo: { groupchat in
+                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                        user.groupchats.getGroupInfo(stream, groupchat: groupchat)
+                    })
+                },
+                requestMembers: { groupchat in
+                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                        user.groupchats.requestUsers(stream, groupchat: groupchat)
+                    })
+                }
+            )
+        )
+        .receive(
+            message: inviteMessage,
+            date: Date(timeIntervalSince1970: timestamp / 1000000),
+            isRead: false,
+            realm: realm,
+            commit: false
+        )
+        guard result.shouldConsume else {
+            return false
+        }
+        conversation.removeAttribute(forName: "jid")
+        return true
     }
     
     internal func readConversation(

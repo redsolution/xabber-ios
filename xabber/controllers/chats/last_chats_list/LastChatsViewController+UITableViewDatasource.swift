@@ -91,12 +91,17 @@ extension LastChatsViewController: UITableViewDataSource {
             verAction: item.isVerificationActionRequired
         )
         cell.setMask()
+        let isSelected = isSelectedChat(item)
         cell.applyPlainGroupedSystemBackground(
-            selectedColor: AccountSelectionHighlightStyle.tint50(
-                owner: item.owner,
-                fallbackOwners: enabledAccounts.value
-            ),
-            isSelected: isSelectedChat(item)
+            selectedColor: isSelected
+                ? AccountSelectionHighlightStyle.tint50(
+                    owner: item.owner,
+                    fallbackOwners: enabledAccounts.value
+                )
+                : nil,
+            isSelected: isSelected,
+            usesHighlightedStateForSelection: false,
+            usesStateDrivenSelection: false
         )
     }
 

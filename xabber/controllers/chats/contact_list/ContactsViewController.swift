@@ -573,7 +573,6 @@ class ContactsViewController: BaseViewController {
     
     internal var datasource: [[Datasource]] = []
     internal var datasetGeneration: Int = 0
-    internal var lastRequestedInviteGroupKeys: Set<String> = []
     internal var currentFeatureHasAnyContent: Bool = false
     internal var currentSnapshotIsResolved: Bool = false
     
@@ -1447,25 +1446,6 @@ class ContactsViewController: BaseViewController {
                 invalidations.append(Observable.collection(from: invitesCollection).map { _ in () })
                 invalidations.append(Observable.collection(from: groupchatCollection).map { _ in () })
                 invalidations.append(Observable.collection(from: groupUsersCollection).map { _ in () })
-                
-                Observable.collection(from: invitesCollection)
-                    .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
-                    .subscribe(onNext: { invites in
-                        let currentKeys = Set(invites.map { [$0.owner, $0.groupchat].prp() })
-                        let pendingKeys = currentKeys.subtracting(self.lastRequestedInviteGroupKeys)
-                        self.lastRequestedInviteGroupKeys = currentKeys
-
-                        invites.forEach { invite in
-                            let inviteKey = [invite.owner, invite.groupchat].prp()
-                            guard pendingKeys.contains(inviteKey) else { return }
-                            let groupchat = invite.groupchat
-                            AccountManager.shared.find(for: invite.owner)?.action { user, stream in
-                                user.groupchats.getGroupInfo(stream, groupchat: groupchat)
-                                user.groupchats.requestUsers(stream, groupchat: groupchat)
-                            }
-                        }
-                    })
-                    .disposed(by: self.bag)
             }
             
             Observable.merge(invalidations)

@@ -117,6 +117,53 @@ func realmMigrations(scheme: UInt64) {
                 // OutgoingMessageQueueItem is a new table for durable regular-message replay.
                 // Existing recoverable sending messages are reconstructed by MessageManager startup.
             }
+            if oldSchemaVersion < 10 {
+                var newestIncomingInviteByKey: [String: (primary: String, date: Date)] = [:]
+                var duplicateIncomingInvitePrimaries = Set<String>()
+
+                migration.enumerateObjects(ofType: GroupchatInvitesStorageItem.className()) { oldObject, _ in
+                    let outgoing = (oldObject?["outgoing"] as? Bool) ?? true
+                    guard !outgoing,
+                          let owner = oldObject?["owner"] as? String,
+                          let groupchat = oldObject?["groupchat"] as? String,
+                          !owner.isEmpty,
+                          !groupchat.isEmpty,
+                          let primary = oldObject?["primary"] as? String else {
+                        return
+                    }
+                    let stableKey = [groupchat, owner].prp()
+                    let date = (oldObject?["date"] as? Date) ?? Date(timeIntervalSinceReferenceDate: 0)
+                    if let existing = newestIncomingInviteByKey[stableKey] {
+                        if existing.date >= date {
+                            duplicateIncomingInvitePrimaries.insert(primary)
+                        } else {
+                            duplicateIncomingInvitePrimaries.insert(existing.primary)
+                            newestIncomingInviteByKey[stableKey] = (primary, date)
+                        }
+                    } else {
+                        newestIncomingInviteByKey[stableKey] = (primary, date)
+                    }
+                }
+
+                migration.enumerateObjects(ofType: GroupchatInvitesStorageItem.className()) { oldObject, newObject in
+                    guard let newObject else { return }
+                    let oldPrimary = (oldObject?["primary"] as? String) ?? ""
+                    if duplicateIncomingInvitePrimaries.contains(oldPrimary) {
+                        migration.delete(newObject)
+                        return
+                    }
+
+                    let outgoing = (oldObject?["outgoing"] as? Bool) ?? true
+                    let owner = (oldObject?["owner"] as? String) ?? ""
+                    let groupchat = (oldObject?["groupchat"] as? String) ?? ""
+                    if !outgoing, !owner.isEmpty, !groupchat.isEmpty {
+                        newObject["primary"] = [groupchat, owner].prp()
+                    }
+                    newObject["originId"] = ""
+                    newObject["stanzaId"] = oldObject?["messageId"] as? String ?? ""
+                    newObject["archiveId"] = oldObject?["messageId"] as? String ?? ""
+                }
+            }
         },
         deleteRealmIfMigrationNeeded: true) { total, used in
             let limit = 100 * 1024 * 1024

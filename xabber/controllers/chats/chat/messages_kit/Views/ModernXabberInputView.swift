@@ -57,7 +57,6 @@ class ModernXabberInputView: UIView {
         static let contextPreviewComposerGap: CGFloat = 4
         static let contextPreviewReservedHeight: CGFloat = contextPreviewHeight + contextPreviewComposerGap
         static let recordingLockButtonVerticalGap: CGFloat = 52
-        static let collapsedHeightTolerance: CGFloat = 2
     }
 
     private static let detachedButtonGlassViewTag = 26051801
@@ -1559,6 +1558,23 @@ class ModernXabberInputView: UIView {
         LiquidGlassMetrics.textVerticalInset * 2
     }
 
+    private var singleLineTextViewHeight: CGFloat {
+        let font = textField.font ?? UIFont.preferredFont(forTextStyle: .body)
+        return font.lineHeight
+            + textField.textContainerInset.top
+            + textField.textContainerInset.bottom
+            + (textField.textContainer.lineFragmentPadding * 2)
+    }
+
+    private var singleLineComposerHeight: CGFloat {
+        self.singleLineTextViewHeight + self.composerTextVerticalPadding
+    }
+
+    private var collapsedHeightTolerance: CGFloat {
+        // Small measurement jitter guard when the one-line text surface height is computed.
+        1.0
+    }
+
     private var requiredTextViewFittingHeight: CGFloat {
         let fittingWidth = textField.bounds.width > 0 ? textField.bounds.width : inputTextViewMaxWidth
         let maxTextViewSize = CGSize(width: fittingWidth, height: .greatestFiniteMagnitude)
@@ -1576,7 +1592,9 @@ class ModernXabberInputView: UIView {
     }
 
     private func normalizedComposerContentHeight(for rawHeight: CGFloat) -> CGFloat {
-        if rawHeight <= ModernXabberInputView.minimumComposerHeight + LiquidGlassMetrics.collapsedHeightTolerance {
+        let collapsedReferenceHeight = self.singleLineComposerHeight + self.collapsedHeightTolerance
+
+        if rawHeight <= collapsedReferenceHeight {
             return ModernXabberInputView.minimumComposerHeight
         }
         return max(ModernXabberInputView.minimumComposerHeight, rawHeight)
@@ -2665,6 +2683,8 @@ class ModernXabberInputView: UIView {
         let contentHeight = self.currentComposerContentHeight()
         self.mainInputShadowView.isHidden = self.state == .selection || self.state == .search || self.state == .skeleton
         self.mainInputHeightConstraint?.constant = contentHeight + self.topInset
+
+        // Keep the shared NativeGlass/blur material capsule style in sync on every layout pass.
         ModernXabberInputView.applyToolbarGlassLayer(to: self.mainInputGlassView)
         self.updateComposerContentLayout()
         self.sendButton.updatePulseOverlayPosition()

@@ -588,10 +588,26 @@ enum ChatAnchorFailureRecoveryPolicy {
     }
 
     static func shouldRunDefaultFailurePresentation(
+        requestSource: ChatOpenMessageRequestSource?,
         usesBootstrapLoading: Bool,
         hasFailureHook: Bool
     ) -> Bool {
-        !usesBootstrapLoading && !hasFailureHook
+        if requestSource == .savedVisiblePosition {
+            return false
+        }
+
+        return !usesBootstrapLoading && !hasFailureHook
+    }
+
+    static func shouldRunDefaultFailurePresentation(
+        usesBootstrapLoading: Bool,
+        hasFailureHook: Bool
+    ) -> Bool {
+        return self.shouldRunDefaultFailurePresentation(
+            requestSource: nil,
+            usesBootstrapLoading: usesBootstrapLoading,
+            hasFailureHook: hasFailureHook
+        )
     }
 }
 
@@ -1132,6 +1148,164 @@ extension ChatViewController {
         return true
     }
 
+    private func savedPositionFirstFrameObserverIndex(
+        for request: ChatOpenMessageRequest
+    ) -> Int? {
+        guard request.source == .savedVisiblePosition,
+              self.messagesObserver != nil else {
+            return nil
+        }
+
+        self.ensureObserverLookupMaps()
+        let anchor = request.anchor
+
+        if let messagePrimary = anchor.messagePrimary,
+           messagePrimary.isNotEmpty,
+           let index = self.observerPrimaryIndexMap[messagePrimary] {
+            return index
+        }
+
+        if let archivedId = anchor.archivedId,
+           archivedId.isNotEmpty,
+           let index = self.observerArchivedIdIndexMap[archivedId] {
+            return index
+        }
+
+        if let messageId = anchor.messageId,
+           messageId.isNotEmpty,
+           let index = self.observerMessageIdIndexMap[messageId] {
+            return index
+        }
+
+        return nil
+    }
+
+    @discardableResult
+    internal func applySavedPositionFirstFrameWindowIfNeeded(isSynced: Bool) -> Bool {
+        guard let request = self.pendingOpenMessageRequest,
+              request.owner == self.owner,
+              request.chatJid == self.jid,
+              request.conversationType == self.conversationType,
+              self.messagesObserver != nil,
+              self.currentPage.isUnlocked else {
+            return false
+        }
+
+        let localAnchorIndex = self.savedPositionFirstFrameObserverIndex(for: request)
+        let decision = ChatSavedPositionFirstFramePolicy.decision(
+            requestSource: request.source,
+            isSynced: isSynced,
+            observerCount: self.messagesObserver.count,
+            localAnchorIndex: localAnchorIndex,
+            pageSize: self.datasourcePageSize,
+            isPageUnlocked: self.currentPage.isUnlocked
+        )
+
+        guard case .savedPosition(let anchorIndex, let window) = decision,
+              anchorIndex < self.messagesObserver.count else {
+            return false
+        }
+
+        let message = self.messagesObserver[anchorIndex]
+        let target = ResolvedJumpTarget(
+            primary: message.primary,
+            archivedId: message.archivedId.isNotEmpty ? message.archivedId : nil
+        )
+        let hooks = self.activeAnchorExecutionHooks
+
+        return self.currentPage.setCustomPage(anchorIndex / self.datasourcePageSize) {
+            var executionState = ChatAnchorExecutionState(
+                request: request,
+                usesBootstrapLoading: false
+            )
+            executionState.isPositioning = true
+            self.activeAnchorExecutionState = executionState
+            self.syncAnchorExecutionFlags()
+            self.isApplyingBootstrapAnchorWindow = true
+            self.setShouldShowInitialMessage(false)
+            self.setLoadingIndicatorVisible(false)
+            self.setArchiveLoading(false)
+            self.setDatasourceLoadingEnabled(false)
+
+            self.syncCurrentPage(with: window)
+            self.mapAndApplyWindow(
+                window,
+                mode: .fullReload(),
+                animated: false,
+                completion: {
+                    guard ChatSavedPositionFirstFrameCompletionPolicy.renderedWindowAction(
+                        requestSource: request.source,
+                        targetExistsInSnapshot: self.datasourceSnapshotContainsTarget(target)
+                    ) == .finishRequest else {
+                        self.recoverSavedPositionFirstFrameRequest(trigger: .manual)
+                        return
+                    }
+
+                    self.positionMessage(
+                        primary: target.primary,
+                        archivedId: target.archivedId,
+                        highlight: false,
+                        animated: false,
+                        completion: {
+                            self.finishActiveAnchorExecution()
+                            self.scheduleMentionReadOnVisibleIfNeeded(
+                                for: request,
+                                positionedPrimary: target.primary
+                            )
+                            hooks?.onPositioned?()
+                            self.startBackgroundContextPrefetchIfNeeded(
+                                around: target,
+                                request: request
+                            )
+                        }
+                    )
+                },
+                cancelledCompletion: {
+                    switch ChatSavedPositionFirstFrameCompletionPolicy.mappingCancellationAction(
+                        requestSource: request.source
+                    ) {
+                    case .finishRequest:
+                        self.failActiveAnchorExecution()
+                    case .recoverPendingRequest:
+                        self.recoverSavedPositionFirstFrameRequest(trigger: .observerRefresh)
+                    }
+                }
+            )
+        }
+    }
+
+    private func datasourceSnapshotContainsTarget(_ target: ResolvedJumpTarget) -> Bool {
+        self.datasourceSnapshot.primaryIndex[target.primary] != nil
+            || (target.archivedId.flatMap { self.datasourceSnapshot.archivedIdIndex[$0] } != nil)
+    }
+
+    private func recoverSavedPositionFirstFrameRequest(trigger: ChatAnchorExecutionResumeTrigger) {
+        guard let state = self.activeAnchorExecutionState,
+              state.request.source == .savedVisiblePosition else {
+            self.failActiveAnchorExecution()
+            return
+        }
+
+        var recoveredState = state
+        recoveredState.isPositioning = false
+        recoveredState.isRemoteFetchInFlight = false
+        self.activeAnchorExecutionState = recoveredState
+        self.isApplyingBootstrapAnchorWindow = false
+        self.syncAnchorExecutionFlags()
+        self.setLoadingIndicatorVisible(false)
+        self.setArchiveLoading(false)
+        self.setDatasourceLoadingEnabled(true)
+        self.currentPage.unlock()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.pendingOpenMessageRequest == recoveredState.request else {
+                return
+            }
+            self.performPendingOpenMessageRequestIfNeeded(trigger: trigger)
+        }
+    }
+
     private func initialAnchorExecutionState(
         for request: ChatOpenMessageRequest
     ) -> ChatAnchorExecutionState {
@@ -1214,6 +1388,7 @@ extension ChatViewController {
             return
         }
         guard ChatAnchorFailureRecoveryPolicy.shouldRunDefaultFailurePresentation(
+            requestSource: executionState?.request.source,
             usesBootstrapLoading: usesBootstrapLoading,
             hasFailureHook: hasFailureHook
         ) else { return }

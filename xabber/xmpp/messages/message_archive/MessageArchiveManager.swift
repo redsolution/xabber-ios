@@ -103,6 +103,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         case voice = "voice"
         case geo = "geo"
         case voip = "voip"
+        case invite = "invite"
     }
 
     enum RequestPurpose: Equatable, Hashable {
@@ -115,6 +116,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         case search
         case latest
         case media
+        case inviteRecovery
 
         var marksInitialArchiveLoaded: Bool {
             self == .bootstrap
@@ -124,7 +126,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             switch self {
             case .bootstrap, .pageOlder, .pageNewer, .jump, .gapRepair, .snapshotRepair:
                 return true
-            case .search, .latest, .media:
+            case .search, .latest, .media, .inviteRecovery:
                 return false
             }
         }
@@ -474,6 +476,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     public var isInitialArchiveRequested: Bool = false
     
     public var allowHistoryFixTask: Bool = false
+    public var isExtendedArchiveAvailable: Bool = false
     
     public var continuesTaskID: String? = nil
     
@@ -1122,7 +1125,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                     }
                 case .jump, .gapRepair:
                     break
-                case .search, .latest, .media:
+                case .search, .latest, .media, .inviteRecovery:
                     break
                 }
                 archiveState.updatedAt = Date()
@@ -1483,6 +1486,29 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
         
     }
+
+    @discardableResult
+    public final func requestInviteRecovery(_ stream: XMPPStream, max: Int = 100) -> String? {
+        guard isExtendedArchiveAvailable else {
+            return nil
+        }
+        let queryId = "MAM invite recovery: \(NanoID.new(8))"
+        requestArchive(
+            stream,
+            jid: nil,
+            isContinues: false,
+            conversationType: .group,
+            purpose: .inviteRecovery,
+            queryId: queryId,
+            flipPage: false,
+            nextPage: "",
+            max: max,
+            tags: [.invite],
+            consumerManagesArchiveEnd: true,
+            consumerManagesHistoryCursor: true
+        )
+        return queryId
+    }
     
     
     class HistoryGap {
@@ -1803,6 +1829,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             end: task.end,
             nextPage: nextPage,
             max: task.max,
+            tags: task.tags,
             coverageUpdateKind: task.coverageUpdateKind,
             callback: callback,
             requestCallbacks: requestCallbacks
