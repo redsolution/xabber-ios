@@ -77,6 +77,44 @@ enum StackedNavigationRoutePolicy {
     }
 }
 
+enum ChatBackgroundPresentationMode: Equatable {
+    case automatic
+    case sharedSplitBackdrop
+    case localChatBackdrop
+}
+
+struct ChatBackgroundPresentationContext: Equatable {
+    let route: StackedNavigationRoute
+    let interfaceType: CommonConfigManager.InterfaceType
+    let isContinuousSplitBackgroundActive: Bool
+}
+
+enum ChatBackgroundPresentationPolicy {
+    static func mode(for context: ChatBackgroundPresentationContext) -> ChatBackgroundPresentationMode {
+        guard context.interfaceType == .split,
+              context.isContinuousSplitBackgroundActive else {
+            return .automatic
+        }
+
+        switch context.route {
+        case .currentNavigationPush:
+            return .localChatBackdrop
+        case .splitDetailReplacement:
+            return .sharedSplitBackdrop
+        }
+    }
+
+    static func destinationMode(
+        for destination: UIViewController,
+        context: ChatBackgroundPresentationContext
+    ) -> ChatBackgroundPresentationMode? {
+        guard destination is ChatViewController else {
+            return nil
+        }
+        return mode(for: context)
+    }
+}
+
 protocol StackedNavigationPresentationPreparing: AnyObject {
     func prepareForStackedNavigationPresentation(targetBounds: CGRect?)
 }
@@ -169,6 +207,25 @@ private func prepareStackedDestination(_ vc: UIViewController, targetBounds: CGR
 #endif
 }
 
+private func configureStackedChatBackgroundPresentation(
+    _ vc: UIViewController,
+    route: StackedNavigationRoute
+) {
+    guard let chatViewController = vc as? ChatViewController,
+          let mode = ChatBackgroundPresentationPolicy.destinationMode(
+            for: vc,
+            context: ChatBackgroundPresentationContext(
+                route: route,
+                interfaceType: CommonConfigManager.shared.interfaceType,
+                isContinuousSplitBackgroundActive: ContinuousSplitBackgroundExperiment.isActive
+            )
+          ) else {
+        return
+    }
+
+    chatViewController.backgroundPresentationMode = mode
+}
+
 private func splitSecondaryTargetBounds(
     splitViewController: UISplitViewController?,
     presenter: UIViewController
@@ -212,6 +269,7 @@ public func showStacked(_ vc: UIViewController, in presenter: UIViewController) 
     case .currentNavigationPush:
         let navigationController = currentNavigationController(for: presenter)
         let targetBounds = navigationController?.view.bounds ?? presenter.view.bounds
+        configureStackedChatBackgroundPresentation(vc, route: route)
         prepareStackedDestination(vc, targetBounds: targetBounds)
 //            presenter.splitViewController?.showDetailViewController(NavBarController(rootViewController: vc), sender: presenter)
         if let navigationController {
@@ -222,6 +280,7 @@ public func showStacked(_ vc: UIViewController, in presenter: UIViewController) 
     case .splitDetailReplacement:
         guard let splitViewController else {
             let navigationController = currentNavigationController(for: presenter)
+            configureStackedChatBackgroundPresentation(vc, route: .currentNavigationPush)
             prepareStackedDestination(vc, targetBounds: navigationController?.view.bounds ?? presenter.view.bounds)
             navigationController?.pushViewController(vc, animated: true)
             return
@@ -230,6 +289,7 @@ public func showStacked(_ vc: UIViewController, in presenter: UIViewController) 
         let nvc = UINavigationController(rootViewController: vc)
         nvc.applyTransparentSplitAppearance()
 //            nvc.setNavigationBarHidden(false, animated: false)
+        configureStackedChatBackgroundPresentation(vc, route: route)
         prepareStackedDestination(
             vc,
             targetBounds: splitSecondaryTargetBounds(

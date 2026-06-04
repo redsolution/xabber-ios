@@ -21,7 +21,45 @@
 import Foundation
 import UIKit
 
+enum LastChatsSearchChromePolicy {
+    static func apply(
+        to searchBar: UISearchBar,
+        isContinuousSplitBackgroundActive: Bool
+    ) {
+        guard isContinuousSplitBackgroundActive else { return }
+
+        searchBar.searchBarStyle = .default
+        searchBar.backgroundColor = nil
+        searchBar.isTranslucent = true
+        searchBar.setBackgroundImage(nil, for: .any, barMetrics: .default)
+
+        let textField = searchBar.searchTextField
+        textField.backgroundColor = nil
+        textField.layer.backgroundColor = nil
+        textField.layer.masksToBounds = false
+        textField.setNeedsLayout()
+        textField.layoutIfNeeded()
+    }
+}
+
 extension LastChatsViewController {
+
+    internal func applySearchChromeForCurrentPresentation() {
+        LastChatsSearchChromePolicy.apply(
+            to: searchController.searchBar,
+            isContinuousSplitBackgroundActive: ContinuousSplitBackgroundExperiment.isActive
+        )
+    }
+
+    internal func prepareSearchChromeForNavigationTransitionFirstFrame() {
+        applySearchChromeForCurrentPresentation()
+        UIView.performWithoutAnimation {
+            searchController.searchBar.setNeedsLayout()
+            searchController.searchBar.layoutIfNeeded()
+            navigationController?.navigationBar.setNeedsLayout()
+            navigationController?.navigationBar.layoutIfNeeded()
+        }
+    }
     
     internal func configureSearchBar() {
         if isFirstLayoutSearchController {
@@ -32,6 +70,7 @@ extension LastChatsViewController {
 //        searchController.searchBar.barTintColor = .gray
 //        searchController.searchBar.tintColor = .blue
 //        searchController.searchBar.barStyle = .default
+        applySearchChromeForCurrentPresentation()
         if #available(iOS 16.0, *) {
             navigationItem.preferredSearchBarPlacement = .stacked
         }

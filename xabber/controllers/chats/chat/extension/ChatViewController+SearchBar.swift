@@ -1192,13 +1192,16 @@ extension ChatViewController {
         }
 
         let localAnchorIndex = self.savedPositionFirstFrameObserverIndex(for: request)
+        let archiveCoverageContext = self.savedPositionFirstFrameArchiveCoverageContext()
         let decision = ChatSavedPositionFirstFramePolicy.decision(
             requestSource: request.source,
             isSynced: isSynced,
             observerCount: self.messagesObserver.count,
             localAnchorIndex: localAnchorIndex,
             pageSize: self.datasourcePageSize,
-            isPageUnlocked: self.currentPage.isUnlocked
+            isPageUnlocked: self.currentPage.isUnlocked,
+            archivedIdsByIndex: archiveCoverageContext.archivedIdsByIndex,
+            knownGaps: archiveCoverageContext.knownGaps
         )
 
         guard case .savedPosition(let anchorIndex, let window) = decision,
@@ -1567,7 +1570,59 @@ extension ChatViewController {
     }
 
     internal func hasLocalAnchorForBootstrap(_ request: ChatOpenMessageRequest) -> Bool {
-        self.localAnchorMessage(for: request) != nil
+        guard self.localAnchorMessage(for: request) != nil else {
+            return false
+        }
+
+        guard request.source == .savedVisiblePosition,
+              self.messagesObserver != nil,
+              let localAnchorIndex = self.savedPositionFirstFrameObserverIndex(for: request) else {
+            return true
+        }
+
+        let archiveCoverageContext = self.savedPositionFirstFrameArchiveCoverageContext()
+        guard archiveCoverageContext.knownGaps.isNotEmpty else {
+            return true
+        }
+
+        if case .savedPosition = ChatSavedPositionFirstFramePolicy.decision(
+            requestSource: request.source,
+            isSynced: true,
+            observerCount: self.messagesObserver.count,
+            localAnchorIndex: localAnchorIndex,
+            pageSize: self.datasourcePageSize,
+            isPageUnlocked: true,
+            archivedIdsByIndex: archiveCoverageContext.archivedIdsByIndex,
+            knownGaps: archiveCoverageContext.knownGaps
+        ) {
+            return true
+        }
+
+        return false
+    }
+
+    private func savedPositionFirstFrameArchiveCoverageContext() -> (
+        archivedIdsByIndex: [Int: String],
+        knownGaps: [RegularChatArchiveGap]
+    ) {
+        guard self.conversationType == .regular,
+              self.messagesObserver != nil else {
+            return ([:], [])
+        }
+
+        let archiveState = self.loadChatArchiveStateSnapshot()
+        guard archiveState.knownGaps.isNotEmpty else {
+            return ([:], [])
+        }
+
+        var archivedIdsByIndex: [Int: String] = [:]
+        for index in 0..<self.messagesObserver.count {
+            if let archiveId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(self.messagesObserver[index].archivedId) {
+                archivedIdsByIndex[index] = archiveId
+            }
+        }
+
+        return (archivedIdsByIndex, archiveState.knownGaps)
     }
 
     private func observerAnchorMessage(

@@ -2785,6 +2785,7 @@ class LastChatsViewController: BaseViewController {
         super.viewWillAppear(animated)
         beginNavigationTransitionDeferralIfNeeded()
         searchController.isActive = false
+        prepareSearchChromeForNavigationTransitionFirstFrame()
         NotifyManager.shared.setLastChats(displayed: true)
         isAppeared = true
         self.tabBarController?.tabBar.isHidden = false

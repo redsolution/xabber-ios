@@ -78,6 +78,39 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
     }
 
+    enum ConversationTypeFilterPolicy {
+        static func shouldIncludeConversationTypeField(
+            conversationType: ClientSynchronizationManager.ConversationType,
+            purpose: RequestPurpose,
+            isGroupchat: Bool,
+            isExtendedArchiveAvailable: Bool
+        ) -> Bool {
+            guard !isGroupchat, isExtendedArchiveAvailable else {
+                return false
+            }
+
+            if conversationType == .regular {
+                return purpose == .snapshotRepair
+            }
+
+            return true
+        }
+    }
+
+    enum ChatBootstrapRequestPolicy {
+        static func shouldStartInitialBootstrap(
+            isSynced: Bool,
+            isInitialArchiveLoaded: Bool,
+            localMessageCount: Int
+        ) -> Bool {
+            if !isSynced {
+                return true
+            }
+
+            return localMessageCount == 0 && !isInitialArchiveLoaded
+        }
+    }
+
     struct RequestCallbacks {
         let onMessage: ((MessageStorageItem, String) -> Void)?
         let onEndPage: ((String, MessageArchivePageEndState, String, String, Int) -> Void)?
@@ -1262,7 +1295,12 @@ class MessageArchiveManager: AbstractXMPPManager {
                 x.addChild(withElement)
             }
         }
-        if !isGroupchat {
+        if Self.ConversationTypeFilterPolicy.shouldIncludeConversationTypeField(
+            conversationType: conversationType,
+            purpose: purpose,
+            isGroupchat: isGroupchat,
+            isExtendedArchiveAvailable: self.isExtendedArchiveAvailable
+        ) {
             let ctElement = DDXMLElement(name: "field")
             ctElement.addAttribute(withName: "var", stringValue: "conversation-type")
             ctElement.addChild(DDXMLElement(name: "value", stringValue: conversationType.rawValue))
@@ -1574,8 +1612,12 @@ class MessageArchiveManager: AbstractXMPPManager {
                     .objects(MessageStorageItem.self)
                     .filter("opponent == %@ AND owner == %@ AND conversationType_ == %@", jid, self.owner, conversationType.rawValue)
                     .count
-                let shouldBootstrapRegular = conversationType == .regular && (!lastChatInstance.isSynced || localMessageCount == 0)
-                if lastChatInstance.isSynced && !shouldBootstrapRegular {
+                let shouldStartBootstrap = Self.ChatBootstrapRequestPolicy.shouldStartInitialBootstrap(
+                    isSynced: lastChatInstance.isSynced,
+                    isInitialArchiveLoaded: lastChatInstance.isInitialArchiveLoaded,
+                    localMessageCount: localMessageCount
+                )
+                if !shouldStartBootstrap {
                     // Keep chat open deterministic: synced chats should render local state immediately
                     // and let explicit user paging own further archive loads.
                     return .noop

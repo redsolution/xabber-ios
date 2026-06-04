@@ -1151,6 +1151,7 @@ class ChatViewController: MessagesViewController {
     var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var currentSearchQueryId: String? = nil
     var pendingOpenMessageRequest: ChatOpenMessageRequest? = nil
+    internal var backgroundPresentationMode: ChatBackgroundPresentationMode = .automatic
     internal var isNavigationTransitionActive: Bool = false
     internal var isPreparingStackedNavigationPresentation: Bool = false
     internal var shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion: Bool = false
@@ -1437,6 +1438,7 @@ class ChatViewController: MessagesViewController {
             return NSAttributedString(string: Lorem.words(Int.random(in: (18..<84))))
         }
     }()
+    internal var activeHistoryBoundaryPlaceholder: ChatHistoryBoundaryPlaceholderPosition?
     
     internal let updateQueue: DispatchQueue = {
         let queue = DispatchQueue(
@@ -2286,6 +2288,7 @@ class ChatViewController: MessagesViewController {
     internal let backgroundView = UIView()
     internal let backgroundImage = UIImageView()
     internal let gradientView = UIView()
+    private let localChatBackdropView = ChatBackgroundBackdropView()
     
     var audioIsInLoading: Bool = false
     
@@ -2529,13 +2532,35 @@ class ChatViewController: MessagesViewController {
     }
     
     final func configureBackground() {
-        if ContinuousSplitBackgroundExperiment.isActive {
+        if ContinuousSplitBackgroundExperiment.isActive,
+           backgroundPresentationMode != .localChatBackdrop {
             backgroundView.removeFromSuperview()
+            localChatBackdropView.removeFromSuperview()
             messagesCollectionView.backgroundColor = .clear
             view.backgroundColor = .clear
+            view.isOpaque = false
             return
         }
 
+        if ContinuousSplitBackgroundExperiment.isActive,
+           backgroundPresentationMode == .localChatBackdrop {
+            backgroundView.removeFromSuperview()
+            localChatBackdropView.frame = view.bounds
+            localChatBackdropView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            localChatBackdropView.reloadFromSettings()
+            if localChatBackdropView.superview !== view {
+                view.addSubview(localChatBackdropView)
+            }
+            view.sendSubviewToBack(localChatBackdropView)
+            messagesCollectionView.backgroundColor = .clear
+            view.backgroundColor = .systemBackground
+            view.isOpaque = true
+            return
+        }
+
+        localChatBackdropView.removeFromSuperview()
+        view.backgroundColor = .systemBackground
+        view.isOpaque = true
         backgroundView.frame = CGRect(
             origin: CGPoint(x: 0, y: ((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.maxY ?? 0)),
             size: self.view.bounds.size
@@ -3214,6 +3239,7 @@ class ChatViewController: MessagesViewController {
     }
     
     @objc func updateBackground() {
+        localChatBackdropView.reloadFromSettings()
         let backgroundResourceName = SettingManager.shared.getString(for: "chat_chooseBackground") ?? "None"
         if backgroundResourceName != "None" {
             backgroundImage.image = UIImage(named: backgroundResourceName.lowercased())?
@@ -3666,6 +3692,9 @@ extension ChatViewController: StackedNavigationPresentationPreparing {
            targetBounds.width > 0,
            targetBounds.height > 0 {
             self.view.frame = CGRect(origin: .zero, size: targetBounds.size)
+            UIView.performWithoutAnimation {
+                self.configureBackground()
+            }
         }
 
         UIView.performWithoutAnimation {

@@ -189,6 +189,77 @@ final class StackedNavigationRoutePolicyTests: XCTestCase {
         XCTAssertTrue(route.requiresDeferredPrimaryHide)
         XCTAssertEqual(route.targetColumn, .secondary)
     }
+
+    private func chatBackgroundMode(
+        route: StackedNavigationRoute,
+        interfaceType: CommonConfigManager.InterfaceType,
+        isContinuousSplitBackgroundActive: Bool
+    ) -> ChatBackgroundPresentationMode {
+        ChatBackgroundPresentationPolicy.mode(
+            for: ChatBackgroundPresentationContext(
+                route: route,
+                interfaceType: interfaceType,
+                isContinuousSplitBackgroundActive: isContinuousSplitBackgroundActive
+            )
+        )
+    }
+
+    func testSplitCurrentNavigationPushUsesLocalChatBackdropWhenContinuousBackgroundIsActive() {
+        XCTAssertEqual(
+            chatBackgroundMode(
+                route: .currentNavigationPush,
+                interfaceType: .split,
+                isContinuousSplitBackgroundActive: true
+            ),
+            .localChatBackdrop
+        )
+    }
+
+    func testSplitDetailReplacementUsesSharedSplitBackdropWhenContinuousBackgroundIsActive() {
+        XCTAssertEqual(
+            chatBackgroundMode(
+                route: .splitDetailReplacement,
+                interfaceType: .split,
+                isContinuousSplitBackgroundActive: true
+            ),
+            .sharedSplitBackdrop
+        )
+    }
+
+    func testTabsKeepAutomaticChatBackground() {
+        XCTAssertEqual(
+            chatBackgroundMode(
+                route: .currentNavigationPush,
+                interfaceType: .tabs,
+                isContinuousSplitBackgroundActive: true
+            ),
+            .automatic
+        )
+    }
+
+    func testInactiveContinuousBackgroundKeepsAutomaticChatBackground() {
+        XCTAssertEqual(
+            chatBackgroundMode(
+                route: .currentNavigationPush,
+                interfaceType: .split,
+                isContinuousSplitBackgroundActive: false
+            ),
+            .automatic
+        )
+    }
+
+    func testNonChatStackedDestinationDoesNotReceiveChatBackgroundMode() {
+        let mode = ChatBackgroundPresentationPolicy.destinationMode(
+            for: UIViewController(),
+            context: ChatBackgroundPresentationContext(
+                route: .currentNavigationPush,
+                interfaceType: .split,
+                isContinuousSplitBackgroundActive: true
+            )
+        )
+
+        XCTAssertNil(mode)
+    }
 }
 
 final class NavigationTransitionMutationPolicyTests: XCTestCase {
@@ -6990,10 +7061,24 @@ final class ChatBootstrapStateTests: XCTestCase {
             ChatBootstrapViewState.resolve(
                 messageCount: 0,
                 isSynced: true,
+                isInitialArchiveLoaded: true,
                 isInitialBootstrapInFlight: false,
                 hasPendingInitialAnchorRequest: false
             ),
             .empty
+        )
+    }
+
+    func testBootstrapStateKeepsSkeletonWhenEmptySyncedChatArchiveIsUnconfirmed() {
+        XCTAssertEqual(
+            ChatBootstrapViewState.resolve(
+                messageCount: 0,
+                isSynced: true,
+                isInitialArchiveLoaded: false,
+                isInitialBootstrapInFlight: false,
+                hasPendingInitialAnchorRequest: false
+            ),
+            .skeleton
         )
     }
 
@@ -7278,6 +7363,27 @@ final class ChatBootstrapLocalHistoryFallbackPolicyTests: XCTestCase {
         )
     }
 
+    func testFallbackDoesNotRevealLocalHistoryDuringRequiredArchiveBootstrap() {
+        XCTAssertFalse(
+            ChatBootstrapLocalHistoryFallbackPolicy.shouldScheduleFallback(
+                messageCount: 3,
+                isShowingSkeleton: true,
+                allowsStaleLocalHistory: false,
+                hasPendingInitialAnchorRequest: false,
+                isRequiredArchiveBootstrapInFlight: true
+            )
+        )
+
+        XCTAssertFalse(
+            ChatBootstrapLocalHistoryFallbackPolicy.shouldRevealLocalHistory(
+                messageCount: 3,
+                isShowingSkeleton: true,
+                hasPendingInitialAnchorRequest: false,
+                isRequiredArchiveBootstrapInFlight: true
+            )
+        )
+    }
+
     func testFallbackRevealsOnlySkeletonWithLocalMessagesAndNoPendingAnchor() {
         XCTAssertTrue(
             ChatBootstrapLocalHistoryFallbackPolicy.shouldRevealLocalHistory(
@@ -7484,6 +7590,57 @@ final class ChatInitialHistoryAppearancePolicyTests: XCTestCase {
                 observerCount: 180,
                 localAnchorIndex: 120,
                 pageSize: 100
+            ),
+            .savedPosition(
+                anchorIndex: 120,
+                window: ChatDatasetWindow(minIndex: 70, maxIndex: 170)
+            )
+        )
+    }
+
+    func testSavedPositionFirstFrameSkipsWhenAnchorWindowCrossesKnownArchiveGap() {
+        let gap = RegularChatArchiveGap(
+            olderRangeNewestArchiveId: "200",
+            newerRangeOldestArchiveId: "400"
+        )
+
+        XCTAssertEqual(
+            ChatSavedPositionFirstFramePolicy.decision(
+                requestSource: .savedVisiblePosition,
+                isSynced: true,
+                observerCount: 180,
+                localAnchorIndex: 120,
+                pageSize: 100,
+                archivedIdsByIndex: [
+                    70: "150",
+                    120: "250",
+                    169: "450"
+                ],
+                knownGaps: [gap]
+            ),
+            .standardContent
+        )
+    }
+
+    func testSavedPositionFirstFrameAllowsLocalRestoreInsideOneLoadedArchiveSide() {
+        let gap = RegularChatArchiveGap(
+            olderRangeNewestArchiveId: "200",
+            newerRangeOldestArchiveId: "400"
+        )
+
+        XCTAssertEqual(
+            ChatSavedPositionFirstFramePolicy.decision(
+                requestSource: .savedVisiblePosition,
+                isSynced: true,
+                observerCount: 180,
+                localAnchorIndex: 120,
+                pageSize: 100,
+                archivedIdsByIndex: [
+                    70: "401",
+                    120: "450",
+                    169: "500"
+                ],
+                knownGaps: [gap]
             ),
             .savedPosition(
                 anchorIndex: 120,
@@ -7699,6 +7856,99 @@ final class MessageArchiveRequestClassificationTests: XCTestCase {
 
         XCTAssertTrue(archiveProducing.allSatisfy(\.isArchiveHistoryProducing))
         XCTAssertTrue(nonArchiveProducing.allSatisfy { !$0.isArchiveHistoryProducing })
+    }
+
+    func testRegularHistoryRequestsOmitConversationTypeFilter() {
+        XCTAssertFalse(
+            MessageArchiveManager.ConversationTypeFilterPolicy.shouldIncludeConversationTypeField(
+                conversationType: .regular,
+                purpose: .bootstrap,
+                isGroupchat: false,
+                isExtendedArchiveAvailable: true
+            )
+        )
+
+        XCTAssertFalse(
+            MessageArchiveManager.ConversationTypeFilterPolicy.shouldIncludeConversationTypeField(
+                conversationType: .regular,
+                purpose: .pageOlder,
+                isGroupchat: false,
+                isExtendedArchiveAvailable: true
+            )
+        )
+    }
+
+    func testRegularSnapshotRepairPreservesConversationTypeFilterWhenExtensionIsAvailable() {
+        XCTAssertTrue(
+            MessageArchiveManager.ConversationTypeFilterPolicy.shouldIncludeConversationTypeField(
+                conversationType: .regular,
+                purpose: .snapshotRepair,
+                isGroupchat: false,
+                isExtendedArchiveAvailable: true
+            )
+        )
+    }
+
+    func testNonRegularDirectHistoryUsesConversationTypeOnlyWithArchiveExtension() {
+        XCTAssertTrue(
+            MessageArchiveManager.ConversationTypeFilterPolicy.shouldIncludeConversationTypeField(
+                conversationType: .omemo,
+                purpose: .bootstrap,
+                isGroupchat: false,
+                isExtendedArchiveAvailable: true
+            )
+        )
+
+        XCTAssertFalse(
+            MessageArchiveManager.ConversationTypeFilterPolicy.shouldIncludeConversationTypeField(
+                conversationType: .omemo,
+                purpose: .bootstrap,
+                isGroupchat: false,
+                isExtendedArchiveAvailable: false
+            )
+        )
+    }
+
+    func testGroupHistoryRequestsOmitConversationTypeFilter() {
+        XCTAssertFalse(
+            MessageArchiveManager.ConversationTypeFilterPolicy.shouldIncludeConversationTypeField(
+                conversationType: .group,
+                purpose: .bootstrap,
+                isGroupchat: true,
+                isExtendedArchiveAvailable: true
+            )
+        )
+    }
+
+    func testInitialBootstrapPolicyStartsForEmptyUnconfirmedOrUnsyncedChatsOnly() {
+        XCTAssertTrue(
+            MessageArchiveManager.ChatBootstrapRequestPolicy.shouldStartInitialBootstrap(
+                isSynced: true,
+                isInitialArchiveLoaded: false,
+                localMessageCount: 0
+            )
+        )
+        XCTAssertTrue(
+            MessageArchiveManager.ChatBootstrapRequestPolicy.shouldStartInitialBootstrap(
+                isSynced: false,
+                isInitialArchiveLoaded: true,
+                localMessageCount: 3
+            )
+        )
+        XCTAssertFalse(
+            MessageArchiveManager.ChatBootstrapRequestPolicy.shouldStartInitialBootstrap(
+                isSynced: true,
+                isInitialArchiveLoaded: true,
+                localMessageCount: 0
+            )
+        )
+        XCTAssertFalse(
+            MessageArchiveManager.ChatBootstrapRequestPolicy.shouldStartInitialBootstrap(
+                isSynced: true,
+                isInitialArchiveLoaded: true,
+                localMessageCount: 3
+            )
+        )
     }
 
     func testPersistedOlderCursorUsesOldestRsmBoundaryForBootstrap() {
@@ -8596,6 +8846,64 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
 
         guard case .bootstrapStarted = result else {
             return XCTFail("Expected empty regular chat to bootstrap even when legacy synced flag is true")
+        }
+    }
+
+    func testConfirmedEmptyRegularChatDoesNotRepeatBootstrap() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let jid = "confirmed-empty@example.com"
+        let realm = try WRealm.safe()
+
+        let chat = LastChatsStorageItem()
+        chat.jid = jid
+        chat.conversationType = .regular
+        chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        chat.owner = owner
+        chat.isSynced = true
+        chat.isInitialArchiveLoaded = true
+
+        try realm.write {
+            realm.add(chat, update: .modified)
+        }
+
+        let result = manager.syncChat(
+            XMPPStream(),
+            jid: jid,
+            conversationType: .regular,
+            pageSize: 100,
+            callback: nil
+        )
+
+        XCTAssertEqual(result, .noop)
+        XCTAssertTrue(manager.callbacksQueue.isEmpty)
+    }
+
+    func testSyncedNonRegularChatWithNoConfirmedLocalArchiveStartsBootstrap() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let jid = "empty-omemo@example.com"
+        let realm = try WRealm.safe()
+
+        let chat = LastChatsStorageItem()
+        chat.jid = jid
+        chat.conversationType = .omemo
+        chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .omemo)
+        chat.owner = owner
+        chat.isSynced = true
+
+        try realm.write {
+            realm.add(chat, update: .modified)
+        }
+
+        let result = manager.syncChat(
+            XMPPStream(),
+            jid: jid,
+            conversationType: .omemo,
+            pageSize: 100,
+            callback: nil
+        )
+
+        guard case .bootstrapStarted = result else {
+            return XCTFail("Expected empty non-regular chat to bootstrap when initial archive is unconfirmed")
         }
     }
 
@@ -10225,6 +10533,36 @@ final class ChatHistoryCursorSelectionPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testNewestCursorUsesLastVisibleArchivedIdBeforePersistedCursor() {
+        XCTAssertEqual(
+            ChatHistoryCursorSelectionPolicy.newestCursorId(
+                observedArchivedIds: ["visible-old", "visible-middle", "visible-new"],
+                persistedCursorId: "persisted-newest"
+            ),
+            "visible-new"
+        )
+    }
+
+    func testNewestCursorSkipsTailMessagesWithoutArchiveIds() {
+        XCTAssertEqual(
+            ChatHistoryCursorSelectionPolicy.newestCursorId(
+                observedArchivedIds: ["visible-old", "visible-new", "", ""],
+                persistedCursorId: "persisted-newest"
+            ),
+            "visible-new"
+        )
+    }
+
+    func testNewestCursorFallsBackToPersistedCursorOnlyWhenVisibleBoundaryHasNoArchiveIds() {
+        XCTAssertEqual(
+            ChatHistoryCursorSelectionPolicy.newestCursorId(
+                observedArchivedIds: ["", ""],
+                persistedCursorId: "persisted-newest"
+            ),
+            "persisted-newest"
+        )
+    }
 }
 
 final class ChatObserverLookupPolicyTests: XCTestCase {
@@ -11803,6 +12141,56 @@ final class ChatHistoryPageCompletionPolicyTests: XCTestCase {
                 previousArchiveEnded: false,
                 currentArchiveEnded: false
             )
+        )
+    }
+
+    func testNewerPageCompletionAdvancesWhenNewestArchivedIdChangesWithoutCountGrowth() {
+        XCTAssertTrue(
+            ChatHistoryPageCompletionPolicy.didAdvance(
+                direction: .newer,
+                previousObserverCount: 100,
+                currentObserverCount: 100,
+                previousOldestArchivedId: "100",
+                currentOldestArchivedId: "100",
+                previousNewestArchivedId: "200",
+                currentNewestArchivedId: "260",
+                previousArchiveEnded: false,
+                currentArchiveEnded: false,
+                previousNewerLiveEdgeReached: false,
+                currentNewerLiveEdgeReached: false
+            )
+        )
+    }
+
+    func testNewerPageCompletionAdvancesWhenLiveEdgeBecomesKnown() {
+        XCTAssertTrue(
+            ChatHistoryPageCompletionPolicy.didAdvance(
+                direction: .newer,
+                previousObserverCount: 100,
+                currentObserverCount: 100,
+                previousOldestArchivedId: "100",
+                currentOldestArchivedId: "100",
+                previousNewestArchivedId: "200",
+                currentNewestArchivedId: "200",
+                previousArchiveEnded: false,
+                currentArchiveEnded: false,
+                previousNewerLiveEdgeReached: false,
+                currentNewerLiveEdgeReached: true
+            )
+        )
+    }
+
+    func testNewerPageFinalizedWindowClampsToExpandedDatasourceBeforeOverlayHides() {
+        XCTAssertEqual(
+            ChatHistoryPageCompletionPolicy.finalizedWindow(
+                direction: .newer,
+                requestedWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 200),
+                expectedWindowMaxIndex: 200,
+                preLoadObserverCount: 100,
+                currentObserverCount: 140,
+                totalCount: 140
+            ),
+            ChatDatasetWindow(minIndex: 0, maxIndex: 140)
         )
     }
 }
@@ -14289,6 +14677,34 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertFalse(viewController.searchController.definesPresentationContext)
     }
 
+    func testContinuousSplitSearchChromeKeepsNativeSearchFieldChrome() {
+        let searchBar = UISearchBar()
+        let nativeBackgroundColor = searchBar.searchTextField.backgroundColor
+
+        LastChatsSearchChromePolicy.apply(
+            to: searchBar,
+            isContinuousSplitBackgroundActive: true
+        )
+
+        XCTAssertEqual(searchBar.searchTextField.backgroundColor, nativeBackgroundColor)
+        XCTAssertNil(searchBar.searchTextField.layer.backgroundColor)
+        XCTAssertEqual(searchBar.searchBarStyle, .default)
+        XCTAssertNil(searchBar.backgroundColor)
+    }
+
+    func testInactiveSearchChromeKeepsExistingTextFieldBackground() {
+        let searchBar = UISearchBar()
+        let sentinel = UIColor.red.withAlphaComponent(0.42)
+        searchBar.searchTextField.backgroundColor = sentinel
+
+        LastChatsSearchChromePolicy.apply(
+            to: searchBar,
+            isContinuousSplitBackgroundActive: false
+        )
+
+        XCTAssertEqual(searchBar.searchTextField.backgroundColor, sentinel)
+    }
+
     func testChatRowsDoNotUseUIKitFocusOutline() {
         let viewController = LastChatsViewController()
 
@@ -14307,6 +14723,51 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         }
     }
 
+    func testConfigureSearchBarAppliesSplitChromeBeforeNavigationAssignment() {
+        withInterfaceType(.split) {
+            let viewController = LastChatsViewController()
+            let nativeBackgroundColor = viewController.searchController.searchBar.searchTextField.backgroundColor
+
+            viewController.configureSearchBar()
+
+            XCTAssertTrue(viewController.navigationItem.searchController === viewController.searchController)
+            XCTAssertEqual(
+                viewController.searchController.searchBar.searchTextField.backgroundColor,
+                nativeBackgroundColor
+            )
+            XCTAssertNil(viewController.searchController.searchBar.searchTextField.layer.backgroundColor)
+        }
+    }
+
+    func testConfigureSearchBarKeepsDefaultChromeInTabsMode() {
+        withInterfaceType(.tabs) {
+            let viewController = LastChatsViewController()
+            let sentinel = UIColor.red.withAlphaComponent(0.42)
+            viewController.searchController.searchBar.searchTextField.backgroundColor = sentinel
+
+            viewController.configureSearchBar()
+
+            XCTAssertEqual(viewController.searchController.searchBar.searchTextField.backgroundColor, sentinel)
+            XCTAssertTrue(viewController.navigationItem.searchController === viewController.searchController)
+        }
+    }
+
+    func testSearchChromeFirstFramePreparationKeepsExistingSearchController() {
+        withInterfaceType(.split) {
+            let viewController = LastChatsViewController()
+            _ = UINavigationController(rootViewController: viewController)
+            viewController.configureSearchBar()
+            let searchController = viewController.searchController
+
+            viewController.prepareSearchChromeForNavigationTransitionFirstFrame()
+            viewController.prepareSearchChromeForNavigationTransitionFirstFrame()
+
+            XCTAssertTrue(viewController.searchController === searchController)
+            XCTAssertTrue(viewController.navigationItem.searchController === searchController)
+            XCTAssertNil(searchController.searchBar.searchTextField.layer.backgroundColor)
+        }
+    }
+
     func testAccountNavigationButtonUsesSystemBarButtonHitTarget() {
         let button = LastChatsViewController().accountNavButton
 
@@ -14314,6 +14775,27 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertEqual(button.intrinsicContentSize.height, 44)
         XCTAssertEqual(button.layer.borderWidth, 0)
         XCTAssertEqual(button.layer.shadowOpacity, 0)
+    }
+
+    private func withInterfaceType(_ interfaceType: CommonConfigManager.InterfaceType, block: () -> Void) {
+        let previousInterfaceType = CommonConfigManager.shared.config.interface_type
+        defer {
+            CommonConfigManager.shared.config.interface_type = previousInterfaceType
+        }
+
+        CommonConfigManager.shared.config.interface_type = interfaceType.rawValue
+        block()
+    }
+
+    private func alpha(of color: UIColor?) -> CGFloat {
+        guard let color else {
+            return 0
+        }
+        var alpha: CGFloat = 0
+        guard color.getRed(nil, green: nil, blue: nil, alpha: &alpha) else {
+            return color.cgColor.alpha
+        }
+        return alpha
     }
 
     func testNormalChatCellUsesPlainSystemBackgroundWithoutGlass() {
