@@ -90,7 +90,12 @@ extension Account {
         }
         self.queue.asyncAfter(deadline: .now() + 1) {
             _ = self.syncManager.sync(self.xmppStream)
-            self.devices.requestList(self.xmppStream)
+            let requestDevices = {
+                self.devices.requestList(self.xmppStream)
+            }
+            if !self.syncManager.deferPostBootstrapWorkIfNeeded(requestDevices) {
+                requestDevices()
+            }
         }
     }
     
@@ -267,11 +272,16 @@ extension Account {
     
     public final func didReceiveRoster() {
         self.queue.asyncAfter(deadline: .now() + 1) {
-            if !self.sm.didResume {
-                self.presence()
+            let finishRosterBootstrap = {
+                if !self.sm.didResume {
+                    self.presence()
+                }
+                self.queue.asyncAfter(deadline: .now() + 1) {
+                    self.updateExtensions()
+                }
             }
-            self.queue.asyncAfter(deadline: .now() + 1) {
-                self.updateExtensions()
+            if !self.syncManager.deferPostBootstrapWorkIfNeeded(finishRosterBootstrap) {
+                finishRosterBootstrap()
             }
         }
 //        if self.sm.canResumeStream() {
@@ -300,7 +310,12 @@ extension Account {
             }
             
         }
-        self.notifications.update(xmppStream)
-        self.favorites.update(xmppStream)
+        let updatePostBootstrapArchives = {
+            self.notifications.update(self.xmppStream)
+            self.favorites.update(self.xmppStream)
+        }
+        if !self.syncManager.deferPostBootstrapWorkIfNeeded(updatePostBootstrapArchives) {
+            updatePostBootstrapArchives()
+        }
     }
 }

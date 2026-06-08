@@ -409,6 +409,7 @@ extension Account: XMPPStreamDelegate {
         )
         self.cancelDelayedConnectTimer()
         self.xmppTaskScheduler.reset()
+        self.discardBootstrapQueuedPrimaryStanzas(reason: "streamDisconnect")
         CredentialsManager.shared.getItem(for: self.jid).release(.authFailedRecoverable)
         self.statusState.accept(.offline)
         self.statusMessage.accept("Offline")

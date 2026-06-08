@@ -110,15 +110,18 @@ final class AccountXMPPTaskScheduler {
     private var nextTaskID: Int = 0
     private var nextOrder: Int = 0
     private var isPaused: Bool
+    private let bootstrapGate: () -> Bool
 
     init(
         account: Account? = nil,
         configuration: Configuration = .production,
-        startsImmediately: Bool = true
+        startsImmediately: Bool = true,
+        bootstrapGate: @escaping () -> Bool = { false }
     ) {
         self.account = account
         self.configuration = configuration
         self.isPaused = !startsImmediately
+        self.bootstrapGate = bootstrapGate
     }
 
     func enqueue(
@@ -194,6 +197,12 @@ final class AccountXMPPTaskScheduler {
         }
     }
 
+    func bootstrapGateDidChange() {
+        queue.async {
+            self.drainLocked()
+        }
+    }
+
     func reset() {
         queue.async {
             self.pendingTasks.removeAll()
@@ -226,6 +235,7 @@ final class AccountXMPPTaskScheduler {
             .filter { _, task in
                 !delayedResources.contains(task.resource)
                     && runningCountByResource[task.resource, default: 0] < configuration.maxConcurrent(for: task.resource)
+                    && (!bootstrapGate() || task.priority == .interactive)
             }
             .max { lhs, rhs in
                 if lhs.element.priority == rhs.element.priority {
@@ -2521,7 +2531,12 @@ final class Account: NSObject {
 //  XMPPFramework params
     var queue: DispatchQueue
     var xmppStream: XMPPStream
-    lazy var xmppTaskScheduler: AccountXMPPTaskScheduler = AccountXMPPTaskScheduler(account: self)
+    lazy var xmppTaskScheduler: AccountXMPPTaskScheduler = AccountXMPPTaskScheduler(
+        account: self,
+        bootstrapGate: { [weak self] in
+            self?.syncManager.isBootstrapCriticalSyncInProgress() ?? false
+        }
+    )
     let authenticationCounterTracker = XMPPAuthenticationCounterTracker()
     let connectionGate = AccountStreamLifecycleGate()
     let sendReadiness = AccountSendReadinessCoordinator()
@@ -2593,6 +2608,11 @@ final class Account: NSObject {
                 stanzaId: stanza.stanzaId,
                 generation: stanza.generation
             )
+        }
+    )
+    private lazy var primaryStreamBootstrapSendGate = AccountPrimaryStreamBootstrapSendGate(
+        now: { [weak self] in
+            self?.connectionResilienceScheduler.now ?? ProcessInfo.processInfo.systemUptime
         }
     )
     private var networkPathMonitor: AccountNetworkPathMonitoring?
@@ -2771,11 +2791,26 @@ final class Account: NSObject {
         replayPolicy: PrimaryStreamReplayPolicy = .notReplayable
     ) -> PrimaryStreamSendResult {
         let stanzaId = PrimaryStreamStanzaIdentifier.ensureID(on: stanza)
+        let effectiveReplayPolicy = primaryStreamReplayPolicy(for: stanza, requestedPolicy: replayPolicy)
+        let isBootstrapActive = syncManager.isBootstrapCriticalSyncInProgress()
+        if isBootstrapActive,
+           AccountPrimaryStreamBootstrapSendGate.isLoginCriticalSelfDiscoInfo(stanza, ownerBareJID: jid) {
+            logBootstrapSendGateAllowed(stanza: stanza, reason: "loginCriticalSelfDiscoInfo")
+        }
+        if case .queued(let queuedId) = primaryStreamBootstrapSendGate.prepareForSend(
+            stanza,
+            replayPolicy: effectiveReplayPolicy,
+            isBootstrapActive: isBootstrapActive,
+            ownerBareJID: jid
+        ) {
+            logBootstrapSendGateQueued(stanza: stanza, replayPolicy: effectiveReplayPolicy)
+            return .queued(stanzaId: queuedId)
+        }
         if shouldTrackPrimaryStreamStanza {
             let result = primaryStreamStanzaTracker.track(
                 stanzaId: stanzaId,
                 kind: primaryStreamStanzaKind(for: stanza),
-                replayPolicy: replayPolicy
+                replayPolicy: effectiveReplayPolicy
             )
             if case .rejected(let violation) = result {
                 logPrimaryStreamTrackingRejected(stanza: stanza, violation: violation)
@@ -2801,13 +2836,28 @@ final class Account: NSObject {
         _ stanza: XMPPElement,
         replayPolicy: PrimaryStreamReplayPolicy = .notReplayable
     ) -> Bool {
+        let effectiveReplayPolicy = primaryStreamReplayPolicy(for: stanza, requestedPolicy: replayPolicy)
+        let isBootstrapActive = syncManager.isBootstrapCriticalSyncInProgress()
+        if isBootstrapActive,
+           AccountPrimaryStreamBootstrapSendGate.isLoginCriticalSelfDiscoInfo(stanza, ownerBareJID: jid) {
+            logBootstrapSendGateAllowed(stanza: stanza, reason: "loginCriticalSelfDiscoInfo")
+        }
+        if case .queued = primaryStreamBootstrapSendGate.prepareForSend(
+            stanza,
+            replayPolicy: effectiveReplayPolicy,
+            isBootstrapActive: isBootstrapActive,
+            ownerBareJID: jid
+        ) {
+            logBootstrapSendGateQueued(stanza: stanza, replayPolicy: effectiveReplayPolicy)
+            return false
+        }
         guard shouldTrackPrimaryStreamStanza else { return true }
 
         let stanzaId = PrimaryStreamStanzaIdentifier.ensureID(on: stanza)
         let result = primaryStreamStanzaTracker.track(
             stanzaId: stanzaId,
             kind: primaryStreamStanzaKind(for: stanza),
-            replayPolicy: replayPolicy
+            replayPolicy: effectiveReplayPolicy
         )
         if case .rejected(let violation) = result {
             logPrimaryStreamTrackingRejected(stanza: stanza, violation: violation)
@@ -2818,8 +2868,27 @@ final class Account: NSObject {
     }
 
     func notePrimaryStreamStanzaDidSend(_ stanza: XMPPElement) {
-        guard primaryStreamStanzaTracker.contains(stanzaId: stanza.elementID) else { return }
-        connectionResilience.noteOutboundApplicationStanza(id: stanza.elementID)
+        guard let tracked = primaryStreamStanzaTracker.trackedStanza(stanzaId: stanza.elementID) else { return }
+        if tracked.replayPolicy.requiresOutboundHealthConfirmation {
+            connectionResilience.noteOutboundApplicationStanza(id: stanza.elementID)
+        } else {
+            let event: String
+            switch tracked.replayPolicy {
+            case .bootstrapClientSyncIQ:
+                event = "primary_stream_bootstrap_sync_stanza_observed"
+            case .longRunningBackgroundIQ:
+                event = "primary_stream_long_running_background_stanza_observed"
+            case .notReplayable, .durableRegularMessage, .latestPresence, .safeIdempotentIQ:
+                event = "primary_stream_non_health_stanza_observed"
+            }
+            logConnectionDiagnostics(
+                event: event,
+                details: [
+                    "id": stanza.elementID ?? "none",
+                    "kind": tracked.kind.rawValue
+                ]
+            )
+        }
         if sendReadiness.snapshot.canFlushApplicationStanzas {
             sm.requestAck()
         }
@@ -2835,6 +2904,22 @@ final class Account: NSObject {
 
     private var shouldTrackPrimaryStreamStanza: Bool {
         sendReadiness.snapshot.canFlushApplicationStanzas
+    }
+
+    private func primaryStreamReplayPolicy(
+        for stanza: XMPPElement,
+        requestedPolicy: PrimaryStreamReplayPolicy
+    ) -> PrimaryStreamReplayPolicy {
+        guard requestedPolicy == .notReplayable else {
+            return requestedPolicy
+        }
+        if ClientSynchronizationManager.isClientSyncPaginationIQ(stanza) {
+            return .bootstrapClientSyncIQ
+        }
+        if isLongRunningBackgroundIQ(stanza) {
+            return .longRunningBackgroundIQ
+        }
+        return requestedPolicy
     }
 
     private func primaryStreamStanzaKind(for stanza: XMPPElement) -> PrimaryStreamStanzaKind {
@@ -2859,6 +2944,124 @@ final class Account: NSObject {
                 "violation": String(describing: violation)
             ],
             rawXML: stanza.xmlString
+        )
+    }
+
+    private func isLongRunningBackgroundIQ(_ stanza: XMPPElement) -> Bool {
+        guard stanza.name == "iq",
+              ["get", "set"].contains(stanza.attributeStringValue(forName: "type")?.lowercased() ?? ""),
+              let child = stanza.children?.compactMap({ $0 as? DDXMLElement }).first,
+              child.name == "query",
+              child.xmlns()?.hasPrefix("urn:xmpp:mam:") == true else {
+            return false
+        }
+        return true
+    }
+
+    private func logBootstrapSendGateQueued(
+        stanza: XMPPElement,
+        replayPolicy: PrimaryStreamReplayPolicy
+    ) {
+        logConnectionDiagnostics(
+            event: "primary_stream_bootstrap_send_gate_queued",
+            details: [
+                "id": stanza.elementID ?? "none",
+                "kind": primaryStreamStanzaKind(for: stanza).rawValue,
+                "type": stanza.attributeStringValue(forName: "type") ?? "none",
+                "childNamespace": stanza.children?.compactMap({ $0 as? DDXMLElement }).first?.xmlns() ?? "none",
+                "replayPolicy": String(describing: replayPolicy),
+                "queuedCount": primaryStreamBootstrapSendGate.queuedCount
+            ],
+            rawXML: stanza.xmlString
+        )
+    }
+
+    private func logBootstrapSendGateAllowed(stanza: XMPPElement, reason: String) {
+        logConnectionDiagnostics(
+            event: "primary_stream_bootstrap_send_gate_allowed",
+            details: [
+                "id": stanza.elementID ?? "none",
+                "kind": primaryStreamStanzaKind(for: stanza).rawValue,
+                "type": stanza.attributeStringValue(forName: "type") ?? "none",
+                "childNamespace": stanza.children?.compactMap({ $0 as? DDXMLElement }).first?.xmlns() ?? "none",
+                "reason": reason
+            ],
+            rawXML: stanza.xmlString
+        )
+    }
+
+    func flushBootstrapQueuedPrimaryStanzas(reason: String) {
+        guard !syncManager.isBootstrapCriticalSyncInProgress() else {
+            logConnectionDiagnostics(
+                event: "primary_stream_bootstrap_send_gate_flush_deferred",
+                details: [
+                    "reason": reason,
+                    "queuedCount": primaryStreamBootstrapSendGate.queuedCount
+                ]
+            )
+            return
+        }
+
+        let queuedStanzas = primaryStreamBootstrapSendGate.drainQueuedStanzas()
+        guard queuedStanzas.isNotEmpty else { return }
+
+        logConnectionDiagnostics(
+            event: "primary_stream_bootstrap_send_gate_flush_start",
+            details: [
+                "reason": reason,
+                "count": queuedStanzas.count,
+                "iq": queuedStanzas.filter { $0.kind == .iq }.count,
+                "presence": queuedStanzas.filter { $0.kind == .presence }.count,
+                "message": queuedStanzas.filter { $0.kind == .message }.count
+            ]
+        )
+
+        queuedStanzas.forEach { queued in
+            guard let stanza = queued.makeElement() else {
+                logConnectionDiagnostics(
+                    event: "primary_stream_bootstrap_send_gate_flush_drop_invalid_xml",
+                    details: [
+                        "id": queued.stanzaId,
+                        "kind": queued.kind.rawValue,
+                        "age": queued.queuedAge
+                    ]
+                )
+                return
+            }
+
+            logConnectionDiagnostics(
+                event: "primary_stream_bootstrap_send_gate_flush_send",
+                details: [
+                    "id": queued.stanzaId,
+                    "kind": queued.kind.rawValue,
+                    "type": queued.stanzaType ?? "none",
+                    "childNamespace": queued.childNamespace ?? "none",
+                    "age": queued.queuedAge
+                ],
+                rawXML: queued.xmlString
+            )
+            _ = sendPrimaryStanza(stanza, replayPolicy: queued.replayPolicy)
+        }
+
+        logConnectionDiagnostics(
+            event: "primary_stream_bootstrap_send_gate_flush_finish",
+            details: [
+                "reason": reason,
+                "count": queuedStanzas.count
+            ]
+        )
+    }
+
+    func discardBootstrapQueuedPrimaryStanzas(reason: String) {
+        let count = primaryStreamBootstrapSendGate.queuedCount
+        primaryStreamBootstrapSendGate.removeAll()
+        guard count > 0 else { return }
+        logConnectionDiagnostics(
+            event: "primary_stream_bootstrap_send_gate_discard",
+            details: [
+                "reason": reason,
+                "count": count
+            ]
         )
     }
     
@@ -3285,6 +3488,15 @@ final class Account: NSObject {
     private func sendResiliencePing() -> Bool {
         self.queue.async { [weak self] in
             guard let self else { return }
+            guard !self.syncManager.isBootstrapCriticalSyncInProgress() else {
+                self.logConnectionDiagnostics(
+                    event: "resilience_ping_suppressed_bootstrap_sync",
+                    trigger: .livenessProbe,
+                    details: ["reason": "bootstrapSync"]
+                )
+                self.connectionResilience.notePingResult(success: true)
+                return
+            }
             guard self.xmppStream.isAuthenticated else {
                 self.logConnectionDiagnostics(event: "resilience_ping_send_skipped", trigger: .livenessProbe, details: ["reason": "notAuthenticated"])
                 self.connectionResilience.notePingResult(success: false)

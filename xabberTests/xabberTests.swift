@@ -19980,6 +19980,205 @@ final class ChatInitialMessageOverlayLayoutTests: XCTestCase {
     }
 }
 
+final class ChatScrollDownButtonPolicyTests: XCTestCase {
+
+    private func chatState(
+        unread: Int = 1,
+        syncUnreadAfterId: String? = "300",
+        lastReadId: String? = nil
+    ) -> ChatScrollDownTargetPolicy.ChatState {
+        ChatScrollDownTargetPolicy.ChatState(
+            unread: unread,
+            syncUnreadAfterId: syncUnreadAfterId,
+            lastReadId: lastReadId
+        )
+    }
+
+    private func visibleMessage(
+        archivedId: String?,
+        rowKind: ChatVisiblePositionPolicy.RowKind = .message,
+        isFakeMessage: Bool = false
+    ) -> ChatScrollDownTargetPolicy.VisibleMessage {
+        ChatScrollDownTargetPolicy.VisibleMessage(
+            archivedId: archivedId,
+            rowKind: rowKind,
+            isFakeMessage: isFakeMessage
+        )
+    }
+
+    func testVisibilityPolicyShowsOnlyBeyondFortyFourWhenNotNearBottomOrSearch() {
+        XCTAssertFalse(
+            ChatScrollDownButtonVisibilityPolicy.shouldShow(
+                contentOffsetY: 43.99,
+                isNearBottom: false,
+                isSearchMode: false
+            )
+        )
+        XCTAssertFalse(
+            ChatScrollDownButtonVisibilityPolicy.shouldShow(
+                contentOffsetY: 44,
+                isNearBottom: false,
+                isSearchMode: false
+            )
+        )
+        XCTAssertTrue(
+            ChatScrollDownButtonVisibilityPolicy.shouldShow(
+                contentOffsetY: 44.01,
+                isNearBottom: false,
+                isSearchMode: false
+            )
+        )
+        XCTAssertFalse(
+            ChatScrollDownButtonVisibilityPolicy.shouldShow(
+                contentOffsetY: 60,
+                isNearBottom: true,
+                isSearchMode: false
+            )
+        )
+        XCTAssertFalse(
+            ChatScrollDownButtonVisibilityPolicy.shouldShow(
+                contentOffsetY: 60,
+                isNearBottom: false,
+                isSearchMode: true
+            )
+        )
+    }
+
+    func testTargetPolicyUsesUnreadBoundaryWhenBoundaryIsNewerThanVisibleRealMessages() {
+        let target = ChatScrollDownTargetPolicy.target(
+            chat: chatState(syncUnreadAfterId: "300"),
+            visibleMessages: [
+                visibleMessage(archivedId: "100"),
+                visibleMessage(archivedId: "299")
+            ]
+        )
+
+        XCTAssertEqual(target, .unreadBoundary("300"))
+    }
+
+    func testTargetPolicyFallsBackToLatestWhenBoundaryIsOlderOrEqualToVisibleRealMessage() {
+        XCTAssertEqual(
+            ChatScrollDownTargetPolicy.target(
+                chat: chatState(syncUnreadAfterId: "300"),
+                visibleMessages: [visibleMessage(archivedId: "300")]
+            ),
+            .latest
+        )
+        XCTAssertEqual(
+            ChatScrollDownTargetPolicy.target(
+                chat: chatState(syncUnreadAfterId: "300"),
+                visibleMessages: [visibleMessage(archivedId: "301")]
+            ),
+            .latest
+        )
+    }
+
+    func testTargetPolicyFallsBackToLatestWhenUnreadIsZero() {
+        let target = ChatScrollDownTargetPolicy.target(
+            chat: chatState(unread: 0, syncUnreadAfterId: "300"),
+            visibleMessages: []
+        )
+
+        XCTAssertEqual(target, .latest)
+    }
+
+    func testTargetPolicyFallsBackToLatestForInvalidBoundary() {
+        let invalidBoundaries: [String?] = [nil, "", "   ", "abc", "0", "-1"]
+
+        for boundary in invalidBoundaries {
+            XCTAssertEqual(
+                ChatScrollDownTargetPolicy.target(
+                    chat: chatState(syncUnreadAfterId: boundary, lastReadId: nil),
+                    visibleMessages: []
+                ),
+                .latest,
+                "Boundary \(String(describing: boundary)) should not target unread"
+            )
+        }
+    }
+
+    func testTargetPolicyFallsBackToLastReadIdWhenSyncUnreadAfterIdIsMissing() {
+        let target = ChatScrollDownTargetPolicy.target(
+            chat: chatState(syncUnreadAfterId: nil, lastReadId: "300"),
+            visibleMessages: [visibleMessage(archivedId: "100")]
+        )
+
+        XCTAssertEqual(target, .unreadBoundary("300"))
+    }
+
+    func testTargetPolicyIgnoresFakeAndNonMessageVisibleRows() {
+        let target = ChatScrollDownTargetPolicy.target(
+            chat: chatState(syncUnreadAfterId: "300"),
+            visibleMessages: [
+                visibleMessage(archivedId: "999", rowKind: .message, isFakeMessage: true),
+                visibleMessage(archivedId: "999", rowKind: .date),
+                visibleMessage(archivedId: "999", rowKind: .unread),
+                visibleMessage(archivedId: "999", rowKind: .initial),
+                visibleMessage(archivedId: "999", rowKind: .skeleton),
+                visibleMessage(archivedId: "299", rowKind: .message)
+            ]
+        )
+
+        XCTAssertEqual(target, .unreadBoundary("300"))
+    }
+
+    func testTargetPolicyUsesUnreadWhenNoVisibleRealMessagesAndBoundaryIsValid() {
+        let target = ChatScrollDownTargetPolicy.target(
+            chat: chatState(syncUnreadAfterId: "300"),
+            visibleMessages: [
+                visibleMessage(archivedId: "999", rowKind: .date),
+                visibleMessage(archivedId: "999", rowKind: .skeleton)
+            ]
+        )
+
+        XCTAssertEqual(target, .unreadBoundary("300"))
+    }
+
+    func testTargetPolicyFallsBackToLatestWhenVisibleRealMessageHasNonNumericArchiveId() {
+        let target = ChatScrollDownTargetPolicy.target(
+            chat: chatState(syncUnreadAfterId: "300"),
+            visibleMessages: [visibleMessage(archivedId: "not-a-number")]
+        )
+
+        XCTAssertEqual(target, .latest)
+    }
+
+    func testLayoutPolicyAlignsScrollButtonWithSendButtonAndTracksMovement() throws {
+        let sendFrame = CGRect(x: 318, y: 700, width: 44, height: 44)
+        let frame = try XCTUnwrap(
+            ChatViewController.FloatingControlsLayoutPolicy.scrollButtonVisibleFrame(
+                sendButtonFrame: sendFrame
+            )
+        )
+
+        XCTAssertEqual(frame.size, CGSize(square: NativeGlassBarStyle.buttonSize))
+        XCTAssertEqual(frame.midX, sendFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(
+            frame.maxY,
+            sendFrame.minY - NativeGlassBarStyle.interItemSpacing,
+            accuracy: 0.001
+        )
+
+        let movedSendFrame = sendFrame.offsetBy(dx: -12, dy: -260)
+        let movedFrame = try XCTUnwrap(
+            ChatViewController.FloatingControlsLayoutPolicy.scrollButtonVisibleFrame(
+                sendButtonFrame: movedSendFrame
+            )
+        )
+
+        XCTAssertEqual(movedFrame.origin.x - frame.origin.x, -12, accuracy: 0.001)
+        XCTAssertEqual(movedFrame.origin.y - frame.origin.y, -260, accuracy: 0.001)
+    }
+
+    func testLayoutPolicyReturnsNilForInvalidSendButtonFrame() {
+        XCTAssertNil(
+            ChatViewController.FloatingControlsLayoutPolicy.scrollButtonVisibleFrame(
+                sendButtonFrame: .zero
+            )
+        )
+    }
+}
+
 final class ChatUnreadMentionsTests: XCTestCase {
 
     private let owner = "owner@example.com"
@@ -20888,26 +21087,34 @@ final class ChatUnreadMentionsTests: XCTestCase {
         XCTAssertTrue(primaries.isEmpty)
     }
 
-    func testFloatingControlsLayoutPolicyStacksMentionIndicatorAboveScrollButton() {
+    func testFloatingControlsLayoutPolicyStacksMentionIndicatorAboveScrollButton() throws {
         let inputHeight: CGFloat = 83
-        let scrollOriginY = ChatViewController.FloatingControlsLayoutPolicy.scrollButtonOriginY(
-            viewHeight: 812,
-            inputHeight: inputHeight
+        let scrollFrame = try XCTUnwrap(
+            ChatViewController.FloatingControlsLayoutPolicy.scrollButtonVisibleFrame(
+                sendButtonFrame: CGRect(x: 318, y: 700, width: 44, height: 44)
+            )
         )
         let mentionOriginY = ChatViewController.FloatingControlsLayoutPolicy.mentionIndicatorOriginY(
             viewHeight: 812,
             mentionHeight: 44,
             inputHeight: inputHeight,
+            scrollButtonFrame: scrollFrame,
             showsScrollDownButton: true
         )
         let singleMentionOriginY = ChatViewController.FloatingControlsLayoutPolicy.mentionIndicatorOriginY(
             viewHeight: 812,
             mentionHeight: 44,
             inputHeight: inputHeight,
+            scrollButtonFrame: nil,
             showsScrollDownButton: false
         )
 
-        XCTAssertLessThan(mentionOriginY, scrollOriginY)
+        XCTAssertLessThan(mentionOriginY, scrollFrame.minY)
+        XCTAssertEqual(
+            mentionOriginY,
+            scrollFrame.minY - NativeGlassBarStyle.interItemSpacing - 44,
+            accuracy: 0.001
+        )
         XCTAssertEqual(
             singleMentionOriginY,
             ChatViewController.FloatingControlsLayoutPolicy.lowerSlotY(

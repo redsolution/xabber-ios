@@ -46,6 +46,28 @@ enum LastChatsNavigationTransitionMutationPolicy {
     }
 }
 
+enum LastChatsBootstrapDatasetUpdatePolicy {
+    static let coalescingDelay: TimeInterval = 0.18
+
+    static func shouldCoalesceDatasetUpdate(
+        isBootstrapActive: Bool,
+        hasScheduledUpdate: Bool
+    ) -> Bool {
+        isBootstrapActive && !hasScheduledUpdate
+    }
+
+    static func shouldAnimateDatasetMutation(
+        requestedAnimated: Bool,
+        isBootstrapActive: Bool
+    ) -> Bool {
+        requestedAnimated && !isBootstrapActive
+    }
+
+    static func shouldSkipVisibleRowReconfigure(isBootstrapActive: Bool) -> Bool {
+        isBootstrapActive
+    }
+}
+
 public final class ChangesWithIndexPath {
     public let insertedSections: IndexSet
     public let deletedSections: IndexSet
@@ -727,6 +749,9 @@ class LastChatsViewController: BaseViewController {
     private var pendingNavigationTransitionWork: [() -> Void] = []
     private var pendingDatasetUpdateAfterNavigationTransition: Bool = false
     private var shouldSuppressNextDatasetAnimation: Bool = false
+    private var bootstrapDatasetUpdateWorkItem: DispatchWorkItem?
+    private var pendingDatasetUpdateAfterBootstrapCoalescing: Bool = false
+    private var isExecutingBootstrapCoalescedDatasetUpdate: Bool = false
     
     internal var datasource: [Datasource] = []
     internal var datasourceIndexByKey: [String: Int] = [:]
@@ -1302,7 +1327,7 @@ class LastChatsViewController: BaseViewController {
         return datasourceSections[section].kind
     }
 
-    private final func setDatasource(
+    internal final func setDatasource(
         _ newDatasource: [Datasource],
         sections newSections: [DatasourceSection],
         showsSkeleton: Bool
@@ -1347,6 +1372,12 @@ class LastChatsViewController: BaseViewController {
         !AccountManager.shared.connectingUsers.value.isDisjoint(with: self.enabledAccounts.value)
     }
 
+    internal var hasVisibleAccountSyncBootstrapInProgress: Bool {
+        enabledAccounts.value.contains { jid in
+            AccountManager.shared.find(for: jid)?.syncManager.isBootstrapCriticalSyncInProgress() == true
+        }
+    }
+
     internal final func floatingBottomBarTitle(forUnreadChatsCount unreadChatsCount: Int) -> String {
         if hasConnectingEnabledAccounts {
             return "Connecting".localizeString(id: "plurals.accounts_of_connecting.item_0", arguments: [])
@@ -1377,6 +1408,12 @@ class LastChatsViewController: BaseViewController {
 
     @discardableResult
     internal final func reconfigureVisibleRow(at indexPath: IndexPath) -> Bool {
+        if LastChatsBootstrapDatasetUpdatePolicy.shouldSkipVisibleRowReconfigure(
+            isBootstrapActive: self.hasVisibleAccountSyncBootstrapInProgress
+        ) {
+            DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=skipVisibleReconfigure count=1")
+            return false
+        }
         guard !self.showSkeleton.value,
               let item = self.item(at: indexPath),
               let cell = self.tableView.cellForRow(at: indexPath) else {
@@ -1975,8 +2012,49 @@ class LastChatsViewController: BaseViewController {
             self.shouldSuppressNextDatasetAnimation = true
             return
         }
+        if self.scheduleBootstrapDatasetUpdateIfNeeded() {
+            self.shouldSuppressNextDatasetAnimation = true
+            return
+        }
         preprocessDataset()
         postprocessDataset()
+    }
+
+    @discardableResult
+    private final func scheduleBootstrapDatasetUpdateIfNeeded() -> Bool {
+        let bootstrapActive = self.hasVisibleAccountSyncBootstrapInProgress
+        guard !self.isExecutingBootstrapCoalescedDatasetUpdate else {
+            return false
+        }
+        guard bootstrapActive else {
+            self.pendingDatasetUpdateAfterBootstrapCoalescing = false
+            return false
+        }
+
+        guard LastChatsBootstrapDatasetUpdatePolicy.shouldCoalesceDatasetUpdate(
+            isBootstrapActive: bootstrapActive,
+            hasScheduledUpdate: self.bootstrapDatasetUpdateWorkItem != nil
+        ) else {
+            self.pendingDatasetUpdateAfterBootstrapCoalescing = true
+            DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateCoalesced reason=alreadyScheduled")
+            return true
+        }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.bootstrapDatasetUpdateWorkItem = nil
+            self.pendingDatasetUpdateAfterBootstrapCoalescing = false
+            self.isExecutingBootstrapCoalescedDatasetUpdate = true
+            self.runDatasetUpdateTask()
+            self.isExecutingBootstrapCoalescedDatasetUpdate = false
+        }
+        self.bootstrapDatasetUpdateWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + LastChatsBootstrapDatasetUpdatePolicy.coalescingDelay,
+            execute: workItem
+        )
+        DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateCoalesced reason=bootstrapActive delayMs=\(Int(LastChatsBootstrapDatasetUpdatePolicy.coalescingDelay * 1000))")
+        return true
     }
     
     private final func preprocessDataset() {
@@ -1988,8 +2066,14 @@ class LastChatsViewController: BaseViewController {
         let oldSections = self.datasourceSections
         let oldShowsSkeleton = self.datasourceShowsSkeleton
         let newShowsSkeleton = self.showSkeleton.value
-        let shouldAnimate = self.isFirstLayout && !self.shouldSuppressNextDatasetAnimation
+        let bootstrapActive = self.hasVisibleAccountSyncBootstrapInProgress
+        let requestedAnimate = self.isFirstLayout && !self.shouldSuppressNextDatasetAnimation
+        let shouldAnimate = LastChatsBootstrapDatasetUpdatePolicy.shouldAnimateDatasetMutation(
+            requestedAnimated: requestedAnimate,
+            isBootstrapActive: bootstrapActive
+        )
         self.shouldSuppressNextDatasetAnimation = false
+        let renderStartedAt = Date()
         self.updateQueue.async {
             let newDataset = self.mapDataset()
             let newSections = Self.makeDatasourceSections(
@@ -2043,6 +2127,8 @@ class LastChatsViewController: BaseViewController {
                         }
                     }
                 }
+                let durationMs = Int(Date().timeIntervalSince(renderStartedAt) * 1000)
+                DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateFinish bootstrapActive=\(bootstrapActive) rows=\(newDataset.count) visibleRows=\(self.tableView.indexPathsForVisibleRows?.count ?? 0) durationMs=\(durationMs) animated=\(shouldAnimate)")
             }
         }
     }
@@ -2056,6 +2142,10 @@ class LastChatsViewController: BaseViewController {
         self.canUpdateDataset = true
         self.syncSelectedChatSelection()
         guard self.needsDatasetRefresh else { return }
+        if self.hasVisibleAccountSyncBootstrapInProgress {
+            self.runDatasetUpdateTask()
+            return
+        }
         self.preprocessDataset()
     }
     
@@ -2105,14 +2195,25 @@ class LastChatsViewController: BaseViewController {
         reloads: [IndexPath],
         reconfigures: [IndexPath]
     ) {
-        guard reloads.isNotEmpty || reconfigures.isNotEmpty else { return }
+        let bootstrapActive = hasVisibleAccountSyncBootstrapInProgress
+        let effectiveReconfigures: [IndexPath]
+        if LastChatsBootstrapDatasetUpdatePolicy.shouldSkipVisibleRowReconfigure(isBootstrapActive: bootstrapActive) {
+            effectiveReconfigures = []
+            if reconfigures.isNotEmpty {
+                DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=skipVisibleReconfigure count=\(reconfigures.count)")
+            }
+        } else {
+            effectiveReconfigures = reconfigures
+        }
+
+        guard reloads.isNotEmpty || effectiveReconfigures.isNotEmpty else { return }
 
         UIView.performWithoutAnimation {
             if reloads.isNotEmpty {
                 self.tableView.reloadRows(at: reloads, with: .none)
             }
-            if reconfigures.isNotEmpty {
-                self.reconfigureVisibleRows(at: reconfigures)
+            if effectiveReconfigures.isNotEmpty {
+                self.reconfigureVisibleRows(at: effectiveReconfigures)
             }
         }
     }

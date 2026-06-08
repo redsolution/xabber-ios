@@ -59,8 +59,6 @@ class ModernXabberInputView: UIView {
         static let recordingLockButtonVerticalGap: CGFloat = 52
     }
 
-    private static let detachedButtonGlassViewTag = 26051801
-
     private enum RecordingGlowMetrics {
         static let minimumShadowRadius: CGFloat = 8
         static let maximumShadowRadius: CGFloat = 34
@@ -118,72 +116,19 @@ class ModernXabberInputView: UIView {
         button.layer.borderColor = UIColor.clear.cgColor
     }
 
-    private static func makeDetachedButtonGlassEffect() -> UIVisualEffect {
-        NativeGlassBarStyle.makeEffect(interactive: true)
-    }
-
-    private static func detachedButtonGlassEffectView(in button: UIButton) -> UIVisualEffectView? {
-        button.subviews
-            .compactMap { $0 as? UIVisualEffectView }
-            .first { $0.tag == detachedButtonGlassViewTag }
-    }
-
     private static func applyDetachedGlassButtonStyle(
         to button: UIButton,
         forceConfigurationUpdate: Bool = true
     ) {
-        NativeGlassBarStyle.applyIconButtonStyle(
+        NativeGlassBarStyle.applyDetachedIconButtonStyle(
             to: button,
             tintColor: button.tintColor,
             forceConfigurationUpdate: forceConfigurationUpdate
         )
-        button.layer.cornerRadius = 0
-        button.clipsToBounds = false
-
-        if #available(iOS 26.0, *) {
-            detachedButtonGlassEffectView(in: button)?.removeFromSuperview()
-            return
-        }
-
-        let effectView: UIVisualEffectView
-        if let existing = detachedButtonGlassEffectView(in: button) {
-            effectView = existing
-            effectView.effect = makeDetachedButtonGlassEffect()
-        } else {
-            effectView = UIVisualEffectView(effect: makeDetachedButtonGlassEffect())
-            effectView.tag = detachedButtonGlassViewTag
-            effectView.translatesAutoresizingMaskIntoConstraints = false
-            effectView.isUserInteractionEnabled = false
-            effectView.backgroundColor = .clear
-            effectView.isOpaque = false
-            button.insertSubview(effectView, at: 0)
-            NSLayoutConstraint.activate([
-                effectView.leadingAnchor.constraint(equalTo: button.leadingAnchor),
-                effectView.trailingAnchor.constraint(equalTo: button.trailingAnchor),
-                effectView.topAnchor.constraint(equalTo: button.topAnchor),
-                effectView.bottomAnchor.constraint(equalTo: button.bottomAnchor)
-            ])
-        }
-
-        effectView.clipsToBounds = true
-        effectView.layer.cornerRadius = LiquidGlassMetrics.buttonSize / 2
-        effectView.layer.cornerCurve = .continuous
-        effectView.layer.borderWidth = 0
-        effectView.layer.borderColor = nil
-        button.sendSubviewToBack(effectView)
     }
 
     private static func setDetachedGlassButtonChromeHidden(_ hidden: Bool, on button: UIButton) {
-        if #available(iOS 26.0, *) {
-            if hidden {
-                button.configuration = nil
-                button.backgroundColor = .clear
-            } else {
-                applyDetachedGlassButtonStyle(to: button)
-            }
-        } else {
-            detachedButtonGlassEffectView(in: button)?.isHidden = hidden
-        }
+        NativeGlassBarStyle.setDetachedIconButtonChromeHidden(hidden, on: button)
     }
 
     final class ComposerContextPreviewView: UIView {

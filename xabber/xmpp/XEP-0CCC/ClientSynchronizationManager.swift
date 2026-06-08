@@ -23,11 +23,19 @@ import XMPPFramework
 import RealmSwift
 
 struct ClientSyncPageParser {
+    struct RSMPage {
+        let first: String?
+        let firstIndex: Int?
+        let last: String?
+        let count: Int?
+    }
+
     struct SnapshotPage {
         let stamp: String
         let isFinalPage: Bool
         let nextPageToken: String?
         let conversations: [DDXMLElement]
+        let rsm: RSMPage
     }
 
     static func parseSnapshotPage(from iq: XMPPIQ, pageSize: Int, namespace: String, updateOmemo: (DDXMLElement) -> DDXMLElement) -> SnapshotPage? {
@@ -37,29 +45,85 @@ struct ClientSyncPageParser {
         }
         let normalizedQuery = updateOmemo(query)
         let conversations = normalizedQuery.elements(forName: "conversation").compactMap { $0.copy() as? DDXMLElement }
-        let nextPageToken = normalizedQuery
-            .element(forName: "set")?
+        let set = normalizedQuery.element(forName: "set")
+        let firstElement = set?.element(forName: "first")
+        let first = firstElement?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let firstIndex = firstElement
+            .flatMap { $0.attributeStringValue(forName: "index") }
+            .flatMap { Int($0) }
+        let nextPageToken = set?
             .element(forName: "last")?
             .stringValue?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let rsmCountString = set?
+            .element(forName: "count")?
+            .stringValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let rsmCount = rsmCountString.flatMap { Int($0) }
         let hasNextPageToken = nextPageToken?.isNotEmpty == true
-        let isFinalPage = conversations.isEmpty || conversations.count < pageSize || !hasNextPageToken
+        let isFinalPage: Bool
+        if let rsmCount, let firstIndex {
+            isFinalPage = firstIndex + conversations.count >= rsmCount
+        } else if let rsmCount, rsmCount <= conversations.count {
+            isFinalPage = true
+        } else if !hasNextPageToken {
+            isFinalPage = true
+        } else {
+            isFinalPage = false
+        }
         return SnapshotPage(
             stamp: stamp,
             isFinalPage: isFinalPage,
             nextPageToken: hasNextPageToken ? nextPageToken : nil,
-            conversations: conversations
+            conversations: conversations,
+            rsm: RSMPage(
+                first: first?.isNotEmpty == true ? first : nil,
+                firstIndex: firstIndex,
+                last: hasNextPageToken ? nextPageToken : nil,
+                count: rsmCount
+            )
         )
     }
 }
 
 struct ClientSyncPageApplier {
+    struct ApplySummary {
+        let receivedCount: Int
+        let createdChatCount: Int
+        let updatedChatCount: Int
+        let skippedConversationCount: Int
+        let failedConversationCount: Int
+    }
+
     struct ApplyResult {
         let queueItems: Set<MessageManager.MessageQueueItem>
         let detectedInvite: Bool
+        let summary: ApplySummary
+    }
+
+    private struct ConversationIdentity {
+        let jid: String
+        let conversationType: ClientSynchronizationManager.ConversationType
+        let primary: String
+    }
+
+    private static func identity(from conversation: DDXMLElement, owner: String) -> ConversationIdentity? {
+        guard let jid = conversation.attributeStringValue(forName: "jid"),
+              jid.isNotEmpty else {
+            return nil
+        }
+        let rawType = conversation.attributeStringValue(forName: "type")
+            ?? CommonConfigManager.shared.config.locked_conversation_type
+        let conversationType = ClientSynchronizationManager.ConversationType(rawValue: rawType) ?? .regular
+        return ConversationIdentity(
+            jid: jid,
+            conversationType: conversationType,
+            primary: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)
+        )
     }
 
     static func apply(
+        owner: String,
         realm: Realm,
         conversations: [DDXMLElement],
         accountCreateDate: Date?,
@@ -71,22 +135,69 @@ struct ClientSyncPageApplier {
     ) throws -> ApplyResult {
         var queueItems = Set<MessageManager.MessageQueueItem>()
         var detectedInvite = false
-        try realm.write {
-            conversations.forEach { conversation in
-                guard applyConversationState(conversation, realm) else {
-                    return
+        var createdChatCount = 0
+        var updatedChatCount = 0
+        var skippedConversationCount = 0
+        var failedConversationCount = 0
+
+        conversations.forEach { sourceConversation in
+            let conversation = (sourceConversation.copy() as? DDXMLElement) ?? sourceConversation
+            let identity = Self.identity(from: conversation, owner: owner)
+            let existedBefore = identity
+                .flatMap { realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: $0.primary) } != nil
+            var didApplyConversationState = false
+            var consumedInvite = false
+
+            do {
+                try realm.write {
+                    guard applyConversationState(conversation, realm) else {
+                        return
+                    }
+                    didApplyConversationState = true
+                    if readInvites(conversation, realm) {
+                        detectedInvite = true
+                        consumedInvite = true
+                        return
+                    }
+                    if let item = readConversation(conversation, realm, accountCreateDate) {
+                        queueItems.insert(item)
+                    }
+                    readMarkers(conversation, realm)
+                    readPresence(conversation, realm)
                 }
-                if readInvites(conversation, realm) {
-                    detectedInvite = true
+            } catch {
+                failedConversationCount += 1
+                DDLogDebug("ClientSyncPageApplier: failed conversation owner=\(owner) jid=\(identity?.jid ?? "-") type=\(identity?.conversationType.rawValue ?? "-") error=\(error.localizedDescription)")
+                return
+            }
+
+            guard didApplyConversationState, !consumedInvite, let identity else {
+                skippedConversationCount += 1
+                return
+            }
+
+            if realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: identity.primary) != nil {
+                if existedBefore {
+                    updatedChatCount += 1
+                } else {
+                    createdChatCount += 1
                 }
-                if let item = readConversation(conversation, realm, accountCreateDate) {
-                    queueItems.insert(item)
-                }
-                readMarkers(conversation, realm)
-                readPresence(conversation, realm)
+            } else {
+                skippedConversationCount += 1
             }
         }
-        return ApplyResult(queueItems: queueItems, detectedInvite: detectedInvite)
+
+        return ApplyResult(
+            queueItems: queueItems,
+            detectedInvite: detectedInvite,
+            summary: ApplySummary(
+                receivedCount: conversations.count,
+                createdChatCount: createdChatCount,
+                updatedChatCount: updatedChatCount,
+                skippedConversationCount: skippedConversationCount,
+                failedConversationCount: failedConversationCount
+            )
+        )
     }
 }
 
@@ -163,6 +274,33 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     private struct SyncPayloadApplyResult {
         let detectedInvite: Bool
         let snapshotRepairTargets: [MessageArchiveManager.SnapshotRepairTarget]
+        let applySummary: ClientSyncPageApplier.ApplySummary
+    }
+
+    struct SyncRequestDiagnostics {
+        let id: String
+        let stamp: String?
+        let after: String?
+        let before: String?
+        let max: Int
+    }
+
+    private struct SnapshotCompletionActions {
+        let shouldRunInviteFallback: Bool
+        let snapshotRepairTargets: [MessageArchiveManager.SnapshotRepairTarget]
+        let inviteInfoRequests: [String]
+        let inviteMemberRequests: [String]
+        let postBootstrapWork: [() -> Void]
+        let needsCatchUpSync: Bool
+
+        static let none = SnapshotCompletionActions(
+            shouldRunInviteFallback: false,
+            snapshotRepairTargets: [],
+            inviteInfoRequests: [],
+            inviteMemberRequests: [],
+            postBootstrapWork: [],
+            needsCatchUpSync: false
+        )
     }
 
     enum SyncPhase {
@@ -170,6 +308,36 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         case snapshotInProgress
         case catchingUp
         case live
+    }
+
+    private enum SnapshotRequestStampMode: Equatable {
+        case absent
+        case value(String)
+
+        var attributeValue: String? {
+            switch self {
+            case .absent:
+                return nil
+            case .value(let stamp):
+                return stamp
+            }
+        }
+
+        var persistedValue: String {
+            switch self {
+            case .absent:
+                return ClientSynchronizationManager.snapshotBootstrapAbsentStampSentinel
+            case .value(let stamp):
+                return stamp
+            }
+        }
+
+        static func fromAttribute(_ stamp: String?) -> SnapshotRequestStampMode {
+            if let stamp = ClientSynchronizationManager.normalizedSyncString(stamp) {
+                return .value(stamp)
+            }
+            return .absent
+        }
     }
     
     public let pageSize: Int = 60
@@ -180,10 +348,19 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     private let syncQueryIds = SynchronizedArray<String>()
     private let applyQueue = DispatchQueue(label: "com.xabber.client-sync.apply")
     private let stateQueue = DispatchQueue(label: "com.xabber.client-sync.state")
+    private var syncRequestInfoById: [String: SyncRequestDiagnostics] = [:]
     private var phase: SyncPhase = .idle
     private var activeSnapshotStamp: String? = nil
+    private var activeSnapshotRequestedStampMode: SnapshotRequestStampMode? = nil
+    private var requestedSnapshotAfterTokens = Set<String>()
+    private var seenSnapshotConversationKeys = Set<String>()
     private var isApplyingPage: Bool = false
     private var shouldRequestInviteFallbackAfterSnapshot: Bool = false
+    private var pendingSnapshotRepairTargets = Set<MessageArchiveManager.SnapshotRepairTarget>()
+    private var pendingInviteInfoRequests = Set<String>()
+    private var pendingInviteMemberRequests = Set<String>()
+    private var pendingPostBootstrapWork: [() -> Void] = []
+    private var needsCatchUpAfterSnapshot = false
     
     internal var isPresenceSended: Bool = false
     
@@ -192,6 +369,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     
     internal var firstSync: Bool = true
     internal var beforeApplyingSyncPayload: (() throws -> Void)?
+    internal var syncRequestObserver: ((SyncRequestDiagnostics) -> Void)?
     
     enum ConversationStatus: String {
         case archived = "archived"
@@ -223,6 +401,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     static public let primaryNamespace = "https://xabber.com/protocol/synchronization"
     private static let lastRecognizedEventStampKey = "last_recognized_event_stamp"
     private static let lastCompletedSnapshotStampKey = "last_completed_snapshot_stamp"
+    private static let snapshotBootstrapInProgressKey = "snapshot_bootstrap_in_progress"
+    private static let snapshotBootstrapRequestedStampKey = "snapshot_bootstrap_requested_stamp"
+    private static let snapshotBootstrapLastAfterKey = "snapshot_bootstrap_last_after"
+    private static let snapshotBootstrapAbsentStampSentinel = "__xabber_snapshot_stamp_absent__"
     
     init(withOwner owner: String, ignorePush: Bool = false) {
         super.init(withOwner: owner)
@@ -242,10 +424,17 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
         isAvailable = true
         updateStateForAccount()
-        version = lastRecognizedEventStamp ?? SettingManager.shared.getKey(for: owner, scope: .clientSynchronization, key: "version") ?? ""
+        version = Self.normalizedSyncString(lastRecognizedEventStamp)
+            ?? SettingManager.shared.getKey(for: owner, scope: .clientSynchronization, key: "version")
+            ?? ""
         if version.isEmpty {
             SettingManager.shared.saveItem(for: owner, scope: .clientSynchronization, key: "version", value: "0")
         }
+    }
+
+    private static func normalizedSyncString(_ value: String?) -> String? {
+        let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return normalized.isNotEmpty ? normalized : nil
     }
 
     private var lastRecognizedEventStamp: String? {
@@ -276,6 +465,104 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         updateStoredVersion(stamp)
     }
 
+    private var isPersistedSnapshotBootstrapInProgress: Bool {
+        SettingManager.shared.getKeyBool(
+            for: owner,
+            scope: .clientSynchronization,
+            key: ClientSynchronizationManager.snapshotBootstrapInProgressKey
+        ) == true
+    }
+
+    private var persistedSnapshotBootstrapRequestedStampMode: SnapshotRequestStampMode? {
+        let raw = SettingManager.shared.getKey(
+            for: owner,
+            scope: .clientSynchronization,
+            key: ClientSynchronizationManager.snapshotBootstrapRequestedStampKey
+        )
+        if raw == ClientSynchronizationManager.snapshotBootstrapAbsentStampSentinel {
+            return .absent
+        }
+        guard let stamp = Self.normalizedSyncString(raw) else {
+            return nil
+        }
+        if stamp == "0",
+           Self.normalizedSyncString(lastCompletedSnapshotStamp) == nil,
+           Self.normalizedSyncString(lastRecognizedEventStamp) == nil {
+            return .absent
+        }
+        return .value(stamp)
+    }
+
+    private func markSnapshotBootstrapInProgress(requestedStampMode: SnapshotRequestStampMode, after: String?) {
+        SettingManager.shared.saveItem(
+            for: owner,
+            scope: .clientSynchronization,
+            key: ClientSynchronizationManager.snapshotBootstrapInProgressKey,
+            value: true
+        )
+        SettingManager.shared.saveItem(
+            for: owner,
+            scope: .clientSynchronization,
+            key: ClientSynchronizationManager.snapshotBootstrapRequestedStampKey,
+            value: requestedStampMode.persistedValue
+        )
+        SettingManager.shared.saveItem(
+            for: owner,
+            scope: .clientSynchronization,
+            key: ClientSynchronizationManager.snapshotBootstrapLastAfterKey,
+            value: after ?? ""
+        )
+    }
+
+    private func clearSnapshotBootstrapInProgress() {
+        SettingManager.shared.saveItem(
+            for: owner,
+            scope: .clientSynchronization,
+            key: ClientSynchronizationManager.snapshotBootstrapInProgressKey,
+            value: false
+        )
+        SettingManager.shared.saveItem(
+            for: owner,
+            scope: .clientSynchronization,
+            key: ClientSynchronizationManager.snapshotBootstrapRequestedStampKey,
+            value: ""
+        )
+        SettingManager.shared.saveItem(
+            for: owner,
+            scope: .clientSynchronization,
+            key: ClientSynchronizationManager.snapshotBootstrapLastAfterKey,
+            value: ""
+        )
+    }
+
+    private func stampModeForSyncRequest(customVer: String?, after: String?) -> SnapshotRequestStampMode? {
+        if let customVer = Self.normalizedSyncString(customVer) {
+            return .value(customVer)
+        }
+        if after != nil {
+            if let active = stateQueue.sync(execute: { activeSnapshotRequestedStampMode }) {
+                return active
+            }
+            if let persistedSnapshotBootstrapRequestedStampMode {
+                return persistedSnapshotBootstrapRequestedStampMode
+            }
+        }
+        if isPersistedSnapshotBootstrapInProgress {
+            if let lastCompletedSnapshotStamp = Self.normalizedSyncString(lastCompletedSnapshotStamp) {
+                return .value(lastCompletedSnapshotStamp)
+            }
+            return persistedSnapshotBootstrapRequestedStampMode ?? .absent
+        }
+        if let lastRecognizedEventStamp = Self.normalizedSyncString(lastRecognizedEventStamp) {
+            return .value(lastRecognizedEventStamp)
+        }
+        if let version = Self.normalizedSyncString(version),
+           version != "0" {
+            return .value(version)
+        }
+        return nil
+    }
+
     private func canStartSync(after: String?) -> Bool {
         stateQueue.sync {
             if after != nil {
@@ -288,12 +575,40 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             case .idle, .live:
                 phase = .snapshotInProgress
                 activeSnapshotStamp = nil
+                activeSnapshotRequestedStampMode = nil
+                requestedSnapshotAfterTokens.removeAll()
+                seenSnapshotConversationKeys.removeAll()
                 shouldRequestInviteFallbackAfterSnapshot = false
+                pendingSnapshotRepairTargets.removeAll()
+                pendingInviteInfoRequests.removeAll()
+                pendingInviteMemberRequests.removeAll()
+                needsCatchUpAfterSnapshot = false
                 return true
             case .snapshotInProgress, .catchingUp:
                 return false
             }
         }
+    }
+
+    private func canStartSyncWithStalePhaseRecovery(after: String?) -> Bool {
+        if canStartSync(after: after) {
+            return true
+        }
+        guard after == nil,
+              syncQueryIds.isEmpty else {
+            return false
+        }
+        let canRecover = stateQueue.sync {
+            !isApplyingPage && (phase == .snapshotInProgress || phase == .catchingUp)
+        }
+        guard canRecover else {
+            return false
+        }
+        logSyncTrace("staleSnapshotPhaseRecoveredForRetry", [
+            ("persistedSnapshotStamp", "withheld")
+        ])
+        resetSyncStateAfterFailure()
+        return canStartSync(after: after)
     }
 
     private func updatePhase(_ phase: SyncPhase) {
@@ -302,22 +617,36 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
     }
 
-    private func registerSyncQuery(_ elementId: String) {
+    private func registerSyncQuery(_ elementId: String, request: SyncRequestDiagnostics) {
         queryIds.insert(elementId)
         syncQueryIds.insert(elementId)
+        stateQueue.sync {
+            syncRequestInfoById[elementId] = request
+        }
     }
 
-    private func unregisterSyncQuery(_ elementId: String) {
+    @discardableResult
+    private func unregisterSyncQuery(_ elementId: String) -> SyncRequestDiagnostics? {
         queryIds.remove(elementId)
         syncQueryIds.remove(elementId)
+        return stateQueue.sync {
+            syncRequestInfoById.removeValue(forKey: elementId)
+        }
     }
 
     private func resetSyncStateAfterFailure() {
         stateQueue.sync {
             phase = .idle
             activeSnapshotStamp = nil
+            activeSnapshotRequestedStampMode = nil
+            requestedSnapshotAfterTokens.removeAll()
+            seenSnapshotConversationKeys.removeAll()
             isApplyingPage = false
             shouldRequestInviteFallbackAfterSnapshot = false
+            pendingSnapshotRepairTargets.removeAll()
+            pendingInviteInfoRequests.removeAll()
+            pendingInviteMemberRequests.removeAll()
+            needsCatchUpAfterSnapshot = false
         }
         temporaryVer = nil
     }
@@ -350,6 +679,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
         let realm = try WRealm.safe()
         let result = try ClientSyncPageApplier.apply(
+            owner: owner,
             realm: realm,
             conversations: conversations,
             accountCreateDate: accountCreateDate,
@@ -367,32 +697,58 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             readPresence: self.readPresence(_:realm:)
         )
         processQueueItems(result.queueItems)
-        AccountManager.shared.find(for: self.owner)?.mam.scheduleSnapshotArchiveRepairs(snapshotRepairTargets)
         return SyncPayloadApplyResult(
             detectedInvite: result.detectedInvite,
-            snapshotRepairTargets: snapshotRepairTargets
+            snapshotRepairTargets: snapshotRepairTargets,
+            applySummary: result.summary
         )
     }
 
-    private func beginApplyingPage(snapshotStamp: String) {
+    private func beginApplyingPage(snapshotStamp: String, request: SyncRequestDiagnostics?) {
+        let requestedStampMode = request.map { SnapshotRequestStampMode.fromAttribute($0.stamp) }
+            ?? stateQueue.sync { activeSnapshotRequestedStampMode }
+            ?? Self.normalizedSyncString(lastCompletedSnapshotStamp).map { SnapshotRequestStampMode.value($0) }
+            ?? .absent
         stateQueue.sync {
             isApplyingPage = true
             if activeSnapshotStamp == nil {
                 activeSnapshotStamp = snapshotStamp
+                activeSnapshotRequestedStampMode = requestedStampMode
+                if phase == .idle || phase == .live {
+                    phase = .snapshotInProgress
+                }
             }
         }
+        markSnapshotBootstrapInProgress(requestedStampMode: requestedStampMode, after: request?.after)
     }
 
-    private func finishApplyingPage(snapshotStamp: String, isFinalPage: Bool) -> Bool {
+    private func finishApplyingPage(snapshotStamp: String, isFinalPage: Bool) -> SnapshotCompletionActions {
         stateQueue.sync {
             isApplyingPage = false
             if isFinalPage {
+                let actions = SnapshotCompletionActions(
+                    shouldRunInviteFallback: shouldRequestInviteFallbackAfterSnapshot,
+                    snapshotRepairTargets: Array(pendingSnapshotRepairTargets),
+                    inviteInfoRequests: Array(pendingInviteInfoRequests),
+                    inviteMemberRequests: Array(pendingInviteMemberRequests),
+                    postBootstrapWork: pendingPostBootstrapWork,
+                    needsCatchUpSync: needsCatchUpAfterSnapshot
+                )
                 activeSnapshotStamp = nil
+                activeSnapshotRequestedStampMode = nil
+                requestedSnapshotAfterTokens.removeAll()
+                seenSnapshotConversationKeys.removeAll()
                 phase = .live
-                return shouldRequestInviteFallbackAfterSnapshot
+                shouldRequestInviteFallbackAfterSnapshot = false
+                pendingSnapshotRepairTargets.removeAll()
+                pendingInviteInfoRequests.removeAll()
+                pendingInviteMemberRequests.removeAll()
+                pendingPostBootstrapWork.removeAll()
+                needsCatchUpAfterSnapshot = false
+                return actions
             } else {
                 phase = .catchingUp
-                return false
+                return .none
             }
         }
     }
@@ -400,6 +756,129 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     private func noteInviteFallbackNeeded() {
         stateQueue.sync {
             shouldRequestInviteFallbackAfterSnapshot = true
+        }
+    }
+
+    private func noteCatchUpNeededAfterSnapshot() {
+        stateQueue.sync {
+            needsCatchUpAfterSnapshot = true
+        }
+    }
+
+    private func deferSnapshotRepairTargets(_ targets: [MessageArchiveManager.SnapshotRepairTarget]) {
+        guard targets.isNotEmpty else { return }
+        stateQueue.sync {
+            targets.forEach { pendingSnapshotRepairTargets.insert($0) }
+        }
+    }
+
+    private func scheduleSnapshotRepairTargetsImmediately(_ targets: [MessageArchiveManager.SnapshotRepairTarget]) {
+        guard targets.isNotEmpty else { return }
+        AccountManager.shared.find(for: self.owner)?.mam.scheduleSnapshotArchiveRepairs(targets)
+    }
+
+    private func requestInviteInfoImmediately(groupchat: String) {
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            user.groupchats.getGroupInfo(stream, groupchat: groupchat)
+        }
+    }
+
+    private func requestInviteMembersImmediately(groupchat: String) {
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            user.groupchats.requestUsers(stream, groupchat: groupchat)
+        }
+    }
+
+    private func deferOrRequestInviteInfo(groupchat: String) {
+        guard groupchat.isNotEmpty else { return }
+        let shouldDefer = stateQueue.sync { shouldDeferBootstrapWorkLocked() }
+        if shouldDefer {
+            _ = stateQueue.sync {
+                pendingInviteInfoRequests.insert(groupchat)
+            }
+        } else {
+            requestInviteInfoImmediately(groupchat: groupchat)
+        }
+    }
+
+    private func deferOrRequestInviteMembers(groupchat: String) {
+        guard groupchat.isNotEmpty else { return }
+        let shouldDefer = stateQueue.sync { shouldDeferBootstrapWorkLocked() }
+        if shouldDefer {
+            _ = stateQueue.sync {
+                pendingInviteMemberRequests.insert(groupchat)
+            }
+        } else {
+            requestInviteMembersImmediately(groupchat: groupchat)
+        }
+    }
+
+    private func shouldDeferBootstrapWorkLocked() -> Bool {
+        isAvailable && (!acountSynced || isApplyingPage || phase == .snapshotInProgress || phase == .catchingUp || isPersistedSnapshotBootstrapInProgress)
+    }
+
+    @discardableResult
+    public final func deferPostBootstrapWorkIfNeeded(_ work: @escaping () -> Void) -> Bool {
+        stateQueue.sync {
+            guard shouldDeferBootstrapWorkLocked() else {
+                return false
+            }
+            pendingPostBootstrapWork.append(work)
+            return true
+        }
+    }
+
+    public final func isBootstrapCriticalSyncInProgress() -> Bool {
+        stateQueue.sync {
+            shouldDeferBootstrapWorkLocked()
+        }
+    }
+
+    private func flushSnapshotCompletionActions(_ actions: SnapshotCompletionActions) {
+        let account = AccountManager.shared.find(for: self.owner)
+        account?.flushBootstrapQueuedPrimaryStanzas(reason: "snapshotComplete")
+        account?.xmppTaskScheduler.bootstrapGateDidChange()
+        if actions.shouldRunInviteFallback {
+            account?.groupchats.getInvitesFallback()
+        }
+        scheduleSnapshotRepairTargetsImmediately(actions.snapshotRepairTargets)
+        actions.inviteInfoRequests.forEach { requestInviteInfoImmediately(groupchat: $0) }
+        actions.inviteMemberRequests.forEach { requestInviteMembersImmediately(groupchat: $0) }
+        actions.postBootstrapWork.forEach { $0() }
+    }
+
+    private func conversationKeys(from conversations: [DDXMLElement]) -> [String] {
+        conversations.compactMap { conversation in
+            guard let jid = conversation.attributeStringValue(forName: "jid"),
+                  jid.isNotEmpty else {
+                return nil
+            }
+            let type = ConversationType(rawValue: conversation.attributeStringValue(forName: "type") ?? "none") ?? .regular
+            return "\(jid)|\(type.rawValue)"
+        }
+    }
+
+    private func noteReceivedConversationKeys(_ keys: [String]) -> Int {
+        stateQueue.sync {
+            var duplicateCount = 0
+            keys.forEach { key in
+                if !seenSnapshotConversationKeys.insert(key).inserted {
+                    duplicateCount += 1
+                }
+            }
+            return duplicateCount
+        }
+    }
+
+    private func shouldRequestNextSnapshotPage(after nextPageToken: String, currentAfter: String?) -> Bool {
+        stateQueue.sync {
+            guard nextPageToken.isNotEmpty,
+                  nextPageToken != currentAfter,
+                  !requestedSnapshotAfterTokens.contains(nextPageToken) else {
+                return false
+            }
+            requestedSnapshotAfterTokens.insert(nextPageToken)
+            return true
         }
     }
 
@@ -596,19 +1075,36 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             DDLogDebug("ClientSynchronizationManager: \(#function). \(error.localizedDescription)")
         }
     }
+
+    private func logSyncTrace(_ event: String, _ details: [(String, Any?)]) {
+        let renderedDetails = details
+            .map { key, value in "\(key)=\(value.map { String(describing: $0) } ?? "nil")" }
+            .joined(separator: " ")
+        DDLogDebug("CLIENT_SYNC_TRACE event=\(event) owner=\(owner) \(renderedDetails)")
+    }
+
+    static func isClientSyncPaginationIQ(_ stanza: XMPPElement) -> Bool {
+        guard stanza.name == "iq",
+              stanza.attributeStringValue(forName: "type") == "get",
+              let query = stanza.element(forName: "query", xmlns: ClientSynchronizationManager.primaryNamespace) else {
+            return false
+        }
+        return query.element(forName: "set", xmlns: "http://jabber.org/protocol/rsm") != nil
+    }
+
+    private func syncQueryElement(in iq: XMPPIQ) -> DDXMLElement? {
+        iq.element(forName: "query", xmlns: ClientSynchronizationManager.primaryNamespace)
+            ?? iq.element(forName: "synchronization", xmlns: ClientSynchronizationManager.primaryNamespace)
+    }
     
     open func sync(_ xmppStream: XMPPStream, customVer: String? = nil, after: String? = nil) -> Bool {
-        if !isAvailable || !canStartSync(after: after) { return false }
+        if !isAvailable || !canStartSyncWithStalePhaseRecovery(after: after) { return false }
         acountSynced = false
         let elementId = xmppStream.generateUUID
         let query = DDXMLElement(name: "query", xmlns: ClientSynchronizationManager.primaryNamespace)
-        if let customVer = customVer,
-           customVer.isNotEmpty {
-            query.addAttribute(withName: "stamp", stringValue: customVer)
-        } else if let lastRecognizedEventStamp, lastRecognizedEventStamp.isNotEmpty {
-            query.addAttribute(withName: "stamp", stringValue: lastRecognizedEventStamp)
-        } else if version.isNotEmpty {
-            query.addAttribute(withName: "stamp", stringValue: version)
+        let requestedStamp = stampModeForSyncRequest(customVer: customVer, after: after)?.attributeValue
+        if let requestedStamp {
+            query.addAttribute(withName: "stamp", stringValue: requestedStamp)
         }
         let set = DDXMLElement(name: "set", xmlns: "http://jabber.org/protocol/rsm")
         set.addChild(DDXMLElement(name: "max", stringValue: "\(pageSize)"))
@@ -616,11 +1112,43 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             set.addChild(DDXMLElement(name: "after", stringValue: after))
         }
         query.addChild(set)
-        xmppStream.send(XMPPIQ(iqType: .get,
-                               to: nil,
-                               elementID: elementId,
-                               child: query))
-        registerSyncQuery(elementId)
+        let iq = XMPPIQ(iqType: .get,
+                        to: nil,
+                        elementID: elementId,
+                        child: query)
+        let sendStartedAt = Date()
+        logSyncTrace("requestSendStart", [
+            ("id", elementId),
+            ("stamp", requestedStamp),
+            ("after", after),
+            ("before", Optional<String>.none),
+            ("max", pageSize)
+        ])
+        xmppStream.send(iq)
+        logSyncTrace("requestSendFinish", [
+            ("id", elementId),
+            ("stamp", requestedStamp),
+            ("after", after),
+            ("before", Optional<String>.none),
+            ("max", pageSize),
+            ("durationMs", Int(Date().timeIntervalSince(sendStartedAt) * 1000))
+        ])
+        let diagnostics = SyncRequestDiagnostics(
+            id: elementId,
+            stamp: requestedStamp,
+            after: after,
+            before: nil,
+            max: pageSize
+        )
+        registerSyncQuery(elementId, request: diagnostics)
+        syncRequestObserver?(diagnostics)
+        logSyncTrace("request", [
+            ("id", elementId),
+            ("stamp", requestedStamp),
+            ("after", after),
+            ("before", Optional<String>.none),
+            ("max", pageSize)
+        ])
         return isAvailable
     }
     
@@ -791,11 +1319,28 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 conversations: query.elements(forName: "conversation"),
                 accountCreateDate: accountCreateDate
             )
-            markLastRecognizedEventStamp(stamp)
-            if applyResult.detectedInvite {
-                AccountManager.shared.find(for: owner)?.groupchats.getInvitesFallback()
+            logSyncTrace("pushApply", [
+                ("stamp", stamp),
+                ("count", applyResult.applySummary.receivedCount),
+                ("created", applyResult.applySummary.createdChatCount),
+                ("updated", applyResult.applySummary.updatedChatCount),
+                ("skipped", applyResult.applySummary.skippedConversationCount),
+                ("failed", applyResult.applySummary.failedConversationCount)
+            ])
+            if isBootstrapCriticalSyncInProgress() {
+                deferSnapshotRepairTargets(applyResult.snapshotRepairTargets)
+                if applyResult.detectedInvite {
+                    noteInviteFallbackNeeded()
+                }
+                noteCatchUpNeededAfterSnapshot()
+            } else {
+                scheduleSnapshotRepairTargetsImmediately(applyResult.snapshotRepairTargets)
+                markLastRecognizedEventStamp(stamp)
+                if applyResult.detectedInvite {
+                    AccountManager.shared.find(for: owner)?.groupchats.getInvitesFallback()
+                }
+                AccountManager.shared.find(for: owner)?.mam.scheduleRegularIdleBackfillIfNeeded()
             }
-            AccountManager.shared.find(for: owner)?.mam.scheduleRegularIdleBackfillIfNeeded()
         } catch {
             DDLogDebug("ClientSynchronizationManager: \(#function). \(error.localizedDescription)")
         }
@@ -879,10 +1424,37 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 //        </set>
 //      </synchronization>
 //    </iq>
+
+    private func sendInitialPresenceIfNeeded() {
+        guard !isPresenceSended && self.version.isNotEmpty else {
+            return
+        }
+        isPresenceSended = true
+        AccountManager
+            .shared
+            .find(for: owner)?
+            .unsafeAction { (user, stream) in
+                user.msgDeleteManager.enable(stream)
+                if !user.sm.didResume {
+                    user.presence()
+                }
+            }
+    }
     
     internal func readSnapshot(_ iq: XMPPIQ) -> Bool {
         guard iq.iqType == .result else {
             return false
+        }
+        let isTrackedSyncQuery = iq.elementID.map { syncQueryIds.contains($0) } == true
+        if let query = syncQueryElement(in: iq) {
+            logSyncTrace("responseReceivedBeforeParse", [
+                ("id", iq.elementID),
+                ("isTracked", isTrackedSyncQuery),
+                ("iqType", iq.type),
+                ("queryNamespace", query.xmlns()),
+                ("queryStamp", query.attributeStringValue(forName: "stamp")),
+                ("childCount", query.children?.count)
+            ])
         }
         guard let page = ClientSyncPageParser.parseSnapshotPage(
             from: iq,
@@ -890,62 +1462,150 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             namespace: ClientSynchronizationManager.primaryNamespace,
             updateOmemo: updateOmemoMessages(_:)
         ) else {
+            guard isTrackedSyncQuery,
+                  let query = syncQueryElement(in: iq) else {
                 return false
-        }
-        if let elementId = iq.elementID {
-            unregisterSyncQuery(elementId)
-        }
-
-        AccountManager.shared.changeNewUserState(for: self.owner, to: .dataLoaded)
-        beginApplyingPage(snapshotStamp: page.stamp)
-
-        if !isPresenceSended && self.version.isNotEmpty {
-            isPresenceSended = true
-            AccountManager
-                .shared
-                .find(for: owner)?
-                .unsafeAction { (user, stream) in
-                    user.msgDeleteManager.enable(stream)
-                    if !user.sm.didResume {
-                        user.presence()
-                    }
+            }
+            let request = iq.elementID.flatMap { unregisterSyncQuery($0) }
+            let requestedStampMode = request.map { SnapshotRequestStampMode.fromAttribute($0.stamp) }
+                ?? stateQueue.sync { activeSnapshotRequestedStampMode }
+                ?? .absent
+            markSnapshotBootstrapInProgress(requestedStampMode: requestedStampMode, after: request?.after)
+            stateQueue.sync {
+                if phase == .idle || phase == .live {
+                    phase = .snapshotInProgress
                 }
+                isApplyingPage = false
+            }
+            logSyncTrace("snapshotParseFailed", [
+                ("id", iq.elementID),
+                ("requestedStamp", request?.stamp),
+                ("requestedAfter", request?.after),
+                ("queryNamespace", query.xmlns()),
+                ("queryStamp", query.attributeStringValue(forName: "stamp")),
+                ("childNames", query.children?.compactMap { ($0 as? DDXMLElement)?.name }.joined(separator: ",")),
+                ("persistedSnapshotStamp", "withheld")
+            ])
+            return true
         }
+        let request = iq.elementID.flatMap { unregisterSyncQuery($0) }
+        let duplicateConversationCount = noteReceivedConversationKeys(conversationKeys(from: page.conversations))
+        logSyncTrace("pageReceived", [
+            ("id", iq.elementID),
+            ("requestedStamp", request?.stamp),
+            ("requestedAfter", request?.after),
+            ("requestedBefore", request?.before),
+            ("requestedMax", request?.max),
+            ("snapshotStamp", page.stamp),
+            ("received", page.conversations.count),
+            ("rsmFirst", page.rsm.first),
+            ("rsmFirstIndex", page.rsm.firstIndex),
+            ("rsmLast", page.rsm.last),
+            ("rsmCount", page.rsm.count),
+            ("duplicateConversations", duplicateConversationCount),
+            ("isFinalByParser", page.isFinalPage)
+        ])
+        beginApplyingPage(snapshotStamp: page.stamp, request: request)
+
         applyQueue.async {
+            let applyStartedAt = Date()
+            self.logSyncTrace("pageApplyStart", [
+                ("snapshotStamp", page.stamp),
+                ("count", page.conversations.count),
+                ("after", request?.after)
+            ])
             do {
                 let accountCreateDate = try WRealm.safe().object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner)?.createdAt
                 let applyResult = try self.applySyncPayload(
                     conversations: page.conversations,
                     accountCreateDate: accountCreateDate
                 )
+                self.deferSnapshotRepairTargets(applyResult.snapshotRepairTargets)
                 if applyResult.detectedInvite {
                     self.noteInviteFallbackNeeded()
                 }
+                let applyFinishedAt = Date()
 
-                if !page.isFinalPage, let nextPageToken = page.nextPageToken {
-                    AccountManager.shared.find(for: self.owner)?.unsafeAction { _, stream in
-                        _ = self.sync(stream, after: nextPageToken)
-                    }
-                }
+                self.logSyncTrace("pageApplyFinish", [
+                    ("snapshotStamp", page.stamp),
+                    ("received", applyResult.applySummary.receivedCount),
+                    ("duplicates", duplicateConversationCount),
+                    ("created", applyResult.applySummary.createdChatCount),
+                    ("updated", applyResult.applySummary.updatedChatCount),
+                    ("skipped", applyResult.applySummary.skippedConversationCount),
+                    ("failed", applyResult.applySummary.failedConversationCount),
+                    ("isFinalByParser", page.isFinalPage),
+                    ("durationMs", Int(applyFinishedAt.timeIntervalSince(applyStartedAt) * 1000))
+                ])
 
-                let shouldRunInviteFallback = self.finishApplyingPage(snapshotStamp: page.stamp, isFinalPage: page.isFinalPage)
                 if page.isFinalPage {
+                    let completionStartedAt = Date()
+                    let actions = self.finishApplyingPage(snapshotStamp: page.stamp, isFinalPage: true)
+                    self.clearSnapshotBootstrapInProgress()
                     self.lastCompletedSnapshotStamp = page.stamp
                     self.markLastRecognizedEventStamp(page.stamp)
                     self.firstSync = false
                     self.acountSynced = true
                     self.temporaryVer = nil
+                    AccountManager.shared.changeNewUserState(for: self.owner, to: .dataLoaded)
+                    self.logSyncTrace("snapshotComplete", [
+                        ("snapshotStamp", page.stamp),
+                        ("persistedCompletedStamp", page.stamp),
+                        ("persistedRecognizedStamp", page.stamp),
+                        ("deferredRepairs", actions.snapshotRepairTargets.count),
+                        ("needsCatchUpSync", actions.needsCatchUpSync),
+                        ("completionTailMs", Int(Date().timeIntervalSince(completionStartedAt) * 1000))
+                    ])
+                    if actions.needsCatchUpSync {
+                        AccountManager.shared.find(for: self.owner)?.unsafeAction { _, stream in
+                            _ = self.sync(stream)
+                        }
+                    }
+                    self.flushSnapshotCompletionActions(actions)
+                    self.sendInitialPresenceIfNeeded()
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
                         user.csi.active(stream, by: .synchronization)
                     })
-                    if shouldRunInviteFallback {
-                        AccountManager.shared.find(for: self.owner)?.groupchats.getInvitesFallback()
-                    }
                     AccountManager.shared.find(for: self.owner)?.mam.scheduleRegularIdleBackfillIfNeeded()
+                    return
                 }
+
+                guard let nextPageToken = page.nextPageToken,
+                      self.shouldRequestNextSnapshotPage(after: nextPageToken, currentAfter: request?.after) else {
+                    _ = self.finishApplyingPage(snapshotStamp: page.stamp, isFinalPage: false)
+                    self.logSyncTrace("paginationStalled", [
+                        ("snapshotStamp", page.stamp),
+                        ("requestedAfter", request?.after),
+                        ("nextPageToken", page.nextPageToken),
+                        ("persistedSnapshotStamp", "withheld")
+                    ])
+                    self.resetSyncStateAfterFailure()
+                    return
+                }
+
+                _ = self.finishApplyingPage(snapshotStamp: page.stamp, isFinalPage: false)
+                self.logSyncTrace("pageContinuation", [
+                    ("snapshotStamp", page.stamp),
+                    ("after", nextPageToken),
+                    ("persistedSnapshotStamp", "withheld"),
+                    ("schedulingGapMs", Int(Date().timeIntervalSince(applyFinishedAt) * 1000))
+                ])
+                AccountManager.shared.find(for: self.owner)?.unsafeAction { _, stream in
+                    _ = self.sync(stream, after: nextPageToken)
+                }
+                self.logSyncTrace("pageContinuationDispatched", [
+                    ("snapshotStamp", page.stamp),
+                    ("after", nextPageToken),
+                    ("dispatchGapMs", Int(Date().timeIntervalSince(applyFinishedAt) * 1000))
+                ])
             } catch {
                 _ = self.finishApplyingPage(snapshotStamp: page.stamp, isFinalPage: page.isFinalPage)
                 self.resetSyncStateAfterFailure()
+                self.logSyncTrace("pageApplyFailed", [
+                    ("snapshotStamp", page.stamp),
+                    ("error", error.localizedDescription),
+                    ("persistedSnapshotStamp", "withheld")
+                ])
                 DDLogDebug("ClientSynchronizationManager: \(#function). \(error.localizedDescription)")
             }
         }
@@ -1053,14 +1713,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             owner: owner,
             followUp: GroupchatInviteFollowUp(
                 requestGroupInfo: { groupchat in
-                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                        user.groupchats.getGroupInfo(stream, groupchat: groupchat)
-                    })
+                    self.deferOrRequestInviteInfo(groupchat: groupchat)
                 },
                 requestMembers: { groupchat in
-                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                        user.groupchats.requestUsers(stream, groupchat: groupchat)
-                    })
+                    self.deferOrRequestInviteMembers(groupchat: groupchat)
                 }
             )
         )
@@ -1478,8 +2134,16 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         let isSyncQuery = syncQueryIds.contains(elementId)
         queryIds.remove(elementId)
         if isSyncQuery {
-            unregisterSyncQuery(elementId)
-            resetSyncStateAfterFailure()
+            _ = unregisterSyncQuery(elementId)
+            logSyncTrace("syncResultUnexpectedGenericPath", [
+                ("id", elementId),
+                ("persistedSnapshotStamp", "withheld")
+            ])
+            stateQueue.sync {
+                if phase == .idle || phase == .live {
+                    phase = .snapshotInProgress
+                }
+            }
         }
         return true
     }
@@ -1490,11 +2154,23 @@ class ClientSynchronizationManager: AbstractXMPPManager {
               queryIds.contains(elementId) else { // BAD ACCESS
                 return false
         }
-        let isSyncQuery = syncQueryIds.contains(elementId)
+        let trackedSyncRequest = stateQueue.sync {
+            syncRequestInfoById[elementId] != nil
+        }
+        let isSyncQuery = trackedSyncRequest || syncQueryIds.contains(elementId) || syncQueryElement(in: iq) != nil
+        let isSnapshotPhase = stateQueue.sync {
+            phase == .snapshotInProgress || phase == .catchingUp
+        }
         queryIds.remove(elementId)
-        if isSyncQuery {
-            unregisterSyncQuery(elementId)
-            resetSyncStateAfterFailure()
+        if isSyncQuery || isSnapshotPhase {
+            _ = unregisterSyncQuery(elementId)
+            logSyncTrace("syncError", [
+                ("id", elementId),
+                ("isTrackedSyncQuery", isSyncQuery),
+                ("persistedSnapshotStamp", "withheld")
+            ])
+            reset()
+            temporaryVer = nil
         }
         return true
     }
@@ -1513,8 +2189,17 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         stateQueue.sync {
             self.phase = .idle
             self.activeSnapshotStamp = nil
+            self.activeSnapshotRequestedStampMode = nil
+            self.requestedSnapshotAfterTokens.removeAll()
+            self.seenSnapshotConversationKeys.removeAll()
             self.isApplyingPage = false
             self.shouldRequestInviteFallbackAfterSnapshot = false
+            self.pendingSnapshotRepairTargets.removeAll()
+            self.pendingInviteInfoRequests.removeAll()
+            self.pendingInviteMemberRequests.removeAll()
+            self.pendingPostBootstrapWork.removeAll()
+            self.needsCatchUpAfterSnapshot = false
+            self.syncRequestInfoById.removeAll()
         }
     }
     
@@ -1522,5 +2207,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         SettingManager.shared.saveItem(for: owner, scope: .clientSynchronization, key: "version", value: "")
         SettingManager.shared.saveItem(for: owner, scope: .clientSynchronization, key: ClientSynchronizationManager.lastRecognizedEventStampKey, value: "")
         SettingManager.shared.saveItem(for: owner, scope: .clientSynchronization, key: ClientSynchronizationManager.lastCompletedSnapshotStampKey, value: "")
+        SettingManager.shared.saveItem(for: owner, scope: .clientSynchronization, key: ClientSynchronizationManager.snapshotBootstrapInProgressKey, value: false)
+        SettingManager.shared.saveItem(for: owner, scope: .clientSynchronization, key: ClientSynchronizationManager.snapshotBootstrapRequestedStampKey, value: "")
+        SettingManager.shared.saveItem(for: owner, scope: .clientSynchronization, key: ClientSynchronizationManager.snapshotBootstrapLastAfterKey, value: "")
     }
 }

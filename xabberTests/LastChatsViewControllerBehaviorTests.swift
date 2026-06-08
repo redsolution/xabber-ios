@@ -203,6 +203,18 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         XCTAssertTrue(controller.datasource.isEmpty)
     }
 
+    func testBootstrapDatasetUpdatePolicySuppressesExpensiveAnimatedWorkOnlyDuringBootstrap() {
+        XCTAssertFalse(LastChatsBootstrapDatasetUpdatePolicy.shouldAnimateDatasetMutation(requestedAnimated: true, isBootstrapActive: true))
+        XCTAssertTrue(LastChatsBootstrapDatasetUpdatePolicy.shouldAnimateDatasetMutation(requestedAnimated: true, isBootstrapActive: false))
+        XCTAssertFalse(LastChatsBootstrapDatasetUpdatePolicy.shouldAnimateDatasetMutation(requestedAnimated: false, isBootstrapActive: false))
+
+        XCTAssertTrue(LastChatsBootstrapDatasetUpdatePolicy.shouldSkipVisibleRowReconfigure(isBootstrapActive: true))
+        XCTAssertFalse(LastChatsBootstrapDatasetUpdatePolicy.shouldSkipVisibleRowReconfigure(isBootstrapActive: false))
+        XCTAssertTrue(LastChatsBootstrapDatasetUpdatePolicy.shouldCoalesceDatasetUpdate(isBootstrapActive: true, hasScheduledUpdate: false))
+        XCTAssertFalse(LastChatsBootstrapDatasetUpdatePolicy.shouldCoalesceDatasetUpdate(isBootstrapActive: false, hasScheduledUpdate: false))
+        XCTAssertFalse(LastChatsBootstrapDatasetUpdatePolicy.shouldCoalesceDatasetUpdate(isBootstrapActive: true, hasScheduledUpdate: true))
+    }
+
     private func withInterfaceType(_ interfaceType: CommonConfigManager.InterfaceType, useYubikey: Bool, block: () -> Void) {
         let previousInterfaceType = CommonConfigManager.shared.config.interface_type
         let previousUseYubikey = CommonConfigManager.shared.config.use_yubikey

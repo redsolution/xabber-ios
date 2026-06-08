@@ -51,6 +51,28 @@ public class AccountManager: NSObject {
             case dataLoaded
             case failure(String)
             case streamError(String)
+
+            var diagnosticName: String {
+                switch self {
+                case .none: return "none"
+                case .startConnection: return "startConnection"
+                case .connect: return "connect"
+                case .auth: return "auth"
+                case .capsReceived: return "capsReceived"
+                case .dataLoaded: return "dataLoaded"
+                case .failure: return "failure"
+                case .streamError: return "streamError"
+                }
+            }
+
+            var isTerminalSignInState: Bool {
+                switch self {
+                case .capsReceived, .failure, .streamError:
+                    return true
+                case .none, .startConnection, .connect, .auth, .dataLoaded:
+                    return false
+                }
+            }
         }
         
         let jid: String
@@ -457,10 +479,25 @@ public class AccountManager: NSObject {
     }
     
     func changeNewUserState(for jid: String, to state: UserObserver.State) {
-        if jid == newAccountJid {
-            if newAccountJid.isNotEmpty {
-                newAccountObservable.accept(UserObserver(jid: jid, state: state))
+        guard newAccountJid.isNotEmpty,
+              jid == newAccountJid else {
+            if newAccountJid.isNotEmpty || state.isTerminalSignInState {
+                ConnectionDiagnosticsLogger.log(
+                    event: "account_manager_new_user_state_ignored",
+                    stream: .primary,
+                    jid: jid,
+                    details: [
+                        "state": state.diagnosticName,
+                        "activeNewAccountJid": newAccountJid.isEmpty ? "none" : newAccountJid
+                    ]
+                )
             }
+            return
+        }
+
+        newAccountObservable.accept(UserObserver(jid: jid, state: state))
+        if state.isTerminalSignInState {
+            newAccountJid = ""
         }
     }
     
@@ -490,11 +527,6 @@ public class AccountManager: NSObject {
                     "count": value.count
                 ]
             )
-        }
-        if newAccountJid == jid {
-            self.find(for: jid)?.queue.asyncAfter(deadline: .now() + 2) {
-                self.newAccountJid = ""
-            }
         }
     }
 

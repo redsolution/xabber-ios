@@ -344,9 +344,11 @@ extension ChatViewController {
                         self.shouldShowScrollDownButton.accept(false)
                     } else {
                         self.updateScrollDownButtonFrame(animated: true)
+                        self.updateUnreadMentionsNavigatorFrame(animated: true)
                     }
                 } else {
                     self.updateScrollDownButtonFrame(animated: true)
+                    self.updateUnreadMentionsNavigatorFrame(animated: true)
                 }
             }
             .disposed(by: bag)
@@ -367,15 +369,14 @@ extension ChatViewController {
             .observe(on: MainScheduler.asyncInstance)
             .subscribe { value in
 //                self.showFloatingDateObserver.accept(false)
-                if self.isNearBottom() {
-                    if self.shouldShowScrollDownButton.value {
-                        self.shouldShowScrollDownButton.accept(false)
-                    }
-                } else if value > 64 {
+                let shouldShow = ChatScrollDownButtonVisibilityPolicy.shouldShow(
+                    contentOffsetY: value,
+                    isNearBottom: self.isNearBottom(),
+                    isSearchMode: self.inSearchMode.value
+                )
+                if shouldShow {
                     if !self.shouldShowScrollDownButton.value {
-                        if !self.inSearchMode.value {
-                            self.shouldShowScrollDownButton.accept(true)
-                        }
+                        self.shouldShowScrollDownButton.accept(true)
                     }
                 } else {
                     if self.shouldShowScrollDownButton.value {

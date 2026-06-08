@@ -32,12 +32,14 @@ enum PrimaryStreamReplayPolicy: Equatable {
     case durableRegularMessage(originId: String)
     case latestPresence(scope: String)
     case safeIdempotentIQ(retainedXML: String)
+    case bootstrapClientSyncIQ
+    case longRunningBackgroundIQ
 
     var retainedXMLByteCount: Int {
         switch self {
         case .safeIdempotentIQ(let retainedXML):
             return retainedXML.utf8.count
-        case .notReplayable, .durableRegularMessage, .latestPresence:
+        case .notReplayable, .durableRegularMessage, .latestPresence, .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
             return 0
         }
     }
@@ -55,10 +57,30 @@ enum PrimaryStreamReplayPolicy: Equatable {
             return 100
         case .latestPresence:
             return 20
-        case .safeIdempotentIQ:
+        case .safeIdempotentIQ, .bootstrapClientSyncIQ:
             return 10
+        case .longRunningBackgroundIQ:
+            return 5
         case .notReplayable:
             return 0
+        }
+    }
+
+    var requiresAckTimeout: Bool {
+        switch self {
+        case .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
+            return false
+        case .notReplayable, .durableRegularMessage, .latestPresence, .safeIdempotentIQ:
+            return true
+        }
+    }
+
+    var requiresOutboundHealthConfirmation: Bool {
+        switch self {
+        case .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
+            return false
+        case .notReplayable, .durableRegularMessage, .latestPresence, .safeIdempotentIQ:
+            return true
         }
     }
 
@@ -92,7 +114,199 @@ enum PrimaryStreamTrackingResult: Equatable {
 
 enum PrimaryStreamSendResult: Equatable {
     case sent(stanzaId: String)
+    case queued(stanzaId: String)
     case rejected(PrimaryStreamTrackingLimitViolation)
+}
+
+final class AccountPrimaryStreamBootstrapSendGate {
+    enum Decision: Equatable {
+        case allowed
+        case queued(stanzaId: String)
+    }
+
+    struct QueuedStanza: Equatable {
+        let stanzaId: String
+        let kind: PrimaryStreamStanzaKind
+        let replayPolicy: PrimaryStreamReplayPolicy
+        let xmlString: String
+        let queuedAt: TimeInterval
+        let queuedAge: TimeInterval
+        let stanzaType: String?
+        let childNamespace: String?
+
+        func makeElement() -> XMPPElement? {
+            guard let document = try? DDXMLDocument(xmlString: xmlString, options: 0),
+                  let root = document.rootElement() else {
+                return nil
+            }
+
+            switch root.name {
+            case "iq":
+                return XMPPIQ(from: root)
+            case "message":
+                return XMPPMessage(from: root)
+            case "presence":
+                return XMPPPresence(from: root)
+            default:
+                return nil
+            }
+        }
+    }
+
+    private struct QueuedRecord {
+        let stanzaId: String
+        let kind: PrimaryStreamStanzaKind
+        let replayPolicy: PrimaryStreamReplayPolicy
+        let xmlString: String
+        let queuedAt: TimeInterval
+        let stanzaType: String?
+        let childNamespace: String?
+    }
+
+    private let queue = DispatchQueue(label: "com.xabber.account.primary-stream-bootstrap-send-gate")
+    private let now: () -> TimeInterval
+    private var queuedRecords: [QueuedRecord] = []
+
+    init(now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.now = now
+    }
+
+    var queuedCount: Int {
+        queue.sync {
+            queuedRecords.count
+        }
+    }
+
+    static func allowsDuringBootstrap(
+        _ stanza: XMPPElement,
+        replayPolicy: PrimaryStreamReplayPolicy,
+        ownerBareJID: String? = nil
+    ) -> Bool {
+        if ClientSynchronizationManager.isClientSyncPaginationIQ(stanza) {
+            return true
+        }
+
+        if case .durableRegularMessage = replayPolicy {
+            return true
+        }
+
+        if isLoginCriticalSelfDiscoInfo(stanza, ownerBareJID: ownerBareJID) {
+            return true
+        }
+
+        if stanza.name == "iq" {
+            let type = stanza.attributeStringValue(forName: "type")?.lowercased()
+            return type == "result" || type == "error"
+        }
+
+        if stanza.name == "presence" {
+            return stanza.attributeStringValue(forName: "type")?.lowercased() == "unavailable"
+        }
+
+        return false
+    }
+
+    static func isLoginCriticalSelfDiscoInfo(_ stanza: XMPPElement, ownerBareJID: String?) -> Bool {
+        guard stanza.name == "iq",
+              stanza.attributeStringValue(forName: "type")?.lowercased() == "get",
+              let ownerBareJID = normalizedBareJID(ownerBareJID),
+              let toBareJID = normalizedBareJID(stanza.attributeStringValue(forName: "to")),
+              ownerBareJID == toBareJID,
+              let query = stanza.element(forName: "query", xmlns: "http://jabber.org/protocol/disco#info") else {
+            return false
+        }
+
+        let node = query.attributeStringValue(forName: "node")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return node?.isEmpty ?? true
+    }
+
+    func prepareForSend(
+        _ stanza: XMPPElement,
+        replayPolicy: PrimaryStreamReplayPolicy,
+        isBootstrapActive: Bool,
+        ownerBareJID: String? = nil
+    ) -> Decision {
+        guard isBootstrapActive,
+              !Self.allowsDuringBootstrap(stanza, replayPolicy: replayPolicy, ownerBareJID: ownerBareJID) else {
+            return .allowed
+        }
+
+        let stanzaId = PrimaryStreamStanzaIdentifier.ensureID(on: stanza)
+        let record = QueuedRecord(
+            stanzaId: stanzaId,
+            kind: Self.kind(for: stanza),
+            replayPolicy: replayPolicy,
+            xmlString: stanza.xmlString,
+            queuedAt: now(),
+            stanzaType: stanza.attributeStringValue(forName: "type"),
+            childNamespace: Self.childNamespace(for: stanza)
+        )
+
+        queue.sync {
+            if let latestPresenceScope = replayPolicy.latestPresenceScope {
+                queuedRecords.removeAll {
+                    $0.replayPolicy.latestPresenceScope == latestPresenceScope
+                }
+            }
+            queuedRecords.append(record)
+        }
+
+        return .queued(stanzaId: stanzaId)
+    }
+
+    func drainQueuedStanzas() -> [QueuedStanza] {
+        queue.sync {
+            let drained = queuedRecords
+            queuedRecords.removeAll()
+            let drainTime = now()
+            return drained.map { record in
+                QueuedStanza(
+                    stanzaId: record.stanzaId,
+                    kind: record.kind,
+                    replayPolicy: record.replayPolicy,
+                    xmlString: record.xmlString,
+                    queuedAt: record.queuedAt,
+                    queuedAge: max(0, drainTime - record.queuedAt),
+                    stanzaType: record.stanzaType,
+                    childNamespace: record.childNamespace
+                )
+            }
+        }
+    }
+
+    func removeAll() {
+        queue.sync {
+            queuedRecords.removeAll()
+        }
+    }
+
+    private static func kind(for stanza: XMPPElement) -> PrimaryStreamStanzaKind {
+        if stanza is XMPPIQ || stanza.name == "iq" {
+            return .iq
+        }
+        if stanza is XMPPPresence || stanza.name == "presence" {
+            return .presence
+        }
+        return .message
+    }
+
+    private static func childNamespace(for stanza: XMPPElement) -> String? {
+        stanza.children?
+            .compactMap { $0 as? DDXMLElement }
+            .first?
+            .xmlns()
+    }
+
+    private static func normalizedBareJID(_ jid: String?) -> String? {
+        guard let jid = jid?.trimmingCharacters(in: .whitespacesAndNewlines),
+              jid.isNotEmpty,
+              let bare = XMPPJID(string: jid)?.bare.lowercased(),
+              bare.isNotEmpty else {
+            return nil
+        }
+        return bare
+    }
 }
 
 enum PrimaryStreamStanzaIdentifier {
@@ -276,6 +490,13 @@ final class AccountPrimaryStreamStanzaTracker {
         }
     }
 
+    func trackedStanza(stanzaId: String?) -> PrimaryStreamTrackedStanza? {
+        guard let stanzaId else { return nil }
+        return queue.sync {
+            trackedById[stanzaId]
+        }
+    }
+
     func snapshotTrackedPrimaryStanzas() -> [PrimaryStreamTrackedStanza] {
         queue.sync {
             orderedIds.compactMap { trackedById[$0] }
@@ -343,9 +564,12 @@ final class AccountPrimaryStreamStanzaTracker {
         scheduledTimeoutKey = nil
 
         guard timeoutsSuspended == false,
-              let oldestId = orderedIds.first,
-              let oldest = trackedById[oldestId],
-              firedTimeoutGenerations.contains(oldest.generation) == false else {
+              let oldestId = orderedIds.first(where: { id in
+                  guard let tracked = trackedById[id] else { return false }
+                  return tracked.replayPolicy.requiresAckTimeout
+                      && firedTimeoutGenerations.contains(tracked.generation) == false
+              }),
+              let oldest = trackedById[oldestId] else {
             return
         }
 
@@ -360,10 +584,9 @@ final class AccountPrimaryStreamStanzaTracker {
     private func fireTimeout(for key: TimeoutKey) {
         let timedOutStanza = queue.sync { () -> PrimaryStreamTrackedStanza? in
             guard scheduledTimeoutKey == key,
-                  let oldestId = orderedIds.first,
-                  oldestId == key.stanzaId,
-                  let oldest = trackedById[oldestId],
+                  let oldest = trackedById[key.stanzaId],
                   oldest.generation == key.generation,
+                  oldest.replayPolicy.requiresAckTimeout,
                   firedTimeoutGenerations.contains(key.generation) == false else {
                 return nil
             }

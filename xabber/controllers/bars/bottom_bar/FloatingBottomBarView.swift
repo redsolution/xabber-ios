@@ -25,6 +25,7 @@ enum NativeGlassBarStyle {
     static let fallbackBlurStyle: UIBlurEffect.Style = .systemMaterial
     static let nativeGlassTintColor = UIColor.systemBackground.withAlphaComponent(0.16)
     static let iconTintColor: UIColor = .label
+    private static let detachedIconButtonGlassViewTag = 26051801
 
     static func makeEffect(
         interactive: Bool = true,
@@ -118,6 +119,78 @@ enum NativeGlassBarStyle {
         } else {
             button.configuration = nil
         }
+    }
+
+    static func applyDetachedIconButtonStyle(
+        to button: UIButton,
+        tintColor: UIColor? = nil,
+        image: UIImage? = nil,
+        forceConfigurationUpdate: Bool = true
+    ) {
+        applyIconButtonStyle(
+            to: button,
+            tintColor: tintColor ?? button.tintColor,
+            image: image,
+            forceConfigurationUpdate: forceConfigurationUpdate
+        )
+        button.layer.cornerRadius = 0
+        button.clipsToBounds = false
+
+        if #available(iOS 26.0, *) {
+            detachedIconButtonGlassEffectView(in: button)?.removeFromSuperview()
+            return
+        }
+
+        let effectView: UIVisualEffectView
+        if let existing = detachedIconButtonGlassEffectView(in: button) {
+            effectView = existing
+            effectView.effect = makeEffect(interactive: true)
+        } else {
+            effectView = UIVisualEffectView(effect: makeEffect(interactive: true))
+            effectView.tag = detachedIconButtonGlassViewTag
+            effectView.translatesAutoresizingMaskIntoConstraints = false
+            effectView.isUserInteractionEnabled = false
+            effectView.backgroundColor = .clear
+            effectView.isOpaque = false
+            button.insertSubview(effectView, at: 0)
+            NSLayoutConstraint.activate([
+                effectView.leadingAnchor.constraint(equalTo: button.leadingAnchor),
+                effectView.trailingAnchor.constraint(equalTo: button.trailingAnchor),
+                effectView.topAnchor.constraint(equalTo: button.topAnchor),
+                effectView.bottomAnchor.constraint(equalTo: button.bottomAnchor)
+            ])
+        }
+
+        effectView.clipsToBounds = true
+        effectView.layer.cornerRadius = buttonSize / 2
+        effectView.layer.cornerCurve = .continuous
+        effectView.layer.borderWidth = 0
+        effectView.layer.borderColor = nil
+        button.sendSubviewToBack(effectView)
+    }
+
+    static func setDetachedIconButtonChromeHidden(
+        _ hidden: Bool,
+        on button: UIButton
+    ) {
+        if #available(iOS 26.0, *) {
+            if hidden {
+                button.configuration = nil
+                button.backgroundColor = .clear
+            } else {
+                applyDetachedIconButtonStyle(to: button)
+            }
+        } else if let effectView = detachedIconButtonGlassEffectView(in: button) {
+            effectView.isHidden = hidden
+        } else if !hidden {
+            applyDetachedIconButtonStyle(to: button)
+        }
+    }
+
+    private static func detachedIconButtonGlassEffectView(in button: UIButton) -> UIVisualEffectView? {
+        button.subviews
+            .compactMap { $0 as? UIVisualEffectView }
+            .first { $0.tag == detachedIconButtonGlassViewTag }
     }
 }
 

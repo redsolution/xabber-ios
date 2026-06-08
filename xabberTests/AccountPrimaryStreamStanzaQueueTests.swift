@@ -1,5 +1,6 @@
 import XCTest
 import RealmSwift
+import RxCocoa
 import XMPPFramework
 @testable import xabber
 
@@ -71,6 +72,26 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
 
         harness.scheduler.advance(by: 20)
         XCTAssertEqual(harness.timeouts.map(\.stanzaId), ["message-1"])
+    }
+
+    func testBootstrapClientSyncIQDoesNotArmPrimaryStreamAckTimeout() {
+        let harness = makeTrackerHarness()
+        _ = harness.tracker.track(stanzaId: "sync-page-1", kind: .iq, replayPolicy: .bootstrapClientSyncIQ)
+
+        harness.scheduler.advance(by: 30)
+
+        XCTAssertTrue(harness.timeouts.isEmpty)
+        XCTAssertEqual(harness.tracker.snapshotTrackedPrimaryStanzas().map(\.stanzaId), ["sync-page-1"])
+    }
+
+    func testLongRunningBackgroundIQDoesNotArmPrimaryStreamAckTimeout() {
+        let harness = makeTrackerHarness()
+        _ = harness.tracker.track(stanzaId: "mam-snapshot-repair-1", kind: .iq, replayPolicy: .longRunningBackgroundIQ)
+
+        harness.scheduler.advance(by: 30)
+
+        XCTAssertTrue(harness.timeouts.isEmpty)
+        XCTAssertEqual(harness.tracker.snapshotTrackedPrimaryStanzas().map(\.stanzaId), ["mam-snapshot-repair-1"])
     }
 
     func testDidFailToSendRemovesTrackedStanzaSafely() {
@@ -179,6 +200,39 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
 
         XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1"])
         finishBackground?()
+    }
+
+    func testSchedulerDefersNonInteractiveWorkWhileBootstrapGateIsActive() {
+        var isBootstrapActive = true
+        let scheduler = AccountXMPPTaskScheduler(
+            configuration: .test(defaultCooldown: 0),
+            bootstrapGate: { isBootstrapActive }
+        )
+        let backgroundStarted = expectation(description: "background work is deferred")
+        backgroundStarted.isInverted = true
+        var backgroundStartHandler: () -> Void = {
+            backgroundStarted.fulfill()
+        }
+        scheduler.enqueue(priority: .background, resource: .mamArchive, deduplicationKey: "background") { finish in
+            backgroundStartHandler()
+            finish()
+        }
+        wait(for: [backgroundStarted], timeout: 0.1)
+
+        let interactiveStarted = expectation(description: "interactive work starts")
+        scheduler.enqueue(priority: .interactive, resource: .mamArchive, deduplicationKey: "interactive") { finish in
+            interactiveStarted.fulfill()
+            finish()
+        }
+        wait(for: [interactiveStarted], timeout: 1)
+
+        let deferredStarted = expectation(description: "deferred work starts after bootstrap")
+        backgroundStartHandler = {
+            deferredStarted.fulfill()
+        }
+        isBootstrapActive = false
+        scheduler.bootstrapGateDidChange()
+        wait(for: [deferredStarted], timeout: 1)
     }
 
     func testDurableRegularMessagePreemptsLowerPriorityTrackedStanzaWhenTrackerIsFull() {
@@ -516,6 +570,228 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         let stream = XMPPStream()
 
         XCTAssertNil(PrimaryStreamSendRouting.primaryAccount(owner: "missing@example.com", stream: stream))
+    }
+
+    func testBootstrapSendGateAllowsOnlySyncAndRequiredProtocolStanzas() {
+        let syncQuery = DDXMLElement(name: "query", xmlns: ClientSynchronizationManager.primaryNamespace)
+        let rsm = DDXMLElement(name: "set", xmlns: "http://jabber.org/protocol/rsm")
+        rsm.addChild(DDXMLElement(name: "max", stringValue: "60"))
+        syncQuery.addChild(rsm)
+        let syncIQ = XMPPIQ(iqType: .get, elementID: "sync-1", child: syncQuery)
+        let resultIQ = XMPPIQ(iqType: .result, to: XMPPJID(string: "server.example.com"), elementID: "server-request-1")
+        let vCardIQ = XMPPIQ(
+            iqType: .get,
+            to: XMPPJID(string: "romeo@example.com"),
+            elementID: "vcard-1",
+            child: DDXMLElement(name: "vCard", xmlns: "vcard-temp")
+        )
+        let userMessage = XMPPMessage(messageType: .chat, to: XMPPJID(string: "romeo@example.com"), elementID: "message-1")
+        let unavailable = XMPPPresence(type: .unavailable)
+
+        XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(syncIQ, replayPolicy: .notReplayable))
+        XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(resultIQ, replayPolicy: .notReplayable))
+        XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(userMessage, replayPolicy: .durableRegularMessage(originId: "message-1")))
+        XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(unavailable, replayPolicy: .latestPresence(scope: "account-unavailable")))
+        XCTAssertFalse(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(vCardIQ, replayPolicy: .notReplayable))
+    }
+
+    func testBootstrapSendGateAllowsLoginCriticalSelfDiscoInfoDuringBootstrap() {
+        let owner = "romeo@example.com"
+        let selfDiscoInfoIQ = XMPPIQ(
+            iqType: .get,
+            to: XMPPJID(string: owner),
+            elementID: "self-disco-info",
+            child: DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")
+        )
+
+        XCTAssertTrue(
+            AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(
+                selfDiscoInfoIQ,
+                replayPolicy: .notReplayable,
+                ownerBareJID: owner
+            )
+        )
+    }
+
+    func testBootstrapSendGateQueuesSimilarNonLoginCriticalDiscoDuringBootstrap() {
+        let owner = "romeo@example.com"
+        let selfDiscoItemsIQ = XMPPIQ(
+            iqType: .get,
+            to: XMPPJID(string: owner),
+            elementID: "self-disco-items",
+            child: DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#items")
+        )
+        let contactCapsQuery = DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")
+        contactCapsQuery.addAttribute(withName: "node", stringValue: "https://www.xabber.com#wYkv8yTMmB2SC50cZ4Awn07dcTQ=")
+        let contactCapsIQ = XMPPIQ(
+            iqType: .get,
+            to: XMPPJID(string: "juliet@example.com/xabber-ios"),
+            elementID: "contact-caps",
+            child: contactCapsQuery
+        )
+        let gate = AccountPrimaryStreamBootstrapSendGate(now: { 42 })
+
+        XCTAssertFalse(
+            AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(
+                selfDiscoItemsIQ,
+                replayPolicy: .notReplayable,
+                ownerBareJID: owner
+            )
+        )
+        XCTAssertFalse(
+            AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(
+                contactCapsIQ,
+                replayPolicy: .notReplayable,
+                ownerBareJID: owner
+            )
+        )
+        XCTAssertEqual(
+            gate.prepareForSend(
+                selfDiscoItemsIQ,
+                replayPolicy: .notReplayable,
+                isBootstrapActive: true,
+                ownerBareJID: owner
+            ),
+            .queued(stanzaId: "self-disco-items")
+        )
+        XCTAssertEqual(
+            gate.prepareForSend(
+                contactCapsIQ,
+                replayPolicy: .notReplayable,
+                isBootstrapActive: true,
+                ownerBareJID: owner
+            ),
+            .queued(stanzaId: "contact-caps")
+        )
+    }
+
+    func testBootstrapSendGateStillQueuesBackgroundIQsDuringBootstrap() {
+        let owner = "romeo@example.com"
+        let backgroundIQs = [
+            XMPPIQ(iqType: .get, elementID: "roster", child: DDXMLElement(name: "query", xmlns: "jabber:iq:roster")),
+            XMPPIQ(iqType: .set, elementID: "push", child: DDXMLElement(name: "enable", xmlns: "https://xabber.com/protocol/push")),
+            XMPPIQ(iqType: .get, to: XMPPJID(string: "juliet@example.com"), elementID: "vcard", child: DDXMLElement(name: "vCard", xmlns: "vcard-temp")),
+            XMPPIQ(iqType: .get, elementID: "mam", child: DDXMLElement(name: "query", xmlns: "urn:xmpp:mam:2")),
+            XMPPIQ(iqType: .get, elementID: "group-info", child: DDXMLElement(name: "group", xmlns: "https://xabber.com/protocol/groups")),
+            XMPPIQ(iqType: .get, elementID: "devices", child: DDXMLElement(name: "query", xmlns: "https://xabber.com/protocol/devices#items")),
+            XMPPIQ(iqType: .set, elementID: "omemo", child: DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub"))
+        ]
+
+        backgroundIQs.forEach { iq in
+            XCTAssertFalse(
+                AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(
+                    iq,
+                    replayPolicy: .notReplayable,
+                    ownerBareJID: owner
+                ),
+                iq.elementID ?? "missing-id"
+            )
+        }
+    }
+
+    func testAccountManagerKeepsNewAccountJidUntilTerminalSignInState() {
+        let manager = AccountManager.shared
+        let originalJid = manager.newAccountJid
+        let originalObserver = manager.newAccountObservable
+        manager.newAccountObservable = BehaviorRelay(value: AccountManager.UserObserver(jid: "", state: .none))
+        manager.newAccountJid = "romeo@example.com"
+        defer {
+            manager.newAccountJid = originalJid
+            manager.newAccountObservable = originalObserver
+        }
+
+        manager.changeNewUserState(for: "romeo@example.com", to: .auth)
+        XCTAssertEqual(manager.newAccountJid, "romeo@example.com")
+
+        manager.changeNewUserState(for: "romeo@example.com", to: .dataLoaded)
+        XCTAssertEqual(manager.newAccountJid, "romeo@example.com")
+
+        manager.changeNewUserState(for: "romeo@example.com", to: .capsReceived(["mam"]))
+        XCTAssertEqual(manager.newAccountJid, "")
+    }
+
+    func testAccountManagerEmitsLateCapsReceivedBeforeClearingNewAccountJid() {
+        let manager = AccountManager.shared
+        let originalJid = manager.newAccountJid
+        let originalObserver = manager.newAccountObservable
+        manager.newAccountObservable = BehaviorRelay(value: AccountManager.UserObserver(jid: "", state: .none))
+        manager.newAccountJid = "romeo@example.com"
+        defer {
+            manager.newAccountJid = originalJid
+            manager.newAccountObservable = originalObserver
+        }
+
+        manager.changeNewUserState(for: "romeo@example.com", to: .auth)
+        manager.changeNewUserState(for: "romeo@example.com", to: .dataLoaded)
+        manager.changeNewUserState(for: "romeo@example.com", to: .capsReceived(["mam", "xpush"]))
+
+        guard case .capsReceived(let caps) = manager.newAccountObservable.value.state else {
+            XCTFail("Expected capsReceived after delayed bootstrap state")
+            return
+        }
+        XCTAssertEqual(caps, ["mam", "xpush"])
+        XCTAssertEqual(manager.newAccountJid, "")
+    }
+
+    func testBootstrapSendGateQueuesBackgroundStanzasAndFlushesAfterBootstrap() throws {
+        var now: TimeInterval = 10
+        let gate = AccountPrimaryStreamBootstrapSendGate(now: { now })
+        let vCardIQ = XMPPIQ(
+            iqType: .get,
+            to: XMPPJID(string: "romeo@example.com"),
+            elementID: "vcard-1",
+            child: DDXMLElement(name: "vCard", xmlns: "vcard-temp")
+        )
+        let avatarIQ = XMPPIQ(
+            iqType: .get,
+            to: XMPPJID(string: "romeo@example.com"),
+            elementID: "avatar-1",
+            child: DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
+        )
+
+        XCTAssertEqual(
+            gate.prepareForSend(vCardIQ, replayPolicy: .notReplayable, isBootstrapActive: true),
+            .queued(stanzaId: "vcard-1")
+        )
+        now = 12
+        XCTAssertEqual(
+            gate.prepareForSend(avatarIQ, replayPolicy: .notReplayable, isBootstrapActive: true),
+            .queued(stanzaId: "avatar-1")
+        )
+        XCTAssertEqual(gate.queuedCount, 2)
+
+        let queued = gate.drainQueuedStanzas()
+
+        XCTAssertEqual(queued.map(\.stanzaId), ["vcard-1", "avatar-1"])
+        XCTAssertEqual(queued.map(\.queuedAge), [2, 0])
+        XCTAssertEqual(try XCTUnwrap(queued.first?.makeElement()).name, "iq")
+        XCTAssertEqual(gate.queuedCount, 0)
+    }
+
+    func testBootstrapSendGateCoalescesLatestPresenceByScope() {
+        var now: TimeInterval = 20
+        let gate = AccountPrimaryStreamBootstrapSendGate(now: { now })
+        let awayPresence = XMPPPresence()
+        awayPresence.addAttribute(withName: "id", stringValue: "presence-away")
+        awayPresence.addChild(DDXMLElement(name: "show", stringValue: "away"))
+        let chatPresence = XMPPPresence()
+        chatPresence.addAttribute(withName: "id", stringValue: "presence-chat")
+        chatPresence.addChild(DDXMLElement(name: "show", stringValue: "chat"))
+
+        XCTAssertEqual(
+            gate.prepareForSend(awayPresence, replayPolicy: .latestPresence(scope: "available:broadcast"), isBootstrapActive: true),
+            .queued(stanzaId: "presence-away")
+        )
+        now = 21
+        XCTAssertEqual(
+            gate.prepareForSend(chatPresence, replayPolicy: .latestPresence(scope: "available:broadcast"), isBootstrapActive: true),
+            .queued(stanzaId: "presence-chat")
+        )
+
+        let queued = gate.drainQueuedStanzas()
+
+        XCTAssertEqual(queued.map(\.stanzaId), ["presence-chat"])
+        XCTAssertEqual(queued.first?.queuedAge, 0)
     }
 
     private func makeTrackerHarness(

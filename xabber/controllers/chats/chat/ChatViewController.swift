@@ -102,6 +102,81 @@ struct ChatOpenMessageRequest: Equatable {
     }
 }
 
+enum ChatScrollDownButtonVisibilityPolicy {
+    static let contentOffsetThreshold: CGFloat = 44
+
+    static func shouldShow(
+        contentOffsetY: CGFloat,
+        isNearBottom: Bool,
+        isSearchMode: Bool
+    ) -> Bool {
+        contentOffsetY > contentOffsetThreshold && !isNearBottom && !isSearchMode
+    }
+}
+
+enum ChatScrollDownTargetPolicy {
+    enum Target: Equatable {
+        case unreadBoundary(String)
+        case latest
+    }
+
+    struct ChatState: Equatable {
+        let unread: Int
+        let syncUnreadAfterId: String?
+        let lastReadId: String?
+    }
+
+    struct VisibleMessage {
+        let archivedId: String?
+        let rowKind: ChatVisiblePositionPolicy.RowKind
+        let isFakeMessage: Bool
+    }
+
+    static func target(
+        chat: ChatState,
+        visibleMessages: [VisibleMessage]
+    ) -> Target {
+        guard chat.unread > 0,
+              let boundaryId = normalizedPositiveNumericBoundary(chat.syncUnreadAfterId)
+                ?? normalizedPositiveNumericBoundary(chat.lastReadId),
+              let boundaryValue = Double(boundaryId) else {
+            return .latest
+        }
+
+        let realVisibleMessages = visibleMessages.filter {
+            $0.rowKind == .message && !$0.isFakeMessage
+        }
+        guard realVisibleMessages.isNotEmpty else {
+            return .unreadBoundary(boundaryId)
+        }
+
+        var maxVisibleValue: Double?
+        for message in realVisibleMessages {
+            guard let archivedId = message.archivedId,
+                  let visibleValue = Double(archivedId),
+                  visibleValue.isFinite else {
+                return .latest
+            }
+            maxVisibleValue = max(maxVisibleValue ?? visibleValue, visibleValue)
+        }
+
+        guard let maxVisibleValue else {
+            return .unreadBoundary(boundaryId)
+        }
+        return boundaryValue > maxVisibleValue ? .unreadBoundary(boundaryId) : .latest
+    }
+
+    private static func normalizedPositiveNumericBoundary(_ value: String?) -> String? {
+        guard let normalized = ChatInitialPositionPolicy.normalizedId(value),
+              let numericValue = Double(normalized),
+              numericValue.isFinite,
+              numericValue > 0 else {
+            return nil
+        }
+        return normalized
+    }
+}
+
 struct ChatSavedVisiblePosition: Equatable {
     let messagePrimary: String?
     let archivedId: String?
@@ -1745,8 +1820,8 @@ class ChatViewController: MessagesViewController {
     internal enum FloatingControlsLayoutPolicy {
         static let trailingInset: CGFloat = 4
         static let bottomInset: CGFloat = 14
-        static let verticalSpacing: CGFloat = 8
-        static let scrollButtonSize: CGFloat = 38
+        static let verticalSpacing: CGFloat = NativeGlassBarStyle.interItemSpacing
+        static let scrollButtonSize: CGFloat = NativeGlassBarStyle.buttonSize
 
         static func lowerSlotY(
             viewHeight: CGFloat,
@@ -1756,13 +1831,6 @@ class ChatViewController: MessagesViewController {
             viewHeight - controlHeight - bottomInset - inputHeight
         }
 
-        static func upperSlotY(
-            lowerSlotY: CGFloat,
-            controlHeight: CGFloat
-        ) -> CGFloat {
-            lowerSlotY - verticalSpacing - controlHeight
-        }
-
         static func trailingX(
             viewWidth: CGFloat,
             controlWidth: CGFloat
@@ -1770,14 +1838,35 @@ class ChatViewController: MessagesViewController {
             viewWidth - controlWidth - trailingInset
         }
 
-        static func scrollButtonOriginY(
-            viewHeight: CGFloat,
-            inputHeight: CGFloat
-        ) -> CGFloat {
-            lowerSlotY(
-                viewHeight: viewHeight,
-                controlHeight: scrollButtonSize,
-                inputHeight: inputHeight
+        static func scrollButtonVisibleFrame(sendButtonFrame: CGRect) -> CGRect? {
+            guard isValidSendButtonFrame(sendButtonFrame) else {
+                return nil
+            }
+            let size = CGSize(square: scrollButtonSize)
+            return CGRect(
+                origin: CGPoint(
+                    x: sendButtonFrame.midX - scrollButtonSize / 2,
+                    y: sendButtonFrame.minY - verticalSpacing - scrollButtonSize
+                ),
+                size: size
+            )
+        }
+
+        static func scrollButtonHiddenFrame(
+            sendButtonFrame: CGRect,
+            viewHeight: CGFloat
+        ) -> CGRect? {
+            guard let visibleFrame = scrollButtonVisibleFrame(sendButtonFrame: sendButtonFrame),
+                  viewHeight.isFinite,
+                  viewHeight > 0 else {
+                return nil
+            }
+            return CGRect(
+                origin: CGPoint(
+                    x: visibleFrame.minX,
+                    y: viewHeight + scrollButtonSize + 24
+                ),
+                size: visibleFrame.size
             )
         }
 
@@ -1785,6 +1874,7 @@ class ChatViewController: MessagesViewController {
             viewHeight: CGFloat,
             mentionHeight: CGFloat,
             inputHeight: CGFloat,
+            scrollButtonFrame: CGRect?,
             showsScrollDownButton: Bool
         ) -> CGFloat {
             let lowerSlot = lowerSlotY(
@@ -1792,10 +1882,19 @@ class ChatViewController: MessagesViewController {
                 controlHeight: mentionHeight,
                 inputHeight: inputHeight
             )
-            guard showsScrollDownButton else {
+            guard showsScrollDownButton, let scrollButtonFrame else {
                 return lowerSlot
             }
-            return upperSlotY(lowerSlotY: lowerSlot, controlHeight: mentionHeight)
+            return scrollButtonFrame.minY - verticalSpacing - mentionHeight
+        }
+
+        private static func isValidSendButtonFrame(_ frame: CGRect) -> Bool {
+            frame.width > 0 &&
+            frame.height > 0 &&
+            frame.origin.x.isFinite &&
+            frame.origin.y.isFinite &&
+            frame.width.isFinite &&
+            frame.height.isFinite
         }
     }
 
@@ -1811,14 +1910,10 @@ class ChatViewController: MessagesViewController {
     }
     
     internal let scrollDownButton: UIButton = {
-        let button = UIButton(frame: CGRect(square: 38))
-        
-        button.layer.cornerRadius = 19
-        button.layer.masksToBounds = true
-        
-        button.backgroundColor = .systemGroupedBackground
-        
-        button.setImage(imageLiteral("chevron.down"), for: .normal)
+        let button = UIButton(frame: CGRect(square: NativeGlassBarStyle.buttonSize))
+        button.setImage(imageLiteral("chevron.down", dimension: NativeGlassBarStyle.iconSize), for: .normal)
+        button.tintColor = .secondaryLabel
+        NativeGlassBarStyle.applyDetachedIconButtonStyle(to: button)
         button.isHidden = true
         button.isUserInteractionEnabled = false
         
@@ -1906,7 +2001,27 @@ class ChatViewController: MessagesViewController {
     
     @objc
     internal func onScrollDownChatButtonTouchUpInside(_ sender: UIButton) {
-        self.scrollToLastOrUnreadItem()
+        self.requestScrollDownButtonHide(animated: true)
+
+        switch self.scrollDownButtonTarget() {
+        case .unreadBoundary(let boundaryId):
+            let request = self.makeScrollDownUnreadBoundaryRequest(boundaryId: boundaryId)
+            self.queueOpenMessageRequest(
+                request,
+                hooks: ChatAnchorExecutionHooks(
+                    direction: .down,
+                    animatedScroll: true,
+                    onFailed: { [weak self] in
+                        self?.scrollToLatestFromScrollDownButton(animated: true)
+                    },
+                    onPositioned: { [weak self] in
+                        self?.requestScrollDownButtonHide(animated: true)
+                    }
+                )
+            )
+        case .latest:
+            self.scrollToLatestFromScrollDownButton(animated: true)
+        }
     }
 
     internal func suppressScrollDownButtonVisibilityAfterAppearance() {
@@ -1945,33 +2060,42 @@ class ChatViewController: MessagesViewController {
         return inputHeight
     }
 
-    internal func scrollDownButtonVisibleFrame() -> CGRect {
-        let inputHeight = self.floatingControlsInputHeight()
-        return CGRect(
-            origin: CGPoint(
-                x: FloatingControlsLayoutPolicy.trailingX(
-                    viewWidth: self.view.frame.width,
-                    controlWidth: FloatingControlsLayoutPolicy.scrollButtonSize
-                ),
-                y: FloatingControlsLayoutPolicy.scrollButtonOriginY(
-                    viewHeight: self.view.frame.height,
-                    inputHeight: inputHeight
-                )
-            ),
-            size: CGSize(square: FloatingControlsLayoutPolicy.scrollButtonSize)
+    internal func updateScrollDownButtonAppearance() {
+        let image = imageLiteral("chevron.down", dimension: NativeGlassBarStyle.iconSize)
+        NativeGlassBarStyle.applyDetachedIconButtonStyle(
+            to: self.scrollDownButton,
+            tintColor: self.accountPallete.tint600,
+            image: image
         )
     }
 
-    internal func scrollDownButtonHiddenFrame() -> CGRect {
-        CGRect(
-            origin: CGPoint(
-                x: FloatingControlsLayoutPolicy.trailingX(
-                    viewWidth: self.view.frame.width,
-                    controlWidth: FloatingControlsLayoutPolicy.scrollButtonSize
-                ),
-                y: self.view.frame.height + FloatingControlsLayoutPolicy.scrollButtonSize + 24
-            ),
-            size: CGSize(square: FloatingControlsLayoutPolicy.scrollButtonSize)
+    internal func scrollDownButtonSendButtonFrameInView() -> CGRect? {
+        guard self.isViewLoaded,
+              let xabberInputView = self.xabberInputView,
+              xabberInputView.superview != nil,
+              xabberInputView.sendButton.superview != nil else {
+            return nil
+        }
+
+        xabberInputView.layoutIfNeeded()
+        let frame = xabberInputView.sendButton.convert(xabberInputView.sendButton.bounds, to: self.view)
+        return FloatingControlsLayoutPolicy.scrollButtonVisibleFrame(sendButtonFrame: frame) == nil ? nil : frame
+    }
+
+    internal func scrollDownButtonVisibleFrame() -> CGRect? {
+        guard let sendButtonFrame = self.scrollDownButtonSendButtonFrameInView() else {
+            return nil
+        }
+        return FloatingControlsLayoutPolicy.scrollButtonVisibleFrame(sendButtonFrame: sendButtonFrame)
+    }
+
+    internal func scrollDownButtonHiddenFrame() -> CGRect? {
+        guard let sendButtonFrame = self.scrollDownButtonSendButtonFrameInView() else {
+            return nil
+        }
+        return FloatingControlsLayoutPolicy.scrollButtonHiddenFrame(
+            sendButtonFrame: sendButtonFrame,
+            viewHeight: self.view.frame.height
         )
     }
 
@@ -1992,7 +2116,15 @@ class ChatViewController: MessagesViewController {
             return
         }
 
-        let frame = shouldShowButton ? self.scrollDownButtonVisibleFrame() : self.scrollDownButtonHiddenFrame()
+        guard let visibleFrame = self.scrollDownButtonVisibleFrame(),
+              let hiddenFrame = self.scrollDownButtonHiddenFrame() else {
+            self.hasPositionedScrollDownButton = false
+            self.scrollDownButton.isHidden = true
+            self.scrollDownButton.isUserInteractionEnabled = false
+            return
+        }
+
+        let frame = shouldShowButton ? visibleFrame : hiddenFrame
         let shouldAnimate = animated && self.hasPositionedScrollDownButton && !isVisibilitySuppressed
         let updates = {
             self.scrollDownButton.frame = frame
@@ -2014,13 +2146,127 @@ class ChatViewController: MessagesViewController {
         }
     }
 
+    internal func requestScrollDownButtonHide(animated: Bool) {
+        if self.shouldShowScrollDownButton.value {
+            self.shouldShowScrollDownButton.accept(false)
+        } else {
+            self.updateScrollDownButtonFrame(animated: animated)
+        }
+    }
+
+    internal func scrollDownButtonTarget() -> ChatScrollDownTargetPolicy.Target {
+        ChatScrollDownTargetPolicy.target(
+            chat: self.scrollDownButtonChatState(),
+            visibleMessages: self.scrollDownButtonVisibleMessages()
+        )
+    }
+
+    internal func scrollDownButtonChatState() -> ChatScrollDownTargetPolicy.ChatState {
+        do {
+            let realm = try WRealm.safe()
+            let primary = LastChatsStorageItem.genPrimary(
+                jid: self.jid,
+                owner: self.owner,
+                conversationType: self.conversationType
+            )
+            guard let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary) else {
+                return ChatScrollDownTargetPolicy.ChatState(
+                    unread: 0,
+                    syncUnreadAfterId: nil,
+                    lastReadId: nil
+                )
+            }
+            return ChatScrollDownTargetPolicy.ChatState(
+                unread: chat.unread,
+                syncUnreadAfterId: chat.syncUnreadAfterId,
+                lastReadId: chat.lastReadId
+            )
+        } catch {
+            DDLogDebug("ChatViewController.scrollDownButtonChatState: \(error.localizedDescription)")
+            return ChatScrollDownTargetPolicy.ChatState(
+                unread: 0,
+                syncUnreadAfterId: nil,
+                lastReadId: nil
+            )
+        }
+    }
+
+    internal func scrollDownButtonVisibleMessages() -> [ChatScrollDownTargetPolicy.VisibleMessage] {
+        self.messagesCollectionView.indexPathsForVisibleItems
+            .sorted {
+                if $0.section != $1.section {
+                    return $0.section < $1.section
+                }
+                return $0.item < $1.item
+            }
+            .compactMap { indexPath in
+                guard self.datasource.indices.contains(indexPath.section) else {
+                    return nil
+                }
+                let item = self.datasource[indexPath.section]
+                return ChatScrollDownTargetPolicy.VisibleMessage(
+                    archivedId: item.archivedId,
+                    rowKind: ChatVisiblePositionPolicy.rowKind(for: item.kind),
+                    isFakeMessage: item.isFakeMessage
+                )
+            }
+    }
+
+    internal func makeScrollDownUnreadBoundaryRequest(boundaryId: String) -> ChatOpenMessageRequest {
+        ChatOpenMessageRequest(
+            chatJid: self.jid,
+            owner: self.owner,
+            conversationType: self.conversationType,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: boundaryId,
+                messageId: nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: ChatInitialPositionPolicy.archiveDate(from: boundaryId) ?? Date()
+            ),
+            highlight: false,
+            markReadOnVisible: false,
+            source: .initialUnreadBoundary,
+            targetResolution: .firstIncomingAfterBoundary(boundaryId)
+        )
+    }
+
+    internal func scrollToLatestFromScrollDownButton(animated: Bool) {
+        self.mapAndApplyTimelineLatest(
+            mode: .windowReload(),
+            animated: false,
+            invalidateLayout: true,
+            completion: { [weak self] in
+                guard let self else {
+                    return
+                }
+                if self.datasource.isNotEmpty {
+                    self.scrollToBottom(animated: animated)
+                    self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: animated)
+                }
+                self.setFloatingDateVisible(true)
+            },
+            cancelledCompletion: { [weak self] in
+                guard let self, self.datasource.isNotEmpty else {
+                    return
+                }
+                self.scrollToBottom(animated: animated)
+                self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: animated)
+            }
+        )
+    }
+
     internal func unreadMentionsNavigatorVisibleFrame() -> CGRect {
         let inputHeight = self.floatingControlsInputHeight()
         let size = self.unreadMentionsNavigatorView.preferredSize
-        let showsScrollDownButton = ChatUnreadMentionFloatingControlPolicy.shouldShowScrollDownButton(
+        let requestedShowsScrollDownButton = ChatUnreadMentionFloatingControlPolicy.shouldShowScrollDownButton(
             requested: self.shouldShowScrollDownButton.value,
             navigatorVisible: self.shouldShowUnreadMentionsNavigator.value
         )
+        let showsScrollDownButton = requestedShowsScrollDownButton &&
+            !ScrollDownButtonStartupVisibilityPolicy.isSuppressed(until: self.scrollDownButtonVisibilitySuppressedUntil)
+        let scrollButtonFrame = showsScrollDownButton ? self.scrollDownButtonVisibleFrame() : nil
         return CGRect(
             origin: CGPoint(
                 x: FloatingControlsLayoutPolicy.trailingX(
@@ -2031,6 +2277,7 @@ class ChatViewController: MessagesViewController {
                     viewHeight: self.view.frame.height,
                     mentionHeight: size.height,
                     inputHeight: inputHeight,
+                    scrollButtonFrame: scrollButtonFrame,
                     showsScrollDownButton: showsScrollDownButton
                 )
             ),
@@ -2499,6 +2746,7 @@ class ChatViewController: MessagesViewController {
         self.view.addSubview(self.dateListContainerView)
         
         messagesCollectionView.accountPalette = accountPallete
+        self.updateScrollDownButtonAppearance()
         
         var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
