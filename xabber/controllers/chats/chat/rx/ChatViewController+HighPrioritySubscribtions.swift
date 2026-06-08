@@ -74,23 +74,34 @@ extension ChatViewController {
                         self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
                     }
                 )
+                let searchQueryId = "MAM search: \(NanoID.new(8))"
+                self.currentSearchQueryId = searchQueryId
                 XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                    self.currentSearchQueryId = session.mam?.searchText(
+                    let queryId = session.mam?.searchText(
                         stream,
                         jid: self.jid,
                         conversationType: self.conversationType,
                         text: value,
+                        queryId: searchQueryId,
                         requestCallbacks: requestCallbacks
                     )
+                    if let queryId {
+                        self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
+                    }
                 } fail: {
-                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                        self.currentSearchQueryId = user.mam.searchText(
+                    guard let account = AccountManager.shared.find(for: self.owner) else {
+                        return
+                    }
+                    account.action({ user, stream in
+                        let queryId = user.mam.searchText(
                             stream,
                             jid: self.jid,
                             conversationType: self.conversationType,
                             text: value,
+                            queryId: searchQueryId,
                             requestCallbacks: requestCallbacks
                         )
+                        self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
                     })
                 }
             } else {
@@ -127,6 +138,8 @@ extension ChatViewController {
                 self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
             }
         )
+        let bootstrapQueryId = "MAM bootstrap history: \(NanoID.new(6))"
+        self.registerRemoteHistoryEndPageDispatcher(queryId: bootstrapQueryId)
 
         XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
             let result = session.mam?.syncChat(
@@ -134,20 +147,36 @@ extension ChatViewController {
                 jid: self.jid,
                 conversationType: self.conversationType,
                 pageSize: self.datasourcePageSize,
+                queryId: bootstrapQueryId,
                 callback: nil,
                 requestCallbacks: bootstrapRequestCallbacks
             ) ?? .noop
+            if case .bootstrapStarted(let queryId) = result {
+                self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
+            } else {
+                self.unregisterRemoteHistoryEndPageDispatcher(queryId: bootstrapQueryId)
+            }
             self.handleSyncChatStartResult(result)
         } fail: {
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            guard let account = AccountManager.shared.find(for: self.owner) else {
+                self.unregisterRemoteHistoryEndPageDispatcher(queryId: bootstrapQueryId)
+                return
+            }
+            account.action({ user, stream in
                 let result = user.mam.syncChat(
                     stream,
                     jid: self.jid,
                     conversationType: self.conversationType,
                     pageSize: self.datasourcePageSize,
+                    queryId: bootstrapQueryId,
                     callback: nil,
                     requestCallbacks: bootstrapRequestCallbacks
                 )
+                if case .bootstrapStarted(let queryId) = result {
+                    self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
+                } else {
+                    self.unregisterRemoteHistoryEndPageDispatcher(queryId: bootstrapQueryId)
+                }
                 self.handleSyncChatStartResult(result)
             })
         }

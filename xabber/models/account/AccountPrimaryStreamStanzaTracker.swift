@@ -48,6 +48,26 @@ enum PrimaryStreamReplayPolicy: Equatable {
         }
         return nil
     }
+
+    fileprivate var trackingPriority: Int {
+        switch self {
+        case .durableRegularMessage:
+            return 100
+        case .latestPresence:
+            return 20
+        case .safeIdempotentIQ:
+            return 10
+        case .notReplayable:
+            return 0
+        }
+    }
+
+    fileprivate var isUserCritical: Bool {
+        if case .durableRegularMessage = self {
+            return true
+        }
+        return false
+    }
 }
 
 struct PrimaryStreamTrackedStanza: Equatable {
@@ -156,8 +176,17 @@ final class AccountPrimaryStreamStanzaTracker {
             }
 
             let retainedXMLByteCount = replayPolicy.retainedXMLByteCount
+            if orderedIds.count >= configuration.maxTrackedCount {
+                removeLowerPriorityTrackedStanzaLocked(for: replayPolicy)
+            }
             guard orderedIds.count < configuration.maxTrackedCount else {
                 return .rejected(.countLimit(max: configuration.maxTrackedCount))
+            }
+            if retainedXMLBytes + retainedXMLByteCount > configuration.maxRetainedXMLBytes {
+                removeLowerPriorityTrackedStanzasForRetainedBytesLocked(
+                    incomingPolicy: replayPolicy,
+                    incomingRetainedXMLByteCount: retainedXMLByteCount
+                )
             }
             guard retainedXMLBytes + retainedXMLByteCount <= configuration.maxRetainedXMLBytes else {
                 return .rejected(
@@ -250,6 +279,33 @@ final class AccountPrimaryStreamStanzaTracker {
     func snapshotTrackedPrimaryStanzas() -> [PrimaryStreamTrackedStanza] {
         queue.sync {
             orderedIds.compactMap { trackedById[$0] }
+        }
+    }
+
+    private func removeLowerPriorityTrackedStanzaLocked(for incomingPolicy: PrimaryStreamReplayPolicy) {
+        guard incomingPolicy.isUserCritical else { return }
+        guard let candidateId = orderedIds.first(where: { id in
+            guard let tracked = trackedById[id] else { return false }
+            return tracked.replayPolicy.trackingPriority < incomingPolicy.trackingPriority
+        }) else {
+            return
+        }
+        _ = removeLocked(id: candidateId)
+    }
+
+    private func removeLowerPriorityTrackedStanzasForRetainedBytesLocked(
+        incomingPolicy: PrimaryStreamReplayPolicy,
+        incomingRetainedXMLByteCount: Int
+    ) {
+        guard incomingPolicy.isUserCritical else { return }
+        while retainedXMLBytes + incomingRetainedXMLByteCount > configuration.maxRetainedXMLBytes {
+            guard let candidateId = orderedIds.first(where: { id in
+                guard let tracked = trackedById[id] else { return false }
+                return tracked.replayPolicy.trackingPriority < incomingPolicy.trackingPriority
+            }) else {
+                return
+            }
+            _ = removeLocked(id: candidateId)
         }
     }
 

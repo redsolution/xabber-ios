@@ -25,8 +25,178 @@ import Kingfisher
 import AVFoundation
 import CryptoSwift
 
+protocol MessageReferenceVideoPreviewScheduling: AnyObject {
+    func schedule(referencePrimary: String)
+}
+
+final class MessageReferenceVideoPreviewWorker: MessageReferenceVideoPreviewScheduling {
+    static let shared = MessageReferenceVideoPreviewWorker()
+
+    private let queue = DispatchQueue(
+        label: "com.xabber.message-reference.video-preview",
+        qos: .utility
+    )
+    private let lock = NSLock()
+    private var inFlightPrimaryKeys: Set<String> = []
+    private let timeout: TimeInterval
+
+    init(timeout: TimeInterval = 2) {
+        self.timeout = max(timeout, 0.1)
+    }
+
+    func schedule(referencePrimary: String) {
+        guard referencePrimary.isNotEmpty else { return }
+        lock.lock()
+        guard inFlightPrimaryKeys.insert(referencePrimary).inserted else {
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+
+        queue.async { [weak self] in
+            guard let self else { return }
+            defer {
+                self.lock.lock()
+                self.inFlightPrimaryKeys.remove(referencePrimary)
+                self.lock.unlock()
+            }
+            self.preparePreview(referencePrimary: referencePrimary)
+        }
+    }
+
+    private func preparePreview(referencePrimary: String) {
+        autoreleasepool {
+            do {
+                let realm = try WRealm.safe()
+                guard let reference = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary),
+                      reference.isVideoPreviewCandidate,
+                      let request = VideoPreviewRequest(reference: reference) else {
+                    return
+                }
+                guard !ImageCache.default.isCached(forKey: request.key) else {
+                    return
+                }
+                guard let result = Self.generatePreview(
+                    url: request.fileURL,
+                    key: request.key,
+                    orientation: request.orientation,
+                    timeout: timeout
+                ) else {
+                    return
+                }
+                guard let current = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary) else {
+                    return
+                }
+                try realm.write {
+                    current.videoPreviewKey = request.key
+                    if let duration = result.videoDuration {
+                        current.video_duration = duration
+                    }
+                }
+            } catch {
+                DDLogDebug("MessageReferenceVideoPreviewWorker: \(#function). \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private struct VideoPreviewRequest {
+        let fileURL: URL
+        let key: String
+        let orientation: UIImage.Orientation
+
+        init?(reference: MessageReferenceStorageItem) {
+            guard let fileURL = reference.videoPreviewFileURL else {
+                ChatArchiveDebugTrace.log("messageReferenceVideoPreviewSkipped", [
+                    ("referencePrimary", reference.primary),
+                    ("reason", "no-local-file"),
+                    ("mimeType", reference.mimeType)
+                ])
+                return nil
+            }
+            self.fileURL = fileURL
+            if let existingKey = reference.videoPreviewKey {
+                self.key = existingKey
+            } else {
+                let stableURL = reference.downloadUrl?.absoluteString ?? fileURL.absoluteString
+                self.key = [reference.jid, reference.owner, stableURL].prp()
+            }
+            self.orientation = reference.videoPreviewImageOrientation
+        }
+    }
+
+    static func generatePreview(
+        url: URL,
+        key: String,
+        orientation: UIImage.Orientation,
+        timeout: TimeInterval
+    ) -> (width: CGFloat?, height: CGFloat?, videoDuration: String?, image: UIImage?)? {
+        guard url.isFileURL else { return nil }
+        let boundedTimeout = max(timeout, 0.1)
+        let asset = AVAsset(url: url)
+        let durationKey = "duration"
+        let durationSemaphore = DispatchSemaphore(value: 0)
+        asset.loadValuesAsynchronously(forKeys: [durationKey]) {
+            durationSemaphore.signal()
+        }
+        guard durationSemaphore.wait(timeout: dispatchTimeout(after: boundedTimeout)) == .success else {
+            return nil
+        }
+
+        var durationError: NSError?
+        guard asset.statusOfValue(forKey: durationKey, error: &durationError) == .loaded else {
+            return nil
+        }
+        let duration = asset.duration
+        guard duration.isValid, duration.timescale > 0 else {
+            return nil
+        }
+
+        let generator = AVAssetImageGenerator(asset: asset)
+        let imageSemaphore = DispatchSemaphore(value: 0)
+        let imageLock = NSLock()
+        var generatedImage: UIImage?
+        let frameTime = CMTime(value: min(max(duration.value, 1), Int64(duration.timescale)), timescale: duration.timescale)
+        generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: frameTime)]) { _, cgImage, _, result, _ in
+            if result == .succeeded, let cgImage {
+                imageLock.lock()
+                generatedImage = UIImage(cgImage: cgImage, scale: 1.0, orientation: orientation)
+                imageLock.unlock()
+            }
+            imageSemaphore.signal()
+        }
+        guard imageSemaphore.wait(timeout: dispatchTimeout(after: boundedTimeout)) == .success else {
+            generator.cancelAllCGImageGeneration()
+            return nil
+        }
+
+        imageLock.lock()
+        let image = generatedImage
+        imageLock.unlock()
+        guard let image else {
+            return nil
+        }
+        ImageCache.default.store(image, forKey: key)
+
+        let time = CMTimeGetSeconds(duration)
+        let seconds = time.truncatingRemainder(dividingBy: 60)
+        let minutes = floor(time / 60)
+
+        return (
+            width: image.size.width,
+            height: image.size.height,
+            videoDuration: String(format: "%.0f:%02.0f", minutes, seconds),
+            image: image
+        )
+    }
+
+    private static func dispatchTimeout(after timeout: TimeInterval) -> DispatchTime {
+        .now() + .milliseconds(Int(max(timeout, 0.1) * 1000))
+    }
+}
+
 
 class MessageReferenceStorageItem: Object {
+    static var videoPreviewScheduler: MessageReferenceVideoPreviewScheduling = MessageReferenceVideoPreviewWorker.shared
     
     enum Kind: String {
         case media = "media"
@@ -221,6 +391,43 @@ class MessageReferenceStorageItem: Object {
         }
         set {
             self.metadata?["duration"] = newValue
+        }
+    }
+
+    var isVideoPreviewCandidate: Bool {
+        guard kind == .media else { return false }
+        if mimeType == "video" || mimeType.hasPrefix("video/") {
+            return true
+        }
+        return metadata?["media-type"] as? String == "video"
+    }
+
+    var videoPreviewFileURL: URL? {
+        if let localFileUrl, localFileUrl.isFileURL {
+            return localFileUrl
+        }
+        if let downloadUrl, downloadUrl.isFileURL {
+            return downloadUrl
+        }
+        return nil
+    }
+
+    var videoPreviewImageOrientation: UIImage.Orientation {
+        guard let videoOrientation else {
+            return .up
+        }
+        let orientation = Orientations(rawValue: videoOrientation) ?? .unknown
+        switch orientation {
+        case .portrait:
+            return .right
+        case .portraitUpsideDown:
+            return .left
+        case .landscapeRight:
+            return .up
+        case .landscapeLeft:
+            return .down
+        default:
+            return .up
         }
     }
     
@@ -469,145 +676,29 @@ class MessageReferenceStorageItem: Object {
 //                }
 //            }
             case .media:
-                if mimeType == "video" {
-                    
-                    if CommonConfigManager.shared.config.use_file_enryption_by_default {
-                        let primary = self.primary
-                        do {
-                            let realm = try WRealm.safe()
-                            try realm.write {
-                                realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primary)?.isDownloading = true
-                            }
-                        } catch {
-                            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-                        }
-                        do {
-                            guard let url = self.downloadUrl else { return }
-                            let encryptedData = try Data(contentsOf: url)
-                            guard let keyb64 = self.metadata?["encryption-key"] as? String,
-                                  let ivb64 =  self.metadata?["iv"] as? String else { return }
-                            let encryptionKeyRaw = Array<UInt8>(base64: keyb64)
-                            let ivRaw = Array<UInt8>(base64: ivb64)
-                            let gcm = GCM(iv: ivRaw, mode: .combined)
-                            let aes = try AES(key: encryptionKeyRaw, blockMode: gcm, padding: .noPadding)
-                            let decrypted = try aes.decrypt(Array(encryptedData))
-                            let data = Data(decrypted)
-                            var path = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-                            path?.appendPathComponent(url.lastPathComponent)
-                            guard let resultFilePath = path else { return }
-                            try data.write(to: resultFilePath, options: Data.WritingOptions.completeFileProtection)
-                            let primary = self.primary
-                                
-                            let realm = try WRealm.safe()
-                            let instance = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primary)
-                            try realm.write {
-                                instance?.isDownloaded = true
-                                instance?.localFileUrl = resultFilePath
-                            }
-                            
-                            guard let key = self.videoPreviewKey else {
-                                guard let url = self.downloadUrl?.absoluteString else { return }
-                                let key = [self.jid, self.owner, url].prp()
-                                let result = self.extractFrameFromVideo(forKey: key)
-                                do {
-                                    let realm = try WRealm.safe()
-                                    let primary = self.primary
-                                    let instance = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primary)
-                                    try realm.write {
-                                        instance?.isDownloaded = true
-                                        instance?.videoPreviewKey = key
-                                        instance?.video_duration = result.video_duration ?? ""
-                                    }
-                                    
-                                } catch {
-                                    DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-                                }
-                                
-                                
-                                return
-                            }
-                            _ = self.extractFrameFromVideo(forKey: key)
-                            
-                        } catch {
-                            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-                        }
-                    } else {
-                        guard let key = videoPreviewKey else {
-                            guard let url = downloadUrl?.absoluteString else { return }
-                            let key = [jid, owner, url].prp()
-                            let result = extractFrameFromVideo(forKey: key)
-                            do {
-                                let realm = try WRealm.safe()
-                                let instances = realm
-                                    .objects(MessageReferenceStorageItem.self)
-                                    .filter("messageId == %@ AND jid == %@ AND metadata_ == %@", messageId, jid, metadata_)
-                                try realm.write {
-                                    for instance in instances {
-                                        instance.isDownloaded = true
-                                        instance.videoPreviewKey = key
-                                        instance.video_duration = result.video_duration ?? ""
-                                    }
-                                }
-                                
-                            } catch {
-                                DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-                            }
-                            
-                            
-                            return
-                        }
-                        _ = extractFrameFromVideo(forKey: key)
-                    }
-                    
+                if isVideoPreviewCandidate {
+                    Self.videoPreviewScheduler.schedule(referencePrimary: primary)
                 }
             default: break
         }
     }
     
     func extractFrameFromVideo(forKey key: String) -> (width: CGFloat?, height: CGFloat?, video_duration: String?, image: UIImage?){
-        if !ImageCache.default.isCached(forKey: key) {
-            var orientationImage: UIImage.Orientation = .up
-            if videoOrientation != nil {
-                let orientation = Orientations(rawValue: videoOrientation ?? "unknown") ?? .unknown
-                switch orientation {
-                case .portrait:
-                    orientationImage = .right
-                case .portraitUpsideDown:
-                    orientationImage = .left
-                case .landscapeRight:
-                    orientationImage = .up
-                case .landscapeLeft:
-                    orientationImage = .down
-                default: break
-                }
-            }
-            
-            guard let url = self.localFileUrl ?? downloadUrl else { return (nil, nil, nil, nil) }
-            let asset = AVAsset(url: url)
-            let timeForFrame = CMTime(value: 1,
-                                      timescale: asset.duration.timescale)
-            
-            let generator = AVAssetImageGenerator.init(asset: asset)
-            let cgImage: CGImage
-            
-            do {
-                cgImage = try generator.copyCGImage(at: timeForFrame, actualTime: nil)
-            } catch {
-                DDLogDebug("MessagereferenceStorageItem: \(#function). \(error.localizedDescription)")
-                return (nil, nil, nil, nil)
-            }
-            let image = UIImage(cgImage: cgImage, scale: 1.0, orientation: orientationImage)//.rotate(radians: rotation)
-            ImageCache.default.store(image, forKey: key)
-            
-            let time = CMTimeGetSeconds(asset.duration)
-            let seconds = time.truncatingRemainder(dividingBy: 60)
-            let minutes = (time - seconds).truncatingRemainder(dividingBy: 60)
-            
-            return (width: image.size.width,
-                    height: image.size.height,
-                    video_duration: String(format: "%.0f:%2.0f", minutes, seconds).replacingOccurrences(of: " ", with: "0"),
-                    image)
+        guard !ImageCache.default.isCached(forKey: key),
+              let url = videoPreviewFileURL,
+              let result = MessageReferenceVideoPreviewWorker.generatePreview(
+                url: url,
+                key: key,
+                orientation: videoPreviewImageOrientation,
+                timeout: 2
+              ) else {
+            return (nil, nil, nil, nil)
         }
-        return (nil, nil, nil, nil)
+        return (
+            width: result.width,
+            height: result.height,
+            video_duration: result.videoDuration,
+            image: result.image
+        )
     }
 }

@@ -244,7 +244,7 @@ extension ChatViewController: XabberInputBarDelegate {
     
     func sendAudioMessage(_ reference: MessageReferenceStorageItem) {
         let forwarded: [String] = self.attachedMessagesIds.value
-        let shouldAutoScroll = self.isNearBottom()
+        self.requestOutgoingAutoScrollAfterDatasourceUpdate()
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             user.messages.sendMediaMessage([reference], to: self.jid, forwarded: forwarded, conversationType: self.conversationType)
             self.recordedReferenceObject = nil
@@ -253,9 +253,6 @@ extension ChatViewController: XabberInputBarDelegate {
                 FeedbackManager.shared.generate(feedback: .success)
                 self.clearAttachments()
                 self.unreadMessagePositionId = nil
-                if shouldAutoScroll {
-                    self.scrollToLastOrUnreadItem()
-                }
             }
         })
     }
@@ -819,7 +816,6 @@ extension ChatViewController: XabberInputBarDelegate {
     
     func sendButtonTouchUp( with text: String) {
         let payload = self.xabberInputView.currentPayload()
-        let shouldAutoScroll = self.isNearBottom()
         func sendMessage(_ payload: ComposerMessagePayload) {
             if self.recordedReferenceObject != nil {
                 self.onSendButtonTouchUpInsideWhenAudioWasRecorded()
@@ -841,6 +837,7 @@ extension ChatViewController: XabberInputBarDelegate {
     //                    self.runDatasetUpdateTask()
                     })
                 } else {
+                    self.requestOutgoingAutoScrollAfterDatasourceUpdate()
                     FeedbackManager.shared.generate(feedback: .success)
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
                         user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
@@ -855,9 +852,6 @@ extension ChatViewController: XabberInputBarDelegate {
                 }
                 self.clearAttachments()
                 self.unreadMessagePositionId = nil
-                if shouldAutoScroll {
-                    self.scrollToLastOrUnreadItem()
-                }
             }
         }
         if showSkeletonObserver.value {

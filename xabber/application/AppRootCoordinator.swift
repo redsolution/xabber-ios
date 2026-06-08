@@ -489,6 +489,27 @@ enum AppRoute {
     }
 }
 
+enum AppRootLifecycleEvent {
+    case willResignActive
+}
+
+struct AppRootLifecycleActions: Equatable {
+    let addBlurredScreen: Bool
+    let loadAccounts: Bool
+}
+
+enum AppRootLifecyclePolicy {
+    static func actions(for event: AppRootLifecycleEvent) -> AppRootLifecycleActions {
+        switch event {
+        case .willResignActive:
+            return AppRootLifecycleActions(
+                addBlurredScreen: true,
+                loadAccounts: false
+            )
+        }
+    }
+}
+
 final class AppRootCoordinator: NSObject {
     static var active: AppRootCoordinator?
 
@@ -578,17 +599,22 @@ final class AppRootCoordinator: NSObject {
     }
 
     func sceneWillResignActive() {
+        let lifecycleActions = AppRootLifecyclePolicy.actions(for: .willResignActive)
         ConnectionDiagnosticsLogger.log(
             event: "scene_lifecycle_will_resign_active",
             stream: .primary,
             jid: nil,
             details: [
                 "source": "appRootCoordinator",
-                "willLoadAccounts": true
+                "willLoadAccounts": lifecycleActions.loadAccounts
             ]
         )
-        addBlurredScreen()
-        AccountManager.shared.load()
+        if lifecycleActions.addBlurredScreen {
+            addBlurredScreen()
+        }
+        if lifecycleActions.loadAccounts {
+            AccountManager.shared.load()
+        }
     }
 
     func sceneDidEnterBackground() {

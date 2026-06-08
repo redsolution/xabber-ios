@@ -55,14 +55,15 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         )
         let archiveState = self.loadChatArchiveStateSnapshot()
         let hasRemoteOlderAvailable = self.hasRemoteOlderHistoryAvailable(archiveState)
+        let residentCount = self.virtualTimelineState.residentPrimaryKeys.count
         let pageDirection = ChatHistoryPagingPolicy.triggerDirection(
             isUserScrolling: scrollView.isDragging || scrollView.isDecelerating || scrollView.isTracking,
             canLoadDatasource: self.canLoadDatasource,
             gestureTranslationY: scrollView.panGestureRecognizer.translation(in: scrollView).y,
             boundaryContext: boundaryContext,
-            currentPageMinIndex: self.currentPage.minIndex,
-            currentPageMaxIndex: self.currentPage.maxIndex,
-            totalCount: self.messagesObserver?.count ?? 0,
+            currentPageMinIndex: 0,
+            currentPageMaxIndex: residentCount,
+            totalCount: residentCount,
             hasRemoteOlderAvailable: hasRemoteOlderAvailable,
             hasRemoteNewerAvailable: archiveState.hasKnownNewerGap || !archiveState.newerLiveEdgeReached
         )
@@ -79,13 +80,14 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         )
         let archiveState = self.loadChatArchiveStateSnapshot()
         let hasRemoteOlderAvailable = self.hasRemoteOlderHistoryAvailable(archiveState)
+        let residentCount = self.virtualTimelineState.residentPrimaryKeys.count
         let pageDirection = ChatHistoryPagingPolicy.fallbackDirectionForShortContentDrag(
             canLoadDatasource: self.canLoadDatasource,
             gestureTranslationY: scrollView.panGestureRecognizer.translation(in: scrollView).y,
             boundaryContext: boundaryContext,
-            currentPageMinIndex: self.currentPage.minIndex,
-            currentPageMaxIndex: self.currentPage.maxIndex,
-            totalCount: self.messagesObserver?.count ?? 0,
+            currentPageMinIndex: 0,
+            currentPageMaxIndex: residentCount,
+            totalCount: residentCount,
             hasRemoteOlderAvailable: hasRemoteOlderAvailable,
             hasRemoteNewerAvailable: archiveState.hasKnownNewerGap || !archiveState.newerLiveEdgeReached
         )

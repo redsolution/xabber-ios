@@ -68,10 +68,99 @@ extension MessageManager {
         }
     }
 
+    private enum ArchivePersistenceOutcome: Equatable {
+        case savedNew
+        case updatedExisting
+        case skipped
+        case failed
+    }
+
+    private struct ArchivePersistenceOutcomeItem {
+        let queryIds: [String]
+        let owner: String
+        let opponent: String
+        let conversationType: ClientSynchronizationManager.ConversationType
+        let isDeleted: Bool
+        let outcome: ArchivePersistenceOutcome
+    }
+
+    private func updateArchivePersistenceSummary(
+        for queryId: String?,
+        _ update: (inout ArchivePersistenceSummary) -> Void
+    ) {
+        guard let queryId,
+              queryId.isNotEmpty else {
+            return
+        }
+
+        var summary = self.archivePersistenceSummariesByQueryId[queryId] ?? ArchivePersistenceSummary()
+        update(&summary)
+        self.archivePersistenceSummariesByQueryId[queryId] = summary
+    }
+
+    private func queryIds(from message: MessageStorageItem) -> [String] {
+        message.queryIds?
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.isNotEmpty } ?? []
+    }
+
+    private func recordArchivePersistenceOutcomes(_ outcomes: [ArchivePersistenceOutcomeItem]) {
+        self.performMessageQueueSync {
+            outcomes.forEach { item in
+                item.queryIds.forEach { queryId in
+                    self.updateArchivePersistenceSummary(for: queryId) { summary in
+                        switch item.outcome {
+                        case .savedNew:
+                            summary.savedNew += 1
+                        case .updatedExisting:
+                            summary.updatedExisting += 1
+                        case .skipped:
+                            summary.skipped += 1
+                        case .failed:
+                            summary.failed += 1
+                        }
+
+                        if item.outcome != .skipped,
+                           item.outcome != .failed,
+                           !item.isDeleted {
+                            summary.recordVisibleRow(
+                                owner: item.owner,
+                                jid: item.opponent,
+                                conversationType: item.conversationType
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func archivePersistenceSummarySnapshot(forQueryId queryId: String) -> ArchivePersistenceSummary {
+        self.archivePersistenceSummariesByQueryId[queryId] ?? ArchivePersistenceSummary()
+    }
+
     internal func hasPendingMessages(forQueryId queryId: String) -> Bool {
         self.performMessageQueueSync {
             (self.queuedMessageCountsByQueryId[queryId] ?? 0) > 0 ||
             (self.inFlightMessageCountsByQueryId[queryId] ?? 0) > 0
+        }
+    }
+
+    internal func shouldPersistArchiveQueryId(_ queryId: String?) -> Bool {
+        if let archiveQueryIdPersistenceResolver {
+            return archiveQueryIdPersistenceResolver(queryId)
+        }
+
+        return AccountManager.shared
+            .find(for: owner)?
+            .mam
+            .shouldPersistArchiveQueryId(queryId) ?? false
+    }
+
+    internal func clearArchivePersistenceSummary(forQueryId queryId: String) {
+        self.performMessageQueueSync {
+            self.archivePersistenceSummariesByQueryId.removeValue(forKey: queryId)
         }
     }
 
@@ -111,7 +200,7 @@ extension MessageManager {
             self.isQueuedMessagesDrainScheduled = false
             self.processQueue(results, callback: { values in
                 if let batch = values {
-                    self.save(batch)
+                    _ = self.save(batch)
                 }
             })
             self.adjustInFlightMessageCounts(for: results, delta: -1)
@@ -190,6 +279,17 @@ extension MessageManager {
     struct ProcessedQueueBatch {
         let messages: [MessageStorageItem]
         let readStateRequests: [ReadStateReconciliationRequest]
+        let archiveQueryIdsByPrimary: [String: [String]]
+
+        init(
+            messages: [MessageStorageItem],
+            readStateRequests: [ReadStateReconciliationRequest],
+            archiveQueryIdsByPrimary: [String: [String]] = [:]
+        ) {
+            self.messages = messages
+            self.readStateRequests = readStateRequests
+            self.archiveQueryIdsByPrimary = archiveQueryIdsByPrimary
+        }
     }
     
 //    public func resetQueue() {
@@ -242,24 +342,44 @@ extension MessageManager {
     }
     
     public func receiveArchived(_ message: XMPPMessage) {
+        let queryId = getMAMQueryId(message)
+        self.performMessageQueueSync {
+            self.updateArchivePersistenceSummary(for: queryId) { summary in
+                summary.received += 1
+            }
+        }
         if let date = getDelayedDate(message),
             let messageBare = getArchivedMessageContainer(message) {
             if AccountManager.shared.find(for: owner)?.groupchats.readInvite(in: messageBare, date: getDeliveryTime(messageBare, owner: owner) ?? date, isRead: nil) ?? GroupchatInviteV3Parser.isInvite(messageBare) {
+                self.performMessageQueueSync {
+                    self.updateArchivePersistenceSummary(for: queryId) { summary in
+                        summary.skipped += 1
+                    }
+                }
                 return
             }
-            let queryId = getMAMQueryId(message)
-            let shouldPersistArchiveQueryId = AccountManager.shared
-                .find(for: owner)?
-                .mam
-                .shouldPersistArchiveQueryId(queryId) ?? false
-            enqueue(MessageQueueItem(messageBare,
-                                     messageId: getOriginId(messageBare),
-                                     archivedFrom: message.from?.bare,
-                                     isRead: true,
-                                     date: getDeliveryTime(messageBare, owner: owner) ?? date,
-                                     state: .deliver,
-                                     queryId: queryId,
-                                     shouldPersistArchiveQueryId: shouldPersistArchiveQueryId))
+            let shouldPersistArchiveQueryId = self.shouldPersistArchiveQueryId(queryId)
+            let didQueue = enqueue(MessageQueueItem(messageBare,
+                                                    messageId: getOriginId(messageBare),
+                                                    archivedFrom: message.from?.bare,
+                                                    isRead: true,
+                                                    date: getDeliveryTime(messageBare, owner: owner) ?? date,
+                                                    state: .deliver,
+                                                    queryId: queryId,
+                                                    shouldPersistArchiveQueryId: shouldPersistArchiveQueryId))
+            if didQueue {
+                self.performMessageQueueSync {
+                    self.updateArchivePersistenceSummary(for: queryId) { summary in
+                        summary.queued += 1
+                    }
+                }
+            }
+        } else {
+            self.performMessageQueueSync {
+                self.updateArchivePersistenceSummary(for: queryId) { summary in
+                    summary.skipped += 1
+                }
+            }
         }
     }
     
@@ -382,9 +502,19 @@ extension MessageManager {
         if items.isEmpty {
             return callback(nil)
         }
+        let startedAt = Date()
+        let queryIds = Set(items.compactMap { $0.queryId?.isNotEmpty == true ? $0.queryId : nil })
+            .sorted()
+            .joined(separator: ",")
+        ChatArchiveDebugTrace.log("messageProcessQueueStart", [
+            ("owner", self.owner),
+            ("queryId", queryIds),
+            ("count", items.count)
+        ])
         var messageQueryIds: Set<String> = Set<String>()
         var out: Set<MessageStorageItem> = Set<MessageStorageItem>()
         var readStateRequests: [ReadStateReconciliationRequest] = []
+        var archiveQueryIdsByPrimary: [String: [String]] = [:]
         let sortedItems = Array(items).sorted(by: {
             $0.date.timeIntervalSince1970 < $1.date.timeIntervalSince1970
         })
@@ -509,6 +639,10 @@ extension MessageManager {
             
             instance.queryIds = item.shouldPersistArchiveQueryId ? item.queryId : nil
             instance.shouldPersistArchiveQueryId = item.shouldPersistArchiveQueryId
+            if let queryId = item.queryId,
+               queryId.isNotEmpty {
+                archiveQueryIdsByPrimary[instance.primary, default: []].append(queryId)
+            }
             instance.countsAsRuntimeUnread = item.countsAsRuntimeUnread &&
                 !item.originalOutgoing &&
                 !instance.isRead &&
@@ -598,21 +732,32 @@ extension MessageManager {
             
             out.insert(instance)
         }
-        callback(
-            ProcessedQueueBatch(
-                messages: Array(out).sorted(by: { $0.date < $1.date}),
-                readStateRequests: readStateRequests
-            )
+        let batch = ProcessedQueueBatch(
+            messages: Array(out).sorted(by: { $0.date < $1.date}),
+            readStateRequests: readStateRequests,
+            archiveQueryIdsByPrimary: archiveQueryIdsByPrimary
         )
+        ChatArchiveDebugTrace.log("messageProcessQueueFinish", [
+            ("owner", self.owner),
+            ("queryId", queryIds),
+            ("inputCount", items.count),
+            ("outputCount", batch.messages.count),
+            ("readStateRequests", batch.readStateRequests.count),
+            ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt))
+        ])
+        callback(batch)
     }
     
-    internal func enqueue(_ item: MessageQueueItem) {
+    @discardableResult
+    internal func enqueue(_ item: MessageQueueItem) -> Bool {
         self.performMessageQueueSync {
-            if self.queuedMessages.update(with: item) == nil {
+            let inserted = self.queuedMessages.update(with: item) == nil
+            if inserted {
                 self.adjustQueuedMessageCounts(for: [item], delta: 1)
             }
             self.publishQueuedMessagesSnapshot()
             self.scheduleQueuedMessagesDrainIfNeeded()
+            return inserted
         }
     }
     
@@ -636,14 +781,112 @@ extension MessageManager {
         }
     }
     
-    func storeMessagesNow() {
-        let results = self.drainQueuedMessages()
-        self.processQueue(results, callback: { (values) in
-            if let batch = values {
-                self.save(batch)
+    @discardableResult
+    func storeMessagesNow(forQueryId queryId: String? = nil) -> Int {
+        storeMessagesNowSummary(forQueryId: queryId).persistedRows
+    }
+
+    @discardableResult
+    func storeMessagesNowSummary(forQueryId queryId: String? = nil) -> ArchivePersistenceSummary {
+        let requestedAt = Date()
+        ChatArchiveDebugTrace.log("messageStoreNowRequest", [
+            ("owner", self.owner),
+            ("queryId", queryId ?? "-")
+        ])
+        return self.performMessageQueueSync {
+            let startedAt = Date()
+            let waitMs = ChatArchiveDebugTrace.milliseconds(since: requestedAt)
+            let results: Set<MessageQueueItem>
+            if let queryId, queryId.isNotEmpty {
+                results = Set(self.queuedMessages.filter { $0.queryId == queryId })
+            } else {
+                results = self.queuedMessages
             }
-        })
-        AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
+            let queuedBefore = self.queuedMessages.count
+            let queryQueuedBefore = queryId.flatMap { self.queuedMessageCountsByQueryId[$0] } ?? 0
+            let queryInFlightBefore = queryId.flatMap { self.inFlightMessageCountsByQueryId[$0] } ?? 0
+            ChatArchiveDebugTrace.log("messageStoreNowStart", [
+                ("owner", self.owner),
+                ("queryId", queryId ?? "-"),
+                ("waitMs", waitMs),
+                ("queuedBefore", queuedBefore),
+                ("queryQueuedBefore", queryQueuedBefore),
+                ("queryInFlightBefore", queryInFlightBefore),
+                ("drainCount", results.count)
+            ])
+
+            guard results.isNotEmpty else {
+                if self.queuedMessages.isEmpty {
+                    self.isQueuedMessagesDrainScheduled = false
+                }
+                if let queryId, queryId.isNotEmpty {
+                    let summary = self.archivePersistenceSummarySnapshot(forQueryId: queryId)
+                    ChatArchiveDebugTrace.log("messageStoreNowEmpty", [
+                        ("owner", self.owner),
+                        ("queryId", queryId),
+                        ("waitMs", waitMs),
+                        ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt)),
+                        ("received", summary.received),
+                        ("queued", summary.queued),
+                        ("savedNew", summary.savedNew),
+                        ("updatedExisting", summary.updatedExisting),
+                        ("skipped", summary.skipped),
+                        ("failed", summary.failed)
+                    ])
+                    return summary
+                }
+                ChatArchiveDebugTrace.log("messageStoreNowEmpty", [
+                    ("owner", self.owner),
+                    ("queryId", queryId ?? "-"),
+                    ("waitMs", waitMs),
+                    ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt))
+                ])
+                return ArchivePersistenceSummary()
+            }
+
+            self.adjustQueuedMessageCounts(for: results, delta: -1)
+            self.queuedMessages.subtract(results)
+            self.publishQueuedMessagesSnapshot()
+            self.adjustInFlightMessageCounts(for: results, delta: 1)
+
+            self.processQueue(results, callback: { values in
+                if let batch = values {
+                    _ = self.save(batch)
+                }
+            })
+
+            self.adjustInFlightMessageCounts(for: results, delta: -1)
+            AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
+
+            if self.queuedMessages.isEmpty {
+                self.isQueuedMessagesDrainScheduled = false
+            } else if self.isReceiverActive, !self.isQueuedMessagesDrainScheduled {
+                self.scheduleQueuedMessagesDrainOnQueue()
+            }
+
+            let summary: ArchivePersistenceSummary
+            if let queryId, queryId.isNotEmpty {
+                summary = self.archivePersistenceSummarySnapshot(forQueryId: queryId)
+            } else {
+                summary = ArchivePersistenceSummary()
+            }
+            ChatArchiveDebugTrace.log("messageStoreNowFinish", [
+                ("owner", self.owner),
+                ("queryId", queryId ?? "-"),
+                ("waitMs", waitMs),
+                ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt)),
+                ("queuedAfter", self.queuedMessages.count),
+                ("queryQueuedAfter", queryId.flatMap { self.queuedMessageCountsByQueryId[$0] } ?? 0),
+                ("queryInFlightAfter", queryId.flatMap { self.inFlightMessageCountsByQueryId[$0] } ?? 0),
+                ("received", summary.received),
+                ("queued", summary.queued),
+                ("savedNew", summary.savedNew),
+                ("updatedExisting", summary.updatedExisting),
+                ("skipped", summary.skipped),
+                ("failed", summary.failed)
+            ])
+            return summary
+        }
     }
     
     private func reconcileReadStates(_ requests: [ReadStateReconciliationRequest], in realm: Realm) -> Set<String> {
@@ -702,12 +945,220 @@ extension MessageManager {
         return clearedNotifications
     }
 
-    func save(_ batch: ProcessedQueueBatch, silentNotifications: Bool = false) {
+    private func archiveSummary(from outcomes: [ArchivePersistenceOutcomeItem]) -> ArchivePersistenceSummary {
+        var summary = ArchivePersistenceSummary()
+        outcomes.forEach { item in
+            switch item.outcome {
+            case .savedNew:
+                summary.savedNew += 1
+            case .updatedExisting:
+                summary.updatedExisting += 1
+            case .skipped:
+                summary.skipped += 1
+            case .failed:
+                summary.failed += 1
+            }
+
+            if item.outcome != .skipped,
+               item.outcome != .failed,
+               !item.isDeleted {
+                summary.recordVisibleRow(
+                    owner: item.owner,
+                    jid: item.opponent,
+                    conversationType: item.conversationType
+                )
+            }
+        }
+        return summary
+    }
+
+    private func archiveQueryIds(for message: MessageStorageItem, runtimeQueryIds: [String]?) -> [String] {
+        var seen: Set<String> = []
+        var ids: [String] = []
+        (runtimeQueryIds ?? []).forEach {
+            let queryId = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard queryId.isNotEmpty,
+                  !seen.contains(queryId) else {
+                return
+            }
+            seen.insert(queryId)
+            ids.append(queryId)
+        }
+        self.queryIds(from: message).forEach {
+            guard !seen.contains($0) else {
+                return
+            }
+            seen.insert($0)
+            ids.append($0)
+        }
+        return ids
+    }
+
+    private func persistMessage(
+        _ message: MessageStorageItem,
+        in realm: Realm,
+        silentNotifications: Bool,
+        runtimeQueryIds: [String]?
+    ) -> (ArchivePersistenceOutcomeItem, MessageStorageItem.SaveSideEffects?) {
+        message.updatePrimary()
+        let existedBefore = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: message.primary) != nil
+        let queryIds = self.archiveQueryIds(for: message, runtimeQueryIds: runtimeQueryIds)
+        let sideEffects = message.applyMessagePersistence(in: realm, silentNotifications: silentNotifications)
+
+        if sideEffects?.shouldStoreStanza == true {
+            message.storeStanza(in: realm)
+        }
+
+        let outcome: ArchivePersistenceOutcome
+        if sideEffects?.shouldStoreStanza == true {
+            outcome = existedBefore ? .updatedExisting : .savedNew
+        } else {
+            outcome = existedBefore ? .updatedExisting : .skipped
+        }
+
+        return (
+            ArchivePersistenceOutcomeItem(
+                queryIds: queryIds,
+                owner: message.owner,
+                opponent: message.opponent,
+                conversationType: message.conversationType,
+                isDeleted: message.isDeleted,
+                outcome: outcome
+            ),
+            sideEffects
+        )
+    }
+
+    private func failedOutcome(for message: MessageStorageItem, runtimeQueryIds: [String]?) -> ArchivePersistenceOutcomeItem {
+        ArchivePersistenceOutcomeItem(
+            queryIds: self.archiveQueryIds(for: message, runtimeQueryIds: runtimeQueryIds),
+            owner: message.owner,
+            opponent: message.opponent,
+            conversationType: message.conversationType,
+            isDeleted: message.isDeleted,
+            outcome: .failed
+        )
+    }
+
+    private func saveIndividuallyAfterBatchFailure(
+        _ batch: ProcessedQueueBatch,
+        silentNotifications: Bool
+    ) -> ArchivePersistenceSummary {
+        let startedAt = Date()
+        let batchQueryIds = Set(batch.archiveQueryIdsByPrimary.values.flatMap { $0 })
+            .sorted()
+            .joined(separator: ",")
+        ChatArchiveDebugTrace.log("messageSaveFallbackStart", [
+            ("owner", self.owner),
+            ("queryId", batchQueryIds),
+            ("count", batch.messages.count)
+        ])
+        var outcomes: [ArchivePersistenceOutcomeItem] = []
+        var referencePrepareMs = 0
+        var referenceCount = 0
+
+        batch.messages.forEach { message in
+            do {
+                let messageStartedAt = Date()
+                let realm = try WRealm.safe()
+                var sideEffects: MessageStorageItem.SaveSideEffects?
+                var outcome: ArchivePersistenceOutcomeItem?
+                try realm.write {
+                    let result = self.persistMessage(
+                        message,
+                        in: realm,
+                        silentNotifications: silentNotifications,
+                        runtimeQueryIds: batch.archiveQueryIdsByPrimary[message.primary]
+                    )
+                    outcome = result.0
+                    sideEffects = result.1
+                }
+                if let outcome {
+                    outcomes.append(outcome)
+                }
+                if let notification = sideEffects?.notification {
+                    NotifyManager.shared.update(
+                        withMessage: notification.message,
+                        messageId: notification.messageId,
+                        username: notification.username,
+                        opponent: notification.opponent,
+                        owner: notification.owner,
+                        date: notification.date,
+                        displayName: notification.displayName,
+                        imageUrl: notification.imageUrl,
+                        conversationType: notification.conversationType
+                    )
+                }
+                message.references.forEach { reference in
+                    let referenceStartedAt = Date()
+                    reference.prepare()
+                    let durationMs = ChatArchiveDebugTrace.milliseconds(since: referenceStartedAt)
+                    referencePrepareMs += durationMs
+                    referenceCount += 1
+                    if durationMs > 100 {
+                        ChatArchiveDebugTrace.log("messageReferencePrepareSlow", [
+                            ("owner", self.owner),
+                            ("queryId", batch.archiveQueryIdsByPrimary[message.primary]?.joined(separator: ",") ?? message.queryIds ?? "-"),
+                            ("referencePrimary", reference.primary),
+                            ("kind", reference.kind.rawValue),
+                            ("mimeType", reference.mimeType),
+                            ("isDownloaded", reference.isDownloaded),
+                            ("hasPreview", reference.videoPreviewKey != nil),
+                            ("durationMs", durationMs)
+                        ])
+                    }
+                }
+                ChatArchiveDebugTrace.log("messageSaveFallbackItem", [
+                    ("owner", self.owner),
+                    ("queryId", batch.archiveQueryIdsByPrimary[message.primary]?.joined(separator: ",") ?? message.queryIds ?? "-"),
+                    ("archivedId", message.archivedId),
+                    ("opponent", message.opponent),
+                    ("conversationType", message.conversationType.rawValue),
+                    ("durationMs", ChatArchiveDebugTrace.milliseconds(since: messageStartedAt))
+                ])
+            } catch {
+                let queryIds = batch.archiveQueryIdsByPrimary[message.primary]
+                outcomes.append(self.failedOutcome(for: message, runtimeQueryIds: queryIds))
+                DDLogDebug(
+                    "MessageManager.save fallback failed queryIds=\(queryIds?.joined(separator: ",") ?? message.queryIds ?? "-") archivedId=\(message.archivedId) messageId=\(message.messageId) opponent=\(message.opponent) conversationType=\(message.conversationType.rawValue) error=\(error.localizedDescription)"
+                )
+            }
+        }
+
+        self.recordArchivePersistenceOutcomes(outcomes)
+        let summary = self.archiveSummary(from: outcomes)
+        ChatArchiveDebugTrace.log("messageSaveFallbackFinish", [
+            ("owner", self.owner),
+            ("queryId", batchQueryIds),
+            ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt)),
+            ("referencePrepareMs", referencePrepareMs),
+            ("referenceCount", referenceCount),
+            ("savedNew", summary.savedNew),
+            ("updatedExisting", summary.updatedExisting),
+            ("skipped", summary.skipped),
+            ("failed", summary.failed)
+        ])
+        return summary
+    }
+
+    @discardableResult
+    func save(_ batch: ProcessedQueueBatch, silentNotifications: Bool = false) -> ArchivePersistenceSummary {
+        let startedAt = Date()
+        let batchQueryIds = Set(batch.archiveQueryIdsByPrimary.values.flatMap { $0 })
+            .sorted()
+            .joined(separator: ",")
+        ChatArchiveDebugTrace.log("messageSaveStart", [
+            ("owner", self.owner),
+            ("queryId", batchQueryIds),
+            ("count", batch.messages.count),
+            ("readStateRequests", batch.readStateRequests.count)
+        ])
         do {
             let realm = try  WRealm.safe()
             var clearedStanzaIDs: Set<String> = []
             var notificationPayloads: [MessageStorageItem.SaveNotificationPayload] = []
             var messagePrimariesToMarkRead: Set<String> = []
+            var outcomes: [ArchivePersistenceOutcomeItem] = []
             let affectedChats = Set(batch.messages.compactMap { message -> String? in
                 guard message.conversationType == .group else {
                     return nil
@@ -715,16 +1166,20 @@ extension MessageManager {
                 return message.opponent
             })
 
+            try self.archiveBatchSaveFailureInjector?()
+            let realmWriteStartedAt = Date()
             try realm.write {
                 clearedStanzaIDs = self.reconcileReadStates(batch.readStateRequests, in: realm)
                 batch.messages.forEach {
-                    if let sideEffects = $0.applyMessagePersistence(in: realm, silentNotifications: silentNotifications) {
-                        if sideEffects.shouldStoreStanza {
-                            $0.storeStanza(in: realm)
-                        }
-                        if let notification = sideEffects.notification {
-                            notificationPayloads.append(notification)
-                        }
+                    let result = self.persistMessage(
+                        $0,
+                        in: realm,
+                        silentNotifications: silentNotifications,
+                        runtimeQueryIds: batch.archiveQueryIdsByPrimary[$0.primary]
+                    )
+                    outcomes.append(result.0)
+                    if let notification = result.1?.notification {
+                        notificationPayloads.append(notification)
                     }
                 }
                 if affectedChats.isNotEmpty {
@@ -735,7 +1190,9 @@ extension MessageManager {
                     )
                 }
             }
+            let realmWriteMs = ChatArchiveDebugTrace.milliseconds(since: realmWriteStartedAt)
 
+            let sideEffectsStartedAt = Date()
             if clearedStanzaIDs.isNotEmpty {
                 NotifyManager.shared.clearNotifications(forMessage: Array(clearedStanzaIDs))
             }
@@ -757,17 +1214,54 @@ extension MessageManager {
             messagePrimariesToMarkRead.forEach { primary in
                 self.readMessage(primary, last: false)
             }
+            let sideEffectsMs = ChatArchiveDebugTrace.milliseconds(since: sideEffectsStartedAt)
 
+            let referencePrepareStartedAt = Date()
+            var referenceCount = 0
             batch.messages.forEach {
                 message in
                 message.references.forEach {
                     reference in
+                    let referenceStartedAt = Date()
                     reference.prepare()
+                    let durationMs = ChatArchiveDebugTrace.milliseconds(since: referenceStartedAt)
+                    referenceCount += 1
+                    if durationMs > 100 {
+                        ChatArchiveDebugTrace.log("messageReferencePrepareSlow", [
+                            ("owner", self.owner),
+                            ("queryId", batch.archiveQueryIdsByPrimary[message.primary]?.joined(separator: ",") ?? message.queryIds ?? "-"),
+                            ("referencePrimary", reference.primary),
+                            ("kind", reference.kind.rawValue),
+                            ("mimeType", reference.mimeType),
+                            ("isDownloaded", reference.isDownloaded),
+                            ("hasPreview", reference.videoPreviewKey != nil),
+                            ("durationMs", durationMs)
+                        ])
+                    }
                 }
             }
+            let referencePrepareMs = ChatArchiveDebugTrace.milliseconds(since: referencePrepareStartedAt)
             AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
+            self.recordArchivePersistenceOutcomes(outcomes)
+            let summary = self.archiveSummary(from: outcomes)
+            ChatArchiveDebugTrace.log("messageSaveFinish", [
+                ("owner", self.owner),
+                ("queryId", batchQueryIds),
+                ("count", batch.messages.count),
+                ("realmWriteMs", realmWriteMs),
+                ("sideEffectsMs", sideEffectsMs),
+                ("referencePrepareMs", referencePrepareMs),
+                ("referenceCount", referenceCount),
+                ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt)),
+                ("savedNew", summary.savedNew),
+                ("updatedExisting", summary.updatedExisting),
+                ("skipped", summary.skipped),
+                ("failed", summary.failed)
+            ])
+            return summary
         } catch {
-            DDLogDebug("cant save messages colelction")
+            DDLogDebug("MessageManager.save batch failed count=\(batch.messages.count) error=\(error.localizedDescription)")
+            return self.saveIndividuallyAfterBatchFailure(batch, silentNotifications: silentNotifications)
         }
     }
 

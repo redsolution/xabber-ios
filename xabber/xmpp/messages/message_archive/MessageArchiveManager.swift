@@ -45,6 +45,218 @@ struct MessageArchivePageEndState: Equatable {
     }
 }
 
+struct MessageArchiveEndPageEvent: Equatable {
+    enum StreamKind: String {
+        case primary
+        case uiAction
+        case background
+        case unknown
+    }
+
+    enum Source: String {
+        case localCallback
+        case fallbackCallback
+        case unroutedFinalIQ
+        case unroutedErrorIQ
+    }
+
+    let owner: String
+    let queryId: String
+    let state: MessageArchivePageEndState
+    let first: String
+    let last: String
+    let count: Int
+    let streamKind: StreamKind
+    let source: Source
+}
+
+enum ChatArchiveDebugTrace {
+    static func log(_ event: String, _ fields: [(String, Any?)] = []) {
+        #if DEBUG
+        var parts: [String] = [
+            "CHAT_ARCHIVE_TRACE",
+            "event=\(event)",
+            "thread=\(threadDescription)",
+            "queue=\(queueLabel)"
+        ]
+        fields.forEach { key, value in
+            guard let value else {
+                return
+            }
+            parts.append("\(key)=\(formatted(value))")
+        }
+        DDLogDebug(parts.joined(separator: " "))
+        #endif
+    }
+
+    static func milliseconds(since date: Date) -> Int {
+        Int(Date().timeIntervalSince(date) * 1000)
+    }
+
+    private static var queueLabel: String {
+        String(cString: __dispatch_queue_get_label(nil), encoding: .utf8) ?? "unknown"
+    }
+
+    private static var threadDescription: String {
+        if Thread.isMainThread {
+            return "main"
+        }
+        if let name = Thread.current.name,
+           name.isNotEmpty {
+            return name
+        }
+        return "background"
+    }
+
+    private static func formatted(_ value: Any) -> String {
+        switch value {
+        case let value as Bool:
+            return value ? "true" : "false"
+        case let value as String:
+            let sanitized = value
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            if sanitized.rangeOfCharacter(from: .whitespacesAndNewlines) != nil || sanitized.isEmpty {
+                return "\"\(sanitized)\""
+            }
+            return sanitized
+        case let value as Date:
+            return "\(Int(value.timeIntervalSince1970 * 1000))"
+        default:
+            return String(describing: value)
+        }
+    }
+}
+
+enum MessageArchiveEndPageDispatcher {
+    struct Token: Hashable {
+        fileprivate let id: UUID
+        fileprivate let owner: String
+        fileprivate let queryId: String
+    }
+
+    private typealias Handler = (MessageArchiveEndPageEvent) -> Void
+    private static let lock = NSLock()
+    private static var handlersByKey: [String: [UUID: Handler]] = [:]
+
+    private static func key(owner: String, queryId: String) -> String {
+        "\(owner)\u{1F}archive-end-page\u{1F}\(queryId)"
+    }
+
+    @discardableResult
+    static func register(
+        owner: String,
+        queryId: String,
+        handler: @escaping (MessageArchiveEndPageEvent) -> Void
+    ) -> Token {
+        let token = Token(id: UUID(), owner: owner, queryId: queryId)
+        guard owner.isNotEmpty,
+              queryId.isNotEmpty else {
+            return token
+        }
+
+        lock.lock()
+        handlersByKey[key(owner: owner, queryId: queryId), default: [:]][token.id] = handler
+        let handlerCount = handlersByKey[key(owner: owner, queryId: queryId)]?.count ?? 0
+        lock.unlock()
+        ChatArchiveDebugTrace.log("endPageDispatcherRegister", [
+            ("owner", owner),
+            ("queryId", queryId),
+            ("handlerCount", handlerCount)
+        ])
+        return token
+    }
+
+    static func unregister(_ token: Token) {
+        guard token.owner.isNotEmpty,
+              token.queryId.isNotEmpty else {
+            return
+        }
+
+        lock.lock()
+        let key = key(owner: token.owner, queryId: token.queryId)
+        handlersByKey[key]?.removeValue(forKey: token.id)
+        if handlersByKey[key]?.isEmpty == true {
+            handlersByKey.removeValue(forKey: key)
+        }
+        lock.unlock()
+        ChatArchiveDebugTrace.log("endPageDispatcherUnregister", [
+            ("owner", token.owner),
+            ("queryId", token.queryId)
+        ])
+    }
+
+    static func hasHandler(owner: String, queryId: String) -> Bool {
+        guard owner.isNotEmpty,
+              queryId.isNotEmpty else {
+            return false
+        }
+
+        lock.lock()
+        let hasHandler = handlersByKey[key(owner: owner, queryId: queryId)]?.isEmpty == false
+        lock.unlock()
+        return hasHandler
+    }
+
+    @discardableResult
+    static func publish(_ event: MessageArchiveEndPageEvent) -> Bool {
+        guard event.owner.isNotEmpty,
+              event.queryId.isNotEmpty else {
+            return false
+        }
+
+        lock.lock()
+        let handlers = handlersByKey.removeValue(forKey: key(owner: event.owner, queryId: event.queryId))
+        lock.unlock()
+
+        guard let handlers,
+              !handlers.isEmpty else {
+            ChatArchiveDebugTrace.log("endPageDispatcherPublishMiss", [
+                ("owner", event.owner),
+                ("queryId", event.queryId),
+                ("source", event.source.rawValue),
+                ("streamKind", event.streamKind.rawValue),
+                ("count", event.count)
+            ])
+            return false
+        }
+
+        let enqueuedAt = Date()
+        ChatArchiveDebugTrace.log("endPageDispatcherPublish", [
+            ("owner", event.owner),
+            ("queryId", event.queryId),
+            ("source", event.source.rawValue),
+            ("streamKind", event.streamKind.rawValue),
+            ("count", event.count),
+            ("handlerCount", handlers.count)
+        ])
+        DispatchQueue.main.async {
+            ChatArchiveDebugTrace.log("endPageDispatcherMainHandlerStart", [
+                ("owner", event.owner),
+                ("queryId", event.queryId),
+                ("source", event.source.rawValue),
+                ("mainWaitMs", ChatArchiveDebugTrace.milliseconds(since: enqueuedAt)),
+                ("handlerCount", handlers.count)
+            ])
+            let startedAt = Date()
+            handlers.values.forEach { $0(event) }
+            ChatArchiveDebugTrace.log("endPageDispatcherMainHandlerFinish", [
+                ("owner", event.owner),
+                ("queryId", event.queryId),
+                ("source", event.source.rawValue),
+                ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt))
+            ])
+        }
+        return true
+    }
+
+    static func resetForTests() {
+        lock.lock()
+        handlersByKey.removeAll()
+        lock.unlock()
+    }
+}
+
 protocol TemporaryMessageReceiverProtocol {
     func didReceiveMessage(_ item: MessageStorageItem, queryId: String)
     func didReceiveEndPage(queryId: String, state: MessageArchivePageEndState, first: String, last: String, count: Int)
@@ -480,6 +692,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         let archiveEndEligibility: Bool
         let consumerManagesArchiveEnd: Bool
         let consumerManagesHistoryCursor: Bool
+        let deferCoverageCommitUntilConsumerProof: Bool
     }
     
     struct CallbackQueueItem: Equatable, Hashable {
@@ -499,6 +712,14 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     var callbacksQueue: Set<CallbackQueueItem> = Set<CallbackQueueItem>()
+
+    private struct FallbackEndPageCallbackKey: Hashable {
+        let owner: String
+        let queryId: String
+    }
+
+    private static let fallbackEndPageCallbacksLock = NSLock()
+    private static var fallbackEndPageCallbacksByKey: [FallbackEndPageCallbackKey: RequestCallbacks] = [:]
     
 //    var delegate: MessageArchiveManagerDelegate? = nil
     var backgroundTaskDelegate: XMPPBackgroundTaskDelegate? = nil
@@ -548,10 +769,141 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
     }
 
-    private func notifyDidReceiveEndPage(_ callbacks: RequestCallbacks, queryId: String, state: MessageArchivePageEndState, first: String, last: String, count: Int) {
+    private static func registerFallbackEndPageCallbacks(owner: String, queryId: String, callbacks: RequestCallbacks) {
+        guard owner.isNotEmpty,
+              queryId.isNotEmpty,
+              callbacks.onEndPage != nil else {
+            return
+        }
+
+        fallbackEndPageCallbacksLock.lock()
+        fallbackEndPageCallbacksByKey[FallbackEndPageCallbackKey(owner: owner, queryId: queryId)] = callbacks
+        fallbackEndPageCallbacksLock.unlock()
+    }
+
+    private static func takeFallbackEndPageCallbacks(owner: String, queryId: String) -> RequestCallbacks? {
+        guard owner.isNotEmpty,
+              queryId.isNotEmpty else {
+            return nil
+        }
+
+        fallbackEndPageCallbacksLock.lock()
+        let callbacks = fallbackEndPageCallbacksByKey.removeValue(
+            forKey: FallbackEndPageCallbackKey(owner: owner, queryId: queryId)
+        )
+        fallbackEndPageCallbacksLock.unlock()
+        return callbacks
+    }
+
+    private static func unregisterFallbackEndPageCallbacks(owner: String, queryId: String) {
+        guard owner.isNotEmpty,
+              queryId.isNotEmpty else {
+            return
+        }
+
+        fallbackEndPageCallbacksLock.lock()
+        fallbackEndPageCallbacksByKey.removeValue(
+            forKey: FallbackEndPageCallbackKey(owner: owner, queryId: queryId)
+        )
+        fallbackEndPageCallbacksLock.unlock()
+    }
+
+    @discardableResult
+    private static func notifyFallbackEndPageIfNeeded(
+        owner: String,
+        queryId: String,
+        state: MessageArchivePageEndState,
+        first: String,
+        last: String,
+        count: Int,
+        streamKind: MessageArchiveEndPageEvent.StreamKind = .unknown
+    ) -> Bool {
+        let dispatcherDelivered = MessageArchiveEndPageDispatcher.publish(
+            MessageArchiveEndPageEvent(
+                owner: owner,
+                queryId: queryId,
+                state: state,
+                first: first,
+                last: last,
+                count: count,
+                streamKind: streamKind,
+                source: .fallbackCallback
+            )
+        )
+
+        if let callbacks = takeFallbackEndPageCallbacks(owner: owner, queryId: queryId) {
+            let enqueuedAt = Date()
+            ChatArchiveDebugTrace.log("mamFallbackCallbackEnqueue", [
+                ("owner", owner),
+                ("queryId", queryId),
+                ("streamKind", streamKind.rawValue),
+                ("count", count)
+            ])
+            DispatchQueue.main.async {
+                ChatArchiveDebugTrace.log("mamFallbackCallbackStart", [
+                    ("owner", owner),
+                    ("queryId", queryId),
+                    ("waitMs", ChatArchiveDebugTrace.milliseconds(since: enqueuedAt))
+                ])
+                let startedAt = Date()
+                callbacks.onEndPage?(queryId, state, first, last, count)
+                ChatArchiveDebugTrace.log("mamFallbackCallbackFinish", [
+                    ("owner", owner),
+                    ("queryId", queryId),
+                    ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt))
+                ])
+            }
+            return true
+        }
+        return dispatcherDelivered
+    }
+
+    private func unregisterFallbackEndPageCallbacks(queryId: String) {
+        Self.unregisterFallbackEndPageCallbacks(owner: self.owner, queryId: queryId)
+    }
+
+    private func notifyDidReceiveEndPage(
+        _ callbacks: RequestCallbacks,
+        queryId: String,
+        state: MessageArchivePageEndState,
+        first: String,
+        last: String,
+        count: Int,
+        streamKind: MessageArchiveEndPageEvent.StreamKind = .unknown
+    ) {
+        self.unregisterFallbackEndPageCallbacks(queryId: queryId)
+        self.publishEndPageEvent(
+            queryId: queryId,
+            state: state,
+            first: first,
+            last: last,
+            count: count,
+            streamKind: streamKind,
+            source: .localCallback
+        )
+        let enqueuedAt = Date()
+        ChatArchiveDebugTrace.log("mamCallbackEnqueue", [
+            ("owner", self.owner),
+            ("queryId", queryId),
+            ("streamKind", streamKind.rawValue),
+            ("count", count),
+            ("statePersisted", state.persistedMessageCount),
+            ("queryExhausted", state.queryExhausted)
+        ])
         DispatchQueue.main.async {
+            ChatArchiveDebugTrace.log("mamCallbackStart", [
+                ("owner", self.owner),
+                ("queryId", queryId),
+                ("waitMs", ChatArchiveDebugTrace.milliseconds(since: enqueuedAt))
+            ])
+            let startedAt = Date()
             callbacks.onEndPage?(queryId, state, first, last, count)
             self.temporaryMessageReceiverDelegate?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
+            ChatArchiveDebugTrace.log("mamCallbackFinish", [
+                ("owner", self.owner),
+                ("queryId", queryId),
+                ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt))
+            ])
         }
     }
 
@@ -709,6 +1061,132 @@ class MessageArchiveManager: AbstractXMPPManager {
     override func getPrimaryNamespace() -> String {
         return namespaces().first!
     }
+
+    private static let mamFinalNamespaces = [
+        "urn:xmpp:mam:3",
+        "urn:xmpp:mam:2",
+        "urn:xmpp:mam:1",
+        "urn:xmpp:mam:0"
+    ]
+
+    internal static func mamFinalElement(in iq: XMPPIQ) -> DDXMLElement? {
+        for namespace in mamFinalNamespaces {
+            if let fin = iq.element(forName: "fin", xmlns: namespace) {
+                return fin
+            }
+        }
+
+        guard let fin = iq.element(forName: "fin"),
+              fin.xmlns()?.hasPrefix("urn:xmpp:mam:") == true else {
+            return nil
+        }
+        return fin
+    }
+
+    internal static func isMamCompletionIQ(_ iq: XMPPIQ, owner: String?) -> Bool {
+        if iq.iqType == .result,
+           mamFinalElement(in: iq) != nil {
+            return true
+        }
+
+        guard iq.iqType == .error,
+              let elementId = iq.elementID else {
+            return false
+        }
+
+        if elementId.hasPrefix("MAM") {
+            return true
+        }
+
+        guard let owner else {
+            return false
+        }
+        return MessageArchiveEndPageDispatcher.hasHandler(owner: owner, queryId: elementId)
+    }
+
+    internal static func unroutedEndPageEvent(
+        owner: String,
+        iq: XMPPIQ,
+        streamKind: MessageArchiveEndPageEvent.StreamKind
+    ) -> MessageArchiveEndPageEvent? {
+        if iq.iqType == .error,
+           let elementId = iq.elementID {
+            return MessageArchiveEndPageEvent(
+                owner: owner,
+                queryId: elementId,
+                state: MessageArchivePageEndState(
+                    queryExhausted: true,
+                    archiveEnded: true,
+                    persistedMessageCount: 0,
+                    requestCursorId: nil
+                ),
+                first: "",
+                last: "",
+                count: 0,
+                streamKind: streamKind,
+                source: .unroutedErrorIQ
+            )
+        }
+
+        guard iq.iqType == .result,
+              let fin = mamFinalElement(in: iq),
+              let queryId = fin.attributeStringValue(forName: "queryid"),
+              let set = fin.element(forName: "set", xmlns: "http://jabber.org/protocol/rsm") else {
+            return nil
+        }
+
+        let complete = fin.attributeBoolValue(forName: "complete")
+        let count = set.element(forName: "count")?.stringValueAsNSInteger() ?? 0
+        return MessageArchiveEndPageEvent(
+            owner: owner,
+            queryId: queryId,
+            state: MessageArchivePageEndState(
+                queryExhausted: count == 0 || complete,
+                archiveEnded: count == 0 || complete,
+                persistedMessageCount: 0,
+                requestCursorId: nil
+            ),
+            first: set.element(forName: "first")?.stringValue ?? "",
+            last: set.element(forName: "last")?.stringValue ?? "",
+            count: count,
+            streamKind: streamKind,
+            source: .unroutedFinalIQ
+        )
+    }
+
+    private static func streamKind(for stream: XMPPStream) -> MessageArchiveEndPageEvent.StreamKind {
+        guard let resource = stream.myJID?.resource else {
+            return .unknown
+        }
+        if resource.contains("_ui_upgrade_task") {
+            return .uiAction
+        }
+        return .primary
+    }
+
+    @discardableResult
+    private func publishEndPageEvent(
+        queryId: String,
+        state: MessageArchivePageEndState,
+        first: String,
+        last: String,
+        count: Int,
+        streamKind: MessageArchiveEndPageEvent.StreamKind,
+        source: MessageArchiveEndPageEvent.Source
+    ) -> Bool {
+        MessageArchiveEndPageDispatcher.publish(
+            MessageArchiveEndPageEvent(
+                owner: self.owner,
+                queryId: queryId,
+                state: state,
+                first: first,
+                last: last,
+                count: count,
+                streamKind: streamKind,
+                source: source
+            )
+        )
+    }
     
     func makeInitialMessageVisible(jid: String, conversationType: ClientSynchronizationManager.ConversationType, queryId: String) throws {
         if !shouldPersistArchiveQueryId(queryId) {
@@ -730,33 +1208,63 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     func read(_ stream: XMPPStream, withIQ iq: XMPPIQ) -> Bool {
+        let streamKind = Self.streamKind(for: stream)
         if iq.iqType == .error,
-           let elementId = iq.elementID,
-           let item = self.callbacksQueue.first(where: { $0.elementId == elementId }) {
-            let queryId = item.task.queryId ?? elementId
-            let pageEndState = self.makePageEndState(
-                for: item.task,
-                queryId: queryId,
-                queryExhausted: true
+           let elementId = iq.elementID {
+            DDLogDebug(
+                "MessageArchiveManager.read mamErrorReceived owner=\(self.owner) elementId=\(elementId) streamKind=\(streamKind.rawValue) localCallbackRegistered=\(self.callbacksQueue.contains(where: { $0.elementId == elementId })) dispatcherRegistered=\(MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: elementId))"
             )
-            self.completeCallback(item.callback)
-            self.notifyDidReceiveEndPage(
-                item.requestCallbacks,
-                queryId: queryId,
+            if let item = self.callbacksQueue.first(where: { $0.elementId == elementId }) {
+                let queryId = item.task.queryId ?? elementId
+                let pageEndState = self.makePageEndState(
+                    for: item.task,
+                    queryId: queryId,
+                    queryExhausted: true
+                )
+                self.completeCallback(item.callback)
+                self.notifyDidReceiveEndPage(
+                    item.requestCallbacks,
+                    queryId: queryId,
+                    state: pageEndState,
+                    first: "",
+                    last: "",
+                    count: 0,
+                    streamKind: streamKind
+                )
+                self.finishRegularArchiveRequest(queryId: queryId, item: item, state: nil, first: "", last: "", count: 0)
+                self.callbacksQueue.remove(item)
+                self.queryIds.remove(elementId)
+                return true
+            }
+
+            let pageEndState = MessageArchivePageEndState(
+                queryExhausted: true,
+                archiveEnded: true,
+                persistedMessageCount: self.persistedMessageCountsByQueryId.removeValue(forKey: elementId) ?? 0,
+                requestCursorId: nil
+            )
+            let fallbackDelivered = Self.notifyFallbackEndPageIfNeeded(
+                owner: self.owner,
+                queryId: elementId,
                 state: pageEndState,
                 first: "",
                 last: "",
-                count: 0
+                count: 0,
+                streamKind: streamKind
             )
-            self.finishRegularArchiveRequest(queryId: queryId, item: item, state: nil, first: "", last: "", count: 0)
-            self.callbacksQueue.remove(item)
-            self.queryIds.remove(elementId)
-            return true
+            if fallbackDelivered || self.queryIds.contains(elementId) {
+                DDLogDebug(
+                    "MessageArchiveManager.read orphanErrorIQ owner=\(self.owner) elementId=\(elementId) localQueryRegistered=\(self.queryIds.contains(elementId)) fallbackDelivered=\(fallbackDelivered)"
+                )
+                self.unregisterArchiveQueryId(elementId)
+                self.queryIds.remove(elementId)
+                return true
+            }
         }
 
         guard iq.iqType == .result,
               let elementId = iq.elementID,
-              let fin = iq.element(forName: "fin", xmlns: getPrimaryNamespace()),
+              let fin = Self.mamFinalElement(in: iq),
               let queryId = fin.attributeStringValue(forName: "queryid"),
               let set = fin.element(forName: "set", xmlns: "http://jabber.org/protocol/rsm") else {
             return false
@@ -764,6 +1272,22 @@ class MessageArchiveManager: AbstractXMPPManager {
         let complete = fin.attributeBoolValue(forName: "complete")
         let first = set.element(forName: "first")?.stringValue ?? ""
         let last = set.element(forName: "last")?.stringValue ?? ""
+        let resultCount = set.element(forName: "count")?.stringValueAsNSInteger() ?? 0
+        ChatArchiveDebugTrace.log("mamFinalReceived", [
+            ("owner", self.owner),
+            ("queryId", queryId),
+            ("elementId", elementId),
+            ("streamKind", streamKind.rawValue),
+            ("localCallbackRegistered", self.callbacksQueue.contains(where: { $0.elementId == elementId })),
+            ("dispatcherRegistered", MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: queryId)),
+            ("count", resultCount),
+            ("complete", complete),
+            ("first", first),
+            ("last", last)
+        ])
+        DDLogDebug(
+            "MessageArchiveManager.read mamFinalReceived owner=\(self.owner) elementId=\(elementId) queryId=\(queryId) streamKind=\(streamKind.rawValue) localCallbackRegistered=\(self.callbacksQueue.contains(where: { $0.elementId == elementId })) dispatcherRegistered=\(MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: queryId)) count=\(resultCount) complete=\(complete)"
+        )
 //        DispatchQueue.global().async {
             if let item = self.callbacksQueue.first(where: { $0.elementId == elementId }) {
                 if item.task.isContinues {
@@ -784,7 +1308,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                                             instance.fullArchiveLoaded = pageEndState.archiveEnded
                                         }
                                     }
-                                    self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count)
+                                    self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
                                     self.completeCallback(item.callback)
                                     self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
                                     self.callbacksQueue.remove(item)
@@ -805,7 +1329,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                                             )
                                         }
                                     }
-                                    self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count)
+                                    self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
                                     self.completeCallback(item.callback)
                                     self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
                                     self.callbacksQueue.remove(item)
@@ -813,20 +1337,20 @@ class MessageArchiveManager: AbstractXMPPManager {
                                 }
                             }
                             if count == 0 {
-                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count)
+                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
                                 self.completeCallback(item.callback)
                                 self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
                                 self.callbacksQueue.remove(item)
                                 return true
                             }
                             if complete {
-                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count)
+                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
                                 self.completeCallback(item.callback)
                                 self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
                                 self.callbacksQueue.remove(item)
                                 return true
                             }
-                            self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: item.task.max)
+                            self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
                         }
                     } catch {
                         DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
@@ -873,17 +1397,17 @@ class MessageArchiveManager: AbstractXMPPManager {
 //                                try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
                                 self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
                                 self.callbacksQueue.remove(item)
-                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count)
+                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
                                 return true
                             }
                             if fin.attributeBoolValue(forName: "complete") {
 //                                try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
                                 self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
                                 self.callbacksQueue.remove(item)
-                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count)
+                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
                                 return true
                             }
-                            self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: item.task.max)
+                            self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
 //                            if try self.checkShouldLoadFullHistory(for: item.jid, conversationType: item.task.conversationType) {
 //                                try self.startLoadHistory(stream, jid: item.jid, conversationType: item.task.conversationType)
 //                            }
@@ -898,6 +1422,28 @@ class MessageArchiveManager: AbstractXMPPManager {
                 }
                 self.unregisterArchiveQueryId(queryId)
                 self.callbacksQueue.remove(item)
+            } else {
+                let count = resultCount
+                let pageEndState = MessageArchivePageEndState(
+                    queryExhausted: count == 0 || complete,
+                    archiveEnded: count == 0 || complete,
+                    persistedMessageCount: self.persistedMessageCountsByQueryId.removeValue(forKey: queryId) ?? 0,
+                    requestCursorId: nil
+                )
+                let fallbackDelivered = Self.notifyFallbackEndPageIfNeeded(
+                    owner: self.owner,
+                    queryId: queryId,
+                    state: pageEndState,
+                    first: first,
+                    last: last,
+                    count: count,
+                    streamKind: streamKind
+                )
+                DDLogDebug(
+                    "MessageArchiveManager.read orphanFinalIQ owner=\(self.owner) elementId=\(elementId) queryId=\(queryId) localQueryRegistered=\(self.queryIds.contains(elementId)) fallbackDelivered=\(fallbackDelivered) count=\(count) complete=\(complete)"
+                )
+                self.unregisterArchiveQueryId(queryId)
+                self.queryIds.remove(elementId)
             }
 //        }
         return true
@@ -925,7 +1471,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         )
     }
     
-    public func searchText(_ stream: XMPPStream, jid: String? = nil, conversationType: ClientSynchronizationManager.ConversationType, text: String, max: Int = 250, loadFull: Bool = true, requestCallbacks: RequestCallbacks = .none) -> String {
+    public func searchText(_ stream: XMPPStream, jid: String? = nil, conversationType: ClientSynchronizationManager.ConversationType, text: String, max: Int = 250, loadFull: Bool = true, queryId: String? = nil, requestCallbacks: RequestCallbacks = .none) -> String {
         let taskId = [jid ?? "global_search", conversationType.rawValue].prp()
         if let continuesTaskID = continuesTaskID {
             if taskId != continuesTaskID {
@@ -937,7 +1483,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 }
             }
         }
-        let queryId = "MAM search: \(NanoID.new(8))"
+        let queryId = queryId ?? "MAM search: \(NanoID.new(8))"
         self.requestArchive(
             stream,
             jid: jid,
@@ -1037,7 +1583,8 @@ class MessageArchiveManager: AbstractXMPPManager {
         priority: RegularChatArchiveRequestPriority = .interactive,
         joinDuplicateRequests: Bool = true,
         callback: (() -> Void)? = nil,
-        requestCallbacks: RequestCallbacks = .none
+        requestCallbacks: RequestCallbacks = .none,
+        deferCoverageCommitUntilConsumerProof: Bool = false
     ) -> String {
         let key = Self.regularRequestKey(for: plan)
         if joinDuplicateRequests,
@@ -1072,6 +1619,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             coverageUpdateKind: plan.coverageUpdateKind,
             consumerManagesArchiveEnd: true,
             consumerManagesHistoryCursor: true,
+            deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof,
             callback: regularArchiveCompletion(primary: callback, entry: entry),
             requestCallbacks: regularArchiveCallbacks(primary: requestCallbacks, entry: entry)
         )
@@ -1093,7 +1641,9 @@ class MessageArchiveManager: AbstractXMPPManager {
         unregisterArchiveQueryId(queryId)
 
         let entry = regularArchiveInFlightByKey.removeValue(forKey: key)
-        if let state {
+        let shouldApplyCoverageHere = !item.task.deferCoverageCommitUntilConsumerProof
+        if let state,
+           shouldApplyCoverageHere {
             applyConversationArchivePageResult(
                 task: item.task,
                 state: state,
@@ -1227,7 +1777,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     
-    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, coverageUpdateKind: RegularArchiveCoverageUpdateKind = .none, consumerManagesArchiveEnd: Bool = false, consumerManagesHistoryCursor: Bool = false, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
+    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, coverageUpdateKind: RegularArchiveCoverageUpdateKind = .none, consumerManagesArchiveEnd: Bool = false, consumerManagesHistoryCursor: Bool = false, deferCoverageCommitUntilConsumerProof: Bool = false, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
         let isGroupchat = [.group, .channel].contains(conversationType)
         let elementId = queryId ?? "MAM: \(NanoID.new(8))"
         let dateConstraint = self.archiveDateConstraint(
@@ -1348,16 +1898,6 @@ class MessageArchiveManager: AbstractXMPPManager {
         if flipPage {
             query.addChild(DDXMLElement(name: "flip-page"))
         }
-        if isGroupchat {
-            stream.send(XMPPIQ(iqType: .set, to: jid == nil ? nil : XMPPJID(string: jid ?? ""), elementID: elementId, child: query))
-        } else {
-            stream.send(XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: query))
-        }
-        defer {
-            autoreleasepool {
-                self.queryIds.insert(elementId)
-            }
-        }
         let taskId = [jid ?? "global_search", conversationType.rawValue].prp()
         let archiveEndEligibility = self.canMarkArchiveEnd(
             purpose: purpose,
@@ -1370,38 +1910,48 @@ class MessageArchiveManager: AbstractXMPPManager {
             tags: tags,
             withCounter: withCounter
         ) || (consumerManagesArchiveEnd && purpose == .latest)
-        
+        let task = MAMRequestItem(
+            jid: jid,
+            taskID: taskId,
+            isGroupchat: isGroupchat,
+            messageId: before,
+            conversationType: conversationType,
+            isContinues: isContinues,
+            maxDate: effectiveStart,
+            searchText: searchText,
+            queryId: queryId,
+            afterId: afterId,
+            nextPage: nextPage,
+            prevPage: prevPage,
+            max: max ?? pageSize,
+            tags: tags,
+            start: effectiveStart,
+            end: end,
+            purpose: purpose,
+            coverageUpdateKind: coverageUpdateKind,
+            archiveEndEligibility: archiveEndEligibility,
+            consumerManagesArchiveEnd: consumerManagesArchiveEnd,
+            consumerManagesHistoryCursor: consumerManagesHistoryCursor,
+            deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof
+        )
         self.callbacksQueue.update(with:
             CallbackQueueItem(
                 jid: jid ?? "",
                 elementId: elementId,
-                task: MAMRequestItem(
-                    jid: jid,
-                    taskID: taskId,
-                    isGroupchat: isGroupchat,
-                    messageId: before,
-                    conversationType: conversationType,
-                    isContinues: isContinues,
-                    maxDate: effectiveStart,
-                    searchText: searchText,
-                    queryId: queryId,
-                    afterId: afterId,
-                    nextPage: nextPage,
-                    prevPage: prevPage,
-                    max: max ?? pageSize,
-                    tags: tags,
-                    start: effectiveStart,
-                    end: end,
-                    purpose: purpose,
-                    coverageUpdateKind: coverageUpdateKind,
-                    archiveEndEligibility: archiveEndEligibility,
-                    consumerManagesArchiveEnd: consumerManagesArchiveEnd,
-                    consumerManagesHistoryCursor: consumerManagesHistoryCursor
-                ),
+                task: task,
                 callback: callback,
                 requestCallbacks: requestCallbacks
             )
         )
+        Self.registerFallbackEndPageCallbacks(owner: self.owner, queryId: elementId, callbacks: requestCallbacks)
+        autoreleasepool {
+            self.queryIds.insert(elementId)
+        }
+        if isGroupchat {
+            stream.send(XMPPIQ(iqType: .set, to: jid == nil ? nil : XMPPJID(string: jid ?? ""), elementID: elementId, child: query))
+        } else {
+            stream.send(XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: query))
+        }
     }
 
     @discardableResult
@@ -1569,6 +2119,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         jid: String,
         conversationType: ClientSynchronizationManager.ConversationType,
         pageSize: Int? = nil,
+        queryId: String? = nil,
         callback: (() -> Void)?,
         requestCallbacks: RequestCallbacks = .none
     ) -> SyncChatStartResult {
@@ -1628,7 +2179,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                             archiveStart = instance.createdAt
                         }
                     }
-                    let bootstrapQueryId = "MAM bootstrap history: \(NanoID.new(6))"
+                    let bootstrapQueryId = queryId ?? "MAM bootstrap history: \(NanoID.new(6))"
                     if conversationType == .regular {
                         let plan = Self.regularBootstrapRequestPlan(jid: jid, pageSize: effectivePageSize)
                         let resolvedQueryId = startRegularArchiveRequest(
@@ -1666,7 +2217,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     @discardableResult
-    internal func getPrevHistory(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String, pageSize: Int? = nil, queryId: String? = nil, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) -> String {
+    internal func getPrevHistory(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String, pageSize: Int? = nil, queryId: String? = nil, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none, deferCoverageCommitUntilConsumerProof: Bool = false) -> String {
         let effectivePageSize = conversationType == .regular
             ? Self.regularArchivePageSize(requested: pageSize, defaultPageSize: self.pageSize)
             : (pageSize ?? self.pageSize)
@@ -1680,7 +2231,8 @@ class MessageArchiveManager: AbstractXMPPManager {
                 queryId: requestQueryId,
                 joinDuplicateRequests: queryId == nil,
                 callback: callback,
-                requestCallbacks: requestCallbacks
+                requestCallbacks: requestCallbacks,
+                deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof
             )
         }
         self.requestArchive(
@@ -1709,7 +2261,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     @discardableResult
-    internal func getNextHistory(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String?, pageSize: Int? = nil, queryId: String? = nil, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) -> String {
+    internal func getNextHistory(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String?, pageSize: Int? = nil, queryId: String? = nil, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none, deferCoverageCommitUntilConsumerProof: Bool = false) -> String {
         let effectivePageSize = conversationType == .regular
             ? Self.regularArchivePageSize(requested: pageSize, defaultPageSize: self.pageSize)
             : (pageSize ?? self.pageSize)
@@ -1723,7 +2275,8 @@ class MessageArchiveManager: AbstractXMPPManager {
                 queryId: requestQueryId,
                 joinDuplicateRequests: queryId == nil,
                 callback: callback,
-                requestCallbacks: requestCallbacks
+                requestCallbacks: requestCallbacks,
+                deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof
             )
         }
         self.requestArchive(
@@ -1758,7 +2311,8 @@ class MessageArchiveManager: AbstractXMPPManager {
         pageSize: Int? = nil,
         queryId: String? = nil,
         callback: (() -> Void)? = nil,
-        requestCallbacks: RequestCallbacks = .none
+        requestCallbacks: RequestCallbacks = .none,
+        deferCoverageCommitUntilConsumerProof: Bool = false
     ) -> String {
         let effectivePageSize = Self.regularArchivePageSize(requested: pageSize, defaultPageSize: self.pageSize)
         let plan = Self.regularGapRepairRequestPlan(
@@ -1774,7 +2328,8 @@ class MessageArchiveManager: AbstractXMPPManager {
             queryId: requestQueryId,
             joinDuplicateRequests: queryId == nil,
             callback: callback,
-            requestCallbacks: requestCallbacks
+            requestCallbacks: requestCallbacks,
+            deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof
         )
     }
     

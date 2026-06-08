@@ -109,12 +109,15 @@ class OutgoingMessageQueueItem: Object {
         createdAt: Date,
         replayRequired: Bool
     ) {
-        self.primary = OutgoingMessageQueueItem.genPrimary(
+        let queuePrimary = OutgoingMessageQueueItem.genPrimary(
             owner: owner,
             conversationJid: conversationJid,
             conversationType: conversationType,
             messagePrimary: messagePrimary
         )
+        if realm == nil {
+            self.primary = queuePrimary
+        }
         self.owner = owner
         self.conversationJid = conversationJid
         self.conversationType = conversationType
@@ -123,6 +126,9 @@ class OutgoingMessageQueueItem: Object {
         self.stanzaXML = stanzaXML
         self.createdAt = createdAt
         self.createdOrder = createdAt.timeIntervalSince1970
+        self.attemptCount = 0
+        self.lastError = nil
+        self.lastAttemptAt = nil
         self.replayRequired = replayRequired
         self.state = .queued
     }

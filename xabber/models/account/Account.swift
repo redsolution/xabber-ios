@@ -1395,27 +1395,47 @@ struct AccountQueuedMessageSendRequest {
 }
 
 final class AccountSendCoordinator {
+    static let deliveryReceiptTimeoutErrorCode = "delivery-receipt-timeout"
+    static let deliveryReceiptTimeoutErrorMessage = "Request timeout".localizeString(
+        id: "message_manager_errpr_request_timeout",
+        arguments: []
+    )
+
     struct Environment {
         let owner: String
         let isSendReady: () -> Bool
+        let sendReadinessSnapshot: () -> AccountSendReadinessSnapshot?
         let decorateMessage: (XMPPMessage, Bool, Bool) -> XMPPMessage
         let sendMessage: (XMPPMessage) -> Void
         let updatePendingOutgoingCount: (Int) -> Void
+        let scheduler: AccountConnectionResilienceScheduling
+        let receiptTimeout: TimeInterval
+        let now: () -> Date
         let log: (String, [String: Any?]) -> Void
 
         init(
             owner: String,
             isSendReady: @escaping () -> Bool,
+            sendReadinessSnapshot: @escaping () -> AccountSendReadinessSnapshot? = { nil },
             decorateMessage: @escaping (XMPPMessage, Bool, Bool) -> XMPPMessage,
             sendMessage: @escaping (XMPPMessage) -> Void,
             updatePendingOutgoingCount: @escaping (Int) -> Void = { _ in },
+            scheduler: AccountConnectionResilienceScheduling = DispatchAccountConnectionResilienceScheduler(
+                queue: DispatchQueue(label: "com.xabber.account.send-coordinator.receipt-timeout")
+            ),
+            receiptTimeout: TimeInterval = 5,
+            now: @escaping () -> Date = { Date() },
             log: @escaping (String, [String: Any?]) -> Void
         ) {
             self.owner = owner
             self.isSendReady = isSendReady
+            self.sendReadinessSnapshot = sendReadinessSnapshot
             self.decorateMessage = decorateMessage
             self.sendMessage = sendMessage
             self.updatePendingOutgoingCount = updatePendingOutgoingCount
+            self.scheduler = scheduler
+            self.receiptTimeout = receiptTimeout
+            self.now = now
             self.log = log
         }
     }
@@ -1426,9 +1446,18 @@ final class AccountSendCoordinator {
         let stanzaXML: String
         let replayRequired: Bool
         let missRetryElement: Bool
+        let attemptCount: Int
+    }
+
+    private struct ReceiptTimeoutRegistration {
+        let id: String
+        let attemptCount: Int
+        let cancellable: AccountConnectionResilienceCancellable
     }
 
     private let environment: Environment
+    private let receiptTimeoutLock = DispatchQueue(label: "com.xabber.account.send-coordinator.receipt-timeout-lock")
+    private var receiptTimeouts: [String: ReceiptTimeoutRegistration] = [:]
 
     init(environment: Environment) {
         self.environment = environment
@@ -1440,6 +1469,9 @@ final class AccountSendCoordinator {
                 owner: account.jid,
                 isSendReady: { [weak account] in
                     account?.sendReadiness.snapshot.canFlushApplicationStanzas ?? false
+                },
+                sendReadinessSnapshot: { [weak account] in
+                    account?.sendReadiness.snapshot
                 },
                 decorateMessage: { [weak account] message, retry, missRetryElement in
                     guard let account else { return message }
@@ -1482,6 +1514,15 @@ final class AccountSendCoordinator {
     func enqueueRegularMessage(_ request: AccountQueuedMessageSendRequest) throws -> Bool {
         let didPersist = try AccountSendCoordinator.persistRegularMessage(request)
         if didPersist {
+            environment.log(
+                "account_send_coordinator_message_enqueued",
+                queueDiagnostics([
+                    "originId": request.originId,
+                    "messagePrimary": request.messagePrimary,
+                    "conversationJid": request.conversationJid,
+                    "conversationType": request.conversationType.rawValue
+                ])
+            )
             notifyPendingOutgoingCount()
             drainReadyQueue()
         }
@@ -1501,9 +1542,14 @@ final class AccountSendCoordinator {
             conversationType: request.conversationType,
             messagePrimary: request.messagePrimary
         )
+        let existing = realm.object(ofType: OutgoingMessageQueueItem.self, forPrimaryKey: primary)
+        let isTerminalRetry = existing?.state == .terminalFailed
+        if existing != nil,
+           !isTerminalRetry {
+            return false
+        }
         try realm.write {
-            let item = realm.object(ofType: OutgoingMessageQueueItem.self, forPrimaryKey: primary)
-                ?? OutgoingMessageQueueItem()
+            let item = existing ?? OutgoingMessageQueueItem()
             item.configure(
                 owner: request.owner,
                 conversationJid: request.conversationJid,
@@ -1514,6 +1560,23 @@ final class AccountSendCoordinator {
                 createdAt: request.createdAt,
                 replayRequired: request.replayRequired
             )
+            if isTerminalRetry,
+               let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: request.messagePrimary) {
+                message.state = .sending
+                message.messageError = nil
+                message.messageErrorCode = nil
+                message.references.forEach {
+                    $0.hasError = false
+                }
+                realm.object(
+                    ofType: LastChatsStorageItem.self,
+                    forPrimaryKey: LastChatsStorageItem.genPrimary(
+                        jid: message.opponent,
+                        owner: message.owner,
+                        conversationType: message.conversationType
+                    )
+                )?.hasErrorInChat = false
+            }
             realm.add(item, update: .modified)
         }
         return true
@@ -1571,22 +1634,34 @@ final class AccountSendCoordinator {
     func accountDidBecomeSendReady() {
         AccountSendCoordinator.restoreRecoverableRegularMessages(owner: environment.owner)
         notifyPendingOutgoingCount()
+        rescheduleAwaitingReceiptTimeouts()
+        environment.log(
+            "account_send_coordinator_ready_drain_requested",
+            queueDiagnostics([:])
+        )
         drainReadyQueue()
     }
 
     func streamDidDisconnect(canResume: Bool) {
+        cancelAllReceiptTimeouts()
         environment.log(
             "account_send_coordinator_stream_disconnected",
-            ["canResume": canResume]
+            queueDiagnostics(["canResume": canResume])
         )
     }
 
     func streamManagementResumeSucceeded() {
+        rescheduleAwaitingReceiptTimeouts()
+        environment.log(
+            "account_send_coordinator_resume_succeeded_drain_requested",
+            queueDiagnostics([:])
+        )
         drainReadyQueue()
     }
 
     func streamManagementResumeFailed() {
         do {
+            cancelAllReceiptTimeouts()
             let realm = try WRealm.safe()
             let awaiting = realm
                 .objects(OutgoingMessageQueueItem.self)
@@ -1610,6 +1685,10 @@ final class AccountSendCoordinator {
                 }
             }
             notifyPendingOutgoingCount()
+            environment.log(
+                "account_send_coordinator_resume_failed_requeued",
+                queueDiagnostics(["count": awaitingItems.count])
+            )
         } catch {
             DDLogDebug("AccountSendCoordinator: streamManagementResumeFailed failed: \(error.localizedDescription)")
         }
@@ -1625,10 +1704,21 @@ final class AccountSendCoordinator {
             let chatKeys = completed.map {
                 ($0.conversationJid, $0.conversationType)
             }
+            completed.forEach {
+                cancelReceiptTimeout(queuePrimary: $0.primary)
+            }
             try realm.write {
                 realm.delete(completed)
             }
             notifyPendingOutgoingCount()
+            environment.log(
+                "account_send_coordinator_delivery_receipt_completed",
+                queueDiagnostics([
+                    "originId": originId,
+                    "stanzaId": stanzaId,
+                    "completedCount": completed.count
+                ])
+            )
             chatKeys.forEach { conversationJid, conversationType in
                 drainNextReadyMessage(conversationJid: conversationJid, conversationType: conversationType)
             }
@@ -1648,6 +1738,9 @@ final class AccountSendCoordinator {
             let chatKeys = failed.map {
                 QueueChatKey(jid: $0.conversationJid, type: $0.conversationType)
             }
+            failed.forEach {
+                cancelReceiptTimeout(queuePrimary: $0.primary)
+            }
             try realm.write {
                 failed.forEach { item in
                     item.state = .terminalFailed
@@ -1655,6 +1748,14 @@ final class AccountSendCoordinator {
                 }
             }
             notifyPendingOutgoingCount()
+            environment.log(
+                "account_send_coordinator_terminal_failure",
+                queueDiagnostics([
+                    "originId": originId,
+                    "error": error,
+                    "failedCount": failed.count
+                ])
+            )
             chatKeys.forEach {
                 drainNextReadyMessage(conversationJid: $0.jid, conversationType: $0.type)
             }
@@ -1681,12 +1782,20 @@ final class AccountSendCoordinator {
                 .first else {
                 return false
             }
+            cancelReceiptTimeout(queuePrimary: item.primary)
             try realm.write {
                 item.state = .queued
                 item.lastError = error.localizedDescription
                 item.lastAttemptAt = nil
             }
             notifyPendingOutgoingCount()
+            environment.log(
+                "account_send_coordinator_local_send_failed_requeued",
+                queueDiagnostics([
+                    "originId": originId,
+                    "error": error.localizedDescription
+                ])
+            )
             return true
         } catch {
             DDLogDebug("AccountSendCoordinator: localSendFailed failed: \(error.localizedDescription)")
@@ -1696,6 +1805,10 @@ final class AccountSendCoordinator {
 
     func drainReadyQueue() {
         guard environment.isSendReady() else {
+            environment.log(
+                "account_send_coordinator_drain_skipped_not_ready",
+                queueDiagnostics([:])
+            )
             return
         }
         do {
@@ -1709,6 +1822,10 @@ final class AccountSendCoordinator {
                     OutgoingMessageQueueItem.State.queued.rawValue
                 )
             let chatKeys = Set(queued.map { QueueChatKey(jid: $0.conversationJid, type: $0.conversationType) })
+            environment.log(
+                "account_send_coordinator_drain_started",
+                queueDiagnostics(["chatCount": chatKeys.count])
+            )
             chatKeys.forEach {
                 drainNextReadyMessage(conversationJid: $0.jid, conversationType: $0.type)
             }
@@ -1722,6 +1839,13 @@ final class AccountSendCoordinator {
         conversationType: ClientSynchronizationManager.ConversationType
     ) {
         guard environment.isSendReady() else {
+            environment.log(
+                "account_send_coordinator_chat_drain_skipped_not_ready",
+                queueDiagnostics([
+                    "conversationJid": conversationJid,
+                    "conversationType": conversationType.rawValue
+                ])
+            )
             return
         }
         guard let candidate = reserveNextCandidate(conversationJid: conversationJid, conversationType: conversationType) else {
@@ -1736,6 +1860,20 @@ final class AccountSendCoordinator {
             message,
             candidate.replayRequired,
             candidate.missRetryElement
+        )
+        scheduleReceiptTimeout(
+            queuePrimary: candidate.queuePrimary,
+            originId: candidate.originId,
+            attemptCount: candidate.attemptCount
+        )
+        environment.log(
+            "account_send_coordinator_message_sent_to_primary_stream",
+            queueDiagnostics([
+                "originId": candidate.originId,
+                "queuePrimary": candidate.queuePrimary,
+                "attemptCount": candidate.attemptCount,
+                "replayRequired": candidate.replayRequired
+            ])
         )
         environment.sendMessage(decorated)
     }
@@ -1768,8 +1906,7 @@ final class AccountSendCoordinator {
                     OutgoingMessageQueueItem.State.queued.rawValue
                 )
                 .sorted(by: [
-                    SortDescriptor(keyPath: "createdOrder", ascending: true),
-                    SortDescriptor(keyPath: "primary", ascending: true)
+                    SortDescriptor(keyPath: "createdOrder", ascending: true)
                 ])
                 .first else {
                 return nil
@@ -1779,12 +1916,13 @@ final class AccountSendCoordinator {
                 originId: item.originId,
                 stanzaXML: item.stanzaXML,
                 replayRequired: item.replayRequired,
-                missRetryElement: messageMissesRetryElementOnResend(item, realm: realm)
+                missRetryElement: messageMissesRetryElementOnResend(item, realm: realm),
+                attemptCount: item.attemptCount + 1
             )
             try realm.write {
                 item.state = .awaitingReceipt
                 item.attemptCount += 1
-                item.lastAttemptAt = Date()
+                item.lastAttemptAt = environment.now()
                 item.lastError = nil
             }
             notifyPendingOutgoingCount()
@@ -1814,6 +1952,7 @@ final class AccountSendCoordinator {
             guard let item = realm.object(ofType: OutgoingMessageQueueItem.self, forPrimaryKey: candidate.queuePrimary) else {
                 return
             }
+            cancelReceiptTimeout(queuePrimary: item.primary)
             try realm.write {
                 item.state = .terminalFailed
                 item.lastError = error
@@ -1844,11 +1983,199 @@ final class AccountSendCoordinator {
                     return
                 }
                 if message.archivedId.isNotEmpty || [.sended, .deliver, .read, .error].contains(message.state) {
+                    cancelReceiptTimeout(queuePrimary: item.primary)
                     realm.delete(item)
                 }
             }
         }
         notifyPendingOutgoingCount()
+    }
+
+    private func scheduleReceiptTimeout(queuePrimary: String, originId: String, attemptCount: Int) {
+        cancelReceiptTimeout(queuePrimary: queuePrimary)
+        let timeoutId = UUID().uuidString
+        let cancellable = environment.scheduler.schedule(after: environment.receiptTimeout) { [weak self] in
+            self?.handleReceiptTimeout(
+                queuePrimary: queuePrimary,
+                originId: originId,
+                attemptCount: attemptCount,
+                timeoutId: timeoutId
+            )
+        }
+        receiptTimeoutLock.sync {
+            receiptTimeouts[queuePrimary] = ReceiptTimeoutRegistration(
+                id: timeoutId,
+                attemptCount: attemptCount,
+                cancellable: cancellable
+            )
+        }
+    }
+
+    private func cancelReceiptTimeout(queuePrimary: String) {
+        var cancellable: AccountConnectionResilienceCancellable?
+        receiptTimeoutLock.sync {
+            cancellable = receiptTimeouts.removeValue(forKey: queuePrimary)?.cancellable
+        }
+        cancellable?.cancel()
+    }
+
+    private func cancelAllReceiptTimeouts() {
+        var cancellables: [AccountConnectionResilienceCancellable] = []
+        receiptTimeoutLock.sync {
+            cancellables = receiptTimeouts.values.map(\.cancellable)
+            receiptTimeouts.removeAll()
+        }
+        cancellables.forEach {
+            $0.cancel()
+        }
+    }
+
+    private func consumeReceiptTimeout(queuePrimary: String, attemptCount: Int, timeoutId: String) -> Bool {
+        var consumed = false
+        receiptTimeoutLock.sync {
+            guard let registration = receiptTimeouts[queuePrimary],
+                  registration.id == timeoutId,
+                  registration.attemptCount == attemptCount else {
+                return
+            }
+            _ = receiptTimeouts.removeValue(forKey: queuePrimary)
+            consumed = true
+        }
+        return consumed
+    }
+
+    private func rescheduleAwaitingReceiptTimeouts() {
+        guard environment.isSendReady() else {
+            return
+        }
+        do {
+            let realm = try WRealm.safe()
+            let awaiting = realm
+                .objects(OutgoingMessageQueueItem.self)
+                .filter(
+                    "owner == %@ AND state_ == %@",
+                    environment.owner,
+                    OutgoingMessageQueueItem.State.awaitingReceipt.rawValue
+                )
+            Array(awaiting).forEach { item in
+                scheduleReceiptTimeout(
+                    queuePrimary: item.primary,
+                    originId: item.originId,
+                    attemptCount: item.attemptCount
+                )
+            }
+        } catch {
+            DDLogDebug("AccountSendCoordinator: rescheduleAwaitingReceiptTimeouts failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func handleReceiptTimeout(queuePrimary: String, originId: String, attemptCount: Int, timeoutId: String) {
+        guard consumeReceiptTimeout(queuePrimary: queuePrimary, attemptCount: attemptCount, timeoutId: timeoutId) else {
+            return
+        }
+        do {
+            let realm = try WRealm.safe()
+            guard let item = realm.object(ofType: OutgoingMessageQueueItem.self, forPrimaryKey: queuePrimary),
+                  item.owner == environment.owner,
+                  item.originId == originId,
+                  item.state == .awaitingReceipt,
+                  item.attemptCount == attemptCount else {
+                return
+            }
+            let chatKey = QueueChatKey(jid: item.conversationJid, type: item.conversationType)
+            if item.attemptCount <= 1 {
+                try realm.write {
+                    item.state = .queued
+                    item.replayRequired = true
+                    item.lastAttemptAt = nil
+                    item.lastError = Self.deliveryReceiptTimeoutErrorCode
+                }
+                notifyPendingOutgoingCount()
+                environment.log(
+                    "account_send_coordinator_receipt_timeout_requeued",
+                    queueDiagnostics([
+                        "originId": originId,
+                        "attemptCount": item.attemptCount
+                    ])
+                )
+                drainNextReadyMessage(conversationJid: chatKey.jid, conversationType: chatKey.type)
+            } else {
+                try realm.write {
+                    item.state = .terminalFailed
+                    item.lastError = Self.deliveryReceiptTimeoutErrorCode
+                    if let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: item.messagePrimary),
+                       message.archivedId.isEmpty {
+                        message.state = .error
+                        message.messageError = Self.deliveryReceiptTimeoutErrorMessage
+                        message.messageErrorCode = Self.deliveryReceiptTimeoutErrorCode
+                        message.references.forEach {
+                            $0.hasError = true
+                        }
+                        realm.object(
+                            ofType: LastChatsStorageItem.self,
+                            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                                jid: message.opponent,
+                                owner: message.owner,
+                                conversationType: message.conversationType
+                            )
+                        )?.hasErrorInChat = true
+                    }
+                }
+                notifyPendingOutgoingCount()
+                environment.log(
+                    "account_send_coordinator_receipt_timeout_terminal",
+                    queueDiagnostics([
+                        "originId": originId,
+                        "attemptCount": item.attemptCount
+                    ])
+                )
+                drainNextReadyMessage(conversationJid: chatKey.jid, conversationType: chatKey.type)
+            }
+        } catch {
+            DDLogDebug("AccountSendCoordinator: handleReceiptTimeout failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func queueDiagnostics(_ details: [String: Any?]) -> [String: Any?] {
+        var output = details
+        if let snapshot = environment.sendReadinessSnapshot() {
+            output["phase"] = "\(snapshot.phase)"
+            output["reason"] = snapshot.reason
+            output["canFlush"] = snapshot.canFlushApplicationStanzas
+        } else {
+            output["canFlush"] = environment.isSendReady()
+        }
+
+        do {
+            let realm = try WRealm.safe()
+            output["queuedCount"] = realm
+                .objects(OutgoingMessageQueueItem.self)
+                .filter(
+                    "owner == %@ AND state_ == %@",
+                    environment.owner,
+                    OutgoingMessageQueueItem.State.queued.rawValue
+                )
+                .count
+            output["awaitingReceiptCount"] = realm
+                .objects(OutgoingMessageQueueItem.self)
+                .filter(
+                    "owner == %@ AND state_ == %@",
+                    environment.owner,
+                    OutgoingMessageQueueItem.State.awaitingReceipt.rawValue
+                )
+                .count
+            output["pendingCount"] = realm
+                .objects(OutgoingMessageQueueItem.self)
+                .filter(
+                    "owner == %@ AND state_ != %@",
+                    environment.owner,
+                    OutgoingMessageQueueItem.State.terminalFailed.rawValue
+                )
+                .count
+        } catch {
+            output["queueDiagnosticError"] = error.localizedDescription
+        }
+        return output
     }
 
     private func notifyPendingOutgoingCount() {
@@ -2424,6 +2751,9 @@ final class Account: NSObject {
                 self.flushPendingPresenceSends()
                 self.sendCoordinator.accountDidBecomeSendReady()
             }
+        }
+        self.messages.archiveQueryIdPersistenceResolver = { [weak self] queryId in
+            self?.mam.shouldPersistArchiveQueryId(queryId) ?? false
         }
         AccountSendCoordinator.restoreRecoverableRegularMessages(owner: self.jid)
         self.registerModules()

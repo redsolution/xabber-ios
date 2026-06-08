@@ -299,6 +299,40 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
 //        print("WILL REC IQ: \(iq.prettyXMLString ?? "")")
         return iq
     }
+
+    private func routeMamCompletionIQIfNeeded(_ sender: XMPPStream, iq: XMPPIQ) -> Bool {
+        guard MessageArchiveManager.isMamCompletionIQ(iq, owner: self.currentJid) else {
+            return false
+        }
+
+        let mamPresent = self.mam != nil
+        let handledByMam = self.mam?.read(sender, withIQ: iq) ?? false
+        var fallbackDelivered = false
+        if !handledByMam,
+           let owner = self.currentJid,
+           let event = MessageArchiveManager.unroutedEndPageEvent(
+                owner: owner,
+                iq: iq,
+                streamKind: .uiAction
+           ) {
+            fallbackDelivered = MessageArchiveEndPageDispatcher.publish(event)
+            DDLogDebug(
+                "XMPPUIActionManager.uiActionMamFinalRoute unrouted owner=\(owner) queryId=\(event.queryId) source=\(event.source.rawValue) delivered=\(fallbackDelivered)"
+            )
+        }
+
+        self.logConnectionDiagnostics(
+            event: "uiActionMamFinalRoute",
+            details: [
+                "id": iq.elementID ?? "none",
+                "mamPresent": mamPresent,
+                "handledByMam": handledByMam,
+                "fallbackDelivered": fallbackDelivered
+            ],
+            rawXML: iq.xmlString
+        )
+        return true
+    }
     
     func xmppStream(_ sender: XMPPStream, didReceive iq: XMPPIQ) -> Bool {
         guard self.isCurrentStream(sender, callback: "didReceiveIQ") else { return false }
@@ -313,9 +347,13 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
             ],
             rawXML: iq.xmlString
         )
+        if self.routeMamCompletionIQIfNeeded(sender, iq: iq) {
+            self.messages?.storeMessagesNow()
+            return true
+        }
         switch true {
 //        case (self.sync?.read(withIQ: iq) ?? false): return true
-        case (self.mam?.read(stream, withIQ: iq) ?? false):
+        case (self.mam?.read(sender, withIQ: iq) ?? false):
                 self.messages?.storeMessagesNow()
                 return true
         case (self.groupchat?.read(sender, withIQ: iq) ?? false): return true

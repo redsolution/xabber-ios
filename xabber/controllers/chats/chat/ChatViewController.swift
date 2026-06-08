@@ -1069,12 +1069,15 @@ class ChatViewController: MessagesViewController {
         }
     }
     var datasourceSnapshot: ChatDatasourceSnapshot = .empty
+    var pendingOutgoingAutoScrollRequest: ChatOutgoingAutoScrollRequest? = nil
     var observerPrimaryIndexMap: [String: Int] = [:]
     var observerArchivedIdIndexMap: [String: Int] = [:]
     var observerMessageIdIndexMap: [String: Int] = [:]
     var observerOldestArchivedId: String? = nil
     var observerNewestArchivedId: String? = nil
     var observerLookupSignature: ObserverLookupSignature? = nil
+    var virtualTimelineState: ChatVirtualTimelineState = .empty
+    var boundedTimelineWindowState: ChatBoundedTimelineWindowState = .empty
     
     
     var sharedPlayerPaneldelegae: SharedAudioPlayerPanelDelegate? = nil
@@ -1165,6 +1168,14 @@ class ChatViewController: MessagesViewController {
     var isMessageAnchorNavigationInFlight: Bool = false
     var hasRequestedMentionUsersRefresh: Bool = false
     var interactiveHistoryPageLoadContext: ChatInteractiveHistoryPageLoadContext? = nil
+    var interactiveHistoryCompletionRetryWorkItem: DispatchWorkItem? = nil
+    var remoteHistoryFinishingQueryId: String? = nil
+    internal var remoteHistoryEndPageDispatcherTokens: [String: MessageArchiveEndPageDispatcher.Token] = [:]
+    internal var completedRemoteHistoryEndPageQueryIds: Set<String> = []
+    internal var chatArchiveMainStallProbeWorkItem: DispatchWorkItem?
+    internal var chatArchiveMainStallProbeLastBeat: Date?
+    internal var chatArchiveMainStallProbeQueryId: String?
+    internal var chatArchiveMainStallProbeOperation: String?
     var initialBootstrapQueryId: String? = nil
     var isInitialBootstrapInFlight: Bool = false
     var didReceiveInitialBootstrapEndPage: Bool = false
@@ -1315,7 +1326,76 @@ class ChatViewController: MessagesViewController {
         }
     }
 
-    internal func beginHistoryLoadingUI() {
+    private func startChatArchiveMainStallProbe(queryId: String?, operation: String) {
+        self.chatArchiveMainStallProbeWorkItem?.cancel()
+        self.chatArchiveMainStallProbeQueryId = queryId
+        self.chatArchiveMainStallProbeOperation = operation
+        self.chatArchiveMainStallProbeLastBeat = Date()
+        ChatArchiveDebugTrace.log("mainStallProbeStart", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("queryId", queryId ?? "-"),
+            ("operation", operation)
+        ])
+        self.scheduleChatArchiveMainStallProbe(queryId: queryId, operation: operation)
+    }
+
+    private func scheduleChatArchiveMainStallProbe(queryId: String?, operation: String) {
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.currentPage.isLoading,
+                  self.chatArchiveMainStallProbeQueryId == queryId,
+                  self.chatArchiveMainStallProbeOperation == operation else {
+                return
+            }
+
+            let now = Date()
+            if let lastBeat = self.chatArchiveMainStallProbeLastBeat {
+                let gapMs = ChatArchiveDebugTrace.milliseconds(since: lastBeat)
+                if gapMs > 1000 {
+                    ChatArchiveDebugTrace.log("mainStallProbeGap", [
+                        ("owner", self.owner),
+                        ("jid", self.jid),
+                        ("conversationType", self.conversationType.rawValue),
+                        ("queryId", queryId ?? "-"),
+                        ("operation", operation),
+                        ("gapMs", gapMs),
+                        ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
+                        ("interactiveQueryId", self.interactiveHistoryPageLoadContext?.queryId ?? "-"),
+                        ("datasourceCount", self.datasource.count),
+                        ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count)
+                    ])
+                }
+            }
+            self.chatArchiveMainStallProbeLastBeat = now
+            self.scheduleChatArchiveMainStallProbe(queryId: queryId, operation: operation)
+        }
+        self.chatArchiveMainStallProbeWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+    }
+
+    private func stopChatArchiveMainStallProbe(reason: String) {
+        guard self.chatArchiveMainStallProbeWorkItem != nil ||
+              self.chatArchiveMainStallProbeQueryId != nil else {
+            return
+        }
+        self.chatArchiveMainStallProbeWorkItem?.cancel()
+        ChatArchiveDebugTrace.log("mainStallProbeStop", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("queryId", self.chatArchiveMainStallProbeQueryId ?? "-"),
+            ("operation", self.chatArchiveMainStallProbeOperation ?? "-"),
+            ("reason", reason)
+        ])
+        self.chatArchiveMainStallProbeWorkItem = nil
+        self.chatArchiveMainStallProbeLastBeat = nil
+        self.chatArchiveMainStallProbeQueryId = nil
+        self.chatArchiveMainStallProbeOperation = nil
+    }
+
+    internal func beginHistoryLoadingUI(queryId: String? = nil) {
         self.performOnMain {
             self.historyLoadingGeneration += 1
             let generation = self.historyLoadingGeneration
@@ -1324,18 +1404,24 @@ class ChatViewController: MessagesViewController {
             self.currentPage.isLoading = true
             self.setLoadingIndicatorVisible(true)
             self.setArchiveLoading(true)
-            self.messagesCollectionView.isUserInteractionEnabled = false
+            if ChatHistoryLoadingOverlayPolicy.shouldDisableCollectionInteraction {
+                self.messagesCollectionView.isUserInteractionEnabled = false
+            }
 
+            self.startChatArchiveMainStallProbe(queryId: queryId, operation: "remoteHistoryLoading")
             self.scheduleHistoryLoadingWatchdog(generation: generation, startedAt: startedAt)
         }
     }
 
     internal func endHistoryLoadingUI(unlockPage: Bool) {
         self.performOnMain {
+            self.stopChatArchiveMainStallProbe(reason: "endHistoryLoadingUI")
             self.currentPage.isLoading = false
             self.setLoadingIndicatorVisible(false)
             self.setArchiveLoading(false)
-            self.messagesCollectionView.isUserInteractionEnabled = true
+            if ChatHistoryLoadingOverlayPolicy.shouldDisableCollectionInteraction {
+                self.messagesCollectionView.isUserInteractionEnabled = true
+            }
             self.setDatasourceLoadingEnabled(true)
             if unlockPage {
                 self.currentPage.unlock()
@@ -1455,6 +1541,16 @@ class ChatViewController: MessagesViewController {
         let queue = DispatchQueue(
             label: "com.xabber.chat.dataset.mapping",
             qos: .userInitiated,
+            attributes: [],
+            autoreleaseFrequency: .workItem,
+            target: nil
+        )
+        return queue
+    }()
+    internal let remoteHistoryApplyQueue: DispatchQueue = {
+        let queue = DispatchQueue(
+            label: "com.xabber.chat.remote-history.apply",
+            qos: .userInteractive,
             attributes: [],
             autoreleaseFrequency: .workItem,
             target: nil
@@ -1603,6 +1699,7 @@ class ChatViewController: MessagesViewController {
         let view = UIView()
         
         view.backgroundColor = UIColor.black.withAlphaComponent(0.2)
+        view.isUserInteractionEnabled = ChatHistoryLoadingOverlayPolicy.isOverlayUserInteractionEnabled
         
         let indicator = UIActivityIndicatorView(style: .large)
         
@@ -3043,6 +3140,8 @@ class ChatViewController: MessagesViewController {
         NotifyManager.shared.currentDialog = nil
         self.bag = DisposeBag()
         self.cancelInitialBootstrapLocalHistoryFallback()
+        self.clearRemoteHistoryEndPageDispatchers()
+        self.stopChatArchiveMainStallProbe(reason: "unsubscribe")
         VoiceMessagePlaybackCoordinator.shared.removeObserver(self.voiceMessageStateObserverToken)
         self.voiceMessageStateObserverToken = nil
     }

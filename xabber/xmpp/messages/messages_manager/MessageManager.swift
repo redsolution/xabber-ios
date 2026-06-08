@@ -67,6 +67,77 @@ class MessageManager: AbstractXMPPManager {
             hasher.combine(jid)
         }
     }
+
+    struct ArchivePersistenceSummary: Equatable {
+        private static let separator = "\u{1F}"
+
+        var received: Int = 0
+        var queued: Int = 0
+        var savedNew: Int = 0
+        var updatedExisting: Int = 0
+        var skipped: Int = 0
+        var failed: Int = 0
+        private var visibleRowsByConversationKey: [String: Int] = [:]
+
+        var persistedRows: Int {
+            savedNew + updatedExisting
+        }
+
+        var processedRows: Int {
+            savedNew + updatedExisting + skipped + failed
+        }
+
+        var isEmpty: Bool {
+            received == 0 &&
+            queued == 0 &&
+            savedNew == 0 &&
+            updatedExisting == 0 &&
+            skipped == 0 &&
+            failed == 0 &&
+            visibleRowsByConversationKey.isEmpty
+        }
+
+        mutating func merge(_ other: ArchivePersistenceSummary) {
+            received += other.received
+            queued += other.queued
+            savedNew += other.savedNew
+            updatedExisting += other.updatedExisting
+            skipped += other.skipped
+            failed += other.failed
+            other.visibleRowsByConversationKey.forEach { key, value in
+                visibleRowsByConversationKey[key, default: 0] += value
+            }
+        }
+
+        mutating func recordVisibleRow(
+            owner: String,
+            jid: String,
+            conversationType: ClientSynchronizationManager.ConversationType
+        ) {
+            visibleRowsByConversationKey[
+                Self.conversationKey(owner: owner, jid: jid, conversationType: conversationType),
+                default: 0
+            ] += 1
+        }
+
+        func visibleRows(
+            owner: String,
+            jid: String,
+            conversationType: ClientSynchronizationManager.ConversationType
+        ) -> Int {
+            visibleRowsByConversationKey[
+                Self.conversationKey(owner: owner, jid: jid, conversationType: conversationType)
+            ] ?? 0
+        }
+
+        private static func conversationKey(
+            owner: String,
+            jid: String,
+            conversationType: ClientSynchronizationManager.ConversationType
+        ) -> String {
+            [owner, jid, conversationType.rawValue].joined(separator: separator)
+        }
+    }
     
     var prereadedMessages: Array<PrereadedMessagesItem> = Array()
     var prereadedConversation: Array<PrereadedConversationItem> = Array()
@@ -84,6 +155,9 @@ class MessageManager: AbstractXMPPManager {
     internal var isQueuedMessagesDrainScheduled: Bool = false
     internal var queuedMessageCountsByQueryId: [String: Int] = [:]
     internal var inFlightMessageCountsByQueryId: [String: Int] = [:]
+    internal var archivePersistenceSummariesByQueryId: [String: ArchivePersistenceSummary] = [:]
+    internal var archiveQueryIdPersistenceResolver: ((String?) -> Bool)?
+    internal var archiveBatchSaveFailureInjector: (() throws -> Void)?
     
     internal var senderBag: DisposeBag = DisposeBag()
     

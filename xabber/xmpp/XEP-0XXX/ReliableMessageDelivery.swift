@@ -48,10 +48,27 @@ enum ReliableMessageDeliveryReceiptProcessor {
                 return false
             }
             let messageSnapshot = Array(messages)
+            let timeoutErrorChatKeys = messageSnapshot
+                .filter { $0.messageErrorCode == AccountSendCoordinator.deliveryReceiptTimeoutErrorCode }
+                .map { message in
+                    (
+                        jid: message.opponent,
+                        owner: message.owner,
+                        conversationType: message.conversationType
+                    )
+                }
             try realm.write {
                 messageSnapshot.forEach { instance in
-                    if instance.state == .sending {
+                    let isTimeoutError = instance.messageErrorCode == AccountSendCoordinator.deliveryReceiptTimeoutErrorCode
+                    if instance.state == .sending || isTimeoutError {
                         instance.state = .sended
+                    }
+                    if isTimeoutError {
+                        instance.messageError = nil
+                        instance.messageErrorCode = nil
+                        instance.references.forEach {
+                            $0.hasError = false
+                        }
                     }
                     if let stamp = receipt.stamp {
                         instance.date = stamp
@@ -59,6 +76,13 @@ enum ReliableMessageDeliveryReceiptProcessor {
                     }
                     instance.archivedId = receipt.stanzaId
                 }
+            }
+            timeoutErrorChatKeys.forEach { chatKey in
+                LastChats.updateErrorState(
+                    for: chatKey.jid,
+                    owner: chatKey.owner,
+                    conversationType: chatKey.conversationType
+                )
             }
             onApplied(receipt.originId, receipt.stanzaId)
             return true

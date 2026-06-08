@@ -508,8 +508,13 @@ class XMPPUIActionManager: NSObject {
         self.avatarUploader = AvatarUploadManager(withOwner: owner)
         self.chatMarkers = ChatMarkersManager(withOwner: owner, withoutAfterburnTimer: true)
         self.deliveryManager = ReliableMessageDeliveryManager(withOwner: owner)
-        self.messages = MessageManager(withOwner: owner, activeStream: false)
-        self.mam = MessageArchiveManager(withOwner: owner)
+        let messages = MessageManager(withOwner: owner, activeStream: false)
+        let mam = MessageArchiveManager(withOwner: owner)
+        messages.archiveQueryIdPersistenceResolver = { [weak mam] queryId in
+            mam?.shouldPersistArchiveQueryId(queryId) ?? false
+        }
+        self.messages = messages
+        self.mam = mam
         self.vcardManager = VCardManager(withOwner: owner)
         self.presences = PresenceManager(withOwner: owner, withoutSubscribtion: true)
         self.blocked = BlockManager(withOwner: owner)

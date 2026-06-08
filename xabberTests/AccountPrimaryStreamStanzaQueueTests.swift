@@ -134,6 +134,330 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1", "message-2"])
     }
 
+    func testStaleReadinessKeepsRegularMessageQueuedAndLogsReason() throws {
+        let readiness = AccountSendReadinessCoordinator()
+        readiness.markStreamManagementEnabled()
+        readiness.markSuspectedStale(reason: AccountConnectionStaleReason.primaryStreamAckTimeout.rawValue)
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let logger = AccountPrimaryStreamSendCoordinatorLogger()
+        let coordinator = makeSendCoordinator(
+            isReady: { readiness.snapshot.canFlushApplicationStanzas },
+            recorder: recorder,
+            readinessSnapshot: { readiness.snapshot },
+            logger: logger
+        )
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+
+        XCTAssertTrue(recorder.sentMessages.isEmpty)
+
+        let realm = try WRealm.safe()
+        let item = try XCTUnwrap(realm.objects(OutgoingMessageQueueItem.self).filter("originId == %@", "message-1").first)
+        XCTAssertEqual(item.state, .queued)
+        XCTAssertNil(item.lastError)
+
+        let notReadyLog = try XCTUnwrap(logger.events.first { $0.event == "account_send_coordinator_drain_skipped_not_ready" })
+        XCTAssertEqual(notReadyLog.details["phase"] as? String, "suspectedStale")
+        XCTAssertEqual(notReadyLog.details["reason"] as? String, AccountConnectionStaleReason.primaryStreamAckTimeout.rawValue)
+        XCTAssertEqual(notReadyLog.details["canFlush"] as? Bool, false)
+    }
+
+    func testUserMessageSendBypassesRunningBackgroundSchedulerWork() throws {
+        let scheduler = AccountXMPPTaskScheduler(configuration: .test(defaultCooldown: 0))
+        let backgroundStarted = expectation(description: "background MAM work started")
+        var finishBackground: (() -> Void)?
+        scheduler.enqueue(priority: .background, resource: .mamArchive, deduplicationKey: "mam") { finish in
+            finishBackground = finish
+            backgroundStarted.fulfill()
+        }
+        wait(for: [backgroundStarted], timeout: 1)
+
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder)
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1"])
+        finishBackground?()
+    }
+
+    func testDurableRegularMessagePreemptsLowerPriorityTrackedStanzaWhenTrackerIsFull() {
+        let harness = makeTrackerHarness(
+            configuration: .init(maxTrackedCount: 2, maxRetainedXMLBytes: 1024, ackTimeout: 5)
+        )
+        XCTAssertEqual(
+            harness.tracker.track(stanzaId: "iq-1", kind: .iq, replayPolicy: .notReplayable),
+            .tracked(stanzaId: "iq-1")
+        )
+        XCTAssertEqual(
+            harness.tracker.track(stanzaId: "presence-1", kind: .presence, replayPolicy: .latestPresence(scope: "broadcast")),
+            .tracked(stanzaId: "presence-1")
+        )
+
+        XCTAssertEqual(
+            harness.tracker.track(stanzaId: "message-1", kind: .message, replayPolicy: .durableRegularMessage(originId: "message-1")),
+            .tracked(stanzaId: "message-1")
+        )
+
+        let tracked = harness.tracker.snapshotTrackedPrimaryStanzas()
+        XCTAssertEqual(tracked.count, 2)
+        XCTAssertTrue(tracked.contains { $0.stanzaId == "message-1" })
+        XCTAssertFalse(tracked.contains { $0.stanzaId == "iq-1" })
+    }
+
+    func testDurableRegularMessageDoesNotPreemptAnotherDurableRegularMessage() {
+        let harness = makeTrackerHarness(
+            configuration: .init(maxTrackedCount: 1, maxRetainedXMLBytes: 1024, ackTimeout: 5)
+        )
+        XCTAssertEqual(
+            harness.tracker.track(stanzaId: "message-1", kind: .message, replayPolicy: .durableRegularMessage(originId: "message-1")),
+            .tracked(stanzaId: "message-1")
+        )
+
+        XCTAssertEqual(
+            harness.tracker.track(stanzaId: "message-2", kind: .message, replayPolicy: .durableRegularMessage(originId: "message-2")),
+            .rejected(.countLimit(max: 1))
+        )
+        XCTAssertEqual(harness.tracker.snapshotTrackedPrimaryStanzas().map(\.stanzaId), ["message-1"])
+    }
+
+    func testDeliveryReceiptBeforeTimeoutCancelsRetryAndDrainsNextQueuedMessage() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder, scheduler: scheduler)
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1", createdAt: Date(timeIntervalSince1970: 1)))
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-2", createdAt: Date(timeIntervalSince1970: 2)))
+
+        scheduler.advance(by: 4.9)
+        coordinator.deliveryReceiptReceived(originId: "message-1", stanzaId: "archive-1")
+        scheduler.advance(by: 0.2)
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1", "message-2"])
+        XCTAssertNil(recorder.sentMessages.last?.element(forName: "retry", xmlns: "https://xabber.com/protocol/delivery"))
+    }
+
+    func testStreamManagementAckDoesNotSatisfyDeliveryReceiptTimeout() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder, scheduler: scheduler)
+        let harness = makeTrackerHarness()
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1", createdAt: Date(timeIntervalSince1970: 1)))
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-2", createdAt: Date(timeIntervalSince1970: 2)))
+        _ = harness.tracker.track(stanzaId: "message-1", kind: .message, replayPolicy: .durableRegularMessage(originId: "message-1"))
+
+        _ = harness.tracker.noteAck(ids: ["message-1"])
+        scheduler.advance(by: 5)
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1", "message-1"])
+        XCTAssertNotNil(recorder.sentMessages.last?.element(forName: "retry", xmlns: "https://xabber.com/protocol/delivery"))
+    }
+
+    func testFirstDeliveryReceiptTimeoutResendsSameMessageOnceWithRetryElement() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder, scheduler: scheduler)
+        try storeSendingMessage(originId: "message-1")
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+        scheduler.advance(by: 5)
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1", "message-1"])
+        XCTAssertEqual(
+            recorder.sentMessages.last?.element(forName: "origin-id", xmlns: "urn:xmpp:sid:0")?.attributeStringValue(forName: "id"),
+            "message-1"
+        )
+        XCTAssertNotNil(recorder.sentMessages.last?.element(forName: "retry", xmlns: "https://xabber.com/protocol/delivery"))
+
+        let realm = try WRealm.safe()
+        let queueItem = try XCTUnwrap(realm.objects(OutgoingMessageQueueItem.self).filter("originId == %@", "message-1").first)
+        XCTAssertEqual(queueItem.state, .awaitingReceipt)
+        XCTAssertEqual(queueItem.attemptCount, 2)
+        XCTAssertTrue(queueItem.replayRequired)
+        XCTAssertEqual(
+            realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: "message-1", owner: "owner@example.com"))?.state,
+            .sending
+        )
+    }
+
+    func testSecondDeliveryReceiptTimeoutMarksErrorAndDoesNotSendThirdAutomaticAttempt() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder, scheduler: scheduler)
+        try storeSendingMessage(originId: "message-1", includeReference: true)
+        try storeLastChat()
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+        scheduler.advance(by: 5)
+        scheduler.advance(by: 5)
+        scheduler.advance(by: 5)
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1", "message-1"])
+
+        let realm = try WRealm.safe()
+        let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: "message-1", owner: "owner@example.com")))
+        XCTAssertEqual(message.state, .error)
+        XCTAssertEqual(message.messageErrorCode, "delivery-receipt-timeout")
+        XCTAssertTrue(message.references.first?.hasError == true)
+        XCTAssertTrue(
+            realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: "romeo@example.com", owner: "owner@example.com", conversationType: .regular))?.hasErrorInChat == true
+        )
+
+        let queueItem = try XCTUnwrap(realm.objects(OutgoingMessageQueueItem.self).filter("originId == %@", "message-1").first)
+        XCTAssertEqual(queueItem.state, .terminalFailed)
+        XCTAssertEqual(queueItem.attemptCount, 2)
+    }
+
+    func testManualRetryAfterTimeoutErrorPreservesOriginIdAndStartsFreshTimeoutCycle() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder, scheduler: scheduler)
+        try storeSendingMessage(originId: "message-1")
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+        scheduler.advance(by: 5)
+        scheduler.advance(by: 5)
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1", replayRequired: true))
+        scheduler.advance(by: 5)
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1", "message-1", "message-1", "message-1"])
+        XCTAssertNotNil(recorder.sentMessages[2].element(forName: "retry", xmlns: "https://xabber.com/protocol/delivery"))
+        XCTAssertNotNil(recorder.sentMessages[3].element(forName: "retry", xmlns: "https://xabber.com/protocol/delivery"))
+        XCTAssertEqual(
+            Set(recorder.sentMessages.compactMap(\.elementID)),
+            Set(["message-1"])
+        )
+
+        let realm = try WRealm.safe()
+        let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: "message-1", owner: "owner@example.com")))
+        XCTAssertEqual(message.state, .sending)
+        XCTAssertNil(message.messageError)
+        XCTAssertNil(message.messageErrorCode)
+        let queueItem = try XCTUnwrap(realm.objects(OutgoingMessageQueueItem.self).filter("originId == %@", "message-1").first)
+        XCTAssertEqual(queueItem.state, .awaitingReceipt)
+        XCTAssertEqual(queueItem.attemptCount, 2)
+    }
+
+    func testDuplicateManualPersistenceDoesNotResetActiveQueueItem() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder, scheduler: scheduler)
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1", replayRequired: false))
+        let didEnqueueDuplicate = try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1", replayRequired: true))
+
+        XCTAssertFalse(didEnqueueDuplicate)
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1"])
+
+        let realm = try WRealm.safe()
+        let queueItem = try XCTUnwrap(realm.objects(OutgoingMessageQueueItem.self).filter("originId == %@", "message-1").first)
+        XCTAssertEqual(queueItem.state, .awaitingReceipt)
+        XCTAssertEqual(queueItem.attemptCount, 1)
+        XCTAssertFalse(queueItem.replayRequired)
+    }
+
+    func testExplicitServerErrorStaysTerminalAndDoesNotEnterAutomaticTimeoutRetry() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder, scheduler: scheduler)
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+        coordinator.terminalFailure(originId: "message-1", error: "Forbidden")
+        scheduler.advance(by: 5)
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1"])
+
+        let realm = try WRealm.safe()
+        let queueItem = try XCTUnwrap(realm.objects(OutgoingMessageQueueItem.self).filter("originId == %@", "message-1").first)
+        XCTAssertEqual(queueItem.state, .terminalFailed)
+        XCTAssertEqual(queueItem.lastError, "Forbidden")
+    }
+
+    func testLateDeliveryReceiptAfterTimeoutReconcilesMessageToSentAndClearsTimeoutError() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder, scheduler: scheduler)
+        try storeSendingMessage(originId: "message-1", includeReference: true)
+        try storeLastChat()
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+        scheduler.advance(by: 5)
+        scheduler.advance(by: 5)
+
+        let receipt = XabberDeliveryReceipt(
+            originId: "message-1",
+            stanzaId: "archive-1",
+            stamp: Date(timeIntervalSince1970: 100)
+        )
+        let applied = ReliableMessageDeliveryReceiptProcessor.apply(owner: "owner@example.com", receipt: receipt) { originId, stanzaId in
+            coordinator.deliveryReceiptReceived(originId: originId, stanzaId: stanzaId)
+        }
+
+        XCTAssertTrue(applied)
+
+        let realm = try WRealm.safe()
+        let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: "message-1", owner: "owner@example.com")))
+        XCTAssertEqual(message.state, .sended)
+        XCTAssertEqual(message.archivedId, "archive-1")
+        XCTAssertNil(message.messageError)
+        XCTAssertNil(message.messageErrorCode)
+        XCTAssertFalse(message.references.first?.hasError == true)
+        XCTAssertFalse(
+            realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: "romeo@example.com", owner: "owner@example.com", conversationType: .regular))?.hasErrorInChat == true
+        )
+        XCTAssertEqual(realm.objects(OutgoingMessageQueueItem.self).filter("originId == %@", "message-1").count, 0)
+    }
+
+    func testStaleDeliveryReceiptTimeoutCallbackIsIgnoredAfterQueueItemDeleted() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder, scheduler: scheduler)
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.delete(realm.objects(OutgoingMessageQueueItem.self))
+        }
+
+        scheduler.advance(by: 5)
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1"])
+    }
+
+    func testSupersededDeliveryReceiptTimeoutCallbackDoesNotCancelCurrentTimer() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder, scheduler: scheduler)
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+        coordinator.streamDidDisconnect(canResume: true)
+        coordinator.streamManagementResumeSucceeded()
+
+        scheduler.fireCancelledCallbacks()
+        scheduler.advance(by: 5)
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1", "message-1"])
+        XCTAssertNotNil(recorder.sentMessages.last?.element(forName: "retry", xmlns: "https://xabber.com/protocol/delivery"))
+    }
+
+    func testPerChatOrderingRemainsReceiptGatedThroughRetryAndTimeoutError() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder, scheduler: scheduler)
+        try storeSendingMessage(originId: "message-1")
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1", createdAt: Date(timeIntervalSince1970: 1)))
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-2", createdAt: Date(timeIntervalSince1970: 2)))
+
+        scheduler.advance(by: 5)
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1", "message-1"])
+
+        scheduler.advance(by: 5)
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1", "message-1", "message-2"])
+    }
+
     func testQueueCountAndRetainedXMLByteLimitsAreEnforcedWithoutCrashes() {
         let countHarness = makeTrackerHarness(
             configuration: .init(maxTrackedCount: 1, maxRetainedXMLBytes: 1024, ackTimeout: 5)
@@ -216,12 +540,16 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
     private func makeSendCoordinator(
         owner: String = "owner@example.com",
         isReady: @escaping () -> Bool,
-        recorder: AccountPrimaryStreamSendCoordinatorRecorder
+        recorder: AccountPrimaryStreamSendCoordinatorRecorder,
+        scheduler: AccountPrimaryStreamTestScheduler = AccountPrimaryStreamTestScheduler(),
+        readinessSnapshot: @escaping () -> AccountSendReadinessSnapshot? = { nil },
+        logger: AccountPrimaryStreamSendCoordinatorLogger = AccountPrimaryStreamSendCoordinatorLogger()
     ) -> AccountSendCoordinator {
         AccountSendCoordinator(
             environment: AccountSendCoordinator.Environment(
                 owner: owner,
                 isSendReady: isReady,
+                sendReadinessSnapshot: readinessSnapshot,
                 decorateMessage: { message, retry, missRetryElement in
                     if retry && !missRetryElement {
                         message.addChild(DDXMLElement(name: "retry", xmlns: "https://xabber.com/protocol/delivery"))
@@ -231,7 +559,14 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
                 sendMessage: { message in
                     recorder.sentMessages.append(message.copy() as! XMPPMessage)
                 },
-                log: { _, _ in }
+                scheduler: scheduler,
+                receiptTimeout: 5,
+                now: {
+                    Date(timeIntervalSince1970: scheduler.now)
+                },
+                log: { event, details in
+                    logger.events.append((event, details))
+                }
             )
         )
     }
@@ -240,7 +575,8 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         owner: String = "owner@example.com",
         opponent: String = "romeo@example.com",
         originId: String,
-        createdAt: Date = Date(timeIntervalSince1970: 1)
+        createdAt: Date = Date(timeIntervalSince1970: 1),
+        replayRequired: Bool = false
     ) -> AccountQueuedMessageSendRequest {
         AccountQueuedMessageSendRequest(
             owner: owner,
@@ -255,8 +591,58 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
             </message>
             """,
             createdAt: createdAt,
-            replayRequired: false
+            replayRequired: replayRequired
         )
+    }
+
+    private func storeSendingMessage(
+        owner: String = "owner@example.com",
+        opponent: String = "romeo@example.com",
+        originId: String,
+        includeReference: Bool = false
+    ) throws {
+        let realm = try WRealm.safe()
+        let message = MessageStorageItem()
+        message.owner = owner
+        message.opponent = opponent
+        message.outgoing = true
+        message.messageId = originId
+        message.primary = MessageStorageItem.genPrimary(messageId: originId, owner: owner)
+        message.conversationType = .regular
+        message.displayAs = .text
+        message.body = "Hello"
+        message.legacyBody = "Hello"
+        message.state = .sending
+        message.date = Date(timeIntervalSince1970: 1)
+        message.sentDate = message.date
+        if includeReference {
+            let reference = MessageReferenceStorageItem()
+            reference.owner = owner
+            reference.jid = opponent
+            reference.messageId = message.primary
+            reference.conversationType = .regular
+            reference.kind = .quote
+            message.references.append(reference)
+        }
+        try realm.write {
+            realm.add(message, update: .modified)
+        }
+    }
+
+    private func storeLastChat(
+        owner: String = "owner@example.com",
+        opponent: String = "romeo@example.com",
+        conversationType: ClientSynchronizationManager.ConversationType = .regular
+    ) throws {
+        let realm = try WRealm.safe()
+        let chat = LastChatsStorageItem()
+        chat.primary = LastChatsStorageItem.genPrimary(jid: opponent, owner: owner, conversationType: conversationType)
+        chat.owner = owner
+        chat.jid = opponent
+        chat.conversationType = conversationType
+        try realm.write {
+            realm.add(chat, update: .modified)
+        }
     }
 }
 
@@ -286,6 +672,10 @@ private final class AccountPrimaryStreamTimeoutBox {
 
 private final class AccountPrimaryStreamSendCoordinatorRecorder {
     var sentMessages: [XMPPMessage] = []
+}
+
+private final class AccountPrimaryStreamSendCoordinatorLogger {
+    var events: [(event: String, details: [String: Any?])] = []
 }
 
 private final class AccountPrimaryStreamTestScheduler: AccountConnectionResilienceScheduling {
@@ -332,5 +722,20 @@ private final class AccountPrimaryStreamTestScheduler: AccountConnectionResilien
             next.block()
         }
         scheduled.removeAll { $0.isCancelled }
+    }
+
+    func fireCancelledCallbacks() {
+        let cancelled = scheduled
+            .filter(\.isCancelled)
+            .sorted(by: { lhs, rhs in
+                if lhs.due == rhs.due {
+                    return lhs.id < rhs.id
+                }
+                return lhs.due < rhs.due
+            })
+        scheduled.removeAll { $0.isCancelled }
+        cancelled.forEach {
+            $0.block()
+        }
     }
 }

@@ -35,14 +35,11 @@ extension ChatViewController: ImagePickerViewDelegate {
     
     func onSendMessage() {
         print("Call empty", #function)
-        let shouldAutoScroll = self.isNearBottom()
         DispatchQueue.main.async {
+            self.requestOutgoingAutoScrollAfterDatasourceUpdate()
             self.forwardedIds.accept(Set<String>())
             self.attachedMessagesIds.accept([])
             self.unreadMessagePositionId = nil
-            if shouldAutoScroll {
-                self.scrollToLastOrUnreadItem()
-            }
         }
     }
     

@@ -84,6 +84,9 @@ class XMPPBackgroundTask: NSObject {
         self.mam = MessageArchiveManager(withOwner: jid)
         self.messages = MessageManager(withOwner: jid, activeStream: false)
         super.init()
+        self.messages.archiveQueryIdPersistenceResolver = { [weak self] queryId in
+            self?.mam.shouldPersistArchiveQueryId(queryId) ?? false
+        }
         self.connect()
         self.mam.backgroundTaskDelegate = self
 //        print(self.backgroundUpdateTask, self.taskType, "new background task")

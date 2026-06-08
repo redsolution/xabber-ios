@@ -244,6 +244,7 @@ extension MessageManager {
             stanza.addAttribute(withName: "from", stringValue: owner)
             stanzaToSave.addAttribute(withName: "from", stringValue: owner)
             let missRetryElementOnResend = item.messageErrorCode == "405"
+            let isDeliveryReceiptTimeoutRetry = retry && item.messageErrorCode == AccountSendCoordinator.deliveryReceiptTimeoutErrorCode
             let shouldUseDurableRegularQueue = item.conversationType == .regular && item.displayAs == .text
             let durableQueueRequest = AccountQueuedMessageSendRequest(
                 owner: item.owner,
@@ -280,6 +281,13 @@ extension MessageManager {
                 }
 
                 item.state = .sending
+                if isDeliveryReceiptTimeoutRetry {
+                    item.messageError = nil
+                    item.messageErrorCode = nil
+                    item.references.forEach {
+                        $0.hasError = false
+                    }
+                }
                 
                 item.trustedSource = realm.object(
                     ofType: LastChatsStorageItem.self,
@@ -322,8 +330,20 @@ extension MessageManager {
                 }
             }
             if shouldUseDurableRegularQueue {
-                try AccountSendCoordinator.persistRegularMessage(durableQueueRequest)
-                AccountManager.shared.find(for: owner)?.sendCoordinator.drainReadyQueue()
+                if let sendCoordinator = AccountManager.shared.find(for: owner)?.sendCoordinator {
+                    try sendCoordinator.enqueueRegularMessage(durableQueueRequest)
+                } else {
+                    try AccountSendCoordinator.persistRegularMessage(durableQueueRequest)
+                    ConnectionDiagnosticsLogger.log(
+                        event: "application_message_durable_queue_no_account",
+                        stream: .primary,
+                        jid: owner,
+                        details: [
+                            "messageId": item.messageId,
+                            "conversationType": item.conversationType.rawValue
+                        ]
+                    )
+                }
                 LastChats.updateErrorState(for: item.opponent, owner: self.owner, conversationType: item.conversationType)
                 return
             }
@@ -560,6 +580,9 @@ extension MessageManager {
                                                                               isReport: isReport,
                                                                               owner: owner,
                                                                               jid: jid))
+            if instance.conversationType == .regular && instance.displayAs == .text {
+                instance.state = .sending
+            }
             if realm
                 .objects(MessageStorageItem.self)
                 .filter("owner == %@ AND messageId == %@", owner, instance.messageId).count > 0 {
