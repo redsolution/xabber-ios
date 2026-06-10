@@ -192,9 +192,15 @@ extension LastCallsViewController {
             self.jid = jid
             self.owner = owner
             self.avatarUrl = avatarUrl
+            let defaultAvatar = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 48)
+            if let cachedAvatar = DefaultAvatarManager.shared.cachedAvatarImage(url: avatarUrl) {
+                self.avatarView.image = cachedAvatar
+            } else {
+                self.avatarView.image = defaultAvatar
+            }
             DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 48) { image in
                 guard self.avatarUrl == avatarUrl else { return }
-                self.avatarView.image = image ?? UIImageView.getDefaultAvatar(for: username, owner: owner, size: 48)
+                self.avatarView.image = image ?? defaultAvatar
             }
             titleLabel.text = JidManager.shared.prepareJid(jid: username)
             dateLabel.text = Self.formattedDate(from: date)

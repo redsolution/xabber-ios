@@ -120,6 +120,19 @@ class XmppAvatarManager: AbstractXMPPManager {
         }
         return true
     }
+
+    public final func readFromPubSubMetadata(_ iq: XMPPIQ) -> Bool {
+        guard iq.iqType == .result,
+              let jid = iq.from?.bare,
+              let item = iq
+                .element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")?
+                .elements(forName: "items")
+                .first(where: { $0.attributeStringValue(forName: "node") == AvatarNode.metadata.rawValue })?
+                .element(forName: "item") else {
+            return false
+        }
+        return readFromPubSubMetadata(jid: jid, pubsub: item)
+    }
     
     public final func readFromPubSubMetadata(jid: String, pubsub item: DDXMLElement) -> Bool {
         guard let id = item.attributeStringValue(forName: "id") else {
@@ -308,9 +321,18 @@ class XmppAvatarManager: AbstractXMPPManager {
               self.queryIds.contains(elementId) else {
             return false
         }
+        defer {
+            self.queryIds.remove(elementId)
+        }
+        if iq.iqType == .error {
+            return true
+        }
         switch true {
         case self.readFromPubSubData(iq): return true
-        default: return false
+        case self.readFromPubSubMetadata(iq): return true
+        default:
+            DDLogDebug("XmppAvatarManager: unhandled known PubSub avatar IQ id=\(elementId)")
+            return true
         }
     }
 }

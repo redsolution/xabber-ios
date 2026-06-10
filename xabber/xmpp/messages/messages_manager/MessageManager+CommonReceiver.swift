@@ -343,6 +343,13 @@ extension MessageManager {
     
     public func receiveArchived(_ message: XMPPMessage) {
         let queryId = getMAMQueryId(message)
+        ChatArchiveDebugTrace.log("mamResultMessageReceived", [
+            ("owner", self.owner),
+            ("queryId", queryId ?? "-"),
+            ("wrapperId", message.element(forName: "result")?.attributeStringValue(forName: "id") ?? "-"),
+            ("from", message.from?.bare ?? "-"),
+            ("hasArchivedContainer", getArchivedMessageContainer(message) != nil)
+        ])
         self.performMessageQueueSync {
             self.updateArchivePersistenceSummary(for: queryId) { summary in
                 summary.received += 1

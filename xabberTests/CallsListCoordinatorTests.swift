@@ -234,6 +234,23 @@ final class CallsVisualStyleTests: XCTestCase {
         )
     }
 
+    private func makeSolidAvatarImage(color: UIColor, size: CGSize = CGSize(width: 48, height: 48)) -> UIImage {
+        UIGraphicsImageRenderer(size: size).image { context in
+            color.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+    }
+
+    private func assertImage(
+        _ image: UIImage?,
+        matches expectedImage: UIImage,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(image?.size, expectedImage.size, file: file, line: line)
+        XCTAssertEqual(image?.pngData(), expectedImage.pngData(), file: file, line: line)
+    }
+
     private func assertNoSelectionOutline(
         in cell: UITableViewCell,
         file: StaticString = #filePath,
@@ -320,6 +337,28 @@ final class CallsVisualStyleTests: XCTestCase {
         XCTAssertNil(cell.selectedBackgroundView)
         XCTAssertEqual(cell.selectionStyle, .none)
         assertNoSelectionOutline(in: cell)
+    }
+
+    func testCallsListCellUsesCachedAvatarSynchronously() {
+        let avatarURL = "https://example.com/calls-avatar-\(UUID().uuidString).png"
+        let cachedImage = makeSolidAvatarImage(color: .systemOrange)
+        DefaultAvatarManager.shared.storeImage(for: avatarURL, image: cachedImage)
+        let cell = LastCallsViewController.ItemCell(
+            style: .default,
+            reuseIdentifier: LastCallsViewController.ItemCell.cellName
+        )
+
+        cell.configure(
+            owner: "owner@example.com",
+            jid: "juliet@example.com",
+            avatarUrl: avatarURL,
+            username: "Juliet",
+            date: Date(timeIntervalSince1970: 1_711_283_200),
+            direction: .incoming,
+            outgoing: false
+        )
+
+        assertImage(cell.avatarView.image, matches: cachedImage)
     }
 
     func testCallsRowsDoNotUseUIKitFocusOutline() {

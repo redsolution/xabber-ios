@@ -219,6 +219,16 @@ enum ChatInitialAnchorBootstrapPolicy {
     }
 }
 
+enum ChatInitialAutomaticOpenPolicy {
+    static func shouldOpenUnreadBoundaryOnChatOpen() -> Bool {
+        false
+    }
+
+    static func shouldRestoreSavedVisiblePositionOnChatOpen() -> Bool {
+        false
+    }
+}
+
 enum ChatInitialPositionPolicy {
     enum Decision: Equatable {
         case open(ChatOpenMessageRequest)
@@ -248,7 +258,8 @@ enum ChatInitialPositionPolicy {
             return .open(explicitRequest)
         }
 
-        if chat.unread > 0,
+        if ChatInitialAutomaticOpenPolicy.shouldOpenUnreadBoundaryOnChatOpen(),
+           chat.unread > 0,
            let boundaryId = normalizedId(chat.syncUnreadAfterId) ?? normalizedId(chat.lastReadId) {
             let sourceDate = archiveDate(from: boundaryId) ?? chat.messageDate
             return .open(
@@ -272,7 +283,8 @@ enum ChatInitialPositionPolicy {
             )
         }
 
-        if chat.unread == 0,
+        if ChatInitialAutomaticOpenPolicy.shouldRestoreSavedVisiblePositionOnChatOpen(),
+           chat.unread == 0,
            let savedPosition = chat.savedPosition,
            savedPosition.hasAnchor,
            chat.savedAtLastMessageId == chat.lastMessageId,
@@ -1195,7 +1207,12 @@ extension ChatViewController {
             knownGaps: archiveCoverageContext.knownGaps
         )
 
-        guard case .savedPosition(let anchorIndex, _) = decision,
+        guard ChatSavedPositionFirstFramePolicy.shouldApplySynchronously(
+                bootstrapState: self.currentBootstrapViewState(),
+                isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
+                decision: decision
+              ),
+              case .savedPosition(let anchorIndex, _) = decision,
               anchorIndex < self.messagesObserver.count else {
             return false
         }
@@ -1221,54 +1238,94 @@ extension ChatViewController {
             self.setArchiveLoading(false)
             self.setDatasourceLoadingEnabled(false)
 
-            self.mapAndApplyTimelineAnchor(
-                ChatTimelineAnchor(
+            guard self.applySavedPositionFirstFrameAnchorSnapshot(message: message, target: target),
+                  ChatSavedPositionFirstFrameCompletionPolicy.renderedWindowAction(
+                    requestSource: request.source,
+                    targetExistsInSnapshot: self.datasourceSnapshotContainsTarget(target)
+                  ) == .finishRequest else {
+                self.recoverSavedPositionFirstFrameRequest(trigger: .manual)
+                return
+            }
+
+            self.positionMessage(
+                primary: target.primary,
+                archivedId: target.archivedId,
+                highlight: false,
+                animated: false,
+                completion: {
+                    self.finishActiveAnchorExecution()
+                    self.scheduleMentionReadOnVisibleIfNeeded(
+                        for: request,
+                        positionedPrimary: target.primary
+                    )
+                    hooks?.onPositioned?()
+                    self.startBackgroundContextPrefetchIfNeeded(
+                        around: target,
+                        request: request
+                    )
+                }
+            )
+        }
+    }
+
+    private func applySavedPositionFirstFrameAnchorSnapshot(
+        message: MessageStorageItem,
+        target: ResolvedJumpTarget
+    ) -> Bool {
+        do {
+            self.datasetMappingGeneration += 1
+            let boundaryPlaceholder = self.activeHistoryBoundaryPlaceholder
+            let provider = ChatLocalHistoryPageProvider(
+                realm: try WRealm.safe(),
+                owner: self.owner,
+                jid: self.jid,
+                conversationType: self.conversationType
+            )
+            var engine = ChatVirtualTimelineEngine(
+                provider: provider,
+                pageSize: self.datasourcePageSize,
+                state: self.virtualTimelineState.normalized(
+                    owner: self.owner,
+                    jid: self.jid,
+                    conversationType: self.conversationType
+                ),
+                archiveState: self.loadChatArchiveStateSnapshot()
+            )
+            let snapshot = engine.openAround(
+                anchor: ChatTimelineAnchor(
                     primary: message.primary,
                     archivedId: message.archivedId,
                     messageId: message.messageId,
                     date: message.date
-                ),
+                )
+            )
+            let frozenItems = snapshot.items.map { $0.freeze() }
+            guard frozenItems.isNotEmpty else {
+                return false
+            }
+
+            let nextVirtualState = snapshot.state.withRuntimePlaceholder(boundaryPlaceholder)
+            var mappedDatasource = self.mapDataset(dataset: frozenItems)
+            if let boundaryPlaceholder {
+                mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
+                    to: mappedDatasource,
+                    position: boundaryPlaceholder
+                )
+            }
+
+            self.virtualTimelineState = nextVirtualState
+            self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
+            self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
+            self.applyChatDatasource(
+                mappedDatasource,
                 mode: .fullReload(),
                 animated: false,
-                completion: {
-                    guard ChatSavedPositionFirstFrameCompletionPolicy.renderedWindowAction(
-                        requestSource: request.source,
-                        targetExistsInSnapshot: self.datasourceSnapshotContainsTarget(target)
-                    ) == .finishRequest else {
-                        self.recoverSavedPositionFirstFrameRequest(trigger: .manual)
-                        return
-                    }
-
-                    self.positionMessage(
-                        primary: target.primary,
-                        archivedId: target.archivedId,
-                        highlight: false,
-                        animated: false,
-                        completion: {
-                            self.finishActiveAnchorExecution()
-                            self.scheduleMentionReadOnVisibleIfNeeded(
-                                for: request,
-                                positionedPrimary: target.primary
-                            )
-                            hooks?.onPositioned?()
-                            self.startBackgroundContextPrefetchIfNeeded(
-                                around: target,
-                                request: request
-                            )
-                        }
-                    )
-                },
-                cancelledCompletion: {
-                    switch ChatSavedPositionFirstFrameCompletionPolicy.mappingCancellationAction(
-                        requestSource: request.source
-                    ) {
-                    case .finishRequest:
-                        self.failActiveAnchorExecution()
-                    case .recoverPendingRequest:
-                        self.recoverSavedPositionFirstFrameRequest(trigger: .observerRefresh)
-                    }
-                }
+                invalidateLayout: false
             )
+            return self.datasourceSnapshotContainsTarget(target)
+        } catch {
+            DDLogDebug("ChatViewController.applySavedPositionFirstFrameAnchorSnapshot: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -2847,6 +2904,22 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
                 ("currentPageLocked", self.currentPage.locked)
             ])
+            if self.abortedRemoteHistoryQueryIds.contains(queryId),
+               self.interactiveHistoryPageLoadContext?.queryId != queryId {
+                self.abortedRemoteHistoryQueryIds.remove(queryId)
+                self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+                ChatArchiveDebugTrace.log("chatDidReceiveEndPageStaleAfterAbort", [
+                    ("owner", self.owner),
+                    ("jid", self.jid),
+                    ("conversationType", self.conversationType.rawValue),
+                    ("queryId", queryId),
+                    ("count", count),
+                    ("statePersisted", state.persistedMessageCount),
+                    ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
+                    ("coverageCommitted", false)
+                ])
+                return
+            }
             let shouldDedupeCompletion = self.remoteHistoryEndPageDispatcherTokens[queryId] != nil ||
                 self.completedRemoteHistoryEndPageQueryIds.contains(queryId)
             if shouldDedupeCompletion {

@@ -214,6 +214,60 @@ enum ChatNavigationTransitionMutationPolicy {
     }
 }
 
+enum ChatOpenTimingPolicy {
+    static func shouldLogFirstMessagesPrepared(
+        hasActiveSession: Bool,
+        didLogPrepared: Bool,
+        realMessageCount: Int,
+        sectionCount: Int
+    ) -> Bool {
+        hasActiveSession &&
+            !didLogPrepared &&
+            realMessageCount > 0 &&
+            sectionCount > 0
+    }
+
+    static func shouldLogFirstMessagesVisible(
+        hasActiveSession: Bool,
+        didLogVisible: Bool,
+        realMessageCount: Int,
+        sectionCount: Int,
+        visibleItemCount: Int,
+        isViewVisible: Bool
+    ) -> Bool {
+        hasActiveSession &&
+            !didLogVisible &&
+            realMessageCount > 0 &&
+            sectionCount > 0 &&
+            visibleItemCount > 0 &&
+            isViewVisible
+    }
+
+    static func milliseconds(from start: Date?, to end: Date) -> Int? {
+        guard let start else {
+            return nil
+        }
+        return max(0, Int(end.timeIntervalSince(start) * 1000))
+    }
+}
+
+struct ChatOpenTimingSession {
+    let id: String
+    let trigger: String
+    let startedAt: Date
+    var viewWillAppearAt: Date?
+    var initialDatasourceLoadScheduledAt: Date?
+    var initialDatasourceLoadDequeuedAt: Date?
+    var initialDatasourceLoadStartedAt: Date?
+    var viewDidAppearAt: Date?
+    var firstMessagesPreparedAt: Date?
+    var firstMessagesVisibleAt: Date?
+    var firstDatasourceApplyStartedAt: Date?
+    var didLogInitialDatasourceLoadFinish: Bool = false
+    var didLogFirstMessagesPrepared: Bool = false
+    var didLogFirstMessagesVisible: Bool = false
+}
+
 private extension CGRect {
     func isApproximatelyEqual(to other: CGRect, tolerance: CGFloat = 0.5) -> Bool {
         abs(origin.x - other.origin.x) <= tolerance
@@ -1244,13 +1298,18 @@ class ChatViewController: MessagesViewController {
     var hasRequestedMentionUsersRefresh: Bool = false
     var interactiveHistoryPageLoadContext: ChatInteractiveHistoryPageLoadContext? = nil
     var interactiveHistoryCompletionRetryWorkItem: DispatchWorkItem? = nil
+    var interactiveRemoteArchiveTimeoutWorkItem: DispatchWorkItem? = nil
     var remoteHistoryFinishingQueryId: String? = nil
     internal var remoteHistoryEndPageDispatcherTokens: [String: MessageArchiveEndPageDispatcher.Token] = [:]
+    internal var remoteHistoryFailureDispatcherTokens: [String: MessageArchiveRequestFailureDispatcher.Token] = [:]
     internal var completedRemoteHistoryEndPageQueryIds: Set<String> = []
+    internal var abortedRemoteHistoryQueryIds: Set<String> = []
+    internal var remoteHistoryRequestStartedAtByQueryId: [String: Date] = [:]
     internal var chatArchiveMainStallProbeWorkItem: DispatchWorkItem?
     internal var chatArchiveMainStallProbeLastBeat: Date?
     internal var chatArchiveMainStallProbeQueryId: String?
     internal var chatArchiveMainStallProbeOperation: String?
+    internal var chatOpenTimingSession: ChatOpenTimingSession?
     var initialBootstrapQueryId: String? = nil
     var isInitialBootstrapInFlight: Bool = false
     var didReceiveInitialBootstrapEndPage: Bool = false
@@ -1399,6 +1458,342 @@ class ChatViewController: MessagesViewController {
 
             self.scheduleHistoryLoadingWatchdog(generation: generation, startedAt: startedAt)
         }
+    }
+
+    internal func beginChatOpenTimingSessionIfNeeded(
+        trigger: String,
+        targetBounds: CGRect? = nil
+    ) {
+        let now = Date()
+        if let session = self.chatOpenTimingSession {
+            var fields = self.chatOpenTimingBaseFields(session: session, now: now)
+            fields.append(("nextTrigger", trigger))
+            if let targetBounds {
+                fields.append(("targetWidth", Int(targetBounds.width)))
+                fields.append(("targetHeight", Int(targetBounds.height)))
+            }
+            ChatArchiveDebugTrace.log("chatOpenTimingContinue", fields)
+            return
+        }
+
+        let session = ChatOpenTimingSession(
+            id: UUID().uuidString,
+            trigger: trigger,
+            startedAt: now
+        )
+        self.chatOpenTimingSession = session
+        var fields = self.chatOpenTimingBaseFields(session: session, now: now)
+        if let targetBounds {
+            fields.append(("targetWidth", Int(targetBounds.width)))
+            fields.append(("targetHeight", Int(targetBounds.height)))
+        }
+        ChatArchiveDebugTrace.log("chatOpenTimingStart", fields)
+    }
+
+    internal func recordChatOpenTimingViewWillAppear() {
+        self.beginChatOpenTimingSessionIfNeeded(trigger: "viewWillAppear")
+        guard var session = self.chatOpenTimingSession,
+              session.viewWillAppearAt == nil else {
+            return
+        }
+        let now = Date()
+        session.viewWillAppearAt = now
+        self.chatOpenTimingSession = session
+        ChatArchiveDebugTrace.log(
+            "chatOpenTimingViewWillAppear",
+            self.chatOpenTimingBaseFields(session: session, now: now)
+        )
+        self.recordChatOpenTimingFirstMessagesPreparedIfNeeded(
+            reason: "viewWillAppearExistingDatasource",
+            modeDescription: "existingDatasource",
+            appliedItemCount: self.datasource.count,
+            realMessageCount: self.chatOpenTimingRealMessageCount(in: self.datasource),
+            applyStartedAt: nil,
+            applyDurationMs: nil,
+            layoutMs: nil,
+            animated: false,
+            invalidateLayout: false
+        )
+        self.scheduleChatOpenTimingFirstMessagesVisibleCheck(
+            reason: "viewWillAppearExistingDatasource",
+            modeDescription: "existingDatasource"
+        )
+    }
+
+    internal func recordChatOpenTimingInitialDatasourceLoadScheduled(
+        performPendingOpenMessageRequest: Bool
+    ) {
+        self.beginChatOpenTimingSessionIfNeeded(trigger: "initialDatasourceSchedule")
+        guard var session = self.chatOpenTimingSession,
+              session.initialDatasourceLoadScheduledAt == nil else {
+            return
+        }
+        let now = Date()
+        session.initialDatasourceLoadScheduledAt = now
+        self.chatOpenTimingSession = session
+        var fields = self.chatOpenTimingBaseFields(session: session, now: now)
+        fields.append(("performPendingOpenMessageRequest", performPendingOpenMessageRequest))
+        ChatArchiveDebugTrace.log("chatOpenTimingInitialDatasourceLoadScheduled", fields)
+    }
+
+    internal func recordChatOpenTimingInitialDatasourceLoadDequeued(
+        performPendingOpenMessageRequest: Bool
+    ) {
+        guard var session = self.chatOpenTimingSession,
+              session.initialDatasourceLoadDequeuedAt == nil else {
+            return
+        }
+        let now = Date()
+        session.initialDatasourceLoadDequeuedAt = now
+        self.chatOpenTimingSession = session
+        var fields = self.chatOpenTimingBaseFields(session: session, now: now)
+        fields.append(("performPendingOpenMessageRequest", performPendingOpenMessageRequest))
+        fields.append(("mainAsyncWaitMs", ChatOpenTimingPolicy.milliseconds(
+            from: session.initialDatasourceLoadScheduledAt,
+            to: now
+        )))
+        ChatArchiveDebugTrace.log("chatOpenTimingInitialDatasourceLoadDequeued", fields)
+    }
+
+    internal func recordChatOpenTimingInitialDatasourceLoadStarted(
+        performPendingOpenMessageRequest: Bool
+    ) {
+        self.beginChatOpenTimingSessionIfNeeded(trigger: "initialDatasourceLoad")
+        guard var session = self.chatOpenTimingSession,
+              session.initialDatasourceLoadStartedAt == nil else {
+            return
+        }
+        let now = Date()
+        session.initialDatasourceLoadStartedAt = now
+        self.chatOpenTimingSession = session
+        var fields = self.chatOpenTimingBaseFields(session: session, now: now)
+        fields.append(("performPendingOpenMessageRequest", performPendingOpenMessageRequest))
+        ChatArchiveDebugTrace.log("chatOpenTimingInitialDatasourceLoadStart", fields)
+    }
+
+    internal func recordChatOpenTimingInitialDatasourceLoadFinished(
+        bootstrapState: ChatBootstrapViewState,
+        performPendingOpenMessageRequest: Bool
+    ) {
+        guard var session = self.chatOpenTimingSession,
+              !session.didLogInitialDatasourceLoadFinish else {
+            return
+        }
+        let now = Date()
+        session.didLogInitialDatasourceLoadFinish = true
+        self.chatOpenTimingSession = session
+        var fields = self.chatOpenTimingBaseFields(session: session, now: now)
+        fields.append(("bootstrapState", "\(bootstrapState)"))
+        fields.append(("performPendingOpenMessageRequest", performPendingOpenMessageRequest))
+        fields.append(("loadDurationMs", ChatOpenTimingPolicy.milliseconds(
+            from: session.initialDatasourceLoadStartedAt,
+            to: now
+        )))
+        ChatArchiveDebugTrace.log("chatOpenTimingInitialDatasourceLoadFinish", fields)
+    }
+
+    internal func recordChatOpenTimingInitialDatasourceLoadFailed(_ error: Error) {
+        guard let session = self.chatOpenTimingSession else {
+            return
+        }
+        var fields = self.chatOpenTimingBaseFields(session: session, now: Date())
+        fields.append(("error", error.localizedDescription))
+        ChatArchiveDebugTrace.log("chatOpenTimingInitialDatasourceLoadFailure", fields)
+    }
+
+    internal func recordChatOpenTimingViewDidAppear() {
+        self.beginChatOpenTimingSessionIfNeeded(trigger: "viewDidAppear")
+        guard var session = self.chatOpenTimingSession,
+              session.viewDidAppearAt == nil else {
+            return
+        }
+        let now = Date()
+        session.viewDidAppearAt = now
+        self.chatOpenTimingSession = session
+        ChatArchiveDebugTrace.log(
+            "chatOpenTimingViewDidAppear",
+            self.chatOpenTimingBaseFields(session: session, now: now)
+        )
+    }
+
+    internal func recordChatOpenTimingFirstMessagesPreparedIfNeeded(
+        reason: String,
+        modeDescription: String,
+        appliedItemCount: Int,
+        realMessageCount: Int,
+        applyStartedAt: Date?,
+        applyDurationMs: Int?,
+        layoutMs: Int?,
+        animated: Bool,
+        invalidateLayout: Bool
+    ) {
+        guard var session = self.chatOpenTimingSession,
+              ChatOpenTimingPolicy.shouldLogFirstMessagesPrepared(
+                hasActiveSession: true,
+                didLogPrepared: session.didLogFirstMessagesPrepared,
+                realMessageCount: realMessageCount,
+                sectionCount: self.chatOpenTimingSectionCount
+              ) else {
+            return
+        }
+
+        let now = Date()
+        session.didLogFirstMessagesPrepared = true
+        session.firstMessagesPreparedAt = now
+        session.firstDatasourceApplyStartedAt = applyStartedAt
+        self.chatOpenTimingSession = session
+
+        var fields = self.chatOpenTimingBaseFields(session: session, now: now)
+        fields.append(("reason", reason))
+        fields.append(("mode", modeDescription))
+        fields.append(("appliedItemCount", appliedItemCount))
+        fields.append(("appliedRealMessageCount", realMessageCount))
+        fields.append(("applyDurationMs", applyDurationMs))
+        fields.append(("layoutMs", layoutMs))
+        fields.append(("applyStartedToPreparedMs", ChatOpenTimingPolicy.milliseconds(
+            from: applyStartedAt,
+            to: now
+        )))
+        fields.append(("animated", animated))
+        fields.append(("invalidateLayout", invalidateLayout))
+        ChatArchiveDebugTrace.log("chatOpenTimingFirstMessagesPrepared", fields)
+    }
+
+    internal func scheduleChatOpenTimingFirstMessagesVisibleCheck(
+        reason: String,
+        modeDescription: String
+    ) {
+        guard let sessionId = self.chatOpenTimingSession?.id,
+              self.chatOpenTimingSession?.didLogFirstMessagesVisible == false else {
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.chatOpenTimingSession?.id == sessionId else {
+                return
+            }
+            self.recordChatOpenTimingFirstMessagesVisibleIfPossible(
+                reason: reason,
+                modeDescription: modeDescription
+            )
+        }
+    }
+
+    internal func recordChatOpenTimingFirstMessagesVisibleIfPossible(
+        reason: String,
+        modeDescription: String
+    ) {
+        guard var session = self.chatOpenTimingSession else {
+            return
+        }
+        let realMessageCount = self.chatOpenTimingRealMessageCount(in: self.datasource)
+        let sectionCount = self.chatOpenTimingSectionCount
+        let visibleRealMessageCount = self.chatOpenTimingVisibleRealMessageCount
+        guard ChatOpenTimingPolicy.shouldLogFirstMessagesVisible(
+            hasActiveSession: true,
+            didLogVisible: session.didLogFirstMessagesVisible,
+            realMessageCount: realMessageCount,
+            sectionCount: sectionCount,
+            visibleItemCount: visibleRealMessageCount,
+            isViewVisible: self.chatOpenTimingIsViewVisible
+        ) else {
+            return
+        }
+
+        let now = Date()
+        session.didLogFirstMessagesVisible = true
+        session.firstMessagesVisibleAt = now
+        self.chatOpenTimingSession = session
+
+        var fields = self.chatOpenTimingBaseFields(session: session, now: now)
+        fields.append(("reason", reason))
+        fields.append(("mode", modeDescription))
+        fields.append(("preparedToVisibleMs", ChatOpenTimingPolicy.milliseconds(
+            from: session.firstMessagesPreparedAt,
+            to: now
+        )))
+        ChatArchiveDebugTrace.log("chatOpenTimingFirstMessagesVisible", fields)
+    }
+
+    internal func finishChatOpenTimingSession(reason: String) {
+        guard let session = self.chatOpenTimingSession else {
+            return
+        }
+        var fields = self.chatOpenTimingBaseFields(session: session, now: Date())
+        fields.append(("reason", reason))
+        fields.append(("didLogFirstMessagesPrepared", session.didLogFirstMessagesPrepared))
+        fields.append(("didLogFirstMessagesVisible", session.didLogFirstMessagesVisible))
+        ChatArchiveDebugTrace.log("chatOpenTimingEnd", fields)
+        self.chatOpenTimingSession = nil
+    }
+
+    internal func chatOpenTimingRealMessageCount(in items: [Datasource]) -> Int {
+        items.filter { !$0.isFakeMessage }.count
+    }
+
+    private var chatOpenTimingSectionCount: Int {
+        guard self.isViewLoaded else {
+            return self.datasource.count
+        }
+        return self.messagesCollectionView.numberOfSections
+    }
+
+    private var chatOpenTimingVisibleItemCount: Int {
+        guard self.isViewLoaded else {
+            return 0
+        }
+        return self.messagesCollectionView.indexPathsForVisibleItems.count
+    }
+
+    private var chatOpenTimingVisibleRealMessageCount: Int {
+        guard self.isViewLoaded else {
+            return 0
+        }
+        return self.messagesCollectionView.indexPathsForVisibleItems.filter {
+            $0.section < self.datasource.count && !self.datasource[$0.section].isFakeMessage
+        }.count
+    }
+
+    private var chatOpenTimingIsViewVisible: Bool {
+        self.isViewLoaded &&
+            self.view.window != nil &&
+            self.hasCompletedInitialHistoryViewAppearance
+    }
+
+    private func chatOpenTimingBaseFields(
+        session: ChatOpenTimingSession,
+        now: Date
+    ) -> [(String, Any?)] {
+        [
+            ("sessionId", session.id),
+            ("trigger", session.trigger),
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("sinceStartMs", ChatOpenTimingPolicy.milliseconds(from: session.startedAt, to: now)),
+            ("sinceViewWillAppearMs", ChatOpenTimingPolicy.milliseconds(from: session.viewWillAppearAt, to: now)),
+            ("sinceInitialLoadScheduledMs", ChatOpenTimingPolicy.milliseconds(from: session.initialDatasourceLoadScheduledAt, to: now)),
+            ("sinceInitialLoadDequeuedMs", ChatOpenTimingPolicy.milliseconds(from: session.initialDatasourceLoadDequeuedAt, to: now)),
+            ("sinceInitialLoadStartedMs", ChatOpenTimingPolicy.milliseconds(from: session.initialDatasourceLoadStartedAt, to: now)),
+            ("sinceViewDidAppearMs", ChatOpenTimingPolicy.milliseconds(from: session.viewDidAppearAt, to: now)),
+            ("sinceFirstMessagesPreparedMs", ChatOpenTimingPolicy.milliseconds(from: session.firstMessagesPreparedAt, to: now)),
+            ("datasourceCount", self.datasource.count),
+            ("realMessageCount", self.chatOpenTimingRealMessageCount(in: self.datasource)),
+            ("sectionCount", self.chatOpenTimingSectionCount),
+            ("visibleItemCount", self.chatOpenTimingVisibleItemCount),
+            ("visibleRealMessageCount", self.chatOpenTimingVisibleRealMessageCount),
+            ("contentHeight", self.isViewLoaded ? Int(self.messagesCollectionView.contentSize.height) : nil),
+            ("boundsHeight", self.isViewLoaded ? Int(self.messagesCollectionView.bounds.height) : nil),
+            ("viewWidth", self.isViewLoaded ? Int(self.view.bounds.width) : nil),
+            ("viewHeight", self.isViewLoaded ? Int(self.view.bounds.height) : nil),
+            ("isViewLoaded", self.isViewLoaded),
+            ("isViewVisible", self.chatOpenTimingIsViewVisible),
+            ("isShowingBootstrapPlaceholder", self.isShowingBootstrapPlaceholder),
+            ("hasPendingOpenMessageRequest", self.pendingOpenMessageRequest != nil),
+            ("hasActiveAnchorExecution", self.activeAnchorExecutionState != nil),
+            ("isNavigationTransitionActive", self.isNavigationTransitionActive),
+            ("isPreparingStackedNavigationPresentation", self.isPreparingStackedNavigationPresentation)
+        ]
     }
 
     private func startChatArchiveMainStallProbe(queryId: String?, operation: String) {
@@ -2718,6 +3113,10 @@ class ChatViewController: MessagesViewController {
         updateScrollDownButtonFrame(animated: false)
         updateInitialMessageOverlayFrame()
         updateFloatingBubblesVisibility(animated: false)
+        recordChatOpenTimingFirstMessagesVisibleIfPossible(
+            reason: "viewDidLayoutSubviews",
+            modeDescription: "layout"
+        )
 //        updateInsets()  // Recompute and apply as above
     }
     
@@ -3390,6 +3789,7 @@ class ChatViewController: MessagesViewController {
         self.cancelInitialBootstrapLocalHistoryFallback()
         self.clearRemoteHistoryEndPageDispatchers()
         self.stopChatArchiveMainStallProbe(reason: "unsubscribe")
+        self.finishChatOpenTimingSession(reason: "unsubscribe")
         VoiceMessagePlaybackCoordinator.shared.removeObserver(self.voiceMessageStateObserverToken)
         self.voiceMessageStateObserverToken = nil
     }
@@ -3619,6 +4019,7 @@ class ChatViewController: MessagesViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         self.beginNavigationTransitionDeferralIfNeeded()
+        self.recordChatOpenTimingViewWillAppear()
         self.didRunNavigationDisappearanceCleanup = false
         self.didScheduleNavigationDisappearanceCleanup = false
         do {
@@ -3673,8 +4074,14 @@ class ChatViewController: MessagesViewController {
     internal func scheduleInitialDatasourceLoadAfterNavigationStart(
         performPendingOpenMessageRequest: Bool
     ) {
+        self.recordChatOpenTimingInitialDatasourceLoadScheduled(
+            performPendingOpenMessageRequest: performPendingOpenMessageRequest
+        )
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            self.recordChatOpenTimingInitialDatasourceLoadDequeued(
+                performPendingOpenMessageRequest: performPendingOpenMessageRequest
+            )
             self.setFloatingDateVisible(false)
             self.loadInitialDatasource(
                 performPendingOpenMessageRequest: performPendingOpenMessageRequest
@@ -3718,6 +4125,7 @@ class ChatViewController: MessagesViewController {
         }
         self.suppressScrollDownButtonVisibilityAfterAppearance()
         self.hasCompletedInitialHistoryViewAppearance = true
+        self.recordChatOpenTimingViewDidAppear()
         self.finishInitialHistoryAppearanceIfPossible()
         self.performPendingOpenMessageRequestIfNeeded()
         self.shouldChangeFrame()
@@ -3726,6 +4134,10 @@ class ChatViewController: MessagesViewController {
         self.setFloatingDateVisible(false)
         self.pinnedDateView.hide(withoutAnimation: true)
         self.addObservers()
+        self.recordChatOpenTimingFirstMessagesVisibleIfPossible(
+            reason: "viewDidAppear",
+            modeDescription: "appearance"
+        )
 //        self.topPanelState.accept(.audioPlayer)
         
 //        DispatchQueue.main.async {
@@ -4031,6 +4443,10 @@ extension ChatViewController {
 
 extension ChatViewController: StackedNavigationPresentationPreparing {
     func prepareForStackedNavigationPresentation(targetBounds: CGRect?) {
+        self.beginChatOpenTimingSessionIfNeeded(
+            trigger: "stackedNavigationPreparation",
+            targetBounds: targetBounds
+        )
         self.isPreparingStackedNavigationPresentation = true
         self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = true
         self.loadViewIfNeeded()

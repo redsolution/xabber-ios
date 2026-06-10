@@ -523,6 +523,10 @@ enum ChatHistoryLoadingOverlayPolicy {
     static let shouldDisableCollectionInteraction = false
 }
 
+enum ChatInteractiveRemoteArchiveTimeoutPolicy {
+    static let timeout: TimeInterval = 45
+}
+
 struct ChatTimelineConversationKey: Equatable {
     let owner: String
     let jid: String
@@ -650,6 +654,29 @@ struct ChatVirtualTimelineState: Equatable {
             residentArchivedIds: residentArchivedIds,
             activeRemoteLoad: activeRemoteLoad,
             activePlaceholder: placeholder,
+            isResidentAtLiveTail: isResidentAtLiveTail
+        )
+    }
+
+    func abortingRemoteLoad(queryId: String) -> ChatVirtualTimelineState {
+        guard activeRemoteLoad?.queryId == queryId else {
+            return self
+        }
+        let segmentsWithoutPlaceholder = segments.filter {
+            if case .loadingPlaceholder = $0 {
+                return false
+            }
+            return true
+        }
+        return ChatVirtualTimelineState(
+            conversationKey: conversationKey,
+            segments: segmentsWithoutPlaceholder,
+            oldest: oldest,
+            newest: newest,
+            residentPrimaryKeys: residentPrimaryKeys,
+            residentArchivedIds: residentArchivedIds,
+            activeRemoteLoad: nil,
+            activePlaceholder: nil,
             isResidentAtLiveTail: isResidentAtLiveTail
         )
     }
@@ -893,6 +920,15 @@ struct ChatVirtualTimelineEngine {
         }
 
         return refetchLocalAfterRemoteLoad(direction: refetchDirection)
+    }
+
+    mutating func abortRemoteLoad(queryId: String) -> ChatTimelineSnapshot {
+        let nextState = state.abortingRemoteLoad(queryId: queryId)
+        guard nextState != state else {
+            return currentSnapshot()
+        }
+        state = nextState
+        return currentSnapshot()
     }
 
     private mutating func refetchLocalAfterRemoteLoad(direction: ChatHistoryPageDirection) -> ChatTimelineSnapshot {
@@ -2098,23 +2134,81 @@ enum ChatHistoryCursorSelectionPolicy {
     }
 }
 
+enum ChatInteractiveOlderCursorSelectionSource: String {
+    case virtualTimelineOldest
+    case boundedTimelineOldest
+    case observedOldest
+    case persistedFallback
+    case none
+}
+
+struct ChatInteractiveOlderCursorSelection: Equatable {
+    let cursorId: String?
+    let source: ChatInteractiveOlderCursorSelectionSource
+}
+
+enum ChatInteractiveOlderCursorSelectionPolicy {
+    static func select(
+        timelineOldestArchivedId: String?,
+        boundedOldestArchivedId: String?,
+        observedArchivedIds: [String],
+        persistedCursorId: String?
+    ) -> ChatInteractiveOlderCursorSelection {
+        if let timelineOldestArchivedId,
+           timelineOldestArchivedId.isNotEmpty {
+            return ChatInteractiveOlderCursorSelection(
+                cursorId: timelineOldestArchivedId,
+                source: .virtualTimelineOldest
+            )
+        }
+
+        if let boundedOldestArchivedId,
+           boundedOldestArchivedId.isNotEmpty {
+            return ChatInteractiveOlderCursorSelection(
+                cursorId: boundedOldestArchivedId,
+                source: .boundedTimelineOldest
+            )
+        }
+
+        if let observedOldestArchivedId = observedArchivedIds.first(where: { $0.isNotEmpty }) {
+            return ChatInteractiveOlderCursorSelection(
+                cursorId: observedOldestArchivedId,
+                source: .observedOldest
+            )
+        }
+
+        if let persistedCursorId,
+           persistedCursorId.isNotEmpty {
+            return ChatInteractiveOlderCursorSelection(
+                cursorId: persistedCursorId,
+                source: .persistedFallback
+            )
+        }
+
+        return ChatInteractiveOlderCursorSelection(cursorId: nil, source: .none)
+    }
+}
+
 enum ChatHistoryPagingPolicy {
     private static func boundaryAvailability(
         boundaryContext: ChatHistoryPagingBoundaryContext,
         currentPageMinIndex: Int,
         currentPageMaxIndex: Int,
         totalCount: Int,
+        hasLocalOlderAvailable: Bool = false,
+        hasLocalNewerAvailable: Bool = false,
         hasRemoteOlderAvailable: Bool = false,
         hasRemoteNewerAvailable: Bool = false
     ) -> (olderVisible: Bool, newerVisible: Bool) {
         let minVisibleSection = boundaryContext.visibleRealSections.min()
         let maxVisibleSection = boundaryContext.visibleRealSections.max()
-        let hasOlderAvailable = currentPageMinIndex > 0 || hasRemoteOlderAvailable
+        let hasOlderAvailable = currentPageMinIndex > 0 || hasLocalOlderAvailable || hasRemoteOlderAvailable
+        let hasNewerAvailable = currentPageMaxIndex < totalCount || hasLocalNewerAvailable || hasRemoteNewerAvailable
 
         let olderVisible = hasOlderAvailable && (minVisibleSection.flatMap { visibleSection in
             boundaryContext.firstRealSection.map { visibleSection <= $0 }
         } ?? false)
-        let newerVisible = (currentPageMaxIndex < totalCount || hasRemoteNewerAvailable) && (maxVisibleSection.flatMap { visibleSection in
+        let newerVisible = hasNewerAvailable && (maxVisibleSection.flatMap { visibleSection in
             boundaryContext.lastRealSection.map { visibleSection >= $0 }
         } ?? false)
 
@@ -2151,6 +2245,8 @@ enum ChatHistoryPagingPolicy {
         currentPageMinIndex: Int,
         currentPageMaxIndex: Int,
         totalCount: Int,
+        hasLocalOlderAvailable: Bool = false,
+        hasLocalNewerAvailable: Bool = false,
         hasRemoteOlderAvailable: Bool = false,
         hasRemoteNewerAvailable: Bool = false
     ) -> ChatHistoryPageDirection? {
@@ -2165,6 +2261,8 @@ enum ChatHistoryPagingPolicy {
             currentPageMinIndex: currentPageMinIndex,
             currentPageMaxIndex: currentPageMaxIndex,
             totalCount: totalCount,
+            hasLocalOlderAvailable: hasLocalOlderAvailable,
+            hasLocalNewerAvailable: hasLocalNewerAvailable,
             hasRemoteOlderAvailable: hasRemoteOlderAvailable,
             hasRemoteNewerAvailable: hasRemoteNewerAvailable
         )
@@ -2209,6 +2307,8 @@ enum ChatHistoryPagingPolicy {
         currentPageMinIndex: Int,
         currentPageMaxIndex: Int,
         totalCount: Int,
+        hasLocalOlderAvailable: Bool = false,
+        hasLocalNewerAvailable: Bool = false,
         hasRemoteOlderAvailable: Bool = false,
         hasRemoteNewerAvailable: Bool = false
     ) -> ChatHistoryPageDirection? {
@@ -2222,6 +2322,8 @@ enum ChatHistoryPagingPolicy {
             currentPageMinIndex: currentPageMinIndex,
             currentPageMaxIndex: currentPageMaxIndex,
             totalCount: totalCount,
+            hasLocalOlderAvailable: hasLocalOlderAvailable,
+            hasLocalNewerAvailable: hasLocalNewerAvailable,
             hasRemoteOlderAvailable: hasRemoteOlderAvailable,
             hasRemoteNewerAvailable: hasRemoteNewerAvailable
         )
@@ -2469,6 +2571,22 @@ enum ChatBootstrapSkeletonRenderPolicy {
     }
 }
 
+enum ChatFirstFrameLocalHistoryPolicy {
+    static func shouldApplySynchronously(
+        bootstrapState: ChatBootstrapViewState,
+        localMessageCount: Int,
+        isShowingBootstrapPlaceholder: Bool,
+        hasPendingOpenMessageRequest: Bool,
+        hasPendingInitialAnchorRequest: Bool
+    ) -> Bool {
+        bootstrapState == .content &&
+        localMessageCount > 0 &&
+        isShowingBootstrapPlaceholder &&
+        !hasPendingOpenMessageRequest &&
+        !hasPendingInitialAnchorRequest
+    }
+}
+
 enum ChatInitialHistoryAppearancePolicy {
     static func shouldStart(isShowingBootstrapPlaceholder: Bool) -> Bool {
         isShowingBootstrapPlaceholder
@@ -2514,6 +2632,19 @@ enum ChatSavedPositionFirstFrameDecision: Equatable {
 }
 
 enum ChatSavedPositionFirstFramePolicy {
+    static func shouldApplySynchronously(
+        bootstrapState: ChatBootstrapViewState,
+        isShowingBootstrapPlaceholder: Bool,
+        decision: ChatSavedPositionFirstFrameDecision
+    ) -> Bool {
+        guard bootstrapState == .content,
+              isShowingBootstrapPlaceholder,
+              case .savedPosition = decision else {
+            return false
+        }
+        return true
+    }
+
     static func decision(
         requestSource: ChatOpenMessageRequestSource?,
         isSynced: Bool,
@@ -3295,6 +3426,23 @@ extension ChatViewController {
                 self.hasRenderedStableInitialHistory = true
                 self.finishInitialHistoryAppearanceIfPossible()
             }
+            let applyDurationMs = ChatArchiveDebugTrace.milliseconds(since: applyStartedAt)
+            let realMessageCount = self.chatOpenTimingRealMessageCount(in: items)
+            self.recordChatOpenTimingFirstMessagesPreparedIfNeeded(
+                reason: "chatDatasourceApplyFinish",
+                modeDescription: modeDescription,
+                appliedItemCount: items.count,
+                realMessageCount: realMessageCount,
+                applyStartedAt: applyStartedAt,
+                applyDurationMs: applyDurationMs,
+                layoutMs: layoutMs,
+                animated: shouldAnimateApply,
+                invalidateLayout: invalidateLayout
+            )
+            self.scheduleChatOpenTimingFirstMessagesVisibleCheck(
+                reason: "chatDatasourceApplyFinish",
+                modeDescription: modeDescription
+            )
             ChatArchiveDebugTrace.log("chatDatasourceApplyFinish", [
                 ("owner", self.owner),
                 ("jid", self.jid),
@@ -3307,7 +3455,7 @@ extension ChatViewController {
                 ("insetsMs", insetsMs),
                 ("completionMs", completionMs),
                 ("finishMs", ChatArchiveDebugTrace.milliseconds(since: finishStartedAt)),
-                ("durationMs", ChatArchiveDebugTrace.milliseconds(since: applyStartedAt)),
+                ("durationMs", applyDurationMs),
                 ("offsetY", Int(self.messagesCollectionView.contentOffset.y)),
                 ("contentHeight", Int(self.messagesCollectionView.contentSize.height)),
                 ("autoScrollToBottom", shouldAutoScrollToBottom),
@@ -3803,6 +3951,18 @@ extension ChatViewController {
             return persistedCursorId
         }
         return self.observedOldestArchivedId()
+    }
+
+    internal func interactiveOlderPagingCursorSelection(
+        in window: ChatDatasetWindow,
+        persistedCursorId: String? = nil
+    ) -> ChatInteractiveOlderCursorSelection {
+        ChatInteractiveOlderCursorSelectionPolicy.select(
+            timelineOldestArchivedId: self.virtualTimelineState.oldest?.archivedId,
+            boundedOldestArchivedId: self.boundedTimelineWindowState.oldest?.archivedId,
+            observedArchivedIds: self.observedArchivedIds(in: window),
+            persistedCursorId: persistedCursorId
+        )
     }
 
     internal func visibleNewerPagingCursorId(
@@ -4453,9 +4613,83 @@ extension ChatViewController {
     }
 
     internal func abortInteractiveHistoryPageLoad() {
+        self.abortInteractiveHistoryPageLoad(
+            queryId: self.interactiveHistoryPageLoadContext?.queryId,
+            reason: .requestStartFailed,
+            streamKind: .unknown,
+            errorDescription: nil
+        )
+    }
+
+    internal func handleInteractiveRemoteArchiveFailure(
+        queryId: String,
+        reason: MessageArchiveRequestFailureReason,
+        streamKind: MessageArchiveEndPageEvent.StreamKind,
+        errorDescription: String?
+    ) {
+        self.performOnMain {
+            guard let context = self.interactiveHistoryPageLoadContext,
+                  context.queryId == queryId else {
+                ChatArchiveDebugTrace.log("interactiveRemoteArchiveAbortSkipped", [
+                    ("owner", self.owner),
+                    ("jid", self.jid),
+                    ("conversationType", self.conversationType.rawValue),
+                    ("queryId", queryId),
+                    ("reason", reason.rawValue),
+                    ("activeQueryId", self.interactiveHistoryPageLoadContext?.queryId ?? "-"),
+                    ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-")
+                ])
+                return
+            }
+
+            if reason == .timeout {
+                let startedAt = self.remoteHistoryRequestStartedAtByQueryId[queryId]
+                ChatArchiveDebugTrace.log("interactiveRemoteArchiveTimeout", [
+                    ("owner", self.owner),
+                    ("jid", self.jid),
+                    ("conversationType", self.conversationType.rawValue),
+                    ("queryId", queryId),
+                    ("ageMs", startedAt.map { ChatArchiveDebugTrace.milliseconds(since: $0) } ?? -1),
+                    ("direction", context.direction),
+                    ("cursor", context.requestedCursorId ?? "-"),
+                    ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
+                    ("pageLocked", self.currentPage.locked)
+                ])
+            } else if reason == .uiActionDisconnect {
+                ChatArchiveDebugTrace.log("interactiveRemoteArchiveDisconnect", [
+                    ("owner", self.owner),
+                    ("jid", self.jid),
+                    ("conversationType", self.conversationType.rawValue),
+                    ("queryId", queryId),
+                    ("streamKind", streamKind.rawValue),
+                    ("disconnectError", errorDescription ?? "none"),
+                    ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
+                    ("pageLocked", self.currentPage.locked)
+                ])
+            }
+
+            self.abortInteractiveHistoryPageLoad(
+                queryId: queryId,
+                reason: reason,
+                streamKind: streamKind,
+                errorDescription: errorDescription
+            )
+        }
+    }
+
+    private func abortInteractiveHistoryPageLoad(
+        queryId: String?,
+        reason: MessageArchiveRequestFailureReason,
+        streamKind: MessageArchiveEndPageEvent.StreamKind,
+        errorDescription: String?
+    ) {
         let hadBoundaryPlaceholder = self.activeHistoryBoundaryPlaceholder != nil
-        if let queryId = self.interactiveHistoryPageLoadContext?.queryId {
+        let hadVirtualPlaceholder = self.virtualTimelineState.activePlaceholder != nil
+        if let queryId {
             self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+            self.abortedRemoteHistoryQueryIds.insert(queryId)
+            self.virtualTimelineState = self.virtualTimelineState.abortingRemoteLoad(queryId: queryId)
+            self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: self.virtualTimelineState)
         }
         self.cancelInteractiveHistoryCompletionRetry()
         self.interactiveHistoryPageLoadContext = nil
@@ -4463,7 +4697,19 @@ extension ChatViewController {
         self.endHistoryLoadingUI(unlockPage: false)
         self.setArchiveLoading(false)
         self.currentPage.unlock()
-        if hadBoundaryPlaceholder {
+        ChatArchiveDebugTrace.log("interactiveRemoteArchiveAbort", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("queryId", queryId ?? "-"),
+            ("reason", reason.rawValue),
+            ("streamKind", streamKind.rawValue),
+            ("error", errorDescription ?? "none"),
+            ("placeholderRemoved", hadBoundaryPlaceholder || hadVirtualPlaceholder),
+            ("activeRemoteLoadCleared", self.virtualTimelineState.activeRemoteLoad == nil),
+            ("coverageCommitted", false)
+        ])
+        if hadBoundaryPlaceholder || hadVirtualPlaceholder {
             self.mapAndApplyTimelineCurrent(
                 mode: .windowReload(keepOffset: true),
                 animated: false,
@@ -5239,6 +5485,62 @@ extension ChatViewController {
     }
 
     @discardableResult
+    internal func applyFirstFrameLocalHistoryIfNeeded(
+        bootstrapState: ChatBootstrapViewState,
+        chatInstance: LastChatsStorageItem? = nil
+    ) -> Bool {
+        let localMessageCount = self.localHistoryMessageCountForBootstrap()
+        guard ChatFirstFrameLocalHistoryPolicy.shouldApplySynchronously(
+            bootstrapState: bootstrapState,
+            localMessageCount: localMessageCount,
+            isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
+            hasPendingOpenMessageRequest: self.pendingOpenMessageRequest != nil,
+            hasPendingInitialAnchorRequest: self.hasPendingInitialAnchorRequest(chatInstance: chatInstance)
+        ) else {
+            return false
+        }
+
+        do {
+            self.datasetMappingGeneration += 1
+            let provider = ChatLocalHistoryPageProvider(
+                realm: try WRealm.safe(),
+                owner: self.owner,
+                jid: self.jid,
+                conversationType: self.conversationType
+            )
+            var engine = ChatVirtualTimelineEngine(
+                provider: provider,
+                pageSize: self.datasourcePageSize,
+                state: self.virtualTimelineState.normalized(
+                    owner: self.owner,
+                    jid: self.jid,
+                    conversationType: self.conversationType
+                ),
+                archiveState: self.loadChatArchiveStateSnapshot()
+            )
+            let snapshot = engine.scrollToLatest()
+            let frozenItems = snapshot.items.map { $0.freeze() }
+            guard !frozenItems.isEmpty else {
+                return false
+            }
+
+            self.activeHistoryBoundaryPlaceholder = nil
+            self.virtualTimelineState = snapshot.state
+            self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: snapshot.state)
+            self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
+            self.applyChatDatasource(
+                self.mapDataset(dataset: frozenItems),
+                mode: .fullReload(),
+                animated: false
+            )
+            return true
+        } catch {
+            DDLogDebug("ChatViewController.applyFirstFrameLocalHistoryIfNeeded: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    @discardableResult
     internal func reloadInitialWindowAfterBootstrapIfNeeded(force: Bool = false) -> Bool {
         let state = self.currentBootstrapViewState()
         guard ChatBootstrapContentRenderPolicy.shouldReloadInitialWindow(
@@ -5259,6 +5561,12 @@ extension ChatViewController {
                 return true
             }
             self.setShouldShowInitialMessage(false)
+            if self.applyFirstFrameLocalHistoryIfNeeded(bootstrapState: state) {
+                return true
+            }
+            if self.pendingOpenMessageRequest != nil || self.activeAnchorExecutionState != nil {
+                return true
+            }
             self.mapAndApplyTimelineLatest(
                 mode: .fullReload(),
                 animated: self.shouldAnimateInitialHistoryAppearance
@@ -5740,6 +6048,9 @@ extension ChatViewController {
     }
 
     internal final func loadInitialDatasource(performPendingOpenMessageRequest: Bool = true) {
+        self.recordChatOpenTimingInitialDatasourceLoadStarted(
+            performPendingOpenMessageRequest: performPendingOpenMessageRequest
+        )
         do {
             let realm = try WRealm.safe()
             let chatInstance = realm.object(
@@ -5748,8 +6059,9 @@ extension ChatViewController {
                                                                owner: self.owner,
                                                                conversationType: self.conversationType))
             self.rebuildUnreadMentionItems()
+            let state = self.bootstrapViewState(chatInstance: chatInstance)
             let render = {
-                self.applyBootstrapViewState(self.bootstrapViewState(chatInstance: chatInstance), forceRender: true)
+                self.applyBootstrapViewState(state, forceRender: true)
             }
             if self.isNavigationTransitionActive || self.isPreparingStackedNavigationPresentation {
                 UIView.performWithoutAnimation(render)
@@ -5759,7 +6071,12 @@ extension ChatViewController {
             if performPendingOpenMessageRequest {
                 self.performPendingOpenMessageRequestIfNeeded()
             }
+            self.recordChatOpenTimingInitialDatasourceLoadFinished(
+                bootstrapState: state,
+                performPendingOpenMessageRequest: performPendingOpenMessageRequest
+            )
         } catch {
+            self.recordChatOpenTimingInitialDatasourceLoadFailed(error)
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
     }
@@ -5866,6 +6183,26 @@ extension ChatViewController {
         self.remoteHistoryEndPageDispatcherTokens[queryId] = token
     }
 
+    internal func registerRemoteHistoryFailureDispatcher(queryId: String) {
+        guard queryId.isNotEmpty else {
+            return
+        }
+
+        if let token = self.remoteHistoryFailureDispatcherTokens.removeValue(forKey: queryId) {
+            MessageArchiveRequestFailureDispatcher.unregister(token)
+        }
+        self.abortedRemoteHistoryQueryIds.remove(queryId)
+        let token = MessageArchiveRequestFailureDispatcher.register(owner: self.owner, queryId: queryId) { [weak self] event in
+            self?.handleInteractiveRemoteArchiveFailure(
+                queryId: event.queryId,
+                reason: event.reason,
+                streamKind: event.streamKind,
+                errorDescription: event.errorDescription
+            )
+        }
+        self.remoteHistoryFailureDispatcherTokens[queryId] = token
+    }
+
     internal func unregisterRemoteHistoryEndPageDispatcher(queryId: String) {
         guard queryId.isNotEmpty else {
             return
@@ -5876,12 +6213,28 @@ extension ChatViewController {
         }
     }
 
+    internal func unregisterRemoteHistoryFailureDispatcher(queryId: String) {
+        guard queryId.isNotEmpty else {
+            return
+        }
+
+        if let token = self.remoteHistoryFailureDispatcherTokens.removeValue(forKey: queryId) {
+            MessageArchiveRequestFailureDispatcher.unregister(token)
+        }
+    }
+
     internal func clearRemoteHistoryEndPageDispatchers() {
         self.remoteHistoryEndPageDispatcherTokens.values.forEach {
             MessageArchiveEndPageDispatcher.unregister($0)
         }
         self.remoteHistoryEndPageDispatcherTokens.removeAll()
         self.completedRemoteHistoryEndPageQueryIds.removeAll()
+        self.remoteHistoryFailureDispatcherTokens.values.forEach {
+            MessageArchiveRequestFailureDispatcher.unregister($0)
+        }
+        self.remoteHistoryFailureDispatcherTokens.removeAll()
+        self.abortedRemoteHistoryQueryIds.removeAll()
+        self.cancelInteractiveRemoteArchiveTimeout()
     }
 
     internal func markRemoteHistoryEndPageCompletionIfNeeded(queryId: String) -> Bool {
@@ -5900,10 +6253,87 @@ extension ChatViewController {
 
     internal func unregisterRemoteHistoryPersistenceSource(queryId: String) {
         self.unregisterRemoteHistoryEndPageDispatcher(queryId: queryId)
+        self.unregisterRemoteHistoryFailureDispatcher(queryId: queryId)
+        self.cancelInteractiveRemoteArchiveTimeout(queryId: queryId)
+        self.remoteHistoryRequestStartedAtByQueryId.removeValue(forKey: queryId)
         ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
             owner: self.owner,
             queryId: queryId
         )
+    }
+
+    internal func markInteractiveRemoteArchiveRequestSent(
+        queryId: String,
+        direction: ChatHistoryPageDirection,
+        cursorId: String?,
+        pageSize: Int,
+        streamKind: MessageArchiveEndPageEvent.StreamKind,
+        resource: String?,
+        bootstrapActive: Bool,
+        cursorSource: ChatInteractiveOlderCursorSelectionSource? = nil,
+        timelineOldestCursorId: String? = nil,
+        boundedOldestCursorId: String? = nil,
+        persistedCursorId: String? = nil
+    ) {
+        guard queryId.isNotEmpty else {
+            return
+        }
+
+        self.cancelInteractiveRemoteArchiveTimeout(queryId: queryId)
+        let startedAt = Date()
+        self.remoteHistoryRequestStartedAtByQueryId[queryId] = startedAt
+        ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestStart", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("queryId", queryId),
+            ("direction", direction),
+            ("cursor", cursorId ?? "-"),
+            ("requestedCursor", cursorId ?? "-"),
+            ("cursorSource", cursorSource?.rawValue ?? "-"),
+            ("timelineOldest", timelineOldestCursorId ?? "-"),
+            ("boundedOldest", boundedOldestCursorId ?? "-"),
+            ("persistedCursor", persistedCursorId ?? "-"),
+            ("cursorDiffersFromPersisted", cursorId != persistedCursorId),
+            ("pageSize", pageSize),
+            ("streamKind", streamKind.rawValue),
+            ("resource", resource ?? "-"),
+            ("bootstrapActive", bootstrapActive),
+            ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count)
+        ])
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.handleInteractiveRemoteArchiveFailure(
+                queryId: queryId,
+                reason: .timeout,
+                streamKind: streamKind,
+                errorDescription: nil
+            )
+        }
+        self.interactiveRemoteArchiveTimeoutWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + ChatInteractiveRemoteArchiveTimeoutPolicy.timeout,
+            execute: workItem
+        )
+    }
+
+    internal func remoteArchiveStreamKind(for stream: XMPPStream) -> MessageArchiveEndPageEvent.StreamKind {
+        guard let resource = stream.myJID?.resource else {
+            return .unknown
+        }
+        if resource.contains("_ui_upgrade_task") {
+            return .uiAction
+        }
+        return .primary
+    }
+
+    internal func cancelInteractiveRemoteArchiveTimeout(queryId: String? = nil) {
+        if let queryId {
+            self.remoteHistoryRequestStartedAtByQueryId.removeValue(forKey: queryId)
+        } else {
+            self.remoteHistoryRequestStartedAtByQueryId.removeAll()
+        }
+        self.interactiveRemoteArchiveTimeoutWorkItem?.cancel()
+        self.interactiveRemoteArchiveTimeoutWorkItem = nil
     }
 
     private func finishVirtualTimelineRemoteLoad(
@@ -6378,9 +6808,26 @@ extension ChatViewController {
             self.applyVirtualTimelineSnapshotState(virtualSnapshot)
             callback(virtualSnapshot.items)
         case .remote(.remoteOlderPage):
-            let archivedId = self.authoritativeOlderPagingCursorId(persistedCursorId: chatArchiveState.persistedCursorId)
+            let cursorSelection = self.interactiveOlderPagingCursorSelection(
+                in: currentWindow,
+                persistedCursorId: chatArchiveState.persistedCursorId
+            )
+            let archivedId = cursorSelection.cursorId
+            ChatArchiveDebugTrace.log("remoteOlderCursorSelection", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("requestedCursor", archivedId ?? "-"),
+                ("cursorSource", cursorSelection.source.rawValue),
+                ("timelineOldest", self.virtualTimelineState.oldest?.archivedId ?? "-"),
+                ("boundedOldest", self.boundedTimelineWindowState.oldest?.archivedId ?? "-"),
+                ("observedOldest", self.observedArchivedIds(in: currentWindow).first(where: { $0.isNotEmpty }) ?? "-"),
+                ("persistedCursor", chatArchiveState.persistedCursorId ?? "-"),
+                ("cursorDiffersFromPersisted", archivedId != chatArchiveState.persistedCursorId)
+            ])
             let queryId = "MAM next history: \(NanoID.new(6))"
             self.registerRemoteHistoryEndPageDispatcher(queryId: queryId)
+            self.registerRemoteHistoryFailureDispatcher(queryId: queryId)
             let remoteSnapshot = self.virtualTimelinePageSnapshot(
                 direction: direction,
                 queryId: queryId,
@@ -6446,14 +6893,40 @@ extension ChatViewController {
 
                 account.action { user, stream in
                     self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
-                    _ = requestRemoteHistory(stream, user.mam)
+                    let sentQueryId = requestRemoteHistory(stream, user.mam)
+                    self.markInteractiveRemoteArchiveRequestSent(
+                        queryId: sentQueryId,
+                        direction: direction,
+                        cursorId: archivedId,
+                        pageSize: self.datasourcePageSize,
+                        streamKind: self.remoteArchiveStreamKind(for: stream),
+                        resource: stream.myJID?.resource,
+                        bootstrapActive: self.isInitialBootstrapInFlight,
+                        cursorSource: cursorSelection.source,
+                        timelineOldestCursorId: self.virtualTimelineState.oldest?.archivedId,
+                        boundedOldestCursorId: self.boundedTimelineWindowState.oldest?.archivedId,
+                        persistedCursorId: chatArchiveState.persistedCursorId
+                    )
                 }
             }
 
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
                 if let mam = session.mam {
                     self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
-                    _ = requestRemoteHistory(stream, mam)
+                    let sentQueryId = requestRemoteHistory(stream, mam)
+                    self.markInteractiveRemoteArchiveRequestSent(
+                        queryId: sentQueryId,
+                        direction: direction,
+                        cursorId: archivedId,
+                        pageSize: self.datasourcePageSize,
+                        streamKind: self.remoteArchiveStreamKind(for: stream),
+                        resource: stream.myJID?.resource,
+                        bootstrapActive: self.isInitialBootstrapInFlight,
+                        cursorSource: cursorSelection.source,
+                        timelineOldestCursorId: self.virtualTimelineState.oldest?.archivedId,
+                        boundedOldestCursorId: self.boundedTimelineWindowState.oldest?.archivedId,
+                        persistedCursorId: chatArchiveState.persistedCursorId
+                    )
                 } else {
                     requestFallbackHistory()
                 }
@@ -6470,6 +6943,7 @@ extension ChatViewController {
             }
             let queryId = "MAM prev history: \(NanoID.new(6))"
             self.registerRemoteHistoryEndPageDispatcher(queryId: queryId)
+            self.registerRemoteHistoryFailureDispatcher(queryId: queryId)
             let remoteSnapshot = self.virtualTimelinePageSnapshot(
                 direction: direction,
                 queryId: queryId,
@@ -6535,14 +7009,32 @@ extension ChatViewController {
 
                 account.action { user, stream in
                     self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
-                    _ = requestRemoteHistory(stream, user.mam)
+                    let sentQueryId = requestRemoteHistory(stream, user.mam)
+                    self.markInteractiveRemoteArchiveRequestSent(
+                        queryId: sentQueryId,
+                        direction: direction,
+                        cursorId: archivedId,
+                        pageSize: self.datasourcePageSize,
+                        streamKind: self.remoteArchiveStreamKind(for: stream),
+                        resource: stream.myJID?.resource,
+                        bootstrapActive: self.isInitialBootstrapInFlight
+                    )
                 }
             }
 
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
                 if let mam = session.mam {
                     self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
-                    _ = requestRemoteHistory(stream, mam)
+                    let sentQueryId = requestRemoteHistory(stream, mam)
+                    self.markInteractiveRemoteArchiveRequestSent(
+                        queryId: sentQueryId,
+                        direction: direction,
+                        cursorId: archivedId,
+                        pageSize: self.datasourcePageSize,
+                        streamKind: self.remoteArchiveStreamKind(for: stream),
+                        resource: stream.myJID?.resource,
+                        bootstrapActive: self.isInitialBootstrapInFlight
+                    )
                 } else {
                     requestFallbackHistory()
                 }
@@ -6553,6 +7045,7 @@ extension ChatViewController {
             let archivedId = gap.newerRangeOldestArchiveId
             let queryId = "MAM gap repair history: \(NanoID.new(6))"
             self.registerRemoteHistoryEndPageDispatcher(queryId: queryId)
+            self.registerRemoteHistoryFailureDispatcher(queryId: queryId)
             let remoteSnapshot = self.virtualTimelinePageSnapshot(
                 direction: direction,
                 queryId: queryId,
@@ -6618,14 +7111,32 @@ extension ChatViewController {
 
                 account.action { user, stream in
                     self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
-                    _ = requestRemoteHistory(stream, user.mam)
+                    let sentQueryId = requestRemoteHistory(stream, user.mam)
+                    self.markInteractiveRemoteArchiveRequestSent(
+                        queryId: sentQueryId,
+                        direction: direction,
+                        cursorId: archivedId,
+                        pageSize: self.datasourcePageSize,
+                        streamKind: self.remoteArchiveStreamKind(for: stream),
+                        resource: stream.myJID?.resource,
+                        bootstrapActive: self.isInitialBootstrapInFlight
+                    )
                 }
             }
 
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
                 if let mam = session.mam {
                     self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
-                    _ = requestRemoteHistory(stream, mam)
+                    let sentQueryId = requestRemoteHistory(stream, mam)
+                    self.markInteractiveRemoteArchiveRequestSent(
+                        queryId: sentQueryId,
+                        direction: direction,
+                        cursorId: archivedId,
+                        pageSize: self.datasourcePageSize,
+                        streamKind: self.remoteArchiveStreamKind(for: stream),
+                        resource: stream.myJID?.resource,
+                        bootstrapActive: self.isInitialBootstrapInFlight
+                    )
                 } else {
                     requestFallbackHistory()
                 }
@@ -6636,6 +7147,7 @@ extension ChatViewController {
             let archivedId = gap.olderRangeNewestArchiveId
             let queryId = "MAM gap repair history: \(NanoID.new(6))"
             self.registerRemoteHistoryEndPageDispatcher(queryId: queryId)
+            self.registerRemoteHistoryFailureDispatcher(queryId: queryId)
             let remoteSnapshot = self.virtualTimelinePageSnapshot(
                 direction: direction,
                 queryId: queryId,
@@ -6701,14 +7213,32 @@ extension ChatViewController {
 
                 account.action { user, stream in
                     self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
-                    _ = requestRemoteHistory(stream, user.mam)
+                    let sentQueryId = requestRemoteHistory(stream, user.mam)
+                    self.markInteractiveRemoteArchiveRequestSent(
+                        queryId: sentQueryId,
+                        direction: direction,
+                        cursorId: archivedId,
+                        pageSize: self.datasourcePageSize,
+                        streamKind: self.remoteArchiveStreamKind(for: stream),
+                        resource: stream.myJID?.resource,
+                        bootstrapActive: self.isInitialBootstrapInFlight
+                    )
                 }
             }
 
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
                 if let mam = session.mam {
                     self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
-                    _ = requestRemoteHistory(stream, mam)
+                    let sentQueryId = requestRemoteHistory(stream, mam)
+                    self.markInteractiveRemoteArchiveRequestSent(
+                        queryId: sentQueryId,
+                        direction: direction,
+                        cursorId: archivedId,
+                        pageSize: self.datasourcePageSize,
+                        streamKind: self.remoteArchiveStreamKind(for: stream),
+                        resource: stream.myJID?.resource,
+                        bootstrapActive: self.isInitialBootstrapInFlight
+                    )
                 } else {
                     requestFallbackHistory()
                 }

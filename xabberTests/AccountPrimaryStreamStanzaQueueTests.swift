@@ -733,6 +733,68 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         XCTAssertEqual(manager.newAccountJid, "")
     }
 
+    func testAvatarManagerAppliesPubSubMetadataIQResultWithUrl() throws {
+        let owner = "owner@example.com"
+        let jid = "juliet@example.com"
+        let queryId = "avatar-metadata-1:IQ:avatar:pubsub"
+        let avatarId = "524722e3c6d197a14d3a06e83c2732d46eb66583"
+        let avatarUrl = "https://xmpp.example.com/upload/avatar.png?v=\(avatarId)"
+        let manager = XmppAvatarManager(withOwner: owner)
+        manager.queryIds.insert(queryId)
+        try storeRosterItem(owner: owner, jid: jid)
+        let iq = try makeIQ("""
+        <iq xmlns="jabber:client" to="\(owner)/ios" from="\(jid)" type="result" id="\(queryId)">
+          <pubsub xmlns="http://jabber.org/protocol/pubsub">
+            <items node="urn:xmpp:avatar:metadata">
+              <item id="\(avatarId)">
+                <metadata xmlns="urn:xmpp:avatar:metadata">
+                  <info url="\(avatarUrl)" type="image/png" id="\(avatarId)" bytes="1275"/>
+                </metadata>
+              </item>
+            </items>
+          </pubsub>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+
+        let roster = try XCTUnwrap(try WRealm.safe().object(
+            ofType: RosterStorageItem.self,
+            forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)
+        ))
+        XCTAssertEqual(roster.avatarMaxUrl, avatarUrl)
+        XCTAssertEqual(roster.oldschoolAvatarKey, avatarId)
+        XCTAssertFalse(manager.queryIds.contains(queryId))
+    }
+
+    func testAvatarManagerConsumesPubSubAvatarErrorIQ() throws {
+        let owner = "owner@example.com"
+        let jid = "juliet@example.com"
+        let queryId = "avatar-metadata-error:IQ:avatar:pubsub"
+        let manager = XmppAvatarManager(withOwner: owner)
+        manager.queryIds.insert(queryId)
+        try storeRosterItem(owner: owner, jid: jid)
+        let iq = try makeIQ("""
+        <iq xmlns="jabber:client" to="\(owner)/ios" from="\(jid)" type="error" id="\(queryId)">
+          <pubsub xmlns="http://jabber.org/protocol/pubsub">
+            <items node="urn:xmpp:avatar:metadata" max_items="1"/>
+          </pubsub>
+          <error code="404" type="cancel">
+            <item-not-found xmlns="urn:ietf:params:xml:ns:xmpp-stanzas"/>
+          </error>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+
+        let roster = try XCTUnwrap(try WRealm.safe().object(
+            ofType: RosterStorageItem.self,
+            forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)
+        ))
+        XCTAssertNil(roster.avatarMaxUrl)
+        XCTAssertFalse(manager.queryIds.contains(queryId))
+    }
+
     func testBootstrapSendGateQueuesBackgroundStanzasAndFlushesAfterBootstrap() throws {
         var now: TimeInterval = 10
         let gate = AccountPrimaryStreamBootstrapSendGate(now: { now })
@@ -919,6 +981,24 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         try realm.write {
             realm.add(chat, update: .modified)
         }
+    }
+
+    private func storeRosterItem(owner: String, jid: String) throws {
+        let realm = try WRealm.safe()
+        let roster = RosterStorageItem()
+        roster.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
+        roster.owner = owner
+        roster.jid = jid
+        roster.username = "Juliet"
+        try realm.write {
+            realm.add(roster, update: .modified)
+        }
+    }
+
+    private func makeIQ(_ xml: String) throws -> XMPPIQ {
+        let document = try DDXMLDocument(xmlString: xml, options: 0)
+        let root = try XCTUnwrap(document.rootElement())
+        return XMPPIQ(from: root)
     }
 }
 

@@ -68,6 +68,23 @@ final class ContactsListAppearanceTests: XCTestCase {
         )
     }
 
+    private func makeSolidAvatarImage(color: UIColor = .systemRed, size: CGSize = CGSize(width: 64, height: 64)) -> UIImage {
+        UIGraphicsImageRenderer(size: size).image { context in
+            color.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+    }
+
+    private func assertImage(
+        _ image: UIImage?,
+        matches expectedImage: UIImage,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(image?.size, expectedImage.size, file: file, line: line)
+        XCTAssertEqual(image?.pngData(), expectedImage.pngData(), file: file, line: line)
+    }
+
     private func assertNoSelectionOutline(
         in cell: UITableViewCell,
         file: StaticString = #filePath,
@@ -230,6 +247,56 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertEqual(cell.backgroundColor, .systemBackground)
         XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
         assertNoSelectionOutline(in: cell)
+    }
+
+    func testContactCellUsesCachedAvatarSynchronously() {
+        let avatarURL = "https://example.com/contact-avatar-\(UUID().uuidString).png"
+        let cachedImage = makeSolidAvatarImage(color: .systemBlue)
+        DefaultAvatarManager.shared.storeImage(for: avatarURL, image: cachedImage)
+        let cell = ContactsViewController.ContactCell(
+            style: .default,
+            reuseIdentifier: ContactsViewController.ContactCell.cellName
+        )
+
+        cell.configure(
+            title: "Alice",
+            subtitle: "alice@example.com",
+            bottomLine: nil,
+            groups: ["Friends"],
+            jid: "alice@example.com",
+            owner: "owner@example.com",
+            showAvatar: true,
+            avatarUrl: avatarURL,
+            entity: .contact,
+            status: .online
+        )
+
+        assertImage(cell.avatarView.image, matches: cachedImage)
+    }
+
+    func testDefaultAvatarManagerCachedAvatarDoesNotSendIntermediateNil() {
+        let avatarURL = "https://example.com/default-avatar-manager-\(UUID().uuidString).png"
+        let cachedImage = makeSolidAvatarImage(color: .systemGreen)
+        DefaultAvatarManager.shared.storeImage(for: avatarURL, image: cachedImage)
+        let imageReceived = expectation(description: "cached image received")
+        var callbacks: [UIImage?] = []
+
+        DefaultAvatarManager.shared.getAvatar(
+            url: avatarURL,
+            jid: "alice@example.com",
+            owner: "owner@example.com",
+            size: 64
+        ) { image in
+            callbacks.append(image)
+            if image != nil {
+                imageReceived.fulfill()
+            }
+        }
+
+        wait(for: [imageReceived], timeout: 1.0)
+
+        XCTAssertEqual(callbacks.count, 1)
+        assertImage(callbacks.first ?? nil, matches: cachedImage)
     }
 
     func testContactsCategoryRowsUsePlainSystemBackgroundWithSelectedTint() {

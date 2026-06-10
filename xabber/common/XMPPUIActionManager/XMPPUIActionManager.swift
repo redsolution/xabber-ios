@@ -233,6 +233,7 @@ class XMPPUIActionManager: NSObject {
     var deliveryManager: ReliableMessageDeliveryManager? = nil
     var messages: MessageManager? = nil
     var mam: MessageArchiveManager? = nil
+    var preRoutedMamCompletionIQIds: Set<String> = []
     var vcardManager: VCardManager? = nil
     var presences: PresenceManager? = nil
     var blocked: BlockManager? = nil
@@ -679,6 +680,7 @@ class XMPPUIActionManager: NSObject {
         self.deliveryManager = nil
         self.messages = nil
         self.mam = nil
+        self.preRoutedMamCompletionIQIds.removeAll()
         self.cloudStorage = nil
         self.roster = nil
         self.presences = nil

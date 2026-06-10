@@ -203,6 +203,44 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         XCTAssertTrue(controller.datasource.isEmpty)
     }
 
+    func testChatListCellUsesCachedAvatarSynchronously() {
+        let avatarURL = "https://example.com/chat-avatar-\(UUID().uuidString).png"
+        let cachedImage = makeSolidAvatarImage(color: .systemPurple)
+        DefaultAvatarManager.shared.storeImage(for: avatarURL, image: cachedImage)
+        let cell = ChatListTableViewCell(style: .default, reuseIdentifier: ChatListTableViewCell.cellName)
+
+        cell.configure(
+            "romeo@example.com",
+            owner: "owner@example.com",
+            username: "Romeo",
+            attributedUsername: nil,
+            message: "Hello",
+            date: Date(timeIntervalSince1970: 1_711_283_200),
+            deliveryState: nil,
+            isMute: false,
+            isSynced: true,
+            isGroupchat: false,
+            status: .online,
+            entity: .contact,
+            conversationType: .regular,
+            unread: 0,
+            unreadString: nil,
+            hasUnreadMention: false,
+            indicator: .clear,
+            isDraft: false,
+            isAttachment: false,
+            groupchatNickname: nil,
+            isSystem: false,
+            isPinned: false,
+            subRequest: false,
+            avatarUrl: avatarURL,
+            hasErrorInChat: false,
+            verAction: false
+        )
+
+        assertImage(cell.avatarView.image, matches: cachedImage)
+    }
+
     func testBootstrapDatasetUpdatePolicySuppressesExpensiveAnimatedWorkOnlyDuringBootstrap() {
         XCTAssertFalse(LastChatsBootstrapDatasetUpdatePolicy.shouldAnimateDatasetMutation(requestedAnimated: true, isBootstrapActive: true))
         XCTAssertTrue(LastChatsBootstrapDatasetUpdatePolicy.shouldAnimateDatasetMutation(requestedAnimated: true, isBootstrapActive: false))
@@ -237,6 +275,23 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         }
 
         return singleItem.map { [$0] } ?? []
+    }
+
+    private func makeSolidAvatarImage(color: UIColor, size: CGSize = CGSize(width: 64, height: 64)) -> UIImage {
+        UIGraphicsImageRenderer(size: size).image { context in
+            color.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+    }
+
+    private func assertImage(
+        _ image: UIImage?,
+        matches expectedImage: UIImage,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(image?.size, expectedImage.size, file: file, line: line)
+        XCTAssertEqual(image?.pngData(), expectedImage.pngData(), file: file, line: line)
     }
 
     private func makeDatasource(

@@ -8,6 +8,8 @@
 
 import Foundation
 import UIKit
+import QuartzCore
+import ObjectiveC
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 import RealmSwift
@@ -38,6 +40,234 @@ enum LeftMenuSurfaceEffectFactory {
         }
 
         return fallbackSurfaceBackgroundColor
+    }
+}
+
+enum LeftMenuSelectionPresentationPolicy {
+    enum PresentationAction: Equatable {
+        case compactRevealSupplementary
+        case regularRevealSupplementaryAndHidePrimary
+
+        var hidesPrimary: Bool {
+            self == .regularRevealSupplementaryAndHidePrimary
+        }
+    }
+
+    static func action(
+        isSplitCollapsed: Bool,
+        splitHorizontalSizeClass: UIUserInterfaceSizeClass,
+        windowHorizontalSizeClass: UIUserInterfaceSizeClass,
+        viewHorizontalSizeClass: UIUserInterfaceSizeClass
+    ) -> PresentationAction {
+        // The left-menu primary column can report compact width inside an expanded iPad split.
+        // Use only split/window state to choose the global presentation action.
+        if isSplitCollapsed ||
+            splitHorizontalSizeClass == .compact ||
+            windowHorizontalSizeClass == .compact {
+            return .compactRevealSupplementary
+        }
+
+        return .regularRevealSupplementaryAndHidePrimary
+    }
+}
+
+enum LeftMenuFirstPresentationPolicy {
+    static func rowAnimation(
+        requested: UITableView.RowAnimation,
+        isQuietModeActive: Bool
+    ) -> UITableView.RowAnimation {
+        isQuietModeActive ? .none : requested
+    }
+
+    static func shouldAnimate(
+        requested: Bool,
+        isQuietModeActive: Bool
+    ) -> Bool {
+        requested && !isQuietModeActive
+    }
+
+    static func performWithoutAnimationsIfNeeded(
+        isQuietModeActive: Bool,
+        _ updates: () -> Void
+    ) {
+        guard isQuietModeActive else {
+            updates()
+            return
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            updates()
+        }
+        CATransaction.commit()
+    }
+
+    static func animate(
+        withDuration duration: TimeInterval,
+        isQuietModeActive: Bool,
+        animations: @escaping () -> Void
+    ) {
+        guard !isQuietModeActive else {
+            performWithoutAnimationsIfNeeded(isQuietModeActive: true, animations)
+            return
+        }
+
+        UIView.animate(withDuration: duration, animations: animations)
+    }
+}
+
+protocol LeftMenuFirstPresentationQuieting: AnyObject {
+    var isLeftMenuFirstPresentationQuietModeActive: Bool { get }
+
+    func beginLeftMenuFirstPresentationQuietMode()
+    func completeLeftMenuFirstPresentationQuietModeAfterFirstStableFrame()
+    func endLeftMenuFirstPresentationQuietMode()
+}
+
+private enum LeftMenuFirstPresentationQuietingStorage {
+    static var activeKey: UInt8 = 0
+    static var completionWorkItemKey: UInt8 = 0
+}
+
+extension LeftMenuFirstPresentationQuieting where Self: UIViewController {
+    var isLeftMenuFirstPresentationQuietModeActive: Bool {
+        (objc_getAssociatedObject(
+            self,
+            &LeftMenuFirstPresentationQuietingStorage.activeKey
+        ) as? NSNumber)?.boolValue ?? false
+    }
+
+    func beginLeftMenuFirstPresentationQuietMode() {
+        cancelLeftMenuFirstPresentationCompletion()
+        objc_setAssociatedObject(
+            self,
+            &LeftMenuFirstPresentationQuietingStorage.activeKey,
+            NSNumber(value: true),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    func completeLeftMenuFirstPresentationQuietModeAfterFirstStableFrame() {
+        cancelLeftMenuFirstPresentationCompletion()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.endLeftMenuFirstPresentationQuietMode()
+        }
+        objc_setAssociatedObject(
+            self,
+            &LeftMenuFirstPresentationQuietingStorage.completionWorkItemKey,
+            workItem,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+        DispatchQueue.main.async {
+            DispatchQueue.main.async(execute: workItem)
+        }
+    }
+
+    func endLeftMenuFirstPresentationQuietMode() {
+        cancelLeftMenuFirstPresentationCompletion()
+        objc_setAssociatedObject(
+            self,
+            &LeftMenuFirstPresentationQuietingStorage.activeKey,
+            NSNumber(value: false),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    private func cancelLeftMenuFirstPresentationCompletion() {
+        let workItem = objc_getAssociatedObject(
+            self,
+            &LeftMenuFirstPresentationQuietingStorage.completionWorkItemKey
+        ) as? DispatchWorkItem
+        workItem?.cancel()
+        objc_setAssociatedObject(
+            self,
+            &LeftMenuFirstPresentationQuietingStorage.completionWorkItemKey,
+            nil,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+}
+
+enum LeftMenuSplitDestinationPreparer {
+    static func targetBounds(
+        existingColumnBounds: CGRect,
+        splitBounds: CGRect,
+        presenterBounds: CGRect
+    ) -> CGRect? {
+        [existingColumnBounds, splitBounds, presenterBounds]
+            .compactMap(normalizedNonZeroBounds)
+            .first
+    }
+
+    static func targetBounds(
+        for column: UISplitViewController.Column,
+        in splitViewController: UISplitViewController,
+        presenter: UIViewController
+    ) -> CGRect? {
+        targetBounds(
+            existingColumnBounds: splitViewController.viewController(for: column)?.view.bounds ?? .zero,
+            splitBounds: splitViewController.view.bounds,
+            presenterBounds: presenter.view.bounds
+        )
+    }
+
+    static func prepare(_ viewController: UIViewController, targetBounds: CGRect?) {
+        guard let targetBounds = targetBounds.flatMap(normalizedNonZeroBounds) else {
+            return
+        }
+
+        performWithoutAnimations {
+            prepareLoaded(viewController, targetBounds: targetBounds)
+        }
+    }
+
+    static func performWithoutAnimations(_ updates: () -> Void) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            updates()
+        }
+        CATransaction.commit()
+    }
+
+    private static func prepareLoaded(_ viewController: UIViewController, targetBounds: CGRect) {
+        (viewController as? LeftMenuFirstPresentationQuieting)?
+            .beginLeftMenuFirstPresentationQuietMode()
+        viewController.loadViewIfNeeded()
+        apply(targetBounds: targetBounds, to: viewController.view)
+
+        if let navigationController = viewController as? UINavigationController,
+           let rootViewController = navigationController.topViewController {
+            navigationController.view.setNeedsLayout()
+            navigationController.view.layoutIfNeeded()
+            prepareLoaded(rootViewController, targetBounds: navigationController.view.bounds)
+        }
+
+        viewController.view.setNeedsLayout()
+        viewController.view.layoutIfNeeded()
+    }
+
+    private static func apply(targetBounds: CGRect, to view: UIView) {
+        let normalizedFrame = CGRect(origin: .zero, size: targetBounds.size)
+        view.frame = normalizedFrame
+        view.bounds = normalizedFrame
+    }
+
+    private static func normalizedNonZeroBounds(_ rect: CGRect) -> CGRect? {
+        guard !rect.isNull,
+              !rect.isInfinite,
+              rect.width.isFinite,
+              rect.height.isFinite,
+              rect.width > 0,
+              rect.height > 0 else {
+            return nil
+        }
+
+        return CGRect(
+            origin: .zero,
+            size: CGSize(width: rect.width, height: rect.height)
+        )
     }
 }
 
@@ -667,18 +897,12 @@ class LeftMenuViewController: UIViewController {
         vc.jid = AccountManager.shared.users.first?.jid ?? ""
         vc.owner = AccountManager.shared.users.first?.jid ?? ""
         showModal(vc, parent: self)
-        self.splitViewController?.show(.supplementary)
-        self.splitViewController?.hide(.primary)
+        revealSelectedContentColumn()
     }
     
     @objc
     func onTableViewEmptySpaceTap(_ sender: AnyObject) {
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            self.splitViewController?.hide(.primary)
-        } else {
-            self.splitViewController?.show(.supplementary)
-            self.splitViewController?.hide(.primary)
-        }
+        revealSelectedContentColumn()
     }
  
     @objc
@@ -687,8 +911,7 @@ class LeftMenuViewController: UIViewController {
         vc.jid = AccountManager.shared.users.first?.jid ?? ""
         vc.owner = AccountManager.shared.users.first?.jid ?? ""
         showModal(vc, parent: self)
-        self.splitViewController?.show(.supplementary)
-        self.splitViewController?.hide(.primary)
+        revealSelectedContentColumn()
     }
     
     override func viewDidLoad() {
@@ -1103,17 +1326,60 @@ extension LeftMenuViewController: UITableViewDelegate {
         return 0
     }
     
-    private func show(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isCalls: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) {
+    private func selectionPresentationAction(for splitVC: UISplitViewController) -> LeftMenuSelectionPresentationPolicy.PresentationAction {
+        let windowHorizontalSizeClass = splitVC.view.window?.traitCollection.horizontalSizeClass
+            ?? view.window?.traitCollection.horizontalSizeClass
+            ?? .unspecified
+
+        return LeftMenuSelectionPresentationPolicy.action(
+            isSplitCollapsed: splitVC.isCollapsed,
+            splitHorizontalSizeClass: splitVC.traitCollection.horizontalSizeClass,
+            windowHorizontalSizeClass: windowHorizontalSizeClass,
+            viewHorizontalSizeClass: view.traitCollection.horizontalSizeClass
+        )
+    }
+
+    private func applySelectionPresentation(to splitVC: UISplitViewController) {
+        let action = selectionPresentationAction(for: splitVC)
+        LeftMenuSplitDestinationPreparer.performWithoutAnimations {
+            splitVC.show(.supplementary)
+            if action.hidesPrimary {
+                splitVC.hide(.primary)
+            }
+            splitVC.view.setNeedsLayout()
+            splitVC.view.layoutIfNeeded()
+        }
+    }
+
+    @discardableResult
+    private func revealSelectedContentColumn() -> Bool {
+        guard let splitVC = splitViewController else {
+            return false
+        }
+
+        applySelectionPresentation(to: splitVC)
+        return true
+    }
+
+    private func usesRegularCategorySplit() -> Bool {
+        guard let splitVC = splitViewController else {
+            return UIDevice.current.userInterfaceIdiom == .pad
+        }
+
+        return selectionPresentationAction(for: splitVC) == .regularRevealSupplementaryAndHidePrimary
+    }
+
+    private func show(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isCalls: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) -> Bool {
         if #available(iOS 26, *) {
             // Code for iOS 26 and above
-            self.showNew(controller: vc, kind: kind, isNotifications: isNotifications, isCalls: isCalls, isContacts: isContacts, isGroups: isGroups, category: category, leftMenuDelegate: leftMenuDelegate)
+            return self.showNew(controller: vc, kind: kind, isNotifications: isNotifications, isCalls: isCalls, isContacts: isContacts, isGroups: isGroups, category: category, leftMenuDelegate: leftMenuDelegate)
         } else {
             // Fallback for older iOS versions
-            self.showOld(controller: vc, kind: kind, isNotifications: isNotifications, isCalls: isCalls, isContacts: isContacts, isGroups: isGroups, category: category, leftMenuDelegate: leftMenuDelegate)
+            return self.showOld(controller: vc, kind: kind, isNotifications: isNotifications, isCalls: isCalls, isContacts: isContacts, isGroups: isGroups, category: category, leftMenuDelegate: leftMenuDelegate)
         }
     }
     
-    private func showNew(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isCalls: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) {
+    private func showNew(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isCalls: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) -> Bool {
         let svc: UIViewController
         vc.resetState()
         if isNotifications {
@@ -1155,7 +1421,7 @@ extension LeftMenuViewController: UITableViewDelegate {
 //        let nsvc = UINavigationController(rootViewController: svc)
         guard let splitVC = self.splitViewController else {
             print("Error: splitViewController is nil")
-            return
+            return false
         }
         
         let nvc = UINavigationController(rootViewController: vc)
@@ -1163,13 +1429,31 @@ extension LeftMenuViewController: UITableViewDelegate {
             nvc.applyTransparentSplitAppearance()
         }
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(vc)
-        splitVC.setViewController(nvc, for: .supplementary)
-        splitVC.setViewController(svc, for: .secondary)
-        splitVC.show(.supplementary)
-        splitVC.hide(.primary)
+        LeftMenuSplitDestinationPreparer.prepare(
+            nvc,
+            targetBounds: LeftMenuSplitDestinationPreparer.targetBounds(
+                for: .supplementary,
+                in: splitVC,
+                presenter: self
+            )
+        )
+        LeftMenuSplitDestinationPreparer.prepare(
+            svc,
+            targetBounds: LeftMenuSplitDestinationPreparer.targetBounds(
+                for: .secondary,
+                in: splitVC,
+                presenter: self
+            )
+        )
+        LeftMenuSplitDestinationPreparer.performWithoutAnimations {
+            splitVC.setViewController(nvc, for: .supplementary)
+            splitVC.setViewController(svc, for: .secondary)
+            applySelectionPresentation(to: splitVC)
+        }
+        return true
     }
     
-    private func showOld(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isCalls: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) {
+    private func showOld(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isCalls: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) -> Bool {
         let svc: UIViewController
         vc.resetState()
         if isNotifications {
@@ -1212,21 +1496,49 @@ extension LeftMenuViewController: UITableViewDelegate {
         let nsvc = UINavigationController(rootViewController: svc)
         nsvc.applyTransparentSplitAppearance()
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(vc)
-        self.splitViewController?.viewControllers = [self, vc, nsvc]
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            self.splitViewController?.hide(.primary)
-        } else {
-            self.splitViewController!.show(.supplementary)
+        guard let splitVC = self.splitViewController else {
+            return false
         }
+        LeftMenuSplitDestinationPreparer.prepare(
+            vc,
+            targetBounds: LeftMenuSplitDestinationPreparer.targetBounds(
+                for: .supplementary,
+                in: splitVC,
+                presenter: self
+            )
+        )
+        LeftMenuSplitDestinationPreparer.prepare(
+            nsvc,
+            targetBounds: LeftMenuSplitDestinationPreparer.targetBounds(
+                for: .secondary,
+                in: splitVC,
+                presenter: self
+            )
+        )
+        LeftMenuSplitDestinationPreparer.performWithoutAnimations {
+            splitVC.viewControllers = [self, vc, nsvc]
+            applySelectionPresentation(to: splitVC)
+        }
+        return true
     }
     
-    private func showSavedMessages(controller vc: UIViewController) {
-        self.splitViewController?.viewControllers = [self, vc]
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            self.splitViewController?.hide(.primary)
-        } else {
-            self.splitViewController?.show(.supplementary)
+    private func showSavedMessages(controller vc: UIViewController) -> Bool {
+        guard let splitVC = self.splitViewController else {
+            return false
         }
+        LeftMenuSplitDestinationPreparer.prepare(
+            vc,
+            targetBounds: LeftMenuSplitDestinationPreparer.targetBounds(
+                for: .supplementary,
+                in: splitVC,
+                presenter: self
+            )
+        )
+        LeftMenuSplitDestinationPreparer.performWithoutAnimations {
+            splitVC.viewControllers = [self, vc]
+            applySelectionPresentation(to: splitVC)
+        }
+        return true
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -1236,11 +1548,10 @@ extension LeftMenuViewController: UITableViewDelegate {
             vc.jid = AccountManager.shared.users.first?.jid ?? ""
             vc.owner = AccountManager.shared.users.first?.jid ?? ""
             showModal(vc, parent: self)
-            self.splitViewController?.show(.supplementary)
-            self.splitViewController?.hide(.primary)
+            revealSelectedContentColumn()
         } else {
             let category = self.datasource[indexPath.section][indexPath.row].category
-            self.didSelectRootScreenBy(key: key)
+            self.didSelectRootScreenBy(key: key, category: category)
         }
     }
 }
@@ -1249,25 +1560,21 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
     
     func didSelectRootScreenBy(key: String, category: String? = nil) {
         if self.previousSelectedKey == key {
-            if UIDevice.current.userInterfaceIdiom == .pad {
-                self.splitViewController?.hide(.primary)
-            } else {
-                self.splitViewController?.show(.supplementary)
-            }
+            revealSelectedContentColumn()
             return
         }
-        self.previousSelectedKey = key
+        var didPresent = false
         switch key {
             case "chat":
                 if let vc = self.chatsVc {
                     vc.filter.accept(.chats)
-                    self.show(controller: vc, kind: .emptyChat)
+                    didPresent = self.show(controller: vc, kind: .emptyChat)
                     vc.leftMenuSelectRootCategoryDelegate = self
                   
                 } else {
                     let vc = LastChatsViewController()
                     self.chatsVc = vc
-                    self.show(controller: vc, kind: .emptyChat)
+                    didPresent = self.show(controller: vc, kind: .emptyChat)
                     vc.leftMenuSelectRootCategoryDelegate = self
                     
                 }
@@ -1278,7 +1585,7 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                 if self.archivedVc?.filter.value == .unread {
                     self.archivedVc?.filter.accept(.archived)
                 }
-                if UIDevice.current.userInterfaceIdiom == .pad {
+                if usesRegularCategorySplit() {
                     let listController = self.callsVc ?? LastCallsViewController()
                     let categoriesController = self.callsCategoriesVc ?? CallsCategoriesViewController()
                     self.callsVc = listController
@@ -1288,16 +1595,16 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                         listController: listController,
                         leftMenuDelegate: self
                     )
-                    self.show(controller: categoriesController, kind: .emptyCall, isCalls: true, leftMenuDelegate: self)
+                    didPresent = self.show(controller: categoriesController, kind: .emptyCall, isCalls: true, leftMenuDelegate: self)
                 } else {
                     if let vc = self.callsVc {
                         vc.leftMenuDelegate = self
-                        self.show(controller: vc, kind: .emptyCall)
+                        didPresent = self.show(controller: vc, kind: .emptyCall)
                     } else {
                         let vc = LastCallsViewController()
                         vc.leftMenuDelegate = self
                         self.callsVc = vc
-                        self.show(controller: vc, kind: .emptyCall)
+                        didPresent = self.show(controller: vc, kind: .emptyCall)
                     }
                 }
             case "mentions":
@@ -1309,12 +1616,12 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                 }
                 if let vc = self.notificationsVc {
                     vc.leftMenuDelegate = self
-                    self.show(controller: vc, kind: .emptyChat)
+                    didPresent = self.show(controller: vc, kind: .emptyChat)
                 } else {
                     let vc = NotificationsListViewController()
                     vc.leftMenuDelegate = self
                     self.notificationsVc = vc
-                    self.show(controller: vc, kind: .emptyChat)
+                    didPresent = self.show(controller: vc, kind: .emptyChat)
                 }
             case "notifications":
                 if self.chatsVc?.filter.value == .unread {
@@ -1323,25 +1630,25 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                 if self.archivedVc?.filter.value == .unread {
                     self.archivedVc?.filter.accept(.archived)
                 }
-                if UIDevice.current.userInterfaceIdiom == .pad {
+                if usesRegularCategorySplit() {
                     if let vc = self.notificationsCategoriesVc {
                         vc.leftMenuDelegate = self
-                        self.show(controller: vc, kind: .emptyChat, isNotifications: true, leftMenuDelegate: self)
+                        didPresent = self.show(controller: vc, kind: .emptyChat, isNotifications: true, leftMenuDelegate: self)
                     } else {
                         let vc = NotificationsCategoriesViewController()
                         vc.leftMenuDelegate = self
                         self.notificationsCategoriesVc = vc
-                        self.show(controller: vc, kind: .emptyChat, isNotifications: true, leftMenuDelegate: self)
+                        didPresent = self.show(controller: vc, kind: .emptyChat, isNotifications: true, leftMenuDelegate: self)
                     }
                 } else {
                     if let vc = self.notificationsVc {
                         vc.leftMenuDelegate = self
-                        self.show(controller: vc, kind: .emptyChat)
+                        didPresent = self.show(controller: vc, kind: .emptyChat)
                     } else {
                         let vc = NotificationsListViewController()
                         vc.leftMenuDelegate = self
                         self.notificationsVc = vc
-                        self.show(controller: vc, kind: .emptyChat)
+                        didPresent = self.show(controller: vc, kind: .emptyChat)
                     }
                 }
                 
@@ -1352,25 +1659,25 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                 if self.archivedVc?.filter.value == .unread {
                     self.archivedVc?.filter.accept(.archived)
                 }
-                if UIDevice.current.userInterfaceIdiom == .pad {
+                if usesRegularCategorySplit() {
                     if let vc = self.contactsCategoriesVc {
                         vc.leftMenuDelegate = self
-                        self.show(controller: vc, kind: .emptyChat, isContacts: true, category: category, leftMenuDelegate: self)
+                        didPresent = self.show(controller: vc, kind: .emptyChat, isContacts: true, category: category, leftMenuDelegate: self)
                     } else {
                         let vc = ContactsCategoryViewController()
                         self.contactsCategoriesVc = vc
                         vc.leftMenuDelegate = self
-                        self.show(controller: vc, kind: .emptyChat, isContacts: true, category: category, leftMenuDelegate: self)
+                        didPresent = self.show(controller: vc, kind: .emptyChat, isContacts: true, category: category, leftMenuDelegate: self)
                     }
                 } else {
                     if let vc = self.contactsVc {
                         vc.leftMenuDelegate = self
-                        self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
+                        didPresent = self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
                     } else {
                         let vc = ContactsViewController()
                         vc.leftMenuDelegate = self
                         self.contactsVc = vc
-                        self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
+                        didPresent = self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
                     }
                 }
             case "groups":
@@ -1380,41 +1687,41 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                 if self.archivedVc?.filter.value == .unread {
                     self.archivedVc?.filter.accept(.archived)
                 }
-                if UIDevice.current.userInterfaceIdiom == .pad {
+                if usesRegularCategorySplit() {
                     if let vc = self.groupsCategoriesVc {
                         vc.leftMenuDelegate = self
-                        self.show(controller: vc, kind: .emptyChat, isGroups: true, category: category, leftMenuDelegate: self)
+                        didPresent = self.show(controller: vc, kind: .emptyChat, isGroups: true, category: category, leftMenuDelegate: self)
                     } else {
                         let vc = ContactsCategoryViewController()
                         vc.isGroup = true
                         vc.leftMenuDelegate = self
                         self.groupsCategoriesVc = vc
-                        self.show(controller: vc, kind: .emptyChat, isGroups: true, category: category, leftMenuDelegate: self)
+                        didPresent = self.show(controller: vc, kind: .emptyChat, isGroups: true, category: category, leftMenuDelegate: self)
                     }
                 } else {
                     if let vc = self.groupsVc {
                         vc.leftMenuDelegate = self
-                        self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
+                        didPresent = self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
                     } else {
                         let vc = ContactsViewController()
                         vc.isGroup = true
                         vc.leftMenuDelegate = self
                         self.groupsVc = vc
-                        self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
+                        didPresent = self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
                     }
                 }
             case "archive":
                 if let vc = self.archivedVc {
                     vc.filter.accept(.archived)
                     vc.leftMenuSelectRootCategoryDelegate = self
-                    self.show(controller: vc, kind: .emptyChat)
+                    didPresent = self.show(controller: vc, kind: .emptyChat)
                 } else {
                     let vc = LastChatsViewController()
                     vc.shouldShowBottomBar = false
                     vc.leftMenuSelectRootCategoryDelegate = self
                     vc.filter.accept(.archived)
                     self.archivedVc = vc
-                    self.show(controller: vc, kind: .emptyChat)
+                    didPresent = self.show(controller: vc, kind: .emptyChat)
 //                    self.showEmptyDetail(for: .emptyChat)
                 }
             case "saved":
@@ -1426,17 +1733,21 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                 }
                 if let vc = self.savedMessagesChatsVc {
                     vc.leftMenuSelectRootCategoryDelegate = self
-                    self.showSavedMessages(controller: vc)
+                    didPresent = self.showSavedMessages(controller: vc)
                 } else {
                     let vc = LastChatsViewController()
                     vc.shouldShowBottomBar = false
                     vc.leftMenuSelectRootCategoryDelegate = self
                     vc.filter.accept(.saved)
                     self.savedMessagesChatsVc = vc
-                    self.showSavedMessages(controller: vc)
+                    didPresent = self.showSavedMessages(controller: vc)
                 }
             default:
                 break
+        }
+
+        if didPresent {
+            self.previousSelectedKey = key
         }
     }
     
@@ -1448,14 +1759,18 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
         self.previousSelectedKey = nil
         if let vc = self.chatsVc {
             vc.filter.accept(.chats)
-            self.show(controller: vc, kind: .emptyChat)
+            if self.show(controller: vc, kind: .emptyChat) {
+                self.previousSelectedKey = "chat"
+            }
             vc.leftMenuSelectRootCategoryDelegate = self
             vc.stackNewChat(owner: owner, jid: jid, conversationType: conversationType, configure: configure)
 //                    self.showEmptyDetail(for: .emptyChat)
         } else {
             let vc = LastChatsViewController()
             self.chatsVc = vc
-            self.show(controller: vc, kind: .emptyChat)
+            if self.show(controller: vc, kind: .emptyChat) {
+                self.previousSelectedKey = "chat"
+            }
             vc.leftMenuSelectRootCategoryDelegate = self
             vc.stackNewChat(owner: owner, jid: jid, conversationType: conversationType, configure: configure)
 //                    self.showEmptyDetail(for: .emptyChat)

@@ -29,7 +29,7 @@ import YubiKit
 import CocoaLumberjack
 import MaterialComponents.MDCPalettes
 
-class LastCallsViewController: BaseViewController {
+class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuieting {
     
     enum DisplayCallDirection: Equatable {
         case missed
@@ -339,7 +339,10 @@ class LastCallsViewController: BaseViewController {
                     if let item = results.first {
                         self.topAccountJid = item.jid
                         self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline)
-                        UIView.animate(withDuration: 0.1) {
+                        LeftMenuFirstPresentationPolicy.animate(
+                            withDuration: 0.1,
+                            isQuietModeActive: self.isLeftMenuFirstPresentationQuietModeActive
+                        ) {
                             self.customTitleLabel.textColor = AccountColorManager.shared.topColor()
                             self.addButton.tintColor = AccountColorManager.shared.topColor()
                         }
@@ -741,7 +744,13 @@ class LastCallsViewController: BaseViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         if let selected = tableView.indexPathForSelectedRow {
-            tableView.deselectRow(at: selected, animated: true)
+            tableView.deselectRow(
+                at: selected,
+                animated: LeftMenuFirstPresentationPolicy.shouldAnimate(
+                    requested: true,
+                    isQuietModeActive: isLeftMenuFirstPresentationQuietModeActive
+                )
+            )
         }
         
         
@@ -749,6 +758,7 @@ class LastCallsViewController: BaseViewController {
         self.navigationController?.navigationBar.shadowImage = nil
         self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)
         self.navigationController?.navigationBar.layoutIfNeeded()
+        completeLeftMenuFirstPresentationQuietModeAfterFirstStableFrame()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -757,6 +767,7 @@ class LastCallsViewController: BaseViewController {
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        endLeftMenuFirstPresentationQuietMode()
         unsubscribe()
     }
     

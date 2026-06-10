@@ -418,13 +418,18 @@ class ChatListTableViewCell: UITableViewCell {
                 self.avatarView.image = currentImage
             } else {
                 self.avatarRequestKey = requestKey
-                if !shouldKeepCurrentImageWhileLoading {
-                    self.avatarView.image = defaultAvatar
-                }
-                DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { [weak self] image in
-                    guard let self = self, self.avatarRequestKey == requestKey else { return }
+                if let cachedAvatar = DefaultAvatarManager.shared.cachedAvatarImage(url: avatarUrl) {
                     self.appliedAvatarRequestKey = requestKey
-                    self.avatarView.image = image ?? self.defaultAvatarImage ?? defaultAvatar
+                    self.avatarView.image = cachedAvatar
+                } else {
+                    if !shouldKeepCurrentImageWhileLoading {
+                        self.avatarView.image = defaultAvatar
+                    }
+                    DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { [weak self] image in
+                        guard let self = self, self.avatarRequestKey == requestKey else { return }
+                        self.appliedAvatarRequestKey = requestKey
+                        self.avatarView.image = image ?? self.defaultAvatarImage ?? defaultAvatar
+                    }
                 }
             }
         }

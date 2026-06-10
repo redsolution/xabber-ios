@@ -47,7 +47,20 @@ enum LastChatsNavigationTransitionMutationPolicy {
 }
 
 enum LastChatsBootstrapDatasetUpdatePolicy {
+    enum DeferredDatasetUpdateAction: Equatable {
+        case none
+        case flush
+        case drop
+    }
+
     static let coalescingDelay: TimeInterval = 0.18
+
+    static func shouldDeferDatasetUpdateForNavigationTransition(
+        isBootstrapActive: Bool,
+        isNavigationTransitionActive: Bool
+    ) -> Bool {
+        isBootstrapActive && isNavigationTransitionActive
+    }
 
     static func shouldCoalesceDatasetUpdate(
         isBootstrapActive: Bool,
@@ -65,6 +78,16 @@ enum LastChatsBootstrapDatasetUpdatePolicy {
 
     static func shouldSkipVisibleRowReconfigure(isBootstrapActive: Bool) -> Bool {
         isBootstrapActive
+    }
+
+    static func deferredDatasetUpdateAction(
+        cancelled: Bool,
+        hasPendingUpdate: Bool
+    ) -> DeferredDatasetUpdateAction {
+        guard hasPendingUpdate else {
+            return .none
+        }
+        return cancelled ? .drop : .flush
     }
 }
 
@@ -502,7 +525,7 @@ enum LastChatsRowUpdatePolicy {
     }
 }
 
-class LastChatsViewController: BaseViewController {
+class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuieting {
     
     enum Filter: Int {
         case chats
@@ -825,7 +848,11 @@ class LastChatsViewController: BaseViewController {
 
     private func completeNavigationTransitionDeferral(cancelled: Bool) {
         self.isNavigationTransitionActive = false
-        guard !cancelled else {
+        let deferredDatasetAction = LastChatsBootstrapDatasetUpdatePolicy.deferredDatasetUpdateAction(
+            cancelled: cancelled,
+            hasPendingUpdate: self.pendingDatasetUpdateAfterNavigationTransition
+        )
+        guard deferredDatasetAction != .drop else {
             self.pendingNavigationTransitionWork.removeAll()
             self.pendingDatasetUpdateAfterNavigationTransition = false
             self.shouldSuppressNextDatasetAnimation = false
@@ -1143,7 +1170,10 @@ class LastChatsViewController: BaseViewController {
                 .subscribe(onNext: { (results) in
                     self.skeletonItemsCount = max(results.count, 10)
                     if self.filter.value == .unread {
-                        UIView.animate(withDuration: 0.1) {
+                        LeftMenuFirstPresentationPolicy.animate(
+                            withDuration: 0.1,
+                            isQuietModeActive: self.isLeftMenuFirstPresentationQuietModeActive
+                        ) {
                             self.unreadAllMessagesButton.isHidden = self.filter.value == .unread ? results.filter{ $0.unread != 0 }.isEmpty : false
                             self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
                             self.unreadAllMessagesButton.backgroundColor = AccountManager.shared.connectingUsers.value.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
@@ -2004,6 +2034,16 @@ class LastChatsViewController: BaseViewController {
             }
             return
         }
+        let bootstrapActive = self.hasVisibleAccountSyncBootstrapInProgress
+        if LastChatsBootstrapDatasetUpdatePolicy.shouldDeferDatasetUpdateForNavigationTransition(
+            isBootstrapActive: bootstrapActive,
+            isNavigationTransitionActive: self.isNavigationTransitionActive
+        ) {
+            self.pendingDatasetUpdateAfterNavigationTransition = true
+            self.shouldSuppressNextDatasetAnimation = true
+            DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateCoalesced reason=navigationTransition")
+            return
+        }
         if LastChatsNavigationTransitionMutationPolicy.shouldDeferMutation(
             isTransitionActive: self.isNavigationTransitionActive,
             isCriticalForFirstFrame: false
@@ -2067,7 +2107,10 @@ class LastChatsViewController: BaseViewController {
         let oldShowsSkeleton = self.datasourceShowsSkeleton
         let newShowsSkeleton = self.showSkeleton.value
         let bootstrapActive = self.hasVisibleAccountSyncBootstrapInProgress
-        let requestedAnimate = self.isFirstLayout && !self.shouldSuppressNextDatasetAnimation
+        let requestedAnimate = LeftMenuFirstPresentationPolicy.shouldAnimate(
+            requested: self.isFirstLayout && !self.shouldSuppressNextDatasetAnimation,
+            isQuietModeActive: self.isLeftMenuFirstPresentationQuietModeActive
+        )
         let shouldAnimate = LastChatsBootstrapDatasetUpdatePolicy.shouldAnimateDatasetMutation(
             requestedAnimated: requestedAnimate,
             isBootstrapActive: bootstrapActive
@@ -2265,36 +2308,44 @@ class LastChatsViewController: BaseViewController {
             newShowsSkeleton: newShowsSkeleton
         )
 
-        self.tableView.performBatchUpdates({
-            prepare()
-            if !changes.deletedSections.isEmpty {
-                self.tableView.deleteSections(changes.deletedSections, with: .automatic)
-            }
-            if !changes.insertedSections.isEmpty {
-                self.tableView.insertSections(changes.insertedSections, with: .automatic)
-            }
-            if !changes.deletes.isEmpty {
-                self.tableView.deleteRows(at: changes.deletes, with: .automatic)
-            }
-            if !changes.inserts.isEmpty {
-                self.tableView.insertRows(at: changes.inserts, with: .automatic)
-            }
-            if changes.moves.isNotEmpty {
-                changes.moves.forEach {
-                    (from, to) in
-                    self.tableView.moveRow(at: from, to: to)
+        let tableAnimation = LeftMenuFirstPresentationPolicy.rowAnimation(
+            requested: .automatic,
+            isQuietModeActive: isLeftMenuFirstPresentationQuietModeActive
+        )
+        LeftMenuFirstPresentationPolicy.performWithoutAnimationsIfNeeded(
+            isQuietModeActive: isLeftMenuFirstPresentationQuietModeActive
+        ) {
+            self.tableView.performBatchUpdates({
+                prepare()
+                if !changes.deletedSections.isEmpty {
+                    self.tableView.deleteSections(changes.deletedSections, with: tableAnimation)
                 }
-            }
-        }, completion: { result in
-            self.applyReplacementUpdates(
-                changes: changes,
-                oldSections: oldSections,
-                newSections: newSections,
-                reloads: replacementPlan.reloads,
-                reconfigures: replacementPlan.reconfigures
-            )
-            self.finishDatasetUpdateCycle()
-        })
+                if !changes.insertedSections.isEmpty {
+                    self.tableView.insertSections(changes.insertedSections, with: tableAnimation)
+                }
+                if !changes.deletes.isEmpty {
+                    self.tableView.deleteRows(at: changes.deletes, with: tableAnimation)
+                }
+                if !changes.inserts.isEmpty {
+                    self.tableView.insertRows(at: changes.inserts, with: tableAnimation)
+                }
+                if changes.moves.isNotEmpty {
+                    changes.moves.forEach {
+                        (from, to) in
+                        self.tableView.moveRow(at: from, to: to)
+                    }
+                }
+            }, completion: { result in
+                self.applyReplacementUpdates(
+                    changes: changes,
+                    oldSections: oldSections,
+                    newSections: newSections,
+                    reloads: replacementPlan.reloads,
+                    reconfigures: replacementPlan.reconfigures
+                )
+                self.finishDatasetUpdateCycle()
+            })
+        }
     }
     
     internal func subscribe() {
@@ -2328,7 +2379,10 @@ class LastChatsViewController: BaseViewController {
                     let filteredConnectingUsers = results.filter({ accounts.contains($0) })
                     self.updateTitle(self.filter.value)
                     self.unreadAllMessagesButton.isEnabled = filteredConnectingUsers.isEmpty
-                    UIView.animate(withDuration: 0.1) {
+                    LeftMenuFirstPresentationPolicy.animate(
+                        withDuration: 0.1,
+                        isQuietModeActive: self.isLeftMenuFirstPresentationQuietModeActive
+                    ) {
                         self.unreadAllMessagesButton.backgroundColor = filteredConnectingUsers.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
                     }
                     if self.isSkeletonShowed { return }
@@ -2937,6 +2991,7 @@ class LastChatsViewController: BaseViewController {
             }
         }
         isFirstLayout = true
+        completeLeftMenuFirstPresentationQuietModeAfterFirstStableFrame()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -2947,6 +3002,7 @@ class LastChatsViewController: BaseViewController {
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        endLeftMenuFirstPresentationQuietMode()
         unsubscribe()
     }
     

@@ -70,6 +70,21 @@ struct MessageArchiveEndPageEvent: Equatable {
     let source: Source
 }
 
+enum MessageArchiveRequestFailureReason: String {
+    case timeout
+    case uiActionDisconnect
+    case requestStartFailed
+}
+
+struct MessageArchiveRequestFailureEvent: Equatable {
+    let owner: String
+    let queryId: String
+    let streamKind: MessageArchiveEndPageEvent.StreamKind
+    let reason: MessageArchiveRequestFailureReason
+    let errorDescription: String?
+    let pendingQueryCount: Int
+}
+
 enum ChatArchiveDebugTrace {
     static func log(_ event: String, _ fields: [(String, Any?)] = []) {
         #if DEBUG
@@ -244,6 +259,135 @@ enum MessageArchiveEndPageDispatcher {
                 ("owner", event.owner),
                 ("queryId", event.queryId),
                 ("source", event.source.rawValue),
+                ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt))
+            ])
+        }
+        return true
+    }
+
+    static func resetForTests() {
+        lock.lock()
+        handlersByKey.removeAll()
+        lock.unlock()
+    }
+}
+
+enum MessageArchiveRequestFailureDispatcher {
+    struct Token: Hashable {
+        fileprivate let id: UUID
+        fileprivate let owner: String
+        fileprivate let queryId: String
+    }
+
+    private typealias Handler = (MessageArchiveRequestFailureEvent) -> Void
+    private static let lock = NSLock()
+    private static var handlersByKey: [String: [UUID: Handler]] = [:]
+
+    private static func key(owner: String, queryId: String) -> String {
+        "\(owner)\u{1F}archive-request-failure\u{1F}\(queryId)"
+    }
+
+    @discardableResult
+    static func register(
+        owner: String,
+        queryId: String,
+        handler: @escaping (MessageArchiveRequestFailureEvent) -> Void
+    ) -> Token {
+        let token = Token(id: UUID(), owner: owner, queryId: queryId)
+        guard owner.isNotEmpty,
+              queryId.isNotEmpty else {
+            return token
+        }
+
+        lock.lock()
+        handlersByKey[key(owner: owner, queryId: queryId), default: [:]][token.id] = handler
+        let handlerCount = handlersByKey[key(owner: owner, queryId: queryId)]?.count ?? 0
+        lock.unlock()
+        ChatArchiveDebugTrace.log("requestFailureDispatcherRegister", [
+            ("owner", owner),
+            ("queryId", queryId),
+            ("handlerCount", handlerCount)
+        ])
+        return token
+    }
+
+    static func unregister(_ token: Token) {
+        guard token.owner.isNotEmpty,
+              token.queryId.isNotEmpty else {
+            return
+        }
+
+        lock.lock()
+        let key = key(owner: token.owner, queryId: token.queryId)
+        handlersByKey[key]?.removeValue(forKey: token.id)
+        if handlersByKey[key]?.isEmpty == true {
+            handlersByKey.removeValue(forKey: key)
+        }
+        lock.unlock()
+        ChatArchiveDebugTrace.log("requestFailureDispatcherUnregister", [
+            ("owner", token.owner),
+            ("queryId", token.queryId)
+        ])
+    }
+
+    static func hasHandler(owner: String, queryId: String) -> Bool {
+        guard owner.isNotEmpty,
+              queryId.isNotEmpty else {
+            return false
+        }
+
+        lock.lock()
+        let hasHandler = handlersByKey[key(owner: owner, queryId: queryId)]?.isEmpty == false
+        lock.unlock()
+        return hasHandler
+    }
+
+    @discardableResult
+    static func publish(_ event: MessageArchiveRequestFailureEvent) -> Bool {
+        guard event.owner.isNotEmpty,
+              event.queryId.isNotEmpty else {
+            return false
+        }
+
+        lock.lock()
+        let handlers = handlersByKey.removeValue(forKey: key(owner: event.owner, queryId: event.queryId))
+        lock.unlock()
+
+        guard let handlers,
+              !handlers.isEmpty else {
+            ChatArchiveDebugTrace.log("requestFailureDispatcherPublishMiss", [
+                ("owner", event.owner),
+                ("queryId", event.queryId),
+                ("reason", event.reason.rawValue),
+                ("streamKind", event.streamKind.rawValue),
+                ("pendingQueryCount", event.pendingQueryCount)
+            ])
+            return false
+        }
+
+        let enqueuedAt = Date()
+        ChatArchiveDebugTrace.log("requestFailureDispatcherPublish", [
+            ("owner", event.owner),
+            ("queryId", event.queryId),
+            ("reason", event.reason.rawValue),
+            ("streamKind", event.streamKind.rawValue),
+            ("pendingQueryCount", event.pendingQueryCount),
+            ("handlerCount", handlers.count)
+        ])
+        DispatchQueue.main.async {
+            ChatArchiveDebugTrace.log("requestFailureDispatcherMainHandlerStart", [
+                ("owner", event.owner),
+                ("queryId", event.queryId),
+                ("reason", event.reason.rawValue),
+                ("mainWaitMs", ChatArchiveDebugTrace.milliseconds(since: enqueuedAt)),
+                ("handlerCount", handlers.count)
+            ])
+            let startedAt = Date()
+            handlers.values.forEach { $0(event) }
+            ChatArchiveDebugTrace.log("requestFailureDispatcherMainHandlerFinish", [
+                ("owner", event.owner),
+                ("queryId", event.queryId),
+                ("reason", event.reason.rawValue),
                 ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt))
             ])
         }
@@ -808,6 +952,20 @@ class MessageArchiveManager: AbstractXMPPManager {
         fallbackEndPageCallbacksLock.unlock()
     }
 
+    private static func hasFallbackEndPageCallback(owner: String, queryId: String) -> Bool {
+        guard owner.isNotEmpty,
+              queryId.isNotEmpty else {
+            return false
+        }
+
+        fallbackEndPageCallbacksLock.lock()
+        let hasCallback = fallbackEndPageCallbacksByKey[
+            FallbackEndPageCallbackKey(owner: owner, queryId: queryId)
+        ] != nil
+        fallbackEndPageCallbacksLock.unlock()
+        return hasCallback
+    }
+
     @discardableResult
     private static func notifyFallbackEndPageIfNeeded(
         owner: String,
@@ -923,6 +1081,89 @@ class MessageArchiveManager: AbstractXMPPManager {
         archiveQueryPurposeLock.lock()
         defer { archiveQueryPurposeLock.unlock() }
         return archiveQueryPurposeByQueryId[queryId]?.isArchiveHistoryProducing ?? false
+    }
+
+    internal func pendingArchiveRequestQueryIds(archiveProducingOnly: Bool = true) -> [String] {
+        self.callbacksQueue
+            .filter { item in
+                !archiveProducingOnly || item.task.purpose.isArchiveHistoryProducing
+            }
+            .map(\.elementId)
+            .sorted()
+    }
+
+    @discardableResult
+    internal func publishPendingArchiveRequestFailures(
+        streamKind: MessageArchiveEndPageEvent.StreamKind,
+        reason: MessageArchiveRequestFailureReason,
+        errorDescription: String?
+    ) -> [MessageArchiveRequestFailureEvent] {
+        let pendingItems = self.callbacksQueue
+            .filter { $0.task.purpose.isArchiveHistoryProducing }
+            .sorted { $0.elementId < $1.elementId }
+        let pendingQueryCount = pendingItems.count
+
+        guard pendingQueryCount > 0 else {
+            ChatArchiveDebugTrace.log("mamPendingRequestFailureNoop", [
+                ("owner", self.owner),
+                ("streamKind", streamKind.rawValue),
+                ("reason", reason.rawValue)
+            ])
+            return []
+        }
+
+        let events = pendingItems.map { item in
+            MessageArchiveRequestFailureEvent(
+                owner: self.owner,
+                queryId: item.elementId,
+                streamKind: streamKind,
+                reason: reason,
+                errorDescription: errorDescription,
+                pendingQueryCount: pendingQueryCount
+            )
+        }
+
+        pendingItems.forEach { item in
+            self.removePendingArchiveRequestAfterFailure(item)
+        }
+
+        ChatArchiveDebugTrace.log("mamPendingRequestFailurePublish", [
+            ("owner", self.owner),
+            ("streamKind", streamKind.rawValue),
+            ("reason", reason.rawValue),
+            ("pendingQueryCount", pendingQueryCount),
+            ("queryIds", events.map(\.queryId).joined(separator: ","))
+        ])
+        events.forEach {
+            let delivered = MessageArchiveRequestFailureDispatcher.publish($0)
+            if !delivered {
+                ChatArchiveDebugTrace.log("mamPendingRequestFailureDropNoHandler", [
+                    ("owner", self.owner),
+                    ("queryId", $0.queryId),
+                    ("streamKind", streamKind.rawValue),
+                    ("reason", reason.rawValue),
+                    ("pendingQueryCount", pendingQueryCount)
+                ])
+            }
+        }
+        return events
+    }
+
+    private func removePendingArchiveRequestAfterFailure(_ item: CallbackQueueItem) {
+        let queryId = item.elementId
+        self.callbacksQueue.remove(item)
+        self.queryIds.remove(queryId)
+        self.persistedMessageCountsByQueryId.removeValue(forKey: queryId)
+        self.searchResultsQueries.remove(queryId)
+        self.unregisterArchiveQueryId(queryId)
+        self.unregisterFallbackEndPageCallbacks(queryId: queryId)
+
+        if let key = self.regularArchiveRequestKeyByQueryId.removeValue(forKey: queryId) {
+            let entry = self.regularArchiveInFlightByKey.removeValue(forKey: key)
+            if entry?.priority == .idle {
+                self.regularIdleBackfillInProgress = false
+            }
+        }
     }
 
     private func registerArchiveQueryId(_ queryId: String, purpose: RequestPurpose) {
@@ -1211,6 +1452,21 @@ class MessageArchiveManager: AbstractXMPPManager {
         let streamKind = Self.streamKind(for: stream)
         if iq.iqType == .error,
            let elementId = iq.elementID {
+            let localCallbackRegistered = self.callbacksQueue.contains(where: { $0.elementId == elementId })
+            let dispatcherRegistered = MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: elementId)
+            let fallbackRegistered = Self.hasFallbackEndPageCallback(owner: self.owner, queryId: elementId)
+            let localQueryRegistered = self.queryIds.contains(elementId)
+            ChatArchiveDebugTrace.log("mamErrorReceived", [
+                ("owner", self.owner),
+                ("queryId", elementId),
+                ("elementId", elementId),
+                ("streamKind", streamKind.rawValue),
+                ("localCallbackRegistered", localCallbackRegistered),
+                ("dispatcherRegistered", dispatcherRegistered),
+                ("fallbackRegistered", fallbackRegistered),
+                ("localQueryRegistered", localQueryRegistered),
+                ("route", localCallbackRegistered ? "activeLocalCallback" : ((dispatcherRegistered || fallbackRegistered || localQueryRegistered) ? "fallbackOrRegistered" : "staleNoActiveContext"))
+            ])
             DDLogDebug(
                 "MessageArchiveManager.read mamErrorReceived owner=\(self.owner) elementId=\(elementId) streamKind=\(streamKind.rawValue) localCallbackRegistered=\(self.callbacksQueue.contains(where: { $0.elementId == elementId })) dispatcherRegistered=\(MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: elementId))"
             )
@@ -1273,13 +1529,20 @@ class MessageArchiveManager: AbstractXMPPManager {
         let first = set.element(forName: "first")?.stringValue ?? ""
         let last = set.element(forName: "last")?.stringValue ?? ""
         let resultCount = set.element(forName: "count")?.stringValueAsNSInteger() ?? 0
+        let localCallbackRegistered = self.callbacksQueue.contains(where: { $0.elementId == elementId })
+        let dispatcherRegistered = MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: queryId)
+        let fallbackRegistered = Self.hasFallbackEndPageCallback(owner: self.owner, queryId: queryId)
+        let localQueryRegistered = self.queryIds.contains(elementId) || self.queryIds.contains(queryId)
         ChatArchiveDebugTrace.log("mamFinalReceived", [
             ("owner", self.owner),
             ("queryId", queryId),
             ("elementId", elementId),
             ("streamKind", streamKind.rawValue),
-            ("localCallbackRegistered", self.callbacksQueue.contains(where: { $0.elementId == elementId })),
-            ("dispatcherRegistered", MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: queryId)),
+            ("localCallbackRegistered", localCallbackRegistered),
+            ("dispatcherRegistered", dispatcherRegistered),
+            ("fallbackRegistered", fallbackRegistered),
+            ("localQueryRegistered", localQueryRegistered),
+            ("route", localCallbackRegistered ? "activeLocalCallback" : ((dispatcherRegistered || fallbackRegistered || localQueryRegistered) ? "fallbackOrRegistered" : "staleNoActiveContext")),
             ("count", resultCount),
             ("complete", complete),
             ("first", first),
@@ -1947,6 +2210,20 @@ class MessageArchiveManager: AbstractXMPPManager {
         autoreleasepool {
             self.queryIds.insert(elementId)
         }
+        ChatArchiveDebugTrace.log("mamArchiveRequestSend", [
+            ("owner", self.owner),
+            ("queryId", elementId),
+            ("purpose", "\(purpose)"),
+            ("conversationType", conversationType.rawValue),
+            ("streamKind", Self.streamKind(for: stream).rawValue),
+            ("resource", stream.myJID?.resource ?? "-"),
+            ("jid", jid ?? "-"),
+            ("before", nextPage ?? "-"),
+            ("after", prevPage ?? "-"),
+            ("max", max ?? pageSize),
+            ("flipPage", flipPage),
+            ("archiveProducing", purpose.isArchiveHistoryProducing)
+        ])
         if isGroupchat {
             stream.send(XMPPIQ(iqType: .set, to: jid == nil ? nil : XMPPJID(string: jid ?? ""), elementID: elementId, child: query))
         } else {

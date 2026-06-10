@@ -354,7 +354,7 @@ enum ContactsListSupport {
     }
 }
 
-class ContactsViewController: BaseViewController {
+class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuieting {
     
     class EmptyView: UIView {
         
@@ -651,13 +651,17 @@ class ContactsViewController: BaseViewController {
                 return
             }
             DispatchQueue.main.async {
-                self.tableView.performBatchUpdates {
-                    accountHeaderView.configure(collapsed: element.isCollapsed,
-                                                title: AccountManager.shared.find(for: element.jid)?.username ?? element.jid,
-                                                jid: element.jid,
-                                                subtitle: "\(element.contactsCount)",
-                                                color: AccountColorManager.shared.palette(for: element.jid).tint700)
-                    accountHeaderView.layoutIfNeeded()
+                LeftMenuFirstPresentationPolicy.performWithoutAnimationsIfNeeded(
+                    isQuietModeActive: self.isLeftMenuFirstPresentationQuietModeActive
+                ) {
+                    self.tableView.performBatchUpdates {
+                        accountHeaderView.configure(collapsed: element.isCollapsed,
+                                                    title: AccountManager.shared.find(for: element.jid)?.username ?? element.jid,
+                                                    jid: element.jid,
+                                                    subtitle: "\(element.contactsCount)",
+                                                    color: AccountColorManager.shared.palette(for: element.jid).tint700)
+                        accountHeaderView.layoutIfNeeded()
+                    }
                 }
             }
             
@@ -1252,8 +1256,12 @@ class ContactsViewController: BaseViewController {
         }
 
         func forceReload() {
-            self.datasource = newDatasource
-            self.tableView.reloadData()
+            LeftMenuFirstPresentationPolicy.performWithoutAnimationsIfNeeded(
+                isQuietModeActive: self.isLeftMenuFirstPresentationQuietModeActive
+            ) {
+                self.datasource = newDatasource
+                self.tableView.reloadData()
+            }
         }
         func reloadCompatibleSections(_ sections: IndexSet) {
             self.datasource = newDatasource
@@ -1374,28 +1382,36 @@ class ContactsViewController: BaseViewController {
             return
         }
         
-        self.tableView.performBatchUpdates({
-            prepare()
-            if !changes.deletes.isEmpty {
-                self.tableView.deleteRows(at: changes.deletes, with: .automatic)
-            }
-            if !changes.inserts.isEmpty {
-                self.tableView.insertRows(at: changes.inserts, with: .automatic)
-            }
-            if changes.moves.isNotEmpty {
-                changes.moves.forEach {
-                    (from, to) in
-                    self.tableView.moveRow(at: from, to: to)
+        let rowAnimation = LeftMenuFirstPresentationPolicy.rowAnimation(
+            requested: .automatic,
+            isQuietModeActive: isLeftMenuFirstPresentationQuietModeActive
+        )
+        LeftMenuFirstPresentationPolicy.performWithoutAnimationsIfNeeded(
+            isQuietModeActive: isLeftMenuFirstPresentationQuietModeActive
+        ) {
+            self.tableView.performBatchUpdates({
+                prepare()
+                if !changes.deletes.isEmpty {
+                    self.tableView.deleteRows(at: changes.deletes, with: rowAnimation)
                 }
-            }
-        }, completion: { result in
-            if changes.replaces.isEmpty { return }
-            UIView.performWithoutAnimation {
-                //may be increase performance
-                self.tableView.reconfigureRows(at: changes.replaces)
-//                self.tableView.reloadRows(at: changes.replaces, with: .none)
-            }
-        })
+                if !changes.inserts.isEmpty {
+                    self.tableView.insertRows(at: changes.inserts, with: rowAnimation)
+                }
+                if changes.moves.isNotEmpty {
+                    changes.moves.forEach {
+                        (from, to) in
+                        self.tableView.moveRow(at: from, to: to)
+                    }
+                }
+            }, completion: { result in
+                if changes.replaces.isEmpty { return }
+                UIView.performWithoutAnimation {
+                    //may be increase performance
+                    self.tableView.reconfigureRows(at: changes.replaces)
+//                    self.tableView.reloadRows(at: changes.replaces, with: .none)
+                }
+            })
+        }
     }
     
     private final func postprocessDataset() {
@@ -2035,6 +2051,7 @@ class ContactsViewController: BaseViewController {
                 user.vcards.lazyLoadMissedVCards(stream)
             })
         }
+        completeLeftMenuFirstPresentationQuietModeAfterFirstStableFrame()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -2043,6 +2060,7 @@ class ContactsViewController: BaseViewController {
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        endLeftMenuFirstPresentationQuietMode()
         self.navigationController?.setNavigationBarHidden(false, animated: true)
     }
     

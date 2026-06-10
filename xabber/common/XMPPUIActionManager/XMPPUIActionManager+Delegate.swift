@@ -297,10 +297,34 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
     
     func xmppStream(_ sender: XMPPStream, willReceive iq: XMPPIQ) -> XMPPIQ? {
 //        print("WILL REC IQ: \(iq.prettyXMLString ?? "")")
+        guard self.isCurrentStream(sender, callback: "willReceiveIQ") else {
+            return iq
+        }
+        if let routingId = self.mamCompletionRoutingId(for: iq),
+           self.routeMamCompletionIQIfNeeded(sender, iq: iq, stage: "willReceive") {
+            self.preRoutedMamCompletionIQIds.insert(routingId)
+            self.messages?.storeMessagesNow()
+        }
         return iq
     }
 
-    private func routeMamCompletionIQIfNeeded(_ sender: XMPPStream, iq: XMPPIQ) -> Bool {
+    private func mamCompletionRoutingId(for iq: XMPPIQ) -> String? {
+        if iq.iqType == .result,
+           let fin = MessageArchiveManager.mamFinalElement(in: iq),
+           let queryId = fin.attributeStringValue(forName: "queryid") {
+            return queryId
+        }
+
+        if iq.iqType == .error,
+           let elementId = iq.elementID,
+           MessageArchiveManager.isMamCompletionIQ(iq, owner: self.currentJid) {
+            return elementId
+        }
+
+        return nil
+    }
+
+    private func routeMamCompletionIQIfNeeded(_ sender: XMPPStream, iq: XMPPIQ, stage: String) -> Bool {
         guard MessageArchiveManager.isMamCompletionIQ(iq, owner: self.currentJid) else {
             return false
         }
@@ -327,7 +351,8 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 "id": iq.elementID ?? "none",
                 "mamPresent": mamPresent,
                 "handledByMam": handledByMam,
-                "fallbackDelivered": fallbackDelivered
+                "fallbackDelivered": fallbackDelivered,
+                "stage": stage
             ],
             rawXML: iq.xmlString
         )
@@ -347,7 +372,21 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
             ],
             rawXML: iq.xmlString
         )
-        if self.routeMamCompletionIQIfNeeded(sender, iq: iq) {
+        if let routingId = self.mamCompletionRoutingId(for: iq),
+           self.preRoutedMamCompletionIQIds.remove(routingId) != nil {
+            self.logConnectionDiagnostics(
+                event: "uiActionMamFinalRouteSkipped",
+                details: [
+                    "id": iq.elementID ?? "none",
+                    "routingId": routingId,
+                    "reason": "preRouted"
+                ],
+                rawXML: iq.xmlString
+            )
+            self.messages?.storeMessagesNow()
+            return true
+        }
+        if self.routeMamCompletionIQIfNeeded(sender, iq: iq, stage: "didReceive") {
             self.messages?.storeMessagesNow()
             return true
         }
@@ -553,11 +592,36 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
     
     func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
         guard self.isCurrentStream(sender, callback: "didDisconnect") else { return }
+        let disconnectError = self.disconnectErrorDescription(error)
+        let pendingMamQueryIds = self.mam?.pendingArchiveRequestQueryIds() ?? []
         self.logConnectionDiagnostics(
             event: "tcp_disconnected",
-            details: ["disconnectError": self.disconnectErrorDescription(error)],
+            details: ["disconnectError": disconnectError],
             error: error
         )
+        self.logConnectionDiagnostics(
+            event: "ui_action_mam_pending_on_disconnect",
+            details: [
+                "pendingMamQueryCount": pendingMamQueryIds.count,
+                "pendingMamQueryIds": pendingMamQueryIds.joined(separator: ","),
+                "disconnectError": disconnectError
+            ],
+            error: error
+        )
+        let failureEvents = self.mam?.publishPendingArchiveRequestFailures(
+            streamKind: .uiAction,
+            reason: .uiActionDisconnect,
+            errorDescription: disconnectError
+        ) ?? []
+        failureEvents.forEach { event in
+            ChatArchiveDebugTrace.log("interactiveRemoteArchiveDisconnect", [
+                ("owner", event.owner),
+                ("queryId", event.queryId),
+                ("streamKind", event.streamKind.rawValue),
+                ("disconnectError", event.errorDescription ?? "none"),
+                ("pendingQueryCount", event.pendingQueryCount)
+            ])
+        }
         guard let jid = sender.myJID?.bare else { return }
         CredentialsManager.shared.getItem(for: jid).release(.authFailedRecoverable)
         self.lifecycleCoordinator.markDisconnected()

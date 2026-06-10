@@ -228,6 +228,12 @@ extension ContactsViewController {
                 return
             }
 
+            if let cachedAvatar = DefaultAvatarManager.shared.cachedAvatarImage(url: avatarUrl) {
+                appliedAvatarRequestKey = requestKey
+                avatarView.image = cachedAvatar
+                return
+            }
+
             avatarView.image = defaultAvatar
             DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { [weak self] image in
                 guard let self = self, self.avatarRequestKey == requestKey else {

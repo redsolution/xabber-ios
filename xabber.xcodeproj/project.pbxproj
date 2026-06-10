@@ -87,6 +87,7 @@
 		4E1000022F66000000ABC001 /* FloatingBottomBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1000012F66000000ABC001 /* FloatingBottomBarView.swift */; };
 		4E1000042F66000000ABC001 /* FloatingBottomBarViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1000032F66000000ABC001 /* FloatingBottomBarViewTests.swift */; };
 		4E1000062F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1000052F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift */; };
+		4E5600022F74000000ABC001 /* LeftMenuSelectionPresentationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5600012F74000000ABC001 /* LeftMenuSelectionPresentationPolicyTests.swift */; };
 		4E2000022F67000000ABC001 /* VoiceRecordingInteractionStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E2000012F67000000ABC001 /* VoiceRecordingInteractionStateMachine.swift */; };
 		4E2000042F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E2000032F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift */; };
 		4E3000022F68000000ABC001 /* VoiceMessagePlaybackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3000012F68000000ABC001 /* VoiceMessagePlaybackCoordinator.swift */; };
@@ -1099,6 +1100,7 @@
 		4E1000012F66000000ABC001 /* FloatingBottomBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingBottomBarView.swift; sourceTree = "<group>"; };
 		4E1000032F66000000ABC001 /* FloatingBottomBarViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingBottomBarViewTests.swift; sourceTree = "<group>"; };
 		4E1000052F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuSurfaceEffectFactoryTests.swift; sourceTree = "<group>"; };
+		4E5600012F74000000ABC001 /* LeftMenuSelectionPresentationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuSelectionPresentationPolicyTests.swift; sourceTree = "<group>"; };
 		4E2000012F67000000ABC001 /* VoiceRecordingInteractionStateMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecordingInteractionStateMachine.swift; sourceTree = "<group>"; };
 		4E2000032F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecordingInteractionStateMachineTests.swift; sourceTree = "<group>"; };
 		4E3000012F68000000ABC001 /* VoiceMessagePlaybackCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMessagePlaybackCoordinator.swift; sourceTree = "<group>"; };
@@ -3689,6 +3691,7 @@
 			children = (
 					4E1000032F66000000ABC001 /* FloatingBottomBarViewTests.swift */,
 					4E1000052F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift */,
+					4E5600012F74000000ABC001 /* LeftMenuSelectionPresentationPolicyTests.swift */,
 					4E2000032F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift */,
 					4E3100092F69000000ABC001 /* CallsListCoordinatorTests.swift */,
 					4E3200012F6A000000ABC001 /* ContactsListAppearanceTests.swift */,
@@ -5602,6 +5605,7 @@
 					4E53000A2F72000000ABC001 /* ClientSynchronizationPaginationTests.swift in Sources */,
 					4E5400042F72000000ABC001 /* ChatNavigationBarStateTests.swift in Sources */,
 					4E5500022F73000000ABC001 /* LastChatsViewControllerBehaviorTests.swift in Sources */,
+					4E5600022F74000000ABC001 /* LeftMenuSelectionPresentationPolicyTests.swift in Sources */,
 				4E1000062F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift in Sources */,
 				66D2B585253EFED100299578 /* XabberAssetsTests.swift in Sources */,
 			);
