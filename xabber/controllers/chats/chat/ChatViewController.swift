@@ -1225,6 +1225,8 @@ class ChatViewController: MessagesViewController {
     var hasRenderedStableInitialHistory: Bool = false
     var hasCompletedInitialHistoryViewAppearance: Bool = false
     var isApplyingBootstrapAnchorWindow: Bool = false
+    var pendingForceLatestOpen: Bool = false
+    var pendingForceLatestOpenAnimated: Bool = false
 
     var showLoadingIndicator: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
@@ -1252,6 +1254,8 @@ class ChatViewController: MessagesViewController {
 
 // draft
     var draftMessageText: BehaviorRelay<String?> = BehaviorRelay<String?>(value: nil)
+    var scheduledMessageService: ChatScheduledMessageServicing = AccountChatScheduledMessageService()
+    var sendOptionsContextMenu: ContextMenu?
     
 // ForwardedMessages
     var forwardedIds: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set<String>())
@@ -2550,9 +2554,11 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func scrollDownButtonTarget() -> ChatScrollDownTargetPolicy.Target {
-        ChatScrollDownTargetPolicy.target(
-            chat: self.scrollDownButtonChatState(),
-            visibleMessages: self.scrollDownButtonVisibleMessages()
+        ChatOpenMessageRequestHandlingPolicy.effectiveScrollDownTarget(
+            ChatScrollDownTargetPolicy.target(
+                chat: self.scrollDownButtonChatState(),
+                visibleMessages: self.scrollDownButtonVisibleMessages()
+            )
         )
     }
 
@@ -2627,7 +2633,7 @@ class ChatViewController: MessagesViewController {
         )
     }
 
-    internal func scrollToLatestFromScrollDownButton(animated: Bool) {
+    internal func scrollToLatestTimeline(animated: Bool) {
         self.mapAndApplyTimelineLatest(
             mode: .windowReload(),
             animated: false,
@@ -2636,20 +2642,74 @@ class ChatViewController: MessagesViewController {
                 guard let self else {
                     return
                 }
-                if self.datasource.isNotEmpty {
-                    self.scrollToBottom(animated: animated)
-                    self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: animated)
-                }
-                self.setFloatingDateVisible(true)
+                self.finishLatestBottomScroll(animated: animated, consumePendingForceLatest: true)
             },
             cancelledCompletion: { [weak self] in
-                guard let self, self.datasource.isNotEmpty else {
+                guard let self else {
                     return
                 }
-                self.scrollToBottom(animated: animated)
-                self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: animated)
+                self.finishLatestBottomScroll(animated: animated, consumePendingForceLatest: true)
             }
         )
+    }
+
+    internal func requestForceLatestOpen(animated: Bool = false) {
+        guard ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen() else {
+            return
+        }
+
+        self.clearSuppressedOpenMessageRequestState()
+        self.pendingForceLatestOpen = true
+        self.pendingForceLatestOpenAnimated = self.pendingForceLatestOpenAnimated || animated
+
+        guard self.isViewLoaded else {
+            return
+        }
+
+        self.applyForcedLatestOpenIfPossible(reason: "requestForceLatestOpen")
+    }
+
+    internal func applyForcedLatestOpenIfPossible(reason: String) {
+        guard ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen(),
+              self.pendingForceLatestOpen,
+              self.isViewLoaded else {
+            return
+        }
+
+        let animated = self.pendingForceLatestOpenAnimated && !self.initialHistoryAppearancePending
+        ChatArchiveDebugTrace.log("forceLatestOpenApply", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("reason", reason),
+            ("animated", animated)
+        ])
+        self.scrollToLatestTimeline(animated: animated)
+    }
+
+    internal func finishLatestBottomScroll(animated: Bool, consumePendingForceLatest: Bool) {
+        guard self.isViewLoaded else {
+            return
+        }
+
+        self.messagesCollectionView.layoutIfNeeded()
+        guard self.datasource.isNotEmpty else {
+            self.setFloatingDateVisible(true)
+            return
+        }
+
+        self.scrollToBottom(animated: animated)
+        self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: animated)
+        self.setFloatingDateVisible(true)
+
+        if consumePendingForceLatest {
+            self.pendingForceLatestOpen = false
+            self.pendingForceLatestOpenAnimated = false
+        }
+    }
+
+    internal func scrollToLatestFromScrollDownButton(animated: Bool) {
+        self.scrollToLatestTimeline(animated: animated)
     }
 
     internal func unreadMentionsNavigatorVisibleFrame() -> CGRect {
@@ -3276,18 +3336,7 @@ class ChatViewController: MessagesViewController {
     }
     
     final func configureBackground() {
-        if ContinuousSplitBackgroundExperiment.isActive,
-           backgroundPresentationMode != .localChatBackdrop {
-            backgroundView.removeFromSuperview()
-            localChatBackdropView.removeFromSuperview()
-            messagesCollectionView.backgroundColor = .clear
-            view.backgroundColor = .clear
-            view.isOpaque = false
-            return
-        }
-
-        if ContinuousSplitBackgroundExperiment.isActive,
-           backgroundPresentationMode == .localChatBackdrop {
+        if backgroundPresentationMode == .localChatBackdrop {
             backgroundView.removeFromSuperview()
             localChatBackdropView.frame = view.bounds
             localChatBackdropView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -3299,6 +3348,15 @@ class ChatViewController: MessagesViewController {
             messagesCollectionView.backgroundColor = .clear
             view.backgroundColor = .systemBackground
             view.isOpaque = true
+            return
+        }
+
+        if ContinuousSplitBackgroundExperiment.isActive {
+            backgroundView.removeFromSuperview()
+            localChatBackdropView.removeFromSuperview()
+            messagesCollectionView.backgroundColor = .clear
+            view.backgroundColor = .clear
+            view.isOpaque = false
             return
         }
 
@@ -3341,22 +3399,32 @@ class ChatViewController: MessagesViewController {
 
     private func setupNavigationBar() {
         NavigationBarItemOwnership.clear(self.navigationItem, animated: false)
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
+        if ContinuousSplitBackgroundExperiment.mode(for: self) == .stockCompact {
+            navigationItem.standardAppearance = nil
+            navigationItem.scrollEdgeAppearance = nil
+            navigationItem.compactAppearance = nil
+            navigationItem.compactScrollEdgeAppearance = nil
+            edgesForExtendedLayout = [.bottom]
+            extendedLayoutIncludesOpaqueBars = false
+        } else {
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithDefaultBackground()
 
-        let scrollEdgeAppearance = UINavigationBarAppearance()
-        scrollEdgeAppearance.configureWithDefaultBackground()
+            let scrollEdgeAppearance = UINavigationBarAppearance()
+            scrollEdgeAppearance.configureWithDefaultBackground()
 
-        let compactAppearance = UINavigationBarAppearance()
-        compactAppearance.configureWithDefaultBackground()
+            let compactAppearance = UINavigationBarAppearance()
+            compactAppearance.configureWithDefaultBackground()
 
-        self.navigationItem.standardAppearance = appearance
-        self.navigationItem.compactAppearance = compactAppearance
-        self.navigationItem.scrollEdgeAppearance = scrollEdgeAppearance
+            self.navigationItem.standardAppearance = appearance
+            self.navigationItem.compactAppearance = compactAppearance
+            self.navigationItem.compactScrollEdgeAppearance = compactAppearance
+            self.navigationItem.scrollEdgeAppearance = scrollEdgeAppearance
 
-        navigationController?.navigationBar.isTranslucent = true
-        edgesForExtendedLayout = [.top, .bottom]
-        extendedLayoutIncludesOpaqueBars = true
+            navigationController?.navigationBar.isTranslucent = true
+            edgesForExtendedLayout = [.top, .bottom]
+            extendedLayoutIncludesOpaqueBars = true
+        }
 
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.backButtonDisplayMode = .minimal

@@ -13,12 +13,35 @@ import RealmSwift
 
 @MainActor
 final class ContactsListAppearanceTests: XCTestCase {
+    private final class TraitWindow: UIWindow {
+        private let horizontalSizeClass: UIUserInterfaceSizeClass
+
+        init(horizontalSizeClass: UIUserInterfaceSizeClass) {
+            self.horizontalSizeClass = horizontalSizeClass
+            super.init(frame: UIScreen.main.bounds)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override var traitCollection: UITraitCollection {
+            UITraitCollection(traitsFrom: [
+                super.traitCollection,
+                UITraitCollection(horizontalSizeClass: horizontalSizeClass)
+            ])
+        }
+    }
+
     private var previousInterfaceType: String!
+    private var previousUseLargeTitle: Bool!
     private var previousRealmConfiguration: Realm.Configuration!
+    private var retainedTraitWindows: [UIWindow] = []
 
     override func setUp() {
         super.setUp()
         previousInterfaceType = CommonConfigManager.shared.config.interface_type
+        previousUseLargeTitle = CommonConfigManager.shared.config.use_large_title
         previousRealmConfiguration = Realm.Configuration.defaultConfiguration
         CommonConfigManager.shared.config.interface_type = CommonConfigManager.InterfaceType.split.rawValue
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
@@ -27,9 +50,13 @@ final class ContactsListAppearanceTests: XCTestCase {
     }
 
     override func tearDown() {
+        retainedTraitWindows.forEach { $0.isHidden = true }
+        retainedTraitWindows.removeAll()
         CommonConfigManager.shared.config.interface_type = previousInterfaceType
+        CommonConfigManager.shared.config.use_large_title = previousUseLargeTitle
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
         previousInterfaceType = nil
+        previousUseLargeTitle = nil
         previousRealmConfiguration = nil
         super.tearDown()
     }
@@ -155,15 +182,112 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertFalse(cell.isSelected, file: file, line: line)
     }
 
-    func testContactsListUsesInsetGroupedTransparentSplitAppearanceAndSearch() {
-        let controller = ContactsViewController()
-        _ = UINavigationController(rootViewController: controller)
+    @discardableResult
+    private func embedInTraitContainer(
+        _ child: UIViewController,
+        horizontalSizeClass: UIUserInterfaceSizeClass
+    ) -> UIViewController {
+        let parent = UIViewController()
+        let window = TraitWindow(horizontalSizeClass: horizontalSizeClass)
+        window.rootViewController = parent
+        window.isHidden = false
+        retainedTraitWindows.append(window)
+        parent.loadViewIfNeeded()
+        parent.addChild(child)
+        parent.setOverrideTraitCollection(
+            UITraitCollection(horizontalSizeClass: horizontalSizeClass),
+            forChild: child
+        )
+        child.loadViewIfNeeded()
+        parent.view.addSubview(child.view)
+        child.didMove(toParent: parent)
+        applyContinuousSplitAppearanceAfterAttach(to: child)
+        return parent
+    }
 
+    private func applyContinuousSplitAppearanceAfterAttach(to viewController: UIViewController) {
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(viewController)
+        if let navigationController = viewController as? UINavigationController {
+            navigationController.viewControllers.forEach(applyContinuousSplitAppearanceAfterAttach)
+        }
+        if let contactsController = viewController as? ContactsViewController {
+            contactsController.tableView.applyContinuousSplitInsetGroupedAppearance()
+        }
+        if let categoryController = viewController as? ContactsCategoryViewController {
+            categoryController.tableView.applyContinuousSplitInsetGroupedAppearance()
+        }
+    }
+
+    func testContactsRootLargeTitleFollowsCommonConfig() {
+        assertContactsLargeTitle(useLargeTitle: true, isGroup: false)
+        assertContactsLargeTitle(useLargeTitle: false, isGroup: false)
+    }
+
+    func testGroupsRootLargeTitleFollowsCommonConfig() {
+        assertContactsLargeTitle(useLargeTitle: true, isGroup: true)
+        assertContactsLargeTitle(useLargeTitle: false, isGroup: true)
+    }
+
+    func testContactsCategoriesLargeTitleFollowsCommonConfig() {
+        assertCategoryLargeTitle(useLargeTitle: true, isGroup: false)
+        assertCategoryLargeTitle(useLargeTitle: false, isGroup: false)
+    }
+
+    private func assertContactsLargeTitle(
+        useLargeTitle: Bool,
+        isGroup: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        CommonConfigManager.shared.config.use_large_title = useLargeTitle
+        let controller = ContactsViewController()
+        controller.isGroup = isGroup
+        let navigationController = UINavigationController(rootViewController: controller)
+
+        navigationController.loadViewIfNeeded()
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(navigationController.navigationBar.prefersLargeTitles, useLargeTitle, file: file, line: line)
+        XCTAssertEqual(
+            controller.navigationItem.largeTitleDisplayMode,
+            useLargeTitle ? .automatic : .never,
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertCategoryLargeTitle(
+        useLargeTitle: Bool,
+        isGroup: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        CommonConfigManager.shared.config.use_large_title = useLargeTitle
+        let controller = ContactsCategoryViewController()
+        controller.isGroup = isGroup
+        let navigationController = UINavigationController(rootViewController: controller)
+
+        navigationController.loadViewIfNeeded()
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(navigationController.navigationBar.prefersLargeTitles, useLargeTitle, file: file, line: line)
+        XCTAssertEqual(
+            controller.navigationItem.largeTitleDisplayMode,
+            useLargeTitle ? .automatic : .never,
+            file: file,
+            line: line
+        )
+    }
+
+    func testContactsListUsesInsetGroupedTransparentSplitAppearanceAndSearchInRegularWidth() {
+        let controller = ContactsViewController()
         XCTAssertEqual(controller.searchController.searchBar.searchBarStyle, .default)
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .regular)
+
         XCTAssertFalse(controller.searchController.hidesBottomBarWhenPushed)
         XCTAssertFalse(controller.searchController.definesPresentationContext)
-
-        controller.loadViewIfNeeded()
+        container.loadViewIfNeeded()
 
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertNil(controller.tableView.tableHeaderView)
@@ -181,11 +305,83 @@ final class ContactsListAppearanceTests: XCTestCase {
         }
     }
 
-    func testGroupsListUsesSameInsetGroupedTransparentSplitAppearance() {
+    func testContactsListUsesStockBackgroundAndNativeSearchInCompactSplitWidth() {
+        let controller = ContactsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.tableView.style, .insetGrouped)
+        XCTAssertNil(controller.tableView.tableHeaderView)
+        XCTAssertNil(controller.tableView.tableFooterView)
+        XCTAssertTrue(controller.tableView.backgroundColor?.isEqual(UIColor.systemGroupedBackground) == true)
+        XCTAssertTrue(controller.tableView.isOpaque)
+        XCTAssertTrue(controller.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
+        XCTAssertTrue(controller.view.isOpaque)
+        XCTAssertTrue(controller.navigationItem.searchController === controller.searchController)
+        XCTAssertFalse(controller.navigationItem.hidesSearchBarWhenScrolling)
+        if #available(iOS 16.0, *) {
+            XCTAssertEqual(controller.navigationItem.preferredSearchBarPlacement, .stacked)
+        }
+    }
+
+    func testContactsConfigureSearchBarUsesStockNavigationItemWithoutMutatingAppearance() {
+        let controller = ContactsViewController()
+        _ = UINavigationController(rootViewController: controller)
+        let standardAppearance = UINavigationBarAppearance()
+        let scrollEdgeAppearance = UINavigationBarAppearance()
+        let compactAppearance = UINavigationBarAppearance()
+        standardAppearance.backgroundColor = .systemRed
+        scrollEdgeAppearance.backgroundColor = .systemGreen
+        compactAppearance.backgroundColor = .systemBlue
+        controller.navigationItem.standardAppearance = standardAppearance
+        controller.navigationItem.scrollEdgeAppearance = scrollEdgeAppearance
+        controller.navigationItem.compactAppearance = compactAppearance
+        let searchBar = controller.searchController.searchBar
+        let searchBarBackground = searchBar.backgroundColor
+        let textFieldBackground = searchBar.searchTextField.backgroundColor
+        let textFieldLayerBackground = searchBar.searchTextField.layer.backgroundColor
+
+        controller.configureSearchBar()
+
+        XCTAssertTrue(controller.navigationItem.searchController === controller.searchController)
+        XCTAssertFalse(controller.navigationItem.hidesSearchBarWhenScrolling)
+        if #available(iOS 16.0, *) {
+            XCTAssertEqual(controller.navigationItem.preferredSearchBarPlacement, .stacked)
+        }
+        XCTAssertEqual(controller.navigationItem.standardAppearance?.backgroundColor, standardAppearance.backgroundColor)
+        XCTAssertEqual(controller.navigationItem.scrollEdgeAppearance?.backgroundColor, scrollEdgeAppearance.backgroundColor)
+        XCTAssertEqual(controller.navigationItem.compactAppearance?.backgroundColor, compactAppearance.backgroundColor)
+        XCTAssertEqual(searchBar.backgroundColor, searchBarBackground)
+        XCTAssertEqual(searchBar.searchTextField.backgroundColor, textFieldBackground)
+        XCTAssertTrue(searchBar.searchTextField.layer.backgroundColor === textFieldLayerBackground)
+    }
+
+    func testContactsConfigureBarsReusesNavigationItemsWhenStateIsUnchanged() {
+        let controller = ContactsViewController()
+
+        controller.configureBars(animated: false)
+        let leftItem = controller.navigationItem.leftBarButtonItem
+        let rightItems = controller.navigationItem.rightBarButtonItems
+        let searchController = controller.navigationItem.searchController
+
+        controller.configureBars(animated: false)
+
+        XCTAssertTrue(controller.navigationItem.leftBarButtonItem === leftItem)
+        XCTAssertEqual(controller.navigationItem.rightBarButtonItems?.count, rightItems?.count)
+        zip(controller.navigationItem.rightBarButtonItems ?? [], rightItems ?? []).forEach { current, previous in
+            XCTAssertTrue(current === previous)
+        }
+        XCTAssertTrue(controller.navigationItem.searchController === searchController)
+    }
+
+    func testGroupsListUsesSameInsetGroupedTransparentSplitAppearanceInRegularWidth() {
         let controller = ContactsViewController()
         controller.isGroup = true
+        let container = embedInTraitContainer(controller, horizontalSizeClass: .regular)
 
-        controller.loadViewIfNeeded()
+        container.loadViewIfNeeded()
 
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertNil(controller.tableView.tableHeaderView)
@@ -196,19 +392,58 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertFalse(controller.view.isOpaque)
     }
 
-    func testContactsCategoryUsesInsetGroupedTransparentSplitAppearanceAndNativeSpacing() {
-        let controller = ContactsCategoryViewController()
+    func testGroupsListUsesStockBackgroundInCompactSplitWidth() {
+        let controller = ContactsViewController()
+        controller.isGroup = true
+        let container = embedInTraitContainer(controller, horizontalSizeClass: .compact)
 
-        controller.loadViewIfNeeded()
+        container.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.tableView.style, .insetGrouped)
+        XCTAssertNil(controller.tableView.tableHeaderView)
+        XCTAssertNil(controller.tableView.tableFooterView)
+        XCTAssertTrue(controller.tableView.backgroundColor?.isEqual(UIColor.systemGroupedBackground) == true)
+        XCTAssertTrue(controller.tableView.isOpaque)
+        XCTAssertTrue(controller.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
+        XCTAssertTrue(controller.view.isOpaque)
+    }
+
+    func testContactsCategoryUsesInsetGroupedTransparentSplitAppearanceAndNativeSpacingInRegularWidth() {
+        let controller = ContactsCategoryViewController()
+        let container = embedInTraitContainer(controller, horizontalSizeClass: .regular)
+
+        container.loadViewIfNeeded()
 
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertEqual(controller.tableView.backgroundColor, .clear)
         XCTAssertFalse(controller.tableView.isOpaque)
         XCTAssertEqual(controller.view.backgroundColor, .clear)
         XCTAssertFalse(controller.view.isOpaque)
+        XCTAssertNotNil(controller.navigationItem.standardAppearance)
+        XCTAssertNotNil(controller.navigationItem.scrollEdgeAppearance)
+        XCTAssertNotNil(controller.navigationItem.compactAppearance)
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:heightForHeaderInSection:))))
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:heightForFooterInSection:))))
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:viewForFooterInSection:))))
+    }
+
+    func testContactsCategoryUsesStockBackgroundInCompactSplitWidth() {
+        let controller = ContactsCategoryViewController()
+        let container = embedInTraitContainer(controller, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.tableView.style, .insetGrouped)
+        XCTAssertTrue(controller.tableView.backgroundColor?.isEqual(UIColor.systemGroupedBackground) == true)
+        XCTAssertTrue(controller.tableView.isOpaque)
+        XCTAssertTrue(controller.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
+        XCTAssertTrue(controller.view.isOpaque)
+        XCTAssertNil(controller.navigationItem.standardAppearance)
+        XCTAssertNil(controller.navigationItem.scrollEdgeAppearance)
+        XCTAssertNil(controller.navigationItem.compactAppearance)
+        if #available(iOS 15.0, *) {
+            XCTAssertNil(controller.navigationItem.compactScrollEdgeAppearance)
+        }
     }
 
     func testContactRowsUsePlainSystemBackgroundWithoutGlass() {

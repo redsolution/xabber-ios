@@ -40,6 +40,7 @@ open class SettingManager: NSObject {
         case reliableMessageDelivery = "rel_msg_del"
         case messageDeleteRewrite = "trust_cert_policy"
         case trustCertificatePolicy = "msg_del_rewr"
+        case messageSchedule = "message_schedule"
         case clientSynchronization = "client_sync"
         case roster = "roster"
         case messageArchive = "mam"
@@ -533,6 +534,7 @@ open class SettingManager: NSObject {
         removeItem(for: jid, scope: .roster, key: "version")
         removeItem(for: jid, scope: .messageArchive, key: "version")
         removeItem(for: jid, scope: .messageArchive, key: "initial")
+        removeItem(for: jid, scope: .messageSchedule, key: "node")
         removeItem(for: jid, scope: .xabberUploadManager, key: "node")
         removeItem(for: jid, scope: .xabberUploadManager, key: "premium_gallery_url")
         removeItem(for: jid, scope: .xabberUploadManager, key: "premium_gallery_available")

@@ -40,6 +40,40 @@ class SearchResultsViewController: SimpleBaseViewController {
         let footer: String
         let kind: Kind
     }
+
+    static var searchPlaceholderText: String {
+        "Search contacts and messages".localizeString(id: "search_contacts_and_messages", arguments: [])
+    }
+
+    static func makeSections(hasContacts: Bool, hasMessages: Bool) -> [Section] {
+        var sections: [Section] = []
+        if hasContacts {
+            sections.append(
+                Section(
+                    header: "Contacts".localizeString(id: "contacts", arguments: []),
+                    footer: "",
+                    kind: .contacts
+                )
+            )
+        }
+        if hasMessages {
+            sections.append(
+                Section(
+                    header: "Messages".localizeString(id: "groupchat_member_messages", arguments: []),
+                    footer: "",
+                    kind: .messages
+                )
+            )
+        }
+        return sections
+    }
+
+    internal func updateSections() {
+        sections = Self.makeSections(
+            hasContacts: chatsDatasource.isNotEmpty,
+            hasMessages: messagesDatasource.isNotEmpty
+        )
+    }
     
     struct Datasource: DiffAware {
         
@@ -122,10 +156,10 @@ class SearchResultsViewController: SimpleBaseViewController {
     internal var sections: [Section] = []
     
     internal let tableView: UITableView = {
-        let view = UITableView(frame: .zero, style: .plain)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
 
         view.register(ChatListTableViewCell.self, forCellReuseIdentifier: ChatListTableViewCell.cellName)
-        view.register(ContactsViewController.ContactCell.self, forCellReuseIdentifier: ContactsViewController.ContactCell.cellName)
+        view.contentInsetAdjustmentBehavior = .scrollableAxes
         
         view.keyboardDismissMode = .interactive
         
@@ -396,6 +430,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                 messageArchiveId: messageItem.archivedId
             )
         }
+        self.updateSections()
         self.tableView.reloadData()
     }
     
@@ -618,15 +653,11 @@ class SearchResultsViewController: SimpleBaseViewController {
                     messageArchiveId: nil
                 )
             }))
-            self.sections = []
-            if self.chatsDatasource.count  > 0 {
-                self.sections.append(Section(header: "Contacts".localizeString(id: "contacts", arguments: []), footer: "", kind: .contacts))
-            }
-            self.sections.append(Section(header: "Messages".localizeString(id: "groupchat_member_messages", arguments: []), footer: "", kind: .messages))
             self.messagesDatasource = []
             self.messagesQueue = []
             self.isLoadingDone = false
             self.currentQueries = Set()
+            self.updateSections()
             if self.enabledAccounts.count == 1 {
                 if let jid = enabledAccounts.first {
                     self.searchForAccount(jid, search: searchText, withUIStream: true)
@@ -645,11 +676,736 @@ class SearchResultsViewController: SimpleBaseViewController {
     
     override func configure() {
         super.configure()
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
+        tableView.applyContinuousSplitInsetGroupedAppearance()
+
         view.addSubview(tableView)
         tableView.fillSuperview()
         
         tableView.dataSource = self
         tableView.delegate = self
+    }
+}
+
+enum InPlaceSearchRebindPolicy {
+    static func shouldRebind(
+        forceRebind: Bool,
+        isAlreadyAttached: Bool,
+        isSearchInteractionActive: Bool,
+        isTransitionActive: Bool
+    ) -> Bool {
+        // Rebinding an already-attached native search controller recreates search chrome during reveal.
+        false
+    }
+}
+
+enum InPlaceSearchHostHelper {
+    static func makeSearchController(updater: UISearchResultsUpdating) -> UISearchController {
+        let controller = UISearchController(searchResultsController: nil)
+
+        controller.searchResultsUpdater = updater
+        controller.searchBar.searchBarStyle = .default
+        controller.searchBar.placeholder = ChatSearchResultsController.placeholderText
+        controller.hidesNavigationBarDuringPresentation = false
+        controller.hidesBottomBarWhenPushed = false
+        controller.definesPresentationContext = false
+        controller.obscuresBackgroundDuringPresentation = false
+
+        return controller
+    }
+
+    @discardableResult
+    static func attach(
+        searchController: UISearchController,
+        to viewController: UIViewController,
+        updater: ChatSearchResultsController,
+        searchControllerDelegate: UISearchControllerDelegate?,
+        searchBarDelegate: UISearchBarDelegate?,
+        forceRebind: Bool = false,
+        reload: @escaping () -> Void
+    ) -> Bool {
+        let isAlreadyAttached = viewController.navigationItem.searchController === searchController
+        if !isAlreadyAttached {
+            viewController.navigationItem.searchController = searchController
+        }
+        if #available(iOS 16.0, *) {
+            viewController.navigationItem.preferredSearchBarPlacement = .stacked
+        }
+        viewController.navigationItem.hidesSearchBarWhenScrolling = false
+        searchController.searchResultsUpdater = updater
+        updater.onSnapshotChanged = reload
+        searchController.automaticallyShowsSearchResultsController = true
+        searchController.delegate = searchControllerDelegate
+        searchController.searchBar.delegate = searchBarDelegate
+        viewController.definesPresentationContext = true
+        return false
+    }
+
+    static func dismissBeforeResultRoute(
+        searchController: UISearchController,
+        updater: ChatSearchResultsController,
+        reload: () -> Void
+    ) {
+        UIView.performWithoutAnimation {
+            if searchController.isActive {
+                searchController.isActive = false
+            }
+            updater.reset()
+            reload()
+        }
+    }
+}
+
+enum InPlaceSearchResultRouteHelper {
+    typealias OpenNewChat = (
+        _ item: SearchResultsViewController.Datasource,
+        _ completion: @escaping (ChatViewController?) -> Void
+    ) -> Void
+
+    static func open(
+        _ item: SearchResultsViewController.Datasource,
+        searchController: UISearchController,
+        updater: ChatSearchResultsController,
+        reload: @escaping () -> Void,
+        openNewChat: OpenNewChat
+    ) {
+        InPlaceSearchHostHelper.dismissBeforeResultRoute(
+            searchController: searchController,
+            updater: updater,
+            reload: reload
+        )
+
+        if let vc = updater.currentVc,
+           vc.jid == item.jid,
+           vc.owner == item.owner,
+           vc.conversationType == item.conversationType {
+            showArchiveJumpIfNeeded(for: item, in: vc)
+            return
+        }
+
+        openNewChat(item) { chatVc in
+            guard let chatVc else { return }
+            updater.currentVc = chatVc
+            guard let archivedId = item.messageArchiveId else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak chatVc] in
+                chatVc?.showSearchResultFromExternalSource(message: archivedId, date: item.date ?? Date())
+            }
+        }
+    }
+
+    private static func showArchiveJumpIfNeeded(
+        for item: SearchResultsViewController.Datasource,
+        in chatViewController: ChatViewController
+    ) {
+        guard let archivedId = item.messageArchiveId else { return }
+        chatViewController.showSearchResultFromExternalSource(message: archivedId, date: item.date ?? Date())
+    }
+}
+
+final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, TemporaryMessageReceiverProtocol {
+    typealias Section = SearchResultsViewController.Section
+    typealias Datasource = SearchResultsViewController.Datasource
+    typealias SearchRequest = SearchResultsViewController.SearchRequest
+
+    static var placeholderText: String {
+        SearchResultsViewController.searchPlaceholderText
+    }
+
+    internal var chatsDatasource: [Datasource] = []
+    internal var messagesDatasource: [Datasource] = []
+    internal var isLoadingDone: Bool = true
+    internal var sections: [Section] = []
+    internal var currentQueries: Set<SearchRequest> = Set()
+    internal var messagesQueue: [MessageStorageItem] = []
+    internal weak var currentVc: ChatViewController?
+    internal var onSnapshotChanged: (() -> Void)?
+
+    private let bag = DisposeBag()
+    private let searchObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
+    private var usesInjectedSnapshot: Bool = false
+
+    internal lazy var enabledAccounts: [String] = {
+        do {
+            let realm = try WRealm.safe()
+            return realm
+                .objects(AccountStorageItem.self)
+                .filter("enabled == %@", true)
+                .toArray()
+                .compactMap { $0.jid }
+        } catch {
+            return []
+        }
+    }()
+
+    override init() {
+        super.init()
+        subscribe()
+    }
+
+    func updateSearchResults(for searchController: UISearchController) {
+        let text = searchController.searchBar.text
+        searchObserver.accept(text)
+
+        guard text?.isEmpty ?? true else { return }
+        reset()
+    }
+
+    internal func shouldShowResults(for searchController: UISearchController) -> Bool {
+        (searchController.isActive || usesInjectedSnapshot)
+            && (searchController.searchBar.text?.isNotEmpty ?? false)
+    }
+
+    internal func reset() {
+        usesInjectedSnapshot = false
+        chatsDatasource = []
+        messagesDatasource = []
+        sections = []
+        messagesQueue = []
+        currentQueries = Set()
+        isLoadingDone = true
+        onSnapshotChanged?()
+    }
+
+    internal func replaceSnapshot(
+        chats: [Datasource] = [],
+        messages: [Datasource] = [],
+        isLoadingDone: Bool = true
+    ) {
+        usesInjectedSnapshot = true
+        chatsDatasource = chats
+        messagesDatasource = messages
+        self.isLoadingDone = isLoadingDone
+        updateSections()
+        onSnapshotChanged?()
+    }
+
+    internal func numberOfSections() -> Int {
+        sections.count
+    }
+
+    internal func numberOfRows(in section: Int) -> Int {
+        guard sections.indices.contains(section) else { return 0 }
+        switch sections[section].kind {
+        case .contacts:
+            return chatsDatasource.count
+        case .messages:
+            return messagesDatasource.count
+        }
+    }
+
+    internal func titleForHeader(in section: Int) -> String? {
+        guard sections.indices.contains(section) else { return nil }
+        return sections[section].header
+    }
+
+    internal func item(at indexPath: IndexPath) -> Datasource? {
+        guard sections.indices.contains(indexPath.section) else { return nil }
+        switch sections[indexPath.section].kind {
+        case .contacts:
+            guard chatsDatasource.indices.contains(indexPath.row) else {
+                return nil
+            }
+            return chatsDatasource[indexPath.row]
+        case .messages:
+            guard messagesDatasource.indices.contains(indexPath.row) else {
+                return nil
+            }
+            return messagesDatasource[indexPath.row]
+        }
+    }
+
+    internal func configureSearchResultCell(_ cell: ChatListTableViewCell, at indexPath: IndexPath) {
+        guard let item = item(at: indexPath) else { return }
+        configureSearchResultCell(cell, with: item)
+    }
+
+    internal func configureSearchResultCell(_ cell: ChatListTableViewCell, with item: Datasource) {
+        cell.configure(
+            item.jid,
+            owner: item.owner,
+            username: item.username,
+            attributedUsername: item.attributedUsername,
+            message: item.message,
+            date: item.date,
+            deliveryState: item.state,
+            isMute: item.isMute,
+            isSynced: item.isSynced,
+            isGroupchat: [.groupchat, .incognitoChat].contains(item.entity),
+            status: item.status,
+            entity: item.entity,
+            conversationType: item.conversationType,
+            unread: item.unread,
+            unreadString: item.unreadString,
+            hasUnreadMention: item.hasUnreadMention,
+            indicator: item.color,
+            isDraft: item.isDraft,
+            isAttachment: item.hasAttachment,
+            groupchatNickname: item.userNickname,
+            isSystem: item.isSystemMessage,
+            isPinned: item.isPinned,
+            subRequest: item.subRequest,
+            avatarUrl: item.avatarUrl,
+            hasErrorInChat: item.hasErrorInChat,
+            verAction: item.isVerificationActionRequired
+        )
+        cell.setMask()
+
+        let isSelected = isCurrentSearchResult(item)
+        cell.applyPlainGroupedSystemBackground(
+            selectedColor: isSelected
+                ? AccountSelectionHighlightStyle.tint50(
+                    owner: item.owner,
+                    fallbackOwners: Set(enabledAccounts)
+                )
+                : nil,
+            isSelected: isSelected,
+            usesHighlightedStateForSelection: false,
+            usesStateDrivenSelection: false
+        )
+    }
+
+    internal func isCurrentSearchResult(_ item: Datasource) -> Bool {
+        guard let currentVc else { return false }
+
+        return currentVc.jid == item.jid
+            && currentVc.owner == item.owner
+            && currentVc.conversationType == item.conversationType
+    }
+
+    private func subscribe() {
+        searchObserver
+            .asObservable()
+            .skip(1)
+            .debounce(.microseconds(200), scheduler: MainScheduler.asyncInstance)
+            .subscribe { [weak self] searchText in
+                self?.updateDatasource(searchText)
+            } onError: { _ in
+
+            } onCompleted: {
+
+            } onDisposed: {
+
+            }
+            .disposed(by: bag)
+    }
+
+    private func updateSections() {
+        sections = SearchResultsViewController.makeSections(
+            hasContacts: chatsDatasource.isNotEmpty,
+            hasMessages: messagesDatasource.isNotEmpty
+        )
+    }
+
+    private final func searchForAccount(_ owner: String, search text: String, withUIStream: Bool) {
+        guard text.isNotEmpty else { return }
+        do {
+            let realm = try WRealm.safe()
+            realm
+                .objects(MessageStorageItem.self)
+                .filter(
+                    "owner == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND body CONTAINS[cd] %@",
+                    owner,
+                    ClientSynchronizationManager.ConversationType.omemo.rawValue,
+                    MessageStorageItem.MessageDisplayType.system.rawValue,
+                    text
+                )
+                .sorted(byKeyPath: "date", ascending: false)
+                .toArray()
+                .forEach { item in
+                    self.messagesQueue.append(item)
+                }
+            let requestCallbacks = MessageArchiveManager.RequestCallbacks(
+                onMessage: { [weak self] item, queryId in
+                    self?.didReceiveMessage(item, queryId: queryId)
+                },
+                onEndPage: { [weak self] queryId, state, first, last, count in
+                    self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
+                }
+            )
+
+            if withUIStream {
+                XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
+                    let queryId = session.mam?.searchText(
+                        stream,
+                        conversationType: .regular,
+                        text: text,
+                        max: 100,
+                        loadFull: false,
+                        requestCallbacks: requestCallbacks
+                    ) ?? ""
+                    self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
+                } fail: {
+                    AccountManager.shared.find(for: owner)?.action({ user, stream in
+                        let queryId = user.mam.searchText(
+                            stream,
+                            conversationType: .regular,
+                            text: text,
+                            max: 100,
+                            loadFull: false,
+                            requestCallbacks: requestCallbacks
+                        )
+                        self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
+                    })
+                }
+            } else {
+                AccountManager.shared.find(for: owner)?.action({ user, stream in
+                    let queryId = user.mam.searchText(
+                        stream,
+                        conversationType: .regular,
+                        text: text,
+                        max: 100,
+                        loadFull: false,
+                        requestCallbacks: requestCallbacks
+                    )
+                    self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
+                })
+            }
+        } catch {
+            DDLogDebug("ChatSearchResultsController: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    internal final func updateMessagesSearchResults() throws {
+        messagesDatasource = try messagesQueue.sorted(by: { $0.date > $1.date }).compactMap { messageItem -> Datasource? in
+            let realm = try WRealm.safe()
+            guard let item = realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: messageItem.opponent,
+                    owner: messageItem.owner,
+                    conversationType: messageItem.conversationType
+                )
+            ) else {
+                return nil
+            }
+
+            if (XMPPJID(string: item.jid)?.isServer ?? false) && item.conversationType != .saved {
+                return nil
+            }
+
+            let date = messageItem.date
+            var message: String = messageItem.body
+            var isAttachment: Bool = [
+                MessageStorageItem.MessageDisplayType.sticker,
+                MessageStorageItem.MessageDisplayType.call
+            ].contains(messageItem.displayAs)
+            if !isAttachment,
+               let authMessageMetadata = messageItem.systemMetadata?["auth_message"] as? Bool,
+               authMessageMetadata {
+                isAttachment = true
+            }
+
+            let isInvite = false
+            var nickname: String? = nil
+            var isSystemMessage: Bool = [.system].contains(messageItem.displayAs)
+            if item.isFreshNotEmptyEncryptedChat {
+                message = "Write your encrypted messages here"
+                isSystemMessage = true
+            }
+
+            let username = messageItem.outgoing ? AccountManager.shared.find(for: messageItem.owner)?.username ?? messageItem.opponent : item.rosterItem?.displayName ?? item.jid
+            var attributedUsername: NSAttributedString? = nil
+
+            if item.conversationType.isEncrypted {
+                let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
+                let indicatorAttach = NSTextAttachment()
+                var color: UIColor = .label
+                do {
+                    let realm = try WRealm.safe()
+                    let collectionJid = realm
+                        .objects(SignalDeviceStorageItem.self)
+                        .filter("jid == %@ AND owner == %@", item.jid, item.owner)
+                    if collectionJid.count == 0 {
+                        color = .secondaryLabel
+                        indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.secondaryLabel)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else if collectionJid.toArray().filter({ $0.state == .fingerprintChanged || $0.state == .revoked }).count > 0 {
+                        color = .systemRed
+                        indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemRed)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else if collectionJid.toArray().filter({ $0.state != .trusted }).count > 0 {
+                        color = .systemOrange
+                        indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemOrange)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else if collectionJid.toArray().filter({ $0.isTrustedByCertificate }).count > 0 {
+                        color = .systemGreen
+                        indicatorAttach.image = UIImage(systemName: "lock.circle.fill")?.withTintColor(.systemGreen)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else {
+                        color = .systemGreen
+                        indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.systemGreen)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    }
+                } catch {
+                    DDLogDebug("ChatSearchResultsController: \(#function). \(error.localizedDescription)")
+                }
+
+                attributedTitle.append(NSAttributedString(string: username, attributes: [
+                    .foregroundColor: color,
+                    .font: UIFont.systemFont(ofSize: 17, weight: .medium)
+                ]))
+                attributedUsername = attributedTitle as NSAttributedString
+            }
+
+            return Datasource(
+                jid: messageItem.opponent,
+                owner: messageItem.owner,
+                username: username,
+                attributedUsername: attributedUsername,
+                message: message,
+                date: date,
+                state: messageItem.outgoing ? messageItem.state : nil,
+                isMute: false,
+                isSynced: false,
+                status: .offline,
+                entity: .contact,
+                conversationType: item.conversationType,
+                unread: 0,
+                unreadString: isInvite ? "1" : nil,
+                hasUnreadMention: item.hasUnreadMention,
+                color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
+                isDraft: false,
+                hasAttachment: isAttachment,
+                userNickname: nickname,
+                isSystemMessage: isSystemMessage,
+                isPinned: false,
+                subRequest: false,
+                isEncrypted: item.conversationType.isEncrypted,
+                avatarUrl: item.rosterItem?.avatarUrl,
+                hasErrorInChat: false,
+                updateTS: item.updateTS,
+                isVerificationActionRequired: false,
+                messageArchiveId: messageItem.archivedId
+            )
+        }
+        updateSections()
+        onSnapshotChanged?()
+    }
+
+    private func updateDatasource(_ searchText: String?) {
+        do {
+            usesInjectedSnapshot = false
+            chatsDatasource = []
+            guard let searchText = searchText, searchText.isNotEmpty else {
+                reset()
+                return
+            }
+
+            let realm = try WRealm.safe()
+            let chats = realm
+                .objects(LastChatsStorageItem.self)
+                .filter("owner IN %@ AND (jid CONTAINS[cd] %@ OR rosterItem.customUsername CONTAINS[cd] %@ OR rosterItem.username CONTAINS[cd] %@)", enabledAccounts, searchText, searchText, searchText)
+                .sorted(byKeyPath: "messageDate", ascending: false)
+            let roster = realm
+                .objects(RosterStorageItem.self)
+                .filter("owner IN %@ AND (jid CONTAINS[cd] %@ OR customUsername CONTAINS[cd] %@ OR username CONTAINS[cd] %@)", enabledAccounts, searchText, searchText, searchText)
+                .sorted(byKeyPath: "jid", ascending: true)
+
+            chatsDatasource = chats.compactMap { item -> Datasource? in
+                if (XMPPJID(string: item.jid)?.isServer ?? false) && item.conversationType != .saved {
+                    return nil
+                }
+                let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
+                let subscriptionRequest: Bool = item.rosterItem?.isThereSubscriptionRequest() ?? false
+                let primaryResource = item.rosterItem?.getPrimaryResource()
+                let date = item.messageDate == Date(timeIntervalSince1970: 0) ? nil : item.messageDate
+                var message: String
+
+                if let lastMessage = item.lastMessage {
+                    message = lastMessage.displayedBody()
+                    if message.isEmpty || lastMessage.isDeleted {
+                        message = blankMessageText
+                    }
+                } else if item.conversationType == .saved {
+                    let usersCount = AccountManager.shared.users.count
+                    message = usersCount > 1 ? item.owner : "Save messages here"
+                } else {
+                    message = blankMessageText
+                }
+
+                var isDraft: Bool = false
+                if let draft = item.draftMessage {
+                    message = draft
+                    isDraft = true
+                }
+                if item.conversationType != .group {
+                    if let action = CommonChatStatesManager.shared.actionText(for: item.jid, owner: item.owner) {
+                        message = action
+                    }
+                }
+                var isAttachment: Bool = [
+                    MessageStorageItem.MessageDisplayType.sticker,
+                    MessageStorageItem.MessageDisplayType.call
+                ].contains(item.lastMessage?.displayAs ?? .text)
+                if !isAttachment,
+                   let authMessageMetadata = item.lastMessage?.systemMetadata?["auth_message"] as? Bool,
+                   authMessageMetadata {
+                    isAttachment = true
+                }
+
+                let isInvite = false
+                let nickname: String? = item.lastMessage?.groupchatDisplayedNickname
+                var isSystemMessage: Bool = [.system].contains(item.lastMessage?.displayAs ?? .text)
+                if item.isFreshNotEmptyEncryptedChat {
+                    message = "Write your encrypted messages here"
+                    isSystemMessage = true
+                }
+                if item.lastMessage == nil {
+                    isSystemMessage = true
+                }
+
+                let username = item.rosterItem?.displayName ?? item.jid
+                var attributedUsername: NSAttributedString? = nil
+                var isVerificationActionRequired: Bool = false
+
+                if item.conversationType.isEncrypted {
+                    let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
+                    let indicatorAttach = NSTextAttachment()
+                    var color: UIColor = .label
+                    do {
+                        let realm = try WRealm.safe()
+                        let collectionJid = realm
+                            .objects(SignalDeviceStorageItem.self)
+                            .filter("jid == %@ AND owner == %@", item.jid, item.owner)
+                        if collectionJid.count == 0 {
+                            color = .secondaryLabel
+                            indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.secondaryLabel)
+                            attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                        } else if collectionJid.toArray().filter({ $0.state == .fingerprintChanged || $0.state == .revoked }).count > 0 {
+                            color = .systemRed
+                            indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemRed)
+                            attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                        } else if collectionJid.toArray().filter({ $0.state != .trusted }).count > 0 {
+                            color = .systemOrange
+                            indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemOrange)
+                            attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                        } else if collectionJid.toArray().filter({ $0.isTrustedByCertificate }).count > 0 {
+                            color = .systemGreen
+                            indicatorAttach.image = UIImage(systemName: "lock.circle.fill")?.withTintColor(.systemGreen)
+                            attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                        } else {
+                            color = .systemGreen
+                            indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.systemGreen)
+                            attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                        }
+
+                        let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", item.owner, item.jid).first
+                        if verificationInstance != nil &&
+                            [.receivedRequest, .receivedRequestAccept].contains((verificationInstance! as VerificationSessionStorageItem).state) {
+                            isVerificationActionRequired = true
+                        }
+                    } catch {
+                        DDLogDebug("ChatSearchResultsController: \(#function). \(error.localizedDescription)")
+                    }
+
+                    attributedTitle.append(NSAttributedString(string: username, attributes: [
+                        .foregroundColor: color,
+                        .font: UIFont.systemFont(ofSize: 17, weight: .medium)
+                    ]))
+                    attributedUsername = attributedTitle as NSAttributedString
+                }
+
+                return Datasource(
+                    jid: item.jid,
+                    owner: item.owner,
+                    username: username,
+                    attributedUsername: attributedUsername,
+                    message: message,
+                    date: date,
+                    state: item.lastMessage?.outgoing ?? true ? item.lastMessage?.state ?? nil : nil,
+                    isMute: item.isMuted,
+                    isSynced: item.isSynced,
+                    status: primaryResource?.status ?? .offline,
+                    entity: primaryResource?.entity ?? .contact,
+                    conversationType: item.conversationType,
+                    unread: item.lastMessage?.outgoing ?? false ? 0 : item.unread,
+                    unreadString: isInvite ? "1" : nil,
+                    hasUnreadMention: item.hasUnreadMention,
+                    color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
+                    isDraft: isDraft,
+                    hasAttachment: isAttachment,
+                    userNickname: nickname,
+                    isSystemMessage: isSystemMessage,
+                    isPinned: item.isPinned,
+                    subRequest: (XMPPJID(string: item.jid)?.isServer ?? true) ? false : subscriptionRequest,
+                    isEncrypted: item.conversationType.isEncrypted,
+                    avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
+                    hasErrorInChat: item.hasErrorInChat,
+                    updateTS: item.updateTS,
+                    isVerificationActionRequired: isVerificationActionRequired,
+                    messageArchiveId: nil
+                )
+            }
+
+            let jids = Set(chatsDatasource.compactMap { [$0.owner, $0.jid].prp() })
+            chatsDatasource.append(contentsOf: roster.compactMap({ item -> Datasource? in
+                if jids.contains([item.owner, item.jid].prp()) { return nil }
+                let primaryResource = item.getPrimaryResource()
+                let conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
+                return Datasource(
+                    jid: item.jid,
+                    owner: item.owner,
+                    username: item.displayName,
+                    attributedUsername: nil,
+                    message: "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: []),
+                    date: nil,
+                    state: nil,
+                    isMute: false,
+                    isSynced: true,
+                    status: primaryResource?.status ?? .offline,
+                    entity: primaryResource?.entity ?? .contact,
+                    conversationType: conversationType,
+                    unread: 0,
+                    unreadString: nil,
+                    hasUnreadMention: false,
+                    color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
+                    isDraft: false,
+                    hasAttachment: false,
+                    userNickname: nil,
+                    isSystemMessage: true,
+                    isPinned: false,
+                    subRequest: false,
+                    isEncrypted: conversationType.isEncrypted,
+                    avatarUrl: item.avatarUrl,
+                    hasErrorInChat: false,
+                    updateTS: 0,
+                    isVerificationActionRequired: false,
+                    messageArchiveId: nil
+                )
+            }))
+            messagesDatasource = []
+            messagesQueue = []
+            isLoadingDone = false
+            currentQueries = Set()
+            updateSections()
+            if enabledAccounts.count == 1 {
+                if let jid = enabledAccounts.first {
+                    searchForAccount(jid, search: searchText, withUIStream: true)
+                }
+            } else {
+                enabledAccounts.forEach {
+                    searchForAccount($0, search: searchText, withUIStream: true)
+                }
+            }
+            onSnapshotChanged?()
+        } catch {
+            DDLogDebug("ChatSearchResultsController: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    func didReceiveEndPage(queryId: String, state: MessageArchivePageEndState, first: String, last: String, count: Int) {
+        if currentQueries.contains(where: { $0.queryId == queryId }) {
+            DispatchQueue.main.async {
+                self.isLoadingDone = true
+                try? self.updateMessagesSearchResults()
+            }
+        }
+    }
+
+    func didReceiveMessage(_ item: MessageStorageItem, queryId: String) {
+        if currentQueries.contains(where: { $0.queryId == queryId }) {
+            messagesQueue.append(item)
+        }
     }
 }
 

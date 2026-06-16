@@ -25,4 +25,25 @@ extension LastChatsViewController: SearchResultsDelegateProtocol {
     func openChat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
         self.stackNewChat(owner: owner, jid: jid, conversationType: conversationType)
     }
+
+    internal func openSearchResult(_ item: SearchResultsViewController.Datasource) {
+        InPlaceSearchResultRouteHelper.open(
+            item,
+            searchController: searchController,
+            updater: chatSearchResultsController,
+            reload: { [weak self] in
+                self?.reloadInPlaceSearchResultsIfNeeded()
+            },
+            openNewChat: { [weak self] item, completion in
+                self?.stackNewChat(
+                    owner: item.owner,
+                    jid: item.jid,
+                    conversationType: item.conversationType,
+                    openMessageRequest: nil
+                ) { chatVc in
+                    completion(chatVc)
+                }
+            }
+        )
+    }
 }

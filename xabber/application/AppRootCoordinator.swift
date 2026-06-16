@@ -533,6 +533,14 @@ final class AppRootCoordinator: NSObject {
         true
     }
 
+    static func makeStockSearchSectionNavigationController(
+        rootViewController: UIViewController
+    ) -> UINavigationController {
+        let navigationController = UINavigationController(rootViewController: rootViewController)
+        NavigationLargeTitlePolicy.apply(to: navigationController, rootViewController: rootViewController)
+        return navigationController
+    }
+
     let window: UIWindow
     weak var appDelegate: AppDelegate?
 
@@ -779,13 +787,7 @@ final class AppRootCoordinator: NSObject {
     private func makeSplitRoot(userInfo: [AnyHashable: Any]?) -> UIViewController {
         let vc = UISplitViewController(style: .tripleColumn)
         MainSplitLayout.apply(to: vc)
-        ContinuousSplitBackgroundExperiment.configureTransparentSplit(vc)
-        if CommonConfigManager.shared.config.use_large_title {
-            vc.navigationItem.largeTitleDisplayMode = .automatic
-        } else {
-            vc.navigationItem.largeTitleDisplayMode = .never
-        }
-        vc.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+        NavigationLargeTitlePolicy.apply(to: vc)
         vc.restorationIdentifier = "MainSplitViewController"
         vc.restoresFocusAfterTransition = true
 
@@ -806,32 +808,17 @@ final class AppRootCoordinator: NSObject {
         chatsVc.leftMenuSelectRootCategoryDelegate = primaryVc
         primaryVc.chatsVc = chatsVc
         chatsVc.splitDelegate = emptyChatVc
-        if CommonConfigManager.shared.config.use_large_title {
-            chatsVc.navigationItem.largeTitleDisplayMode = .automatic
-        } else {
-            chatsVc.navigationItem.largeTitleDisplayMode = .never
-        }
-        chatsVc.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+        NavigationLargeTitlePolicy.apply(to: chatsVc)
         vc.displayModeButtonVisibility = .never
         vc.preferredDisplayMode = .oneBesideSecondary
         vc.preferredSplitBehavior = .displace
         vc.primaryBackgroundStyle = .sidebar
-        ContinuousSplitBackgroundExperiment.configureTransparentSplit(vc)
         vc.delegate = self
 
         let chatsNvc = UINavigationController(rootViewController: chatsVc)
-        if CommonConfigManager.shared.config.use_large_title {
-            chatsNvc.navigationItem.largeTitleDisplayMode = .automatic
-        } else {
-            chatsNvc.navigationItem.largeTitleDisplayMode = .never
-        }
-        chatsNvc.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+        NavigationLargeTitlePolicy.apply(to: chatsNvc, rootViewController: chatsVc)
 
         let detailNvc = UINavigationController(rootViewController: chatViewController ?? emptyChatVc)
-        detailNvc.applyTransparentSplitAppearance()
-        ContinuousSplitBackgroundExperiment.configureTransparentColumn(primaryVc)
-        ContinuousSplitBackgroundExperiment.configureTransparentColumn(chatsVc)
-        ContinuousSplitBackgroundExperiment.configureTransparentColumn(chatViewController ?? emptyChatVc)
 
         vc.viewControllers = [
             primaryVc,
@@ -840,7 +827,7 @@ final class AppRootCoordinator: NSObject {
         ]
         splitController = vc
         NotifyManager.shared.leftMenuDelegate = primaryVc
-        if ContinuousSplitBackgroundExperiment.isActive {
+        if ContinuousSplitBackgroundExperiment.mode(for: vc) != .inactive {
             return BackgroundRootContainerViewController(contentViewController: vc)
         }
         return vc
@@ -857,24 +844,26 @@ final class AppRootCoordinator: NSObject {
         archivedVc.filter.accept(.archived)
         let notificationsVc = NotificationsListViewController()
         let callsVc = LastCallsViewController()
-        let chatsNavigationController = UINavigationController(rootViewController: chatsVc)
-        let archivedNavigationController = UINavigationController(rootViewController: archivedVc)
-        chatsNavigationController.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
-        archivedNavigationController.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+        let chatsNavigationController = Self.makeStockSearchSectionNavigationController(rootViewController: chatsVc)
+        let contactsNavigationController = Self.makeStockSearchSectionNavigationController(rootViewController: contactsVc)
+        let archivedNavigationController = Self.makeStockSearchSectionNavigationController(rootViewController: archivedVc)
+        let callsNavigationController = Self.makeStockSearchSectionNavigationController(rootViewController: callsVc)
+        let notificationsNavigationController = NavBarController(rootViewController: notificationsVc)
+        NavigationLargeTitlePolicy.apply(to: notificationsNavigationController, rootViewController: notificationsVc)
 
         if CommonConfigManager.shared.config.support_calls {
             vc.viewControllers = [
                 chatsNavigationController,
-                NavBarController(rootViewController: contactsVc),
-                NavBarController(rootViewController: notificationsVc),
+                contactsNavigationController,
+                notificationsNavigationController,
                 archivedNavigationController,
-                NavBarController(rootViewController: callsVc)
+                callsNavigationController
             ]
         } else {
             vc.viewControllers = [
                 chatsNavigationController,
-                NavBarController(rootViewController: contactsVc),
-                NavBarController(rootViewController: notificationsVc),
+                contactsNavigationController,
+                notificationsNavigationController,
                 archivedNavigationController
             ]
         }
@@ -962,12 +951,7 @@ extension AppRootCoordinator: UISplitViewControllerDelegate {
         _ svc: UISplitViewController,
         topColumnForCollapsingToProposedTopColumn proposedTopColumn: UISplitViewController.Column
     ) -> UISplitViewController.Column {
-        if CommonConfigManager.shared.config.use_large_title {
-            svc.navigationItem.largeTitleDisplayMode = .automatic
-        } else {
-            svc.navigationItem.largeTitleDisplayMode = .never
-        }
-        svc.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+        NavigationLargeTitlePolicy.apply(to: svc)
         return .supplementary
     }
 }

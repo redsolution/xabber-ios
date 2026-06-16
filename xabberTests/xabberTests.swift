@@ -92,6 +92,116 @@ final class ChatFloatingHeaderLayoutPolicyTests: XCTestCase {
     }
 }
 
+final class ContinuousSplitBackgroundExperimentTests: XCTestCase {
+    func testSplitCompactUsesStockCompactBackgroundMode() {
+        XCTAssertEqual(
+            ContinuousSplitBackgroundExperiment.mode(
+                interfaceType: .split,
+                windowHorizontalSizeClass: .compact,
+                splitHorizontalSizeClass: .regular,
+                isSplitCollapsed: false
+            ),
+            .stockCompact
+        )
+    }
+
+    func testSplitRegularWindowAndExpandedSplitUsesSharedBackdropMode() {
+        XCTAssertEqual(
+            ContinuousSplitBackgroundExperiment.mode(
+                interfaceType: .split,
+                windowHorizontalSizeClass: .regular,
+                splitHorizontalSizeClass: .regular,
+                isSplitCollapsed: false
+            ),
+            .sharedBackdrop
+        )
+    }
+
+    func testRegularWindowUsesSharedBackdropEvenWhenSplitTemporarilyCollapsed() {
+        XCTAssertEqual(
+            ContinuousSplitBackgroundExperiment.mode(
+                interfaceType: .split,
+                windowHorizontalSizeClass: .regular,
+                splitHorizontalSizeClass: .regular,
+                isSplitCollapsed: true
+            ),
+            .sharedBackdrop
+        )
+    }
+
+    func testCompactWindowWinsOverRegularChildOrSplitTraits() {
+        XCTAssertEqual(
+            ContinuousSplitBackgroundExperiment.mode(
+                interfaceType: .split,
+                windowHorizontalSizeClass: .compact,
+                splitHorizontalSizeClass: .regular,
+                isSplitCollapsed: false
+            ),
+            .stockCompact
+        )
+    }
+
+    func testUnresolvedSplitTraitsDeferBackgroundMode() {
+        XCTAssertEqual(
+            ContinuousSplitBackgroundExperiment.mode(
+                interfaceType: .split,
+                windowHorizontalSizeClass: .unspecified,
+                splitHorizontalSizeClass: .regular,
+                isSplitCollapsed: false
+            ),
+            .deferred
+        )
+    }
+
+    func testTabsNeverUseSplitBackgroundMode() {
+        XCTAssertEqual(
+            ContinuousSplitBackgroundExperiment.mode(
+                interfaceType: .tabs,
+                windowHorizontalSizeClass: .regular,
+                splitHorizontalSizeClass: .regular,
+                isSplitCollapsed: false
+            ),
+            .inactive
+        )
+        XCTAssertEqual(
+            ContinuousSplitBackgroundExperiment.mode(
+                interfaceType: .tabs,
+                windowHorizontalSizeClass: .compact,
+                splitHorizontalSizeClass: .compact,
+                isSplitCollapsed: true
+            ),
+            .inactive
+        )
+    }
+}
+
+final class NavigationBarItemOwnershipIdempotenceTests: XCTestCase {
+    func testApplyIfChangedKeepsExistingItemsWhenAssignmentIsIdentical() {
+        let navigationItem = UINavigationItem()
+        let left = UIBarButtonItem(barButtonSystemItem: .bookmarks, target: nil, action: nil)
+        let right = UIBarButtonItem(barButtonSystemItem: .add, target: nil, action: nil)
+
+        NavigationBarItemOwnership.applyIfChanged(
+            to: navigationItem,
+            left: .item(left),
+            right: .item(right),
+            animated: false
+        )
+        let installedLeft = navigationItem.leftBarButtonItem
+        let installedRight = navigationItem.rightBarButtonItem
+
+        NavigationBarItemOwnership.applyIfChanged(
+            to: navigationItem,
+            left: .item(left),
+            right: .item(right),
+            animated: false
+        )
+
+        XCTAssertTrue(navigationItem.leftBarButtonItem === installedLeft)
+        XCTAssertTrue(navigationItem.rightBarButtonItem === installedRight)
+    }
+}
+
 final class StackedNavigationRoutePolicyTests: XCTestCase {
     private func route(
         interfaceType: CommonConfigManager.InterfaceType,
@@ -193,13 +303,13 @@ final class StackedNavigationRoutePolicyTests: XCTestCase {
     private func chatBackgroundMode(
         route: StackedNavigationRoute,
         interfaceType: CommonConfigManager.InterfaceType,
-        isContinuousSplitBackgroundActive: Bool
+        continuousSplitBackgroundMode: ContinuousSplitBackgroundMode
     ) -> ChatBackgroundPresentationMode {
         ChatBackgroundPresentationPolicy.mode(
             for: ChatBackgroundPresentationContext(
                 route: route,
                 interfaceType: interfaceType,
-                isContinuousSplitBackgroundActive: isContinuousSplitBackgroundActive
+                continuousSplitBackgroundMode: continuousSplitBackgroundMode
             )
         )
     }
@@ -209,7 +319,18 @@ final class StackedNavigationRoutePolicyTests: XCTestCase {
             chatBackgroundMode(
                 route: .currentNavigationPush,
                 interfaceType: .split,
-                isContinuousSplitBackgroundActive: true
+                continuousSplitBackgroundMode: .sharedBackdrop
+            ),
+            .localChatBackdrop
+        )
+    }
+
+    func testCompactSplitCurrentNavigationPushUsesLocalChatBackdropWithStockCompactLists() {
+        XCTAssertEqual(
+            chatBackgroundMode(
+                route: .currentNavigationPush,
+                interfaceType: .split,
+                continuousSplitBackgroundMode: .stockCompact
             ),
             .localChatBackdrop
         )
@@ -220,7 +341,7 @@ final class StackedNavigationRoutePolicyTests: XCTestCase {
             chatBackgroundMode(
                 route: .splitDetailReplacement,
                 interfaceType: .split,
-                isContinuousSplitBackgroundActive: true
+                continuousSplitBackgroundMode: .sharedBackdrop
             ),
             .sharedSplitBackdrop
         )
@@ -231,7 +352,7 @@ final class StackedNavigationRoutePolicyTests: XCTestCase {
             chatBackgroundMode(
                 route: .currentNavigationPush,
                 interfaceType: .tabs,
-                isContinuousSplitBackgroundActive: true
+                continuousSplitBackgroundMode: .sharedBackdrop
             ),
             .automatic
         )
@@ -242,7 +363,7 @@ final class StackedNavigationRoutePolicyTests: XCTestCase {
             chatBackgroundMode(
                 route: .currentNavigationPush,
                 interfaceType: .split,
-                isContinuousSplitBackgroundActive: false
+                continuousSplitBackgroundMode: .inactive
             ),
             .automatic
         )
@@ -254,7 +375,7 @@ final class StackedNavigationRoutePolicyTests: XCTestCase {
             context: ChatBackgroundPresentationContext(
                 route: .currentNavigationPush,
                 interfaceType: .split,
-                isContinuousSplitBackgroundActive: true
+                continuousSplitBackgroundMode: .sharedBackdrop
             )
         )
 
@@ -866,6 +987,35 @@ final class EULAGateRoutingTests: XCTestCase {
         XCTAssertTrue(AppRootCoordinator.canRoute())
     }
 
+    func testSearchSectionTabNavigationFactoryUsesStockUINavigationController() {
+        [
+            AppRootCoordinator.makeStockSearchSectionNavigationController(rootViewController: LastChatsViewController()),
+            AppRootCoordinator.makeStockSearchSectionNavigationController(rootViewController: ContactsViewController()),
+            AppRootCoordinator.makeStockSearchSectionNavigationController(rootViewController: LastCallsViewController())
+        ].forEach { navigationController in
+            XCTAssertTrue(type(of: navigationController) == UINavigationController.self)
+            XCTAssertFalse(navigationController is NavBarController)
+        }
+    }
+
+    func testStoryboardSearchNavigationScenesUseStockNavigationController() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let storyboardURL = repoRoot
+            .appendingPathComponent("xabber")
+            .appendingPathComponent("Base.lproj")
+            .appendingPathComponent("Main.storyboard")
+        let storyboard = try String(contentsOf: storyboardURL)
+
+        XCTAssertFalse(
+            storyboard.contains("restorationIdentifier=\"ContactsNavBarViewController\" title=\"Contacts\" id=\"uRa-JJ-lEf\" customClass=\"NavBarController\"")
+        )
+        XCTAssertFalse(
+            storyboard.contains("restorationIdentifier=\"LastChatshNavBarViewController\" title=\"Chats\" id=\"5Td-4f-rk4\" customClass=\"NavBarController\"")
+        )
+    }
+
     func testSceneWillResignActiveLifecyclePolicyDoesNotLoadAccounts() {
         let actions = AppRootLifecyclePolicy.actions(for: .willResignActive)
 
@@ -900,6 +1050,44 @@ final class EULAGateRoutingTests: XCTestCase {
             ),
             .presentEULA
         )
+    }
+}
+
+@MainActor
+final class RootLargeTitleConfigurationTests: XCTestCase {
+    func testStockSearchSectionNavigationFactoryUsesCommonLargeTitleConfig() {
+        assertStockSearchSectionNavigation(useLargeTitle: true)
+        assertStockSearchSectionNavigation(useLargeTitle: false)
+    }
+
+    private func assertStockSearchSectionNavigation(
+        useLargeTitle: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let previousUseLargeTitle = CommonConfigManager.shared.config.use_large_title
+        defer {
+            CommonConfigManager.shared.config.use_large_title = previousUseLargeTitle
+        }
+        CommonConfigManager.shared.config.use_large_title = useLargeTitle
+
+        [
+            LastChatsViewController(),
+            ContactsViewController(),
+            LastCallsViewController()
+        ].forEach { rootViewController in
+            let navigationController = AppRootCoordinator.makeStockSearchSectionNavigationController(
+                rootViewController: rootViewController
+            )
+
+            XCTAssertEqual(navigationController.navigationBar.prefersLargeTitles, useLargeTitle, file: file, line: line)
+            XCTAssertEqual(
+                rootViewController.navigationItem.largeTitleDisplayMode,
+                useLargeTitle ? .automatic : .never,
+                file: file,
+                line: line
+            )
+        }
     }
 }
 
@@ -13339,7 +13527,7 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
         )
     }
 
-    func testExplicitRequestWinsOverUnreadAndSavedPosition() {
+    func testExplicitRequestOpensBottomWhenMessageAnchorsAreDisabled() {
         let explicit = makeExplicitRequest()
         let saved = ChatSavedVisiblePosition(
             messagePrimary: "saved-primary",
@@ -13357,7 +13545,7 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             ChatInitialPositionPolicy.decision(for: state, explicitRequest: explicit),
-            .open(explicit)
+            .bottom
         )
     }
 
@@ -13516,6 +13704,47 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
+    }
+}
+
+final class ChatOpenMessageRequestHandlingPolicyTests: XCTestCase {
+
+    private let allSources: [ChatOpenMessageRequestSource] = [
+        .mentionNotification,
+        .pushNotification,
+        .search,
+        .external,
+        .voicePlayer,
+        .composerReferencePreview,
+        .composerEditPreview,
+        .pinnedMessage,
+        .initialUnreadBoundary,
+        .savedVisiblePosition
+    ]
+
+    func testMessageAnchorRequestsAreTemporarilyDisabledForEverySource() {
+        allSources.forEach { source in
+            XCTAssertFalse(
+                ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: source),
+                "\(source) should open latest while message anchors are temporarily disabled"
+            )
+        }
+    }
+
+    func testDisabledAnchorsForceLatestOnOpenAndSkipSavedFirstFrameRestore() {
+        XCTAssertTrue(ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen())
+        XCTAssertFalse(ChatOpenMessageRequestHandlingPolicy.shouldRestoreSavedFirstFramePosition())
+    }
+
+    func testScrollDownUnreadBoundaryTargetIsSuppressedToLatest() {
+        XCTAssertEqual(
+            ChatOpenMessageRequestHandlingPolicy.effectiveScrollDownTarget(.unreadBoundary("300")),
+            .latest
+        )
+        XCTAssertEqual(
+            ChatOpenMessageRequestHandlingPolicy.effectiveScrollDownTarget(.latest),
+            .latest
+        )
     }
 }
 
@@ -13995,6 +14224,34 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         XCTAssertTrue(ChatOpenMessageRequestSource.voicePlayer.usesTransientHighlight)
         XCTAssertTrue(ChatOpenMessageRequestSource.pinnedMessage.usesTransientHighlight)
         XCTAssertFalse(ChatOpenMessageRequestSource.search.usesTransientHighlight)
+    }
+
+    @MainActor
+    func testQueueOpenMessageRequestClearsAnchorStateWhenAnchorsAreDisabled() {
+        let controller = ChatViewController()
+        controller.owner = "owner@example.com"
+        controller.jid = "group@xabber.example"
+        controller.conversationType = .group
+        let staleRequest = makeRequest(source: .search)
+        controller.pendingOpenMessageRequest = staleRequest
+        controller.activeAnchorExecutionState = ChatAnchorExecutionState(request: staleRequest)
+        controller.activeAnchorExecutionHooks = ChatAnchorExecutionHooks(
+            direction: .down,
+            animatedScroll: true,
+            onFailed: nil,
+            onPositioned: nil
+        )
+        controller.isExecutingOpenMessageRequest = true
+        controller.isMessageAnchorNavigationInFlight = true
+
+        controller.queueOpenMessageRequest(makeRequest(source: .pushNotification))
+
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+        XCTAssertNil(controller.activeAnchorExecutionHooks)
+        XCTAssertFalse(controller.isExecutingOpenMessageRequest)
+        XCTAssertFalse(controller.isMessageAnchorNavigationInFlight)
+        XCTAssertTrue(controller.pendingForceLatestOpen)
     }
 
     func testLoadedPinnedMessageLookupResolvesBeforeAnchorExecution() {
@@ -17400,7 +17657,7 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         XCTAssertEqual(request.anchor.sourceDate, Date(timeIntervalSince1970: 1_711_283_200))
     }
 
-    func testLastChatsNormalSelectionCreatesInitialUnreadBoundaryRequest() throws {
+    func testLastChatsNormalSelectionOpensLatestWhenUnreadBoundaryExists() throws {
         try insertLastChat(
             jid: "romeo@example.com",
             conversationType: .regular,
@@ -17410,7 +17667,7 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         )
         let realm = try WRealm.safe()
 
-        let request = try XCTUnwrap(
+        XCTAssertNil(
             LastChatsViewController.initialOpenRequest(
                 owner: owner,
                 jid: "romeo@example.com",
@@ -17419,13 +17676,61 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
                 in: realm
             )
         )
+    }
 
-        XCTAssertEqual(request.source, .initialUnreadBoundary)
-        XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
-        XCTAssertEqual(request.anchor.sourceDate, Date(timeIntervalSince1970: 1_711_283_295))
-        XCTAssertFalse(request.highlight)
-        XCTAssertFalse(request.markReadOnVisible)
-        XCTAssertEqual(request.targetResolution, .firstIncomingAfterBoundary("1711283295000000"))
+    func testLastChatsInitialOpenRequestIgnoresExplicitRequestWhenAnchorsAreDisabled() throws {
+        try insertLastChat(
+            jid: "romeo@example.com",
+            conversationType: .regular
+        )
+        let realm = try WRealm.safe()
+        let explicitRequest = ChatOpenMessageRequest(
+            chatJid: "romeo@example.com",
+            owner: owner,
+            conversationType: .regular,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: "message-primary",
+                archivedId: "1711283295000000",
+                messageId: "message-id",
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: Date(timeIntervalSince1970: 1_711_283_295)
+            ),
+            highlight: true,
+            markReadOnVisible: true,
+            source: .pushNotification
+        )
+
+        XCTAssertNil(
+            LastChatsViewController.initialOpenRequest(
+                owner: owner,
+                jid: "romeo@example.com",
+                conversationType: .regular,
+                explicitOpenMessageRequest: explicitRequest,
+                in: realm
+            )
+        )
+    }
+
+    @MainActor
+    func testStackNewChatSeedsForceLatestOpenIntentWhenAnchorsAreDisabled() throws {
+        let controller = LastChatsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        navigationController.loadViewIfNeeded()
+        var openedChat: ChatViewController?
+
+        controller.stackNewChat(
+            owner: owner,
+            jid: "romeo@example.com",
+            conversationType: .regular
+        ) { chat in
+            openedChat = chat
+        }
+
+        let chat = try XCTUnwrap(openedChat)
+        XCTAssertTrue(chat.pendingForceLatestOpen)
+        XCTAssertNil(chat.pendingOpenMessageRequest)
+        XCTAssertNil(chat.activeAnchorExecutionState)
     }
 
     func testSearchChatListMapperCarriesUnreadMentionFlagForGroupResults() throws {
@@ -17743,8 +18048,71 @@ final class LastChatsSectionModelTests: XCTestCase {
 
 @MainActor
 final class LastChatsSeparatorAppearanceTests: XCTestCase {
-    func testTableUsesNativeInsetGroupedSectionChrome() {
+    private struct SearchHostScenario {
+        let name: String
+        let make: () -> SearchHost
+    }
+
+    private struct SearchHost {
+        let viewController: UIViewController
+        let searchController: UISearchController
+        let updater: ChatSearchResultsController
+        let configureSearchBar: () -> Void
+        let viewWillAppear: () -> Void
+        let openSearchResult: (SearchResultsViewController.Datasource) -> Void
+    }
+
+    private final class AlwaysActiveSearchController: UISearchController {
+        override var isActive: Bool {
+            get { true }
+            set {}
+        }
+    }
+
+    private final class TraitWindow: UIWindow {
+        private let horizontalSizeClass: UIUserInterfaceSizeClass
+
+        init(horizontalSizeClass: UIUserInterfaceSizeClass) {
+            self.horizontalSizeClass = horizontalSizeClass
+            super.init(frame: UIScreen.main.bounds)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override var traitCollection: UITraitCollection {
+            UITraitCollection(traitsFrom: [
+                super.traitCollection,
+                UITraitCollection(horizontalSizeClass: horizontalSizeClass)
+            ])
+        }
+    }
+
+    private var retainedTraitWindows: [UIWindow] = []
+
+    override func tearDown() {
+        retainedTraitWindows.forEach { $0.isHidden = true }
+        retainedTraitWindows.removeAll()
+        super.tearDown()
+    }
+
+    func testTableStylePolicyUsesGroupedStyleForCompactWidth() {
+        XCTAssertEqual(LastChatsTableStylePolicy.style(for: .compact), .grouped)
+    }
+
+    func testTableStylePolicyKeepsInsetGroupedStyleForRegularWidth() {
+        XCTAssertEqual(LastChatsTableStylePolicy.style(for: .regular), .insetGrouped)
+    }
+
+    func testTableStylePolicyFallsBackToInsetGroupedStyleForUnspecifiedWidth() {
+        XCTAssertEqual(LastChatsTableStylePolicy.style(for: .unspecified), .insetGrouped)
+    }
+
+    func testRegularTableUsesNativeInsetGroupedSectionChrome() {
         let viewController = LastChatsViewController()
+        let container = embedInTraitContainer(viewController, horizontalSizeClass: .regular)
+        container.loadViewIfNeeded()
 
         XCTAssertEqual(viewController.tableView.style, .insetGrouped)
         XCTAssertNil(viewController.tableView.tableHeaderView)
@@ -17755,66 +18123,179 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertFalse(viewController.responds(to: #selector(UITableViewDelegate.tableView(_:viewForFooterInSection:))))
     }
 
-    func testConfigureBarsKeepsNavigationAppearanceFromDrawingBottomShadow() {
-        let viewController = LastChatsViewController()
-        _ = UINavigationController(rootViewController: viewController)
+    func testSearchHostsConfigureSearchBarWithoutMutatingNavigationAppearanceOrChrome() {
+        let lastChats = LastChatsViewController()
+        let contacts = ContactsViewController()
+        let calls = LastCallsViewController()
+        let hosts: [(UIViewController, UISearchController, () -> Void)] = [
+            (lastChats, lastChats.searchController, { lastChats.configureSearchBar() }),
+            (contacts, contacts.searchController, { contacts.configureSearchBar() }),
+            (calls, calls.searchController, { calls.configureSearchBar() })
+        ]
 
-        viewController.configureBars()
+        hosts.forEach { viewController, searchController, configureSearchBar in
+            let standardAppearance = UINavigationBarAppearance()
+            let scrollEdgeAppearance = UINavigationBarAppearance()
+            let compactAppearance = UINavigationBarAppearance()
+            standardAppearance.backgroundColor = .systemRed
+            scrollEdgeAppearance.backgroundColor = .systemGreen
+            compactAppearance.backgroundColor = .systemBlue
+            viewController.navigationItem.standardAppearance = standardAppearance
+            viewController.navigationItem.scrollEdgeAppearance = scrollEdgeAppearance
+            viewController.navigationItem.compactAppearance = compactAppearance
+            var compactScrollEdgeAppearance: UINavigationBarAppearance?
+            if #available(iOS 15.0, *) {
+                let appearance = UINavigationBarAppearance()
+                appearance.backgroundColor = .systemYellow
+                compactScrollEdgeAppearance = appearance
+                viewController.navigationItem.compactScrollEdgeAppearance = appearance
+            }
+            let searchBar = searchController.searchBar
+            let searchBarBackground = searchBar.backgroundColor
+            let searchBarBackgroundImage = makeImage(color: .systemPurple)
+            searchBar.setBackgroundImage(searchBarBackgroundImage, for: .any, barMetrics: .default)
+            let textFieldBackground = searchBar.searchTextField.backgroundColor
+            let textFieldLayerBackground = searchBar.searchTextField.layer.backgroundColor
+            let masksToBounds = searchBar.searchTextField.layer.masksToBounds
+            let textFieldCornerRadius = searchBar.searchTextField.layer.cornerRadius
+            let textFieldShadowColor = searchBar.searchTextField.layer.shadowColor
+            let textFieldShadowOpacity = searchBar.searchTextField.layer.shadowOpacity
+            let textFieldShadowRadius = searchBar.searchTextField.layer.shadowRadius
+            let textFieldShadowOffset = searchBar.searchTextField.layer.shadowOffset
 
-        [
-            viewController.navigationItem.standardAppearance,
-            viewController.navigationItem.scrollEdgeAppearance,
-            viewController.navigationItem.compactAppearance
-        ].forEach { appearance in
-            XCTAssertNotNil(appearance)
-            let shadowColor = appearance?.shadowColor
-            XCTAssertTrue(shadowColor == nil || shadowColor?.cgColor.alpha == 0)
-            let shadowImage = appearance?.shadowImage
-            XCTAssertTrue(shadowImage == nil || shadowImage?.size == .zero)
+            configureSearchBar()
+
+            XCTAssertTrue(viewController.navigationItem.searchController === searchController)
+            XCTAssertFalse(viewController.navigationItem.hidesSearchBarWhenScrolling)
+            if #available(iOS 16.0, *) {
+                XCTAssertEqual(viewController.navigationItem.preferredSearchBarPlacement, .stacked)
+            }
+            XCTAssertEqual(viewController.navigationItem.standardAppearance?.backgroundColor, standardAppearance.backgroundColor)
+            XCTAssertEqual(viewController.navigationItem.scrollEdgeAppearance?.backgroundColor, scrollEdgeAppearance.backgroundColor)
+            XCTAssertEqual(viewController.navigationItem.compactAppearance?.backgroundColor, compactAppearance.backgroundColor)
+            if #available(iOS 15.0, *), let compactScrollEdgeAppearance {
+                XCTAssertEqual(
+                    viewController.navigationItem.compactScrollEdgeAppearance?.backgroundColor,
+                    compactScrollEdgeAppearance.backgroundColor
+                )
+            }
+            XCTAssertEqual(searchBar.backgroundColor, searchBarBackground)
+            XCTAssertEqual(
+                searchBar.backgroundImage(for: .any, barMetrics: .default)?.pngData(),
+                searchBarBackgroundImage.pngData()
+            )
+            XCTAssertEqual(searchBar.searchTextField.backgroundColor, textFieldBackground)
+            XCTAssertTrue(searchBar.searchTextField.layer.backgroundColor === textFieldLayerBackground)
+            XCTAssertEqual(searchBar.searchTextField.layer.masksToBounds, masksToBounds)
+            XCTAssertEqual(searchBar.searchTextField.layer.cornerRadius, textFieldCornerRadius)
+            XCTAssertTrue(searchBar.searchTextField.layer.shadowColor === textFieldShadowColor)
+            XCTAssertEqual(searchBar.searchTextField.layer.shadowOpacity, textFieldShadowOpacity)
+            XCTAssertEqual(searchBar.searchTextField.layer.shadowRadius, textFieldShadowRadius)
+            XCTAssertEqual(searchBar.searchTextField.layer.shadowOffset, textFieldShadowOffset)
         }
-        if #available(iOS 15.0, *) {
-            XCTAssertNotNil(viewController.navigationItem.compactScrollEdgeAppearance)
-        }
-        if #available(iOS 16.0, *) {
-            XCTAssertEqual(viewController.navigationItem.preferredSearchBarPlacement, .stacked)
-        }
-        XCTAssertFalse(viewController.navigationItem.hidesSearchBarWhenScrolling)
     }
 
-    func testSearchControllerUsesDefaultNavigationSearchChrome() {
+    func testLoadViewInstallsLastChatsSearchAndNavigationItemsWithoutMutatingNavigationAppearance() {
+        withInterfaceType(.split) {
+            let viewController = LastChatsViewController()
+            _ = UINavigationController(rootViewController: viewController)
+            let standardAppearance = UINavigationBarAppearance()
+            let scrollEdgeAppearance = UINavigationBarAppearance()
+            let compactAppearance = UINavigationBarAppearance()
+            standardAppearance.backgroundColor = .systemRed
+            scrollEdgeAppearance.backgroundColor = .systemGreen
+            compactAppearance.backgroundColor = .systemBlue
+            viewController.navigationItem.standardAppearance = standardAppearance
+            viewController.navigationItem.scrollEdgeAppearance = scrollEdgeAppearance
+            viewController.navigationItem.compactAppearance = compactAppearance
+
+            viewController.loadViewIfNeeded()
+
+            XCTAssertTrue(viewController.navigationItem.searchController === viewController.searchController)
+            XCTAssertEqual(
+                viewController.navigationItem.leftBarButtonItem?.accessibilityIdentifier,
+                "chats_sidebar_menu_button"
+            )
+            XCTAssertTrue(viewController.navigationItem.rightBarButtonItem === viewController.chatsSplitAddBarButton)
+            XCTAssertEqual(viewController.navigationItem.standardAppearance?.backgroundColor, standardAppearance.backgroundColor)
+            XCTAssertEqual(viewController.navigationItem.scrollEdgeAppearance?.backgroundColor, scrollEdgeAppearance.backgroundColor)
+            XCTAssertEqual(viewController.navigationItem.compactAppearance?.backgroundColor, compactAppearance.backgroundColor)
+        }
+    }
+
+    func testCompactChatConfigureNavbarKeepsUIKitStockNavigationAppearance() {
+        withInterfaceType(.split) {
+            let viewController = ChatViewController()
+            let navigationController = UINavigationController(rootViewController: viewController)
+            let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+            container.loadViewIfNeeded()
+            viewController.configureNavbar()
+
+            XCTAssertNil(viewController.navigationItem.standardAppearance)
+            XCTAssertNil(viewController.navigationItem.scrollEdgeAppearance)
+            XCTAssertNil(viewController.navigationItem.compactAppearance)
+            if #available(iOS 15.0, *) {
+                XCTAssertNil(viewController.navigationItem.compactScrollEdgeAppearance)
+            }
+            XCTAssertFalse(viewController.extendedLayoutIncludesOpaqueBars)
+            XCTAssertFalse(viewController.edgesForExtendedLayout.contains(.top))
+        }
+    }
+
+    func testSearchControllerUsesNativeNavigationSearchConfiguration() {
         let viewController = LastChatsViewController()
 
+        XCTAssertNil(viewController.searchController.searchResultsController)
+        guard let updater = viewController.searchController.searchResultsUpdater else {
+            XCTFail("Last Chats search should use an in-place search results updater")
+            return
+        }
+        XCTAssertTrue(updater as AnyObject === viewController.chatSearchResultsController)
+        XCTAssertFalse(updater is UIViewController)
         XCTAssertEqual(viewController.searchController.searchBar.searchBarStyle, .default)
+        XCTAssertFalse(viewController.searchController.hidesNavigationBarDuringPresentation)
         XCTAssertFalse(viewController.searchController.hidesBottomBarWhenPushed)
         XCTAssertFalse(viewController.searchController.definesPresentationContext)
+        XCTAssertFalse(viewController.searchController.obscuresBackgroundDuringPresentation)
     }
 
-    func testContinuousSplitSearchChromeKeepsNativeSearchFieldChrome() {
-        let searchBar = UISearchBar()
-        let nativeBackgroundColor = searchBar.searchTextField.backgroundColor
+    func testInPlaceSearchHostHelperCreatesNativeControllerWithoutResultsOverlay() {
+        let updater = ChatSearchResultsController()
+        let searchController = InPlaceSearchHostHelper.makeSearchController(updater: updater)
 
-        LastChatsSearchChromePolicy.apply(
-            to: searchBar,
-            isContinuousSplitBackgroundActive: true
-        )
-
-        XCTAssertEqual(searchBar.searchTextField.backgroundColor, nativeBackgroundColor)
-        XCTAssertNil(searchBar.searchTextField.layer.backgroundColor)
-        XCTAssertEqual(searchBar.searchBarStyle, .default)
-        XCTAssertNil(searchBar.backgroundColor)
+        XCTAssertNil(searchController.searchResultsController)
+        XCTAssertTrue(searchController.searchResultsUpdater as AnyObject === updater)
+        XCTAssertFalse(searchController.searchResultsUpdater is UIViewController)
+        XCTAssertEqual(searchController.searchBar.searchBarStyle, .default)
+        XCTAssertEqual(searchController.searchBar.placeholder, ChatSearchResultsController.placeholderText)
+        XCTAssertFalse(searchController.hidesNavigationBarDuringPresentation)
+        XCTAssertFalse(searchController.hidesBottomBarWhenPushed)
+        XCTAssertFalse(searchController.definesPresentationContext)
+        XCTAssertFalse(searchController.obscuresBackgroundDuringPresentation)
     }
 
-    func testInactiveSearchChromeKeepsExistingTextFieldBackground() {
-        let searchBar = UISearchBar()
-        let sentinel = UIColor.red.withAlphaComponent(0.42)
-        searchBar.searchTextField.backgroundColor = sentinel
+    func testSearchFieldsUseSharedContactsAndMessagesPlaceholder() {
+        let expected = ChatSearchResultsController.placeholderText
 
-        LastChatsSearchChromePolicy.apply(
-            to: searchBar,
-            isContinuousSplitBackgroundActive: false
+        XCTAssertEqual(
+            expected,
+            "Search contacts and messages".localizeString(id: "search_contacts_and_messages", arguments: [])
         )
+        XCTAssertEqual(LastChatsViewController().searchController.searchBar.placeholder, expected)
+        XCTAssertEqual(ContactsViewController().searchController.searchBar.placeholder, expected)
+        XCTAssertEqual(LastCallsViewController().searchController.searchBar.placeholder, expected)
+    }
 
-        XCTAssertEqual(searchBar.searchTextField.backgroundColor, sentinel)
+    func testInPlaceSearchDoesNotObscureHostTableForSelection() {
+        [
+            LastChatsViewController().searchController,
+            ContactsViewController().searchController,
+            LastCallsViewController().searchController
+        ].forEach { searchController in
+            XCTAssertFalse(searchController.obscuresBackgroundDuringPresentation)
+            XCTAssertNil(searchController.searchResultsController)
+        }
     }
 
     func testChatRowsDoNotUseUIKitFocusOutline() {
@@ -17830,53 +18311,723 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
 
         XCTAssertTrue(viewController.navigationItem.searchController === viewController.searchController)
         XCTAssertFalse(viewController.navigationItem.hidesSearchBarWhenScrolling)
+        XCTAssertTrue(viewController.definesPresentationContext)
+        XCTAssertFalse(viewController.searchController.definesPresentationContext)
+        XCTAssertNil(viewController.searchController.searchResultsController)
+        XCTAssertTrue(viewController.searchController.searchResultsUpdater as AnyObject === viewController.chatSearchResultsController)
         if #available(iOS 16.0, *) {
             XCTAssertEqual(viewController.navigationItem.preferredSearchBarPlacement, .stacked)
         }
     }
 
-    func testConfigureSearchBarAppliesSplitChromeBeforeNavigationAssignment() {
-        withInterfaceType(.split) {
-            let viewController = LastChatsViewController()
-            let nativeBackgroundColor = viewController.searchController.searchBar.searchTextField.backgroundColor
+    func testConfigureSearchBarWithoutForceRebindKeepsExistingSearchControllerAttachment() {
+        let viewController = LastChatsViewController()
 
-            viewController.configureSearchBar()
+        let initialRebind = viewController.configureSearchBar()
+        let attachedSearchController = viewController.navigationItem.searchController
+        let secondRebind = viewController.configureSearchBar(forceRebind: false)
 
-            XCTAssertTrue(viewController.navigationItem.searchController === viewController.searchController)
+        XCTAssertFalse(initialRebind)
+        XCTAssertFalse(secondRebind)
+        XCTAssertTrue(attachedSearchController === viewController.searchController)
+        XCTAssertTrue(viewController.navigationItem.searchController === attachedSearchController)
+        XCTAssertTrue(viewController.searchController.searchResultsUpdater as AnyObject === viewController.chatSearchResultsController)
+        XCTAssertTrue(viewController.searchController.delegate === viewController)
+        XCTAssertTrue(viewController.searchController.searchBar.delegate === viewController)
+    }
+
+    func testConfigureSearchBarForceRebindDoesNotReattachAlreadyAttachedSearchControllerOrMutateChrome() {
+        let cases: [(String, UIViewController, UISearchController, ChatSearchResultsController, () -> Bool)] = {
+            let lastChats = LastChatsViewController()
+            let contacts = ContactsViewController()
+            let calls = LastCallsViewController()
+            return [
+                ("Last Chats", lastChats, lastChats.searchController, lastChats.chatSearchResultsController, {
+                    lastChats.configureSearchBar(forceRebind: true)
+                }),
+                ("Contacts", contacts, contacts.searchController, contacts.chatSearchResultsController, {
+                    contacts.configureSearchBar(forceRebind: true)
+                }),
+                ("Calls", calls, calls.searchController, calls.chatSearchResultsController, {
+                    calls.configureSearchBar(forceRebind: true)
+                })
+            ]
+        }()
+
+        cases.forEach { name, viewController, searchController, updater, configureSearchBar in
+            _ = configureSearchBar()
+            let attachedSearchController = viewController.navigationItem.searchController
+            let searchBar = searchController.searchBar
+            let searchBarBackground = UIColor(red: 0.12, green: 0.24, blue: 0.76, alpha: 0.33)
+            let searchBarBackgroundImage = makeImage(color: .systemPurple)
+            searchBar.backgroundColor = searchBarBackground
+            searchBar.setBackgroundImage(searchBarBackgroundImage, for: .any, barMetrics: .default)
+            let textFieldBackground = searchBar.searchTextField.backgroundColor
+            let textFieldLayerBackground = searchBar.searchTextField.layer.backgroundColor
+            let masksToBounds = searchBar.searchTextField.layer.masksToBounds
+            let cornerRadius = searchBar.searchTextField.layer.cornerRadius
+            let shadowColor = searchBar.searchTextField.layer.shadowColor
+            let shadowOpacity = searchBar.searchTextField.layer.shadowOpacity
+            let shadowRadius = searchBar.searchTextField.layer.shadowRadius
+            let shadowOffset = searchBar.searchTextField.layer.shadowOffset
+
+            let didRebind = configureSearchBar()
+
+            XCTAssertFalse(didRebind, name)
+            XCTAssertTrue(viewController.navigationItem.searchController === attachedSearchController, name)
+            XCTAssertTrue(viewController.navigationItem.searchController === searchController, name)
+            XCTAssertEqual(searchBar.placeholder, ChatSearchResultsController.placeholderText, name)
+            XCTAssertTrue(searchController.searchResultsUpdater as AnyObject === updater, name)
+            XCTAssertEqual(searchBar.backgroundColor, searchBarBackground, name)
             XCTAssertEqual(
-                viewController.searchController.searchBar.searchTextField.backgroundColor,
-                nativeBackgroundColor
+                searchBar.backgroundImage(for: .any, barMetrics: .default)?.pngData(),
+                searchBarBackgroundImage.pngData(),
+                name
             )
-            XCTAssertNil(viewController.searchController.searchBar.searchTextField.layer.backgroundColor)
+            XCTAssertEqual(searchBar.searchTextField.backgroundColor, textFieldBackground, name)
+            XCTAssertTrue(searchBar.searchTextField.layer.backgroundColor === textFieldLayerBackground, name)
+            XCTAssertEqual(searchBar.searchTextField.layer.masksToBounds, masksToBounds, name)
+            XCTAssertEqual(searchBar.searchTextField.layer.cornerRadius, cornerRadius, name)
+            XCTAssertTrue(searchBar.searchTextField.layer.shadowColor === shadowColor, name)
+            XCTAssertEqual(searchBar.searchTextField.layer.shadowOpacity, shadowOpacity, name)
+            XCTAssertEqual(searchBar.searchTextField.layer.shadowRadius, shadowRadius, name)
+            XCTAssertEqual(searchBar.searchTextField.layer.shadowOffset, shadowOffset, name)
         }
     }
 
-    func testConfigureSearchBarKeepsDefaultChromeInTabsMode() {
-        withInterfaceType(.tabs) {
-            let viewController = LastChatsViewController()
-            let sentinel = UIColor.red.withAlphaComponent(0.42)
-            viewController.searchController.searchBar.searchTextField.backgroundColor = sentinel
-
-            viewController.configureSearchBar()
-
-            XCTAssertEqual(viewController.searchController.searchBar.searchTextField.backgroundColor, sentinel)
-            XCTAssertTrue(viewController.navigationItem.searchController === viewController.searchController)
-        }
+    func testInPlaceSearchRebindPolicySkipsInactiveForcedAttachedSearchWithoutTransition() {
+        XCTAssertFalse(
+            InPlaceSearchRebindPolicy.shouldRebind(
+                forceRebind: true,
+                isAlreadyAttached: true,
+                isSearchInteractionActive: false,
+                isTransitionActive: false
+            )
+        )
     }
 
-    func testSearchChromeFirstFramePreparationKeepsExistingSearchController() {
+    func testInPlaceSearchRebindPolicySkipsInactiveForcedAttachedSearchDuringTransition() {
+        XCTAssertFalse(
+            InPlaceSearchRebindPolicy.shouldRebind(
+                forceRebind: true,
+                isAlreadyAttached: true,
+                isSearchInteractionActive: false,
+                isTransitionActive: true
+            )
+        )
+    }
+
+    func testInPlaceSearchRebindPolicySkipsActiveOrUnattachedSearch() {
+        XCTAssertFalse(
+            InPlaceSearchRebindPolicy.shouldRebind(
+                forceRebind: true,
+                isAlreadyAttached: true,
+                isSearchInteractionActive: true,
+                isTransitionActive: false
+            )
+        )
+        XCTAssertFalse(
+            InPlaceSearchRebindPolicy.shouldRebind(
+                forceRebind: true,
+                isAlreadyAttached: false,
+                isSearchInteractionActive: false,
+                isTransitionActive: false
+            )
+        )
+        XCTAssertFalse(
+            InPlaceSearchRebindPolicy.shouldRebind(
+                forceRebind: false,
+                isAlreadyAttached: true,
+                isSearchInteractionActive: false,
+                isTransitionActive: false
+            )
+        )
+    }
+
+    func testInPlaceSearchHostHelperForceRebindSkipsActiveSearchController() {
+        let viewController = UIViewController()
+        let updater = ChatSearchResultsController()
+        let searchController = AlwaysActiveSearchController(searchResultsController: nil)
+        viewController.navigationItem.searchController = searchController
+
+        let didRebind = InPlaceSearchHostHelper.attach(
+            searchController: searchController,
+            to: viewController,
+            updater: updater,
+            searchControllerDelegate: nil,
+            searchBarDelegate: nil,
+            forceRebind: true
+        ) {}
+
+        XCTAssertFalse(didRebind)
+        XCTAssertTrue(viewController.navigationItem.searchController === searchController)
+        XCTAssertTrue(searchController.searchResultsUpdater as AnyObject === updater)
+    }
+
+    func testLastChatsViewWillAppearDoesNotDetachAttachedSearchController() {
         withInterfaceType(.split) {
             let viewController = LastChatsViewController()
-            _ = UINavigationController(rootViewController: viewController)
+            let navigationController = UINavigationController(rootViewController: viewController)
+            let container = embedInTraitContainer(navigationController, horizontalSizeClass: .regular)
+            container.loadViewIfNeeded()
             viewController.configureSearchBar()
             let searchController = viewController.searchController
+            var didDetachSearchController = false
+            var observedSearchControllerAssignments = 0
+            let observation = viewController.navigationItem.observe(\.searchController, options: [.new]) { _, change in
+                observedSearchControllerAssignments += 1
+                if case .some(.none) = change.newValue {
+                    didDetachSearchController = true
+                }
+            }
 
-            viewController.prepareSearchChromeForNavigationTransitionFirstFrame()
-            viewController.prepareSearchChromeForNavigationTransitionFirstFrame()
+            viewController.beginAppearanceTransition(true, animated: false)
+            viewController.endAppearanceTransition()
 
-            XCTAssertTrue(viewController.searchController === searchController)
+            XCTAssertFalse(didDetachSearchController)
+            XCTAssertEqual(observedSearchControllerAssignments, 0)
             XCTAssertTrue(viewController.navigationItem.searchController === searchController)
-            XCTAssertNil(searchController.searchBar.searchTextField.layer.backgroundColor)
+            _ = observation
+        }
+    }
+
+    func testInPlaceSearchKeepsHostContentSharedBackdropInRegularSplitMode() {
+        withInterfaceType(.split) {
+            let viewController = LastChatsViewController()
+            let container = embedInTraitContainer(viewController, horizontalSizeClass: .regular)
+            container.loadViewIfNeeded()
+
+            viewController.configureSearchBar()
+
+            XCTAssertNil(viewController.searchController.searchResultsController)
+            XCTAssertEqual(viewController.tableView.style, .insetGrouped)
+            XCTAssertNil(viewController.tableView.tableHeaderView)
+            XCTAssertNil(viewController.tableView.tableFooterView)
+            XCTAssertEqual(viewController.view.backgroundColor, .clear)
+            XCTAssertFalse(viewController.view.isOpaque)
+            XCTAssertEqual(viewController.tableView.backgroundColor, .clear)
+            XCTAssertNil(viewController.tableView.backgroundView)
+            XCTAssertFalse(viewController.tableView.isOpaque)
+        }
+    }
+
+    func testInPlaceSearchUsesStockHostBackgroundInCompactSplitMode() {
+        withInterfaceType(.split) {
+            let viewController = LastChatsViewController()
+            let container = embedInTraitContainer(viewController, horizontalSizeClass: .compact)
+            container.loadViewIfNeeded()
+
+            viewController.configureSearchBar()
+
+            XCTAssertNil(viewController.searchController.searchResultsController)
+            XCTAssertEqual(viewController.tableView.style, .grouped)
+            XCTAssertTrue(viewController.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
+            XCTAssertTrue(viewController.view.isOpaque)
+            XCTAssertTrue(viewController.tableView.backgroundColor?.isEqual(UIColor.systemGroupedBackground) == true)
+            XCTAssertNil(viewController.tableView.backgroundView)
+            XCTAssertTrue(viewController.tableView.isOpaque)
+            XCTAssertTrue(viewController.navigationItem.searchController === viewController.searchController)
+        }
+    }
+
+    func testLastChatsInPlaceSearchRowsUseLastChatsPlainGroupedBackgroundPolicy() {
+        let owner = "search-result-row-\(UUID().uuidString)@example.com"
+        registerAccountColor(owner: owner, colorKey: "orange")
+        let viewController = LastChatsViewController()
+        let datasource = makeSearchResultsDatasource(owner: owner)
+        activateInPlaceSearch(viewController.searchController)
+        viewController.chatSearchResultsController.replaceSnapshot(messages: [datasource])
+
+        XCTAssertEqual(viewController.numberOfSections(in: viewController.tableView), 1)
+        XCTAssertEqual(
+            viewController.tableView(viewController.tableView, titleForHeaderInSection: 0),
+            "Messages".localizeString(id: "groupchat_member_messages", arguments: [])
+        )
+
+        guard let cell = viewController.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        ) as? ChatListTableViewCell else {
+            XCTFail("In-place search results should render chat-list cells")
+            return
+        }
+
+        XCTAssertEqual(cell.backgroundColor, .systemBackground)
+        XCTAssertEqual(cell.contentView.backgroundColor, .clear)
+        XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
+        XCTAssertNil(cell.configurationUpdateHandler)
+        XCTAssertEqual(cell.selectionStyle, .none)
+        assertNoSelectionOutline(in: cell)
+
+        cell.setHighlighted(true, animated: false)
+        cell.updateConfiguration(using: cell.configurationState)
+        cell.setSelected(true, animated: false)
+        cell.updateConfiguration(using: cell.configurationState)
+
+        XCTAssertEqual(cell.backgroundColor, .systemBackground)
+        XCTAssertNil(cell.configurationUpdateHandler)
+        assertNoSelectionOutline(in: cell)
+    }
+
+    func testInPlaceSearchHidesMessagesHeaderWhenMessagesAreEmpty() {
+        let viewController = LastChatsViewController()
+        let contact = makeSearchResultsDatasource(jid: "contact-only@example.com")
+
+        activateInPlaceSearch(viewController.searchController)
+        viewController.chatSearchResultsController.replaceSnapshot(chats: [contact], messages: [])
+
+        XCTAssertEqual(viewController.numberOfSections(in: viewController.tableView), 1)
+        XCTAssertEqual(viewController.tableView(viewController.tableView, numberOfRowsInSection: 0), 1)
+        XCTAssertEqual(
+            viewController.tableView(viewController.tableView, titleForHeaderInSection: 0),
+            "Contacts".localizeString(id: "contacts", arguments: [])
+        )
+        XCTAssertNil(viewController.tableView(viewController.tableView, titleForHeaderInSection: 1))
+    }
+
+    func testInPlaceSearchHidesContactsHeaderWhenContactsAreEmpty() {
+        let viewController = LastChatsViewController()
+        let message = makeSearchResultsDatasource(jid: "message-only@example.com")
+
+        activateInPlaceSearch(viewController.searchController)
+        viewController.chatSearchResultsController.replaceSnapshot(chats: [], messages: [message])
+
+        XCTAssertEqual(viewController.numberOfSections(in: viewController.tableView), 1)
+        XCTAssertEqual(viewController.tableView(viewController.tableView, numberOfRowsInSection: 0), 1)
+        XCTAssertEqual(
+            viewController.tableView(viewController.tableView, titleForHeaderInSection: 0),
+            "Messages".localizeString(id: "groupchat_member_messages", arguments: [])
+        )
+        XCTAssertNil(viewController.tableView(viewController.tableView, titleForHeaderInSection: 1))
+    }
+
+    func testInPlaceSearchShowsNoSectionHeadersWhenNoResultsAreAvailable() {
+        let viewController = LastChatsViewController()
+
+        activateInPlaceSearch(viewController.searchController)
+        viewController.chatSearchResultsController.replaceSnapshot(chats: [], messages: [])
+
+        XCTAssertTrue(viewController.isShowingSearchResults)
+        XCTAssertEqual(viewController.numberOfSections(in: viewController.tableView), 0)
+        XCTAssertNil(viewController.tableView(viewController.tableView, titleForHeaderInSection: 0))
+    }
+
+    func testEmptySearchTextUsesInitialDatasourceInAllHosts() {
+        let datasource = makeSearchResultsDatasource()
+        let lastChats = LastChatsViewController()
+        let contacts = ContactsViewController()
+        let calls = LastCallsViewController()
+
+        [lastChats.searchController, contacts.searchController, calls.searchController].forEach { searchController in
+            searchController.searchBar.text = ""
+            searchController.isActive = true
+        }
+        lastChats.chatSearchResultsController.replaceSnapshot(messages: [datasource])
+        contacts.chatSearchResultsController.replaceSnapshot(messages: [datasource])
+        calls.chatSearchResultsController.replaceSnapshot(messages: [datasource])
+
+        XCTAssertFalse(lastChats.isShowingSearchResults)
+        XCTAssertFalse(contacts.isShowingSearchResults)
+        XCTAssertFalse(calls.isShowingSearchResults)
+        XCTAssertEqual(lastChats.numberOfSections(in: lastChats.tableView), lastChats.datasourceSections.count)
+        XCTAssertEqual(contacts.numberOfSections(in: contacts.tableView), contacts.datasource.count)
+        XCTAssertEqual(calls.numberOfSections(in: calls.tableView), 1)
+    }
+
+    func testLastChatsTableImmediatelyReloadsHostDatasourceWhenSearchTextClears() {
+        let viewController = LastChatsViewController()
+        viewController.configure()
+        viewController.configureSearchBar()
+        let hostChat = makeChatDatasource(jid: "host-chat@example.com")
+        viewController.setDatasource(
+            [hostChat],
+            sections: [LastChatsViewController.DatasourceSection(kind: .chats, rows: [hostChat])],
+            showsSkeleton: false
+        )
+        viewController.tableView.reloadData()
+        XCTAssertEqual(viewController.tableView.numberOfSections, 1)
+
+        activateInPlaceSearch(viewController.searchController)
+        viewController.chatSearchResultsController.replaceSnapshot(
+            chats: [makeSearchResultsDatasource(jid: "search-contact@example.com")],
+            messages: [makeSearchResultsDatasource(jid: "search-message@example.com")]
+        )
+        viewController.tableView.reloadData()
+        XCTAssertEqual(viewController.tableView.numberOfSections, 2)
+
+        viewController.searchController.searchBar.text = ""
+        viewController.chatSearchResultsController.updateSearchResults(for: viewController.searchController)
+
+        XCTAssertFalse(viewController.isShowingSearchResults)
+        XCTAssertEqual(viewController.chatSearchResultsController.numberOfSections(), 0)
+        XCTAssertEqual(viewController.tableView.numberOfSections, viewController.datasourceSections.count)
+        XCTAssertEqual(viewController.tableView.numberOfRows(inSection: 0), 1)
+    }
+
+    func testContactsTableImmediatelyReloadsHostDatasourceWhenSearchTextClears() {
+        let viewController = ContactsViewController()
+        viewController.configure()
+        viewController.configureSearchBar()
+        viewController.datasource = [
+            [makeContactDatasource(jid: "host-contact-1@example.com")],
+            [makeContactDatasource(jid: "host-contact-2@example.com")]
+        ]
+        viewController.tableView.reloadData()
+        XCTAssertEqual(viewController.tableView.numberOfSections, 2)
+
+        activateInPlaceSearch(viewController.searchController)
+        viewController.chatSearchResultsController.replaceSnapshot(
+            messages: [makeSearchResultsDatasource(jid: "search-message@example.com")]
+        )
+        viewController.tableView.reloadData()
+        XCTAssertEqual(viewController.tableView.numberOfSections, 1)
+
+        viewController.searchController.searchBar.text = ""
+        viewController.chatSearchResultsController.updateSearchResults(for: viewController.searchController)
+
+        XCTAssertFalse(viewController.isShowingSearchResults)
+        XCTAssertEqual(viewController.chatSearchResultsController.numberOfSections(), 0)
+        XCTAssertEqual(viewController.tableView.numberOfSections, viewController.datasource.count)
+        XCTAssertEqual(viewController.tableView.numberOfRows(inSection: 0), 1)
+        XCTAssertEqual(viewController.tableView.numberOfRows(inSection: 1), 1)
+    }
+
+    func testCallsTableImmediatelyReloadsHostDatasourceWhenSearchTextClearsToNil() {
+        let viewController = LastCallsViewController()
+        viewController.configure()
+        viewController.configureSearchBar()
+        viewController.datasource = [
+            makeLastCallDatasource(messagePrimary: "host-call-1"),
+            makeLastCallDatasource(messagePrimary: "host-call-2")
+        ]
+        viewController.tableView.reloadData()
+        XCTAssertEqual(viewController.tableView.numberOfRows(inSection: 0), 2)
+
+        activateInPlaceSearch(viewController.searchController)
+        viewController.chatSearchResultsController.replaceSnapshot(
+            messages: [makeSearchResultsDatasource(jid: "search-message@example.com")]
+        )
+        viewController.tableView.reloadData()
+        XCTAssertEqual(viewController.tableView.numberOfRows(inSection: 0), 1)
+
+        viewController.searchController.searchBar.text = nil
+        viewController.chatSearchResultsController.updateSearchResults(for: viewController.searchController)
+
+        XCTAssertFalse(viewController.isShowingSearchResults)
+        XCTAssertEqual(viewController.chatSearchResultsController.numberOfSections(), 0)
+        XCTAssertEqual(viewController.tableView.numberOfSections, 1)
+        XCTAssertEqual(viewController.tableView.numberOfRows(inSection: 0), 2)
+    }
+
+    func testLastChatsInPlaceSearchRowsUseCurrentChatTintLikeLastChatsSelection() {
+        let owner = "search-result-selected-\(UUID().uuidString)@example.com"
+        registerAccountColor(owner: owner, colorKey: "blue")
+        let viewController = LastChatsViewController()
+        let datasource = makeSearchResultsDatasource(owner: owner)
+        activateInPlaceSearch(viewController.searchController)
+        viewController.chatSearchResultsController.replaceSnapshot(messages: [datasource])
+        let currentChat = ChatViewController()
+        currentChat.owner = datasource.owner
+        currentChat.jid = datasource.jid
+        currentChat.conversationType = datasource.conversationType
+        viewController.chatSearchResultsController.currentVc = currentChat
+
+        guard let cell = viewController.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        ) as? ChatListTableViewCell else {
+            XCTFail("Search results should render chat-list cells")
+            return
+        }
+
+        let selectedTint = AccountColorManager.shared.palette(for: owner).tint50
+        XCTAssertTrue(cell.backgroundColor?.isEqual(selectedTint) == true)
+        XCTAssertEqual(cell.contentView.backgroundColor, .clear)
+        XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
+        XCTAssertNil(cell.configurationUpdateHandler)
+        assertNoSelectionOutline(in: cell)
+
+        cell.setHighlighted(true, animated: false)
+        cell.updateConfiguration(using: cell.configurationState)
+        cell.setSelected(true, animated: false)
+        cell.updateConfiguration(using: cell.configurationState)
+
+        XCTAssertTrue(cell.backgroundColor?.isEqual(selectedTint) == true)
+        XCTAssertNil(cell.configurationUpdateHandler)
+        assertNoSelectionOutline(in: cell)
+    }
+
+    func testContactsSearchUsesInPlaceCoordinatorAndHostRows() {
+        let owner = "contacts-search-row-\(UUID().uuidString)@example.com"
+        let viewController = ContactsViewController()
+        let datasource = makeSearchResultsDatasource(owner: owner)
+
+        XCTAssertNil(viewController.searchController.searchResultsController)
+        XCTAssertTrue(viewController.searchController.searchResultsUpdater as AnyObject === viewController.chatSearchResultsController)
+        XCTAssertFalse(viewController.searchController.searchResultsUpdater is UIViewController)
+
+        activateInPlaceSearch(viewController.searchController)
+        viewController.chatSearchResultsController.replaceSnapshot(messages: [datasource])
+
+        XCTAssertEqual(viewController.numberOfSections(in: viewController.tableView), 1)
+        XCTAssertEqual(viewController.tableView(viewController.tableView, numberOfRowsInSection: 0), 1)
+        XCTAssertEqual(
+            viewController.tableView(viewController.tableView, titleForHeaderInSection: 0),
+            "Messages".localizeString(id: "groupchat_member_messages", arguments: [])
+        )
+
+        guard let cell = viewController.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        ) as? ChatListTableViewCell else {
+            XCTFail("Contacts in-place search should render chat-list cells")
+            return
+        }
+
+        XCTAssertEqual(cell.backgroundColor, .systemBackground)
+        XCTAssertNil(cell.selectedBackgroundView)
+        XCTAssertEqual(cell.selectionStyle, .none)
+        assertNoSelectionOutline(in: cell)
+    }
+
+    func testCallsSearchUsesInPlaceCoordinatorAndHostRows() {
+        let owner = "calls-search-row-\(UUID().uuidString)@example.com"
+        let viewController = LastCallsViewController()
+        let datasource = makeSearchResultsDatasource(owner: owner)
+
+        XCTAssertNil(viewController.searchController.searchResultsController)
+        XCTAssertTrue(viewController.searchController.searchResultsUpdater as AnyObject === viewController.chatSearchResultsController)
+        XCTAssertFalse(viewController.searchController.searchResultsUpdater is UIViewController)
+
+        activateInPlaceSearch(viewController.searchController)
+        viewController.chatSearchResultsController.replaceSnapshot(messages: [datasource])
+
+        XCTAssertEqual(viewController.numberOfSections(in: viewController.tableView), 1)
+        XCTAssertEqual(viewController.tableView(viewController.tableView, numberOfRowsInSection: 0), 1)
+        XCTAssertEqual(
+            viewController.tableView(viewController.tableView, titleForHeaderInSection: 0),
+            "Messages".localizeString(id: "groupchat_member_messages", arguments: [])
+        )
+
+        guard let cell = viewController.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        ) as? ChatListTableViewCell else {
+            XCTFail("Calls in-place search should render chat-list cells")
+            return
+        }
+
+        XCTAssertEqual(cell.backgroundColor, .systemBackground)
+        XCTAssertNil(cell.selectedBackgroundView)
+        XCTAssertEqual(cell.selectionStyle, .none)
+        assertNoSelectionOutline(in: cell)
+    }
+
+    func testConfigureSearchBarKeepsNativeSearchChromeUnchanged() {
+        withInterfaceType(.split) {
+            let viewController = LastChatsViewController()
+            let searchBar = viewController.searchController.searchBar
+            let searchBarBackground = UIColor(red: 0.91, green: 0.13, blue: 0.21, alpha: 0.24)
+            let searchBarBackgroundImage = makeImage(color: .systemIndigo)
+            let textFieldBackground = searchBar.searchTextField.backgroundColor
+            let textFieldLayerBackground = searchBar.searchTextField.layer.backgroundColor
+            searchBar.backgroundColor = searchBarBackground
+            searchBar.setBackgroundImage(searchBarBackgroundImage, for: .any, barMetrics: .default)
+            searchBar.searchTextField.layer.masksToBounds = true
+
+            viewController.configureSearchBar()
+
+            XCTAssertTrue(viewController.navigationItem.searchController === viewController.searchController)
+            XCTAssertEqual(searchBar.backgroundColor, searchBarBackground)
+            XCTAssertEqual(
+                searchBar.backgroundImage(for: .any, barMetrics: .default)?.pngData(),
+                searchBarBackgroundImage.pngData()
+            )
+            XCTAssertEqual(searchBar.searchTextField.backgroundColor, textFieldBackground)
+            XCTAssertEqual(searchBar.searchTextField.layer.backgroundColor, textFieldLayerBackground)
+            XCTAssertTrue(searchBar.searchTextField.layer.masksToBounds)
+        }
+    }
+
+    func testLastChatsFilterChangeUpdatesNavigationItemsImmediatelyDuringTransition() {
+        withInterfaceType(.split) {
+            let viewController = LastChatsViewController()
+            viewController.configureSearchBar()
+            viewController.configureBars()
+            XCTAssertEqual(
+                viewController.navigationItem.leftBarButtonItem?.accessibilityIdentifier,
+                "chats_sidebar_menu_button"
+            )
+
+            viewController.isNavigationTransitionActive = true
+            viewController.filter.accept(.archived)
+            viewController.configureBarsAfterFilterChange()
+
+            XCTAssertEqual(
+                viewController.navigationItem.leftBarButtonItem?.accessibilityIdentifier,
+                "chats_back_to_chats_button"
+            )
+            let leftItem = viewController.navigationItem.leftBarButtonItem
+            let rightItem = viewController.navigationItem.rightBarButtonItem
+            let searchController = viewController.navigationItem.searchController
+
+            viewController.isNavigationTransitionActive = false
+            viewController.flushPendingNavigationTransitionWork()
+
+            XCTAssertTrue(viewController.navigationItem.leftBarButtonItem === leftItem)
+            XCTAssertTrue(viewController.navigationItem.rightBarButtonItem === rightItem)
+            XCTAssertTrue(viewController.navigationItem.searchController === searchController)
+        }
+    }
+
+    func testSearchAppearanceReturnPreparationKeepsExistingSearchControllerAndNativeChrome() {
+        let sizeClasses: [UIUserInterfaceSizeClass] = [.compact, .regular]
+
+        searchHostScenarios().forEach { scenario in
+            sizeClasses.forEach { horizontalSizeClass in
+                withInterfaceType(.split) {
+                    let host = scenario.make()
+                    let navigationController = UINavigationController(rootViewController: host.viewController)
+                    let container = embedInTraitContainer(navigationController, horizontalSizeClass: horizontalSizeClass)
+                    container.loadViewIfNeeded()
+                    host.configureSearchBar()
+
+                    let searchController = host.searchController
+                    let searchBar = searchController.searchBar
+                    let searchBarBackground = UIColor(red: 0.91, green: 0.13, blue: 0.21, alpha: 0.24)
+                    let textFieldBackground = UIColor(red: 0.07, green: 0.64, blue: 0.23, alpha: 0.18)
+                    searchBar.backgroundColor = searchBarBackground
+                    searchBar.searchTextField.backgroundColor = textFieldBackground
+                    let textFieldLayerBackground = searchBar.searchTextField.layer.backgroundColor
+                    searchBar.searchTextField.layer.masksToBounds = true
+
+                    host.viewWillAppear()
+
+                    XCTAssertTrue(
+                        host.viewController.navigationItem.searchController === searchController,
+                        scenario.name
+                    )
+                    XCTAssertEqual(searchBar.backgroundColor, searchBarBackground, scenario.name)
+                    XCTAssertEqual(searchBar.searchTextField.backgroundColor, textFieldBackground, scenario.name)
+                    XCTAssertTrue(
+                        searchBar.searchTextField.layer.backgroundColor === textFieldLayerBackground,
+                        scenario.name
+                    )
+                    XCTAssertTrue(searchBar.searchTextField.layer.masksToBounds, scenario.name)
+                }
+            }
+        }
+    }
+
+    func testDeferredNavigationTransitionWorkRunsAfterTransitionCompletion() {
+        withInterfaceType(.split) {
+            let viewController = LastChatsViewController()
+            var didRunDeferredWork = false
+
+            viewController.isNavigationTransitionActive = true
+            let didDefer = viewController.deferUntilNavigationTransitionCompletesIfNeeded {
+                didRunDeferredWork = true
+            }
+
+            XCTAssertTrue(didDefer)
+            XCTAssertFalse(didRunDeferredWork)
+
+            viewController.isNavigationTransitionActive = false
+            viewController.flushPendingNavigationTransitionWork()
+
+            XCTAssertTrue(didRunDeferredWork)
+        }
+    }
+
+    func testUpdateBottomTitleDoesNotMutateNavigationItemDuringOrAfterTransition() {
+        withInterfaceType(.split) {
+            let viewController = LastChatsViewController()
+            let existingItem = UIBarButtonItem(barButtonSystemItem: .bookmarks, target: nil, action: nil)
+            NavigationBarItemOwnership.set(.item(existingItem), on: viewController.navigationItem, side: .left, animated: false)
+            viewController.filter.accept(.chats)
+
+            viewController.isNavigationTransitionActive = true
+            viewController.updateBottomTitle()
+
+            XCTAssertTrue(viewController.navigationItem.leftBarButtonItem === existingItem)
+
+            viewController.isNavigationTransitionActive = false
+            viewController.flushPendingNavigationTransitionWork()
+
+            XCTAssertTrue(viewController.navigationItem.leftBarButtonItem === existingItem)
+        }
+    }
+
+    func testConfigureBarsOwnsLastChatsLeadingNavigationItemForSearchModes() {
+        let cases: [(LastChatsViewController.Filter, String)] = [
+            (.chats, "chats_sidebar_menu_button"),
+            (.unread, "chats_sidebar_menu_button"),
+            (.archived, "chats_back_to_chats_button"),
+            (.saved, "chats_back_to_chats_button")
+        ]
+
+        withInterfaceType(.split) {
+            cases.forEach { filter, expectedIdentifier in
+                let viewController = LastChatsViewController()
+                viewController.filter.accept(filter)
+
+                viewController.configureBars()
+
+                XCTAssertEqual(
+                    viewController.navigationItem.leftBarButtonItem?.accessibilityIdentifier,
+                    expectedIdentifier,
+                    "\(filter)"
+                )
+            }
+        }
+    }
+
+    func testSelectedSearchResultDismissesActiveSearchBeforeRoutingInAllHosts() {
+        searchHostScenarios().forEach { scenario in
+            let host = scenario.make()
+            let navigationController = UINavigationController(rootViewController: host.viewController)
+            let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+            container.loadViewIfNeeded()
+            host.configureSearchBar()
+            activateInPlaceSearch(host.searchController)
+
+            let datasource = makeSearchResultsDatasource(
+                owner: "route-\(UUID().uuidString)@example.com",
+                jid: "romeo-\(UUID().uuidString)@example.com"
+            )
+            host.openSearchResult(datasource)
+
+            XCTAssertFalse(host.searchController.isActive, scenario.name)
+            XCTAssertEqual(host.updater.currentVc?.owner, datasource.owner, scenario.name)
+            XCTAssertEqual(host.updater.currentVc?.jid, datasource.jid, scenario.name)
+            XCTAssertEqual(host.updater.currentVc?.conversationType, datasource.conversationType, scenario.name)
+        }
+    }
+
+    func testMatchedCurrentSearchResultDismissesSearchAndDoesNotPushNewChat() {
+        searchHostScenarios().forEach { scenario in
+            let host = scenario.make()
+            let navigationController = UINavigationController(rootViewController: host.viewController)
+            let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+            container.loadViewIfNeeded()
+            host.configureSearchBar()
+            activateInPlaceSearch(host.searchController)
+            let datasource = makeSearchResultsDatasource(
+                owner: "current-\(UUID().uuidString)@example.com",
+                jid: "juliet-\(UUID().uuidString)@example.com"
+            )
+            let currentChat = ChatViewController()
+            currentChat.owner = datasource.owner
+            currentChat.jid = datasource.jid
+            currentChat.conversationType = datasource.conversationType
+            host.updater.currentVc = currentChat
+            let initialStackCount = navigationController.viewControllers.count
+
+            host.openSearchResult(datasource)
+
+            XCTAssertFalse(host.searchController.isActive, scenario.name)
+            XCTAssertTrue(host.updater.currentVc === currentChat, scenario.name)
+            XCTAssertEqual(navigationController.viewControllers.count, initialStackCount, scenario.name)
         }
     }
 
@@ -17889,6 +19040,24 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertEqual(button.layer.shadowOpacity, 0)
     }
 
+    func testLastChatsConfigureBarsReusesNavigationItemsWhenStateIsUnchanged() {
+        withInterfaceType(.split) {
+            let viewController = LastChatsViewController()
+
+            viewController.configureSearchBar()
+            viewController.configureBars()
+            let leftItem = viewController.navigationItem.leftBarButtonItem
+            let rightItem = viewController.navigationItem.rightBarButtonItem
+            let searchController = viewController.navigationItem.searchController
+
+            viewController.configureBars()
+
+            XCTAssertTrue(viewController.navigationItem.leftBarButtonItem === leftItem)
+            XCTAssertTrue(viewController.navigationItem.rightBarButtonItem === rightItem)
+            XCTAssertTrue(viewController.navigationItem.searchController === searchController)
+        }
+    }
+
     private func withInterfaceType(_ interfaceType: CommonConfigManager.InterfaceType, block: () -> Void) {
         let previousInterfaceType = CommonConfigManager.shared.config.interface_type
         defer {
@@ -17897,6 +19066,35 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
 
         CommonConfigManager.shared.config.interface_type = interfaceType.rawValue
         block()
+    }
+
+    private func makeImage(color: UIColor) -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
+            color.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }
+    }
+
+    @discardableResult
+    private func embedInTraitContainer(
+        _ child: UIViewController,
+        horizontalSizeClass: UIUserInterfaceSizeClass
+    ) -> UIViewController {
+        let parent = UIViewController()
+        let window = TraitWindow(horizontalSizeClass: horizontalSizeClass)
+        window.rootViewController = parent
+        window.isHidden = false
+        retainedTraitWindows.append(window)
+        parent.loadViewIfNeeded()
+        parent.addChild(child)
+        parent.setOverrideTraitCollection(
+            UITraitCollection(horizontalSizeClass: horizontalSizeClass),
+            forChild: child
+        )
+        child.loadViewIfNeeded()
+        parent.view.addSubview(child.view)
+        child.didMove(toParent: parent)
+        return parent
     }
 
     private func alpha(of color: UIColor?) -> CGFloat {
@@ -18070,15 +19268,16 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
 
     func testPlainGroupedBackgroundUsesStateDrivenSelectionByDefault() {
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        let selectedColor = UIColor.systemGreen
+        let selectedColor = UIColor(red: 0.12, green: 0.66, blue: 0.28, alpha: 1)
 
         cell.applyPlainGroupedSystemBackground(selectedColor: selectedColor)
 
         XCTAssertNotNil(cell.configurationUpdateHandler)
         XCTAssertEqual(cell.backgroundColor, .systemBackground)
 
-        cell.setHighlighted(true, animated: false)
-        cell.updateConfiguration(using: cell.configurationState)
+        var highlightedState = UICellConfigurationState(traitCollection: cell.traitCollection)
+        highlightedState.isHighlighted = true
+        cell.configurationUpdateHandler?(cell, highlightedState)
 
         XCTAssertTrue(cell.backgroundColor?.isEqual(selectedColor) == true)
         XCTAssertEqual(cell.contentView.backgroundColor, .clear)
@@ -18321,9 +19520,87 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         )
     }
 
-    private func makeChatDatasource(owner: String = "owner@example.com") -> LastChatsViewController.Datasource {
+    private func activateInPlaceSearch(_ searchController: UISearchController) {
+        searchController.searchBar.text = "romeo"
+        searchController.isActive = true
+    }
+
+    private func searchHostScenarios() -> [SearchHostScenario] {
+        [
+            SearchHostScenario(name: "LastChats chats") {
+                self.makeLastChatsSearchHost(filter: .chats)
+            },
+            SearchHostScenario(name: "LastChats archived") {
+                self.makeLastChatsSearchHost(filter: .archived)
+            },
+            SearchHostScenario(name: "LastChats saved") {
+                self.makeLastChatsSearchHost(filter: .saved)
+            },
+            SearchHostScenario(name: "Contacts normal") {
+                self.makeContactsSearchHost(isGroup: false)
+            },
+            SearchHostScenario(name: "Contacts group") {
+                self.makeContactsSearchHost(isGroup: true)
+            },
+            SearchHostScenario(name: "LastCalls") {
+                self.makeLastCallsSearchHost()
+            }
+        ]
+    }
+
+    private func makeLastChatsSearchHost(filter: LastChatsViewController.Filter) -> SearchHost {
+        let viewController = LastChatsViewController()
+        viewController.filter.accept(filter)
+        return SearchHost(
+            viewController: viewController,
+            searchController: viewController.searchController,
+            updater: viewController.chatSearchResultsController,
+            configureSearchBar: { viewController.configureSearchBar() },
+            viewWillAppear: {
+                viewController.beginAppearanceTransition(true, animated: false)
+                viewController.endAppearanceTransition()
+            },
+            openSearchResult: { viewController.openSearchResult($0) }
+        )
+    }
+
+    private func makeContactsSearchHost(isGroup: Bool) -> SearchHost {
+        let viewController = ContactsViewController()
+        viewController.isGroup = isGroup
+        return SearchHost(
+            viewController: viewController,
+            searchController: viewController.searchController,
+            updater: viewController.chatSearchResultsController,
+            configureSearchBar: { viewController.configureSearchBar() },
+            viewWillAppear: {
+                viewController.beginAppearanceTransition(true, animated: false)
+                viewController.endAppearanceTransition()
+            },
+            openSearchResult: { viewController.openSearchResult($0) }
+        )
+    }
+
+    private func makeLastCallsSearchHost() -> SearchHost {
+        let viewController = LastCallsViewController()
+        return SearchHost(
+            viewController: viewController,
+            searchController: viewController.searchController,
+            updater: viewController.chatSearchResultsController,
+            configureSearchBar: { viewController.configureSearchBar() },
+            viewWillAppear: {
+                viewController.beginAppearanceTransition(true, animated: false)
+                viewController.endAppearanceTransition()
+            },
+            openSearchResult: { viewController.openSearchResult($0) }
+        )
+    }
+
+    private func makeChatDatasource(
+        owner: String = "owner@example.com",
+        jid: String = "romeo@example.com"
+    ) -> LastChatsViewController.Datasource {
         LastChatsViewController.Datasource(
-            jid: "romeo@example.com",
+            jid: jid,
             owner: owner,
             username: "Romeo",
             attributedUsername: nil,
@@ -18352,6 +19629,71 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
             isVerificationActionRequired: false,
             specialMessageKind: .none,
             avatars: []
+        )
+    }
+
+    private func makeSearchResultsDatasource(
+        owner: String = "owner@example.com",
+        jid: String = "romeo@example.com"
+    ) -> SearchResultsViewController.Datasource {
+        SearchResultsViewController.Datasource(
+            jid: jid,
+            owner: owner,
+            username: "Romeo",
+            attributedUsername: nil,
+            message: "Hello",
+            date: Date(timeIntervalSince1970: 1_711_283_200),
+            state: nil,
+            isMute: false,
+            isSynced: true,
+            status: .offline,
+            entity: .contact,
+            conversationType: .regular,
+            unread: 0,
+            unreadString: nil,
+            hasUnreadMention: false,
+            color: .clear,
+            isDraft: false,
+            hasAttachment: false,
+            userNickname: nil,
+            isSystemMessage: false,
+            isPinned: false,
+            subRequest: false,
+            isEncrypted: false,
+            avatarUrl: nil,
+            hasErrorInChat: false,
+            updateTS: 0,
+            isVerificationActionRequired: false,
+            messageArchiveId: nil
+        )
+    }
+
+    private func makeContactDatasource(
+        owner: String = "owner@example.com",
+        jid: String = "romeo@example.com",
+        title: String = "Romeo"
+    ) -> ContactsViewController.Datasource {
+        ContactsViewController.Datasource(
+            owner: owner,
+            title: title,
+            jid: jid,
+            subtitle: jid,
+            groups: [],
+            conversationType: .regular
+        )
+    }
+
+    private func makeLastCallDatasource(messagePrimary: String) -> LastCallsViewController.Datasource {
+        LastCallsViewController.Datasource(
+            owner: "owner@example.com",
+            jid: "\(messagePrimary)@example.com",
+            username: "Romeo",
+            avatarUrl: nil,
+            date: Date(timeIntervalSince1970: 1_711_283_200),
+            direction: .outgoing,
+            outgoing: true,
+            messagePrimary: messagePrimary,
+            referencePrimary: nil
         )
     }
 }
@@ -21260,6 +22602,19 @@ final class ChatScrollDownButtonPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(target, .unreadBoundary("300"))
+    }
+
+    func testEffectiveTargetSuppressesUnreadBoundaryWhileMessageAnchorsAreDisabled() {
+        let target = ChatScrollDownTargetPolicy.target(
+            chat: chatState(syncUnreadAfterId: "300"),
+            visibleMessages: [
+                visibleMessage(archivedId: "100"),
+                visibleMessage(archivedId: "299")
+            ]
+        )
+
+        XCTAssertEqual(target, .unreadBoundary("300"))
+        XCTAssertEqual(ChatOpenMessageRequestHandlingPolicy.effectiveScrollDownTarget(target), .latest)
     }
 
     func testTargetPolicyFallsBackToLatestWhenBoundaryIsOlderOrEqualToVisibleRealMessage() {

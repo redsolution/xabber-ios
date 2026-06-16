@@ -491,6 +491,7 @@ extension Account: XMPPStreamDelegate {
             case self.groupchats.read(sender, withIQ: iq): break
             case self.blocked.read(withIQ: iq): break
             case self.msgDeleteManager.read(withIQ: iq): break
+            case self.messageSchedule.read(withIQ: iq): break
             case self.vcards.read(withIQ: iq):
                 _ = self.avatarManager.readFromVcard(iq)
                 break
@@ -784,6 +785,9 @@ extension Account: XMPPStreamDelegate {
                 return
             }
             if self.msgDeleteManager.read(headline: message) {
+                return
+            }
+            if self.messageSchedule.read(headline: message) {
                 return
             }
             if self.trustSharingManager.didReceivedTrustedSharingEvent(message: message) {

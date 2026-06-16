@@ -18,6 +18,7 @@ protocol ChatViewMessagesPanelDelegate {
 
 protocol XabberInputBarDelegate: AnyObject {
     func sendButtonTouchUp(with text: String)
+    func sendButtonLongPressMenuRequested(sourceView: UIView, payload: ComposerMessagePayload)
     func attachmentButtonTouchUp()
     func onAfterburnButtonTouchUp()
     func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat)
@@ -1394,6 +1395,7 @@ class ModernXabberInputView: UIView {
     private var sendButtonState: SendButtonState = .record
     var voiceRecordingInteraction = VoiceRecordingInteractionStateMachine()
     private var voiceRecordingGesture: UILongPressGestureRecognizer?
+    private var textSendMenuGesture: UILongPressGestureRecognizer?
     private var lockedVoiceRecordingCancelGesture: UIPanGestureRecognizer?
     private var voiceRecordingGestureStartLocation: CGPoint?
     private var smoothedRecordingMeteringLevel: CGFloat = 0
@@ -1942,6 +1944,10 @@ class ModernXabberInputView: UIView {
     private var isApplyingComposerMutation: Bool = false
     
     public var barHeight: CGFloat = ModernXabberInputView.defaultBarHeight
+
+    var sendOptionsMenuSourceView: UIView {
+        self.mainInputShadowView
+    }
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -2220,6 +2226,13 @@ class ModernXabberInputView: UIView {
             self.sendButton.removeGestureRecognizer($0)
         }
         self.sendButton.addGestureRecognizer(gesture)
+
+        let textMenuGesture = UILongPressGestureRecognizer(target: self, action: #selector(textSendMenuLongPressGesture(_:)))
+        textMenuGesture.minimumPressDuration = 0.45
+        textMenuGesture.cancelsTouchesInView = true
+        textMenuGesture.delegate = self
+        self.textSendMenuGesture = textMenuGesture
+        self.sendButton.addGestureRecognizer(textMenuGesture)
 
         let lockedCancelGesture = UIPanGestureRecognizer(
             target: self,
@@ -3241,6 +3254,28 @@ class ModernXabberInputView: UIView {
     }
 
     @objc
+    private func textSendMenuLongPressGesture(_ sender: UILongPressGestureRecognizer) {
+        guard sender.state == .began,
+              self.shouldBeginTextSendMenuGesture() else {
+            return
+        }
+        self.hideMentionSuggestions()
+        self.delegate?.sendButtonLongPressMenuRequested(
+            sourceView: self.sendOptionsMenuSourceView,
+            payload: self.currentPayload()
+        )
+    }
+
+    private func shouldBeginTextSendMenuGesture() -> Bool {
+        ChatSendOptionsMenuPolicy.shouldPresentTextSendMenu(
+            sendButtonState: self.sendButtonState,
+            inputState: self.state,
+            isSendButtonEnabled: self.isSendButtonEnabled,
+            body: self.currentPayload().body
+        )
+    }
+
+    @objc
     private func lockedVoiceRecordingCancelPanGesture(_ sender: UIPanGestureRecognizer) {
         let translation = sender.translation(in: self)
         switch sender.state {
@@ -3520,6 +3555,9 @@ extension ModernXabberInputView: UIGestureRecognizerDelegate {
             return self.sendButtonState == .record
                 && self.state == .normal
                 && self.isSendButtonEnabled
+        }
+        if gestureRecognizer === self.textSendMenuGesture {
+            return self.shouldBeginTextSendMenuGesture()
         }
         if gestureRecognizer === self.lockedVoiceRecordingCancelGesture {
             guard case .lockedRecording = self.voiceRecordingInteraction.state else {

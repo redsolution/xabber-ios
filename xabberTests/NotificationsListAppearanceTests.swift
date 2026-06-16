@@ -14,11 +14,13 @@ import RealmSwift
 @MainActor
 final class NotificationsListAppearanceTests: XCTestCase {
     private var previousInterfaceType: String!
+    private var previousUseLargeTitle: Bool!
     private var previousRealmConfiguration: Realm.Configuration!
 
     override func setUp() {
         super.setUp()
         previousInterfaceType = CommonConfigManager.shared.config.interface_type
+        previousUseLargeTitle = CommonConfigManager.shared.config.use_large_title
         previousRealmConfiguration = Realm.Configuration.defaultConfiguration
         CommonConfigManager.shared.config.interface_type = CommonConfigManager.InterfaceType.split.rawValue
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
@@ -28,8 +30,10 @@ final class NotificationsListAppearanceTests: XCTestCase {
 
     override func tearDown() {
         CommonConfigManager.shared.config.interface_type = previousInterfaceType
+        CommonConfigManager.shared.config.use_large_title = previousUseLargeTitle
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
         previousInterfaceType = nil
+        previousUseLargeTitle = nil
         previousRealmConfiguration = nil
         super.tearDown()
     }
@@ -91,6 +95,38 @@ final class NotificationsListAppearanceTests: XCTestCase {
         func shouldFilterBy(category: String?) {
             categoryFilters.append(category)
         }
+    }
+
+    func testNotificationsRootLargeTitleFollowsCommonConfig() {
+        assertLargeTitle(useLargeTitle: true, makeController: NotificationsListViewController.init)
+        assertLargeTitle(useLargeTitle: false, makeController: NotificationsListViewController.init)
+    }
+
+    func testNotificationsCategoriesLargeTitleFollowsCommonConfig() {
+        assertLargeTitle(useLargeTitle: true, makeController: NotificationsCategoriesViewController.init)
+        assertLargeTitle(useLargeTitle: false, makeController: NotificationsCategoriesViewController.init)
+    }
+
+    private func assertLargeTitle(
+        useLargeTitle: Bool,
+        makeController: () -> UIViewController,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        CommonConfigManager.shared.config.use_large_title = useLargeTitle
+        let controller = makeController()
+        let navigationController = NavBarController(rootViewController: controller)
+
+        navigationController.loadViewIfNeeded()
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(navigationController.navigationBar.prefersLargeTitles, useLargeTitle, file: file, line: line)
+        XCTAssertEqual(
+            controller.navigationItem.largeTitleDisplayMode,
+            useLargeTitle ? .automatic : .never,
+            file: file,
+            line: line
+        )
     }
 
     private func assertInformationalHeaderDoesNotAcceptSelectionFeedback(

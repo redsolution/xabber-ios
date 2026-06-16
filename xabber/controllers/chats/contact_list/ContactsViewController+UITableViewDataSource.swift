@@ -24,10 +24,16 @@ import CocoaLumberjack
 
 extension ContactsViewController: UITableViewDataSource {
     func numberOfSections(in tableView: UITableView) -> Int {
+        if isShowingSearchResults {
+            return chatSearchResultsController.numberOfSections()
+        }
         return self.datasource.count
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        if isShowingSearchResults {
+            return chatSearchResultsController.numberOfRows(in: section)
+        }
         return self.datasource[section].count
     }
     
@@ -95,6 +101,9 @@ extension ContactsViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        if isShowingSearchResults {
+            return chatSearchResultsController.titleForHeader(in: section)
+        }
 //        if self.datasource.count == 1, self.datasource[0].count == 0 {
 //            if section == 0 {
 //                return getEmptyStateString()
@@ -109,6 +118,9 @@ extension ContactsViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        if isShowingSearchResults {
+            return nil
+        }
         if section == self.datasource.count - 1 {
             return getFooterString()
         }
@@ -123,6 +135,17 @@ extension ContactsViewController: UITableViewDataSource {
 //    }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if isShowingSearchResults {
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: ChatListTableViewCell.cellName,
+                for: indexPath
+            ) as? ChatListTableViewCell else {
+                fatalError()
+            }
+            chatSearchResultsController.configureSearchResultCell(cell, at: indexPath)
+            return cell
+        }
+
         let item = datasource[indexPath.section][indexPath.row]
         if item.isHeader {
             guard let cell = tableView.dequeueReusableCell(withIdentifier: MenuItemHeaderTableCell.cellName, for: indexPath) as? MenuItemHeaderTableCell else {

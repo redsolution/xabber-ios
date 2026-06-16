@@ -164,6 +164,10 @@ func realmMigrations(scheme: UInt64) {
                     newObject["archiveId"] = oldObject?["messageId"] as? String ?? ""
                 }
             }
+            if oldSchemaVersion < 11 {
+                // XMPPMessageScheduleStorageItem is a new table for pending/failed scheduled messages.
+                // Existing accounts have no local schedule rows to backfill.
+            }
         },
         deleteRealmIfMigrationNeeded: true) { total, used in
             let limit = 100 * 1024 * 1024

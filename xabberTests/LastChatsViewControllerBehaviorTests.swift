@@ -74,6 +74,11 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         XCTAssertEqual(controller.title, expected)
     }
 
+    func testRootLargeTitleFollowsCommonConfig() {
+        assertLargeTitle(useLargeTitle: true)
+        assertLargeTitle(useLargeTitle: false)
+    }
+
     func testFloatingBottomBarTitleUsesConnectingAndUnreadCounts() {
         let controller = LastChatsViewController()
         let previousEnabledAccounts = controller.enabledAccounts.value
@@ -264,6 +269,31 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         CommonConfigManager.shared.config.interface_type = interfaceType.rawValue
         CommonConfigManager.shared.config.use_yubikey = useYubikey
         block()
+    }
+
+    private func assertLargeTitle(
+        useLargeTitle: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let previousUseLargeTitle = CommonConfigManager.shared.config.use_large_title
+        defer {
+            CommonConfigManager.shared.config.use_large_title = previousUseLargeTitle
+        }
+        CommonConfigManager.shared.config.use_large_title = useLargeTitle
+        let controller = LastChatsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+
+        navigationController.loadViewIfNeeded()
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(navigationController.navigationBar.prefersLargeTitles, useLargeTitle, file: file, line: line)
+        XCTAssertEqual(
+            controller.navigationItem.largeTitleDisplayMode,
+            useLargeTitle ? .automatic : .never,
+            file: file,
+            line: line
+        )
     }
 
     private func navigationBarItems(

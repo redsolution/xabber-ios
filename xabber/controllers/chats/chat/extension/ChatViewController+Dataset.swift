@@ -5487,7 +5487,8 @@ extension ChatViewController {
     @discardableResult
     internal func applyFirstFrameLocalHistoryIfNeeded(
         bootstrapState: ChatBootstrapViewState,
-        chatInstance: LastChatsStorageItem? = nil
+        chatInstance: LastChatsStorageItem? = nil,
+        forceLatestBottom: Bool = false
     ) -> Bool {
         let localMessageCount = self.localHistoryMessageCountForBootstrap()
         guard ChatFirstFrameLocalHistoryPolicy.shouldApplySynchronously(
@@ -5531,7 +5532,11 @@ extension ChatViewController {
             self.applyChatDatasource(
                 self.mapDataset(dataset: frozenItems),
                 mode: .fullReload(),
-                animated: false
+                animated: false,
+                invalidateLayout: forceLatestBottom,
+                completion: forceLatestBottom ? {
+                    self.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
+                } : nil
             )
             return true
         } catch {
@@ -5557,11 +5562,17 @@ extension ChatViewController {
             self.setShouldShowInitialMessage(false)
         case .content:
             self.rebuildUnreadMentionItems()
-            if self.applySavedPositionFirstFrameWindowIfNeeded(isSynced: self.currentChatIsSyncedForBootstrap()) {
+            let shouldForceLatestOpen = ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen()
+                && (self.pendingForceLatestOpen || self.initialHistoryAppearancePending)
+            if !shouldForceLatestOpen,
+               self.applySavedPositionFirstFrameWindowIfNeeded(isSynced: self.currentChatIsSyncedForBootstrap()) {
                 return true
             }
             self.setShouldShowInitialMessage(false)
-            if self.applyFirstFrameLocalHistoryIfNeeded(bootstrapState: state) {
+            if self.applyFirstFrameLocalHistoryIfNeeded(
+                bootstrapState: state,
+                forceLatestBottom: shouldForceLatestOpen
+            ) {
                 return true
             }
             if self.pendingOpenMessageRequest != nil || self.activeAnchorExecutionState != nil {
@@ -5569,7 +5580,14 @@ extension ChatViewController {
             }
             self.mapAndApplyTimelineLatest(
                 mode: .fullReload(),
-                animated: self.shouldAnimateInitialHistoryAppearance
+                animated: shouldForceLatestOpen ? false : self.shouldAnimateInitialHistoryAppearance,
+                invalidateLayout: shouldForceLatestOpen,
+                completion: shouldForceLatestOpen ? {
+                    self.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
+                } : nil,
+                cancelledCompletion: shouldForceLatestOpen ? {
+                    self.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
+                } : nil
             )
         case .empty:
             self.unreadMentionItems = []
@@ -7320,6 +7338,13 @@ extension ChatViewController {
                 ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count),
                 ("datasourceCount", self.datasource.count)
             ])
+            if self.pendingForceLatestOpen {
+                self.finishLatestBottomScroll(
+                    animated: self.pendingForceLatestOpenAnimated && !self.initialHistoryAppearancePending,
+                    consumePendingForceLatest: true
+                )
+                return
+            }
             self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
         }
         let shouldOpenLatest = ChatTimelineObserverRefreshPolicy.shouldOpenLatest(
@@ -7328,7 +7353,7 @@ extension ChatViewController {
             isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
             hasActiveRemoteLoad: normalizedState.activeRemoteLoad != nil,
             hasInteractiveRemoteContext: self.interactiveHistoryPageLoadContext != nil
-        )
+        ) || self.pendingForceLatestOpen
         ChatArchiveDebugTrace.log("observerRefreshDecision", [
             ("owner", self.owner),
             ("jid", self.jid),
@@ -7364,6 +7389,11 @@ extension ChatViewController {
     }
     
     internal func scrollToLastOrUnreadItem() {
+        if ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen() {
+            self.requestForceLatestOpen(animated: !self.initialHistoryAppearancePending)
+            return
+        }
+
         if ChatInitialScrollPolicy.shouldDeferDefaultScroll(
             hasPendingAnchorRequest: self.pendingOpenMessageRequest != nil,
             isAnchorNavigationInFlight: self.isMessageAnchorNavigationInFlight
@@ -7372,34 +7402,20 @@ extension ChatViewController {
             return
         }
         let shouldAnimateScroll = !self.initialHistoryAppearancePending
-        guard self.unreadMessagePositionId == nil else {
-            if let index = self.unreadMessagePositionId {
-                if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
-                    self.scrollToBottom(animated: shouldAnimateScroll)
-                    self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: shouldAnimateScroll)
-                } else if index < self.datasource.count {
-                    self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: shouldAnimateScroll)
-                } else {
-                    self.mapAndApplyTimelineLatest(mode: .windowReload(), animated: shouldAnimateScroll, invalidateLayout: true, completion: {
-                        self.scrollToBottom(animated: false)
-                        self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: false)
-                        self.setFloatingDateVisible(true)
-                    })
-                }
+
+        if ChatOpenMessageRequestHandlingPolicy.shouldHonorDefaultUnreadPosition(),
+           let index = self.unreadMessagePositionId {
+            if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
+                self.scrollToBottom(animated: shouldAnimateScroll)
+                self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: shouldAnimateScroll)
+            } else if index < self.datasource.count {
+                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: shouldAnimateScroll)
+            } else {
+                self.scrollToLatestTimeline(animated: shouldAnimateScroll)
             }
             return
         }
-        self.mapAndApplyTimelineLatest(
-            mode: .windowReload(),
-            animated: shouldAnimateScroll,
-            invalidateLayout: true,
-            completion: {
-                if self.datasource.isNotEmpty {
-                    self.scrollToBottom(animated: false)
-                    self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: false)
-                }
-                self.setFloatingDateVisible(true)
-            }
-        )
+
+        self.scrollToLatestTimeline(animated: shouldAnimateScroll)
     }
 }

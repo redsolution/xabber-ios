@@ -23,11 +23,19 @@ public protocol ContextMenuItem {
     var danger: Bool {
         get
     }
+
+    var isEnabled: Bool {
+        get
+    }
 }
 
 extension ContextMenuItem {
     public var image: UIImage? {
         get { return nil }
+    }
+
+    public var isEnabled: Bool {
+        get { return true }
     }
 }
 
@@ -52,12 +60,14 @@ public struct ContextMenuItemWithImage: ContextMenuItem {
     public var image: UIImage?
     public var value: String
     public var danger: Bool
+    public var isEnabled: Bool
     
-    public init(title: String, image: UIImage, value: String, danger: Bool) {
+    public init(title: String, image: UIImage?, value: String, danger: Bool, isEnabled: Bool = true) {
         self.title = title
         self.image = image
         self.value = value
         self.danger = danger
+        self.isEnabled = isEnabled
     }
 }
 
@@ -80,6 +90,11 @@ public class ContextMenuConstants {
         case left
         case center
         case right
+    }
+
+    public enum VerticalPlacement {
+        case automatic
+        case aboveTarget
     }
     
     public var MaxZoom : CGFloat = 1.05
@@ -115,6 +130,8 @@ public class ContextMenuConstants {
     
     public var DismissOnItemTap : Bool = false
     public var horizontalDirection: HorizontalDirection = .left
+    public var verticalPlacement: VerticalPlacement = .automatic
+    public var targetedViewShadowEnabled: Bool = true
 }
 
 open class ContextMenu: NSObject {
@@ -397,11 +414,11 @@ open class ContextMenu: NSObject {
         if animated {
             UIView.animate(withDuration: 0.2) {
                 self.blurEffectView.alpha = 1
-                self.targetedImageView.layer.shadowOpacity = 0.2
+                self.targetedImageView.layer.shadowOpacity = self.MenuConstants.targetedViewShadowEnabled ? 0.2 : 0
             }
         } else {
             self.blurEffectView.alpha = 1
-            self.targetedImageView.layer.shadowOpacity = 0.2
+            self.targetedImageView.layer.shadowOpacity = self.MenuConstants.targetedViewShadowEnabled ? 0.2 : 0
         }
         self.updateTargetedImageViewPosition(animated: animated)
         self.onViewAppear?(self.viewTargeted)
@@ -663,6 +680,14 @@ open class ContextMenu: NSObject {
         }
         
     }
+
+    func updateAboveTargetMenuRect() {
+        let availableHeightAboveTarget = max(0, tvY - MenuConstants.MenuMarginSpace - topMarginSpace)
+        if mH > availableHeightAboveTarget {
+            mH = availableHeightAboveTarget
+        }
+        mY = max(topMarginSpace, tvY - MenuConstants.MenuMarginSpace - mH)
+    }
     
     func updateTargetedImageViewRect() {
         
@@ -685,11 +710,17 @@ open class ContextMenu: NSObject {
         let backgroundHeight = mainViewRect.height - topMarginSpace - bottomMarginSpace
         
         
-        if backgroundHeight > backgroundWidth {
+        switch MenuConstants.verticalPlacement {
+        case .aboveTarget:
             self.updateHorizontalDirection()
-            self.updateVerticalTargetedImageViewRect()
-        } else {
-            self.updateHorizontalTargetedImageViewRect()
+            self.updateAboveTargetMenuRect()
+        case .automatic:
+            if backgroundHeight > backgroundWidth {
+                self.updateHorizontalDirection()
+                self.updateVerticalTargetedImageViewRect()
+            } else {
+                self.updateHorizontalTargetedImageViewRect()
+            }
         }
         tableView.frame = CGRect(x: 0, y: 0, width: mW, height: mH)
         tableView.layoutIfNeeded()
@@ -791,17 +822,33 @@ extension ContextMenu : UITableViewDataSource, UITableViewDelegate {
     }
     
     open func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        if self.onItemTap?(self.items[indexPath.section][indexPath.row].value) ?? false {
-            self.closeAllViews()
+        let item = self.items[indexPath.section][indexPath.row]
+        guard item.isEnabled else {
+            tableView.deselectRow(at: indexPath, animated: false)
+            return
         }
+
+        if self.onItemTap?(item.value) ?? false {
+            self.closeAllViews()
+            return
+        }
+
+        guard let cell = tableView.cellForRow(at: indexPath) as? ContextMenuCell else {
+            return
+        }
+
         if self.delegate?.contextMenuDidSelect(
             self,
-            cell: tableView.cellForRow(at: indexPath) as! ContextMenuCell,
+            cell: cell,
             targetedView: self.viewTargeted,
-            didSelect: self.items[indexPath.section][indexPath.row].value,
+            didSelect: item.value,
             primary: self.currentMessagePrimary) ?? false {
             self.closeAllViews()
         }
+    }
+
+    open func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
+        self.items[indexPath.section][indexPath.row].isEnabled ? indexPath : nil
     }
     
     public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
@@ -817,9 +864,13 @@ extension ContextMenu : UITableViewDataSource, UITableViewDelegate {
     }
     
     open func tableView(_ tableView: UITableView, didDeselectRowAt indexPath: IndexPath) {
+        guard let cell = tableView.cellForRow(at: indexPath) as? ContextMenuCell else {
+            return
+        }
+
         self.delegate?.contextMenuDidDeselect(
             self,
-            cell: tableView.cellForRow(at: indexPath) as! ContextMenuCell,
+            cell: cell,
             targetedView: self.viewTargeted,
             didDeselect: self.items[indexPath.section][indexPath.row].value,
             primary: self.currentMessagePrimary)

@@ -42,7 +42,7 @@
         <!--Contacts-->
         <scene sceneID="dQV-Ma-AME">
             <objects>
-                <navigationController restorationIdentifier="ContactsNavBarViewController" title="Contacts" id="uRa-JJ-lEf" customClass="NavBarController" customModule="xabber" customModuleProvider="target" sceneMemberID="viewController">
+                <navigationController restorationIdentifier="ContactsNavBarViewController" title="Contacts" id="uRa-JJ-lEf" sceneMemberID="viewController">
                     <tabBarItem key="tabBarItem" tag="2" title="Contacts" image="contacts" id="YqP-KI-1X9"/>
                     <navigationBar key="navigationBar" contentMode="scaleToFill" insetsLayoutMarginsFromSafeArea="NO" id="ZE8-Cj-KQo">
                         <rect key="frame" x="0.0" y="20" width="320" height="44"/>
@@ -56,9 +56,9 @@
         <!--Chats-->
         <scene sceneID="g1v-4b-Tm9">
             <objects>
-                <navigationController restorationIdentifier="LastChatshNavBarViewController" title="Chats" id="5Td-4f-rk4" customClass="NavBarController" customModule="xabber" customModuleProvider="target" sceneMemberID="viewController">
+                <navigationController restorationIdentifier="LastChatshNavBarViewController" title="Chats" id="5Td-4f-rk4" sceneMemberID="viewController">
                     <tabBarItem key="tabBarItem" tag="1" title="Chats" image="chat-outline" id="v9l-7H-qYr"/>
-                    <navigationBar key="navigationBar" contentMode="scaleToFill" insetsLayoutMarginsFromSafeArea="NO" id="sec-4b-0OP" customClass="ActivityNavigationBar" customModule="ActivityNavigationBar">
+                    <navigationBar key="navigationBar" contentMode="scaleToFill" insetsLayoutMarginsFromSafeArea="NO" id="sec-4b-0OP">
                         <rect key="frame" x="0.0" y="20" width="320" height="44"/>
                         <autoresizingMask key="autoresizingMask"/>
                     </navigationBar>

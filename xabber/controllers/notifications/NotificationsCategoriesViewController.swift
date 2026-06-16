@@ -98,12 +98,7 @@ class NotificationsCategoriesViewController: BaseViewController {
         self.title = nil
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
         applyNavigationAppearance()
-        if CommonConfigManager.shared.config.use_large_title {
-            navigationItem.largeTitleDisplayMode = .automatic
-        } else {
-            navigationItem.largeTitleDisplayMode = .never
-        }
-        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+        NavigationLargeTitlePolicy.apply(to: self)
         
         view.addSubview(tableView)
         tableView.fillSuperview()
@@ -133,6 +128,16 @@ class NotificationsCategoriesViewController: BaseViewController {
     }
 
     private func applyNavigationAppearance() {
+        guard ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop else {
+            navigationItem.standardAppearance = nil
+            navigationItem.scrollEdgeAppearance = nil
+            navigationItem.compactAppearance = nil
+            if #available(iOS 15.0, *) {
+                navigationItem.compactScrollEdgeAppearance = nil
+            }
+            return
+        }
+
         let appearance = UINavigationBarAppearance()
         appearance.configureWithDefaultBackground()
         appearance.shadowColor = .clear
@@ -211,6 +216,7 @@ class NotificationsCategoriesViewController: BaseViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        NavigationLargeTitlePolicy.apply(to: self)
     }
 
     override func viewDidAppear(_ animated: Bool) {

@@ -74,7 +74,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
 
-        realmMigrations(scheme: 10)
+        realmMigrations(scheme: 11)
         #if RELEASE
         _DEBUG = false
         DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
@@ -483,12 +483,7 @@ extension AppDelegate: UISplitViewControllerDelegate {
     
     func splitViewController(_ svc: UISplitViewController, topColumnForCollapsingToProposedTopColumn proposedTopColumn: UISplitViewController.Column) -> UISplitViewController.Column {
         
-        if CommonConfigManager.shared.config.use_large_title {
-            svc.navigationItem.largeTitleDisplayMode = .automatic
-        } else {
-            svc.navigationItem.largeTitleDisplayMode = .never
-        }
-        svc.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+        NavigationLargeTitlePolicy.apply(to: svc)
           // This guarantees the app launches in chart list when on portrait mode
         return .supplementary
     }

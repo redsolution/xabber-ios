@@ -44,6 +44,7 @@ enum LastChatsNavigationTransitionMutationPolicy {
     ) -> Bool {
         requestedAnimated && !isTransitionActive
     }
+
 }
 
 enum LastChatsBootstrapDatasetUpdatePolicy {
@@ -88,6 +89,19 @@ enum LastChatsBootstrapDatasetUpdatePolicy {
             return .none
         }
         return cancelled ? .drop : .flush
+    }
+}
+
+enum LastChatsTableStylePolicy {
+    static func style(for horizontalSizeClass: UIUserInterfaceSizeClass) -> UITableView.Style {
+        switch horizontalSizeClass {
+        case .compact:
+            return .grouped
+        case .regular, .unspecified:
+            return .insetGrouped
+        @unknown default:
+            return .insetGrouped
+        }
     }
 }
 
@@ -677,8 +691,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     open var leftMenuSelectRootCategoryDelegate: LeftMenuSelectRootScreenDelegate? = nil
     
-    internal let tableView: UITableView = {
-        let view = UITableView(frame: .zero, style: .insetGrouped)
+    internal lazy var tableView: UITableView = {
+        let style = LastChatsTableStylePolicy.style(for: traitCollection.horizontalSizeClass)
+        let view = UITableView(frame: .zero, style: style)
         
         view.register(ChatListTableViewCell.self, forCellReuseIdentifier: ChatListTableViewCell.cellName)
         view.register(ArchivedCell.self, forCellReuseIdentifier: ArchivedCell.cellName)
@@ -726,6 +741,52 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         
         return button
     }()
+
+    internal lazy var accountBarButton: UIBarButtonItem = {
+        UIBarButtonItem(customView: accountNavButton)
+    }()
+
+    internal lazy var chatsTabsAddBarButton: UIBarButtonItem = {
+        UIBarButtonItem(
+            image: UIImage(systemName: "plus")?
+                .upscale(dimension: 24)
+                .withRenderingMode(.alwaysTemplate),
+            style: .plain,
+            target: self,
+            action: #selector(onAddButtonTouchUpInside)
+        )
+    }()
+
+    internal lazy var chatsSplitSidebarButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(
+            image: imageLiteral("sidebar.left"),
+            style: .plain,
+            target: self,
+            action: #selector(onSidebarButtonTouchUp)
+        )
+        button.accessibilityIdentifier = "chats_sidebar_menu_button"
+        return button
+    }()
+
+    internal lazy var chatsSplitAddBarButton: UIBarButtonItem = {
+        UIBarButtonItem(
+            image: imageLiteral("plus"),
+            style: .plain,
+            target: self,
+            action: #selector(onAddButtonTouchUpInside)
+        )
+    }()
+
+    internal lazy var chatsBackButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(
+            image: imageLiteral("chevron.left"),
+            style: .plain,
+            target: self,
+            action: #selector(onBackButtonTouchUpInside)
+        )
+        button.accessibilityIdentifier = "chats_back_to_chats_button"
+        return button
+    }()
     
     internal let refreshControl: UIRefreshControl = {
         let control = UIRefreshControl()
@@ -736,14 +797,10 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         return control
     }()
     
-    internal var searchController: UISearchController = {
-        let searchResults = SearchResultsViewController()
-        let controller = UISearchController(searchResultsController: searchResults)
-        
-        controller.searchResultsUpdater = searchResults
-        controller.searchBar.placeholder = "Search contacts and messages".localizeString(id: "search_contacts_and_messages", arguments: [])
-        
-        return controller
+    internal let chatSearchResultsController = ChatSearchResultsController()
+
+    internal lazy var searchController: UISearchController = {
+        InPlaceSearchHostHelper.makeSearchController(updater: chatSearchResultsController)
     }()
     
     internal let pullDownTableHeaderView: PullDownTableHeaderView = {
@@ -765,7 +822,6 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     private var unreadCounterBag: DisposeBag = DisposeBag()
     
     internal var isFirstLayout: Bool = false
-    internal var isFirstLayoutSearchController: Bool = false
     
     internal var isAppeared: Bool = false
     internal var isNavigationTransitionActive: Bool = false
@@ -2431,6 +2487,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 self.updateTitle(value)
                 self.bottomBar.leftButton.setImage(imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
                 self.updateBottomTitle()
+                self.configureBarsAfterFilterChange()
                 self.updateUnreadChatsCounter()
             })
             .disposed(by: bag)
@@ -2648,6 +2705,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         self.restorationIdentifier = "LastChatsViewController"
         self.restoresFocusAfterTransition = true
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
+        NavigationLargeTitlePolicy.apply(to: self)
         view.addSubview(tableView)
         tableView.fillSuperview()
         tableView.applyContinuousSplitInsetGroupedAppearance()
@@ -2719,107 +2777,84 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     open var shouldShowBottomBar: Bool = true
 
-    internal static func makeLastChatsNavigationAppearance() -> UINavigationBarAppearance {
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
-        appearance.shadowColor = .clear
-        appearance.shadowImage = UIImage()
-        return appearance
-    }
-
-    internal final func applyLastChatsNavigationAppearance() {
-        let appearance = Self.makeLastChatsNavigationAppearance()
-        self.navigationItem.standardAppearance = appearance
-        self.navigationItem.scrollEdgeAppearance = appearance
-        self.navigationItem.compactAppearance = appearance
-        if #available(iOS 15.0, *) {
-            self.navigationItem.compactScrollEdgeAppearance = appearance
-        }
-    }
-
-    internal func configureBars() {
+    internal func configureBars(updateNavigationItems: Bool = true) {
         //self.title = "Chats"
         let shouldAnimateNavigationItems = LastChatsNavigationTransitionMutationPolicy.shouldAnimateMutation(
             requestedAnimated: true,
             isTransitionActive: self.isNavigationTransitionActive
         )
-        NavigationBarItemOwnership.clear(self.navigationItem, animated: false)
         self.updateTitle(self.filter.value)
-        if CommonConfigManager.shared.config.use_large_title {
-            self.navigationItem.largeTitleDisplayMode = .automatic
-        } else {
-            self.navigationItem.largeTitleDisplayMode = .never
-        }
-        self.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
-        self.applyLastChatsNavigationAppearance()
-
-        if #available(iOS 16.0, *) {
-            self.navigationItem.preferredSearchBarPlacement = .stacked
-        }
-        self.navigationItem.hidesSearchBarWhenScrolling = false
 
         securityButton.target = self
         securityButton.action = #selector(onRegisterYubikey)
         switch CommonConfigManager.shared.interfaceType {
             case .tabs:
-                let addBarButton = UIBarButtonItem(
-                    image: UIImage(systemName: "plus")?
-                        .upscale(dimension: 24)
-                        .withRenderingMode(.alwaysTemplate),
-                    style: .plain,
-                    target: self,
-                    action: #selector(onAddButtonTouchUpInside)
-                )
-            if CommonConfigManager.shared.config.use_yubikey {
-                let leftBarButton = UIBarButtonItem(customView: accountNavButton)
-                NavigationBarItemOwnership.apply(
-                    to: self.navigationItem,
-                    left: .item(leftBarButton),
-                    right: .items([addBarButton, securityButton]),
-                    animated: shouldAnimateNavigationItems
-                )
-            } else {
-                let leftBarButton = UIBarButtonItem(customView: accountNavButton)
-                NavigationBarItemOwnership.apply(
-                    to: self.navigationItem,
-                    left: .item(leftBarButton),
-                    right: .item(addBarButton),
-                    animated: shouldAnimateNavigationItems
-                )
-            }
-//                leftBarButton.target = self
-//                leftBarButton.action = #selector(showSettings)
+                if updateNavigationItems {
+                    if CommonConfigManager.shared.config.use_yubikey {
+                        NavigationBarItemOwnership.applyIfChanged(
+                            to: self.navigationItem,
+                            left: tabsLeadingNavigationItemAssignment(),
+                            right: .items([chatsTabsAddBarButton, securityButton]),
+                            animated: shouldAnimateNavigationItems
+                        )
+                    } else {
+                        NavigationBarItemOwnership.applyIfChanged(
+                            to: self.navigationItem,
+                            left: tabsLeadingNavigationItemAssignment(),
+                            right: .item(chatsTabsAddBarButton),
+                            animated: shouldAnimateNavigationItems
+                        )
+                    }
+                }
+                accountNavButton.removeTarget(self, action: #selector(showSettings), for: .touchUpInside)
                 accountNavButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
             case .split:
                 self.bottomBar.isHidden = true
                 self.playerViewToolbar.frame = CGRect(0, 0, self.view.frame.width, AudioPlayerBarView.Metrics.height)
-                if let splitNavigationItem = self.splitViewController?.navigationItem {
-                    NavigationBarItemOwnership.clear(splitNavigationItem, sides: [.left], animated: false)
+                if updateNavigationItems,
+                   let splitNavigationItem = self.splitViewController?.navigationItem {
+                    NavigationBarItemOwnership.clearIfChanged(splitNavigationItem, sides: [.left], animated: false)
                 }
                 
-                let sidebarButton = UIBarButtonItem(image: imageLiteral("sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
-                self.navigationItem.setHidesBackButton(true, animated: false)
-                
-                let addBarButton = UIBarButtonItem(
-                    image: imageLiteral("plus"),//UIImage(systemName: "plus"),
-//                        .upscale(dimension: 24)
-//                        .withRenderingMode(.alwaysTemplate),
-                    style: .plain,
-                    target: self,
-                    action: #selector(onAddButtonTouchUpInside)
-                )
-                NavigationBarItemOwnership.apply(
-                    to: self.navigationItem,
-                    left: .item(sidebarButton),
-                    right: .item(addBarButton),
-                    animated: shouldAnimateNavigationItems
-                )
+                if updateNavigationItems {
+                    self.navigationItem.setHidesBackButton(true, animated: false)
+                    NavigationBarItemOwnership.applyIfChanged(
+                        to: self.navigationItem,
+                        left: splitLeadingNavigationItemAssignment(),
+                        right: .item(chatsSplitAddBarButton),
+                        animated: shouldAnimateNavigationItems
+                    )
+                }
                 
         }
         self.updateFloatingToolbarFilterButtonState()
         self.updateUnreadChatsCounter()
         self.updateTableInsetsForFloatingToolbar()
         
+    }
+
+    private func tabsLeadingNavigationItemAssignment() -> NavigationBarItemOwnership.Assignment {
+        switch filter.value {
+        case .archived, .saved:
+            return .item(chatsBackButton)
+        case .chats, .unread:
+            return .item(accountBarButton)
+        }
+    }
+
+    private func splitLeadingNavigationItemAssignment() -> NavigationBarItemOwnership.Assignment {
+        switch filter.value {
+        case .archived, .saved:
+            return .item(chatsBackButton)
+        case .chats, .unread:
+            return .item(chatsSplitSidebarButton)
+        }
+    }
+
+    internal func configureBarsAfterFilterChange() {
+        UIView.performWithoutAnimation {
+            configureBars(updateNavigationItems: true)
+        }
     }
     
     var normalState: Filter = .chats
@@ -2839,25 +2874,20 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     func updateBottomTitle() {
         var title = ""
+        bottomBar.isHidden = CommonConfigManager.shared.interfaceType == .split || filter.value == .saved
         switch self.filter.value {
             case .archived:
                 title = CommonConfigManager.shared.config.app_name
                 bottomBar.titleButton.setTitleColor(.label, for: .normal)
-                let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
-                NavigationBarItemOwnership.set(.item(backButton), on: self.navigationItem, side: .left, animated: false)
             case .unread:
                 title = "Mark all as read".localizeString(id: "mark_all_as_read_button", arguments: [])
                 bottomBar.titleButton.setTitleColor(.systemBlue, for: .normal)
             case .chats:
                 title = CommonConfigManager.shared.config.app_name
                 bottomBar.titleButton.setTitleColor(.label, for: .normal)
-                let sidebarButton = UIBarButtonItem(image: imageLiteral("sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
-                self.navigationItem.setHidesBackButton(true, animated: false)
-                NavigationBarItemOwnership.set(.item(sidebarButton), on: self.navigationItem, side: .left, animated: false)
             case .saved:
-                bottomBar.isHidden = true
-                let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
-                NavigationBarItemOwnership.set(.item(backButton), on: self.navigationItem, side: .left, animated: false)
+                title = CommonConfigManager.shared.config.app_name
+                bottomBar.titleButton.setTitleColor(.label, for: .normal)
         }
         bottomBar.titleButton.setTitle(title, for: .normal)
         self.updateFloatingToolbarFilterButtonState()
@@ -2906,6 +2936,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         self.updateFloatingToolbarFilterButtonState()
         self.updateUnreadChatsCounter()
         self.updateBottomTitle()
+        self.configureBarsAfterFilterChange()
     }
     
     override func shouldChangeFrame() {
@@ -2929,6 +2960,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
         NotifyManager.shared.setLastChats(displayed: true)
         configure()
+        UIView.performWithoutAnimation {
+            configureBars(updateNavigationItems: true)
+        }
         configureSearchBar()
     }
 
@@ -2938,9 +2972,12 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
+        tableView.applyContinuousSplitInsetGroupedAppearance()
+        NavigationLargeTitlePolicy.apply(to: self)
+        emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
+        emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
         beginNavigationTransitionDeferralIfNeeded()
-        searchController.isActive = false
-        prepareSearchChromeForNavigationTransitionFirstFrame()
         NotifyManager.shared.setLastChats(displayed: true)
         isAppeared = true
         self.tabBarController?.tabBar.isHidden = false
@@ -2956,7 +2993,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             self.securityButton.tintColor = .systemRed
         }
         UIView.performWithoutAnimation {
-            configureBars()
+            configureBars(updateNavigationItems: true)
+            configureSearchBar(forceRebind: false)
         }
         if !self.deferUntilNavigationTransitionCompletesIfNeeded({ [weak self] in
             self?.showPlayerViewIfNeeded()

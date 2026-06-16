@@ -25,6 +25,17 @@ import CocoaLumberjack
 extension LastChatsViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if isShowingSearchResults {
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: ChatListTableViewCell.cellName,
+                for: indexPath
+            ) as? ChatListTableViewCell else {
+                fatalError()
+            }
+            chatSearchResultsController.configureSearchResultCell(cell, at: indexPath)
+            return cell
+        }
+
         guard let item = item(at: indexPath),
               let sectionKind = sectionKind(at: indexPath.section) else {
             fatalError()
@@ -173,12 +184,23 @@ extension LastChatsViewController: UITableViewDataSource {
     }
     
     func numberOfSections(in tableView: UITableView) -> Int {
+        if isShowingSearchResults {
+            return chatSearchResultsController.numberOfSections()
+        }
         return datasourceSections.count
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        if isShowingSearchResults {
+            return chatSearchResultsController.numberOfRows(in: section)
+        }
         guard datasourceSections.indices.contains(section) else { return 0 }
         return datasourceSections[section].rows.count
+    }
+
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        guard isShowingSearchResults else { return nil }
+        return chatSearchResultsController.titleForHeader(in: section)
     }
     
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {

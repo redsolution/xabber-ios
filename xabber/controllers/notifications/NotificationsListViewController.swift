@@ -343,6 +343,7 @@ class NotificationsListViewController: SimpleBaseViewController {
         super.configure()
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
         applyNotificationsNavigationAppearance()
+        NavigationLargeTitlePolicy.apply(to: self)
         if UIDevice.current.userInterfaceIdiom == .pad {
             self.title = nil
         } else {
@@ -356,6 +357,16 @@ class NotificationsListViewController: SimpleBaseViewController {
     }
 
     private func applyNotificationsNavigationAppearance() {
+        guard ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop else {
+            navigationItem.standardAppearance = nil
+            navigationItem.scrollEdgeAppearance = nil
+            navigationItem.compactAppearance = nil
+            if #available(iOS 15.0, *) {
+                navigationItem.compactScrollEdgeAppearance = nil
+            }
+            return
+        }
+
         let appearance = UINavigationBarAppearance()
         appearance.configureWithDefaultBackground()
         appearance.shadowColor = .clear
@@ -882,12 +893,7 @@ class NotificationsListViewController: SimpleBaseViewController {
         super.viewDidLoad()
         self.tabBarController?.tabBar.isHidden = false
         self.tabBarController?.tabBar.layoutIfNeeded()
-//        if CommonConfigManager.shared.config.use_large_title {
-//            self.navigationItem.largeTitleDisplayMode = .automatic
-//        } else {
-            self.navigationItem.largeTitleDisplayMode = .never
-//        }
-        self.navigationController?.navigationBar.prefersLargeTitles = false//CommonConfigManager.shared.config.use_large_title
+        NavigationLargeTitlePolicy.apply(to: self)
         switch CommonConfigManager.shared.interfaceType {
             case .tabs:
                 break
@@ -911,6 +917,7 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        NavigationLargeTitlePolicy.apply(to: self)
         self.configureBars(animated: false)
         self.tabBarController?.tabBar.isHidden = false
         self.tabBarController?.tabBar.layoutIfNeeded()

@@ -28,6 +28,9 @@ extension ContactsViewController: UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        if isShowingSearchResults {
+            return 84
+        }
         let item = datasource[indexPath.section][indexPath.row]
         if item.isHeader {
             return UITableView.automaticDimension
@@ -84,6 +87,11 @@ extension ContactsViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        if isShowingSearchResults {
+            guard let item = chatSearchResultsController.item(at: indexPath) else { return }
+            openSearchResult(item)
+            return
+        }
         let item = datasource[indexPath.section][indexPath.row]
         if item.value.isNotEmpty {
             self.selectSpecialCategory(item.value)

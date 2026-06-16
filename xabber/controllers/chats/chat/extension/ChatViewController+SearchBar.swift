@@ -229,6 +229,32 @@ enum ChatInitialAutomaticOpenPolicy {
     }
 }
 
+enum ChatOpenMessageRequestHandlingPolicy {
+    static func shouldHonorMessageAnchors() -> Bool {
+        false
+    }
+
+    static func shouldForceLatestOnOpen() -> Bool {
+        !shouldHonorMessageAnchors()
+    }
+
+    static func shouldRestoreSavedFirstFramePosition() -> Bool {
+        shouldHonorMessageAnchors()
+    }
+
+    static func shouldHonorMessageAnchorRequest(source: ChatOpenMessageRequestSource) -> Bool {
+        shouldHonorMessageAnchors()
+    }
+
+    static func shouldHonorDefaultUnreadPosition() -> Bool {
+        shouldHonorMessageAnchors()
+    }
+
+    static func effectiveScrollDownTarget(_ target: ChatScrollDownTargetPolicy.Target) -> ChatScrollDownTargetPolicy.Target {
+        shouldHonorMessageAnchors() ? target : .latest
+    }
+}
+
 enum ChatInitialPositionPolicy {
     enum Decision: Equatable {
         case open(ChatOpenMessageRequest)
@@ -254,11 +280,13 @@ enum ChatInitialPositionPolicy {
         for chat: ChatState,
         explicitRequest: ChatOpenMessageRequest?
     ) -> Decision {
-        if let explicitRequest {
+        if let explicitRequest,
+           ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: explicitRequest.source) {
             return .open(explicitRequest)
         }
 
-        if ChatInitialAutomaticOpenPolicy.shouldOpenUnreadBoundaryOnChatOpen(),
+        if ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: .initialUnreadBoundary),
+           ChatInitialAutomaticOpenPolicy.shouldOpenUnreadBoundaryOnChatOpen(),
            chat.unread > 0,
            let boundaryId = normalizedId(chat.syncUnreadAfterId) ?? normalizedId(chat.lastReadId) {
             let sourceDate = archiveDate(from: boundaryId) ?? chat.messageDate
@@ -283,7 +311,8 @@ enum ChatInitialPositionPolicy {
             )
         }
 
-        if ChatInitialAutomaticOpenPolicy.shouldRestoreSavedVisiblePositionOnChatOpen(),
+        if ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: .savedVisiblePosition),
+           ChatInitialAutomaticOpenPolicy.shouldRestoreSavedVisiblePositionOnChatOpen(),
            chat.unread == 0,
            let savedPosition = chat.savedPosition,
            savedPosition.hasAnchor,
@@ -858,6 +887,11 @@ extension ChatViewController {
         _ request: ChatOpenMessageRequest,
         hooks: ChatAnchorExecutionHooks? = nil
     ) {
+        guard ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: request.source) else {
+            self.handleSuppressedOpenMessageRequest(animated: hooks?.animatedScroll ?? false)
+            return
+        }
+
         if self.performLoadedOpenMessageRequestIfPossible(request, hooks: hooks) {
             return
         }
@@ -868,6 +902,36 @@ extension ChatViewController {
         self.activeAnchorExecutionHooks = hooks
         self.syncAnchorExecutionFlags()
         self.performPendingOpenMessageRequestIfNeeded(trigger: .manual)
+    }
+
+    private func handleSuppressedOpenMessageRequest(animated: Bool) {
+        self.requestForceLatestOpen(animated: animated)
+    }
+
+    internal func clearSuppressedOpenMessageRequestState() {
+        if let executionState = self.activeAnchorExecutionState {
+            if let remoteQueryId = executionState.remoteQueryId {
+                self.unregisterRemoteHistoryPersistenceSource(queryId: remoteQueryId)
+            }
+            executionState.contextPrefetchQueryIds.forEach {
+                self.unregisterRemoteHistoryPersistenceSource(queryId: $0)
+            }
+        }
+
+        self.pendingOpenMessageRequest = nil
+        self.activeAnchorExecutionState = nil
+        self.activeAnchorExecutionHooks = nil
+        self.isApplyingBootstrapAnchorWindow = false
+        self.syncAnchorExecutionFlags()
+
+        guard self.isViewLoaded else {
+            return
+        }
+
+        self.setLoadingIndicatorVisible(false)
+        self.setArchiveLoading(false)
+        self.setDatasourceLoadingEnabled(true)
+        self.currentPage.unlock()
     }
 
     private func syncAnchorExecutionFlags() {
@@ -1185,7 +1249,8 @@ extension ChatViewController {
 
     @discardableResult
     internal func applySavedPositionFirstFrameWindowIfNeeded(isSynced: Bool) -> Bool {
-        guard let request = self.pendingOpenMessageRequest,
+        guard ChatOpenMessageRequestHandlingPolicy.shouldRestoreSavedFirstFramePosition(),
+              let request = self.pendingOpenMessageRequest,
               request.owner == self.owner,
               request.chatJid == self.jid,
               request.conversationType == self.conversationType,

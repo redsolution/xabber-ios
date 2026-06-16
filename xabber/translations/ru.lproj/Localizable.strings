@@ -5428,4 +5428,21 @@
 
 
 "registration_title_emojis_not_boring" = "Смайлики не для скучных людей";
-
+"schedule_message_action" = "Запланировать сообщение";
+"send_without_sound_action" = "Отправить без звука";
+"scheduled_messages_title" = "Отложенные сообщения";
+"schedule_send_today_at" = "Отправить сегодня в %@";
+"schedule_send_tomorrow_at" = "Отправить завтра в %@";
+"schedule_send_on" = "Отправить %@";
+"schedule_unavailable_error" = "Отложенные сообщения недоступны на этом сервере.";
+"schedule_send_failed_error" = "Не удалось запланировать сообщение.";
+"schedule_editing_unavailable_error" = "Редактирование отложенного сообщения не поддерживается.";
+"schedule_media_unavailable_error" = "Сейчас можно запланировать только текстовое сообщение.";
+"schedule_encrypted_unavailable_error" = "Отложенные сообщения недоступны в шифрованных чатах.";
+"scheduled_messages_empty" = "Нет отложенных сообщений";
+"scheduled_messages_load_error" = "Не удалось загрузить отложенные сообщения.";
+"scheduled_messages_cancel_error" = "Не удалось отменить отложенное сообщение.";
+"scheduled_messages_cancel" = "Отменить";
+"scheduled_message_preview_fallback" = "Отложенное сообщение";
+"scheduled_message_status_pending" = "Ожидает";
+"scheduled_message_status_failed" = "Ошибка";

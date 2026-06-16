@@ -24,11 +24,7 @@ import UIKit
 extension SearchResultsViewController: UITableViewDataSource {
     
     func numberOfSections(in tableView: UITableView) -> Int {
-        if self.chatsDatasource.count > 0 {
-            return 2
-        } else {
-            return 1
-        }
+        sections.count
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -36,17 +32,29 @@ extension SearchResultsViewController: UITableViewDataSource {
             fatalError()
         }
         
-        let item: Datasource
-        if self.chatsDatasource.count > 0 {
-            switch indexPath.section {
-                case 0: item = self.chatsDatasource[indexPath.row]
-                case 1: item = self.messagesDatasource[indexPath.row]
-                default: fatalError()
-            }
-        } else {
-            item = self.messagesDatasource[indexPath.row]
+        guard let item = item(at: indexPath) else {
+            fatalError()
         }
         
+        configureSearchResultCell(cell, with: item)
+
+        return cell
+    }
+
+    internal func item(at indexPath: IndexPath) -> Datasource? {
+        guard sections.indices.contains(indexPath.section) else { return nil }
+
+        switch sections[indexPath.section].kind {
+        case .contacts:
+            guard chatsDatasource.indices.contains(indexPath.row) else { return nil }
+            return chatsDatasource[indexPath.row]
+        case .messages:
+            guard messagesDatasource.indices.contains(indexPath.row) else { return nil }
+            return messagesDatasource[indexPath.row]
+        }
+    }
+
+    internal func configureSearchResultCell(_ cell: ChatListTableViewCell, with item: Datasource) {
         cell.configure(
             item.jid,
             owner: item.owner,
@@ -75,36 +83,44 @@ extension SearchResultsViewController: UITableViewDataSource {
             hasErrorInChat: item.hasErrorInChat,
             verAction: item.isVerificationActionRequired
         )
-        
         cell.setMask()
-        
-        let view = UIView()
-        view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50 | AccountColorManager.shared.palette(for: item.owner).tint900
-        cell.selectedBackgroundView = view
-        
-        return cell
+
+        let isSelected = isCurrentSearchResult(item)
+        cell.applyPlainGroupedSystemBackground(
+            selectedColor: isSelected
+                ? AccountSelectionHighlightStyle.tint50(
+                    owner: item.owner,
+                    fallbackOwners: Set(enabledAccounts)
+                )
+                : nil,
+            isSelected: isSelected,
+            usesHighlightedStateForSelection: false,
+            usesStateDrivenSelection: false
+        )
+    }
+
+    internal func isCurrentSearchResult(_ item: Datasource) -> Bool {
+        guard let currentVc else { return false }
+
+        return currentVc.jid == item.jid
+            && currentVc.owner == item.owner
+            && currentVc.conversationType == item.conversationType
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if chatsDatasource.count > 0 {
-            switch section {
-                case 0: return self.chatsDatasource.count
-                case 1: return self.messagesDatasource.count
-                default: return 0
-            }
-        } else {
-            switch section {
-                case 0: return self.messagesDatasource.count
-                default: return 0
-            }
+        guard sections.indices.contains(section) else { return 0 }
+
+        switch sections[section].kind {
+        case .contacts:
+            return chatsDatasource.count
+        case .messages:
+            return messagesDatasource.count
         }
     }
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        if self.sections.count == 0 {
-            return nil
-        }
-        return self.sections[section].header
+        guard sections.indices.contains(section) else { return nil }
+        return sections[section].header
     }
     
 //    func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
@@ -113,10 +129,9 @@ extension SearchResultsViewController: UITableViewDataSource {
 //    }
     
     func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
-        if self.chatsDatasource.count > 0 {
-            if section != 1 {
-                return nil
-            }
+        guard sections.indices.contains(section),
+              sections[section].kind == .messages else {
+            return nil
         }
         if self.isLoadingDone {
             return nil

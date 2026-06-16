@@ -539,6 +539,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(ContactCell.self, forCellReuseIdentifier: ContactCell.cellName)
+        view.register(ChatListTableViewCell.self, forCellReuseIdentifier: ChatListTableViewCell.cellName)
 //        view.register(GroupCell.self, forCellReuseIdentifier: GroupCell.cellName)
         view.register(AddContactCell.self, forCellReuseIdentifier: AddContactCell.cellName)
         view.register(GroupInviteCell.self, forCellReuseIdentifier: GroupInviteCell.cellName)
@@ -604,18 +605,10 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         return queue
     }()
     
-    internal var searchController: UISearchController = {
-        let searchResults = SearchResultsViewController()
-        let controller = UISearchController(searchResultsController: searchResults)
-        
-        controller.searchResultsUpdater = searchResults
-        controller.searchBar.searchBarStyle = .default
-        controller.searchBar.placeholder = "Search contacts and messages".localizeString(id: "search_contacts_and_messages", arguments: [])
-        controller.hidesNavigationBarDuringPresentation = false
-        controller.hidesBottomBarWhenPushed = false
-        controller.definesPresentationContext = false
-        
-        return controller
+    internal let chatSearchResultsController = ChatSearchResultsController()
+
+    internal lazy var searchController: UISearchController = {
+        InPlaceSearchHostHelper.makeSearchController(updater: chatSearchResultsController)
     }()
     
     internal let addButton: UIBarButtonItem = {
@@ -1600,29 +1593,11 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
     var filterAccount: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var filterMenu: UIMenu = UIMenu()
 
-    internal static func makeContactsNavigationAppearance() -> UINavigationBarAppearance {
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
-        appearance.shadowColor = .clear
-        appearance.shadowImage = UIImage()
-        return appearance
-    }
-
-    internal final func applyContactsNavigationAppearance() {
-        let appearance = Self.makeContactsNavigationAppearance()
-        navigationItem.standardAppearance = appearance
-        navigationItem.scrollEdgeAppearance = appearance
-        navigationItem.compactAppearance = appearance
-        if #available(iOS 15.0, *) {
-            navigationItem.compactScrollEdgeAppearance = appearance
-        }
-    }
-
     private var contactsNavigationPrefix: String {
         isGroup ? "groups" : "contacts"
     }
 
-    private func makeContactsBackButton() -> UIBarButtonItem {
+    private lazy var contactsBackButton: UIBarButtonItem = {
         let button = UIBarButtonItem(
             image: imageLiteral("chevron.left"),
             style: .plain,
@@ -1631,15 +1606,15 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         )
         button.accessibilityIdentifier = "\(contactsNavigationPrefix)_back_to_chats_button"
         return button
-    }
+    }()
 
-    private func makeContactsFilterButton() -> UIBarButtonItem {
+    private lazy var contactsFilterButton: UIBarButtonItem = {
         let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .plain, target: self, action: nil)
         button.accessibilityIdentifier = "\(contactsNavigationPrefix)_filter_menu_button"
         return button
-    }
+    }()
 
-    private func makeContactsAddButton() -> UIBarButtonItem {
+    private lazy var contactsAddButton: UIBarButtonItem = {
         let button = UIBarButtonItem(
             image: UIImage(systemName: "plus"),
             style: .plain,
@@ -1648,29 +1623,41 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         )
         button.accessibilityIdentifier = "\(contactsNavigationPrefix)_add_button"
         return button
+    }()
+
+    private func makeContactsBackButton() -> UIBarButtonItem {
+        contactsBackButton
     }
-        
-    func configureBars(animated: Bool = false) {
+
+    private func makeContactsFilterButton() -> UIBarButtonItem {
+        contactsFilterButton
+    }
+
+    private func makeContactsAddButton() -> UIBarButtonItem {
+        contactsAddButton
+    }
+
+    func configureBars(animated: Bool = false, updateNavigationItems: Bool = true) {
         self.title = nil
-        self.navigationItem.largeTitleDisplayMode = .never
-        self.navigationController?.navigationBar.prefersLargeTitles = false//CommonConfigManager.shared.config.use_large_title
-        applyContactsNavigationAppearance()
         switch CommonConfigManager.shared.interfaceType {
             case .tabs:
                 break
             case .split:
 //                break
 //                self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
-                
+
                 if UIDevice.current.userInterfaceIdiom != .pad {
 //                    self.navigationItem.setHidesBackButton(true, animated: false)
-                    self.navigationItem.setLeftBarButton(makeContactsBackButton(), animated: animated)
+                    if updateNavigationItems {
+                        NavigationBarItemOwnership.setIfChanged(
+                            .item(makeContactsBackButton()),
+                            on: navigationItem,
+                            side: .left,
+                            animated: animated
+                        )
+                    }
                 }
         }
-        if #available(iOS 16.0, *) {
-            self.navigationItem.preferredSearchBarPlacement = .stacked
-        }
-        self.navigationItem.hidesSearchBarWhenScrolling = false
         securityButton.target = self
         securityButton.action = #selector(onRegisterYubikey)
         
@@ -1881,18 +1868,27 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         
         let addBarButton = makeContactsAddButton()
         let offlineButton = UIBarButtonItem(image: imageLiteral("person"), style: .plain, target: self, action: #selector(showOfflineSelector))
+        let rightAssignment: NavigationBarItemOwnership.Assignment
         if isGroup {
             if childs.count > 0 {
-                self.navigationItem.setRightBarButtonItems([button, addBarButton], animated: animated)
+                rightAssignment = .items([button, addBarButton])
             } else {
-                self.navigationItem.setRightBarButton(addBarButton, animated: animated)
+                rightAssignment = .item(addBarButton)
             }
         } else {
             if childs.count > 0 {
-                self.navigationItem.setRightBarButtonItems([button, addBarButton], animated: animated)
+                rightAssignment = .items([button, addBarButton])
             } else {
-                self.navigationItem.setRightBarButtonItems([addBarButton], animated: animated)
+                rightAssignment = .items([addBarButton])
             }
+        }
+        if updateNavigationItems {
+            NavigationBarItemOwnership.setIfChanged(
+                rightAssignment,
+                on: navigationItem,
+                side: .right,
+                animated: animated
+            )
         }
     }
     
@@ -1978,6 +1974,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
     
     internal func configure() {
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
+        NavigationLargeTitlePolicy.apply(to: self)
         view.addSubview(tableView)
         tableView.fillSuperview()
         tableView.applyContinuousSplitInsetGroupedAppearance()
@@ -2023,7 +2020,16 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        configureBars(animated: false)
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
+        tableView.applyContinuousSplitInsetGroupedAppearance()
+        NavigationLargeTitlePolicy.apply(to: self)
+        emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
+        emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
+        let updateNavigationItems = !isSearchHostNavigationTransitionActive
+        configureBars(animated: false, updateNavigationItems: updateNavigationItems)
+        if !updateNavigationItems {
+            deferConfigureBarsUntilSearchHostNavigationTransitionCompletes()
+        }
         subscribe()
         NotifyManager.shared.setLastChats(displayed: false)
         updateTitle()
@@ -2033,6 +2039,24 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             self.securityButton.tintColor = .systemGreen
         } else {
             self.securityButton.tintColor = .systemRed
+        }
+    }
+
+    private var isSearchHostNavigationTransitionActive: Bool {
+        transitionCoordinator != nil ||
+            navigationController?.transitionCoordinator != nil ||
+            splitViewController?.transitionCoordinator != nil
+    }
+
+    private func deferConfigureBarsUntilSearchHostNavigationTransitionCompletes() {
+        guard let coordinator = transitionCoordinator
+            ?? navigationController?.transitionCoordinator
+            ?? splitViewController?.transitionCoordinator else {
+            return
+        }
+
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            self?.configureBars(animated: false, updateNavigationItems: true)
         }
     }
     

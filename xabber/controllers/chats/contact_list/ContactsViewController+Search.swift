@@ -22,20 +22,37 @@ import Foundation
 import UIKit
 
 extension ContactsViewController {
+    internal var isShowingSearchResults: Bool {
+        chatSearchResultsController.shouldShowResults(for: searchController)
+    }
     
-    internal func configureSearchBar() {
-        if #available(iOS 16.0, *) {
-            navigationItem.preferredSearchBarPlacement = .stacked
+    @discardableResult
+    internal func configureSearchBar(forceRebind: Bool = false) -> Bool {
+        InPlaceSearchHostHelper.attach(
+            searchController: searchController,
+            to: self,
+            updater: chatSearchResultsController,
+            searchControllerDelegate: self,
+            searchBarDelegate: self,
+            forceRebind: forceRebind
+        ) { [weak self] in
+            self?.reloadInPlaceSearchResultsIfNeeded()
         }
-        navigationItem.hidesSearchBarWhenScrolling = false
-        searchController.searchBar.searchBarStyle = .default
-        navigationItem.searchController = searchController
-        searchController.searchBar.searchBarStyle = .default
-        (searchController.searchResultsUpdater as? SearchResultsViewController)?.presenter = self
-        searchController.automaticallyShowsSearchResultsController = true
-        searchController.delegate = self
-        searchController.searchBar.delegate = self
-        definesPresentationContext = true
+    }
+
+    internal func reloadInPlaceSearchResultsIfNeeded() {
+        guard isViewLoaded else { return }
+        UIView.performWithoutAnimation {
+            tableView.reloadData()
+        }
+    }
+
+    internal func clearInPlaceSearchResultsForDismissal() {
+        chatSearchResultsController.reset()
+        guard isViewLoaded else { return }
+        UIView.performWithoutAnimation {
+            tableView.reloadData()
+        }
     }
 }
 
@@ -62,6 +79,7 @@ extension ContactsViewController: UISearchControllerDelegate {
     
     func willDismissSearchController(_ searchController: UISearchController) {
         print("UISearchControllerDelegate invoked method: \(#function).")
+        clearInPlaceSearchResultsForDismissal()
         refreshEmptyStateVisibility(isSearchActive: false)
     }
     
@@ -77,6 +95,29 @@ extension ContactsViewController: SearchResultsDelegateProtocol {
         vc.owner = owner
         vc.jid = jid
         vc.conversationType = conversationType
-        self.navigationController?.pushViewController(vc, animated: true)
+        showStacked(vc, in: self)
+    }
+
+    internal func openSearchResult(_ item: SearchResultsViewController.Datasource) {
+        InPlaceSearchResultRouteHelper.open(
+            item,
+            searchController: searchController,
+            updater: chatSearchResultsController,
+            reload: { [weak self] in
+                self?.reloadInPlaceSearchResultsIfNeeded()
+            },
+            openNewChat: { [weak self] item, completion in
+                guard let self else {
+                    completion(nil)
+                    return
+                }
+                let vc = ChatViewController()
+                vc.owner = item.owner
+                vc.jid = item.jid
+                vc.conversationType = item.conversationType
+                showStacked(vc, in: self)
+                completion(vc)
+            }
+        )
     }
 }

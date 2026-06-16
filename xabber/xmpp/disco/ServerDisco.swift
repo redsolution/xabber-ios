@@ -29,6 +29,7 @@ class ServerDiscoManager: AbstractXMPPManager {
 
     var hasCachedFeatures: Bool = false
     var features: SynchronizedArray<String> = SynchronizedArray<String>()
+    var serverFeatureQueryIds: SynchronizedArray<String> = SynchronizedArray<String>()
 
     var clientFeatures: [String] = []
 
@@ -48,6 +49,7 @@ class ServerDiscoManager: AbstractXMPPManager {
     }
 
     open func configure(_ xmppStream: XMPPStream) {
+        self.requestServerFeatures(xmppStream)
         if !self.loadFeatures() {
             self.requestFeatures(xmppStream)
             self.requestItems(xmppStream)
@@ -82,6 +84,16 @@ class ServerDiscoManager: AbstractXMPPManager {
                                elementID: elementId,
                                child: DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")))
         self.queryIds.insert(elementId)
+    }
+
+    func requestServerFeatures(_ xmppStream: XMPPStream) {
+        let elementId = xmppStream.generateUUID
+        xmppStream.send(XMPPIQ(iqType: .get,
+                               to: xmppStream.myJID?.domainJID,
+                               elementID: elementId,
+                               child: DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")))
+        self.queryIds.insert(elementId)
+        self.serverFeatureQueryIds.insert(elementId)
     }
 
     func requestItems(_ xmppStream: XMPPStream) {
@@ -128,9 +140,16 @@ class ServerDiscoManager: AbstractXMPPManager {
             self.queryIds.contains(elementId)  else {
                 return false
         }
+        let isServerFeatureResponse = serverFeatureQueryIds.contains(elementId)
+        if isServerFeatureResponse {
+            serverFeatureQueryIds.remove(elementId)
+        }
 
         switch query.xmlns() ?? "none" {
         case "http://jabber.org/protocol/disco#info":
+            if isServerFeatureResponse {
+                parseMessageScheduleSettings(query.elements(forName: "feature"), authoritative: true)
+            }
             if parseClientIdentity(iq: iq) {
                 return true
             }
@@ -388,6 +407,18 @@ class ServerDiscoManager: AbstractXMPPManager {
         }
     }
 
+    private func parseMessageScheduleSettings(_ features: [DDXMLElement], authoritative: Bool) {
+        let hasSchedule = features.map {
+            return $0.attributeStringValue(forName: "var")
+        }.contains(XMPPMessageScheduleManager.namespace)
+        if hasSchedule {
+            XMPPMessageScheduleManager.saveAvailability(owner: owner, isAvailable: true)
+        } else if authoritative {
+            XMPPMessageScheduleManager.saveAvailability(owner: owner, isAvailable: false)
+        }
+        AccountManager.shared.find(for: owner)?.messageSchedule.checkAvailability()
+    }
+
     private func saveReliableMessageDeliverySettings(_ node: String) {
         SettingManager.shared.saveItem(for: owner,
                                            scope: .reliableMessageDelivery,
@@ -495,6 +526,11 @@ class ServerDiscoManager: AbstractXMPPManager {
         } catch {
             DDLogDebug("cant get roster item for jid \(jid), account: \(self.owner) to build list of resources")
         }
+    }
+
+    override func clearSession() {
+        queryIds.removeAll()
+        serverFeatureQueryIds.removeAll()
     }
 
     func parseClientFeatures(_ query: DDXMLElement?) -> ClientDiscoStorageItem {

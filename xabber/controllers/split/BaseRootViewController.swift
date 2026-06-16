@@ -177,24 +177,175 @@ class BaseRootViewController: BaseViewController {
     
 }
 
+enum ContinuousSplitBackgroundMode: Equatable {
+    case inactive
+    case deferred
+    case sharedBackdrop
+    case stockCompact
+}
+
 enum ContinuousSplitBackgroundExperiment {
     static let isEnabled = true
 
+    static var mode: ContinuousSplitBackgroundMode {
+        mode(
+            interfaceType: CommonConfigManager.shared.interfaceType,
+            windowHorizontalSizeClass: activeWindowHorizontalSizeClass() ?? .unspecified,
+            splitHorizontalSizeClass: .unspecified,
+            isSplitCollapsed: nil
+        )
+    }
+
     static var isActive: Bool {
-        isEnabled && CommonConfigManager.shared.interfaceType == .split
+        mode == .sharedBackdrop
+    }
+
+    static var usesSplitListChrome: Bool {
+        switch mode {
+        case .sharedBackdrop, .stockCompact:
+            return true
+        case .inactive, .deferred:
+            return false
+        }
+    }
+
+    static func mode(
+        interfaceType: CommonConfigManager.InterfaceType,
+        horizontalSizeClass: UIUserInterfaceSizeClass
+    ) -> ContinuousSplitBackgroundMode {
+        mode(
+            interfaceType: interfaceType,
+            windowHorizontalSizeClass: horizontalSizeClass,
+            splitHorizontalSizeClass: horizontalSizeClass,
+            isSplitCollapsed: false
+        )
+    }
+
+    static func mode(
+        interfaceType: CommonConfigManager.InterfaceType,
+        windowHorizontalSizeClass: UIUserInterfaceSizeClass,
+        splitHorizontalSizeClass _: UIUserInterfaceSizeClass,
+        isSplitCollapsed: Bool?
+    ) -> ContinuousSplitBackgroundMode {
+        guard isEnabled, interfaceType == .split else {
+            return .inactive
+        }
+
+        switch windowHorizontalSizeClass {
+        case .regular:
+            return .sharedBackdrop
+        case .compact:
+            return .stockCompact
+        case .unspecified:
+            return .deferred
+        @unknown default:
+            return .deferred
+        }
+    }
+
+    static func mode(for viewController: UIViewController) -> ContinuousSplitBackgroundMode {
+        let splitViewController = resolvedSplitViewController(for: viewController)
+        return mode(
+            interfaceType: CommonConfigManager.shared.interfaceType,
+            windowHorizontalSizeClass: resolvedWindowHorizontalSizeClass(
+                viewController: viewController,
+                splitViewController: splitViewController
+            ),
+            splitHorizontalSizeClass: splitViewController?.traitCollection.horizontalSizeClass ?? .unspecified,
+            isSplitCollapsed: splitViewController?.isCollapsed
+        )
+    }
+
+    static func mode(for view: UIView) -> ContinuousSplitBackgroundMode {
+        if let viewController = owningViewController(for: view) {
+            return mode(for: viewController)
+        }
+
+        return mode(
+            interfaceType: CommonConfigManager.shared.interfaceType,
+            windowHorizontalSizeClass: view.window?.traitCollection.horizontalSizeClass ?? .unspecified,
+            splitHorizontalSizeClass: .unspecified,
+            isSplitCollapsed: nil
+        )
     }
 
     static func configureTransparentSplit(_ splitViewController: UISplitViewController) {
-        guard isActive else { return }
-        splitViewController.view.backgroundColor = .clear
-        splitViewController.view.isOpaque = false
-        splitViewController.primaryBackgroundStyle = .none
+        switch mode(for: splitViewController) {
+        case .sharedBackdrop:
+            splitViewController.view.backgroundColor = .clear
+            splitViewController.view.isOpaque = false
+            splitViewController.primaryBackgroundStyle = .none
+        case .stockCompact:
+            splitViewController.view.backgroundColor = .systemBackground
+            splitViewController.view.isOpaque = true
+            splitViewController.primaryBackgroundStyle = .sidebar
+        case .inactive, .deferred:
+            break
+        }
     }
 
     static func configureTransparentColumn(_ viewController: UIViewController) {
-        guard isActive else { return }
-        viewController.view.backgroundColor = .clear
-        viewController.view.isOpaque = false
+        switch mode(for: viewController) {
+        case .sharedBackdrop:
+            viewController.view.backgroundColor = .clear
+            viewController.view.isOpaque = false
+        case .stockCompact:
+            viewController.view.backgroundColor = .systemBackground
+            viewController.view.isOpaque = true
+        case .inactive, .deferred:
+            break
+        }
+    }
+
+    private static func resolvedWindowHorizontalSizeClass(
+        viewController: UIViewController,
+        splitViewController: UISplitViewController?
+    ) -> UIUserInterfaceSizeClass {
+        firstSpecifiedHorizontalSizeClass([
+            viewController.viewIfLoaded?.window?.traitCollection.horizontalSizeClass,
+            viewController.navigationController?.viewIfLoaded?.window?.traitCollection.horizontalSizeClass,
+            viewController.parent?.viewIfLoaded?.window?.traitCollection.horizontalSizeClass,
+            viewController.navigationController?.parent?.viewIfLoaded?.window?.traitCollection.horizontalSizeClass,
+            splitViewController?.viewIfLoaded?.window?.traitCollection.horizontalSizeClass
+        ])
+    }
+
+    private static func firstSpecifiedHorizontalSizeClass(
+        _ candidates: [UIUserInterfaceSizeClass?]
+    ) -> UIUserInterfaceSizeClass {
+        candidates
+            .compactMap { $0 }
+            .first { $0 != .unspecified } ?? .unspecified
+    }
+
+    private static func resolvedSplitViewController(for viewController: UIViewController) -> UISplitViewController? {
+        if let splitViewController = viewController as? UISplitViewController {
+            return splitViewController
+        }
+        return viewController.splitViewController
+            ?? viewController.navigationController?.splitViewController
+            ?? viewController.parent?.splitViewController
+    }
+
+    private static func owningViewController(for view: UIView) -> UIViewController? {
+        var responder: UIResponder? = view
+        while let current = responder {
+            if let viewController = current as? UIViewController {
+                return viewController
+            }
+            responder = current.next
+        }
+        return nil
+    }
+
+    private static func activeWindowHorizontalSizeClass() -> UIUserInterfaceSizeClass? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }?
+            .windows
+            .first { $0.isKeyWindow }?
+            .traitCollection
+            .horizontalSizeClass
     }
 }
 
@@ -271,7 +422,10 @@ final class BackgroundRootContainerViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .clear
+        view.backgroundColor = .systemBackground
+        view.isOpaque = true
+        backgroundView.isHidden = true
+        applyBackgroundMode()
         view.addSubview(backgroundView)
         backgroundView.fillSuperview()
 
@@ -291,14 +445,79 @@ final class BackgroundRootContainerViewController: UIViewController {
     deinit {
         NotificationCenter.default.removeObserver(backgroundView)
     }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        applyBackgroundMode()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        applyBackgroundMode()
+    }
+
+    private func applyBackgroundMode() {
+        applyContentBackgroundMode()
+
+        switch ContinuousSplitBackgroundExperiment.mode(for: self) {
+        case .sharedBackdrop:
+            view.backgroundColor = .clear
+            view.isOpaque = false
+            backgroundView.isHidden = false
+        case .stockCompact, .inactive:
+            view.backgroundColor = .systemBackground
+            view.isOpaque = true
+            backgroundView.isHidden = true
+        case .deferred:
+            break
+        }
+    }
+
+    private func applyContentBackgroundMode() {
+        guard let splitViewController = contentViewController as? UISplitViewController else {
+            return
+        }
+
+        ContinuousSplitBackgroundExperiment.configureTransparentSplit(splitViewController)
+        [
+            UISplitViewController.Column.primary,
+            .supplementary,
+            .secondary,
+            .compact
+        ].forEach { column in
+            guard let columnController = splitViewController.viewController(for: column) else {
+                return
+            }
+            applyColumnBackgroundMode(to: columnController)
+        }
+    }
+
+    private func applyColumnBackgroundMode(to viewController: UIViewController) {
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(viewController)
+
+        if let navigationController = viewController as? UINavigationController {
+            SearchSectionNavigationContainerPolicy.applyTransparentSplitAppearanceIfAllowed(to: navigationController)
+            navigationController.viewControllers.forEach {
+                ContinuousSplitBackgroundExperiment.configureTransparentColumn($0)
+            }
+        }
+    }
 }
 
 extension UITableView {
     func applyContinuousSplitInsetGroupedAppearance() {
-        guard ContinuousSplitBackgroundExperiment.isActive else { return }
-        backgroundColor = .clear
-        backgroundView = nil
-        isOpaque = false
+        switch ContinuousSplitBackgroundExperiment.mode(for: self) {
+        case .sharedBackdrop:
+            backgroundColor = .clear
+            backgroundView = nil
+            isOpaque = false
+        case .stockCompact:
+            backgroundColor = .systemGroupedBackground
+            backgroundView = nil
+            isOpaque = true
+        case .inactive, .deferred:
+            break
+        }
     }
 }
 
@@ -531,19 +750,26 @@ extension UITableViewCell {
 }
 
 extension UINavigationController {
-    func applyTransparentSplitAppearance() {
-        guard ContinuousSplitBackgroundExperiment.isActive else { return }
-        view.backgroundColor = .clear
-        view.isOpaque = false
-        navigationBar.isTranslucent = true
+    func applyTransparentSplitAppearance(backgroundMode: ContinuousSplitBackgroundMode? = nil) {
+        switch backgroundMode ?? ContinuousSplitBackgroundExperiment.mode(for: self) {
+        case .sharedBackdrop:
+            view.backgroundColor = .clear
+            view.isOpaque = false
+            navigationBar.isTranslucent = true
 
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithTransparentBackground()
-        appearance.shadowColor = UIColor.separator.withAlphaComponent(0.25)
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithTransparentBackground()
+            appearance.shadowColor = UIColor.separator.withAlphaComponent(0.25)
 
-        navigationBar.standardAppearance = appearance
-        navigationBar.scrollEdgeAppearance = appearance
-        navigationBar.compactAppearance = appearance
-        navigationBar.compactScrollEdgeAppearance = appearance
+            navigationBar.standardAppearance = appearance
+            navigationBar.scrollEdgeAppearance = appearance
+            navigationBar.compactAppearance = appearance
+            navigationBar.compactScrollEdgeAppearance = appearance
+        case .stockCompact:
+            view.backgroundColor = .systemBackground
+            view.isOpaque = true
+        case .inactive, .deferred:
+            break
+        }
     }
 }

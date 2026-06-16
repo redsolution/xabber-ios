@@ -71,6 +71,161 @@ enum LeftMenuSelectionPresentationPolicy {
     }
 }
 
+enum LeftMenuSplitPresentationAnimationPolicy {
+    enum Phase {
+        case destinationPreparation
+        case columnInstallation
+        case selectionReveal
+    }
+
+    static func disablesAnimations(for phase: Phase) -> Bool {
+        switch phase {
+            case .destinationPreparation, .columnInstallation:
+                return true
+            case .selectionReveal:
+                return false
+        }
+    }
+
+    static func revealPhase(for _: LeftMenuSelectionPresentationPolicy.PresentationAction) -> Phase {
+        .selectionReveal
+    }
+}
+
+enum SearchSectionNavigationContainerPolicy {
+    static func requiresNativeDefaultNavigationContainer(for rootViewController: UIViewController) -> Bool {
+        rootViewController is LastChatsViewController ||
+            rootViewController is ContactsViewController ||
+            rootViewController is LastCallsViewController
+    }
+
+    static func requiresNativeDefaultNavigationContainer(for navigationController: UINavigationController) -> Bool {
+        navigationController.viewControllers.contains {
+            requiresNativeDefaultNavigationContainer(for: $0)
+        }
+    }
+
+    static func requiresDeferredAttachedLayout(for navigationController: UINavigationController) -> Bool {
+        requiresNativeDefaultNavigationContainer(for: navigationController)
+    }
+
+    static func requiresDeferredAttachedLayout(for viewController: UIViewController) -> Bool {
+        if let navigationController = viewController as? UINavigationController {
+            return requiresDeferredAttachedLayout(for: navigationController)
+        }
+
+        return requiresNativeDefaultNavigationContainer(for: viewController)
+    }
+
+    @discardableResult
+    static func prepareSearchHostForReveal(
+        _ viewController: UIViewController,
+        in splitViewController: UISplitViewController? = nil,
+        forceSearchRebind: Bool = false
+    ) -> Bool {
+        if let navigationController = viewController as? UINavigationController {
+            return prepareSearchHostForReveal(
+                navigationController,
+                in: splitViewController,
+                forceSearchRebind: forceSearchRebind
+            )
+        }
+
+        return rebindSearchControllerIfNeeded(
+            in: viewController,
+            forceSearchRebind: forceSearchRebind
+        )
+    }
+
+    @discardableResult
+    static func prepareSearchHostForReveal(
+        _ navigationController: UINavigationController,
+        in splitViewController: UISplitViewController? = nil,
+        forceSearchRebind: Bool = false
+    ) -> Bool {
+        applyTransparentSplitAppearanceIfAllowed(to: navigationController, in: splitViewController)
+        var didRebind = false
+        navigationController.viewControllers.forEach { viewController in
+            didRebind = rebindSearchControllerIfNeeded(
+                in: viewController,
+                forceSearchRebind: forceSearchRebind
+            ) || didRebind
+        }
+        return didRebind
+    }
+
+    @discardableResult
+    private static func rebindSearchControllerIfNeeded(
+        in viewController: UIViewController,
+        forceSearchRebind: Bool
+    ) -> Bool {
+        switch viewController {
+        case let viewController as LastChatsViewController:
+            return viewController.configureSearchBar(forceRebind: forceSearchRebind)
+        case let viewController as ContactsViewController:
+            return viewController.configureSearchBar(forceRebind: forceSearchRebind)
+        case let viewController as LastCallsViewController:
+            return viewController.configureSearchBar(forceRebind: forceSearchRebind)
+        default:
+            return false
+        }
+    }
+
+    static func applyTransparentSplitAppearanceIfAllowed(
+        to navigationController: UINavigationController,
+        in splitViewController: UISplitViewController? = nil
+    ) {
+        let backgroundMode = splitViewController.map {
+            ContinuousSplitBackgroundExperiment.mode(for: $0)
+        } ?? ContinuousSplitBackgroundExperiment.mode(for: navigationController)
+
+        switch backgroundMode {
+        case .sharedBackdrop, .stockCompact:
+            guard !requiresNativeDefaultNavigationContainer(for: navigationController) else {
+                applyNativeDefaultSplitAppearance(to: navigationController, backgroundMode: backgroundMode)
+                return
+            }
+            navigationController.applyTransparentSplitAppearance(backgroundMode: backgroundMode)
+        case .inactive, .deferred:
+            break
+        }
+    }
+
+    private static func applyNativeDefaultSplitAppearance(
+        to navigationController: UINavigationController,
+        backgroundMode: ContinuousSplitBackgroundMode
+    ) {
+        switch backgroundMode {
+        case .sharedBackdrop:
+            navigationController.view.backgroundColor = .clear
+            navigationController.view.isOpaque = false
+        case .stockCompact:
+            navigationController.view.backgroundColor = .systemBackground
+            navigationController.view.isOpaque = true
+        case .inactive, .deferred:
+            break
+        }
+
+        let defaultNavigationBar = UINavigationBar()
+        navigationController.navigationBar.isTranslucent = defaultNavigationBar.isTranslucent
+        navigationController.navigationBar.standardAppearance = defaultNavigationBar.standardAppearance
+        navigationController.navigationBar.scrollEdgeAppearance = defaultNavigationBar.scrollEdgeAppearance
+        navigationController.navigationBar.compactAppearance = defaultNavigationBar.compactAppearance
+        navigationController.navigationBar.compactScrollEdgeAppearance = defaultNavigationBar.compactScrollEdgeAppearance
+
+        navigationController.viewControllers
+            .filter { requiresNativeDefaultNavigationContainer(for: $0) }
+            .forEach { viewController in
+                viewController.navigationItem.standardAppearance = nil
+                viewController.navigationItem.scrollEdgeAppearance = nil
+                viewController.navigationItem.compactAppearance = nil
+                if #available(iOS 15.0, *) {
+                    viewController.navigationItem.compactScrollEdgeAppearance = nil
+                }
+            }
+    }
+}
+
 enum LeftMenuFirstPresentationPolicy {
     static func rowAnimation(
         requested: UITableView.RowAnimation,
@@ -213,13 +368,38 @@ enum LeftMenuSplitDestinationPreparer {
     }
 
     static func prepare(_ viewController: UIViewController, targetBounds: CGRect?) {
+        if SearchSectionNavigationContainerPolicy.requiresDeferredAttachedLayout(for: viewController) {
+            return
+        }
+
+        prepareAttached(viewController, targetBounds: targetBounds)
+    }
+
+    static func prepareAttachedIfDeferred(_ viewController: UIViewController, targetBounds: CGRect?) {
+        guard SearchSectionNavigationContainerPolicy.requiresDeferredAttachedLayout(for: viewController) else {
+            return
+        }
+
+        prepareAttached(viewController, targetBounds: targetBounds)
+    }
+
+    static func prepareAttached(_ viewController: UIViewController, targetBounds: CGRect?) {
         guard let targetBounds = targetBounds.flatMap(normalizedNonZeroBounds) else {
             return
         }
 
-        performWithoutAnimations {
+        perform(.destinationPreparation) {
             prepareLoaded(viewController, targetBounds: targetBounds)
         }
+    }
+
+    static func perform(_ phase: LeftMenuSplitPresentationAnimationPolicy.Phase, updates: () -> Void) {
+        guard LeftMenuSplitPresentationAnimationPolicy.disablesAnimations(for: phase) else {
+            updates()
+            return
+        }
+
+        performWithoutAnimations(updates)
     }
 
     static func performWithoutAnimations(_ updates: () -> Void) {
@@ -439,13 +619,13 @@ class LeftMenuViewController: UIViewController {
     var savedMessagesChatsVc: LastChatsViewController? = nil
     
     private let tableView: UITableView = {
-        let style: UITableView.Style = ContinuousSplitBackgroundExperiment.isActive ? .insetGrouped : .grouped
+        let style: UITableView.Style = ContinuousSplitBackgroundExperiment.usesSplitListChrome ? .insetGrouped : .grouped
         let view = UITableView(frame: .zero, style: style)
         
         view.register(MenuItemTableCell.self, forCellReuseIdentifier: MenuItemTableCell.cellName)
 //        view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
         view.applyContinuousSplitInsetGroupedAppearance()
-        if !ContinuousSplitBackgroundExperiment.isActive {
+        if !ContinuousSplitBackgroundExperiment.usesSplitListChrome {
             view.separatorStyle = .none
         }
         view.isScrollEnabled = false
@@ -1340,14 +1520,23 @@ extension LeftMenuViewController: UITableViewDelegate {
     }
 
     private func applySelectionPresentation(to splitVC: UISplitViewController) {
+        if usesStockCompactSplit(splitVC) {
+            let action = selectionPresentationAction(for: splitVC)
+            splitVC.show(.supplementary)
+            if action.hidesPrimary {
+                splitVC.hide(.primary)
+            }
+            return
+        }
+
         let action = selectionPresentationAction(for: splitVC)
-        LeftMenuSplitDestinationPreparer.performWithoutAnimations {
+        let phase = LeftMenuSplitPresentationAnimationPolicy.revealPhase(for: action)
+        LeftMenuSplitDestinationPreparer.perform(phase) {
             splitVC.show(.supplementary)
             if action.hidesPrimary {
                 splitVC.hide(.primary)
             }
             splitVC.view.setNeedsLayout()
-            splitVC.view.layoutIfNeeded()
         }
     }
 
@@ -1357,8 +1546,49 @@ extension LeftMenuViewController: UITableViewDelegate {
             return false
         }
 
+        prepareSearchHostForReveal(in: splitVC, forceSearchRebind: false)
         applySelectionPresentation(to: splitVC)
         return true
+    }
+
+    @discardableResult
+    private func prepareSearchHostForReveal(
+        in splitVC: UISplitViewController,
+        forceSearchRebind: Bool = false
+    ) -> Bool {
+        var didRebind = false
+        [
+            UISplitViewController.Column.supplementary,
+            UISplitViewController.Column.secondary,
+            UISplitViewController.Column.compact
+        ].forEach { column in
+            guard let viewController = splitVC.viewController(for: column) else {
+                return
+            }
+            let targetBounds = LeftMenuSplitDestinationPreparer.targetBounds(
+                for: column,
+                in: splitVC,
+                presenter: self
+            )
+            didRebind = SearchSectionNavigationContainerPolicy.prepareSearchHostForReveal(
+                viewController,
+                in: splitVC,
+                forceSearchRebind: forceSearchRebind
+            ) || didRebind
+            LeftMenuSplitDestinationPreparer.prepareAttachedIfDeferred(
+                viewController,
+                targetBounds: targetBounds
+            )
+        }
+        layoutInstalledSearchChromeForFirstVisibleFrame(
+            in: splitVC,
+            controllers: [
+                splitVC.viewController(for: .supplementary),
+                splitVC.viewController(for: .secondary),
+                splitVC.viewController(for: .compact)
+            ].compactMap { $0 }
+        )
+        return didRebind
     }
 
     private func usesRegularCategorySplit() -> Bool {
@@ -1367,6 +1597,43 @@ extension LeftMenuViewController: UITableViewDelegate {
         }
 
         return selectionPresentationAction(for: splitVC) == .regularRevealSupplementaryAndHidePrimary
+    }
+
+    private func usesStockCompactSplit(_ splitVC: UISplitViewController) -> Bool {
+        ContinuousSplitBackgroundExperiment.mode(for: splitVC) == .stockCompact
+    }
+
+    private func prepareSearchHostForFirstVisibleFrame(
+        _ viewController: UIViewController,
+        in splitVC: UISplitViewController,
+        targetBounds: CGRect?
+    ) {
+        SearchSectionNavigationContainerPolicy.prepareSearchHostForReveal(
+            viewController,
+            in: splitVC
+        )
+        LeftMenuSplitDestinationPreparer.prepareAttachedIfDeferred(
+            viewController,
+            targetBounds: targetBounds
+        )
+    }
+
+    private func layoutInstalledSearchChromeForFirstVisibleFrame(
+        in splitVC: UISplitViewController,
+        controllers: [UIViewController]
+    ) {
+        LeftMenuSplitDestinationPreparer.perform(.destinationPreparation) {
+            splitVC.view.setNeedsLayout()
+            splitVC.view.layoutIfNeeded()
+            controllers.forEach { controller in
+                if let navigationController = controller as? UINavigationController {
+                    navigationController.navigationBar.setNeedsLayout()
+                    navigationController.navigationBar.layoutIfNeeded()
+                }
+                controller.navigationController?.navigationBar.setNeedsLayout()
+                controller.navigationController?.navigationBar.layoutIfNeeded()
+            }
+        }
     }
 
     private func show(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isCalls: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) -> Bool {
@@ -1425,31 +1692,66 @@ extension LeftMenuViewController: UITableViewDelegate {
         }
         
         let nvc = UINavigationController(rootViewController: vc)
-        if !(vc is LastChatsViewController) {
-            nvc.applyTransparentSplitAppearance()
+        let supplementaryTargetBounds = LeftMenuSplitDestinationPreparer.targetBounds(
+            for: .supplementary,
+            in: splitVC,
+            presenter: self
+        )
+        let secondaryTargetBounds = LeftMenuSplitDestinationPreparer.targetBounds(
+            for: .secondary,
+            in: splitVC,
+            presenter: self
+        )
+        if usesStockCompactSplit(splitVC) {
+            splitVC.setViewController(nvc, for: .supplementary)
+            splitVC.setViewController(svc, for: .secondary)
+            prepareSearchHostForFirstVisibleFrame(
+                nvc,
+                in: splitVC,
+                targetBounds: supplementaryTargetBounds
+            )
+            prepareSearchHostForFirstVisibleFrame(
+                svc,
+                in: splitVC,
+                targetBounds: secondaryTargetBounds
+            )
+            layoutInstalledSearchChromeForFirstVisibleFrame(
+                in: splitVC,
+                controllers: [nvc, svc]
+            )
+            applySelectionPresentation(to: splitVC)
+            return true
         }
+
+        SearchSectionNavigationContainerPolicy.applyTransparentSplitAppearanceIfAllowed(to: nvc, in: splitVC)
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(vc)
         LeftMenuSplitDestinationPreparer.prepare(
             nvc,
-            targetBounds: LeftMenuSplitDestinationPreparer.targetBounds(
-                for: .supplementary,
-                in: splitVC,
-                presenter: self
-            )
+            targetBounds: supplementaryTargetBounds
         )
         LeftMenuSplitDestinationPreparer.prepare(
             svc,
-            targetBounds: LeftMenuSplitDestinationPreparer.targetBounds(
-                for: .secondary,
-                in: splitVC,
-                presenter: self
-            )
+            targetBounds: secondaryTargetBounds
         )
-        LeftMenuSplitDestinationPreparer.performWithoutAnimations {
+        LeftMenuSplitDestinationPreparer.perform(.columnInstallation) {
             splitVC.setViewController(nvc, for: .supplementary)
             splitVC.setViewController(svc, for: .secondary)
-            applySelectionPresentation(to: splitVC)
         }
+        prepareSearchHostForFirstVisibleFrame(
+            nvc,
+            in: splitVC,
+            targetBounds: supplementaryTargetBounds
+        )
+        prepareSearchHostForFirstVisibleFrame(
+            svc,
+            in: splitVC,
+            targetBounds: secondaryTargetBounds
+        )
+        layoutInstalledSearchChromeForFirstVisibleFrame(
+            in: splitVC,
+            controllers: [nvc, svc]
+        )
+        applySelectionPresentation(to: splitVC)
         return true
     }
     
@@ -1494,31 +1796,67 @@ extension LeftMenuViewController: UITableViewDelegate {
         }
         (svc as? EmptyChatViewController)?.kind = kind
         let nsvc = UINavigationController(rootViewController: svc)
-        nsvc.applyTransparentSplitAppearance()
-        ContinuousSplitBackgroundExperiment.configureTransparentColumn(vc)
         guard let splitVC = self.splitViewController else {
             return false
         }
+        let supplementaryTargetBounds = LeftMenuSplitDestinationPreparer.targetBounds(
+            for: .supplementary,
+            in: splitVC,
+            presenter: self
+        )
+        let secondaryTargetBounds = LeftMenuSplitDestinationPreparer.targetBounds(
+            for: .secondary,
+            in: splitVC,
+            presenter: self
+        )
+        if usesStockCompactSplit(splitVC) {
+            splitVC.viewControllers = [self, vc, nsvc]
+            prepareSearchHostForFirstVisibleFrame(
+                vc,
+                in: splitVC,
+                targetBounds: supplementaryTargetBounds
+            )
+            prepareSearchHostForFirstVisibleFrame(
+                nsvc,
+                in: splitVC,
+                targetBounds: secondaryTargetBounds
+            )
+            layoutInstalledSearchChromeForFirstVisibleFrame(
+                in: splitVC,
+                controllers: [vc, nsvc]
+            )
+            applySelectionPresentation(to: splitVC)
+            return true
+        }
+
+        SearchSectionNavigationContainerPolicy.applyTransparentSplitAppearanceIfAllowed(to: nsvc, in: splitVC)
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(vc)
         LeftMenuSplitDestinationPreparer.prepare(
             vc,
-            targetBounds: LeftMenuSplitDestinationPreparer.targetBounds(
-                for: .supplementary,
-                in: splitVC,
-                presenter: self
-            )
+            targetBounds: supplementaryTargetBounds
         )
         LeftMenuSplitDestinationPreparer.prepare(
             nsvc,
-            targetBounds: LeftMenuSplitDestinationPreparer.targetBounds(
-                for: .secondary,
-                in: splitVC,
-                presenter: self
-            )
+            targetBounds: secondaryTargetBounds
         )
-        LeftMenuSplitDestinationPreparer.performWithoutAnimations {
+        LeftMenuSplitDestinationPreparer.perform(.columnInstallation) {
             splitVC.viewControllers = [self, vc, nsvc]
-            applySelectionPresentation(to: splitVC)
         }
+        prepareSearchHostForFirstVisibleFrame(
+            vc,
+            in: splitVC,
+            targetBounds: supplementaryTargetBounds
+        )
+        prepareSearchHostForFirstVisibleFrame(
+            nsvc,
+            in: splitVC,
+            targetBounds: secondaryTargetBounds
+        )
+        layoutInstalledSearchChromeForFirstVisibleFrame(
+            in: splitVC,
+            controllers: [vc, nsvc]
+        )
+        applySelectionPresentation(to: splitVC)
         return true
     }
     
@@ -1526,18 +1864,43 @@ extension LeftMenuViewController: UITableViewDelegate {
         guard let splitVC = self.splitViewController else {
             return false
         }
+        let supplementaryTargetBounds = LeftMenuSplitDestinationPreparer.targetBounds(
+            for: .supplementary,
+            in: splitVC,
+            presenter: self
+        )
+        if usesStockCompactSplit(splitVC) {
+            splitVC.viewControllers = [self, vc]
+            prepareSearchHostForFirstVisibleFrame(
+                vc,
+                in: splitVC,
+                targetBounds: supplementaryTargetBounds
+            )
+            layoutInstalledSearchChromeForFirstVisibleFrame(
+                in: splitVC,
+                controllers: [vc]
+            )
+            applySelectionPresentation(to: splitVC)
+            return true
+        }
+
         LeftMenuSplitDestinationPreparer.prepare(
             vc,
-            targetBounds: LeftMenuSplitDestinationPreparer.targetBounds(
-                for: .supplementary,
-                in: splitVC,
-                presenter: self
-            )
+            targetBounds: supplementaryTargetBounds
         )
-        LeftMenuSplitDestinationPreparer.performWithoutAnimations {
+        LeftMenuSplitDestinationPreparer.perform(.columnInstallation) {
             splitVC.viewControllers = [self, vc]
-            applySelectionPresentation(to: splitVC)
         }
+        prepareSearchHostForFirstVisibleFrame(
+            vc,
+            in: splitVC,
+            targetBounds: supplementaryTargetBounds
+        )
+        layoutInstalledSearchChromeForFirstVisibleFrame(
+            in: splitVC,
+            controllers: [vc]
+        )
+        applySelectionPresentation(to: splitVC)
         return true
     }
     

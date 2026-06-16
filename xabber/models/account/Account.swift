@@ -2645,6 +2645,7 @@ final class Account: NSObject {
     var groupchats: GroupchatManager
     var deliveryManager: ReliableMessageDeliveryManager
     var msgDeleteManager: MessageDeleteManager
+    var messageSchedule: XMPPMessageScheduleManager
     var syncManager: ClientSynchronizationManager
     var x509Manager: X509XMPPManager
     var omemo: OmemoManager
@@ -2744,6 +2745,7 @@ final class Account: NSObject {
         self.groupchats = GroupchatManager(withOwner: self.jid)
         self.deliveryManager = ReliableMessageDeliveryManager(withOwner: self.jid)
         self.msgDeleteManager = MessageDeleteManager(withOwner: self.jid)
+        self.messageSchedule = XMPPMessageScheduleManager(withOwner: self.jid)
         self.syncManager = ClientSynchronizationManager(withOwner: self.jid)
         self.omemo = OmemoManager(withOwner: self.jid)
         self.x509Manager = X509XMPPManager(withOwner: self.jid)
@@ -3159,6 +3161,7 @@ final class Account: NSObject {
         self.disco.register(omemo)
         self.disco.register(x509Manager)
         self.disco.register(trustSharingManager)
+        self.disco.register(messageSchedule)
     }
     
     public final func registerRegularPushForAccount() {
@@ -3274,6 +3277,7 @@ final class Account: NSObject {
             self.groupchats,
             self.deliveryManager,
             self.msgDeleteManager,
+            self.messageSchedule,
             self.syncManager,
             self.x509Manager,
             self.omemo,

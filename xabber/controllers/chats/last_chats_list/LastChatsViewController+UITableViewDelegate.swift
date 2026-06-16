@@ -119,6 +119,10 @@ extension LastChatsViewController: UITableViewDelegate {
         )
 
         guard let chat = chat else {
+            guard let explicitOpenMessageRequest,
+                  ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: explicitOpenMessageRequest.source) else {
+                return nil
+            }
             return explicitOpenMessageRequest
         }
 
@@ -190,6 +194,10 @@ extension LastChatsViewController: UITableViewDelegate {
             )
         } catch {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+            guard let explicitOpenMessageRequest,
+                  ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: explicitOpenMessageRequest.source) else {
+                return nil
+            }
             return explicitOpenMessageRequest
         }
     }
@@ -214,6 +222,9 @@ extension LastChatsViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        if isShowingSearchResults {
+            return 84
+        }
         guard let item = self.item(at: indexPath) else { return 0 }
         switch item.specialMessageKind {
             case .none: return 84
@@ -222,6 +233,11 @@ extension LastChatsViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        if isShowingSearchResults {
+            guard let item = chatSearchResultsController.item(at: indexPath) else { return }
+            openSearchResult(item)
+            return
+        }
         if self.showSkeleton.value {
             return
         }
@@ -255,6 +271,8 @@ extension LastChatsViewController: UITableViewDelegate {
                         DispatchQueue.main.async {
                             if let openMessageRequest {
                                 chatVc.queueOpenMessageRequest(openMessageRequest)
+                            } else if ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen() {
+                                chatVc.requestForceLatestOpen(animated: false)
                             } else {
                                 chatVc.performPendingOpenMessageRequestIfNeeded()
                             }
@@ -291,6 +309,8 @@ extension LastChatsViewController: UITableViewDelegate {
             configureCallback?(oldVc)
             if let openMessageRequest {
                 oldVc.queueOpenMessageRequest(openMessageRequest)
+            } else if ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen() {
+                oldVc.requestForceLatestOpen(animated: false)
             } else if oldVc.pendingOpenMessageRequest != nil || oldVc.activeAnchorExecutionState != nil {
                 oldVc.performPendingOpenMessageRequestIfNeeded()
             } else {
@@ -328,10 +348,13 @@ extension LastChatsViewController: UITableViewDelegate {
         vc.lastChatsDisplayDelegate = self
         if let openMessageRequest {
             vc.queueOpenMessageRequest(openMessageRequest)
+        } else if ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen() {
+            vc.requestForceLatestOpen(animated: false)
         }
         configureCallback?(vc)
         if vc.pendingOpenMessageRequest == nil,
            vc.activeAnchorExecutionState == nil,
+           !vc.pendingForceLatestOpen,
            openMessageRequest == nil {
             let initialRequest = self.initialOpenRequest(
                 owner: owner,

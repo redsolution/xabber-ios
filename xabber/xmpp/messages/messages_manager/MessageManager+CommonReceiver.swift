@@ -676,6 +676,7 @@ extension MessageManager {
             }
             
             instance.previousId = getPreviousId(item.message)
+            XMPPMessageScheduleManager.applyDeferredMetadata(to: instance, source: item.message)
 //            print("PIPELINED", item.message)
             
             
@@ -1061,6 +1062,7 @@ extension MessageManager {
             ("count", batch.messages.count)
         ])
         var outcomes: [ArchivePersistenceOutcomeItem] = []
+        var persistedMessages: [MessageStorageItem] = []
         var referencePrepareMs = 0
         var referenceCount = 0
 
@@ -1082,6 +1084,9 @@ extension MessageManager {
                 }
                 if let outcome {
                     outcomes.append(outcome)
+                    if outcome.outcome != .failed {
+                        persistedMessages.append(message)
+                    }
                 }
                 if let notification = sideEffects?.notification {
                     NotifyManager.shared.update(
@@ -1132,6 +1137,7 @@ extension MessageManager {
             }
         }
 
+        AccountManager.shared.find(for: self.owner)?.messageSchedule.reconcileDeliveredScheduleMarkers(from: persistedMessages)
         self.recordArchivePersistenceOutcomes(outcomes)
         let summary = self.archiveSummary(from: outcomes)
         ChatArchiveDebugTrace.log("messageSaveFallbackFinish", [
@@ -1249,6 +1255,7 @@ extension MessageManager {
             }
             let referencePrepareMs = ChatArchiveDebugTrace.milliseconds(since: referencePrepareStartedAt)
             AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
+            AccountManager.shared.find(for: self.owner)?.messageSchedule.reconcileDeliveredScheduleMarkers(from: batch.messages)
             self.recordArchivePersistenceOutcomes(outcomes)
             let summary = self.archiveSummary(from: outcomes)
             ChatArchiveDebugTrace.log("messageSaveFinish", [

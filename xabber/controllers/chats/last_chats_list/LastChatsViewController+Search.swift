@@ -21,68 +21,38 @@
 import Foundation
 import UIKit
 
-enum LastChatsSearchChromePolicy {
-    static func apply(
-        to searchBar: UISearchBar,
-        isContinuousSplitBackgroundActive: Bool
-    ) {
-        guard isContinuousSplitBackgroundActive else { return }
-
-        searchBar.searchBarStyle = .default
-        searchBar.backgroundColor = nil
-        searchBar.isTranslucent = true
-        searchBar.setBackgroundImage(nil, for: .any, barMetrics: .default)
-
-        let textField = searchBar.searchTextField
-        textField.backgroundColor = nil
-        textField.layer.backgroundColor = nil
-        textField.layer.masksToBounds = false
-        textField.setNeedsLayout()
-        textField.layoutIfNeeded()
-    }
-}
-
 extension LastChatsViewController {
-
-    internal func applySearchChromeForCurrentPresentation() {
-        LastChatsSearchChromePolicy.apply(
-            to: searchController.searchBar,
-            isContinuousSplitBackgroundActive: ContinuousSplitBackgroundExperiment.isActive
-        )
+    internal var isShowingSearchResults: Bool {
+        chatSearchResultsController.shouldShowResults(for: searchController)
     }
 
-    internal func prepareSearchChromeForNavigationTransitionFirstFrame() {
-        applySearchChromeForCurrentPresentation()
+    @discardableResult
+    internal func configureSearchBar(forceRebind: Bool = false) -> Bool {
+        InPlaceSearchHostHelper.attach(
+            searchController: searchController,
+            to: self,
+            updater: chatSearchResultsController,
+            searchControllerDelegate: self,
+            searchBarDelegate: self,
+            forceRebind: forceRebind
+        ) { [weak self] in
+            self?.reloadInPlaceSearchResultsIfNeeded()
+        }
+    }
+
+    internal func reloadInPlaceSearchResultsIfNeeded() {
+        guard isViewLoaded else { return }
         UIView.performWithoutAnimation {
-            searchController.searchBar.setNeedsLayout()
-            searchController.searchBar.layoutIfNeeded()
-            navigationController?.navigationBar.setNeedsLayout()
-            navigationController?.navigationBar.layoutIfNeeded()
+            tableView.reloadData()
         }
     }
-    
-    internal func configureSearchBar() {
-        if isFirstLayoutSearchController {
-            return
+
+    internal func clearInPlaceSearchResultsForDismissal() {
+        chatSearchResultsController.reset()
+        guard isViewLoaded else { return }
+        UIView.performWithoutAnimation {
+            tableView.reloadData()
         }
-        isFirstLayoutSearchController = false
-//        searchController.searchBar.backgroundColor = .white
-//        searchController.searchBar.barTintColor = .gray
-//        searchController.searchBar.tintColor = .blue
-//        searchController.searchBar.barStyle = .default
-        applySearchChromeForCurrentPresentation()
-        if #available(iOS 16.0, *) {
-            navigationItem.preferredSearchBarPlacement = .stacked
-        }
-        navigationItem.hidesSearchBarWhenScrolling = false
-        navigationItem.searchController = searchController
-//        searchController.searchBar.sizeToFit()
-        (searchController.searchResultsUpdater as? SearchResultsViewController)?.presenter = self
-        searchController.automaticallyShowsSearchResultsController = true
-        
-        searchController.delegate = self
-        searchController.searchBar.delegate = self
-        definesPresentationContext = true
     }
 }
 
@@ -109,6 +79,7 @@ extension LastChatsViewController: UISearchControllerDelegate {
     
     func willDismissSearchController(_ searchController: UISearchController) {
         print("UISearchControllerDelegate invoked method: \(#function).")
+        clearInPlaceSearchResultsForDismissal()
         refreshEmptyStateVisibility(isSearchActive: false)
     }
     

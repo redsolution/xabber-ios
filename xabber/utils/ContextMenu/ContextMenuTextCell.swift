@@ -60,14 +60,29 @@ class ContextMenuTextCell: ContextMenuCell {
         
         titleLabel.text = nil
         iconImageView.image = nil
+        contentView.alpha = 1
+        selectionStyle = .default
         
     }
     
     open override func setup(){
         titleLabel.text = item.title
+        let enabled = item.isEnabled
+        contentView.alpha = enabled ? 1 : 0.55
+        selectionStyle = enabled ? .default : .none
+
         if let menuConstants = style {
             titleLabel.font = menuConstants.LabelDefaultFont
-            if item.danger {
+            if !enabled {
+                let disabledColor: UIColor
+                if #available(iOS 13.0, *) {
+                    disabledColor = .secondaryLabel
+                } else {
+                    disabledColor = .gray
+                }
+                self.titleLabel.textColor = disabledColor
+                self.iconImageView.tintColor = disabledColor
+            } else if item.danger {
                 self.titleLabel.textColor = .systemRed
                 self.iconImageView.tintColor = .systemRed
             } else {

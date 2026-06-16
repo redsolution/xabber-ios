@@ -813,6 +813,137 @@ extension ChatViewController: XabberInputBarDelegate {
     func onTextDidChange(to text: String?) {
         self.draftMessageText.accept(text)
     }
+
+    func sendButtonLongPressMenuRequested(sourceView: UIView, payload: ComposerMessagePayload) {
+        guard !self.showSkeletonObserver.value else { return }
+        let menuState = ChatSendOptionsMenuPolicy.makeMenuState(scheduleContext: ChatScheduleActionContext(
+            scheduleAvailable: self.scheduledMessageService.isScheduleAvailable(owner: self.owner),
+            isEditingMessage: self.editMessageId.value?.isNotEmpty == true,
+            hasRecordedAudio: self.recordedReferenceObject != nil,
+            hasUnsupportedMediaAttachment: false,
+            conversationType: self.conversationType
+        ))
+        self.sendOptionsContextMenu?.closeMenu(withAnimation: false)
+
+        let menu = ContextMenu(window: self.view.window ?? self.view)
+        ChatSendOptionsContextMenuBuilder.configure(menu)
+        menu.items = ChatSendOptionsContextMenuBuilder.makeItems(menuState: menuState)
+        menu.currentMessagePrimary = nil
+        menu.onItemTap = { [weak self] value in
+            guard let self else { return false }
+            return ChatSendOptionsContextMenuBuilder.handleSelection(value) { [weak self] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                    self?.showScheduleDatePicker(for: payload)
+                }
+            }
+        }
+        menu.onViewDismiss = { [weak self, weak menu] _ in
+            guard let self,
+                  self.sendOptionsContextMenu === menu else {
+                return
+            }
+            self.sendOptionsContextMenu = nil
+        }
+        self.sendOptionsContextMenu = menu
+        menu.showMenu(viewTargeted: sourceView, delegate: self, animated: true)
+    }
+
+    private func showScheduleDatePicker(for payload: ComposerMessagePayload) {
+        guard self.canSchedulePayload(payload, showError: true) else { return }
+        let picker = ScheduledMessageDatePickerViewController { [weak self] selectedDate in
+            self?.sendScheduledMessage(payload: payload, deliverAt: selectedDate)
+        }
+        self.present(picker, animated: true)
+    }
+
+    private func canSchedulePayload(_ payload: ComposerMessagePayload, showError: Bool) -> Bool {
+        let menuState = ChatSendOptionsMenuPolicy.makeMenuState(scheduleContext: ChatScheduleActionContext(
+            scheduleAvailable: self.scheduledMessageService.isScheduleAvailable(owner: self.owner),
+            isEditingMessage: self.editMessageId.value?.isNotEmpty == true,
+            hasRecordedAudio: self.recordedReferenceObject != nil,
+            hasUnsupportedMediaAttachment: false,
+            conversationType: self.conversationType
+        ))
+        guard payload.body.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty,
+              menuState.schedule.isEnabled else {
+            if showError {
+                ToastPresenter().presentError(message: self.scheduleErrorMessage(for: menuState.schedule.disabledReason))
+            }
+            return false
+        }
+        return true
+    }
+
+    private func sendScheduledMessage(payload: ComposerMessagePayload, deliverAt: Date) {
+        guard self.canSchedulePayload(payload, showError: true) else { return }
+        let request = ChatScheduledMessageSendRequest(
+            owner: self.owner,
+            conversation: self.jid,
+            conversationType: self.conversationType,
+            deliverAt: deliverAt,
+            body: payload.body,
+            references: payload.references,
+            forwardedMessagePrimaries: self.attachedMessagesIds.value
+        )
+        let coordinator = ChatScheduledMessageSendCoordinator(service: self.scheduledMessageService)
+        _ = coordinator.schedule(
+            request,
+            onSuccess: { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.completeScheduledMessageSend()
+                }
+            },
+            onFailure: { [weak self] error in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    ToastPresenter().presentError(message: self.scheduleErrorMessage(for: error))
+                }
+            }
+        )
+    }
+
+    private func completeScheduledMessageSend() {
+        self.xabberInputView.clearComposer()
+        self.xabberInputView.textViewDidChange()
+        self.draftMessageText.accept(nil)
+        self.clearAttachments()
+        self.unreadMessagePositionId = nil
+        FeedbackManager.shared.generate(feedback: .success)
+        self.openScheduledMessagesModal()
+    }
+
+    private func openScheduledMessagesModal() {
+        let vc = ScheduledMessagesViewController()
+        vc.owner = self.owner
+        vc.jid = self.jid
+        vc.conversationType = self.conversationType
+        vc.scheduledMessageService = self.scheduledMessageService
+        showModal(vc, parent: self)
+    }
+
+    private func scheduleErrorMessage(for reason: ChatSendOptionsDisabledReason?) -> String {
+        switch reason {
+        case .scheduleUnavailable:
+            return "Scheduled messages are unavailable on this server.".localizeString(id: "schedule_unavailable_error", arguments: [])
+        case .editingMessage:
+            return "Scheduled editing is not supported.".localizeString(id: "schedule_editing_unavailable_error", arguments: [])
+        case .unsupportedMedia:
+            return "Only text messages can be scheduled right now.".localizeString(id: "schedule_media_unavailable_error", arguments: [])
+        case .encryptedConversation:
+            return "Scheduled messages are unavailable in encrypted chats.".localizeString(id: "schedule_encrypted_unavailable_error", arguments: [])
+        case .silentSendUnsupported, .none:
+            return "Could not schedule message.".localizeString(id: "schedule_send_failed_error", arguments: [])
+        }
+    }
+
+    private func scheduleErrorMessage(for error: XMPPMessageScheduleManager.ScheduleError) -> String {
+        switch error {
+        case .unavailable:
+            return "Scheduled messages are unavailable on this server.".localizeString(id: "schedule_unavailable_error", arguments: [])
+        default:
+            return "Could not schedule message.".localizeString(id: "schedule_send_failed_error", arguments: [])
+        }
+    }
     
     func sendButtonTouchUp( with text: String) {
         let payload = self.xabberInputView.currentPayload()

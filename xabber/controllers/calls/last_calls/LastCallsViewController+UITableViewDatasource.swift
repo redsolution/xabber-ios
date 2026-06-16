@@ -22,7 +22,25 @@ import Foundation
 import UIKit
 
 extension LastCallsViewController: UITableViewDataSource {
+    func numberOfSections(in tableView: UITableView) -> Int {
+        if isShowingSearchResults {
+            return chatSearchResultsController.numberOfSections()
+        }
+        return 1
+    }
+
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if isShowingSearchResults {
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: ChatListTableViewCell.cellName,
+                for: indexPath
+            ) as? ChatListTableViewCell else {
+                fatalError()
+            }
+            chatSearchResultsController.configureSearchResultCell(cell, at: indexPath)
+            return cell
+        }
+
         guard let cell = tableView.dequeueReusableCell(withIdentifier: ItemCell.cellName, for: indexPath) as? ItemCell
             else {
                 fatalError()
@@ -43,6 +61,14 @@ extension LastCallsViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        if isShowingSearchResults {
+            return chatSearchResultsController.numberOfRows(in: section)
+        }
         return datasource.count
+    }
+
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        guard isShowingSearchResults else { return nil }
+        return chatSearchResultsController.titleForHeader(in: section)
     }
 }

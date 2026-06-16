@@ -200,6 +200,7 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(ItemCell.self, forCellReuseIdentifier: ItemCell.cellName)
+        view.register(ChatListTableViewCell.self, forCellReuseIdentifier: ChatListTableViewCell.cellName)
         view.separatorStyle = .singleLine
         view.cellLayoutMarginsFollowReadableWidth = true
         view.rowHeight = UITableView.automaticDimension
@@ -215,19 +216,10 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         return view
     }()
     
-    internal var searchController: UISearchController = {
-        let searchResults = SearchResultsViewController()
-        let controller = UISearchController(searchResultsController: searchResults)
-        
-        controller.searchResultsUpdater = searchResults
-        controller.searchBar.searchBarStyle = .minimal
-        controller.searchBar.placeholder = "Search contacts and messages".localizeString(id: "contact_search_hint", arguments: [])
-        controller.searchBar.isTranslucent = true
-        controller.hidesNavigationBarDuringPresentation = true
-        controller.hidesBottomBarWhenPushed = true
-        controller.definesPresentationContext = true
+    internal let chatSearchResultsController = ChatSearchResultsController()
 
-        return controller
+    internal lazy var searchController: UISearchController = {
+        InPlaceSearchHostHelper.makeSearchController(updater: chatSearchResultsController)
     }()
     
     internal let addButton: UIBarButtonItem = {
@@ -542,49 +534,44 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
 
     internal func makeCallsFilterButton() -> UIBarButtonItem {
-        let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .plain, target: self, action: nil)
-        button.accessibilityIdentifier = "calls_filter_menu_button"
-        button.menu = makeCallsFilterMenu()
-        return button
+        callsFilterButton.menu = makeCallsFilterMenu()
+        return callsFilterButton
     }
 
     private func makeCallsBackButton() -> UIBarButtonItem {
-        let button = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
-        button.accessibilityIdentifier = "calls_back_to_chats_button"
-        return button
+        callsBackButton
     }
-    
-    internal func configureBars(animated: Bool = false) {
+
+    internal func configureBars(animated: Bool = false, updateNavigationItems: Bool = true) {
         self.title = "Calls".localizeString(id: "chat_calls_title", arguments: [])
-//        if CommonConfigManager.shared.config.use_large_title {
-//            self.navigationItem.largeTitleDisplayMode = .automatic
-//        } else {
-            self.navigationItem.largeTitleDisplayMode = .never
-//        }
-        self.navigationController?.navigationBar.prefersLargeTitles = false//CommonConfigManager.shared.config.use_large_title
-        if #available(iOS 16.0, *) {
-            self.navigationItem.preferredSearchBarPlacement = .stacked
-        }
         securityButton.target = self
         securityButton.action = #selector(onRegisterYubikey)
         switch CommonConfigManager.shared.interfaceType {
             case .tabs:
                 let filterBarButton = makeCallsFilterButton()
-                let addBarButton = UIBarButtonItem(
-                    image: UIImage(systemName: "plus")?
-                        .upscale(dimension: 24)
-                        .withRenderingMode(.alwaysTemplate),
-                    style: .done,
-                    target: self,
-                    action: #selector(onAddButtonTouchUpInside)
-                )
-                if CommonConfigManager.shared.config.use_yubikey {
-                    self.navigationItem.setRightBarButtonItems([addBarButton, securityButton], animated: animated)
-                } else {
-                    self.navigationItem.setRightBarButtonItems([addBarButton], animated: animated)
+                if updateNavigationItems {
+                    if CommonConfigManager.shared.config.use_yubikey {
+                        NavigationBarItemOwnership.setIfChanged(
+                            .items([callsAddBarButton, securityButton]),
+                            on: navigationItem,
+                            side: .right,
+                            animated: animated
+                        )
+                    } else {
+                        NavigationBarItemOwnership.setIfChanged(
+                            .items([callsAddBarButton]),
+                            on: navigationItem,
+                            side: .right,
+                            animated: animated
+                        )
+                    }
+                    NavigationBarItemOwnership.setIfChanged(
+                        .items([filterBarButton, accountBarButton]),
+                        on: navigationItem,
+                        side: .left,
+                        animated: animated
+                    )
                 }
-                let leftBarButton = UIBarButtonItem(customView: accountNavButton)
-                self.navigationItem.setLeftBarButtonItems([filterBarButton, leftBarButton], animated: animated)
                 accountNavButton.removeTarget(self, action: #selector(showSettings), for: .touchUpInside)
                 accountNavButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
             case .split:
@@ -608,13 +595,27 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 //                    self.navigationItem.setHidesBackButton(true, animated: false)
 //                    self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
 //                }
-                if UIDevice.current.userInterfaceIdiom != .pad {
+                if UIDevice.current.userInterfaceIdiom != .pad, updateNavigationItems {
                     navigationItem.setHidesBackButton(true, animated: false)
-                    navigationItem.setLeftBarButton(makeCallsBackButton(), animated: animated)
-                    navigationItem.setRightBarButton(makeCallsFilterButton(), animated: animated)
-                } else {
-                    navigationItem.setLeftBarButtonItems([], animated: animated)
-                    navigationItem.setRightBarButtonItems([], animated: animated)
+                    NavigationBarItemOwnership.setIfChanged(
+                        .item(makeCallsBackButton()),
+                        on: navigationItem,
+                        side: .left,
+                        animated: animated
+                    )
+                    NavigationBarItemOwnership.setIfChanged(
+                        .item(makeCallsFilterButton()),
+                        on: navigationItem,
+                        side: .right,
+                        animated: animated
+                    )
+                } else if updateNavigationItems {
+                    NavigationBarItemOwnership.applyIfChanged(
+                        to: navigationItem,
+                        left: NavigationBarItemOwnership.Assignment.none,
+                        right: NavigationBarItemOwnership.Assignment.none,
+                        animated: animated
+                    )
                 }
                 self.bottomBar.isHidden = true
         }
@@ -626,6 +627,33 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         button.tintColor = .systemGray
         
         return button
+    }()
+
+    internal lazy var accountBarButton: UIBarButtonItem = {
+        UIBarButtonItem(customView: accountNavButton)
+    }()
+
+    internal lazy var callsFilterButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .plain, target: self, action: nil)
+        button.accessibilityIdentifier = "calls_filter_menu_button"
+        return button
+    }()
+
+    internal lazy var callsBackButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
+        button.accessibilityIdentifier = "calls_back_to_chats_button"
+        return button
+    }()
+
+    internal lazy var callsAddBarButton: UIBarButtonItem = {
+        UIBarButtonItem(
+            image: UIImage(systemName: "plus")?
+                .upscale(dimension: 24)
+                .withRenderingMode(.alwaysTemplate),
+            style: .done,
+            target: self,
+            action: #selector(onAddButtonTouchUpInside)
+        )
     }()
     
     @objc
@@ -655,6 +683,7 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     internal func configure() {
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
+        NavigationLargeTitlePolicy.apply(to: self)
         view.addSubview(tableView)
         tableView.fillSuperview()
         tableView.applyContinuousSplitInsetGroupedAppearance()
@@ -698,7 +727,7 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         configure()
         configureBars(animated: false)
 //        configureNavbar()
-//        configureSearchBar()
+        configureSearchBar()
         load()
         activateConstraints()
         
@@ -707,12 +736,6 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                                                name: .newMaskSelected,
                                                object: nil)
         self.title = "Calls".localizeString(id: "chat_calls_title", arguments: [])
-//        if CommonConfigManager.shared.config.use_large_title {
-//            self.navigationItem.largeTitleDisplayMode = .automatic
-//        } else {
-            self.navigationItem.largeTitleDisplayMode = .never
-//        }
-        self.navigationController?.navigationBar.prefersLargeTitles = false//CommonConfigManager.shared.config.use_large_title
     }
     
     var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
@@ -728,8 +751,17 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
+        tableView.applyContinuousSplitInsetGroupedAppearance()
+        NavigationLargeTitlePolicy.apply(to: self)
+        emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
+        emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
         subscribe()
-        configureBars(animated: false)
+        let updateNavigationItems = !isSearchHostNavigationTransitionActive
+        configureBars(animated: false, updateNavigationItems: updateNavigationItems)
+        if !updateNavigationItems {
+            deferConfigureBarsUntilSearchHostNavigationTransitionCompletes()
+        }
         NotifyManager.shared.setLastChats(displayed: false)
         
         self.tabBarController?.tabBar.isHidden = false
@@ -738,6 +770,24 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             self.securityButton.tintColor = .systemGreen
         } else {
             self.securityButton.tintColor = .systemRed
+        }
+    }
+
+    private var isSearchHostNavigationTransitionActive: Bool {
+        transitionCoordinator != nil ||
+            navigationController?.transitionCoordinator != nil ||
+            splitViewController?.transitionCoordinator != nil
+    }
+
+    private func deferConfigureBarsUntilSearchHostNavigationTransitionCompletes() {
+        guard let coordinator = transitionCoordinator
+            ?? navigationController?.transitionCoordinator
+            ?? splitViewController?.transitionCoordinator else {
+            return
+        }
+
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            self?.configureBars(animated: false, updateNavigationItems: true)
         }
     }
     
@@ -752,12 +802,6 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 )
             )
         }
-        
-        
-        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        self.navigationController?.navigationBar.shadowImage = nil
-        self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)
-        self.navigationController?.navigationBar.layoutIfNeeded()
         completeLeftMenuFirstPresentationQuietModeAfterFirstStableFrame()
     }
     

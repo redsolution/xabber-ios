@@ -192,12 +192,35 @@ final class CallsListCoordinatorTests: XCTestCase {
 
 @MainActor
 final class CallsVisualStyleTests: XCTestCase {
+    private final class TraitWindow: UIWindow {
+        private let horizontalSizeClass: UIUserInterfaceSizeClass
+
+        init(horizontalSizeClass: UIUserInterfaceSizeClass) {
+            self.horizontalSizeClass = horizontalSizeClass
+            super.init(frame: UIScreen.main.bounds)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override var traitCollection: UITraitCollection {
+            UITraitCollection(traitsFrom: [
+                super.traitCollection,
+                UITraitCollection(horizontalSizeClass: horizontalSizeClass)
+            ])
+        }
+    }
+
     private var previousInterfaceType: String!
+    private var previousUseLargeTitle: Bool!
     private var previousRealmConfiguration: Realm.Configuration!
+    private var retainedTraitWindows: [UIWindow] = []
 
     override func setUp() {
         super.setUp()
         previousInterfaceType = CommonConfigManager.shared.config.interface_type
+        previousUseLargeTitle = CommonConfigManager.shared.config.use_large_title
         previousRealmConfiguration = Realm.Configuration.defaultConfiguration
         CommonConfigManager.shared.config.interface_type = CommonConfigManager.InterfaceType.split.rawValue
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
@@ -206,9 +229,13 @@ final class CallsVisualStyleTests: XCTestCase {
     }
 
     override func tearDown() {
+        retainedTraitWindows.forEach { $0.isHidden = true }
+        retainedTraitWindows.removeAll()
         CommonConfigManager.shared.config.interface_type = previousInterfaceType
+        CommonConfigManager.shared.config.use_large_title = previousUseLargeTitle
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
         previousInterfaceType = nil
+        previousUseLargeTitle = nil
         previousRealmConfiguration = nil
         super.tearDown()
     }
@@ -297,9 +324,65 @@ final class CallsVisualStyleTests: XCTestCase {
         XCTAssertFalse(cell.isSelected, file: file, line: line)
     }
 
-    func testCallsListTableUsesInsetGroupedTransparentSplitAppearance() {
-        let controller = LastCallsViewController()
+    @discardableResult
+    private func embedInTraitContainer(
+        _ child: UIViewController,
+        horizontalSizeClass: UIUserInterfaceSizeClass
+    ) -> UIViewController {
+        let parent = UIViewController()
+        let window = TraitWindow(horizontalSizeClass: horizontalSizeClass)
+        window.rootViewController = parent
+        window.isHidden = false
+        retainedTraitWindows.append(window)
+        parent.loadViewIfNeeded()
+        parent.addChild(child)
+        parent.setOverrideTraitCollection(
+            UITraitCollection(horizontalSizeClass: horizontalSizeClass),
+            forChild: child
+        )
+        child.loadViewIfNeeded()
+        parent.view.addSubview(child.view)
+        child.didMove(toParent: parent)
+        return parent
+    }
+
+    func testCallsRootLargeTitleFollowsCommonConfig() {
+        assertLargeTitle(useLargeTitle: true, makeController: LastCallsViewController.init)
+        assertLargeTitle(useLargeTitle: false, makeController: LastCallsViewController.init)
+    }
+
+    func testCallsCategoriesLargeTitleFollowsCommonConfig() {
+        assertLargeTitle(useLargeTitle: true, makeController: CallsCategoriesViewController.init)
+        assertLargeTitle(useLargeTitle: false, makeController: CallsCategoriesViewController.init)
+    }
+
+    private func assertLargeTitle(
+        useLargeTitle: Bool,
+        makeController: () -> UIViewController,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        CommonConfigManager.shared.config.use_large_title = useLargeTitle
+        let controller = makeController()
+        let navigationController = UINavigationController(rootViewController: controller)
+
+        navigationController.loadViewIfNeeded()
         controller.loadViewIfNeeded()
+
+        XCTAssertEqual(navigationController.navigationBar.prefersLargeTitles, useLargeTitle, file: file, line: line)
+        XCTAssertEqual(
+            controller.navigationItem.largeTitleDisplayMode,
+            useLargeTitle ? .automatic : .never,
+            file: file,
+            line: line
+        )
+    }
+
+    func testCallsListTableUsesInsetGroupedTransparentSplitAppearanceInRegularWidth() {
+        let controller = LastCallsViewController()
+        let container = embedInTraitContainer(controller, horizontalSizeClass: .regular)
+
+        container.loadViewIfNeeded()
 
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertNil(controller.tableView.tableHeaderView)
@@ -310,19 +393,105 @@ final class CallsVisualStyleTests: XCTestCase {
         XCTAssertFalse(controller.view.isOpaque)
     }
 
-    func testCallsCategoriesTableUsesInsetGroupedTransparentSplitAppearanceAndNativeSpacing() {
+    func testCallsListTableUsesStockBackgroundInCompactSplitWidth() {
+        let controller = LastCallsViewController()
+        let container = embedInTraitContainer(controller, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.tableView.style, .insetGrouped)
+        XCTAssertNil(controller.tableView.tableHeaderView)
+        XCTAssertNil(controller.tableView.tableFooterView)
+        XCTAssertTrue(controller.tableView.backgroundColor?.isEqual(UIColor.systemGroupedBackground) == true)
+        XCTAssertTrue(controller.tableView.isOpaque)
+        XCTAssertTrue(controller.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
+        XCTAssertTrue(controller.view.isOpaque)
+    }
+
+    func testCallsConfigureSearchBarUsesStockNavigationItemWithoutMutatingAppearance() {
+        let controller = LastCallsViewController()
+        _ = UINavigationController(rootViewController: controller)
+        let standardAppearance = UINavigationBarAppearance()
+        let scrollEdgeAppearance = UINavigationBarAppearance()
+        let compactAppearance = UINavigationBarAppearance()
+        standardAppearance.backgroundColor = .systemRed
+        scrollEdgeAppearance.backgroundColor = .systemGreen
+        compactAppearance.backgroundColor = .systemBlue
+        controller.navigationItem.standardAppearance = standardAppearance
+        controller.navigationItem.scrollEdgeAppearance = scrollEdgeAppearance
+        controller.navigationItem.compactAppearance = compactAppearance
+        let searchBar = controller.searchController.searchBar
+        let searchBarBackground = searchBar.backgroundColor
+        let textFieldBackground = searchBar.searchTextField.backgroundColor
+        let textFieldLayerBackground = searchBar.searchTextField.layer.backgroundColor
+
+        controller.configureSearchBar()
+
+        XCTAssertTrue(controller.navigationItem.searchController === controller.searchController)
+        XCTAssertFalse(controller.navigationItem.hidesSearchBarWhenScrolling)
+        if #available(iOS 16.0, *) {
+            XCTAssertEqual(controller.navigationItem.preferredSearchBarPlacement, .stacked)
+        }
+        XCTAssertEqual(controller.navigationItem.standardAppearance?.backgroundColor, standardAppearance.backgroundColor)
+        XCTAssertEqual(controller.navigationItem.scrollEdgeAppearance?.backgroundColor, scrollEdgeAppearance.backgroundColor)
+        XCTAssertEqual(controller.navigationItem.compactAppearance?.backgroundColor, compactAppearance.backgroundColor)
+        XCTAssertEqual(searchBar.backgroundColor, searchBarBackground)
+        XCTAssertEqual(searchBar.searchTextField.backgroundColor, textFieldBackground)
+        XCTAssertTrue(searchBar.searchTextField.layer.backgroundColor === textFieldLayerBackground)
+    }
+
+    func testCallsConfigureBarsReusesNavigationItemsWhenStateIsUnchanged() {
+        let controller = LastCallsViewController()
+
+        controller.configureBars(animated: false)
+        let leftItem = controller.navigationItem.leftBarButtonItem
+        let rightItem = controller.navigationItem.rightBarButtonItem
+        let searchController = controller.navigationItem.searchController
+
+        controller.configureBars(animated: false)
+
+        XCTAssertTrue(controller.navigationItem.leftBarButtonItem === leftItem)
+        XCTAssertTrue(controller.navigationItem.rightBarButtonItem === rightItem)
+        XCTAssertTrue(controller.navigationItem.searchController === searchController)
+    }
+
+    func testCallsCategoriesTableUsesInsetGroupedTransparentSplitAppearanceAndNativeSpacingInRegularWidth() {
         let controller = CallsCategoriesViewController()
-        controller.loadViewIfNeeded()
+        let container = embedInTraitContainer(controller, horizontalSizeClass: .regular)
+
+        container.loadViewIfNeeded()
 
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertEqual(controller.tableView.backgroundColor, .clear)
         XCTAssertFalse(controller.tableView.isOpaque)
         XCTAssertEqual(controller.view.backgroundColor, .clear)
         XCTAssertFalse(controller.view.isOpaque)
+        XCTAssertNotNil(controller.navigationItem.standardAppearance)
+        XCTAssertNotNil(controller.navigationItem.scrollEdgeAppearance)
+        XCTAssertNotNil(controller.navigationItem.compactAppearance)
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:heightForHeaderInSection:))))
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:heightForFooterInSection:))))
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:viewForHeaderInSection:))))
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:viewForFooterInSection:))))
+    }
+
+    func testCallsCategoriesTableUsesStockBackgroundInCompactSplitWidth() {
+        let controller = CallsCategoriesViewController()
+        let container = embedInTraitContainer(controller, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.tableView.style, .insetGrouped)
+        XCTAssertTrue(controller.tableView.backgroundColor?.isEqual(UIColor.systemGroupedBackground) == true)
+        XCTAssertTrue(controller.tableView.isOpaque)
+        XCTAssertTrue(controller.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
+        XCTAssertTrue(controller.view.isOpaque)
+        XCTAssertNil(controller.navigationItem.standardAppearance)
+        XCTAssertNil(controller.navigationItem.scrollEdgeAppearance)
+        XCTAssertNil(controller.navigationItem.compactAppearance)
+        if #available(iOS 15.0, *) {
+            XCTAssertNil(controller.navigationItem.compactScrollEdgeAppearance)
+        }
     }
 
     func testCallsListCellsUsePlainSystemBackgroundWithoutGlass() {
