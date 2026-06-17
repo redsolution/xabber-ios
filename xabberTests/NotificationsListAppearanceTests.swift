@@ -16,6 +16,7 @@ final class NotificationsListAppearanceTests: XCTestCase {
     private var previousInterfaceType: String!
     private var previousUseLargeTitle: Bool!
     private var previousRealmConfiguration: Realm.Configuration!
+    private var retainedTraitWindows: [UIWindow] = []
 
     override func setUp() {
         super.setUp()
@@ -32,6 +33,8 @@ final class NotificationsListAppearanceTests: XCTestCase {
         CommonConfigManager.shared.config.interface_type = previousInterfaceType
         CommonConfigManager.shared.config.use_large_title = previousUseLargeTitle
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        retainedTraitWindows.forEach { $0.isHidden = true }
+        retainedTraitWindows.removeAll()
         previousInterfaceType = nil
         previousUseLargeTitle = nil
         previousRealmConfiguration = nil
@@ -97,6 +100,26 @@ final class NotificationsListAppearanceTests: XCTestCase {
         }
     }
 
+    private final class TraitWindow: UIWindow {
+        private let horizontalSizeClass: UIUserInterfaceSizeClass
+
+        init(horizontalSizeClass: UIUserInterfaceSizeClass) {
+            self.horizontalSizeClass = horizontalSizeClass
+            super.init(frame: UIScreen.main.bounds)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override var traitCollection: UITraitCollection {
+            UITraitCollection(traitsFrom: [
+                super.traitCollection,
+                UITraitCollection(horizontalSizeClass: horizontalSizeClass)
+            ])
+        }
+    }
+
     func testNotificationsRootLargeTitleFollowsCommonConfig() {
         assertLargeTitle(useLargeTitle: true, makeController: NotificationsListViewController.init)
         assertLargeTitle(useLargeTitle: false, makeController: NotificationsListViewController.init)
@@ -115,7 +138,8 @@ final class NotificationsListAppearanceTests: XCTestCase {
     ) {
         CommonConfigManager.shared.config.use_large_title = useLargeTitle
         let controller = makeController()
-        let navigationController = NavBarController(rootViewController: controller)
+        let navigationController = UINavigationController(rootViewController: controller)
+        NavigationLargeTitlePolicy.apply(to: navigationController, rootViewController: controller)
 
         navigationController.loadViewIfNeeded()
         controller.loadViewIfNeeded()
@@ -174,8 +198,9 @@ final class NotificationsListAppearanceTests: XCTestCase {
 
     func testNotificationsListUsesInsetGroupedTransparentSplitAppearance() {
         let controller = NotificationsListViewController()
+        let container = embedInTraitContainer(controller, horizontalSizeClass: .regular)
 
-        controller.loadViewIfNeeded()
+        container.loadViewIfNeeded()
 
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertNil(controller.tableView.tableHeaderView)
@@ -186,20 +211,33 @@ final class NotificationsListAppearanceTests: XCTestCase {
         XCTAssertFalse(controller.view.isOpaque)
         XCTAssertEqual(controller.emptyView.backgroundColor, .clear)
         XCTAssertFalse(controller.emptyView.isOpaque)
+        XCTAssertNil(controller.navigationItem.standardAppearance)
+        XCTAssertNil(controller.navigationItem.scrollEdgeAppearance)
+        XCTAssertNil(controller.navigationItem.compactAppearance)
+        if #available(iOS 15.0, *) {
+            XCTAssertNil(controller.navigationItem.compactScrollEdgeAppearance)
+        }
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:heightForHeaderInSection:))))
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:heightForFooterInSection:))))
     }
 
     func testNotificationsCategoriesUseInsetGroupedTransparentSplitAppearanceAndNativeSpacing() {
         let controller = NotificationsCategoriesViewController()
+        let container = embedInTraitContainer(controller, horizontalSizeClass: .regular)
 
-        controller.loadViewIfNeeded()
+        container.loadViewIfNeeded()
 
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertEqual(controller.tableView.backgroundColor, .clear)
         XCTAssertFalse(controller.tableView.isOpaque)
         XCTAssertEqual(controller.view.backgroundColor, .clear)
         XCTAssertFalse(controller.view.isOpaque)
+        XCTAssertNil(controller.navigationItem.standardAppearance)
+        XCTAssertNil(controller.navigationItem.scrollEdgeAppearance)
+        XCTAssertNil(controller.navigationItem.compactAppearance)
+        if #available(iOS 15.0, *) {
+            XCTAssertNil(controller.navigationItem.compactScrollEdgeAppearance)
+        }
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:heightForHeaderInSection:))))
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:heightForFooterInSection:))))
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:viewForHeaderInSection:))))
@@ -355,5 +393,41 @@ final class NotificationsListAppearanceTests: XCTestCase {
         controller.configureLeadingNavigationItem(forRegularWidth: true, animated: false)
 
         XCTAssertEqual(controller.navigationItem.leftBarButtonItem?.accessibilityIdentifier, "notifications_sidebar_menu_button")
+    }
+
+    @discardableResult
+    private func embedInTraitContainer(
+        _ child: UIViewController,
+        horizontalSizeClass: UIUserInterfaceSizeClass
+    ) -> UIViewController {
+        let parent = UIViewController()
+        let window = TraitWindow(horizontalSizeClass: horizontalSizeClass)
+        window.rootViewController = parent
+        window.isHidden = false
+        retainedTraitWindows.append(window)
+        parent.loadViewIfNeeded()
+        parent.addChild(child)
+        parent.setOverrideTraitCollection(
+            UITraitCollection(horizontalSizeClass: horizontalSizeClass),
+            forChild: child
+        )
+        child.loadViewIfNeeded()
+        parent.view.addSubview(child.view)
+        child.didMove(toParent: parent)
+        applyContinuousSplitAppearanceAfterAttach(to: child)
+        return parent
+    }
+
+    private func applyContinuousSplitAppearanceAfterAttach(to viewController: UIViewController) {
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(viewController)
+        if let navigationController = viewController as? UINavigationController {
+            navigationController.viewControllers.forEach(applyContinuousSplitAppearanceAfterAttach)
+        }
+        if let notificationsController = viewController as? NotificationsListViewController {
+            notificationsController.refreshContinuousSplitBackgroundAppearance()
+        }
+        if let categoryController = viewController as? NotificationsCategoriesViewController {
+            categoryController.tableView.applyContinuousSplitInsetGroupedAppearance()
+        }
     }
 }

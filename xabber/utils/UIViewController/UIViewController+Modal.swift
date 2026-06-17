@@ -289,6 +289,22 @@ private func hidePrimaryAfterDetailTransition(_ splitViewController: UISplitView
     DispatchQueue.main.async(execute: hidePrimary)
 }
 
+func makeStackedDetailNavigationController(
+    rootViewController: UIViewController,
+    splitViewController: UISplitViewController
+) -> UINavigationController {
+    let navigationController = UINavigationController(rootViewController: rootViewController)
+    let backgroundMode = ContinuousSplitBackgroundExperiment.mode(for: splitViewController)
+    if rootViewController is ChatViewController {
+        navigationController.applyTransparentSplitContainerBackground(backgroundMode: backgroundMode)
+    } else {
+        navigationController.applyTransparentSplitAppearance(
+            backgroundMode: backgroundMode
+        )
+    }
+    return navigationController
+}
+
 public func showStacked(_ vc: UIViewController, in presenter: UIViewController) {
     let start = CFAbsoluteTimeGetCurrent()
     let splitViewController = splitController(for: presenter)
@@ -318,9 +334,9 @@ public func showStacked(_ vc: UIViewController, in presenter: UIViewController) 
             return
         }
 //            presenter.splitViewController?.showDetailViewController(vc, sender: presenter)
-        let nvc = UINavigationController(rootViewController: vc)
-        nvc.applyTransparentSplitAppearance(
-            backgroundMode: ContinuousSplitBackgroundExperiment.mode(for: splitViewController)
+        let nvc = makeStackedDetailNavigationController(
+            rootViewController: vc,
+            splitViewController: splitViewController
         )
 //            nvc.setNavigationBarHidden(false, animated: false)
         configureStackedChatBackgroundPresentation(vc, route: route, presenter: presenter)

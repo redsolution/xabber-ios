@@ -195,3 +195,18 @@ enum NavigationLargeTitlePolicy {
             prefersLargeTitles ? .automatic : .never
     }
 }
+
+enum NativeSectionNavigationBarPolicy {
+    static func resetNavigationItemAppearance(_ navigationItem: UINavigationItem) {
+        navigationItem.standardAppearance = nil
+        navigationItem.scrollEdgeAppearance = nil
+        navigationItem.compactAppearance = nil
+        if #available(iOS 15.0, *) {
+            navigationItem.compactScrollEdgeAppearance = nil
+        }
+    }
+
+    static func apply(to viewController: UIViewController) {
+        resetNavigationItemAppearance(viewController.navigationItem)
+    }
+}

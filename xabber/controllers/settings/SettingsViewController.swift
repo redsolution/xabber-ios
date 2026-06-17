@@ -1211,11 +1211,6 @@ class SettingsViewController: BaseViewController {
             self.tabBarController?.tabBar.isHidden = false
             self.tabBarController?.tabBar.layoutIfNeeded()
         }
-        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-        navigationController?.navigationBar.shadowImage = UIImage()
-        navigationController?.navigationBar.setNeedsLayout()
-
-
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -1236,8 +1231,6 @@ class SettingsViewController: BaseViewController {
         super.viewWillDisappear(animated)
         unsubscribe()
         self.navigationController?.isNavigationBarHidden = false
-        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        navigationController?.navigationBar.shadowImage = nil
     }
 
     override func viewDidDisappear(_ animated: Bool) {

@@ -7,11 +7,17 @@
 //
 
 import UIKit
+import ObjectiveC
 
 enum NativeGlassBarStyle {
     enum CornerStyle {
         case fixed(CGFloat)
         case capsule
+    }
+
+    enum GlassEffectStyle {
+        case regular
+        case clear
     }
 
     static let minimumHeight: CGFloat = 44
@@ -26,13 +32,16 @@ enum NativeGlassBarStyle {
     static let nativeGlassTintColor = UIColor.systemBackground.withAlphaComponent(0.16)
     static let iconTintColor: UIColor = .label
     private static let detachedIconButtonGlassViewTag = 26051801
+    private static var iconButtonCachedImageKey: UInt8 = 0
 
     static func makeEffect(
         interactive: Bool = true,
-        prefersNativeGlass: Bool = true
+        prefersNativeGlass: Bool = true,
+        nativeGlassStyle: GlassEffectStyle = .regular
     ) -> UIVisualEffect {
         if prefersNativeGlass, #available(iOS 26.0, *) {
-            let effect = UIGlassEffect(style: .regular)
+            let style: UIGlassEffect.Style = nativeGlassStyle == .clear ? .clear : .regular
+            let effect = UIGlassEffect(style: style)
             effect.tintColor = nativeGlassTintColor
             effect.isInteractive = interactive
             return effect
@@ -44,9 +53,10 @@ enum NativeGlassBarStyle {
     static func applySurface(
         to view: UIVisualEffectView,
         cornerStyle: CornerStyle = .fixed(cornerRadius),
-        interactive: Bool = true
+        interactive: Bool = true,
+        nativeGlassStyle: GlassEffectStyle = .regular
     ) {
-        view.effect = makeEffect(interactive: interactive)
+        view.effect = makeEffect(interactive: interactive, nativeGlassStyle: nativeGlassStyle)
         view.backgroundColor = .clear
         view.isOpaque = false
         view.clipsToBounds = true
@@ -87,7 +97,8 @@ enum NativeGlassBarStyle {
         } else {
             configuredImage = nil
         }
-        let resolvedImage = (image ?? button.image(for: .normal) ?? configuredImage)?
+        let cachedImage = cachedIconButtonImage(for: button)
+        let resolvedImage = (image ?? button.image(for: .normal) ?? configuredImage ?? cachedImage)?
             .withRenderingMode(.alwaysTemplate)
         let resolvedTintColor = tintColor ?? button.tintColor ?? iconTintColor
 
@@ -104,12 +115,13 @@ enum NativeGlassBarStyle {
         button.layer.shadowOffset = .zero
         button.layer.shadowPath = nil
 
-        if image != nil, let resolvedImage {
+        if let resolvedImage {
+            cacheIconButtonImage(resolvedImage, for: button)
             button.setImage(resolvedImage, for: .normal)
         }
 
         if prefersNativeGlass, #available(iOS 26.0, *) {
-            if forceConfigurationUpdate {
+            if forceConfigurationUpdate || button.configuration == nil || configuredImage == nil {
                 var configuration = UIButton.Configuration.clearGlass()
                 configuration.image = resolvedImage
                 configuration.baseForegroundColor = resolvedTintColor
@@ -191,6 +203,19 @@ enum NativeGlassBarStyle {
         button.subviews
             .compactMap { $0 as? UIVisualEffectView }
             .first { $0.tag == detachedIconButtonGlassViewTag }
+    }
+
+    private static func cachedIconButtonImage(for button: UIButton) -> UIImage? {
+        objc_getAssociatedObject(button, &iconButtonCachedImageKey) as? UIImage
+    }
+
+    private static func cacheIconButtonImage(_ image: UIImage, for button: UIButton) {
+        objc_setAssociatedObject(
+            button,
+            &iconButtonCachedImageKey,
+            image.withRenderingMode(.alwaysTemplate),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
     }
 }
 
@@ -346,5 +371,248 @@ final class FloatingBottomBarView: UIView {
             image: image,
             prefersNativeGlass: false
         )
+    }
+}
+
+final class BottomSearchHostView: UIView, UITextFieldDelegate {
+    enum Metrics {
+        static let height: CGFloat = NativeGlassBarStyle.minimumHeight
+        static let bottomOffset: CGFloat = NativeGlassBarStyle.bottomOffset
+        static let horizontalInset: CGFloat = NativeGlassBarStyle.horizontalInset
+        static let contentInset: CGFloat = NativeGlassBarStyle.contentInset
+        static let buttonSize: CGFloat = NativeGlassBarStyle.buttonSize
+        static let iconSize: CGFloat = NativeGlassBarStyle.iconSize
+        static let interItemSpacing: CGFloat = NativeGlassBarStyle.interItemSpacing
+        static let tableInsetPadding: CGFloat = 12
+        static let reservedBottomInset = height + bottomOffset + tableInsetPadding
+    }
+
+    let collapsedButton: UIButton = {
+        let button = UIButton(type: .system)
+
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setImage(
+            UIImage(systemName: "magnifyingglass")?
+                .upscale(dimension: Metrics.iconSize)
+                .withRenderingMode(.alwaysTemplate),
+            for: .normal
+        )
+        button.accessibilityIdentifier = "bottom_search_button"
+        button.accessibilityLabel = "Search"
+        NativeGlassBarStyle.applyDetachedIconButtonStyle(
+            to: button,
+            tintColor: NativeGlassBarStyle.iconTintColor
+        )
+
+        return button
+    }()
+
+    let surfaceView: UIVisualEffectView = {
+        let view = UIVisualEffectView(effect: NativeGlassBarStyle.makeEffect(interactive: true))
+
+        view.translatesAutoresizingMaskIntoConstraints = false
+        NativeGlassBarStyle.applySurface(to: view, cornerStyle: .capsule, interactive: true)
+
+        return view
+    }()
+
+    let searchTextField: UISearchTextField = {
+        let textField = UISearchTextField(frame: .zero)
+
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        textField.placeholder = ChatSearchResultsController.placeholderText
+        textField.returnKeyType = .search
+        textField.enablesReturnKeyAutomatically = false
+        textField.clearButtonMode = .whileEditing
+        textField.accessibilityIdentifier = "bottom_search_text_field"
+
+        return textField
+    }()
+
+    let cancelButton: UIButton = {
+        let button = UIButton(type: .system)
+
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setImage(
+            UIImage(systemName: "xmark")?
+                .upscale(dimension: Metrics.iconSize)
+                .withRenderingMode(.alwaysTemplate),
+            for: .normal
+        )
+        button.accessibilityIdentifier = "bottom_search_cancel_button"
+        button.accessibilityLabel = "Cancel search"
+        NativeGlassBarStyle.applyIconButtonStyle(
+            to: button,
+            tintColor: NativeGlassBarStyle.iconTintColor,
+            prefersNativeGlass: false
+        )
+
+        return button
+    }()
+
+    private(set) var isExpanded: Bool = false
+    var onBegin: (() -> Void)?
+    var onQueryChanged: ((String?) -> Void)?
+    var onCancel: (() -> Void)?
+
+    var query: String {
+        searchTextField.text ?? ""
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setExpanded(_ expanded: Bool, animated: Bool) {
+        guard isExpanded != expanded else {
+            updateVisibility(animated: animated)
+            return
+        }
+
+        isExpanded = expanded
+        updateVisibility(animated: animated)
+        if expanded {
+            searchTextField.becomeFirstResponder()
+        } else {
+            searchTextField.resignFirstResponder()
+        }
+    }
+
+    func setQuery(_ query: String?, notify: Bool) {
+        searchTextField.text = query ?? ""
+        if notify {
+            onQueryChanged?(searchTextField.text)
+        }
+    }
+
+    @discardableResult
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        textField.resignFirstResponder()
+        return true
+    }
+
+    private func setup() {
+        translatesAutoresizingMaskIntoConstraints = false
+        backgroundColor = .clear
+        isOpaque = false
+
+        addSubview(surfaceView)
+        addSubview(collapsedButton)
+        applyTransparentSearchTextFieldChrome()
+
+        let contentView = surfaceView.contentView
+        contentView.addSubview(searchTextField)
+        contentView.addSubview(cancelButton)
+
+        NSLayoutConstraint.activate([
+            collapsedButton.trailingAnchor.constraint(
+                equalTo: trailingAnchor,
+                constant: -Metrics.horizontalInset
+            ),
+            collapsedButton.bottomAnchor.constraint(equalTo: bottomAnchor),
+            collapsedButton.widthAnchor.constraint(equalToConstant: Metrics.buttonSize),
+            collapsedButton.heightAnchor.constraint(equalToConstant: Metrics.buttonSize),
+
+            surfaceView.leadingAnchor.constraint(
+                equalTo: leadingAnchor,
+                constant: Metrics.horizontalInset
+            ),
+            surfaceView.trailingAnchor.constraint(
+                equalTo: trailingAnchor,
+                constant: -Metrics.horizontalInset
+            ),
+            surfaceView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            surfaceView.heightAnchor.constraint(equalToConstant: Metrics.height),
+
+            searchTextField.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor,
+                constant: Metrics.contentInset
+            ),
+            searchTextField.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            searchTextField.heightAnchor.constraint(equalToConstant: Metrics.height - 8),
+
+            cancelButton.leadingAnchor.constraint(
+                equalTo: searchTextField.trailingAnchor,
+                constant: Metrics.interItemSpacing
+            ),
+            cancelButton.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor,
+                constant: -Metrics.contentInset
+            ),
+            cancelButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            cancelButton.widthAnchor.constraint(equalToConstant: Metrics.buttonSize),
+            cancelButton.heightAnchor.constraint(equalToConstant: Metrics.buttonSize)
+        ])
+
+        collapsedButton.addTarget(self, action: #selector(onCollapsedButtonTouchUp), for: .touchUpInside)
+        cancelButton.addTarget(self, action: #selector(onCancelButtonTouchUp), for: .touchUpInside)
+        searchTextField.addTarget(self, action: #selector(onTextFieldEditingChanged), for: .editingChanged)
+        searchTextField.delegate = self
+        updateVisibility(animated: false)
+    }
+
+    private func applyTransparentSearchTextFieldChrome() {
+        searchTextField.backgroundColor = .clear
+        searchTextField.layer.backgroundColor = UIColor.clear.cgColor
+        searchTextField.borderStyle = .none
+        searchTextField.background = UIImage()
+        searchTextField.disabledBackground = UIImage()
+        searchTextField.layer.borderWidth = 0
+        searchTextField.layer.borderColor = nil
+        searchTextField.layer.shadowColor = nil
+        searchTextField.layer.shadowOpacity = 0
+        searchTextField.layer.shadowRadius = 0
+        searchTextField.layer.shadowOffset = .zero
+        searchTextField.layer.shadowPath = nil
+    }
+
+    private func updateVisibility(animated: Bool) {
+        let updates = {
+            self.collapsedButton.isHidden = self.isExpanded
+            self.collapsedButton.alpha = self.isExpanded ? 0 : 1
+            self.surfaceView.isHidden = !self.isExpanded
+            self.surfaceView.alpha = self.isExpanded ? 1 : 0
+        }
+
+        guard animated else {
+            updates()
+            return
+        }
+
+        if isExpanded {
+            surfaceView.isHidden = false
+        } else {
+            collapsedButton.isHidden = false
+        }
+
+        UIView.animate(
+            withDuration: 0.18,
+            delay: 0,
+            options: [.beginFromCurrentState, .curveEaseInOut],
+            animations: updates
+        )
+    }
+
+    @objc
+    private func onCollapsedButtonTouchUp(_ sender: UIButton) {
+        setExpanded(true, animated: true)
+        onBegin?()
+    }
+
+    @objc
+    private func onCancelButtonTouchUp(_ sender: UIButton) {
+        setQuery("", notify: true)
+        setExpanded(false, animated: true)
+        onCancel?()
+    }
+
+    @objc
+    private func onTextFieldEditingChanged(_ sender: UISearchTextField) {
+        onQueryChanged?(sender.text)
     }
 }

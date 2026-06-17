@@ -533,12 +533,18 @@ final class AppRootCoordinator: NSObject {
         true
     }
 
-    static func makeStockSearchSectionNavigationController(
+    static func makeTopLevelSectionNavigationController(
         rootViewController: UIViewController
     ) -> UINavigationController {
         let navigationController = UINavigationController(rootViewController: rootViewController)
         NavigationLargeTitlePolicy.apply(to: navigationController, rootViewController: rootViewController)
         return navigationController
+    }
+
+    static func makeStockSearchSectionNavigationController(
+        rootViewController: UIViewController
+    ) -> UINavigationController {
+        makeTopLevelSectionNavigationController(rootViewController: rootViewController)
     }
 
     let window: UIWindow
@@ -844,12 +850,11 @@ final class AppRootCoordinator: NSObject {
         archivedVc.filter.accept(.archived)
         let notificationsVc = NotificationsListViewController()
         let callsVc = LastCallsViewController()
-        let chatsNavigationController = Self.makeStockSearchSectionNavigationController(rootViewController: chatsVc)
-        let contactsNavigationController = Self.makeStockSearchSectionNavigationController(rootViewController: contactsVc)
-        let archivedNavigationController = Self.makeStockSearchSectionNavigationController(rootViewController: archivedVc)
-        let callsNavigationController = Self.makeStockSearchSectionNavigationController(rootViewController: callsVc)
-        let notificationsNavigationController = NavBarController(rootViewController: notificationsVc)
-        NavigationLargeTitlePolicy.apply(to: notificationsNavigationController, rootViewController: notificationsVc)
+        let chatsNavigationController = Self.makeTopLevelSectionNavigationController(rootViewController: chatsVc)
+        let contactsNavigationController = Self.makeTopLevelSectionNavigationController(rootViewController: contactsVc)
+        let archivedNavigationController = Self.makeTopLevelSectionNavigationController(rootViewController: archivedVc)
+        let notificationsNavigationController = Self.makeTopLevelSectionNavigationController(rootViewController: notificationsVc)
+        let callsNavigationController = Self.makeTopLevelSectionNavigationController(rootViewController: callsVc)
 
         if CommonConfigManager.shared.config.support_calls {
             vc.viewControllers = [

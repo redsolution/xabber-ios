@@ -750,11 +750,25 @@ extension UITableViewCell {
 }
 
 extension UINavigationController {
-    func applyTransparentSplitAppearance(backgroundMode: ContinuousSplitBackgroundMode? = nil) {
+    func applyTransparentSplitContainerBackground(backgroundMode: ContinuousSplitBackgroundMode? = nil) {
         switch backgroundMode ?? ContinuousSplitBackgroundExperiment.mode(for: self) {
         case .sharedBackdrop:
             view.backgroundColor = .clear
             view.isOpaque = false
+        case .stockCompact:
+            view.backgroundColor = .systemBackground
+            view.isOpaque = true
+        case .inactive, .deferred:
+            break
+        }
+    }
+
+    func applyTransparentSplitAppearance(backgroundMode: ContinuousSplitBackgroundMode? = nil) {
+        let resolvedBackgroundMode = backgroundMode ?? ContinuousSplitBackgroundExperiment.mode(for: self)
+        applyTransparentSplitContainerBackground(backgroundMode: resolvedBackgroundMode)
+
+        switch resolvedBackgroundMode {
+        case .sharedBackdrop:
             navigationBar.isTranslucent = true
 
             let appearance = UINavigationBarAppearance()
@@ -765,10 +779,7 @@ extension UINavigationController {
             navigationBar.scrollEdgeAppearance = appearance
             navigationBar.compactAppearance = appearance
             navigationBar.compactScrollEdgeAppearance = appearance
-        case .stockCompact:
-            view.backgroundColor = .systemBackground
-            view.isOpaque = true
-        case .inactive, .deferred:
+        case .stockCompact, .inactive, .deferred:
             break
         }
     }

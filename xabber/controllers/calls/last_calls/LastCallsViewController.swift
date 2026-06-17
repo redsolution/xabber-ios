@@ -221,6 +221,8 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal lazy var searchController: UISearchController = {
         InPlaceSearchHostHelper.makeSearchController(updater: chatSearchResultsController)
     }()
+
+    internal let bottomSearchHostView = BottomSearchHostView(frame: .zero)
     
     internal let addButton: UIBarButtonItem = {
 //        let button = UIBarButtonItem(barButtonSystemItem: .add, target: nil, action: nil)
@@ -679,6 +681,8 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         
         let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
         bottomBar.updateFrame(to: frame)
+        updateTableInsetsForBottomSearch()
+        view.bringSubviewToFront(bottomSearchHostView)
     }
     
     internal func configure() {

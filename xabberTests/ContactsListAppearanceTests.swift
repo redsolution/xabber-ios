@@ -279,7 +279,7 @@ final class ContactsListAppearanceTests: XCTestCase {
         )
     }
 
-    func testContactsListUsesInsetGroupedTransparentSplitAppearanceAndSearchInRegularWidth() {
+    func testContactsListUsesInsetGroupedTransparentSplitAppearanceAndBottomSearchInRegularWidth() {
         let controller = ContactsViewController()
         XCTAssertEqual(controller.searchController.searchBar.searchBarStyle, .default)
         let navigationController = UINavigationController(rootViewController: controller)
@@ -296,16 +296,15 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertFalse(controller.tableView.isOpaque)
         XCTAssertEqual(controller.view.backgroundColor, .clear)
         XCTAssertFalse(controller.view.isOpaque)
-        XCTAssertTrue(controller.navigationItem.searchController === controller.searchController)
+        XCTAssertNil(controller.navigationItem.searchController)
+        XCTAssertTrue(controller.bottomSearchHostView.superview === controller.view)
+        XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
+        XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
         XCTAssertFalse(controller.searchController.hidesBottomBarWhenPushed)
         XCTAssertFalse(controller.searchController.definesPresentationContext)
-        XCTAssertFalse(controller.navigationItem.hidesSearchBarWhenScrolling)
-        if #available(iOS 16.0, *) {
-            XCTAssertEqual(controller.navigationItem.preferredSearchBarPlacement, .stacked)
-        }
     }
 
-    func testContactsListUsesStockBackgroundAndNativeSearchInCompactSplitWidth() {
+    func testContactsListUsesStockBackgroundAndBottomSearchInCompactSplitWidth() {
         let controller = ContactsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
@@ -319,14 +318,13 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertTrue(controller.tableView.isOpaque)
         XCTAssertTrue(controller.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
         XCTAssertTrue(controller.view.isOpaque)
-        XCTAssertTrue(controller.navigationItem.searchController === controller.searchController)
-        XCTAssertFalse(controller.navigationItem.hidesSearchBarWhenScrolling)
-        if #available(iOS 16.0, *) {
-            XCTAssertEqual(controller.navigationItem.preferredSearchBarPlacement, .stacked)
-        }
+        XCTAssertNil(controller.navigationItem.searchController)
+        XCTAssertTrue(controller.bottomSearchHostView.superview === controller.view)
+        XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
+        XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
     }
 
-    func testContactsConfigureSearchBarUsesStockNavigationItemWithoutMutatingAppearance() {
+    func testContactsConfigureSearchBarInstallsBottomSearchWithoutMutatingAppearance() {
         let controller = ContactsViewController()
         _ = UINavigationController(rootViewController: controller)
         let standardAppearance = UINavigationBarAppearance()
@@ -343,13 +341,13 @@ final class ContactsListAppearanceTests: XCTestCase {
         let textFieldBackground = searchBar.searchTextField.backgroundColor
         let textFieldLayerBackground = searchBar.searchTextField.layer.backgroundColor
 
+        controller.loadViewIfNeeded()
         controller.configureSearchBar()
 
-        XCTAssertTrue(controller.navigationItem.searchController === controller.searchController)
-        XCTAssertFalse(controller.navigationItem.hidesSearchBarWhenScrolling)
-        if #available(iOS 16.0, *) {
-            XCTAssertEqual(controller.navigationItem.preferredSearchBarPlacement, .stacked)
-        }
+        XCTAssertNil(controller.navigationItem.searchController)
+        XCTAssertTrue(controller.bottomSearchHostView.superview === controller.view)
+        XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
+        XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
         XCTAssertEqual(controller.navigationItem.standardAppearance?.backgroundColor, standardAppearance.backgroundColor)
         XCTAssertEqual(controller.navigationItem.scrollEdgeAppearance?.backgroundColor, scrollEdgeAppearance.backgroundColor)
         XCTAssertEqual(controller.navigationItem.compactAppearance?.backgroundColor, compactAppearance.backgroundColor)
@@ -364,7 +362,6 @@ final class ContactsListAppearanceTests: XCTestCase {
         controller.configureBars(animated: false)
         let leftItem = controller.navigationItem.leftBarButtonItem
         let rightItems = controller.navigationItem.rightBarButtonItems
-        let searchController = controller.navigationItem.searchController
 
         controller.configureBars(animated: false)
 
@@ -373,7 +370,26 @@ final class ContactsListAppearanceTests: XCTestCase {
         zip(controller.navigationItem.rightBarButtonItems ?? [], rightItems ?? []).forEach { current, previous in
             XCTAssertTrue(current === previous)
         }
-        XCTAssertTrue(controller.navigationItem.searchController === searchController)
+        XCTAssertNil(controller.navigationItem.searchController)
+    }
+
+    func testContactsBottomSearchExpandsWithoutShowingLegacyBottomBar() {
+        let controller = ContactsViewController()
+        let container = embedInTraitContainer(controller, horizontalSizeClass: .regular)
+
+        container.loadViewIfNeeded()
+        controller.configureSearchBar()
+
+        XCTAssertNil(controller.navigationItem.searchController)
+        XCTAssertTrue(controller.bottomBar.superview == nil || controller.bottomBar.isHidden)
+        XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
+
+        controller.bottomSearchHostView.collapsedButton.sendActions(for: .touchUpInside)
+
+        XCTAssertTrue(controller.bottomSearchHostView.isExpanded)
+        XCTAssertTrue(controller.bottomSearchHostView.collapsedButton.isHidden)
+        XCTAssertFalse(controller.bottomSearchHostView.surfaceView.isHidden)
+        XCTAssertTrue(controller.bottomBar.superview == nil || controller.bottomBar.isHidden)
     }
 
     func testGroupsListUsesSameInsetGroupedTransparentSplitAppearanceInRegularWidth() {
@@ -419,9 +435,12 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertFalse(controller.tableView.isOpaque)
         XCTAssertEqual(controller.view.backgroundColor, .clear)
         XCTAssertFalse(controller.view.isOpaque)
-        XCTAssertNotNil(controller.navigationItem.standardAppearance)
-        XCTAssertNotNil(controller.navigationItem.scrollEdgeAppearance)
-        XCTAssertNotNil(controller.navigationItem.compactAppearance)
+        XCTAssertNil(controller.navigationItem.standardAppearance)
+        XCTAssertNil(controller.navigationItem.scrollEdgeAppearance)
+        XCTAssertNil(controller.navigationItem.compactAppearance)
+        if #available(iOS 15.0, *) {
+            XCTAssertNil(controller.navigationItem.compactScrollEdgeAppearance)
+        }
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:heightForHeaderInSection:))))
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:heightForFooterInSection:))))
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:viewForFooterInSection:))))
@@ -714,6 +733,63 @@ final class ContactsListAppearanceTests: XCTestCase {
             "groups_filter_menu_button",
             "groups_add_button"
         ])
+    }
+
+    func testContactsCompactTitleSurvivesRepeatedBarConfiguration() {
+        let controller = ContactsViewController()
+
+        controller.loadViewIfNeeded()
+        XCTAssertEqual(controller.title, "Contacts")
+
+        controller.configureBars(animated: false)
+
+        XCTAssertEqual(controller.title, "Contacts")
+    }
+
+    func testGroupsCompactTitleSurvivesRepeatedBarConfiguration() {
+        let controller = ContactsViewController()
+        controller.isGroup = true
+
+        controller.loadViewIfNeeded()
+        XCTAssertEqual(controller.title, "Public groups")
+
+        controller.configureBars(animated: false)
+
+        XCTAssertEqual(controller.title, "Public groups")
+    }
+
+    func testContactsAndGroupsCompactTitlesSurviveAccountFilterBarRefresh() {
+        let contactsController = ContactsViewController()
+        contactsController.loadViewIfNeeded()
+
+        contactsController.shouldFilterBy(account: "owner@example.com")
+
+        XCTAssertEqual(contactsController.title, "Contacts")
+
+        let groupsController = ContactsViewController()
+        groupsController.isGroup = true
+        groupsController.loadViewIfNeeded()
+
+        groupsController.shouldFilterBy(account: "owner@example.com")
+
+        XCTAssertEqual(groupsController.title, "Public groups")
+    }
+
+    func testContactsAndGroupsCompactCategoryTitlesStillUpdate() {
+        let contactsController = ContactsViewController()
+        contactsController.loadViewIfNeeded()
+
+        contactsController.shouldFilterBy(category: "online")
+
+        XCTAssertEqual(contactsController.title, "Online contacts")
+
+        let groupsController = ContactsViewController()
+        groupsController.isGroup = true
+        groupsController.loadViewIfNeeded()
+
+        groupsController.shouldFilterBy(category: "private")
+
+        XCTAssertEqual(groupsController.title, "Private groups")
     }
 
     func testContactsAndGroupsRowsDoNotUseUIKitFocusOutline() {

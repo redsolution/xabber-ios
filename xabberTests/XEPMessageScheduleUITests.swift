@@ -403,6 +403,356 @@ final class XEPMessageScheduleUITests: XCTestCase {
         ))
     }
 
+    func testChatControllerRefreshShowsScheduledMessagesButtonAfterScheduleRowExists() throws {
+        let owner = "alice@example.com"
+        let conversation = "bob@example.com"
+        let viewController = makeChatViewController(owner: owner, conversation: conversation)
+        viewController.xabberInputView.clearComposer()
+
+        XCTAssertTrue(viewController.xabberInputView.scheduledMessagesButton.isHidden)
+
+        try seedSchedule(
+            owner: owner,
+            id: "scheduled-1",
+            conversation: conversation,
+            conversationType: .regular,
+            deliverAt: makeDate(year: 2026, month: 6, day: 15, hour: 10, minute: 0),
+            status: .pending,
+            body: "Scheduled"
+        )
+
+        viewController.refreshScheduledMessagesComposerButtonState()
+
+        XCTAssertFalse(viewController.xabberInputView.scheduledMessagesButton.isHidden)
+    }
+
+    func testChatControllerRefreshRestoresComposerGlyphsAfterScheduledModalDismiss() throws {
+        let owner = "alice@example.com"
+        let conversation = "bob@example.com"
+        let viewController = makeChatViewController(owner: owner, conversation: conversation)
+        let inputView = viewController.xabberInputView!
+        inputView.isSendButtonEnabled = true
+        inputView.changeSendButtonState(to: .send)
+        inputView.clearComposer()
+
+        try seedSchedule(
+            owner: owner,
+            id: "scheduled-1",
+            conversation: conversation,
+            conversationType: .regular,
+            deliverAt: makeDate(year: 2026, month: 6, day: 15, hour: 10, minute: 0),
+            status: .pending,
+            body: "Scheduled"
+        )
+
+        viewController.refreshScheduledMessagesComposerButtonState()
+        inputView.layoutIfNeeded()
+
+        XCTAssertFalse(inputView.scheduledMessagesButton.isHidden)
+        XCTAssertNotNil(buttonGlyphImage(inputView.attachButton))
+        XCTAssertNotNil(buttonGlyphImage(inputView.sendButton))
+        XCTAssertNotNil(inputView.scheduledMessagesButton.image(for: .normal))
+
+        for button in [inputView.attachButton, inputView.sendButton] {
+            if #available(iOS 26.0, *) {
+                var configuration = button.configuration ?? UIButton.Configuration.clearGlass()
+                configuration.image = nil
+                button.configuration = configuration
+            } else {
+                button.configuration = nil
+            }
+            button.setImage(nil, for: .normal)
+        }
+        inputView.scheduledMessagesButton.configuration = nil
+        inputView.scheduledMessagesButton.setImage(nil, for: .normal)
+
+        viewController.refreshScheduledMessagesComposerButtonState()
+        inputView.layoutIfNeeded()
+
+        XCTAssertFalse(inputView.scheduledMessagesButton.isHidden)
+        XCTAssertNotNil(inputView.scheduledMessagesButton.image(for: .normal))
+        for button in [inputView.attachButton, inputView.sendButton] {
+            XCTAssertNotNil(buttonGlyphImage(button))
+            XCTAssertEqual(button.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+            XCTAssertEqual(button.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+            if #available(iOS 26.0, *) {
+                XCTAssertNotNil(button.configuration?.image)
+            }
+        }
+    }
+
+    func testChatControllerRefreshHidesScheduledMessagesButtonAfterRowsDisappear() throws {
+        let owner = "alice@example.com"
+        let conversation = "bob@example.com"
+        let viewController = makeChatViewController(owner: owner, conversation: conversation)
+        try seedSchedule(
+            owner: owner,
+            id: "scheduled-1",
+            conversation: conversation,
+            conversationType: .regular,
+            deliverAt: makeDate(year: 2026, month: 6, day: 15, hour: 10, minute: 0),
+            status: .pending,
+            body: "Scheduled"
+        )
+        viewController.refreshScheduledMessagesComposerButtonState()
+        XCTAssertFalse(viewController.xabberInputView.scheduledMessagesButton.isHidden)
+
+        let realm = try WRealm.safe()
+        let primary = XMPPMessageScheduleStorageItem.genPrimary(owner: owner, scheduledId: "scheduled-1")
+        try realm.write {
+            if let item = realm.object(ofType: XMPPMessageScheduleStorageItem.self, forPrimaryKey: primary) {
+                realm.delete(item)
+            }
+        }
+
+        viewController.refreshScheduledMessagesComposerButtonState()
+
+        XCTAssertTrue(viewController.xabberInputView.scheduledMessagesButton.isHidden)
+    }
+
+    func testChatControllerRefreshDoesNotShowScheduledMessagesButtonWhenComposerHasText() throws {
+        let owner = "alice@example.com"
+        let conversation = "bob@example.com"
+        let viewController = makeChatViewController(owner: owner, conversation: conversation)
+        viewController.xabberInputView.setComposerText("Draft")
+        viewController.xabberInputView.textViewDidChange(force: true)
+        try seedSchedule(
+            owner: owner,
+            id: "scheduled-1",
+            conversation: conversation,
+            conversationType: .regular,
+            deliverAt: makeDate(year: 2026, month: 6, day: 15, hour: 10, minute: 0),
+            status: .pending,
+            body: "Scheduled"
+        )
+
+        viewController.refreshScheduledMessagesComposerButtonState()
+
+        XCTAssertTrue(viewController.xabberInputView.scheduledMessagesButton.isHidden)
+    }
+
+    func testScheduledMessagesModalDidDisappearInvokesRefreshCallback() {
+        let viewController = ScheduledMessagesViewController()
+        var callbackCount = 0
+        viewController.onDidDisappear = {
+            callbackCount += 1
+        }
+
+        viewController.viewDidDisappear(false)
+
+        XCTAssertEqual(callbackCount, 1)
+    }
+
+    func testComposerScheduledMessagesButtonPolicyRequiresNormalEmptyComposerWithRows() {
+        XCTAssertTrue(ScheduledMessagesComposerButtonPolicy.shouldShow(
+            inputState: .normal,
+            body: "",
+            hasScheduledMessages: true
+        ))
+        XCTAssertTrue(ScheduledMessagesComposerButtonPolicy.shouldShow(
+            inputState: .normal,
+            body: " \n\t ",
+            hasScheduledMessages: true
+        ))
+
+        XCTAssertFalse(ScheduledMessagesComposerButtonPolicy.shouldShow(
+            inputState: .normal,
+            body: "",
+            hasScheduledMessages: false
+        ))
+        XCTAssertFalse(ScheduledMessagesComposerButtonPolicy.shouldShow(
+            inputState: .normal,
+            body: "Draft",
+            hasScheduledMessages: true
+        ))
+        XCTAssertFalse(ScheduledMessagesComposerButtonPolicy.shouldShow(
+            inputState: .record,
+            body: "",
+            hasScheduledMessages: true
+        ))
+        XCTAssertFalse(ScheduledMessagesComposerButtonPolicy.shouldShow(
+            inputState: .search,
+            body: "",
+            hasScheduledMessages: true
+        ))
+        XCTAssertFalse(ScheduledMessagesComposerButtonPolicy.shouldShow(
+            inputState: .selection,
+            body: "",
+            hasScheduledMessages: true
+        ))
+        XCTAssertFalse(ScheduledMessagesComposerButtonPolicy.shouldShow(
+            inputState: .skeleton,
+            body: "",
+            hasScheduledMessages: true
+        ))
+    }
+
+    func testModernInputScheduledMessagesButtonVisibilityTracksTextAndState() {
+        let inputView = ModernXabberInputView(frame: CGRect(x: 0, y: 0, width: 390, height: 49))
+        inputView.layoutIfNeeded()
+
+        XCTAssertTrue(inputView.scheduledMessagesButton.isHidden)
+        XCTAssertFalse(inputView.scheduledMessagesButton.isEnabled)
+        XCTAssertFalse(inputView.scheduledMessagesButton.isUserInteractionEnabled)
+
+        inputView.hasScheduledMessagesForCurrentChat = true
+        XCTAssertFalse(inputView.scheduledMessagesButton.isHidden)
+        XCTAssertTrue(inputView.scheduledMessagesButton.isEnabled)
+        XCTAssertTrue(inputView.scheduledMessagesButton.isUserInteractionEnabled)
+
+        inputView.setComposerText("Test")
+        inputView.textViewDidChange(force: true)
+        XCTAssertTrue(inputView.scheduledMessagesButton.isHidden)
+        XCTAssertFalse(inputView.scheduledMessagesButton.isEnabled)
+        XCTAssertFalse(inputView.scheduledMessagesButton.isUserInteractionEnabled)
+
+        inputView.clearComposer()
+        inputView.textViewDidChange(force: true)
+        XCTAssertFalse(inputView.scheduledMessagesButton.isHidden)
+        XCTAssertTrue(inputView.scheduledMessagesButton.isEnabled)
+        XCTAssertTrue(inputView.scheduledMessagesButton.isUserInteractionEnabled)
+
+        inputView.changeState(to: .record)
+        XCTAssertTrue(inputView.scheduledMessagesButton.isHidden)
+
+        inputView.changeState(to: .normal)
+        XCTAssertFalse(inputView.scheduledMessagesButton.isHidden)
+
+        inputView.changeState(to: .search)
+        XCTAssertTrue(inputView.scheduledMessagesButton.isHidden)
+
+        inputView.changeState(to: .selection)
+        XCTAssertTrue(inputView.scheduledMessagesButton.isHidden)
+
+        inputView.changeState(to: .skeleton)
+        XCTAssertTrue(inputView.scheduledMessagesButton.isHidden)
+
+        inputView.changeState(to: .normal)
+        inputView.hasScheduledMessagesForCurrentChat = false
+        XCTAssertTrue(inputView.scheduledMessagesButton.isHidden)
+        XCTAssertFalse(inputView.scheduledMessagesButton.isEnabled)
+        XCTAssertFalse(inputView.scheduledMessagesButton.isUserInteractionEnabled)
+    }
+
+    func testModernInputScheduledMessagesButtonTapUsesDelegateWithoutSending() {
+        let inputView = ModernXabberInputView(frame: CGRect(x: 0, y: 0, width: 390, height: 49))
+        let delegate = InputBarDelegateSpy()
+        inputView.delegate = delegate
+        inputView.hasScheduledMessagesForCurrentChat = true
+
+        inputView.scheduledMessagesButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(delegate.scheduledMessagesButtonTapCount, 1)
+        XCTAssertEqual(delegate.sendButtonTapCount, 0)
+    }
+
+    func testModernInputScheduledMessagesButtonLayoutReservesTrailingTextSpace() {
+        let inputView = ModernXabberInputView(frame: CGRect(x: 0, y: 0, width: 390, height: 49))
+        inputView.hasScheduledMessagesForCurrentChat = true
+        inputView.layoutIfNeeded()
+
+        let buttonFrame = inputView.scheduledMessagesButton.convert(inputView.scheduledMessagesButton.bounds, to: inputView)
+        let textFrame = inputView.textField.convert(inputView.textField.bounds, to: inputView)
+        let contentFrame = inputView.contentView.convert(inputView.contentView.bounds, to: inputView)
+
+        XCTAssertFalse(inputView.scheduledMessagesButton.isHidden)
+        XCTAssertNotNil(inputView.scheduledMessagesButton.image(for: .normal))
+        XCTAssertEqual(buttonFrame.width, 44, accuracy: 0.5)
+        XCTAssertEqual(buttonFrame.height, textFrame.height, accuracy: 0.5)
+        XCTAssertEqual(buttonFrame.maxX, contentFrame.maxX, accuracy: 0.5)
+        XCTAssertLessThanOrEqual(textFrame.maxX, buttonFrame.minX)
+    }
+
+    func testModernInputScheduledMessagesButtonDoesNotInterceptTextFieldTouches() {
+        let inputView = ModernXabberInputView(frame: CGRect(x: 0, y: 0, width: 390, height: 49))
+        inputView.hasScheduledMessagesForCurrentChat = true
+        inputView.layoutIfNeeded()
+
+        let buttonFrame = inputView.scheduledMessagesButton.convert(inputView.scheduledMessagesButton.bounds, to: inputView)
+        let textFrame = inputView.textField.convert(inputView.textField.bounds, to: inputView)
+        let textPoint = CGPoint(x: textFrame.minX + min(24, textFrame.width / 2), y: textFrame.midY)
+        let buttonPoint = CGPoint(x: buttonFrame.midX, y: buttonFrame.midY)
+
+        XCTAssertFalse(inputView.hitTest(textPoint, with: nil) === inputView.scheduledMessagesButton)
+        XCTAssertTrue(inputView.hitTest(buttonPoint, with: nil) === inputView.scheduledMessagesButton)
+    }
+
+    func testModernInputScheduledMessagesButtonHidesAndRestoresFullTextWidthWithoutRows() {
+        let inputView = ModernXabberInputView(frame: CGRect(x: 0, y: 0, width: 390, height: 49))
+        inputView.hasScheduledMessagesForCurrentChat = false
+        inputView.layoutIfNeeded()
+
+        let textFrame = inputView.textField.convert(inputView.textField.bounds, to: inputView)
+        let contentFrame = inputView.contentView.convert(inputView.contentView.bounds, to: inputView)
+
+        XCTAssertTrue(inputView.scheduledMessagesButton.isHidden)
+        XCTAssertFalse(inputView.scheduledMessagesButton.isEnabled)
+        XCTAssertFalse(inputView.scheduledMessagesButton.isUserInteractionEnabled)
+        XCTAssertEqual(textFrame.maxX, contentFrame.maxX, accuracy: 0.5)
+    }
+
+    func testScheduledMessagesComposerButtonModelFiltersCurrentChatRows() throws {
+        let owner = "alice@example.com"
+        let conversation = "bob@example.com"
+        try seedSchedule(
+            owner: owner,
+            id: "pending-current",
+            conversation: conversation,
+            conversationType: .regular,
+            deliverAt: makeDate(year: 2026, month: 6, day: 15, hour: 10, minute: 0),
+            status: .pending,
+            body: "Pending"
+        )
+        try seedSchedule(
+            owner: owner,
+            id: "failed-current",
+            conversation: conversation,
+            conversationType: .regular,
+            deliverAt: makeDate(year: 2026, month: 6, day: 15, hour: 11, minute: 0),
+            status: .failed,
+            body: "Failed"
+        )
+        try seedSchedule(
+            owner: "other@example.com",
+            id: "other-owner",
+            conversation: conversation,
+            conversationType: .regular,
+            deliverAt: makeDate(year: 2026, month: 6, day: 15, hour: 12, minute: 0),
+            status: .pending,
+            body: "Other owner"
+        )
+        try seedSchedule(
+            owner: owner,
+            id: "other-chat",
+            conversation: "carol@example.com",
+            conversationType: .regular,
+            deliverAt: makeDate(year: 2026, month: 6, day: 15, hour: 13, minute: 0),
+            status: .pending,
+            body: "Other chat"
+        )
+
+        let realm = try WRealm.safe()
+
+        XCTAssertTrue(ScheduledMessagesComposerButtonModel.hasRows(
+            owner: owner,
+            conversation: conversation,
+            conversationType: .regular,
+            realm: realm
+        ))
+        XCTAssertFalse(ScheduledMessagesComposerButtonModel.hasRows(
+            owner: owner,
+            conversation: conversation,
+            conversationType: .group,
+            realm: realm
+        ))
+        XCTAssertFalse(ScheduledMessagesComposerButtonModel.hasRows(
+            owner: owner,
+            conversation: "carol@example.com",
+            conversationType: .group,
+            realm: realm
+        ))
+    }
+
     private func disabledScheduleReason(
         scheduleAvailable: Bool = true,
         isEditingMessage: Bool = false,
@@ -432,6 +782,16 @@ final class XEPMessageScheduleUITests: XCTestCase {
             references: [],
             forwardedMessagePrimaries: forwardedMessagePrimaries
         )
+    }
+
+    private func makeChatViewController(owner: String, conversation: String) -> ChatViewController {
+        let viewController = ChatViewController()
+        viewController.owner = owner
+        viewController.jid = conversation
+        viewController.conversationType = .regular
+        viewController.xabberInputView = ModernXabberInputView(frame: CGRect(x: 0, y: 0, width: 390, height: 49))
+        viewController.xabberInputView.layoutIfNeeded()
+        return viewController
     }
 
     private func seedSchedule(
@@ -479,6 +839,10 @@ final class XEPMessageScheduleUITests: XCTestCase {
             second: second
         ))!
     }
+
+    private func buttonGlyphImage(_ button: UIButton) -> UIImage? {
+        button.image(for: .normal) ?? button.configuration?.image
+    }
 }
 
 private final class FakeScheduledMessageService: ChatScheduledMessageServicing {
@@ -523,6 +887,38 @@ private final class FakeScheduledMessageService: ChatScheduledMessageServicing {
         cancelledIds.append(scheduledId)
         return "cancel-1"
     }
+}
+
+private final class InputBarDelegateSpy: XabberInputBarDelegate {
+    var scheduledMessagesButtonTapCount = 0
+    var sendButtonTapCount = 0
+
+    func sendButtonTouchUp(with text: String) {
+        sendButtonTapCount += 1
+    }
+
+    func sendButtonLongPressMenuRequested(sourceView: UIView, payload: ComposerMessagePayload) {}
+
+    func scheduledMessagesButtonTouchUp() {
+        scheduledMessagesButtonTapCount += 1
+    }
+
+    func attachmentButtonTouchUp() {}
+    func onAfterburnButtonTouchUp() {}
+    func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat) {}
+    func onCheckDevices() {}
+    func onCheckContactDevices() {}
+    func onUpdateSignature() {}
+    func onIdentityVerification() {}
+    func onTextDidChange(to text: String?) {}
+    func onAudioMessageStartRecord(sessionID: UUID) {}
+    func onAudioMessageDidCancel(sessionID: UUID) {}
+    func onAudioMessageDidFinish(sessionID: UUID, intent: VoiceRecordingFinishIntent) {}
+    func onAudioMessagePreviewSend(sessionID: UUID) {}
+    func onAudioMessagePreviewDelete(sessionID: UUID) {}
+    func recordAndPlayPanelPlayButtonTouchUp(sessionID: UUID) {}
+    func didStopPlayingAudio() {}
+    func didSetAudioPositionBar(percentage: Float) -> TimeInterval { 0 }
 }
 
 private extension String {

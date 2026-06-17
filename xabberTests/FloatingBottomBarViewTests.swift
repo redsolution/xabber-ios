@@ -79,3 +79,63 @@ final class FloatingBottomBarViewTests: XCTestCase {
         }
     }
 }
+
+@MainActor
+final class BottomSearchHostViewTests: XCTestCase {
+    func testDefaultStateShowsRoundSearchButtonAndHidesExpandedSurface() {
+        let view = BottomSearchHostView(frame: .zero)
+
+        XCTAssertFalse(view.isExpanded)
+        XCTAssertFalse(view.collapsedButton.isHidden)
+        XCTAssertTrue(view.surfaceView.isHidden)
+        XCTAssertEqual(view.collapsedButton.bounds.size, .zero)
+        XCTAssertEqual(view.searchTextField.placeholder, ChatSearchResultsController.placeholderText)
+    }
+
+    func testExpandedStateShowsSurfaceAndHidesCollapsedButton() {
+        let view = BottomSearchHostView(frame: CGRect(x: 0, y: 0, width: 393, height: 44))
+
+        view.setExpanded(true, animated: false)
+
+        XCTAssertTrue(view.isExpanded)
+        XCTAssertTrue(view.collapsedButton.isHidden)
+        XCTAssertFalse(view.surfaceView.isHidden)
+    }
+
+    func testExpandedSearchTextFieldUsesTransparentChrome() throws {
+        let view = BottomSearchHostView(frame: CGRect(x: 0, y: 0, width: 393, height: 44))
+
+        view.setExpanded(true, animated: false)
+
+        XCTAssertFalse(view.surfaceView.isHidden)
+        XCTAssertEqual(view.searchTextField.backgroundColor, .clear)
+        let layerBackgroundColor = try XCTUnwrap(view.searchTextField.layer.backgroundColor)
+        XCTAssertTrue(UIColor(cgColor: layerBackgroundColor).isEqual(UIColor.clear))
+        XCTAssertEqual(view.searchTextField.borderStyle, .none)
+        XCTAssertEqual(view.searchTextField.background?.size, .zero)
+        XCTAssertEqual(view.searchTextField.disabledBackground?.size, .zero)
+        XCTAssertEqual(view.searchTextField.layer.borderWidth, 0, accuracy: 0.001)
+        XCTAssertNil(view.searchTextField.layer.borderColor)
+        XCTAssertEqual(view.searchTextField.layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertEqual(view.searchTextField.layer.shadowRadius, 0, accuracy: 0.001)
+        XCTAssertEqual(view.searchTextField.layer.shadowOffset, .zero)
+        XCTAssertNil(view.searchTextField.layer.shadowColor)
+    }
+
+    func testQueryChangesNotifyOwnerAndCancelClearsQuery() {
+        let view = BottomSearchHostView(frame: .zero)
+        var observedQueries: [String?] = []
+        var didCancel = false
+        view.onQueryChanged = { observedQueries.append($0) }
+        view.onCancel = { didCancel = true }
+
+        view.setExpanded(true, animated: false)
+        view.setQuery("romeo", notify: true)
+        view.cancelButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(observedQueries.compactMap { $0 }, ["romeo", ""])
+        XCTAssertTrue(didCancel)
+        XCTAssertFalse(view.isExpanded)
+        XCTAssertEqual(view.query, "")
+    }
+}

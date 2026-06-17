@@ -408,7 +408,7 @@ final class CallsVisualStyleTests: XCTestCase {
         XCTAssertTrue(controller.view.isOpaque)
     }
 
-    func testCallsConfigureSearchBarUsesStockNavigationItemWithoutMutatingAppearance() {
+    func testCallsConfigureSearchBarInstallsBottomSearchWithoutMutatingAppearance() {
         let controller = LastCallsViewController()
         _ = UINavigationController(rootViewController: controller)
         let standardAppearance = UINavigationBarAppearance()
@@ -425,13 +425,13 @@ final class CallsVisualStyleTests: XCTestCase {
         let textFieldBackground = searchBar.searchTextField.backgroundColor
         let textFieldLayerBackground = searchBar.searchTextField.layer.backgroundColor
 
+        controller.loadViewIfNeeded()
         controller.configureSearchBar()
 
-        XCTAssertTrue(controller.navigationItem.searchController === controller.searchController)
-        XCTAssertFalse(controller.navigationItem.hidesSearchBarWhenScrolling)
-        if #available(iOS 16.0, *) {
-            XCTAssertEqual(controller.navigationItem.preferredSearchBarPlacement, .stacked)
-        }
+        XCTAssertNil(controller.navigationItem.searchController)
+        XCTAssertTrue(controller.bottomSearchHostView.superview === controller.view)
+        XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
+        XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
         XCTAssertEqual(controller.navigationItem.standardAppearance?.backgroundColor, standardAppearance.backgroundColor)
         XCTAssertEqual(controller.navigationItem.scrollEdgeAppearance?.backgroundColor, scrollEdgeAppearance.backgroundColor)
         XCTAssertEqual(controller.navigationItem.compactAppearance?.backgroundColor, compactAppearance.backgroundColor)
@@ -446,13 +446,31 @@ final class CallsVisualStyleTests: XCTestCase {
         controller.configureBars(animated: false)
         let leftItem = controller.navigationItem.leftBarButtonItem
         let rightItem = controller.navigationItem.rightBarButtonItem
-        let searchController = controller.navigationItem.searchController
 
         controller.configureBars(animated: false)
 
         XCTAssertTrue(controller.navigationItem.leftBarButtonItem === leftItem)
         XCTAssertTrue(controller.navigationItem.rightBarButtonItem === rightItem)
-        XCTAssertTrue(controller.navigationItem.searchController === searchController)
+        XCTAssertNil(controller.navigationItem.searchController)
+    }
+
+    func testCallsBottomSearchExpandsWithoutShowingLegacyBottomBar() {
+        let controller = LastCallsViewController()
+        let container = embedInTraitContainer(controller, horizontalSizeClass: .regular)
+
+        container.loadViewIfNeeded()
+        controller.configureSearchBar()
+
+        XCTAssertNil(controller.navigationItem.searchController)
+        XCTAssertTrue(controller.bottomBar.superview == nil || controller.bottomBar.isHidden)
+        XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
+
+        controller.bottomSearchHostView.collapsedButton.sendActions(for: .touchUpInside)
+
+        XCTAssertTrue(controller.bottomSearchHostView.isExpanded)
+        XCTAssertTrue(controller.bottomSearchHostView.collapsedButton.isHidden)
+        XCTAssertFalse(controller.bottomSearchHostView.surfaceView.isHidden)
+        XCTAssertTrue(controller.bottomBar.superview == nil || controller.bottomBar.isHidden)
     }
 
     func testCallsCategoriesTableUsesInsetGroupedTransparentSplitAppearanceAndNativeSpacingInRegularWidth() {
@@ -466,9 +484,12 @@ final class CallsVisualStyleTests: XCTestCase {
         XCTAssertFalse(controller.tableView.isOpaque)
         XCTAssertEqual(controller.view.backgroundColor, .clear)
         XCTAssertFalse(controller.view.isOpaque)
-        XCTAssertNotNil(controller.navigationItem.standardAppearance)
-        XCTAssertNotNil(controller.navigationItem.scrollEdgeAppearance)
-        XCTAssertNotNil(controller.navigationItem.compactAppearance)
+        XCTAssertNil(controller.navigationItem.standardAppearance)
+        XCTAssertNil(controller.navigationItem.scrollEdgeAppearance)
+        XCTAssertNil(controller.navigationItem.compactAppearance)
+        if #available(iOS 15.0, *) {
+            XCTAssertNil(controller.navigationItem.compactScrollEdgeAppearance)
+        }
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:heightForHeaderInSection:))))
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:heightForFooterInSection:))))
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:viewForHeaderInSection:))))
@@ -679,25 +700,17 @@ final class CallsVisualStyleTests: XCTestCase {
         )
     }
 
-    func testCallsCategoriesNavigationAppearanceRemovesOnlyHairline() {
+    func testCallsCategoriesNavigationAppearanceUsesUIKitDefaultChrome() {
         let controller = CallsCategoriesViewController()
         _ = UINavigationController(rootViewController: controller)
 
         controller.loadViewIfNeeded()
 
-        [
-            controller.navigationItem.standardAppearance,
-            controller.navigationItem.scrollEdgeAppearance,
-            controller.navigationItem.compactAppearance
-        ].forEach { appearance in
-            XCTAssertNotNil(appearance)
-            let shadowColor = appearance?.shadowColor
-            XCTAssertTrue(shadowColor == nil || shadowColor?.cgColor.alpha == 0)
-            let shadowImage = appearance?.shadowImage
-            XCTAssertTrue(shadowImage == nil || shadowImage?.size == .zero)
-        }
+        XCTAssertNil(controller.navigationItem.standardAppearance)
+        XCTAssertNil(controller.navigationItem.scrollEdgeAppearance)
+        XCTAssertNil(controller.navigationItem.compactAppearance)
         if #available(iOS 15.0, *) {
-            XCTAssertNotNil(controller.navigationItem.compactScrollEdgeAppearance)
+            XCTAssertNil(controller.navigationItem.compactScrollEdgeAppearance)
         }
     }
 

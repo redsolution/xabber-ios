@@ -802,6 +802,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal lazy var searchController: UISearchController = {
         InPlaceSearchHostHelper.makeSearchController(updater: chatSearchResultsController)
     }()
+
+    internal let bottomSearchHostView = BottomSearchHostView(frame: .zero)
     
     internal let pullDownTableHeaderView: PullDownTableHeaderView = {
         let view = PullDownTableHeaderView(frame: .zero)
@@ -1452,6 +1454,10 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
     internal final var floatingBottomBarTitle: String? {
         floatingBottomBarView.titleLabel.text
+    }
+
+    internal final var isFloatingBottomBarHidden: Bool {
+        floatingBottomBarView.isHidden
     }
 
     internal var hasConnectingEnabledAccounts: Bool {
@@ -2564,8 +2570,11 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
 
     private final func setupFloatingToolbar() {
+        self.installBottomSearchHostIfNeeded()
+
         guard self.floatingBottomBarView.superview == nil else {
             self.view.bringSubviewToFront(self.floatingBottomBarView)
+            self.view.bringSubviewToFront(self.bottomSearchHostView)
             self.updateFloatingToolbarFilterButtonState()
             self.updateUnreadChatsCounter()
             self.updateTableInsetsForFloatingToolbar()
@@ -2584,14 +2593,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             for: .touchUpInside
         )
 
-        let fullWidthConstraint = self.floatingBottomBarView.widthAnchor.constraint(
-            equalTo: self.view.safeAreaLayoutGuide.widthAnchor,
-            constant: -FloatingBottomBarView.Metrics.horizontalInset * 2
-        )
-        fullWidthConstraint.priority = .defaultHigh
-
         NSLayoutConstraint.activate([
-            self.floatingBottomBarView.centerXAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.centerXAnchor),
             self.floatingBottomBarView.bottomAnchor.constraint(
                 equalTo: self.view.safeAreaLayoutGuide.bottomAnchor,
                 constant: -FloatingBottomBarView.Metrics.bottomOffset
@@ -2601,15 +2603,15 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 constant: FloatingBottomBarView.Metrics.horizontalInset
             ),
             self.floatingBottomBarView.trailingAnchor.constraint(
-                lessThanOrEqualTo: self.view.safeAreaLayoutGuide.trailingAnchor,
-                constant: -FloatingBottomBarView.Metrics.horizontalInset
+                equalTo: self.bottomSearchHostView.collapsedButton.leadingAnchor,
+                constant: -NativeGlassBarStyle.interItemSpacing
             ),
-            fullWidthConstraint,
             self.floatingBottomBarView.widthAnchor.constraint(lessThanOrEqualToConstant: FloatingBottomBarView.Metrics.maxWidth),
             self.floatingBottomBarView.heightAnchor.constraint(equalToConstant: FloatingBottomBarView.Metrics.height)
         ])
 
         self.view.bringSubviewToFront(self.floatingBottomBarView)
+        self.view.bringSubviewToFront(self.bottomSearchHostView)
         self.updateFloatingToolbarFilterButtonState()
         self.updateUnreadChatsCounter()
         self.updateTableInsetsForFloatingToolbar()
@@ -2640,21 +2642,24 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         self.updateFloatingToolbarFilterButtonState()
     }
 
-    private final func updateFloatingToolbarFilterButtonState() {
+    internal final func updateFloatingToolbarFilterButtonState() {
         let isUnreadFilterActive = self.filter.value == .unread
         let imageName = isUnreadFilterActive
             ? "line.3.horizontal.decrease.circle.fill"
             : "line.3.horizontal.decrease.circle"
 
         self.floatingBottomBarView.updateLeftButton(imageName: imageName, isActive: isUnreadFilterActive)
-        self.floatingBottomBarView.isHidden = !self.shouldShowBottomBar || self.filter.value == .saved
+        self.floatingBottomBarView.isHidden = self.bottomSearchHostView.isExpanded ||
+            !self.shouldShowBottomBar ||
+            self.filter.value == .saved
         self.floatingBottomBarView.refreshAppearance()
     }
 
-    private final func updateTableInsetsForFloatingToolbar() {
+    internal final func updateTableInsetsForFloatingToolbar() {
         let isToolbarVisible = self.floatingBottomBarView.superview != nil && !self.floatingBottomBarView.isHidden
-        let bottomInset = isToolbarVisible
-            ? FloatingBottomBarView.Metrics.reservedBottomInset
+        let isBottomSearchVisible = self.bottomSearchHostView.superview != nil && !self.bottomSearchHostView.isHidden
+        let bottomInset = isToolbarVisible || isBottomSearchVisible
+            ? max(FloatingBottomBarView.Metrics.reservedBottomInset, BottomSearchHostView.Metrics.reservedBottomInset)
             : 0
 
         if self.tableView.contentInset.bottom != bottomInset {
@@ -2945,6 +2950,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         self.updateTableInsetsForFloatingToolbar()
         self.view.bringSubviewToFront(self.pinnedVoicePlayerView)
         self.view.bringSubviewToFront(self.floatingBottomBarView)
+        self.view.bringSubviewToFront(self.bottomSearchHostView)
     }
     
     
@@ -2994,7 +3000,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
         UIView.performWithoutAnimation {
             configureBars(updateNavigationItems: true)
-            configureSearchBar(forceRebind: false)
+            configureSearchBar()
         }
         if !self.deferUntilNavigationTransitionCompletesIfNeeded({ [weak self] in
             self?.showPlayerViewIfNeeded()

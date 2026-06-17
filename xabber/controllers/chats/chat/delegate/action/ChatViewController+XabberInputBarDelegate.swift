@@ -848,6 +848,12 @@ extension ChatViewController: XabberInputBarDelegate {
         menu.showMenu(viewTargeted: sourceView, delegate: self, animated: true)
     }
 
+    func scheduledMessagesButtonTouchUp() {
+        guard !self.showSkeletonObserver.value else { return }
+        self.sendOptionsContextMenu?.closeMenu(withAnimation: false)
+        self.openScheduledMessagesModal()
+    }
+
     private func showScheduleDatePicker(for payload: ComposerMessagePayload) {
         guard self.canSchedulePayload(payload, showError: true) else { return }
         let picker = ScheduledMessageDatePickerViewController { [weak self] selectedDate in
@@ -908,6 +914,7 @@ extension ChatViewController: XabberInputBarDelegate {
         self.draftMessageText.accept(nil)
         self.clearAttachments()
         self.unreadMessagePositionId = nil
+        self.refreshScheduledMessagesComposerButtonState()
         FeedbackManager.shared.generate(feedback: .success)
         self.openScheduledMessagesModal()
     }
@@ -918,6 +925,9 @@ extension ChatViewController: XabberInputBarDelegate {
         vc.jid = self.jid
         vc.conversationType = self.conversationType
         vc.scheduledMessageService = self.scheduledMessageService
+        vc.onDidDisappear = { [weak self] in
+            self?.refreshScheduledMessagesComposerButtonState()
+        }
         showModal(vc, parent: self)
     }
 

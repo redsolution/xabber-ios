@@ -240,7 +240,7 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
             XCTAssertEqual(navigationController.layoutSubviewsCallCount, 0)
             XCTAssertEqual(navigationController.viewIfLoaded?.bounds, initialNavigationBounds)
             XCTAssertEqual(rootViewController.isViewLoaded, initialRootLoaded)
-            XCTAssertNotNil(rootViewController.navigationItem.searchController)
+            XCTAssertNil(rootViewController.navigationItem.searchController)
         }
     }
 
@@ -278,34 +278,11 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
             XCTAssertTrue(rootViewController.isViewLoaded)
             XCTAssertEqual(navigationController.view.bounds.size, targetBounds.size)
             XCTAssertFalse(rootViewController.view.bounds.isEmpty)
-            XCTAssertNotNil(rootViewController.navigationItem.searchController)
+            XCTAssertNil(rootViewController.navigationItem.searchController)
         }
     }
 
-    func testPrepareAttachedIfDeferredLoadsSearchHostNavigationControllerAfterSplitInstallation() {
-        searchHostNavigationControllers().forEach { navigationController in
-            guard let rootViewController = navigationController.topViewController else {
-                XCTFail("Expected search host root controller")
-                return
-            }
-            let splitViewController = UISplitViewController(style: .tripleColumn)
-            splitViewController.setViewController(navigationController, for: .supplementary)
-            let targetBounds = CGRect(x: 0, y: 0, width: 414, height: 896)
-
-            LeftMenuSplitDestinationPreparer.prepareAttachedIfDeferred(
-                navigationController,
-                targetBounds: targetBounds
-            )
-
-            XCTAssertTrue(navigationController.isViewLoaded)
-            XCTAssertTrue(rootViewController.isViewLoaded)
-            XCTAssertEqual(navigationController.view.bounds.size, targetBounds.size)
-            XCTAssertFalse(rootViewController.view.bounds.isEmpty)
-            XCTAssertNotNil(rootViewController.navigationItem.searchController)
-        }
-    }
-
-    func testPrepareAttachedIfDeferredLoadsDirectSearchHostAfterSplitInstallation() {
+    func testPrepareAttachedLoadsDirectSearchHostController() {
         directSearchHostControllers().forEach { name, viewController in
             let splitViewController = UISplitViewController(style: .tripleColumn)
             let parent = embedInTraitContainer(splitViewController, horizontalSizeClass: .regular)
@@ -313,111 +290,15 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
             splitViewController.setViewController(viewController, for: .secondary)
             let targetBounds = CGRect(x: 0, y: 0, width: 414, height: 896)
 
-            let didRebind = SearchSectionNavigationContainerPolicy.prepareSearchHostForReveal(
-                viewController,
-                in: splitViewController
-            )
-            LeftMenuSplitDestinationPreparer.prepareAttachedIfDeferred(
-                viewController,
-                targetBounds: targetBounds
-            )
+            LeftMenuSplitDestinationPreparer.prepareAttached(viewController, targetBounds: targetBounds)
 
-            XCTAssertFalse(didRebind, name)
             XCTAssertTrue(viewController.isViewLoaded, name)
             XCTAssertEqual(viewController.view.bounds.size, targetBounds.size, name)
-            XCTAssertTrue(
-                viewController.navigationItem.searchController === searchController(for: viewController),
-                name
-            )
+            XCTAssertNil(viewController.navigationItem.searchController, name)
         }
     }
 
-    func testPrepareAttachedIfDeferredSkipsNonSearchController() {
-        let viewController = LayoutRecordingViewController()
-        let targetBounds = CGRect(x: 0, y: 0, width: 320, height: 640)
-
-        LeftMenuSplitDestinationPreparer.prepareAttachedIfDeferred(
-            viewController,
-            targetBounds: targetBounds
-        )
-
-        XCTAssertFalse(viewController.isViewLoaded)
-        XCTAssertEqual(viewController.layoutPassCount, 0)
-    }
-
-    func testPrepareSearchHostForRevealDoesNotRebindAlreadyAttachedSearchControllerAfterSplitInstallation() {
-        let previousInterfaceType = CommonConfigManager.shared.config.interface_type
-        CommonConfigManager.shared.config.interface_type = CommonConfigManager.InterfaceType.split.rawValue
-        defer {
-            CommonConfigManager.shared.config.interface_type = previousInterfaceType
-        }
-
-        let viewController = LastChatsViewController()
-        viewController.configureSearchBar()
-        let searchController = viewController.searchController
-        let navigationController = RecordingNavigationController(rootViewController: viewController)
-        let splitViewController = UISplitViewController(style: .tripleColumn)
-        let parent = embedInTraitContainer(splitViewController, horizontalSizeClass: .regular)
-        parent.loadViewIfNeeded()
-        splitViewController.setViewController(navigationController, for: .supplementary)
-
-        let didRebind = SearchSectionNavigationContainerPolicy.prepareSearchHostForReveal(
-            navigationController,
-            in: splitViewController,
-            forceSearchRebind: true
-        )
-
-        XCTAssertFalse(didRebind)
-        XCTAssertTrue(viewController.navigationItem.searchController === searchController)
-        assertNativeDefaultSearchNavigationChrome(navigationController)
-    }
-
-    func testPrepareSearchHostForRevealDoesNotForceRebindByDefault() {
-        let viewController = LastChatsViewController()
-        viewController.configureSearchBar()
-        let searchController = viewController.searchController
-        let navigationController = RecordingNavigationController(rootViewController: viewController)
-
-        let didRebind = SearchSectionNavigationContainerPolicy.prepareSearchHostForReveal(
-            navigationController
-        )
-
-        XCTAssertFalse(didRebind)
-        XCTAssertTrue(viewController.navigationItem.searchController === searchController)
-    }
-
-    func testPrepareSearchHostForRevealSkipsActiveSearchControllerRebind() {
-        let viewController = LastChatsViewController()
-        let navigationController = RecordingNavigationController(rootViewController: viewController)
-        let parent = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
-        parent.loadViewIfNeeded()
-        viewController.configureSearchBar()
-        activateInPlaceSearch(viewController.searchController)
-
-        let didRebind = SearchSectionNavigationContainerPolicy.prepareSearchHostForReveal(
-            navigationController,
-            forceSearchRebind: true
-        )
-
-        XCTAssertFalse(didRebind)
-        XCTAssertTrue(viewController.navigationItem.searchController === viewController.searchController)
-    }
-
-    func testPrepareSearchHostForRevealDoesNotRebindDirectAlreadyAttachedSearchHostController() {
-        let viewController = LastChatsViewController()
-        viewController.configureSearchBar()
-        let searchController = viewController.searchController
-
-        let didRebind = SearchSectionNavigationContainerPolicy.prepareSearchHostForReveal(
-            viewController,
-            forceSearchRebind: true
-        )
-
-        XCTAssertFalse(didRebind)
-        XCTAssertTrue(viewController.navigationItem.searchController === searchController)
-    }
-
-    func testPrepareSearchHostForRevealKeepsNonSearchNavigationStackOnTransparentSplitPath() {
+    func testTransparentSplitAppearanceKeepsNonSearchNavigationStackOnTransparentSplitPath() {
         let previousInterfaceType = CommonConfigManager.shared.config.interface_type
         CommonConfigManager.shared.config.interface_type = CommonConfigManager.InterfaceType.split.rawValue
         defer {
@@ -428,11 +309,8 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
         let parent = embedInTraitContainer(navigationController, horizontalSizeClass: .regular)
         parent.loadViewIfNeeded()
 
-        let didRebind = SearchSectionNavigationContainerPolicy.prepareSearchHostForReveal(
-            navigationController
-        )
+        SearchSectionNavigationContainerPolicy.applyTransparentSplitAppearanceIfAllowed(to: navigationController)
 
-        XCTAssertFalse(didRebind)
         XCTAssertTrue(navigationController.navigationBar.isTranslucent)
         XCTAssertEqual(navigationController.view.backgroundColor, .clear)
         XCTAssertFalse(navigationController.view.isOpaque)
@@ -458,9 +336,15 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
     }
 
     func testSearchSectionRootsRequireNativeDefaultNavigationContainers() {
+        XCTAssertTrue(SearchSectionNavigationContainerPolicy.requiresNativeDefaultNavigationContainer(for: ChatViewController()))
         XCTAssertTrue(SearchSectionNavigationContainerPolicy.requiresNativeDefaultNavigationContainer(for: LastChatsViewController()))
         XCTAssertTrue(SearchSectionNavigationContainerPolicy.requiresNativeDefaultNavigationContainer(for: ContactsViewController()))
+        XCTAssertTrue(SearchSectionNavigationContainerPolicy.requiresNativeDefaultNavigationContainer(for: ContactsCategoryViewController()))
+        XCTAssertTrue(SearchSectionNavigationContainerPolicy.requiresNativeDefaultNavigationContainer(for: NotificationsListViewController()))
+        XCTAssertTrue(SearchSectionNavigationContainerPolicy.requiresNativeDefaultNavigationContainer(for: NotificationsCategoriesViewController()))
         XCTAssertTrue(SearchSectionNavigationContainerPolicy.requiresNativeDefaultNavigationContainer(for: LastCallsViewController()))
+        XCTAssertTrue(SearchSectionNavigationContainerPolicy.requiresNativeDefaultNavigationContainer(for: CallsCategoriesViewController()))
+        XCTAssertTrue(SearchSectionNavigationContainerPolicy.requiresNativeDefaultNavigationContainer(for: SettingsViewController()))
     }
 
     func testSearchSectionNavigationContainersRequireDeferredAttachedLayout() {
@@ -499,8 +383,10 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
         }
 
         [
+            UINavigationController(rootViewController: ChatViewController()),
             UINavigationController(rootViewController: LastChatsViewController()),
             UINavigationController(rootViewController: ContactsViewController()),
+            UINavigationController(rootViewController: NotificationsListViewController()),
             UINavigationController(rootViewController: LastCallsViewController())
         ].forEach { navigationController in
             installStaleTransparentNavigationAppearance(on: navigationController)
@@ -608,7 +494,7 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
         XCTAssertNotNil(navigationController.navigationBar.compactAppearance)
     }
 
-    func testRegularSplitSearchNavigationContainersUseNativeDefaultSearchChrome() {
+    func testRegularSplitSearchNavigationContainersKeepExistingNavigationChromeUntouched() {
         let previousInterfaceType = CommonConfigManager.shared.config.interface_type
         CommonConfigManager.shared.config.interface_type = CommonConfigManager.InterfaceType.split.rawValue
         defer {
@@ -616,23 +502,48 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
         }
 
         [
+            UINavigationController(rootViewController: ChatViewController()),
             UINavigationController(rootViewController: LastChatsViewController()),
             UINavigationController(rootViewController: ContactsViewController()),
             UINavigationController(rootViewController: LastCallsViewController())
         ].forEach { navigationController in
             let parent = embedInTraitContainer(navigationController, horizontalSizeClass: .regular)
             installStaleTransparentNavigationAppearance(on: navigationController)
+            let standardAppearance = navigationController.navigationBar.standardAppearance
+            let scrollEdgeAppearance = navigationController.navigationBar.scrollEdgeAppearance
+            let compactAppearance = navigationController.navigationBar.compactAppearance
+            let compactScrollEdgeAppearance = navigationController.navigationBar.compactScrollEdgeAppearance
+            let rootStandardAppearance = navigationController.topViewController?.navigationItem.standardAppearance
+            let rootScrollEdgeAppearance = navigationController.topViewController?.navigationItem.scrollEdgeAppearance
+            let rootCompactAppearance = navigationController.topViewController?.navigationItem.compactAppearance
+            let rootCompactScrollEdgeAppearance: UINavigationBarAppearance?
+            if #available(iOS 15.0, *) {
+                rootCompactScrollEdgeAppearance = navigationController.topViewController?.navigationItem.compactScrollEdgeAppearance
+            } else {
+                rootCompactScrollEdgeAppearance = nil
+            }
 
             parent.loadViewIfNeeded()
             SearchSectionNavigationContainerPolicy.applyTransparentSplitAppearanceIfAllowed(to: navigationController)
 
-            assertNativeDefaultSearchNavigationChrome(navigationController)
+            XCTAssertTrue(navigationController.navigationBar.standardAppearance === standardAppearance)
+            XCTAssertTrue(navigationController.navigationBar.scrollEdgeAppearance === scrollEdgeAppearance)
+            XCTAssertTrue(navigationController.navigationBar.compactAppearance === compactAppearance)
+            XCTAssertTrue(navigationController.navigationBar.compactScrollEdgeAppearance === compactScrollEdgeAppearance)
+            XCTAssertTrue(navigationController.topViewController?.navigationItem.standardAppearance === rootStandardAppearance)
+            XCTAssertTrue(navigationController.topViewController?.navigationItem.scrollEdgeAppearance === rootScrollEdgeAppearance)
+            XCTAssertTrue(navigationController.topViewController?.navigationItem.compactAppearance === rootCompactAppearance)
+            if #available(iOS 15.0, *) {
+                XCTAssertTrue(
+                    navigationController.topViewController?.navigationItem.compactScrollEdgeAppearance === rootCompactScrollEdgeAppearance
+                )
+            }
             XCTAssertEqual(navigationController.view.backgroundColor, .clear)
             XCTAssertFalse(navigationController.view.isOpaque)
         }
     }
 
-    func testBackgroundRootContainerKeepsSearchHostNavigationChromeNativeDefaultInRegularSplit() {
+    func testBackgroundRootContainerDoesNotResetSearchHostNavigationChromeInRegularSplit() {
         let previousInterfaceType = CommonConfigManager.shared.config.interface_type
         CommonConfigManager.shared.config.interface_type = CommonConfigManager.InterfaceType.split.rawValue
         defer {
@@ -641,6 +552,19 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
 
         let navigationController = UINavigationController(rootViewController: LastChatsViewController())
         installStaleTransparentNavigationAppearance(on: navigationController)
+        let standardAppearance = navigationController.navigationBar.standardAppearance
+        let scrollEdgeAppearance = navigationController.navigationBar.scrollEdgeAppearance
+        let compactAppearance = navigationController.navigationBar.compactAppearance
+        let compactScrollEdgeAppearance = navigationController.navigationBar.compactScrollEdgeAppearance
+        let rootStandardAppearance = navigationController.topViewController?.navigationItem.standardAppearance
+        let rootScrollEdgeAppearance = navigationController.topViewController?.navigationItem.scrollEdgeAppearance
+        let rootCompactAppearance = navigationController.topViewController?.navigationItem.compactAppearance
+        let rootCompactScrollEdgeAppearance: UINavigationBarAppearance?
+        if #available(iOS 15.0, *) {
+            rootCompactScrollEdgeAppearance = navigationController.topViewController?.navigationItem.compactScrollEdgeAppearance
+        } else {
+            rootCompactScrollEdgeAppearance = nil
+        }
         let splitViewController = UISplitViewController(style: .tripleColumn)
         splitViewController.setViewController(navigationController, for: .supplementary)
         let container = BackgroundRootContainerViewController(contentViewController: splitViewController)
@@ -651,9 +575,18 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
         container.view.layoutIfNeeded()
         parent.view.layoutIfNeeded()
 
-        assertNativeDefaultSearchNavigationChrome(navigationController)
-        XCTAssertEqual(navigationController.view.backgroundColor, .clear)
-        XCTAssertFalse(navigationController.view.isOpaque)
+        XCTAssertTrue(navigationController.navigationBar.standardAppearance === standardAppearance)
+        XCTAssertTrue(navigationController.navigationBar.scrollEdgeAppearance === scrollEdgeAppearance)
+        XCTAssertTrue(navigationController.navigationBar.compactAppearance === compactAppearance)
+        XCTAssertTrue(navigationController.navigationBar.compactScrollEdgeAppearance === compactScrollEdgeAppearance)
+        XCTAssertTrue(navigationController.topViewController?.navigationItem.standardAppearance === rootStandardAppearance)
+        XCTAssertTrue(navigationController.topViewController?.navigationItem.scrollEdgeAppearance === rootScrollEdgeAppearance)
+        XCTAssertTrue(navigationController.topViewController?.navigationItem.compactAppearance === rootCompactAppearance)
+        if #available(iOS 15.0, *) {
+            XCTAssertTrue(
+                navigationController.topViewController?.navigationItem.compactScrollEdgeAppearance === rootCompactScrollEdgeAppearance
+            )
+        }
     }
 
     func testRegularSplitNonSearchNavigationContainersKeepTransparentSharedBackdropAppearance() {
@@ -669,9 +602,9 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
         parent.loadViewIfNeeded()
         SearchSectionNavigationContainerPolicy.applyTransparentSplitAppearanceIfAllowed(to: navigationController)
 
-            XCTAssertTrue(navigationController.navigationBar.isTranslucent)
-            XCTAssertEqual(navigationController.view.backgroundColor, .clear)
-            XCTAssertFalse(navigationController.view.isOpaque)
+        XCTAssertTrue(navigationController.navigationBar.isTranslucent)
+        XCTAssertEqual(navigationController.view.backgroundColor, .clear)
+        XCTAssertFalse(navigationController.view.isOpaque)
     }
 
     func testNonSearchSectionRootsCanUseExistingNavigationContainerChrome() {
@@ -696,100 +629,6 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
         return parent
     }
 
-    private func assertNativeDefaultSearchNavigationChrome(
-        _ navigationController: UINavigationController,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        let defaultNavigationBar = UINavigationBar()
-        XCTAssertEqual(
-            navigationController.navigationBar.isTranslucent,
-            defaultNavigationBar.isTranslucent,
-            file: file,
-            line: line
-        )
-        assertNativeDefaultAppearance(
-            navigationController.navigationBar.standardAppearance,
-            matches: defaultNavigationBar.standardAppearance,
-            file: file,
-            line: line
-        )
-        assertNativeDefaultAppearance(
-            navigationController.navigationBar.scrollEdgeAppearance,
-            matches: defaultNavigationBar.scrollEdgeAppearance,
-            file: file,
-            line: line
-        )
-        assertNativeDefaultAppearance(
-            navigationController.navigationBar.compactAppearance,
-            matches: defaultNavigationBar.compactAppearance,
-            file: file,
-            line: line
-        )
-        assertNativeDefaultAppearance(
-            navigationController.navigationBar.compactScrollEdgeAppearance,
-            matches: defaultNavigationBar.compactScrollEdgeAppearance,
-            file: file,
-            line: line
-        )
-        XCTAssertNil(navigationController.topViewController?.navigationItem.standardAppearance, file: file, line: line)
-        XCTAssertNil(navigationController.topViewController?.navigationItem.scrollEdgeAppearance, file: file, line: line)
-        XCTAssertNil(navigationController.topViewController?.navigationItem.compactAppearance, file: file, line: line)
-        if #available(iOS 15.0, *) {
-            XCTAssertNil(
-                navigationController.topViewController?.navigationItem.compactScrollEdgeAppearance,
-                file: file,
-                line: line
-            )
-        }
-    }
-
-    private func assertNativeDefaultAppearance(
-        _ actual: UINavigationBarAppearance?,
-        matches expected: UINavigationBarAppearance?,
-        file: StaticString,
-        line: UInt
-    ) {
-        switch (actual, expected) {
-        case let (actual?, expected?):
-            assertNativeDefaultAppearance(actual, matches: expected, file: file, line: line)
-        case (nil, nil):
-            break
-        default:
-            XCTFail("Expected native default optional navigation bar appearance", file: file, line: line)
-        }
-    }
-
-    private func assertNativeDefaultAppearance(
-        _ actual: UINavigationBarAppearance,
-        matches expected: UINavigationBarAppearance,
-        file: StaticString,
-        line: UInt
-    ) {
-        assertColor(actual.backgroundColor, matches: expected.backgroundColor, file: file, line: line)
-        assertColor(actual.shadowColor, matches: expected.shadowColor, file: file, line: line)
-        XCTAssertEqual(actual.backgroundImage == nil, expected.backgroundImage == nil, file: file, line: line)
-        XCTAssertEqual(actual.shadowImage == nil, expected.shadowImage == nil, file: file, line: line)
-        XCTAssertEqual(actual.backgroundEffect == nil, expected.backgroundEffect == nil, file: file, line: line)
-        XCTAssertFalse(actual.shadowColor?.isEqual(UIColor.magenta) ?? false, file: file, line: line)
-    }
-
-    private func assertColor(
-        _ actual: UIColor?,
-        matches expected: UIColor?,
-        file: StaticString,
-        line: UInt
-    ) {
-        switch (actual, expected) {
-        case let (actual?, expected?):
-            XCTAssertTrue(actual.isEqual(expected), file: file, line: line)
-        case (nil, nil):
-            break
-        default:
-            XCTFail("Expected matching native default color", file: file, line: line)
-        }
-    }
-
     private func searchHostNavigationControllers() -> [UINavigationController] {
         let lastChats = LastChatsViewController()
         lastChats.configureSearchBar()
@@ -803,6 +642,7 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
         return [
             RecordingNavigationController(rootViewController: lastChats),
             RecordingNavigationController(rootViewController: contacts),
+            RecordingNavigationController(rootViewController: NotificationsListViewController()),
             RecordingNavigationController(rootViewController: calls)
         ]
     }
@@ -811,7 +651,11 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
         [
             ("Last Chats", LastChatsViewController()),
             ("Contacts", ContactsViewController()),
-            ("Calls", LastCallsViewController())
+            ("Contact Categories", ContactsCategoryViewController()),
+            ("Notifications", NotificationsListViewController()),
+            ("Notification Categories", NotificationsCategoriesViewController()),
+            ("Calls", LastCallsViewController()),
+            ("Call Categories", CallsCategoriesViewController())
         ]
     }
 
@@ -826,11 +670,6 @@ final class LeftMenuSplitDestinationPreparerTests: XCTestCase {
         default:
             return nil
         }
-    }
-
-    private func activateInPlaceSearch(_ searchController: UISearchController) {
-        searchController.searchBar.text = "romeo"
-        searchController.isActive = true
     }
 
     private func attachToTraitWindow(

@@ -405,3 +405,48 @@ enum ScheduledMessagesListModel {
             }
     }
 }
+
+enum ScheduledMessagesComposerButtonPolicy {
+    static func shouldShow(
+        inputState: ModernXabberInputView.InputBarState,
+        body: String,
+        hasScheduledMessages: Bool
+    ) -> Bool {
+        inputState == .normal
+            && body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && hasScheduledMessages
+    }
+}
+
+enum ScheduledMessagesComposerButtonModel {
+    static func results(
+        owner: String,
+        conversation: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        realm: Realm
+    ) -> Results<XMPPMessageScheduleStorageItem> {
+        realm.objects(XMPPMessageScheduleStorageItem.self)
+            .filter(
+                "owner == %@ AND conversation == %@ AND conversationType_ == %@ AND (status_ == %@ OR status_ == %@)",
+                owner,
+                conversation,
+                conversationType.rawValue,
+                XMPPMessageScheduleStorageItem.Status.pending.rawValue,
+                XMPPMessageScheduleStorageItem.Status.failed.rawValue
+            )
+    }
+
+    static func hasRows(
+        owner: String,
+        conversation: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        realm: Realm
+    ) -> Bool {
+        !results(
+            owner: owner,
+            conversation: conversation,
+            conversationType: conversationType,
+            realm: realm
+        ).isEmpty
+    }
+}

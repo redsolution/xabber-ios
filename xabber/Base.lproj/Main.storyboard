@@ -24,7 +24,7 @@
         <!--Settings-->
         <scene sceneID="Cp5-Be-CBR">
             <objects>
-                <navigationController restorationIdentifier="SettingsNavBarViewController" title="Settings" id="F61-hp-mAL" customClass="NavBarController" customModule="xabber" customModuleProvider="target" sceneMemberID="viewController">
+                <navigationController restorationIdentifier="SettingsNavBarViewController" title="Settings" id="F61-hp-mAL" sceneMemberID="viewController">
                     <tabBarItem key="tabBarItem" tag="3" title="Settings" image="menu" id="WPS-gd-j8K"/>
                     <toolbarItems/>
                     <navigationBar key="navigationBar" contentMode="scaleToFill" insetsLayoutMarginsFromSafeArea="NO" id="YZZ-gb-Rhz">

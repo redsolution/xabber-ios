@@ -98,26 +98,7 @@ class CallsCategoriesViewController: BaseViewController {
     }
 
     private func applyNavigationAppearance() {
-        guard ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop else {
-            navigationItem.standardAppearance = nil
-            navigationItem.scrollEdgeAppearance = nil
-            navigationItem.compactAppearance = nil
-            if #available(iOS 15.0, *) {
-                navigationItem.compactScrollEdgeAppearance = nil
-            }
-            return
-        }
-
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
-        appearance.shadowColor = .clear
-        appearance.shadowImage = UIImage()
-        navigationItem.standardAppearance = appearance
-        navigationItem.scrollEdgeAppearance = appearance
-        navigationItem.compactAppearance = appearance
-        if #available(iOS 15.0, *) {
-            navigationItem.compactScrollEdgeAppearance = appearance
-        }
+        NativeSectionNavigationBarPolicy.apply(to: self)
     }
 
     override func viewDidLoad() {

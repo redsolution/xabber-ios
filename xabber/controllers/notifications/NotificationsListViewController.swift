@@ -329,19 +329,17 @@ class NotificationsListViewController: SimpleBaseViewController {
         super.setupSubviews()
         self.view.addSubview(self.tableView)
         self.tableView.fillSuperviewWithOffset(top: 0, bottom: 0, left: 0, right: 0)
-        self.tableView.applyContinuousSplitInsetGroupedAppearance()
+        refreshContinuousSplitBackgroundAppearance()
         
         self.emptyView.isHidden = !self.emptyScreenShowObserver.value
-        self.emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
-        self.emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
         self.view.addSubview(self.emptyView)
         self.emptyView.fillSuperview()
         self.view.bringSubviewToFront(self.emptyView)
+        refreshContinuousSplitBackgroundAppearance()
     }
     
     override func configure() {
         super.configure()
-        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
         applyNotificationsNavigationAppearance()
         NavigationLargeTitlePolicy.apply(to: self)
         if UIDevice.current.userInterfaceIdiom == .pad {
@@ -349,33 +347,26 @@ class NotificationsListViewController: SimpleBaseViewController {
         } else {
         self.title = "Notifications"
         }
-        self.tableView.applyContinuousSplitInsetGroupedAppearance()
-        self.emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
-        self.emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
+        refreshContinuousSplitBackgroundAppearance()
         self.tableView.dataSource = self
         self.tableView.delegate = self
     }
 
     private func applyNotificationsNavigationAppearance() {
-        guard ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop else {
-            navigationItem.standardAppearance = nil
-            navigationItem.scrollEdgeAppearance = nil
-            navigationItem.compactAppearance = nil
-            if #available(iOS 15.0, *) {
-                navigationItem.compactScrollEdgeAppearance = nil
-            }
-            return
-        }
+        NativeSectionNavigationBarPolicy.apply(to: self)
+    }
 
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
-        appearance.shadowColor = .clear
-        appearance.shadowImage = UIImage()
-        navigationItem.standardAppearance = appearance
-        navigationItem.scrollEdgeAppearance = appearance
-        navigationItem.compactAppearance = appearance
-        if #available(iOS 15.0, *) {
-            navigationItem.compactScrollEdgeAppearance = appearance
+    internal func refreshContinuousSplitBackgroundAppearance() {
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
+        tableView.applyContinuousSplitInsetGroupedAppearance()
+
+        switch ContinuousSplitBackgroundExperiment.mode(for: self) {
+        case .sharedBackdrop:
+            emptyView.backgroundColor = .clear
+            emptyView.isOpaque = false
+        case .inactive, .deferred, .stockCompact:
+            emptyView.backgroundColor = .systemBackground
+            emptyView.isOpaque = true
         }
     }
     
@@ -917,6 +908,7 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        refreshContinuousSplitBackgroundAppearance()
         NavigationLargeTitlePolicy.apply(to: self)
         self.configureBars(animated: false)
         self.tabBarController?.tabBar.isHidden = false

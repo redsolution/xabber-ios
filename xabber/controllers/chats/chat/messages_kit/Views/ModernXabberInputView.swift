@@ -19,6 +19,7 @@ protocol ChatViewMessagesPanelDelegate {
 protocol XabberInputBarDelegate: AnyObject {
     func sendButtonTouchUp(with text: String)
     func sendButtonLongPressMenuRequested(sourceView: UIView, payload: ComposerMessagePayload)
+    func scheduledMessagesButtonTouchUp()
     func attachmentButtonTouchUp()
     func onAfterburnButtonTouchUp()
     func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat)
@@ -58,6 +59,8 @@ class ModernXabberInputView: UIView {
         static let contextPreviewComposerGap: CGFloat = 4
         static let contextPreviewReservedHeight: CGFloat = contextPreviewHeight + contextPreviewComposerGap
         static let recordingLockButtonVerticalGap: CGFloat = 52
+        static let scheduledMessagesButtonWidth: CGFloat = 44
+        static let scheduledMessagesButtonTextGap: CGFloat = 0
     }
 
     private enum RecordingGlowMetrics {
@@ -74,11 +77,13 @@ class ModernXabberInputView: UIView {
         interactive: Bool = false,
         tintAlpha: CGFloat = 0.16,
         fallbackStyle: UIBlurEffect.Style = .systemMaterial,
-        prefersNativeGlass: Bool = true
+        prefersNativeGlass: Bool = true,
+        nativeGlassStyle: NativeGlassBarStyle.GlassEffectStyle = .regular
     ) -> UIVisualEffect {
         NativeGlassBarStyle.makeEffect(
             interactive: interactive,
-            prefersNativeGlass: prefersNativeGlass
+            prefersNativeGlass: prefersNativeGlass,
+            nativeGlassStyle: nativeGlassStyle
         )
     }
 
@@ -86,14 +91,16 @@ class ModernXabberInputView: UIView {
         interactive: Bool = false,
         tintAlpha: CGFloat = 0.16,
         fallbackStyle: UIBlurEffect.Style = .systemMaterial,
-        prefersNativeGlass: Bool = true
+        prefersNativeGlass: Bool = true,
+        nativeGlassStyle: NativeGlassBarStyle.GlassEffectStyle = .regular
     ) -> UIVisualEffectView {
         let view = UIVisualEffectView(
             effect: makeGlassEffect(
                 interactive: interactive,
                 tintAlpha: tintAlpha,
                 fallbackStyle: fallbackStyle,
-                prefersNativeGlass: prefersNativeGlass
+                prefersNativeGlass: prefersNativeGlass,
+                nativeGlassStyle: nativeGlassStyle
             )
         )
         view.isUserInteractionEnabled = interactive
@@ -106,7 +113,8 @@ class ModernXabberInputView: UIView {
         NativeGlassBarStyle.applySurface(
             to: view,
             cornerStyle: .fixed(LiquidGlassMetrics.composerCornerRadius),
-            interactive: true
+            interactive: true,
+            nativeGlassStyle: .clear
         )
     }
 
@@ -130,6 +138,13 @@ class ModernXabberInputView: UIView {
 
     private static func setDetachedGlassButtonChromeHidden(_ hidden: Bool, on button: UIButton) {
         NativeGlassBarStyle.setDetachedIconButtonChromeHidden(hidden, on: button)
+    }
+
+    private static func makeScheduledMessagesButtonImage() -> UIImage? {
+        let configuration = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+        return UIImage(systemName: "calendar.badge.clock", withConfiguration: configuration)
+            ?? UIImage(systemName: "calendar", withConfiguration: configuration)
+            ?? UIImage(systemName: "clock", withConfiguration: configuration)
     }
 
     final class ComposerContextPreviewView: UIView {
@@ -1473,6 +1488,8 @@ class ModernXabberInputView: UIView {
     private var mainInputTrailingToSendConstraint: NSLayoutConstraint?
     private var contentViewTopToGlassConstraint: NSLayoutConstraint?
     private var contentViewTopToContextPreviewConstraint: NSLayoutConstraint?
+    private var textFieldTrailingToContentConstraint: NSLayoutConstraint?
+    private var textFieldTrailingToScheduledButtonConstraint: NSLayoutConstraint?
     private var lastBoundsForRecordingButtonReset: CGRect = .null
 
     private enum RecordingDragVisualPolicy {
@@ -1867,6 +1884,24 @@ class ModernXabberInputView: UIView {
         
         return view
     }()
+
+    let scheduledMessagesButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setImage(ModernXabberInputView.makeScheduledMessagesButtonImage(), for: .normal)
+        button.tintColor = .secondaryLabel
+        button.isHidden = true
+        button.isEnabled = false
+        button.isUserInteractionEnabled = false
+        button.isAccessibilityElement = true
+        button.accessibilityElementsHidden = true
+        button.accessibilityLabel = "Scheduled Messages".localizeString(id: "scheduled_messages_title", arguments: [])
+        button.accessibilityIdentifier = "chat.schedule.composer_button"
+        button.contentHorizontalAlignment = .center
+        button.contentVerticalAlignment = .center
+        button.imageView?.contentMode = .scaleAspectFit
+        ModernXabberInputView.removeChrome(from: button)
+        return button
+    }()
     
     let stateButton: UIButton = {
         let button = UIButton()
@@ -1947,6 +1982,12 @@ class ModernXabberInputView: UIView {
 
     var sendOptionsMenuSourceView: UIView {
         self.mainInputShadowView
+    }
+
+    var hasScheduledMessagesForCurrentChat: Bool = false {
+        didSet {
+            self.updateScheduledMessagesButtonVisibility()
+        }
     }
     
     override init(frame: CGRect) {
@@ -2139,13 +2180,19 @@ class ModernXabberInputView: UIView {
             self.contentView,
             self.attachButton,
             self.textField,
+            self.scheduledMessagesButton,
             self.timerButton,
             self.sendButton,
             self.recordLockButton
         ].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
+        self.scheduledMessagesButton.setContentHuggingPriority(.required, for: .horizontal)
+        self.scheduledMessagesButton.setContentHuggingPriority(.required, for: .vertical)
+        self.scheduledMessagesButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        self.scheduledMessagesButton.setContentCompressionResistancePriority(.required, for: .vertical)
         self.mainInputGlassView.contentView.addSubview(self.contextPreviewPanel)
         self.mainInputGlassView.contentView.addSubview(self.contentView)
         self.contentView.addSubview(self.textField)
+        self.contentView.addSubview(self.scheduledMessagesButton)
         self.contentView.addSubview(self.stateButton)
         self.contentView.addSubview(self.recordAndPlayPanel)
         self.contentView.addSubview(self.recordPanel)
@@ -2158,18 +2205,7 @@ class ModernXabberInputView: UIView {
         [
             self.stateButton
         ].forEach { ModernXabberInputView.removeChrome(from: $0) }
-        [
-            self.attachButton,
-            self.timerButton,
-            self.sendButton,
-            self.recordLockButton
-        ].forEach {
-            ModernXabberInputView.applyDetachedGlassButtonStyle(
-                to: $0,
-                forceConfigurationUpdate: false
-            )
-        }
-        self.applySendButtonDetachedChromeVisibility()
+        self.refreshDetachedComposerButtonChrome(forceConfigurationUpdate: false)
         self.textField.backgroundColor = .clear
         self.textField.layer.borderWidth = 0
         self.textField.layer.borderColor = UIColor.clear.cgColor
@@ -2188,6 +2224,7 @@ class ModernXabberInputView: UIView {
         self.attachButton.addTarget(self, action: #selector(self.onAttachButtonTouchUp), for: .touchUpInside)
         self.timerButton.addTarget(self,  action: #selector(self.onTimerButtonTouchUp), for: .touchUpInside)
         self.sendButton.addTarget(self, action: #selector(self.onSendButtonTouchUp), for: .touchUpInside)
+        self.scheduledMessagesButton.addTarget(self, action: #selector(self.onScheduledMessagesButtonTouchUp), for: .touchUpInside)
         self.recordLockButton.addTarget(self, action: #selector(self.onRecordLockButtonTouchUp), for: .touchUpInside)
         self.stateButton.addTarget(self,  action: #selector(self.onStateButtonTouchUp), for: .touchUpInside)
         self.recordPanel.onCancel = { [weak self] in
@@ -2329,6 +2366,7 @@ class ModernXabberInputView: UIView {
                 self.recordAndPlayPanel.isHidden = true
                 self.searchPanel.isHidden =     true
             case .selection:
+                self.state = state
                 self.attachButton.isHidden =    true
                 self.textField.isHidden =       true
                 self.timerButton.isHidden =     true
@@ -2339,6 +2377,7 @@ class ModernXabberInputView: UIView {
                 self.recordAndPlayPanel.isHidden = true
                 self.searchPanel.isHidden =     true
             case .search:
+                self.state = state
                 self.attachButton.isHidden =    true
                 self.textField.isHidden =       true
                 self.timerButton.isHidden =     true
@@ -2377,6 +2416,7 @@ class ModernXabberInputView: UIView {
             self.resetRecordingOverlayVisuals()
         }
         self.resetRecordingButtonPositionAndVisibility(animated: false)
+        self.updateScheduledMessagesButtonVisibility()
     }
     
     var isSelectionPanelShowed: Bool = false
@@ -2547,6 +2587,11 @@ class ModernXabberInputView: UIView {
             equalTo: self.contextPreviewPanel.bottomAnchor,
             constant: LiquidGlassMetrics.contextPreviewComposerGap
         )
+        let textFieldTrailingToContent = self.textField.trailingAnchor.constraint(equalTo: self.contentView.trailingAnchor)
+        let textFieldTrailingToScheduledButton = self.textField.trailingAnchor.constraint(
+            equalTo: self.scheduledMessagesButton.leadingAnchor,
+            constant: -LiquidGlassMetrics.scheduledMessagesButtonTextGap
+        )
         self.mainInputHeightConstraint = mainInputHeight
         self.mainInputLeadingToRootConstraint = mainLeadingToRoot
         self.mainInputLeadingToAttachConstraint = mainLeadingToAttach
@@ -2555,10 +2600,13 @@ class ModernXabberInputView: UIView {
         self.mainInputTrailingToSendConstraint = mainTrailingToSend
         self.contentViewTopToGlassConstraint = contentTopToGlass
         self.contentViewTopToContextPreviewConstraint = contentTopToContextPreview
+        self.textFieldTrailingToContentConstraint = textFieldTrailingToContent
+        self.textFieldTrailingToScheduledButtonConstraint = textFieldTrailingToScheduledButton
         mainLeadingToRoot.isActive = false
         mainTrailingToRoot.isActive = false
         mainTrailingToTimer.isActive = false
         contentTopToContextPreview.isActive = false
+        textFieldTrailingToScheduledButton.isActive = false
 
         NSLayoutConstraint.activate([
             self.mainInputShadowView.topAnchor.constraint(equalTo: self.topAnchor, constant: LiquidGlassMetrics.contentTopOffset),
@@ -2614,12 +2662,18 @@ class ModernXabberInputView: UIView {
             self.contentView.bottomAnchor.constraint(equalTo: self.mainInputGlassView.contentView.bottomAnchor),
 
             self.textField.leadingAnchor.constraint(equalTo: self.contentView.leadingAnchor),
-            self.textField.trailingAnchor.constraint(equalTo: self.contentView.trailingAnchor),
+            textFieldTrailingToContent,
             self.textField.topAnchor.constraint(equalTo: self.contentView.topAnchor, constant: LiquidGlassMetrics.textVerticalInset),
-            self.textField.bottomAnchor.constraint(equalTo: self.contentView.bottomAnchor, constant: -LiquidGlassMetrics.textVerticalInset)
+            self.textField.bottomAnchor.constraint(equalTo: self.contentView.bottomAnchor, constant: -LiquidGlassMetrics.textVerticalInset),
+
+            self.scheduledMessagesButton.trailingAnchor.constraint(equalTo: self.contentView.trailingAnchor),
+            self.scheduledMessagesButton.topAnchor.constraint(equalTo: self.textField.topAnchor),
+            self.scheduledMessagesButton.bottomAnchor.constraint(equalTo: self.textField.bottomAnchor),
+            self.scheduledMessagesButton.widthAnchor.constraint(equalToConstant: LiquidGlassMetrics.scheduledMessagesButtonWidth)
         ])
 
         self.updateComposerControlLayout()
+        self.updateScheduledMessagesButtonVisibility()
     }
 
     override func layoutSubviews() {
@@ -2646,18 +2700,7 @@ class ModernXabberInputView: UIView {
         ModernXabberInputView.applyToolbarGlassLayer(to: self.mainInputGlassView)
         self.updateComposerContentLayout()
         self.sendButton.updatePulseOverlayPosition()
-        [
-            self.attachButton,
-            self.timerButton,
-            self.sendButton,
-            self.recordLockButton
-        ].forEach {
-            ModernXabberInputView.applyDetachedGlassButtonStyle(
-                to: $0,
-                forceConfigurationUpdate: false
-            )
-        }
-        self.applySendButtonDetachedChromeVisibility()
+        self.refreshDetachedComposerButtonChrome(forceConfigurationUpdate: false)
         self.bringSubviewToFront(self.recordLockButton)
 
         let composerFrame = self.mainInputGlassView.convert(self.mainInputGlassView.bounds, to: self)
@@ -2686,16 +2729,13 @@ class ModernXabberInputView: UIView {
         self.textField.backgroundColor = .clear
         self.textField.layer.borderWidth = 0
         self.textField.layer.borderColor = UIColor.clear.cgColor
-        [
-            self.attachButton,
-            self.timerButton,
-            self.sendButton,
-            self.recordLockButton
-        ].forEach { ModernXabberInputView.applyDetachedGlassButtonStyle(to: $0) }
-        self.applySendButtonDetachedChromeVisibility()
+        self.refreshDetachedComposerButtonChrome()
         if !self.sendButton.pulseView.isHidden {
             self.sendButton.setPulseTintColor(self.accountPalette.tint500)
         }
+        ModernXabberInputView.removeChrome(from: self.scheduledMessagesButton)
+        self.restoreScheduledMessagesButtonGlyph()
+        self.scheduledMessagesButton.tintColor = .secondaryLabel
         ModernXabberInputView.removeChrome(from: self.stateButton)
     }
 
@@ -2709,6 +2749,39 @@ class ModernXabberInputView: UIView {
             self.isSendButtonDetachedChromeHidden,
             on: self.sendButton
         )
+    }
+
+    private func refreshDetachedComposerButtonChrome(forceConfigurationUpdate: Bool = true) {
+        [
+            self.attachButton,
+            self.timerButton,
+            self.sendButton,
+            self.recordLockButton
+        ].forEach {
+            ModernXabberInputView.applyDetachedGlassButtonStyle(
+                to: $0,
+                forceConfigurationUpdate: forceConfigurationUpdate
+            )
+        }
+        self.applySendButtonDetachedChromeVisibility()
+    }
+
+    private func restoreScheduledMessagesButtonGlyph() {
+        if self.scheduledMessagesButton.image(for: .normal) == nil {
+            self.scheduledMessagesButton.setImage(
+                ModernXabberInputView.makeScheduledMessagesButtonImage(),
+                for: .normal
+            )
+        }
+        self.scheduledMessagesButton.tintColor = .secondaryLabel
+        self.scheduledMessagesButton.imageView?.contentMode = .scaleAspectFit
+    }
+
+    final func refreshComposerChrome() {
+        self.refreshDetachedComposerButtonChrome()
+        self.restoreScheduledMessagesButtonGlyph()
+        self.updateScheduledMessagesButtonVisibility()
+        self.setNeedsLayout()
     }
     
     @objc
@@ -2741,6 +2814,7 @@ class ModernXabberInputView: UIView {
             } else {
                 self.changeSendButtonState(to: .record)
             }
+            self.updateScheduledMessagesButtonVisibility()
             self.updateComposerControlLayout()
         }
         self.delegate?.onTextDidChange(to: trimmedText.isEmpty ? nil : trimmedText)
@@ -2808,6 +2882,28 @@ class ModernXabberInputView: UIView {
         }
         self.isApplyingComposerMutation = false
         self.textField.placeholderLabel.isHidden = !self.textField.text.isEmpty
+        self.updateScheduledMessagesButtonVisibility()
+    }
+
+    private func updateScheduledMessagesButtonVisibility() {
+        self.restoreScheduledMessagesButtonGlyph()
+        let shouldShow = ScheduledMessagesComposerButtonPolicy.shouldShow(
+            inputState: self.state,
+            body: self.textField.text ?? "",
+            hasScheduledMessages: self.hasScheduledMessagesForCurrentChat
+        )
+        self.scheduledMessagesButton.isHidden = !shouldShow
+        self.scheduledMessagesButton.isEnabled = shouldShow
+        self.scheduledMessagesButton.isUserInteractionEnabled = shouldShow
+        self.scheduledMessagesButton.accessibilityElementsHidden = !shouldShow
+        if shouldShow {
+            self.textFieldTrailingToContentConstraint?.isActive = false
+            self.textFieldTrailingToScheduledButtonConstraint?.isActive = true
+        } else {
+            self.textFieldTrailingToScheduledButtonConstraint?.isActive = false
+            self.textFieldTrailingToContentConstraint?.isActive = true
+        }
+        self.setNeedsLayout()
     }
 
     private func normalizeTypingAttributesAtCursor() {
@@ -2917,9 +3013,7 @@ class ModernXabberInputView: UIView {
                 self.sendButton.isEnabled = self.isSendButtonEnabled
                 self.attachButton.isEnabled = self.isSendButtonEnabled
         }
-        ModernXabberInputView.applyDetachedGlassButtonStyle(to: self.sendButton)
-        ModernXabberInputView.applyDetachedGlassButtonStyle(to: self.attachButton)
-        self.applySendButtonDetachedChromeVisibility()
+        self.refreshDetachedComposerButtonChrome()
     }
     
     final public func updateSendButtonState() {
@@ -3025,6 +3119,12 @@ class ModernXabberInputView: UIView {
             case .record:
                 break
         }
+    }
+
+    @objc
+    private func onScheduledMessagesButtonTouchUp(_ sender: UIButton) {
+        guard !sender.isHidden, sender.isEnabled else { return }
+        self.delegate?.scheduledMessagesButtonTouchUp()
     }
 
     @objc

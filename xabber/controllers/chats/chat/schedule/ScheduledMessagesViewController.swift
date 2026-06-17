@@ -15,6 +15,7 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
 
     var conversationType: ClientSynchronizationManager.ConversationType = .regular
     var scheduledMessageService: ChatScheduledMessageServicing = AccountChatScheduledMessageService()
+    var onDidDisappear: (() -> Void)?
 
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private let emptyLabel = UILabel()
@@ -78,6 +79,7 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
         super.viewDidDisappear(animated)
         notificationToken?.invalidate()
         notificationToken = nil
+        onDidDisappear?()
     }
 
     private func observeLocalRows() {

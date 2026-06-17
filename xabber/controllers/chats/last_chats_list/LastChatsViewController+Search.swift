@@ -23,21 +23,56 @@ import UIKit
 
 extension LastChatsViewController {
     internal var isShowingSearchResults: Bool {
-        chatSearchResultsController.shouldShowResults(for: searchController)
+        BottomInPlaceSearchHostHelper.shouldShowResults(
+            searchView: bottomSearchHostView,
+            updater: chatSearchResultsController
+        )
     }
 
-    @discardableResult
-    internal func configureSearchBar(forceRebind: Bool = false) -> Bool {
-        InPlaceSearchHostHelper.attach(
-            searchController: searchController,
-            to: self,
+    internal func configureSearchBar() {
+        navigationItem.searchController = nil
+        installBottomSearchHostIfNeeded()
+        BottomInPlaceSearchHostHelper.configure(
+            searchView: bottomSearchHostView,
             updater: chatSearchResultsController,
-            searchControllerDelegate: self,
-            searchBarDelegate: self,
-            forceRebind: forceRebind
-        ) { [weak self] in
-            self?.reloadInPlaceSearchResultsIfNeeded()
+            reload: { [weak self] in
+                self?.reloadInPlaceSearchResultsIfNeeded()
+            },
+            activeChanged: { [weak self] _ in
+                self?.bottomSearchPresentationStateDidChange()
+            }
+        )
+        searchController.searchResultsUpdater = chatSearchResultsController
+    }
+
+    internal func dismissBottomSearchForRoute() {
+        BottomInPlaceSearchHostHelper.dismiss(
+            searchView: bottomSearchHostView,
+            updater: chatSearchResultsController,
+            reload: { [weak self] in
+                self?.reloadInPlaceSearchResultsIfNeeded()
+            },
+            activeChanged: { [weak self] _ in
+                self?.bottomSearchPresentationStateDidChange()
+            }
+        )
+    }
+
+    internal func bottomSearchPresentationStateDidChange() {
+        refreshEmptyStateVisibility(isSearchActive: bottomSearchHostView.isExpanded)
+        updateFloatingToolbarFilterButtonState()
+        updateTableInsetsForFloatingToolbar()
+        if isViewLoaded {
+            view.bringSubviewToFront(bottomSearchHostView)
         }
+    }
+
+    internal func installBottomSearchHostIfNeeded() {
+        guard isViewLoaded else { return }
+        BottomInPlaceSearchHostHelper.install(
+            searchView: bottomSearchHostView,
+            in: view
+        )
     }
 
     internal func reloadInPlaceSearchResultsIfNeeded() {

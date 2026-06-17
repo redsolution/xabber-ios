@@ -610,6 +610,8 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
     internal lazy var searchController: UISearchController = {
         InPlaceSearchHostHelper.makeSearchController(updater: chatSearchResultsController)
     }()
+
+    internal let bottomSearchHostView = BottomSearchHostView(frame: .zero)
     
     internal let addButton: UIBarButtonItem = {
         let button = UIBarButtonItem(barButtonSystemItem: .add, target: nil, action: nil)
@@ -1638,7 +1640,6 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
     }
 
     func configureBars(animated: Bool = false, updateNavigationItems: Bool = true) {
-        self.title = nil
         switch CommonConfigManager.shared.interfaceType {
             case .tabs:
                 break
@@ -1926,6 +1927,8 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         
         let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
         bottomBar.updateFrame(to: frame)
+        updateTableInsetsForBottomSearch()
+        view.bringSubviewToFront(bottomSearchHostView)
     }
     
     internal func updateTitle() {
@@ -1995,7 +1998,6 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         super.viewDidLoad()
         configure()
         configureSearchBar()
-        self.navigationItem.title = nil
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
@@ -2057,6 +2059,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
 
         coordinator.animate(alongsideTransition: nil) { [weak self] _ in
             self?.configureBars(animated: false, updateNavigationItems: true)
+            self?.updateTitle()
         }
     }
     

@@ -1256,6 +1256,7 @@ class ChatViewController: MessagesViewController {
     var draftMessageText: BehaviorRelay<String?> = BehaviorRelay<String?>(value: nil)
     var scheduledMessageService: ChatScheduledMessageServicing = AccountChatScheduledMessageService()
     var sendOptionsContextMenu: ContextMenu?
+    private var scheduledMessagesComposerButtonToken: NotificationToken?
     
 // ForwardedMessages
     var forwardedIds: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set<String>())
@@ -2896,7 +2897,7 @@ class ChatViewController: MessagesViewController {
                 panel.hidesSharedBackground = true
                 NavigationBarItemOwnership.apply(
                     to: self.navigationItem,
-                    left: .none,
+                    left: NavigationBarItemOwnership.Assignment.none,
                     right: .items([self.cancelSearchBarButton, panel]),
                     animated: shouldAnimate
                 )
@@ -2907,7 +2908,7 @@ class ChatViewController: MessagesViewController {
                 panel.hidesSharedBackground = true
                 NavigationBarItemOwnership.apply(
                     to: self.navigationItem,
-                    left: .none,
+                    left: NavigationBarItemOwnership.Assignment.none,
                     right: .item(panel),
                     animated: shouldAnimate
                 )
@@ -2941,7 +2942,7 @@ class ChatViewController: MessagesViewController {
                 self.searchBar.sizeToFit()
                 NavigationBarItemOwnership.apply(
                     to: self.navigationItem,
-                    left: .none,
+                    left: NavigationBarItemOwnership.Assignment.none,
                     right: .item(UIBarButtonItem(customView: searchBar)),
                     animated: shouldAnimate
                 )
@@ -2996,7 +2997,7 @@ class ChatViewController: MessagesViewController {
             self.searchBar.sizeToFit()
             NavigationBarItemOwnership.apply(
                 to: self.navigationItem,
-                left: .none,
+                left: NavigationBarItemOwnership.Assignment.none,
                 right: .item(UIBarButtonItem(customView: searchBar)),
                 animated: false
             )
@@ -3336,6 +3337,15 @@ class ChatViewController: MessagesViewController {
     }
     
     final func configureBackground() {
+        if backgroundPresentationMode == .sharedSplitBackdrop {
+            backgroundView.removeFromSuperview()
+            localChatBackdropView.removeFromSuperview()
+            messagesCollectionView.backgroundColor = .clear
+            view.backgroundColor = .clear
+            view.isOpaque = false
+            return
+        }
+
         if backgroundPresentationMode == .localChatBackdrop {
             backgroundView.removeFromSuperview()
             localChatBackdropView.frame = view.bounds
@@ -3363,14 +3373,11 @@ class ChatViewController: MessagesViewController {
         localChatBackdropView.removeFromSuperview()
         view.backgroundColor = .systemBackground
         view.isOpaque = true
-        backgroundView.frame = CGRect(
-            origin: CGPoint(x: 0, y: ((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.maxY ?? 0)),
-            size: self.view.bounds.size
-        )
+        backgroundView.frame = self.view.bounds
         backgroundImage.frame = self.backgroundView.bounds
         
-        gradientView.frame = self.view.bounds
-        gradient.frame = self.view.bounds
+        gradientView.frame = self.backgroundView.bounds
+        gradient.frame = self.gradientView.bounds
         gradient.startPoint = CGPoint(x: 0.0, y: 1.0)
         gradient.endPoint = CGPoint(x: 1.0, y: 0.0)
         
@@ -3399,38 +3406,14 @@ class ChatViewController: MessagesViewController {
 
     private func setupNavigationBar() {
         NavigationBarItemOwnership.clear(self.navigationItem, animated: false)
-        if ContinuousSplitBackgroundExperiment.mode(for: self) == .stockCompact {
-            navigationItem.standardAppearance = nil
-            navigationItem.scrollEdgeAppearance = nil
-            navigationItem.compactAppearance = nil
-            navigationItem.compactScrollEdgeAppearance = nil
-            edgesForExtendedLayout = [.bottom]
-            extendedLayoutIncludesOpaqueBars = false
-        } else {
-            let appearance = UINavigationBarAppearance()
-            appearance.configureWithDefaultBackground()
-
-            let scrollEdgeAppearance = UINavigationBarAppearance()
-            scrollEdgeAppearance.configureWithDefaultBackground()
-
-            let compactAppearance = UINavigationBarAppearance()
-            compactAppearance.configureWithDefaultBackground()
-
-            self.navigationItem.standardAppearance = appearance
-            self.navigationItem.compactAppearance = compactAppearance
-            self.navigationItem.compactScrollEdgeAppearance = compactAppearance
-            self.navigationItem.scrollEdgeAppearance = scrollEdgeAppearance
-
-            navigationController?.navigationBar.isTranslucent = true
-            edgesForExtendedLayout = [.top, .bottom]
-            extendedLayoutIncludesOpaqueBars = true
-        }
+        NativeSectionNavigationBarPolicy.apply(to: self)
+        edgesForExtendedLayout = [.top, .bottom]
+        extendedLayoutIncludesOpaqueBars = true
 
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.backButtonDisplayMode = .minimal
         navigationItem.setHidesBackButton(false, animated: false)
         navigationItem.leftItemsSupplementBackButton = true
-        clearLegacyAdditionalNavigationPanel()
 
         setupNavigationTitleView()
         setupNavigationAvatarItem()
@@ -3481,15 +3464,6 @@ class ChatViewController: MessagesViewController {
         NavigationBarItemOwnership.set(.item(item), on: navigationItem, side: .right, animated: false)
         startNavigationAvatarObservation()
         refreshNavigationAvatarImage()
-    }
-
-    private func clearLegacyAdditionalNavigationPanel() {
-        guard let navBarController = navigationController as? NavBarController else {
-            return
-        }
-        navBarController.clearAdditionalPanel()
-        navBarController.hideAdditionalPanel(animated: false)
-        navBarController.topToolbar.isHidden = true
     }
 
     private func updateNavbarTitleWidth() {
@@ -3878,7 +3852,6 @@ class ChatViewController: MessagesViewController {
 
         unsubscribe()
         removeObservers()
-        (navigationController as? NavBarController)?.topToolbar.isHidden = false
         XMPPUIActionManager.shared.mam?.endLoadHistory(jid: self.jid, conversationType: conversationType)
         AccountManager.shared.find(for: self.owner)?.mam.endLoadHistory(jid: self.jid, conversationType: conversationType)
     }
@@ -4111,6 +4084,7 @@ class ChatViewController: MessagesViewController {
         self.updateChatCollectionInsets(inputHeight: inputHeight)
 
         self.lowPrioritySubscribtions()
+        self.observeScheduledMessagesForComposerButton()
         self.setupEncryptedChat()
         self.initialHistoryAppearancePending = ChatInitialHistoryAppearancePolicy.shouldStart(
             isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
@@ -4332,9 +4306,60 @@ class ChatViewController: MessagesViewController {
     }
     
     deinit {
+        self.scheduledMessagesComposerButtonToken?.invalidate()
         self.unsubscribe()
         self.removeObservers()
         self.clearMemoryCache()
+    }
+}
+
+extension ChatViewController {
+    internal func refreshScheduledMessagesComposerButtonState() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshScheduledMessagesComposerButtonState()
+            }
+            return
+        }
+        guard let inputView = self.xabberInputView else { return }
+        let hasScheduledMessages: Bool
+        do {
+            let realm = try WRealm.safe()
+            hasScheduledMessages = ScheduledMessagesComposerButtonModel.hasRows(
+                owner: self.owner,
+                conversation: self.jid,
+                conversationType: self.conversationType,
+                realm: realm
+            )
+        } catch {
+            hasScheduledMessages = false
+        }
+        inputView.hasScheduledMessagesForCurrentChat = hasScheduledMessages
+        inputView.refreshComposerChrome()
+    }
+
+    private func observeScheduledMessagesForComposerButton() {
+        self.scheduledMessagesComposerButtonToken?.invalidate()
+        guard let realm = try? WRealm.safe() else {
+            self.xabberInputView?.hasScheduledMessagesForCurrentChat = false
+            return
+        }
+        let results = ScheduledMessagesComposerButtonModel.results(
+            owner: self.owner,
+            conversation: self.jid,
+            conversationType: self.conversationType,
+            realm: realm
+        )
+        self.refreshScheduledMessagesComposerButtonState()
+        self.scheduledMessagesComposerButtonToken = results.observe { [weak self] change in
+            guard let self else { return }
+            switch change {
+            case .initial, .update:
+                self.refreshScheduledMessagesComposerButtonState()
+            case .error:
+                self.xabberInputView?.hasScheduledMessagesForCurrentChat = false
+            }
+        }
     }
 }
 

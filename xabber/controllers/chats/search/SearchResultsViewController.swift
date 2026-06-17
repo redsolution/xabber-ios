@@ -687,18 +687,6 @@ class SearchResultsViewController: SimpleBaseViewController {
     }
 }
 
-enum InPlaceSearchRebindPolicy {
-    static func shouldRebind(
-        forceRebind: Bool,
-        isAlreadyAttached: Bool,
-        isSearchInteractionActive: Bool,
-        isTransitionActive: Bool
-    ) -> Bool {
-        // Rebinding an already-attached native search controller recreates search chrome during reveal.
-        false
-    }
-}
-
 enum InPlaceSearchHostHelper {
     static func makeSearchController(updater: UISearchResultsUpdating) -> UISearchController {
         let controller = UISearchController(searchResultsController: nil)
@@ -706,24 +694,20 @@ enum InPlaceSearchHostHelper {
         controller.searchResultsUpdater = updater
         controller.searchBar.searchBarStyle = .default
         controller.searchBar.placeholder = ChatSearchResultsController.placeholderText
-        controller.hidesNavigationBarDuringPresentation = false
-        controller.hidesBottomBarWhenPushed = false
-        controller.definesPresentationContext = false
+        // Apple recommends disabling obscuring when the same controller shows content and in-place results.
         controller.obscuresBackgroundDuringPresentation = false
 
         return controller
     }
 
-    @discardableResult
     static func attach(
         searchController: UISearchController,
         to viewController: UIViewController,
         updater: ChatSearchResultsController,
         searchControllerDelegate: UISearchControllerDelegate?,
         searchBarDelegate: UISearchBarDelegate?,
-        forceRebind: Bool = false,
         reload: @escaping () -> Void
-    ) -> Bool {
+    ) {
         let isAlreadyAttached = viewController.navigationItem.searchController === searchController
         if !isAlreadyAttached {
             viewController.navigationItem.searchController = searchController
@@ -731,14 +715,12 @@ enum InPlaceSearchHostHelper {
         if #available(iOS 16.0, *) {
             viewController.navigationItem.preferredSearchBarPlacement = .stacked
         }
-        viewController.navigationItem.hidesSearchBarWhenScrolling = false
+        viewController.navigationItem.hidesSearchBarWhenScrolling = true
         searchController.searchResultsUpdater = updater
         updater.onSnapshotChanged = reload
-        searchController.automaticallyShowsSearchResultsController = true
         searchController.delegate = searchControllerDelegate
         searchController.searchBar.delegate = searchBarDelegate
         viewController.definesPresentationContext = true
-        return false
     }
 
     static func dismissBeforeResultRoute(
@@ -756,6 +738,82 @@ enum InPlaceSearchHostHelper {
     }
 }
 
+enum BottomInPlaceSearchHostHelper {
+    static func install(
+        searchView: BottomSearchHostView,
+        in containerView: UIView
+    ) {
+        guard searchView.superview == nil else {
+            containerView.bringSubviewToFront(searchView)
+            return
+        }
+
+        containerView.addSubview(searchView)
+        NSLayoutConstraint.activate([
+            searchView.leadingAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.leadingAnchor),
+            searchView.trailingAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.trailingAnchor),
+            searchView.bottomAnchor.constraint(
+                equalTo: containerView.keyboardLayoutGuide.topAnchor,
+                constant: -BottomSearchHostView.Metrics.bottomOffset
+            ),
+            searchView.heightAnchor.constraint(equalToConstant: BottomSearchHostView.Metrics.height)
+        ])
+        containerView.bringSubviewToFront(searchView)
+    }
+
+    static func configure(
+        searchView: BottomSearchHostView,
+        updater: ChatSearchResultsController,
+        reload: @escaping () -> Void,
+        activeChanged: @escaping (Bool) -> Void
+    ) {
+        searchView.searchTextField.placeholder = ChatSearchResultsController.placeholderText
+        updater.onSnapshotChanged = reload
+        searchView.onBegin = { [weak searchView, weak updater] in
+            guard let searchView, let updater else { return }
+            activeChanged(true)
+            updater.updateSearchResults(with: searchView.query)
+            reload()
+        }
+        searchView.onQueryChanged = { [weak updater] text in
+            guard let updater else { return }
+            updater.updateSearchResults(with: text)
+            reload()
+        }
+        searchView.onCancel = { [weak updater] in
+            guard let updater else { return }
+            updater.reset()
+            activeChanged(false)
+            reload()
+        }
+    }
+
+    static func shouldShowResults(
+        searchView: BottomSearchHostView,
+        updater: ChatSearchResultsController
+    ) -> Bool {
+        updater.shouldShowResults(
+            isActive: searchView.isExpanded,
+            query: searchView.query
+        )
+    }
+
+    static func dismiss(
+        searchView: BottomSearchHostView,
+        updater: ChatSearchResultsController,
+        reload: () -> Void,
+        activeChanged: (Bool) -> Void
+    ) {
+        UIView.performWithoutAnimation {
+            searchView.setQuery("", notify: false)
+            searchView.setExpanded(false, animated: false)
+            updater.reset()
+            activeChanged(false)
+            reload()
+        }
+    }
+}
+
 enum InPlaceSearchResultRouteHelper {
     typealias OpenNewChat = (
         _ item: SearchResultsViewController.Datasource,
@@ -764,16 +822,12 @@ enum InPlaceSearchResultRouteHelper {
 
     static func open(
         _ item: SearchResultsViewController.Datasource,
-        searchController: UISearchController,
         updater: ChatSearchResultsController,
+        dismissSearch: @escaping () -> Void,
         reload: @escaping () -> Void,
         openNewChat: OpenNewChat
     ) {
-        InPlaceSearchHostHelper.dismissBeforeResultRoute(
-            searchController: searchController,
-            updater: updater,
-            reload: reload
-        )
+        dismissSearch()
 
         if let vc = updater.currentVc,
            vc.jid == item.jid,
@@ -843,7 +897,10 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
     }
 
     func updateSearchResults(for searchController: UISearchController) {
-        let text = searchController.searchBar.text
+        updateSearchResults(with: searchController.searchBar.text)
+    }
+
+    internal func updateSearchResults(with text: String?) {
         searchObserver.accept(text)
 
         guard text?.isEmpty ?? true else { return }
@@ -851,8 +908,15 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
     }
 
     internal func shouldShowResults(for searchController: UISearchController) -> Bool {
-        (searchController.isActive || usesInjectedSnapshot)
-            && (searchController.searchBar.text?.isNotEmpty ?? false)
+        shouldShowResults(
+            isActive: searchController.isActive,
+            query: searchController.searchBar.text
+        )
+    }
+
+    internal func shouldShowResults(isActive: Bool, query: String?) -> Bool {
+        (isActive || usesInjectedSnapshot)
+            && (query?.isNotEmpty ?? false)
     }
 
     internal func reset() {

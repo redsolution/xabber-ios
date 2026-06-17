@@ -29,8 +29,10 @@ extension LastChatsViewController: SearchResultsDelegateProtocol {
     internal func openSearchResult(_ item: SearchResultsViewController.Datasource) {
         InPlaceSearchResultRouteHelper.open(
             item,
-            searchController: searchController,
             updater: chatSearchResultsController,
+            dismissSearch: { [weak self] in
+                self?.dismissBottomSearchForRoute()
+            },
             reload: { [weak self] in
                 self?.reloadInPlaceSearchResultsIfNeeded()
             },
