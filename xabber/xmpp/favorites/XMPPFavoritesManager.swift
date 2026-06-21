@@ -88,6 +88,7 @@ class XMPPFavoritesManager: AbstractXMPPManager {
             try createXMPPFavoritesManagerStorageItem()
             try createRosterStorageItem()
             try createLastChatsStorageItem()
+            try repairSavedMessagesStorageIdentity(favoritesNode: jid)
             
         } catch {
             DDLogDebug("XMPPFavoritesManager: \(#function). \(error.localizedDescription)")
@@ -168,6 +169,62 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         } else {
             realm.add(instance)
         }
+    }
+
+    func repairSavedMessagesStorageIdentity(favoritesNode: String) throws {
+        guard favoritesNode.isNotEmpty else { return }
+
+        let realm = try WRealm.safe()
+        let savedType = ClientSynchronizationManager.ConversationType.saved.rawValue
+        let messagesToRepair = Array(
+            realm.objects(MessageStorageItem.self)
+                .filter("owner == %@ AND conversationType_ == %@ AND opponent != %@", self.owner, savedType, favoritesNode)
+        )
+
+        try realm.write {
+            messagesToRepair.forEach { message in
+                message.opponent = favoritesNode
+                message.references.forEach { repairSavedReference($0, favoritesNode: favoritesNode) }
+                message.inlineForwards.forEach { repairSavedInlineForward($0, favoritesNode: favoritesNode) }
+            }
+
+            let chat = savedLastChat(in: realm, favoritesNode: favoritesNode)
+            let latestMessage = realm.objects(MessageStorageItem.self)
+                .filter("owner == %@ AND opponent == %@ AND conversationType_ == %@ AND isDeleted == false", self.owner, favoritesNode, savedType)
+                .sorted(byKeyPath: "date", ascending: false)
+                .first
+
+            chat.lastMessage = latestMessage
+            chat.messageDate = latestMessage?.date ?? Date(timeIntervalSince1970: 0)
+        }
+    }
+
+    private func savedLastChat(in realm: Realm, favoritesNode: String) -> LastChatsStorageItem {
+        let primary = LastChatsStorageItem.genPrimary(jid: favoritesNode, owner: self.owner, conversationType: .saved)
+        if let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary) {
+            return chat
+        }
+
+        let chat = LastChatsStorageItem()
+        chat.owner = self.owner
+        chat.jid = favoritesNode
+        chat.isSynced = false
+        chat.conversationType = .saved
+        chat.primary = primary
+        chat.rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: favoritesNode, owner: self.owner))
+        realm.add(chat)
+        return chat
+    }
+
+    private func repairSavedReference(_ reference: MessageReferenceStorageItem, favoritesNode: String) {
+        reference.jid = favoritesNode
+        reference.conversationType = .saved
+    }
+
+    private func repairSavedInlineForward(_ inlineForward: MessageForwardsInlineStorageItem, favoritesNode: String) {
+        inlineForward.jid = favoritesNode
+        inlineForward.references.forEach { repairSavedReference($0, favoritesNode: favoritesNode) }
+        inlineForward.subforwards.forEach { repairSavedInlineForward($0, favoritesNode: favoritesNode) }
     }
     
     public final func isAvailable() -> Bool {

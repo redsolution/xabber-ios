@@ -21113,6 +21113,67 @@ final class FavoritesFeatureTests: XCTestCase {
         return try XCTUnwrap(messages.first)
     }
 
+    @discardableResult
+    private func seedSavedMessage(
+        opponent: String,
+        messageId: String,
+        archivedId: String,
+        body: String = "Saved repair row",
+        date: Date = Date(timeIntervalSince1970: 1_711_285_000),
+        withReference: Bool = false,
+        withInlineForward: Bool = false
+    ) throws -> MessageStorageItem {
+        let realm = try WRealm.safe()
+        let message = MessageStorageItem()
+        message.owner = owner
+        message.opponent = opponent
+        message.primary = MessageStorageItem.genPrimary(messageId: messageId, owner: owner)
+        message.messageId = messageId
+        message.archivedId = archivedId
+        message.body = body
+        message.legacyBody = body
+        message.date = date
+        message.sentDate = date
+        message.outgoing = true
+        message.conversationType = .saved
+
+        if withReference {
+            let reference = MessageReferenceStorageItem()
+            reference.primary = "reference-\(messageId)"
+            reference.messageId = message.primary
+            reference.owner = owner
+            reference.jid = opponent
+            reference.kind = .groupchat
+            reference.conversationType = .saved
+            reference.metadata = [
+                "jid": contactJid,
+                "nickname": "Alexey Boldin"
+            ]
+            message.references.append(reference)
+        }
+
+        if withInlineForward {
+            let inlineForward = MessageForwardsInlineStorageItem()
+            inlineForward.primary = [message.primary, "inline-forward"].prp()
+            inlineForward.messageId = "inline-\(messageId)"
+            inlineForward.owner = owner
+            inlineForward.jid = opponent
+            inlineForward.opponent = contactJid
+            inlineForward.forwardJid = contactJid
+            message.inlineForwards.append(inlineForward)
+        }
+
+        try realm.write {
+            realm.add(message)
+        }
+
+        return try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: message.primary))
+    }
+
+    private func configureFavorites() {
+        XMPPFavoritesManager(withOwner: owner).configure(for: favoritesJid)
+    }
+
     private func assertStoredAsSavedServiceConversation(
         _ message: MessageStorageItem,
         file: StaticString = #filePath,
@@ -21229,6 +21290,96 @@ final class FavoritesFeatureTests: XCTestCase {
         assertStoredAsSavedServiceConversation(stored)
         XCTAssertEqual(stored.messageId, "saved-forwarded-1")
         XCTAssertEqual(stored.body, "Forwarded saved message")
+    }
+
+    func testReceiveSavedForwardedMessageKeepsOpponentAsFavoritesServiceJid() throws {
+        let stored = try receiveSaved(try makeForwardedSavedMessage(id: "task02-forwarded-1"))
+
+        assertStoredAsSavedServiceConversation(stored)
+    }
+
+    func testReceiveSavedDirectMessageKeepsOpponentAsFavoritesServiceJid() throws {
+        let stored = try receiveSaved(try makeDirectSavedMessage(id: "task02-direct-1"))
+
+        assertStoredAsSavedServiceConversation(stored)
+    }
+
+    func testSavedStorageRepairMovesInnerParticipantRowsToFavoritesServiceJid() throws {
+        let oldOpponent = contactJid
+        try seedSavedMessage(opponent: oldOpponent, messageId: "repair-move-1", archivedId: "archive-repair-move-1")
+
+        configureFavorites()
+
+        let stored = try XCTUnwrap(
+            try WRealm.safe().object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: MessageStorageItem.genPrimary(messageId: "repair-move-1", owner: owner)
+            )
+        )
+        assertStoredAsSavedServiceConversation(stored)
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).filter("opponent == %@", oldOpponent).count, 0)
+    }
+
+    func testSavedStorageRepairIsIdempotent() throws {
+        try seedSavedMessage(opponent: contactJid, messageId: "repair-idempotent-1", archivedId: "archive-repair-idempotent-1")
+
+        configureFavorites()
+        configureFavorites()
+
+        let messages = try WRealm.safe().objects(MessageStorageItem.self)
+        XCTAssertEqual(messages.count, 1)
+        assertStoredAsSavedServiceConversation(try XCTUnwrap(messages.first))
+    }
+
+    func testSavedStorageRepairPreservesMessagePrimaryAndReferences() throws {
+        let seeded = try seedSavedMessage(
+            opponent: contactJid,
+            messageId: "repair-preserve-1",
+            archivedId: "archive-repair-preserve-1",
+            withReference: true,
+            withInlineForward: true
+        )
+        let primary = seeded.primary
+
+        configureFavorites()
+
+        let repaired = try XCTUnwrap(try WRealm.safe().object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+        assertStoredAsSavedServiceConversation(repaired)
+        XCTAssertEqual(repaired.primary, primary)
+        XCTAssertEqual(repaired.messageId, "repair-preserve-1")
+        XCTAssertEqual(repaired.archivedId, "archive-repair-preserve-1")
+        let reference = try XCTUnwrap(repaired.references.first)
+        XCTAssertEqual(reference.primary, "reference-repair-preserve-1")
+        XCTAssertEqual(reference.jid, favoritesJid)
+        XCTAssertEqual(reference.metadata?["jid"] as? String, contactJid)
+        XCTAssertEqual(reference.metadata?["nickname"] as? String, "Alexey Boldin")
+        let inlineForward = try XCTUnwrap(repaired.inlineForwards.first)
+        XCTAssertEqual(inlineForward.jid, favoritesJid)
+        XCTAssertEqual(inlineForward.opponent, contactJid)
+    }
+
+    func testOpenedSavedChatDatasourceFindsForwardedSavedRowAfterReceive() throws {
+        let seeded = try seedSavedMessage(
+            opponent: contactJid,
+            messageId: "repair-datasource-1",
+            archivedId: "archive-repair-datasource-1"
+        )
+
+        configureFavorites()
+
+        let provider = ChatLocalHistoryPageProvider(
+            realm: try WRealm.safe(),
+            owner: owner,
+            jid: favoritesJid,
+            conversationType: .saved
+        )
+        let found = provider.message(
+            primary: seeded.primary,
+            archivedId: seeded.archivedId,
+            messageId: seeded.messageId
+        )
+        XCTAssertEqual(found?.primary, seeded.primary)
+        XCTAssertEqual(provider.latest(limit: 10).map(\.primary), [seeded.primary])
     }
 
     func testSavedNestedForwardStripsOnlyOuterSavedEnvelopeForDisplay() throws {
