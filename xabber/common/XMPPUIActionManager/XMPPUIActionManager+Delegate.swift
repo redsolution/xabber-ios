@@ -492,9 +492,10 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
             }
             if isArchivedMessage(message) {
                 if let bareMessage = getArchivedMessageContainer(message) {
-                    if bareMessage.to?.bare == AccountManager.shared.find(for: currentJid ?? "")?.favorites.node {
+                    if let favoritesNode = AccountManager.shared.find(for: currentJid ?? "")?.favorites.node,
+                       [bareMessage.to?.bare, bareMessage.from?.bare].contains(favoritesNode) {
                         AccountManager.shared.find(for: currentJid ?? "")?.action({ user, stream in
-                            user.favorites.receiveSaved(message: bareMessage)
+                            user.favorites.receiveSaved(message: message)
                         })
                         
                         return

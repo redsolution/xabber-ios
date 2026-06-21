@@ -20955,11 +20955,13 @@ final class FavoritesFeatureTests: XCTestCase {
         to: String? = nil,
         body: String = "Saved direct note",
         id: String = "saved-direct-1",
-        stamp: String = "2026-03-24T12:34:56+0000"
+        stamp: String = "2026-03-24T12:34:56+0000",
+        children: String = ""
     ) throws -> XMPPMessage {
         try makeMessage(xml: """
         <message from='\(from ?? ownerResource)' to='\(to ?? favoritesJid)' type='chat' id='\(id)'>
           <time stamp='\(stamp)'/>
+          \(children)
           <body>\(body)</body>
         </message>
         """)
@@ -20975,11 +20977,13 @@ final class FavoritesFeatureTests: XCTestCase {
         innerId: String = "inner-forwarded-1",
         outerStamp: String = "2026-03-24T12:36:00+0000",
         innerStamp: String = "2026-03-24T12:34:56+0000",
+        outerChildren: String = "",
         innerChildren: String = ""
     ) throws -> XMPPMessage {
         try makeMessage(xml: """
         <message from='\(outerFrom ?? ownerResource)' to='\(outerTo ?? favoritesJid)' type='chat' id='\(id)'>
           <time stamp='\(outerStamp)'/>
+          \(outerChildren)
           <body>&gt; \(body)</body>
           <reference xmlns='https://xabber.com/protocol/references' begin='0' end='\(body.count + 2)' type='mutable'>
             <forwarded xmlns='urn:xmpp:forward:0'>
@@ -21302,6 +21306,134 @@ final class FavoritesFeatureTests: XCTestCase {
         let stored = try receiveSaved(try makeDirectSavedMessage(id: "task02-direct-1"))
 
         assertStoredAsSavedServiceConversation(stored)
+    }
+
+    func testSavedParserRecognizesDirectSavedMessage() throws {
+        let message = try makeDirectSavedMessage(
+            id: "parser-direct-1",
+            children: "<origin-id xmlns='urn:xmpp:sid:0' id='parser-origin-1'/>"
+        )
+
+        let envelope = try XCTUnwrap(
+            SavedMessageParser.parse(messageContainer: message, owner: owner, favoritesNode: favoritesJid)
+        )
+
+        XCTAssertFalse(envelope.isForwardedSaved)
+        XCTAssertNil(envelope.innerMessage)
+        XCTAssertEqual(envelope.outerMessage.elementID, "parser-direct-1")
+        XCTAssertEqual(envelope.storageMessage.elementID, "parser-direct-1")
+        XCTAssertEqual(envelope.serviceJid, favoritesJid)
+        XCTAssertEqual(envelope.originalFromJid, owner)
+        XCTAssertEqual(envelope.originalToJid, favoritesJid)
+        XCTAssertEqual(envelope.displayAuthorJid, owner)
+        XCTAssertEqual(envelope.messageId, "parser-origin-1")
+        XCTAssertEqual(envelope.date, "2026-03-24T12:34:56+0000".xmppDate)
+        XCTAssertEqual(envelope.sentDate, "2026-03-24T12:34:56+0000".xmppDate)
+    }
+
+    func testSavedParserRecognizesMutableReferenceForward() throws {
+        let message = try makeForwardedSavedMessage(id: "parser-forward-1", innerId: "parser-inner-1")
+
+        let envelope = try XCTUnwrap(
+            SavedMessageParser.parse(messageContainer: message, owner: owner, favoritesNode: favoritesJid)
+        )
+
+        XCTAssertTrue(envelope.isForwardedSaved)
+        XCTAssertEqual(envelope.innerMessage?.elementID, "parser-inner-1")
+        XCTAssertEqual(envelope.outerMessage.elementID, "parser-forward-1")
+        XCTAssertEqual(envelope.storageMessage.elementID, "parser-inner-1")
+        XCTAssertEqual(envelope.serviceJid, favoritesJid)
+        XCTAssertEqual(envelope.originalFromJid, contactJid)
+        XCTAssertEqual(envelope.originalToJid, owner)
+        XCTAssertEqual(envelope.displayAuthorJid, contactJid)
+        XCTAssertEqual(envelope.messageId, "parser-forward-1")
+        XCTAssertEqual(envelope.date, "2026-03-24T12:36:00+0000".xmppDate)
+        XCTAssertEqual(envelope.sentDate, "2026-03-24T12:34:56+0000".xmppDate)
+    }
+
+    func testSavedParserPreservesOuterArchiveId() throws {
+        let direct = try makeDirectSavedMessage(id: "parser-archive-1")
+        let result = try makeMamResult(message: direct, archiveId: "outer-archive-1", queryId: "saved-query-archive")
+
+        let envelope = try XCTUnwrap(
+            SavedMessageParser.parse(messageContainer: XMPPMessage(from: result), owner: owner, favoritesNode: favoritesJid)
+        )
+
+        XCTAssertEqual(envelope.outerArchiveId, "outer-archive-1")
+        XCTAssertEqual(envelope.messageId, "parser-archive-1")
+    }
+
+    func testSavedParserPreservesInnerOriginIdAndStanzaIds() throws {
+        let message = try makeForwardedSavedMessage(
+            id: "parser-inner-ids-outer",
+            innerId: "parser-inner-ids-inner",
+            innerChildren: """
+            <origin-id xmlns='urn:xmpp:sid:0' id='inner-origin-1'/>
+            <stanza-id xmlns='urn:xmpp:sid:0' by='\(contactJid)' id='inner-stanza-contact-1'/>
+            <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='inner-stanza-owner-1'/>
+            """
+        )
+
+        let envelope = try XCTUnwrap(
+            SavedMessageParser.parse(messageContainer: message, owner: owner, favoritesNode: favoritesJid)
+        )
+
+        XCTAssertEqual(envelope.innerOriginId, "inner-origin-1")
+        XCTAssertTrue(envelope.innerStanzaIds.contains("inner-stanza-contact-1"))
+        XCTAssertTrue(envelope.innerStanzaIds.contains("inner-stanza-owner-1"))
+    }
+
+    func testSavedReceiveLiveAndMamUseSameStorageContract() throws {
+        let live = try makeDirectSavedMessage(id: "receive-live-mam-1")
+        let mam = try makeMamResult(message: live, archiveId: "archive-receive-live-mam-1", queryId: "saved-live-mam")
+        let manager = favoritesManager()
+
+        manager.receiveSaved(message: live)
+        manager.receiveSaved(message: XMPPMessage(from: mam))
+
+        let realm = try WRealm.safe()
+        let stored = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: MessageStorageItem.genPrimary(messageId: "receive-live-mam-1", owner: owner)
+            )
+        )
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 1)
+        assertStoredAsSavedServiceConversation(stored)
+        XCTAssertEqual(stored.archivedId, "archive-receive-live-mam-1")
+    }
+
+    func testSavedReceiveCarbonAndMamDedupeByStableMessageIdentity() throws {
+        let saved = try makeDirectSavedMessage(id: "receive-carbon-mam-1")
+        let carbon = try makeCarbonSent(message: saved)
+        let mam = try makeMamResult(message: saved, archiveId: "archive-receive-carbon-mam-1", queryId: "saved-carbon-mam")
+        let manager = favoritesManager()
+
+        manager.receiveSaved(message: XMPPMessage(from: carbon))
+        manager.receiveSaved(message: XMPPMessage(from: mam))
+
+        let realm = try WRealm.safe()
+        let stored = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: MessageStorageItem.genPrimary(messageId: "receive-carbon-mam-1", owner: owner)
+            )
+        )
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 1)
+        assertStoredAsSavedServiceConversation(stored)
+        XCTAssertEqual(stored.archivedId, "archive-receive-carbon-mam-1")
+    }
+
+    func testSavedReceiveDoesNotBypassArchiveIdPersistence() throws {
+        let saved = try makeDirectSavedMessage(id: "receive-archive-persist-1")
+        let mam = try makeMamResult(message: saved, archiveId: "archive-persist-1", queryId: "saved-archive-persist")
+
+        favoritesManager().receiveSaved(message: XMPPMessage(from: mam))
+
+        let stored = try XCTUnwrap(try WRealm.safe().objects(MessageStorageItem.self).first)
+        assertStoredAsSavedServiceConversation(stored)
+        XCTAssertEqual(stored.messageId, "receive-archive-persist-1")
+        XCTAssertEqual(stored.archivedId, "archive-persist-1")
     }
 
     func testSavedStorageRepairMovesInnerParticipantRowsToFavoritesServiceJid() throws {

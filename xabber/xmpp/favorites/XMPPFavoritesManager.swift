@@ -32,6 +32,175 @@ enum XMPPServiceJidsSupport {
     }
 }
 
+struct SavedMessageEnvelope {
+    let outerMessage: XMPPMessage
+    let innerMessage: XMPPMessage?
+    let storageMessage: XMPPMessage
+    let isForwardedSaved: Bool
+    let serviceJid: String
+    let displayAuthorJid: String
+    let originalFromJid: String
+    let originalToJid: String
+    let outerArchiveId: String?
+    let originId: String?
+    let innerOriginId: String?
+    let innerStanzaIds: [String]
+    let messageId: String
+    let date: Date
+    let sentDate: Date
+}
+
+enum SavedMessagePersistencePolicy {
+    static func serviceJid(
+        configuredFavoritesJid: String?,
+        wrapperMessage: XMPPMessage,
+        outerMessage: XMPPMessage,
+        originalFromJid: String,
+        originalToJid: String,
+        owner: String
+    ) -> String {
+        let fallback = originalFromJid == owner ? originalToJid : originalFromJid
+        let candidates = [
+            configuredFavoritesJid,
+            outerMessage.to?.bare,
+            outerMessage.from?.bare,
+            wrapperMessage.to?.bare,
+            wrapperMessage.from?.bare,
+            fallback
+        ]
+
+        return candidates
+            .compactMap { $0 }
+            .first { $0.isNotEmpty && $0 != owner } ?? fallback
+    }
+}
+
+enum SavedMessageParser {
+    private struct NormalizedInput {
+        let message: XMPPMessage
+        let wrapperArchiveId: String?
+    }
+
+    static func parse(messageContainer: XMPPMessage, owner: String, favoritesNode: String?) -> SavedMessageEnvelope? {
+        let normalizedInput = normalizedSavedMessage(from: messageContainer)
+        let outerMessage = normalizedInput.message
+        var storageMessage = outerMessage
+        var innerMessage: XMPPMessage? = nil
+        var isForwardedSaved = false
+        var date = deliveryDate(from: outerMessage)
+
+        if let reference = outerMessage.element(forName: "reference"),
+           let forwarded = reference.element(forName: "forwarded", xmlns: "urn:xmpp:forward:0"),
+           let rawMessage = forwarded.element(forName: "message"),
+           let forwardedDate = deliveryDate(from: outerMessage) {
+            storageMessage = XMPPMessage(from: rawMessage)
+            innerMessage = storageMessage
+            isForwardedSaved = true
+            date = forwardedDate
+        }
+
+        guard let originalFromJid = storageMessage.from?.bare,
+              let originalToJid = storageMessage.to?.bare,
+              let sentDate = deliveryDate(from: storageMessage),
+              let messageDate = date else {
+            return nil
+        }
+
+        let displayAuthorJid = groupDisplayAuthorJid(from: storageMessage) ?? originalFromJid
+        let serviceJid = SavedMessagePersistencePolicy.serviceJid(
+            configuredFavoritesJid: favoritesNode,
+            wrapperMessage: messageContainer,
+            outerMessage: outerMessage,
+            originalFromJid: originalFromJid,
+            originalToJid: originalToJid,
+            owner: owner
+        )
+
+        return SavedMessageEnvelope(
+            outerMessage: outerMessage,
+            innerMessage: innerMessage,
+            storageMessage: storageMessage,
+            isForwardedSaved: isForwardedSaved,
+            serviceJid: serviceJid,
+            displayAuthorJid: displayAuthorJid,
+            originalFromJid: originalFromJid,
+            originalToJid: originalToJid,
+            outerArchiveId: archiveId(
+                wrapperMessage: messageContainer,
+                normalizedInput: normalizedInput,
+                outerMessage: outerMessage,
+                owner: owner
+            ),
+            originId: getOriginId(outerMessage),
+            innerOriginId: innerMessage.flatMap { getOriginId($0) },
+            innerStanzaIds: innerMessage.map(stanzaIds(from:)) ?? [],
+            messageId: getUniqueMessageId(outerMessage, owner: owner),
+            date: messageDate,
+            sentDate: sentDate
+        )
+    }
+
+    private static func normalizedSavedMessage(from message: XMPPMessage) -> NormalizedInput {
+        if let archivedMessage = getArchivedMessageContainer(message) {
+            return NormalizedInput(
+                message: archivedMessage,
+                wrapperArchiveId: message.element(forName: "result")?.attributeStringValue(forName: "id")
+            )
+        }
+
+        if let carbonMessage = getCarbonCopyMessageContainer(message) {
+            return NormalizedInput(message: carbonMessage, wrapperArchiveId: nil)
+        }
+
+        if let carbonForwardedMessage = getCarbonForwardedMessageContainer(message) {
+            return NormalizedInput(message: carbonForwardedMessage, wrapperArchiveId: nil)
+        }
+
+        return NormalizedInput(message: message, wrapperArchiveId: nil)
+    }
+
+    private static func archiveId(
+        wrapperMessage: XMPPMessage,
+        normalizedInput: NormalizedInput,
+        outerMessage: XMPPMessage,
+        owner: String
+    ) -> String? {
+        let outerStanzaId = getStanzaId(outerMessage, owner: owner)
+        if outerStanzaId.isNotEmpty {
+            return outerStanzaId
+        }
+
+        if let wrapperArchiveId = normalizedInput.wrapperArchiveId, wrapperArchiveId.isNotEmpty {
+            return wrapperArchiveId
+        }
+
+        let wrapperStanzaId = getStanzaId(wrapperMessage, owner: owner)
+        return wrapperStanzaId.isNotEmpty ? wrapperStanzaId : nil
+    }
+
+    private static func deliveryDate(from message: XMPPMessage) -> Date? {
+        getDeliveryDate(message)
+    }
+
+    private static func groupDisplayAuthorJid(from message: XMPPMessage) -> String? {
+        guard let x = message.element(forName: "x", xmlns: "https://xabber.com/protocol/groups") else {
+            return nil
+        }
+
+        return x
+            .element(forName: "reference")?
+            .element(forName: "user")?
+            .element(forName: "jid")?
+            .stringValue
+    }
+
+    private static func stanzaIds(from message: XMPPMessage) -> [String] {
+        (message.elements(forName: "stanza-id") + message.elements(forName: "archived"))
+            .compactMap { $0.attributeStringValue(forName: "id") }
+            .filter(\.isNotEmpty)
+    }
+}
+
 class XMPPFavoritesManager: AbstractXMPPManager {
     enum ManagerErrorType: Error {
         case notAvailable
@@ -275,43 +444,17 @@ class XMPPFavoritesManager: AbstractXMPPManager {
     }
     
     public func receiveSaved(message messageContainer: XMPPMessage) {
-        var message = XMPPMessage(from: messageContainer)
-        var date: Date? = nil
-        var isForwarded: Bool = false
-        
-        var from: String? = nil
-        
-        if let reference = messageContainer.element(forName: "reference"),
-           let forwarded = reference.element(forName: "forwarded"),
-           let rawMessage = forwarded.element(forName: "message"),
-           let dateForward = messageContainer.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate {
-            message = XMPPMessage(from: rawMessage)
-            date = dateForward
-            
-            if let x = message.element(forName: "x"),
-               x.xmlns == AccountManager.shared.find(for: self.owner)?.groupchats.getPrimaryNamespace() {
-                from = x.element(forName: "reference")?.element(forName: "user")?.element(forName: "jid")?.stringValue
-            }
-            
-            isForwarded = true
-        }
-        
-        if from == nil {
-            from = message.from?.bare
-        }
-        
-        guard let from = from,
-              let to = message.to?.bare,
-              let sentDate = message.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate else {
+        guard let envelope = SavedMessageParser.parse(
+            messageContainer: messageContainer,
+            owner: self.owner,
+            favoritesNode: self.node
+        ) else {
             return
         }
         
-        let isOutgoing = from == self.owner
-        let savedServiceJid = resolvedSavedServiceJid(
-            from: messageContainer,
-            fallback: isOutgoing ? to : from
-        )
-        let messageId = getUniqueMessageId(messageContainer, owner: self.owner)
+        let message = envelope.storageMessage
+        let savedServiceJid = envelope.serviceJid
+        let messageId = envelope.messageId
         
         do {
             let realm = try WRealm.safe()
@@ -319,6 +462,11 @@ class XMPPFavoritesManager: AbstractXMPPManager {
             var isExist = false
             if let existedInstance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: messageId, owner: self.owner)) {
                 if existedInstance.inlineForwards.isEmpty {
+                    if let archivedId = envelope.outerArchiveId, archivedId.isNotEmpty, existedInstance.archivedId != archivedId {
+                        try realm.write {
+                            existedInstance.archivedId = archivedId
+                        }
+                    }
                     return
                 }
                 
@@ -330,25 +478,28 @@ class XMPPFavoritesManager: AbstractXMPPManager {
             instance.owner = self.owner
             instance.primary = MessageStorageItem.genPrimary(messageId: messageId, owner: self.owner)
             instance.outgoing = true
-            instance.date = date ?? sentDate
+            instance.date = envelope.date
             instance.body = message.body ?? ""
             instance.conversationType = .saved
             instance.messageId = messageId
             instance.legacyBody = message.body ?? ""
-            instance.sentDate = sentDate
+            instance.sentDate = envelope.sentDate
+            instance.archivedId = envelope.outerArchiveId ?? ""
+            instance.previousId = getPreviousId(envelope.outerMessage)
+            instance.originalStanza = envelope.outerMessage
             
             instance.references.append(objectsIn: parseReferences(message, primary: instance.primary, jid: savedServiceJid, owner: self.owner))
             instance.updateDisplayMode()
             instance.references.forEach { $0.messageId = instance.primary }
             
-            if isForwarded {
-                if let groupChatCard = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: [GroupChatStorageItem.genPrimary(jid: from, owner: self.owner), "saved-forwarded"].prp()) {
+            if envelope.isForwardedSaved {
+                if let groupChatCard = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: [GroupChatStorageItem.genPrimary(jid: envelope.displayAuthorJid, owner: self.owner), "saved-forwarded"].prp()) {
                     instance.groupchatCard = groupChatCard
                 } else {
                     let groupChatCard = GroupchatUserStorageItem()
                     groupChatCard.owner = self.owner
-                    groupChatCard.nickname = from
-                    groupChatCard.primary = [GroupChatStorageItem.genPrimary(jid: from, owner: self.owner), "saved-forwarded"].prp()
+                    groupChatCard.nickname = envelope.displayAuthorJid
+                    groupChatCard.primary = [GroupChatStorageItem.genPrimary(jid: envelope.displayAuthorJid, owner: self.owner), "saved-forwarded"].prp()
                     instance.groupchatCard = groupChatCard
                 }
             }

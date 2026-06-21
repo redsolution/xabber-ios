@@ -619,9 +619,10 @@ extension Account: XMPPStreamDelegate {
             } else if isArchivedMessage(message) {
                 
                 if let bareMessage = getArchivedMessageContainer(message) {
-                    if bareMessage.to?.bare == AccountManager.shared.find(for: self.jid)?.favorites.node {
+                    if let favoritesNode = AccountManager.shared.find(for: self.jid)?.favorites.node,
+                       [bareMessage.to?.bare, bareMessage.from?.bare].contains(favoritesNode) {
                         AccountManager.shared.find(for: self.jid)?.action({ user, stream in
-                            user.favorites.receiveSaved(message: bareMessage)
+                            user.favorites.receiveSaved(message: message)
                         })
                         
                         return
@@ -658,9 +659,10 @@ extension Account: XMPPStreamDelegate {
                 }
             } else if isCarbonCopy(message) {
                 if let bareMessage = getCarbonCopyMessageContainer(message) {
-                    if bareMessage.to?.bare == AccountManager.shared.find(for: self.jid)?.favorites.node {
+                    if let favoritesNode = AccountManager.shared.find(for: self.jid)?.favorites.node,
+                       [bareMessage.to?.bare, bareMessage.from?.bare].contains(favoritesNode) {
                         AccountManager.shared.find(for: self.jid)?.action({ user, stream in
-                            user.favorites.receiveSaved(message: bareMessage)
+                            user.favorites.receiveSaved(message: message)
                         })
                         
                         return
@@ -686,9 +688,10 @@ extension Account: XMPPStreamDelegate {
                 
             } else if isCarbonForwarded(message) {
                 if let bareMessage = getCarbonForwardedMessageContainer(message) {
-                    if bareMessage.to?.bare == AccountManager.shared.find(for: self.jid)?.favorites.node {
+                    if let favoritesNode = AccountManager.shared.find(for: self.jid)?.favorites.node,
+                       [bareMessage.to?.bare, bareMessage.from?.bare].contains(favoritesNode) {
                         AccountManager.shared.find(for: self.jid)?.action({ user, stream in
-                            user.favorites.receiveSaved(message: bareMessage)
+                            user.favorites.receiveSaved(message: message)
                         })
                         
                         return
@@ -714,7 +717,8 @@ extension Account: XMPPStreamDelegate {
                     self.messages.receiveCarbonForwarded(message)
                 }
             } else {
-                if message.to?.bare == AccountManager.shared.find(for: self.jid)?.favorites.node {
+                if let favoritesNode = AccountManager.shared.find(for: self.jid)?.favorites.node,
+                   [message.to?.bare, message.from?.bare].contains(favoritesNode) {
                     AccountManager.shared.find(for: self.jid)?.action({ user, stream in
                         user.favorites.receiveSaved(message: message)
                     })
