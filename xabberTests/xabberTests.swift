@@ -8953,6 +8953,45 @@ final class MessageArchiveRequestClassificationTests: XCTestCase {
         XCTAssertEqual(actual.timeIntervalSince1970, expected.timeIntervalSince1970, accuracy: 0.001, file: file, line: line)
     }
 
+    private func captureArchiveRequest(
+        manager: MessageArchiveManager,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        purpose: MessageArchiveManager.RequestPurpose,
+        queryId: String
+    ) throws -> XMPPIQ {
+        let stream = CapturingXMPPStream()
+        var sentElement: DDXMLElement?
+        stream.onSendElement = { element in
+            sentElement = element
+        }
+
+        manager.requestArchive(
+            stream,
+            jid: jid,
+            isContinues: true,
+            conversationType: conversationType,
+            purpose: purpose,
+            queryId: queryId
+        )
+
+        return XMPPIQ(from: try XCTUnwrap(sentElement))
+    }
+
+    private func dataFormFieldValues(in iq: XMPPIQ, named name: String) -> [String] {
+        guard let field = iq
+            .element(forName: "query")?
+            .element(forName: "x")?
+            .elements(forName: "field")
+            .first(where: { $0.attributeStringValue(forName: "var") == name }) else {
+            return []
+        }
+
+        return field
+            .elements(forName: "value")
+            .compactMap(\.stringValue)
+    }
+
     func testBootstrapPurposeMarksInitialArchiveLoaded() {
         XCTAssertTrue(MessageArchiveManager.RequestPurpose.bootstrap.marksInitialArchiveLoaded)
     }
@@ -9051,6 +9090,55 @@ final class MessageArchiveRequestClassificationTests: XCTestCase {
                 isExtendedArchiveAvailable: true
             )
         )
+    }
+
+    func testSavedMamRequestUsesWithFavoritesServiceJid() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        manager.isExtendedArchiveAvailable = true
+        let favoritesJid = "favorites.example.com"
+
+        let iq = try captureArchiveRequest(
+            manager: manager,
+            jid: favoritesJid,
+            conversationType: .saved,
+            purpose: .jump,
+            queryId: "saved-mam-with"
+        )
+
+        XCTAssertEqual(dataFormFieldValues(in: iq, named: "with"), [favoritesJid])
+    }
+
+    func testSavedMamRequestAddsConversationTypeOnlyWhenExtendedArchiveAvailable() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        manager.isExtendedArchiveAvailable = true
+
+        let iq = try captureArchiveRequest(
+            manager: manager,
+            jid: "favorites.example.com",
+            conversationType: .saved,
+            purpose: .jump,
+            queryId: "saved-mam-extended"
+        )
+
+        XCTAssertEqual(
+            dataFormFieldValues(in: iq, named: "conversation-type"),
+            [ClientSynchronizationManager.ConversationType.saved.rawValue]
+        )
+    }
+
+    func testSavedMamRequestOmitsConversationTypeWithoutExtendedArchive() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        manager.isExtendedArchiveAvailable = false
+
+        let iq = try captureArchiveRequest(
+            manager: manager,
+            jid: "favorites.example.com",
+            conversationType: .saved,
+            purpose: .jump,
+            queryId: "saved-mam-no-extended"
+        )
+
+        XCTAssertEqual(dataFormFieldValues(in: iq, named: "conversation-type"), [])
     }
 
     func testInitialBootstrapPolicyStartsForEmptyUnconfirmedOrUnsyncedChatsOnly() {
@@ -16215,6 +16303,42 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         }
     }
 
+    @discardableResult
+    private func insertSavedSyncMessage(
+        ownerOverride: String? = nil,
+        opponent: String,
+        messageId: String,
+        body: String = "saved sync body"
+    ) throws -> MessageStorageItem {
+        let messageOwner = ownerOverride ?? owner
+        let realm = try WRealm.safe()
+        let message = MessageStorageItem()
+        message.primary = MessageStorageItem.genPrimary(messageId: messageId, owner: messageOwner)
+        message.owner = messageOwner
+        message.opponent = opponent
+        message.conversationType = .saved
+        message.body = body
+        message.legacyBody = body
+        message.displayAs = .text
+        message.messageId = messageId
+        message.archivedId = "archive-\(messageId)"
+        message.outgoing = true
+        message.isRead = true
+        message.date = Date(timeIntervalSince1970: 1_711_283_200)
+        message.sentDate = message.date
+
+        try realm.write {
+            realm.add(message, update: .modified)
+        }
+
+        return try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: message.primary
+            )
+        )
+    }
+
     private func upsertNotificationSyncStorage(
         node: String? = nil,
         unread: Int = 0,
@@ -16292,6 +16416,14 @@ final class ClientSynchronizationManagerTests: XCTestCase {
 
         AccountManager.shared.add(withJid: owner, autoConnect: false)
         AccountManager.shared.find(for: owner)?.blocked.lastUpdate = Date()
+    }
+
+    private func configureFavoritesNode(_ favoritesJid: String) throws {
+        try prepareManagedAccount()
+        let favorites = try XCTUnwrap(AccountManager.shared.find(for: owner)?.favorites)
+        favorites.node = favoritesJid
+        try favorites.createXMPPFavoritesManagerStorageItem()
+        try favorites.createLastChatsStorageItem()
     }
 
     func testArchivedMessageDatePrefersMessageTimeStamp() throws {
@@ -16443,6 +16575,69 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XCTAssertEqual(chat?.muteExpired, 99)
     }
 
+    func testSavedSyncPinnedUsesFavoritesConversationType() throws {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        let favoritesJid = "favorites.xmppdev01.xabber.com"
+        try configureFavoritesNode(favoritesJid)
+
+        let iq = try makeIQ(xml: """
+        <iq type='set' id='push-saved-pinned'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1711283296000003'>
+            <conversation jid='\(favoritesJid)' type='urn:xabber:favorites:0' pinned='42'/>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+
+        let chat = try WRealm.safe().object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: favoritesJid, owner: owner, conversationType: .saved)
+        )
+        XCTAssertEqual(chat?.conversationType, .saved)
+        XCTAssertEqual(chat?.pinnedPosition, 42)
+        XCTAssertEqual(chat?.isPinned, true)
+    }
+
+    func testSavedSyncDeletedClearsOnlyCurrentOwnerSavedConversation() throws {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        let favoritesJid = "favorites.xmppdev01.xabber.com"
+        let otherFavoritesJid = "favorites.backup.xmppdev01.xabber.com"
+        let otherOwner = "other.owner@xmppdev01.xabber.com"
+        try configureFavoritesNode(favoritesJid)
+        try insertSavedSyncMessage(opponent: favoritesJid, messageId: "saved-delete-current")
+        try insertSavedSyncMessage(opponent: otherFavoritesJid, messageId: "saved-delete-other-service")
+        try insertSavedSyncMessage(ownerOverride: otherOwner, opponent: favoritesJid, messageId: "saved-delete-other-owner")
+
+        let iq = try makeIQ(xml: """
+        <iq type='set' id='push-saved-deleted'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1711283296000004'>
+            <conversation jid='\(favoritesJid)' type='urn:xabber:favorites:0' status='deleted'/>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+
+        let realm = try WRealm.safe()
+        XCTAssertNil(realm.object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: MessageStorageItem.genPrimary(messageId: "saved-delete-current", owner: owner)
+        ))
+        XCTAssertNotNil(realm.object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: MessageStorageItem.genPrimary(messageId: "saved-delete-other-service", owner: owner)
+        ))
+        XCTAssertNotNil(realm.object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: MessageStorageItem.genPrimary(messageId: "saved-delete-other-owner", owner: otherOwner)
+        ))
+        XCTAssertNotNil(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: favoritesJid, owner: owner, conversationType: .saved)
+        ))
+    }
+
     func testReadPushUpdatesDeliveredMarkerWithoutDisplayed() throws {
         let manager = ClientSynchronizationManager(withOwner: owner)
         let groupchat = "group@example.com"
@@ -16538,6 +16733,60 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XCTAssertEqual(chat?.syncUnreadAfterId, "1711283295000000")
         XCTAssertEqual(chat?.lastReadId, "1711283295000000")
         XCTAssertEqual(chat?.lastMessageId, "sync-last-message-1")
+    }
+
+    func testSavedSyncLastMessagePersistsThroughSavedParser() throws {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        let favoritesJid = "favorites.xmppdev01.xabber.com"
+        let contactJid = "alexey.boldin@xmppdev01.xabber.com"
+        try configureFavoritesNode(favoritesJid)
+
+        let iq = try makeIQ(xml: """
+        <iq type='set' id='push-saved-last-message'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1711283296000008'>
+            <conversation jid='\(favoritesJid)' type='urn:xabber:favorites:0' stamp='1711283296000008' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'>
+                <unread count='0'/>
+                <last-message>
+                  <message from='\(owner)/ios' to='\(favoritesJid)' id='sync-saved-outer'>
+                    <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='sync-saved-archive'/>
+                    <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:36:00Z'/>
+                    <body>&gt; Sync saved body</body>
+                    <reference xmlns='https://xabber.com/protocol/references' begin='0' end='18' type='mutable'>
+                      <forwarded xmlns='urn:xmpp:forward:0'>
+                        <message from='\(contactJid)/ios' to='\(owner)' type='chat' id='sync-saved-inner'>
+                          <origin-id xmlns='urn:xmpp:sid:0' id='sync-saved-inner-origin'/>
+                          <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>
+                          <body>Sync saved body</body>
+                        </message>
+                      </forwarded>
+                    </reference>
+                  </message>
+                </last-message>
+              </metadata>
+            </conversation>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+
+        let realm = try WRealm.safe()
+        let stored = try XCTUnwrap(realm.object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: MessageStorageItem.genPrimary(messageId: "sync-saved-outer", owner: owner)
+        ))
+        XCTAssertEqual(stored.opponent, favoritesJid)
+        XCTAssertEqual(stored.conversationType, .saved)
+        XCTAssertEqual(stored.body, "Sync saved body")
+        XCTAssertEqual(stored.archivedId, "sync-saved-archive")
+
+        let chat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: favoritesJid, owner: owner, conversationType: .saved)
+        ))
+        XCTAssertEqual(chat.lastMessageId, "sync-saved-outer")
+        XCTAssertEqual(chat.lastMessage?.primary, stored.primary)
     }
 
     func testRegularSnapshotLastMessageMismatchMarksDialogUnsynchronizedAndStoresArchiveState() throws {
@@ -16834,6 +17083,51 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XCTAssertTrue(manager.read(withIQ: iq))
 
         XCTAssertEqual(observed.map(\.conversationType), types)
+    }
+
+    func testSavedSnapshotRepairTargetsFavoritesServiceJid() throws {
+        let favoritesJid = "favorites.xmppdev01.xabber.com"
+        try configureFavoritesNode(favoritesJid)
+        let realm = try WRealm.safe()
+        try realm.write {
+            let chat = try XCTUnwrap(realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: favoritesJid, owner: owner, conversationType: .saved)
+            ))
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat,
+                count: 1,
+                afterId: "old-saved-boundary",
+                snapshotLastArchiveId: nil,
+                in: realm
+            )
+            chat.isSynced = true
+            _ = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: favoritesJid, conversationType: .saved, in: realm)
+        }
+        var observed: [(MessageArchiveManager.SnapshotRepairTarget, AccountXMPPTaskScheduler.Priority, String)] = []
+        AccountManager.shared.find(for: owner)?.mam.snapshotRepairEnqueueObserver = { target, priority, key in
+            observed.append((target, priority, key))
+        }
+        let manager = ClientSynchronizationManager(withOwner: owner)
+
+        let iq = try makeIQ(xml: """
+        <iq type='set' id='push-saved-repair'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1776840442469439'>
+            <conversation jid='\(favoritesJid)' type='urn:xabber:favorites:0' stamp='1776840442469439' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'>
+                <unread count='2' after='new-saved-boundary'/>
+              </metadata>
+            </conversation>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+
+        XCTAssertEqual(observed.count, 1)
+        XCTAssertEqual(observed.first?.0, .init(jid: favoritesJid, conversationType: .saved))
+        XCTAssertEqual(observed.first?.1, .background)
+        XCTAssertEqual(observed.first?.2, "snapshot-repair.\(owner).\(favoritesJid).urn:xabber:favorites:0")
     }
 
     func testSnapshotRepairIgnoresChannelNotificationsAndServerRows() throws {

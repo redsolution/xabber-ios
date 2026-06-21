@@ -1400,10 +1400,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         realm.delete(messagesInlines)
                         
                         if conversationType == .saved {
-                            let savedMessages = realm.objects(MessageStorageItem.self).filter("owner == %@ AND conversationType_ == %@", owner, ClientSynchronizationManager.ConversationType.saved.rawValue)
-                            
-                            realm.delete(savedMessages)
-                            
                             try AccountManager.shared.find(for: owner)?.favorites.createLastChatsStorageItem(commitTransaction: false)
                         }
                         return false
@@ -1753,7 +1749,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             return nil
         }
         
-        if XMPPJID(string: jid)?.isServer ?? false {
+        if conversationType != .saved,
+           XMPPJID(string: jid)?.isServer ?? false {
             return nil
         }
         
@@ -2095,6 +2092,16 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         )
                     } else if instance.lastMessageId != getUniqueMessageId(messageStanza, owner: self.owner) {
                         instance.isSynced = false//!firstSync
+                    }
+                    if conversationType == .saved {
+                        let favorites = AccountManager.shared.find(for: owner)?.favorites ?? XMPPFavoritesManager(withOwner: owner)
+                        try favorites.receiveSaved(
+                            message: messageStanza,
+                            realm: realm,
+                            commitTransaction: false,
+                            favoritesNodeOverride: jid
+                        )
+                        return nil
                     }
                     return AccountManager
                         .shared

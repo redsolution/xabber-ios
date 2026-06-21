@@ -444,10 +444,24 @@ class XMPPFavoritesManager: AbstractXMPPManager {
     }
     
     public func receiveSaved(message messageContainer: XMPPMessage) {
+        do {
+            let realm = try WRealm.safe()
+            try receiveSaved(message: messageContainer, realm: realm, commitTransaction: true)
+        } catch {
+            DDLogDebug("XMPPFavoritesManager: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    func receiveSaved(
+        message messageContainer: XMPPMessage,
+        realm: Realm,
+        commitTransaction: Bool,
+        favoritesNodeOverride: String? = nil
+    ) throws {
         guard let envelope = SavedMessageParser.parse(
             messageContainer: messageContainer,
             owner: self.owner,
-            favoritesNode: self.node
+            favoritesNode: favoritesNodeOverride ?? self.node
         ) else {
             return
         }
@@ -455,82 +469,100 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         let message = envelope.storageMessage
         let savedServiceJid = envelope.serviceJid
         let messageId = envelope.messageId
-        
-        do {
-            let realm = try WRealm.safe()
-            
-            var isExist = false
-            if let existedInstance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: messageId, owner: self.owner)) {
-                if existedInstance.inlineForwards.isEmpty {
-                    if let archivedId = envelope.outerArchiveId, archivedId.isNotEmpty, existedInstance.archivedId != archivedId {
-                        try realm.write {
-                            existedInstance.archivedId = archivedId
-                        }
+
+        var isExist = false
+        if let existedInstance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: messageId, owner: self.owner)) {
+            if existedInstance.inlineForwards.isEmpty {
+                if let archivedId = envelope.outerArchiveId, archivedId.isNotEmpty, existedInstance.archivedId != archivedId {
+                    try performSavedWrite(in: realm, commitTransaction: commitTransaction) {
+                        existedInstance.archivedId = archivedId
+                        updateSavedLastChatPreviewIfNeeded(
+                            realm: realm,
+                            savedServiceJid: savedServiceJid,
+                            instance: existedInstance
+                        )
                     }
-                    return
                 }
-                
-                isExist = true
+                return
             }
-            
-            let instance = MessageStorageItem()
-            instance.opponent = savedServiceJid
-            instance.owner = self.owner
-            instance.primary = MessageStorageItem.genPrimary(messageId: messageId, owner: self.owner)
-            instance.outgoing = true
-            instance.date = envelope.date
-            instance.body = message.body ?? ""
-            instance.conversationType = .saved
-            instance.messageId = messageId
-            instance.legacyBody = message.body ?? ""
-            instance.sentDate = envelope.sentDate
-            instance.archivedId = envelope.outerArchiveId ?? ""
-            instance.previousId = getPreviousId(envelope.outerMessage)
-            instance.originalStanza = envelope.outerMessage
-            
-            instance.references.append(objectsIn: parseReferences(message, primary: instance.primary, jid: savedServiceJid, owner: self.owner))
-            instance.updateDisplayMode()
-            instance.references.forEach { $0.messageId = instance.primary }
-            
-            if envelope.isForwardedSaved {
-                if let groupChatCard = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: [GroupChatStorageItem.genPrimary(jid: envelope.displayAuthorJid, owner: self.owner), "saved-forwarded"].prp()) {
-                    instance.groupchatCard = groupChatCard
-                } else {
-                    let groupChatCard = GroupchatUserStorageItem()
-                    groupChatCard.owner = self.owner
-                    groupChatCard.nickname = envelope.displayAuthorJid
-                    groupChatCard.primary = [GroupChatStorageItem.genPrimary(jid: envelope.displayAuthorJid, owner: self.owner), "saved-forwarded"].prp()
-                    instance.groupchatCard = groupChatCard
-                }
-            }
-            
-            try realm.write {
-                if isExist {
-                    realm.add(instance, update: .all)
-                } else {
-                    realm.add(instance)
-                }
-            }
-            
-            if let chatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: savedServiceJid, owner: self.owner, conversationType: .saved)) {
-                if chatInstance.lastMessage == nil {
-                    try realm.write {
-                        chatInstance.lastMessage = instance
-                        chatInstance.messageDate = instance.date
-                    }
-                    
-                } else if let lastMessage = chatInstance.lastMessage,
-                   lastMessage.date < instance.date {
-                    try realm.write {
-                        chatInstance.lastMessage = instance
-                        chatInstance.messageDate = instance.date
-                    }
-                    
-                }
-            }
-        } catch {
-            DDLogDebug("XMPPFavoritesManager: \(#function). \(error.localizedDescription)")
+
+            isExist = true
         }
+
+        let instance = MessageStorageItem()
+        instance.opponent = savedServiceJid
+        instance.owner = self.owner
+        instance.primary = MessageStorageItem.genPrimary(messageId: messageId, owner: self.owner)
+        instance.outgoing = true
+        instance.date = envelope.date
+        instance.body = message.body ?? ""
+        instance.conversationType = .saved
+        instance.messageId = messageId
+        instance.legacyBody = message.body ?? ""
+        instance.sentDate = envelope.sentDate
+        instance.archivedId = envelope.outerArchiveId ?? ""
+        instance.previousId = getPreviousId(envelope.outerMessage)
+        instance.originalStanza = envelope.outerMessage
+
+        instance.references.append(objectsIn: parseReferences(message, primary: instance.primary, jid: savedServiceJid, owner: self.owner))
+        instance.updateDisplayMode()
+        instance.references.forEach { $0.messageId = instance.primary }
+
+        if envelope.isForwardedSaved {
+            if let groupChatCard = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: [GroupChatStorageItem.genPrimary(jid: envelope.displayAuthorJid, owner: self.owner), "saved-forwarded"].prp()) {
+                instance.groupchatCard = groupChatCard
+            } else {
+                let groupChatCard = GroupchatUserStorageItem()
+                groupChatCard.owner = self.owner
+                groupChatCard.nickname = envelope.displayAuthorJid
+                groupChatCard.primary = [GroupChatStorageItem.genPrimary(jid: envelope.displayAuthorJid, owner: self.owner), "saved-forwarded"].prp()
+                instance.groupchatCard = groupChatCard
+            }
+        }
+
+        try performSavedWrite(in: realm, commitTransaction: commitTransaction) {
+            if isExist {
+                realm.add(instance, update: .all)
+            } else {
+                realm.add(instance)
+            }
+            updateSavedLastChatPreviewIfNeeded(
+                realm: realm,
+                savedServiceJid: savedServiceJid,
+                instance: instance
+            )
+        }
+    }
+
+    private func performSavedWrite(in realm: Realm, commitTransaction: Bool, _ block: () -> Void) throws {
+        if commitTransaction && !realm.isInWriteTransaction {
+            try realm.write {
+                block()
+            }
+        } else {
+            block()
+        }
+    }
+
+    private func updateSavedLastChatPreviewIfNeeded(
+        realm: Realm,
+        savedServiceJid: String,
+        instance: MessageStorageItem
+    ) {
+        if let chatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: savedServiceJid, owner: self.owner, conversationType: .saved)) {
+            if chatInstance.lastMessage == nil {
+                updateSavedLastChatPreview(chatInstance, instance: instance)
+            } else if let lastMessage = chatInstance.lastMessage,
+                      lastMessage.date < instance.date {
+                updateSavedLastChatPreview(chatInstance, instance: instance)
+            }
+        }
+    }
+
+    private func updateSavedLastChatPreview(_ chatInstance: LastChatsStorageItem, instance: MessageStorageItem) {
+        chatInstance.lastMessage = instance
+        chatInstance.lastMessageId = instance.messageId
+        chatInstance.messageDate = instance.date
     }
     
     public func update(_ stream: XMPPStream) {
