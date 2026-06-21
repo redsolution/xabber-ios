@@ -66,6 +66,20 @@ class XMPPFavoritesManager: AbstractXMPPManager {
             DDLogDebug("XMPPFavoritesManager: \(#function). \(error.localizedDescription)")
         }
     }
+
+    private func resolvedSavedServiceJid(from messageContainer: XMPPMessage, fallback: String) -> String {
+        let candidates = [
+            self.node,
+            AccountManager.shared.find(for: self.owner)?.favorites.node,
+            messageContainer.to?.bare,
+            messageContainer.from?.bare,
+            fallback
+        ]
+
+        return candidates
+            .compactMap { $0 }
+            .first { $0.isNotEmpty && $0 != self.owner } ?? fallback
+    }
     
     public final func configure(for jid: String) {
         self.node = jid
@@ -236,6 +250,10 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         }
         
         let isOutgoing = from == self.owner
+        let savedServiceJid = resolvedSavedServiceJid(
+            from: messageContainer,
+            fallback: isOutgoing ? to : from
+        )
         let messageId = getUniqueMessageId(messageContainer, owner: self.owner)
         
         do {
@@ -251,7 +269,7 @@ class XMPPFavoritesManager: AbstractXMPPManager {
             }
             
             let instance = MessageStorageItem()
-            instance.opponent = isOutgoing ? to : from
+            instance.opponent = savedServiceJid
             instance.owner = self.owner
             instance.primary = MessageStorageItem.genPrimary(messageId: messageId, owner: self.owner)
             instance.outgoing = true
@@ -262,7 +280,7 @@ class XMPPFavoritesManager: AbstractXMPPManager {
             instance.legacyBody = message.body ?? ""
             instance.sentDate = sentDate
             
-            instance.references.append(objectsIn: parseReferences(message, primary: instance.primary, jid: instance.opponent, owner: self.owner))
+            instance.references.append(objectsIn: parseReferences(message, primary: instance.primary, jid: savedServiceJid, owner: self.owner))
             instance.updateDisplayMode()
             instance.references.forEach { $0.messageId = instance.primary }
             
@@ -286,7 +304,7 @@ class XMPPFavoritesManager: AbstractXMPPManager {
                 }
             }
             
-            if let chatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: AccountManager.shared.find(for: self.owner)?.favorites.node ?? "", owner: self.owner, conversationType: .saved)) {
+            if let chatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: savedServiceJid, owner: self.owner, conversationType: .saved)) {
                 if chatInstance.lastMessage == nil {
                     try realm.write {
                         chatInstance.lastMessage = instance

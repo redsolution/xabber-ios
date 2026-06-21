@@ -20923,6 +20923,11 @@ final class GroupchatNicknamePresentationRegressionTests: XCTestCase {
 final class FavoritesFeatureTests: XCTestCase {
 
     private let owner = "igor.boldin@xmppdev01.xabber.com"
+    private let ownerResource = "igor.boldin@xmppdev01.xabber.com/ios"
+    private let favoritesJid = "favorites.xmppdev01.xabber.com"
+    private let contactJid = "alexey.boldin@xmppdev01.xabber.com"
+    private let groupchatJid = "project-room@groups.xmppdev01.xabber.com"
+    private let savedConversationType = ClientSynchronizationManager.ConversationType.saved.rawValue
 
     override func setUp() {
         super.setUp()
@@ -20939,6 +20944,183 @@ final class FavoritesFeatureTests: XCTestCase {
             throw NSError(domain: "FavoritesFeatureTests", code: 1)
         }
         return root
+    }
+
+    private func makeMessage(xml: String) throws -> XMPPMessage {
+        XMPPMessage(from: try makeElement(xml: xml))
+    }
+
+    private func makeDirectSavedMessage(
+        from: String? = nil,
+        to: String? = nil,
+        body: String = "Saved direct note",
+        id: String = "saved-direct-1",
+        stamp: String = "2026-03-24T12:34:56+0000"
+    ) throws -> XMPPMessage {
+        try makeMessage(xml: """
+        <message from='\(from ?? ownerResource)' to='\(to ?? favoritesJid)' type='chat' id='\(id)'>
+          <time stamp='\(stamp)'/>
+          <body>\(body)</body>
+        </message>
+        """)
+    }
+
+    private func makeForwardedSavedMessage(
+        outerFrom: String? = nil,
+        outerTo: String? = nil,
+        innerFrom: String? = nil,
+        innerTo: String? = nil,
+        body: String = "Forwarded saved message",
+        id: String = "saved-forwarded-1",
+        innerId: String = "inner-forwarded-1",
+        outerStamp: String = "2026-03-24T12:36:00+0000",
+        innerStamp: String = "2026-03-24T12:34:56+0000",
+        innerChildren: String = ""
+    ) throws -> XMPPMessage {
+        try makeMessage(xml: """
+        <message from='\(outerFrom ?? ownerResource)' to='\(outerTo ?? favoritesJid)' type='chat' id='\(id)'>
+          <time stamp='\(outerStamp)'/>
+          <body>&gt; \(body)</body>
+          <reference xmlns='https://xabber.com/protocol/references' begin='0' end='\(body.count + 2)' type='mutable'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message from='\(innerFrom ?? contactJid)' to='\(innerTo ?? owner)' type='chat' id='\(innerId)'>
+                <time stamp='\(innerStamp)'/>
+                \(innerChildren)
+                <body>\(body)</body>
+              </message>
+            </forwarded>
+          </reference>
+        </message>
+        """)
+    }
+
+    private func makeNestedForwardedSavedMessage() throws -> XMPPMessage {
+        try makeForwardedSavedMessage(
+            body: "Nested saved forward",
+            id: "saved-nested-1",
+            innerId: "inner-nested-wrapper-1",
+            innerChildren: """
+            <reference xmlns='https://xabber.com/protocol/references' begin='0' end='22' type='mutable'>
+              <forwarded xmlns='urn:xmpp:forward:0'>
+                <delay xmlns='urn:xmpp:delay' stamp='2026-03-24T12:30:00+0000'/>
+                <message from='juliet@xmppdev01.xabber.com/balcony' to='\(contactJid)' type='chat' id='nested-original-1'>
+                  <time stamp='2026-03-24T12:30:00+0000'/>
+                  <body>Nested original body</body>
+                </message>
+              </forwarded>
+            </reference>
+            """
+        )
+    }
+
+    private func makeGroupForwardedSavedMessage() throws -> XMPPMessage {
+        try makeForwardedSavedMessage(
+            innerFrom: "\(groupchatJid)/room",
+            innerTo: owner,
+            body: "Group saved message",
+            id: "saved-group-1",
+            innerId: "inner-group-1",
+            innerChildren: """
+            <x xmlns='https://xabber.com/protocol/groups'>
+              <reference xmlns='https://xabber.com/protocol/references'>
+                <user id='user-1'>
+                  <jid>\(contactJid)</jid>
+                  <nickname>Alexey Boldin</nickname>
+                  <role>member</role>
+                </user>
+              </reference>
+            </x>
+            """
+        )
+    }
+
+    private func makeMamResult(message: XMPPMessage, archiveId: String, queryId: String) throws -> DDXMLElement {
+        try makeElement(xml: """
+        <message from='xmppdev01.xabber.com' to='\(ownerResource)' type='chat' id='mam-wrapper-\(archiveId)'>
+          <result xmlns='urn:xmpp:mam:2' id='\(archiveId)' queryid='\(queryId)'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              \(message.xmlString)
+            </forwarded>
+          </result>
+        </message>
+        """)
+    }
+
+    private func makeCarbonSent(message: XMPPMessage) throws -> DDXMLElement {
+        try makeElement(xml: """
+        <message from='\(owner)' to='\(ownerResource)' type='chat' id='carbon-sent-wrapper'>
+          <sent xmlns='urn:xmpp:carbons:2'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              \(message.xmlString)
+            </forwarded>
+          </sent>
+        </message>
+        """)
+    }
+
+    private func makeCarbonReceived(message: XMPPMessage) throws -> DDXMLElement {
+        try makeElement(xml: """
+        <message from='\(owner)' to='\(ownerResource)' type='chat' id='carbon-received-wrapper'>
+          <received xmlns='urn:xmpp:carbons:2'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              \(message.xmlString)
+            </forwarded>
+          </received>
+        </message>
+        """)
+    }
+
+    private func makeSyncConversation(jid: String, type: String, lastMessage: XMPPMessage) throws -> DDXMLElement {
+        try makeElement(xml: """
+        <conversation jid='\(jid)' type='\(type)'>
+          <last-message>
+            \(lastMessage.xmlString)
+          </last-message>
+        </conversation>
+        """)
+    }
+
+    private func extractForwardedMessage(from element: DDXMLElement, childName: String) throws -> XMPPMessage {
+        let message = try XCTUnwrap(
+            element
+                .element(forName: childName)?
+                .element(forName: "forwarded")?
+                .element(forName: "message")
+        )
+        return XMPPMessage(from: message)
+    }
+
+    private func extractMamForwardedMessage(from element: DDXMLElement) throws -> XMPPMessage {
+        let message = try XCTUnwrap(
+            element
+                .element(forName: "result")?
+                .element(forName: "forwarded")?
+                .element(forName: "message")
+        )
+        return XMPPMessage(from: message)
+    }
+
+    private func favoritesManager() -> XMPPFavoritesManager {
+        let manager = XMPPFavoritesManager(withOwner: owner)
+        manager.node = favoritesJid
+        return manager
+    }
+
+    private func receiveSaved(_ message: XMPPMessage) throws -> MessageStorageItem {
+        favoritesManager().receiveSaved(message: message)
+        let messages = try WRealm.safe().objects(MessageStorageItem.self)
+        XCTAssertEqual(messages.count, 1)
+        return try XCTUnwrap(messages.first)
+    }
+
+    private func assertStoredAsSavedServiceConversation(
+        _ message: MessageStorageItem,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(message.owner, owner, file: file, line: line)
+        XCTAssertEqual(message.opponent, favoritesJid, file: file, line: line)
+        XCTAssertEqual(message.conversationType, .saved, file: file, line: line)
     }
 
     func testFavoritesDiscoRequiresArchiveIdentityAndFeature() throws {
@@ -21031,6 +21213,86 @@ final class FavoritesFeatureTests: XCTestCase {
         XCTAssertEqual(reference?.xmlns(), "https://xabber.com/protocol/references")
         XCTAssertEqual(reference?.attributeStringValue(forName: "type"), "mutable")
         XCTAssertNotNil(reference?.element(forName: "forwarded"))
+    }
+
+    func testSavedDirectMessageStoresUnderFavoritesServiceJid() throws {
+        let stored = try receiveSaved(try makeDirectSavedMessage())
+
+        assertStoredAsSavedServiceConversation(stored)
+        XCTAssertEqual(stored.messageId, "saved-direct-1")
+        XCTAssertEqual(stored.body, "Saved direct note")
+    }
+
+    func testSavedForwardedMessageStoresUnderFavoritesServiceJid() throws {
+        let stored = try receiveSaved(try makeForwardedSavedMessage())
+
+        assertStoredAsSavedServiceConversation(stored)
+        XCTAssertEqual(stored.messageId, "saved-forwarded-1")
+        XCTAssertEqual(stored.body, "Forwarded saved message")
+    }
+
+    func testSavedNestedForwardStripsOnlyOuterSavedEnvelopeForDisplay() throws {
+        let stored = try receiveSaved(try makeNestedForwardedSavedMessage())
+
+        assertStoredAsSavedServiceConversation(stored)
+        XCTAssertEqual(stored.body, "Nested saved forward")
+        XCTAssertTrue(stored.references.contains(where: { $0.kind == .forward }))
+    }
+
+    func testSavedGroupForwardPreservesOriginalGroupAuthorMetadata() throws {
+        let stored = try receiveSaved(try makeGroupForwardedSavedMessage())
+
+        assertStoredAsSavedServiceConversation(stored)
+        let groupReference = try XCTUnwrap(stored.references.first(where: { $0.kind == .groupchat }))
+        XCTAssertEqual(groupReference.metadata?["jid"] as? String, contactJid)
+        XCTAssertEqual(groupReference.metadata?["nickname"] as? String, "Alexey Boldin")
+    }
+
+    func testSavedMamResultRoutesToSavedConversation() throws {
+        let direct = try makeDirectSavedMessage(id: "saved-mam-1")
+        let result = try makeMamResult(message: direct, archiveId: "archive-saved-1", queryId: "saved-query-1")
+
+        let stored = try receiveSaved(try extractMamForwardedMessage(from: result))
+
+        assertStoredAsSavedServiceConversation(stored)
+        XCTAssertEqual(result.element(forName: "result")?.attributeStringValue(forName: "id"), "archive-saved-1")
+    }
+
+    func testSavedSentCarbonRoutesToSavedConversation() throws {
+        let carbon = try makeCarbonSent(message: try makeDirectSavedMessage(id: "saved-carbon-sent-1"))
+
+        let stored = try receiveSaved(try extractForwardedMessage(from: carbon, childName: "sent"))
+
+        assertStoredAsSavedServiceConversation(stored)
+        XCTAssertEqual(stored.messageId, "saved-carbon-sent-1")
+    }
+
+    func testSavedReceivedCarbonDoesNotCreateWrongConversation() throws {
+        let receivedMessage = try makeDirectSavedMessage(
+            from: favoritesJid,
+            to: ownerResource,
+            body: "Saved service echo",
+            id: "saved-carbon-received-1"
+        )
+        let carbon = try makeCarbonReceived(message: receivedMessage)
+
+        let stored = try receiveSaved(try extractForwardedMessage(from: carbon, childName: "received"))
+
+        assertStoredAsSavedServiceConversation(stored)
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).filter("opponent != %@", favoritesJid).count, 0)
+    }
+
+    func testSavedSyncLastMessageUsesFavoritesServiceJidAndSavedType() throws {
+        let direct = try makeDirectSavedMessage(id: "saved-sync-last-1")
+        let sync = try makeSyncConversation(
+            jid: favoritesJid,
+            type: savedConversationType,
+            lastMessage: direct
+        )
+
+        XCTAssertEqual(sync.attributeStringValue(forName: "jid"), favoritesJid)
+        XCTAssertEqual(sync.attributeStringValue(forName: "type"), savedConversationType)
+        XCTAssertNotNil(sync.element(forName: "last-message")?.element(forName: "message"))
     }
 }
 
