@@ -34,6 +34,11 @@ extension MessageManager {
         let date: Date
     }
 
+    private struct ForwardingSourceMessage {
+        let message: XMPPMessage
+        let timestamp: Date
+    }
+
     internal static func outboundDestinationJID(
         for opponent: String,
         conversationType: ClientSynchronizationManager.ConversationType,
@@ -406,14 +411,21 @@ extension MessageManager {
                 var stanza: DDXMLElement? = nil
                 var date: Date? = nil
                 if let instance = realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: item.stanzaPrimary) {
+                    let storageItem = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: item.primary)
                     let stanzaRaw = instance.stanza
                     let document = try DDXMLDocument(xmlString: "\(stanzaRaw)", options: 0)
                     guard let root = document.rootElement()?.copy() as? DDXMLElement else { fatalError() }
                     
-                    let message = XMPPMessage(from: root)
+                    let storedMessage = XMPPMessage(from: root)
+                    let forwardingSource = forwardingSourceMessage(
+                        from: storedMessage,
+                        storedTimestamp: instance.timestamp,
+                        storageItem: storageItem
+                    )
+                    let message = forwardingSource.message
                     
                     
-                    body = ">\(dateFormatter.string(from: instance.timestamp))\n\(timeFormatter.string(from: instance.timestamp)) \(message.from?.bare ?? "")\n\(message.body ?? "")".trimmingCharacters(in: .whitespacesAndNewlines)//.xmlEscaping(reverse: false)
+                    body = ">\(dateFormatter.string(from: forwardingSource.timestamp))\n\(timeFormatter.string(from: forwardingSource.timestamp)) \(message.from?.bare ?? "")\n\(message.body ?? "")".trimmingCharacters(in: .whitespacesAndNewlines)//.xmlEscaping(reverse: false)
                     body = body!.replacingOccurrences(
                         of: "\n",
                         with: "\n>",//.xmlEscaping(reverse: false),
@@ -422,7 +434,7 @@ extension MessageManager {
                                                            length: body!.count),
                                                    in: body!)
                     )
-                    date = instance.timestamp
+                    date = forwardingSource.timestamp
                     let refElement = DDXMLElement.element(withName: "reference") as! DDXMLElement
                     refElement.setXmlns("https://xabber.com/protocol/references")
                     refElement.addAttribute(withName: "type", stringValue: "mutable")
@@ -451,6 +463,43 @@ extension MessageManager {
             DDLogDebug("cant form body for forwarded messages")
         }
         return out.sorted(by: { $0.date.compare($1.date) == .orderedDescending })
+    }
+
+    private func forwardingSourceMessage(
+        from storedMessage: XMPPMessage,
+        storedTimestamp: Date,
+        storageItem: MessageStorageItem?
+    ) -> ForwardingSourceMessage {
+        guard storageItem?.conversationType == .saved else {
+            return ForwardingSourceMessage(message: storedMessage, timestamp: storedTimestamp)
+        }
+
+        if let savedServiceJid = storageItem?.opponent,
+           savedServiceJid.isNotEmpty,
+           [storedMessage.from?.bare, storedMessage.to?.bare].contains(savedServiceJid),
+           let payload = savedForwardedPayload(from: storedMessage) {
+            return ForwardingSourceMessage(
+                message: payload,
+                timestamp: getDeliveryDate(payload) ?? storageItem?.sentDate ?? storedTimestamp
+            )
+        }
+
+        return ForwardingSourceMessage(
+            message: storedMessage,
+            timestamp: getDeliveryDate(storedMessage) ?? storageItem?.sentDate ?? storedTimestamp
+        )
+    }
+
+    private func savedForwardedPayload(from message: XMPPMessage) -> XMPPMessage? {
+        for reference in message.elements(forName: "reference") where reference.xmlns() == "https://xabber.com/protocol/references" {
+            guard let forwarded = reference.element(forName: "forwarded", xmlns: "urn:xmpp:forward:0"),
+                  let payload = forwarded.element(forName: "message") else {
+                continue
+            }
+            let payloadCopy = payload.copy() as? DDXMLElement ?? payload
+            return XMPPMessage(from: payloadCopy)
+        }
+        return nil
     }
     
     internal func prepareForwards(_ forwardedIds: [String], primary: String, isReport: Bool, owner: String, jid: String) -> [MessageForwardsInlineStorageItem] {

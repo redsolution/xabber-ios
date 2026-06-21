@@ -473,8 +473,8 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         var isExist = false
         if let existedInstance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: messageId, owner: self.owner)) {
             if existedInstance.inlineForwards.isEmpty {
-                if let archivedId = envelope.outerArchiveId, archivedId.isNotEmpty, existedInstance.archivedId != archivedId {
-                    try performSavedWrite(in: realm, commitTransaction: commitTransaction) {
+                try performSavedWrite(in: realm, commitTransaction: commitTransaction) {
+                    if let archivedId = envelope.outerArchiveId, archivedId.isNotEmpty, existedInstance.archivedId != archivedId {
                         existedInstance.archivedId = archivedId
                         updateSavedLastChatPreviewIfNeeded(
                             realm: realm,
@@ -482,6 +482,7 @@ class XMPPFavoritesManager: AbstractXMPPManager {
                             instance: existedInstance
                         )
                     }
+                    storeSavedForwardingStanza(for: existedInstance, envelope: envelope, in: realm)
                 }
                 return
             }
@@ -502,7 +503,7 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         instance.sentDate = envelope.sentDate
         instance.archivedId = envelope.outerArchiveId ?? ""
         instance.previousId = getPreviousId(envelope.outerMessage)
-        instance.originalStanza = envelope.outerMessage
+        instance.originalStanza = envelope.isForwardedSaved ? envelope.storageMessage : envelope.outerMessage
 
         instance.references.append(objectsIn: parseReferences(message, primary: instance.primary, jid: savedServiceJid, owner: self.owner))
         instance.updateDisplayMode()
@@ -526,12 +527,31 @@ class XMPPFavoritesManager: AbstractXMPPManager {
             } else {
                 realm.add(instance)
             }
+            storeSavedForwardingStanza(for: instance, envelope: envelope, in: realm)
             updateSavedLastChatPreviewIfNeeded(
                 realm: realm,
                 savedServiceJid: savedServiceJid,
                 instance: instance
             )
         }
+    }
+
+    private func storeSavedForwardingStanza(
+        for instance: MessageStorageItem,
+        envelope: SavedMessageEnvelope,
+        in realm: Realm
+    ) {
+        let stanza = envelope.isForwardedSaved ? envelope.storageMessage : envelope.outerMessage
+        let timestamp = envelope.isForwardedSaved ? envelope.sentDate : envelope.date
+        let storedStanza = MessageStanzaStorageItem()
+        storedStanza.set(
+            instance.messageId,
+            for: instance.owner,
+            with: stanza.xmlString,
+            at: timestamp,
+            primary: instance.primary
+        )
+        realm.add(storedStanza, update: .modified)
     }
 
     private func performSavedWrite(in realm: Realm, commitTransaction: Bool, _ block: () -> Void) throws {

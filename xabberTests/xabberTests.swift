@@ -21573,6 +21573,18 @@ final class FavoritesFeatureTests: XCTestCase {
         XCTAssertEqual(message.conversationType, .saved, file: file, line: line)
     }
 
+    private func firstForwardedPayload(
+        in stanza: XMPPMessage,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> XMPPMessage {
+        let reference = try XCTUnwrap(stanza.element(forName: "reference"), file: file, line: line)
+        XCTAssertEqual(reference.xmlns(), "https://xabber.com/protocol/references", file: file, line: line)
+        let forwarded = try XCTUnwrap(reference.element(forName: "forwarded", xmlns: "urn:xmpp:forward:0"), file: file, line: line)
+        let payload = try XCTUnwrap(forwarded.element(forName: "message"), file: file, line: line)
+        return XMPPMessage(from: payload)
+    }
+
     func testFavoritesDiscoRequiresArchiveIdentityAndFeature() throws {
         let validQuery = try makeElement(xml: """
         <query xmlns='http://jabber.org/protocol/disco#info'>
@@ -21722,6 +21734,100 @@ final class FavoritesFeatureTests: XCTestCase {
         XCTAssertEqual(stanza.from?.bare, owner)
         XCTAssertEqual(getOriginId(stanza), stanza.elementID)
         XCTAssertTrue(stanza.body?.contains("Forward to saved") ?? false)
+    }
+
+    func testReforwardSavedForwardUsesInnerOriginalMessage() throws {
+        let stored = try receiveSaved(try makeForwardedSavedMessage())
+
+        let stanza = try XCTUnwrap(favoritesManager().buildForwardMessage(for: [stored.primary]))
+        let payload = try firstForwardedPayload(in: stanza)
+
+        XCTAssertEqual(payload.elementID, "inner-forwarded-1")
+        XCTAssertEqual(payload.from?.bare, contactJid)
+        XCTAssertEqual(payload.to?.bare, owner)
+        XCTAssertEqual(payload.body, "Forwarded saved message")
+        XCTAssertFalse(payload.xmlString.contains("saved-forwarded-1"))
+        XCTAssertFalse(payload.xmlString.contains(favoritesJid))
+    }
+
+    func testReforwardSavedDirectNoteUsesSavedNote() throws {
+        let stored = try receiveSaved(try makeDirectSavedMessage())
+
+        let stanza = try XCTUnwrap(favoritesManager().buildForwardMessage(for: [stored.primary]))
+        let payload = try firstForwardedPayload(in: stanza)
+
+        XCTAssertEqual(payload.elementID, "saved-direct-1")
+        XCTAssertEqual(payload.from?.bare, owner)
+        XCTAssertEqual(payload.to?.bare, favoritesJid)
+        XCTAssertEqual(payload.body, "Saved direct note")
+    }
+
+    func testReforwardSavedGroupMessagePreservesGroupAuthor() throws {
+        let stored = try receiveSaved(try makeGroupForwardedSavedMessage())
+
+        let stanza = try XCTUnwrap(favoritesManager().buildForwardMessage(for: [stored.primary]))
+        let payload = try firstForwardedPayload(in: stanza)
+        let groupUser = try XCTUnwrap(
+            payload
+                .element(forName: "x", xmlns: "https://xabber.com/protocol/groups")?
+                .element(forName: "reference")?
+                .element(forName: "user")
+        )
+
+        XCTAssertEqual(payload.elementID, "inner-group-1")
+        XCTAssertEqual(payload.from?.bare, groupchatJid)
+        XCTAssertEqual(groupUser.element(forName: "jid")?.stringValue, contactJid)
+        XCTAssertEqual(groupUser.element(forName: "nickname")?.stringValue, "Alexey Boldin")
+    }
+
+    func testReforwardSavedMediaMessagePreservesAttachmentMetadata() throws {
+        let saved = try makeForwardedSavedMessage(
+            body: "Saved media message",
+            id: "saved-media-1",
+            innerId: "inner-media-1",
+            innerChildren: """
+            <reference xmlns='https://xabber.com/protocol/references' begin='0' end='0' type='mutable'>
+              <file-sharing xmlns='https://xabber.com/protocol/files'>
+                <file name='photo.jpg' media-type='image/jpeg' size='42'>
+                  <sources>
+                    <url-data xmlns='http://jabber.org/protocol/url-data' target='https://files.example.com/photo.jpg'/>
+                  </sources>
+                </file>
+              </file-sharing>
+            </reference>
+            """
+        )
+        let stored = try receiveSaved(saved)
+
+        let stanza = try XCTUnwrap(favoritesManager().buildForwardMessage(for: [stored.primary]))
+        let payload = try firstForwardedPayload(in: stanza)
+        let file = try XCTUnwrap(
+            payload
+                .element(forName: "reference")?
+                .element(forName: "file-sharing", xmlns: "https://xabber.com/protocol/files")?
+                .element(forName: "file")
+        )
+
+        XCTAssertEqual(payload.elementID, "inner-media-1")
+        XCTAssertEqual(file.attributeStringValue(forName: "name"), "photo.jpg")
+        XCTAssertEqual(file.attributeStringValue(forName: "media-type"), "image/jpeg")
+    }
+
+    func testReforwardSavedForwardDoesNotNestSavedEnvelope() throws {
+        let stored = try receiveSaved(try makeNestedForwardedSavedMessage())
+
+        let stanza = try XCTUnwrap(favoritesManager().buildForwardMessage(for: [stored.primary]))
+        let payload = try firstForwardedPayload(in: stanza)
+        let nestedPayload = try XCTUnwrap(
+            payload
+                .element(forName: "reference")?
+                .element(forName: "forwarded", xmlns: "urn:xmpp:forward:0")?
+                .element(forName: "message")
+        )
+
+        XCTAssertEqual(payload.elementID, "inner-nested-wrapper-1")
+        XCTAssertEqual(nestedPayload.attributeStringValue(forName: "id"), "nested-original-1")
+        XCTAssertFalse(stanza.xmlString.contains("saved-nested-1"))
     }
 
     func testDirectSavedNoteSendsChatMessageToFavoritesServiceJid() throws {
