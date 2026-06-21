@@ -21226,10 +21226,16 @@ final class FavoritesFeatureTests: XCTestCase {
     override func setUp() {
         super.setUp()
         Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "FavoritesFeatureTests-\(name)")
+        AccountManager.shared.users.removeAll { $0.jid == owner }
         let realm = try! WRealm.safe()
         try! realm.write {
             realm.deleteAll()
         }
+    }
+
+    override func tearDown() {
+        AccountManager.shared.users.removeAll { $0.jid == owner }
+        super.tearDown()
     }
 
     private func makeElement(xml: String) throws -> DDXMLElement {
@@ -21472,6 +21478,91 @@ final class FavoritesFeatureTests: XCTestCase {
         XMPPFavoritesManager(withOwner: owner).configure(for: favoritesJid)
     }
 
+    @discardableResult
+    private func seedLastChat(
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        messageDate: Date = Date(timeIntervalSince1970: 1_711_285_000),
+        isPinned: Bool = false
+    ) throws -> LastChatsStorageItem {
+        let realm = try WRealm.safe()
+        let chat = LastChatsStorageItem()
+        chat.jid = jid
+        chat.conversationType = conversationType
+        chat.setPrimary(withOwner: owner)
+        chat.messageDate = messageDate
+        chat.isPinned = isPinned
+
+        try realm.write {
+            realm.add(chat, update: .modified)
+        }
+
+        return try XCTUnwrap(
+            realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)
+            )
+        )
+    }
+
+    private func seedForwardableStanza(
+        primary: String,
+        body: String = "Forward me",
+        timestamp: Date = Date(timeIntervalSince1970: 1_711_284_000)
+    ) throws {
+        let realm = try WRealm.safe()
+        let stanza = MessageStanzaStorageItem()
+        stanza.primary = [primary, "stanza"].prp()
+        stanza.owner = owner
+        stanza.messageId = "message-\(primary)"
+        stanza.timestamp = timestamp
+        stanza.stanza = """
+        <message from='\(contactJid)' to='\(owner)' type='chat' id='message-\(primary)'>
+          <body>\(body)</body>
+        </message>
+        """
+
+        try realm.write {
+            realm.add(stanza, update: .modified)
+        }
+    }
+
+    private func makeShareDatasource(
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        username: String? = nil
+    ) -> ShareDialogController.Datasource {
+        ShareDialogController.Datasource(
+            jid: jid,
+            owner: owner,
+            username: username ?? jid,
+            attributedUsername: nil,
+            message: "message",
+            date: Date(timeIntervalSince1970: 1_711_285_000),
+            state: nil,
+            isMute: false,
+            isSynced: true,
+            status: .offline,
+            entity: .contact,
+            conversationType: conversationType,
+            unread: 0,
+            unreadString: nil,
+            hasUnreadMention: false,
+            color: .clear,
+            isDraft: false,
+            hasAttachment: false,
+            userNickname: nil,
+            isSystemMessage: false,
+            isPinned: false,
+            subRequest: false,
+            isEncrypted: conversationType.isEncrypted,
+            avatarUrl: nil,
+            hasErrorInChat: false,
+            updateTS: 0,
+            isVerificationActionRequired: false
+        )
+    }
+
     private func assertStoredAsSavedServiceConversation(
         _ message: MessageStorageItem,
         file: StaticString = #filePath,
@@ -21572,6 +21663,146 @@ final class FavoritesFeatureTests: XCTestCase {
         XCTAssertEqual(reference?.xmlns(), "https://xabber.com/protocol/references")
         XCTAssertEqual(reference?.attributeStringValue(forName: "type"), "mutable")
         XCTAssertNotNil(reference?.element(forName: "forwarded"))
+    }
+
+    func testForwardTargetsPutSavedMessagesFirst() throws {
+        configureFavorites()
+        try seedLastChat(jid: contactJid, conversationType: .regular, messageDate: Date(timeIntervalSince1970: 1_811_285_000))
+
+        let controller = ShareDialogController()
+        controller.owner = owner
+        controller.forwardIds = ["forwarded-1"]
+        controller.load()
+        controller.updateDatasource()
+
+        XCTAssertEqual(controller.datasource.first?.conversationType, .saved)
+        XCTAssertEqual(controller.datasource.first?.jid, favoritesJid)
+    }
+
+    func testForwardTargetsExcludeCurrentSourceChat() throws {
+        configureFavorites()
+        try seedLastChat(jid: contactJid, conversationType: .regular)
+        try seedLastChat(jid: "other@xmppdev01.xabber.com", conversationType: .regular)
+
+        let controller = ShareDialogController()
+        controller.owner = owner
+        controller.forwardIds = ["forwarded-1"]
+        controller.sourceContext = ShareDialogController.SourceContext(
+            owner: owner,
+            jid: contactJid,
+            conversationType: .regular
+        )
+        controller.load()
+        controller.updateDatasource()
+
+        XCTAssertFalse(controller.datasource.contains { $0.jid == contactJid && $0.conversationType == .regular })
+        XCTAssertTrue(controller.datasource.contains { $0.jid == favoritesJid && $0.conversationType == .saved })
+        XCTAssertTrue(controller.datasource.contains { $0.jid == "other@xmppdev01.xabber.com" && $0.conversationType == .regular })
+    }
+
+    func testForwardToSavedSendsImmediatelyWithoutComposerAttachment() {
+        let controller = ShareDialogController()
+        controller.forwardIds = ["forwarded-1"]
+        let savedTarget = makeShareDatasource(jid: favoritesJid, conversationType: .saved)
+
+        let action = controller.selectionAction(for: savedTarget)
+
+        XCTAssertEqual(action, .sendImmediatelyToSaved(owner: owner, forwardedIds: ["forwarded-1"]))
+    }
+
+    func testForwardToSavedBuildsMessageToFavoritesServiceJid() throws {
+        let forwardedPrimary = "task05-forwarded-message-primary"
+        try seedForwardableStanza(primary: forwardedPrimary, body: "Forward to saved")
+        let manager = favoritesManager()
+
+        let stanza = try XCTUnwrap(manager.buildForwardMessage(for: [forwardedPrimary]))
+
+        XCTAssertEqual(stanza.to?.bare, favoritesJid)
+        XCTAssertEqual(stanza.type, "chat")
+        XCTAssertEqual(stanza.from?.bare, owner)
+        XCTAssertEqual(getOriginId(stanza), stanza.elementID)
+        XCTAssertTrue(stanza.body?.contains("Forward to saved") ?? false)
+    }
+
+    func testDirectSavedNoteSendsChatMessageToFavoritesServiceJid() throws {
+        configureFavorites()
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+
+        let originId = manager.sendSimpleMessage(
+            "Saved direct note from composer",
+            to: favoritesJid,
+            forwarded: [],
+            conversationType: .saved
+        )
+
+        let realm = try WRealm.safe()
+        let stored = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: MessageStorageItem.genPrimary(messageId: originId, owner: owner)
+            )
+        )
+        assertStoredAsSavedServiceConversation(stored)
+        XCTAssertEqual(stored.body, "Saved direct note from composer")
+        XCTAssertEqual(stored.state, .sending)
+
+        let stanzaRow = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStanzaStorageItem.self,
+                forPrimaryKey: "\(stored.primary)_stanza"
+            )
+        )
+        let stanza = XMPPMessage(from: try makeElement(xml: stanzaRow.stanza))
+        XCTAssertEqual(stanza.to?.bare, favoritesJid)
+        XCTAssertEqual(stanza.type, "chat")
+        XCTAssertEqual(getOriginId(stanza), originId)
+    }
+
+    func testDirectSavedNoteReconcilesWithArchivedProofWithoutDuplicate() throws {
+        configureFavorites()
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        let originId = manager.sendSimpleMessage(
+            "Saved direct note from composer",
+            to: favoritesJid,
+            forwarded: [],
+            conversationType: .saved
+        )
+        let proof = try makeDirectSavedMessage(
+            body: "Saved direct note from composer",
+            id: "server-copy-\(originId)",
+            children: "<origin-id xmlns='urn:xmpp:sid:0' id='\(originId)'/>"
+        )
+        let mam = try makeMamResult(message: proof, archiveId: "archive-\(originId)", queryId: "saved-direct-note-proof")
+
+        favoritesManager().receiveSaved(message: XMPPMessage(from: mam))
+
+        let realm = try WRealm.safe()
+        let messages = realm.objects(MessageStorageItem.self)
+            .filter("owner == %@ AND opponent == %@ AND conversationType_ == %@", owner, favoritesJid, savedConversationType)
+        XCTAssertEqual(messages.count, 1)
+        let stored = try XCTUnwrap(messages.first)
+        XCTAssertEqual(stored.messageId, originId)
+        XCTAssertEqual(stored.archivedId, "archive-\(originId)")
+    }
+
+    func testMissingFavoritesServiceDoesNotExposeSavedForwardTarget() throws {
+        try seedLastChat(jid: favoritesJid, conversationType: .saved)
+
+        let controller = ShareDialogController()
+        controller.owner = owner
+        controller.forwardIds = ["forwarded-1"]
+        controller.load()
+        controller.updateDatasource()
+
+        XCTAssertFalse(controller.datasource.contains { $0.conversationType == .saved })
+    }
+
+    func testForwardToSavedFailureMarksLocalMessageFailedOrShowsRecoverableError() {
+        let manager = XMPPFavoritesManager(withOwner: owner)
+        let stream = XMPPStream()
+
+        XCTAssertFalse(manager.forwardMessages(["forwarded-1"], stream: stream))
+        XCTAssertNil(manager.buildForwardMessage(for: ["forwarded-1"]))
     }
 
     func testSavedDirectMessageStoresUnderFavoritesServiceJid() throws {

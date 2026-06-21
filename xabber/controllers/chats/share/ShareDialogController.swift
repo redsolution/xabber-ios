@@ -29,6 +29,21 @@ import XMPPFramework.XMPPJID
 
 
 class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISearchControllerDelegate {
+
+    struct SourceContext: Equatable {
+        let owner: String
+        let jid: String
+        let conversationType: ClientSynchronizationManager.ConversationType
+
+        func matches(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType) -> Bool {
+            self.owner == owner && self.jid == jid && self.conversationType == conversationType
+        }
+    }
+
+    enum SelectionAction: Equatable {
+        case sendImmediatelyToSaved(owner: String, forwardedIds: [String])
+        case openChat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType, forwardedIds: [String])
+    }
     
     struct Datasource: DiffAware {
                
@@ -98,6 +113,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
     }
     
     internal var forwardIds: [String] = []
+    internal var sourceContext: SourceContext? = nil
         
     internal var chatsDataset: Results<LastChatsStorageItem>? = nil
     internal var rosterDataset: Results<RosterStorageItem>? = nil
@@ -117,6 +133,90 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
     }()
     
     internal var searchController: UISearchController? = nil
+
+    static func shouldIncludeForwardTarget(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        sourceContext: SourceContext?
+    ) -> Bool {
+        if sourceContext?.matches(owner: owner, jid: jid, conversationType: conversationType) == true {
+            return false
+        }
+
+        if conversationType == .saved {
+            return isConfiguredSavedTarget(owner: owner, jid: jid)
+        }
+
+        return true
+    }
+
+    private static func isConfiguredSavedTarget(owner: String, jid: String) -> Bool {
+        if AccountManager.shared.find(for: owner)?.favorites.node == jid {
+            return true
+        }
+
+        do {
+            let realm = try WRealm.safe()
+            return realm
+                .object(
+                    ofType: XMPPFavoritesManagerStorageItem.self,
+                    forPrimaryKey: XMPPFavoritesManagerStorageItem.genPrimary(owner: owner)
+                )?
+                .node == jid
+        } catch {
+            DDLogDebug("ShareDialogController: \(#function). \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    internal func selectionAction(for item: Datasource) -> SelectionAction {
+        if item.conversationType == .saved {
+            return .sendImmediatelyToSaved(owner: item.owner, forwardedIds: forwardIds)
+        }
+
+        return .openChat(
+            owner: item.owner,
+            jid: item.jid,
+            conversationType: item.conversationType,
+            forwardedIds: forwardIds
+        )
+    }
+
+    internal func performSelection(for item: Datasource, notifyLastChatsSelection: Bool) {
+        switch selectionAction(for: item) {
+        case .sendImmediatelyToSaved(let owner, let forwardedIds):
+            self.dismiss(animated: true) {
+                ShareDialogController.performSavedForward(owner: owner, forwardedIds: forwardedIds)
+            }
+        case .openChat(let owner, let jid, let conversationType, let forwardedIds):
+            self.dismiss(animated: true) {
+                self.delegate?
+                    .open(
+                        owner: owner,
+                        jid: jid,
+                        conversationType: conversationType,
+                        forwarded: forwardedIds
+                    )
+                if notifyLastChatsSelection {
+                    self.lastChatsDisplayDelegate?.shouldMakeDialogSelected(jid: jid, owner: owner, conversationType: conversationType)
+                }
+            }
+        }
+    }
+
+    static func performSavedForward(owner: String, forwardedIds: [String]) {
+        AccountManager.shared.find(for: owner)?.action({ user, stream in
+            let didSend = user.favorites.forwardMessages(forwardedIds, stream: stream)
+            if !didSend {
+                DispatchQueue.main.async {
+                    ToastPresenter().presentError(
+                        message: "Saved Messages are unavailable.".localizeString(id: "saved_messages_unavailable_error", arguments: [])
+                    )
+                }
+            }
+        })
+    }
     
     internal func load(_ jidFilter: String = "") {
         do {
@@ -142,7 +242,16 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
     }
     
     internal func updateDatasource() {
-        datasource = chatsDataset?.map { item in
+        datasource = chatsDataset?.compactMap { item -> Datasource? in
+            guard ShareDialogController.shouldIncludeForwardTarget(
+                owner: item.owner,
+                jid: item.jid,
+                conversationType: item.conversationType,
+                sourceContext: sourceContext
+            ) else {
+                return nil
+            }
+
             let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
             
             let subscriptionRequest: Bool = item.rosterItem?.isThereSubscriptionRequest() ?? false
@@ -365,6 +474,15 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
                 ]))
                 attributedUsername = attributedTitle as NSAttributedString
             }
+
+            guard ShareDialogController.shouldIncludeForwardTarget(
+                owner: item.owner,
+                jid: item.jid,
+                conversationType: conversationType,
+                sourceContext: sourceContext
+            ) else {
+                return nil
+            }
             
             return Datasource(
                 jid: item.jid,
@@ -401,7 +519,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
         
     internal func configureSearchBar() {
         let searchUpdater = ShareDialogSearchController()
-        searchUpdater.configure(owner: owner, forwardIds: forwardIds)
+        searchUpdater.configure(owner: owner, forwardIds: forwardIds, sourceContext: sourceContext)
         
         searchController = UISearchController(searchResultsController: searchUpdater)
         

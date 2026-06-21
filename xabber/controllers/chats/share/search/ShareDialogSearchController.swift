@@ -30,6 +30,7 @@ import XMPPFramework.XMPPJID
 class ShareDialogSearchController: BaseViewController {
     
     internal var forwardIds: [String] = []
+    internal var sourceContext: ShareDialogController.SourceContext? = nil
     
     internal var chatsDataset: Results<LastChatsStorageItem>? = nil
     internal var rosterDataset: Results<RosterStorageItem>? = nil
@@ -65,7 +66,16 @@ class ShareDialogSearchController: BaseViewController {
     }
     
     internal func updateDatasource() {
-        datasource = chatsDataset?.map { item in
+        datasource = chatsDataset?.compactMap { item -> ShareDialogController.Datasource? in
+            guard ShareDialogController.shouldIncludeForwardTarget(
+                owner: item.owner,
+                jid: item.jid,
+                conversationType: item.conversationType,
+                sourceContext: sourceContext
+            ) else {
+                return nil
+            }
+
             let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
             
             let subscriptionRequest: Bool = item.rosterItem?.isThereSubscriptionRequest() ?? false
@@ -285,6 +295,15 @@ class ShareDialogSearchController: BaseViewController {
                 ]))
                 attributedUsername = attributedTitle as NSAttributedString
             }
+
+            guard ShareDialogController.shouldIncludeForwardTarget(
+                owner: item.owner,
+                jid: item.jid,
+                conversationType: conversationType,
+                sourceContext: sourceContext
+            ) else {
+                return nil
+            }
             
             return ShareDialogController.Datasource(
                 jid: item.jid,
@@ -316,6 +335,9 @@ class ShareDialogSearchController: BaseViewController {
                 isVerificationActionRequired: isVerificationActionRequired
             )
         }) ?? [])
+        if let favoritesChatIndex = datasource.firstIndex(where: { $0.conversationType == .saved }) {
+            datasource.insert(datasource.remove(at: favoritesChatIndex), at: 0)
+        }
         self.tableView.reloadData()
     }
     
@@ -323,9 +345,14 @@ class ShareDialogSearchController: BaseViewController {
         
     }
     
-    open func configure(owner: String, forwardIds: [String]) {
+    open func configure(
+        owner: String,
+        forwardIds: [String],
+        sourceContext: ShareDialogController.SourceContext? = nil
+    ) {
         self.owner = owner
         self.forwardIds = forwardIds
+        self.sourceContext = sourceContext
         load()
         view.addSubview(tableView)
         tableView.fillSuperview()
@@ -434,9 +461,7 @@ extension ShareDialogSearchController: UITableViewDelegate {
         let item = datasource[indexPath.row]
         if item.conversationType == .saved {
             self.dismiss(animated: true) {
-                AccountManager.shared.find(for: item.owner)?.action({ user, stream in
-                    _ = user.favorites.forwardMessages(self.forwardIds, stream: stream)
-                })
+                ShareDialogController.performSavedForward(owner: item.owner, forwardedIds: self.forwardIds)
             }
         } else {
             self.dismiss(animated: true) {

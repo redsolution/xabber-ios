@@ -148,6 +148,11 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
         let vc = ShareDialogController()
         vc.owner = self.owner
         vc.forwardIds = messages
+        vc.sourceContext = ShareDialogController.SourceContext(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType
+        )
         vc.delegate = self
         vc.lastChatsDisplayDelegate = self.lastChatsDisplayDelegate
         showModal(vc, parent: self)
