@@ -5841,6 +5841,32 @@ extension ChatViewController {
         }
     }
     
+    private static func messageIndicator(
+        for state: MessageStorageItem.MessageSendingState,
+        showsDeliveryIndicator: Bool
+    ) -> IndicatorType {
+        guard showsDeliveryIndicator else {
+            return .none
+        }
+
+        switch state {
+        case .sended:
+            return .sended
+        case .deliver:
+            return .received
+        case .read:
+            return .read
+        case .error:
+            return .error
+        case .none:
+            return .none
+        case .notSended:
+            return .error
+        case .sending, .uploading:
+            return .sending
+        }
+    }
+
     internal final func mapDataset(dataset: Array<MessageStorageItem>) -> [Datasource] {
         if self.showSkeletonObserver.value {
             return skeletonMessages.enumerated().compactMap {
@@ -6112,28 +6138,18 @@ extension ChatViewController {
             let references = presentation.visibleReferences
             let mappedReferences = Self.mapReferenceAttachments(references, revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries)
             let forwards: [MessageAttachment] = presentation.visibleForwards.compactMap({ return mapAttachment($0) })
-            var indicator: IndicatorType = .none
-            if presentation.displayOutgoing {
-                switch item.state {
-                        
-                    case .sended:
-                        indicator = .sended
-                    case .deliver:
-                        indicator = .received
-                    case .read:
-                        indicator = .read
-                    case .error:
-                        indicator = .error
-                    case .none:
-                        indicator = .none
-                    case .notSended:
-                        indicator = .error
-                    case .sending:
-                        indicator = .sending
-                    case .uploading:
-                        indicator = .sending
-                }
-            }
+            let statePresentation = SavedMessageStatePolicy.presentation(
+                for: item,
+                displayAuthorJid: presentation.displayAuthorJid,
+                isSavedForward: presentation.isSavedForward,
+                isDirectSavedNote: presentation.isDirectSavedNote,
+                currentUserJid: self.owner
+            )
+            let effectiveState = statePresentation.effectiveState
+            let indicator = Self.messageIndicator(
+                for: effectiveState,
+                showsDeliveryIndicator: statePresentation.showsDeliveryIndicator
+            )
             
             var timeString = Self.attachmentTimeFormatter.string(from: presentation.visibleDate)
             if item.afterburnInterval > 0 {
@@ -6223,11 +6239,11 @@ extension ChatViewController {
                 kind: kind,
                 withAuthor: withAuthor,
                 withAvatar: withAvatar || (self.conversationType == .group && !presentation.displayOutgoing),
-                error: item.state == .error,
+                error: effectiveState == .error,
                 errorType: item.messageError ?? "",
                 canPinMessage: [.system, .sticker].contains(item.displayAs) ? false : self.canUnpinMessage.value,
                 canEditMessage: item.archivedId.isNotEmpty ? item.displayAs == .text && presentation.displayOutgoing : false,
-                canDeleteMessage: [MessageStorageItem.MessageSendingState.deliver, MessageStorageItem.MessageSendingState.read].contains(item.state),
+                canDeleteMessage: [MessageStorageItem.MessageSendingState.deliver, MessageStorageItem.MessageSendingState.read].contains(effectiveState),
                 forwards: forwards,
                 isOutgoing: presentation.displayOutgoing,
                 isEdited: item.editDate != nil,
@@ -6237,7 +6253,7 @@ extension ChatViewController {
                 groupchatAuthorBadge: presentation.groupchatAuthorBadge,
                 isHasAttachedMessages: item.isHasAttachedMessages,
                 isDownloaded: isDownloaded,
-                state: item.displayAs == .call ? .none : item.state,
+                state: item.displayAs == .call ? .none : effectiveState,
                 searchString:  searchString,
                 errorMetadata: item.errorMetadata,
                 messageWarningText: item.messageWarningText,

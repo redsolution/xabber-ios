@@ -24,11 +24,94 @@ import RealmSwift
 import RxSwift
 import RxCocoa
 
+enum SavedMessageStatePolicy {
+    struct Presentation: Equatable {
+        let effectiveState: MessageStorageItem.MessageSendingState
+        let showsDeliveryIndicator: Bool
+        let shouldSendDisplayedMarker: Bool
+    }
+
+    static func presentation(
+        for item: MessageStorageItem,
+        displayAuthorJid: String,
+        isSavedForward: Bool,
+        isDirectSavedNote: Bool,
+        currentUserJid: String
+    ) -> Presentation {
+        guard item.conversationType == .saved else {
+            return Presentation(
+                effectiveState: item.state,
+                showsDeliveryIndicator: item.outgoing,
+                shouldSendDisplayedMarker: shouldSendDisplayedMarker(for: item)
+            )
+        }
+
+        let authoredByCurrentUser = isDirectSavedNote || displayAuthorJid == currentUserJid
+        let hasProof = hasArchiveOrServiceProof(item)
+        if !authoredByCurrentUser && hasProof {
+            return Presentation(
+                effectiveState: .none,
+                showsDeliveryIndicator: false,
+                shouldSendDisplayedMarker: false
+            )
+        }
+
+        let effectiveState: MessageStorageItem.MessageSendingState = hasProof
+            ? .read
+            : pendingState(for: item.state)
+        return Presentation(
+            effectiveState: effectiveState,
+            showsDeliveryIndicator: authoredByCurrentUser || isPendingState(effectiveState),
+            shouldSendDisplayedMarker: false
+        )
+    }
+
+    static func shouldSendDisplayedMarker(for item: MessageStorageItem) -> Bool {
+        shouldSendDisplayedMarker(conversationType: item.conversationType)
+    }
+
+    static func shouldSendDisplayedMarker(
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> Bool {
+        conversationType != .saved
+    }
+
+    private static func hasArchiveOrServiceProof(_ item: MessageStorageItem) -> Bool {
+        item.archivedId.isNotEmpty ||
+        item.state == .none ||
+        item.state == .sended ||
+        item.state == .deliver ||
+        item.state == .read
+    }
+
+    private static func pendingState(
+        for state: MessageStorageItem.MessageSendingState
+    ) -> MessageStorageItem.MessageSendingState {
+        switch state {
+        case .notSended, .none:
+            return .sending
+        default:
+            return state
+        }
+    }
+
+    private static func isPendingState(_ state: MessageStorageItem.MessageSendingState) -> Bool {
+        state == .sending || state == .uploading || state == .notSended
+    }
+}
+
 class MessageManager: AbstractXMPPManager {
     
     internal struct ScheduledMessage: Hashable {
         let body: String
         let to: String
+    }
+
+    internal struct LastChatReadTarget: Equatable {
+        let jid: String
+        let conversationType: ClientSynchronizationManager.ConversationType
+        let lastMessagePrimary: String?
+        let lastMessageId: String
     }
     
     struct PrereadedMessagesItem: Hashable, Equatable {
@@ -273,27 +356,67 @@ class MessageManager: AbstractXMPPManager {
     func readLastMessage(jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
         do {
             let realm = try WRealm.safe()
-            if let primary = realm.object(ofType: LastChatsStorageItem.self,
-                                          forPrimaryKey: LastChatsStorageItem.genPrimary(
-                                            jid: jid,
-                                            owner: owner,
-                                            conversationType: conversationType
-                                          ))?
-                .lastMessage?
-                .primary {
+            guard let instance = realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: conversationType
+                )
+            ) else {
+                return
+            }
+
+            readLastMessage(
+                LastChatReadTarget(
+                    jid: jid,
+                    conversationType: conversationType,
+                    lastMessagePrimary: instance.lastMessage?.primary,
+                    lastMessageId: instance.lastMessageId
+                )
+            )
+        } catch {
+            DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    func readLastMessage(_ target: LastChatReadTarget) {
+        do {
+            let realm = try WRealm.safe()
+            if let primary = target.lastMessagePrimary,
+               realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) != nil {
                 self.readMessage(primary, last: true)
-            } else {
-                if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)) {
+                return
+            }
+
+            if let instance = realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: target.jid,
+                    owner: owner,
+                    conversationType: target.conversationType
+                )
+            ) {
+                let boundaryId = target.lastMessageId.isEmpty ? instance.lastMessageId : target.lastMessageId
+                if realm.isInWriteTransaction {
+                    LastChatUnreadCounter.clearAll(
+                        to: instance,
+                        boundaryId: boundaryId,
+                        realm: realm
+                    )
+                } else {
                     try realm.write {
                         LastChatUnreadCounter.clearAll(
                             to: instance,
-                            boundaryId: instance.lastMessageId,
+                            boundaryId: boundaryId,
                             realm: realm
                         )
                     }
-                    let messageId = instance.lastMessageId
+                }
+                if !boundaryId.isEmpty,
+                   SavedMessageStatePolicy.shouldSendDisplayedMarker(conversationType: target.conversationType) {
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
-                        user.chatMarkers.displayedById(stream, jid: jid, messageId: messageId)
+                        user.chatMarkers.displayedById(stream, jid: target.jid, messageId: boundaryId)
                     })
                 }
             }
@@ -305,8 +428,10 @@ class MessageManager: AbstractXMPPManager {
     func readMessage(_ primary: String, last: Bool) {
         do {
             let realm = try  WRealm.safe()
+            var shouldSendDisplayedMarker = true
             if let message = realm.object(ofType: MessageStorageItem.self,
                                            forPrimaryKey: primary) {
+                shouldSendDisplayedMarker = SavedMessageStatePolicy.shouldSendDisplayedMarker(for: message)
                 if let instance = realm.object(ofType: LastChatsStorageItem.self,
                                                forPrimaryKey: LastChatsStorageItem.genPrimary(
                                                 jid: message.opponent,
@@ -366,9 +491,11 @@ class MessageManager: AbstractXMPPManager {
                 
                 
             }
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                user.chatMarkers.displayed(stream, message: primary)
-            })
+            if shouldSendDisplayedMarker {
+                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                    user.chatMarkers.displayed(stream, message: primary)
+                })
+            }
         } catch {
             DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
         }

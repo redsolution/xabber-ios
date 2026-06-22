@@ -22377,6 +22377,161 @@ final class FavoritesFeatureTests: XCTestCase {
         XCTAssertTrue(presentation.visibleReferences.isEmpty)
     }
 
+    func testSavedDirectSelfMessageShowsDisplayedAfterArchiveProof() throws {
+        configureFavorites()
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        let originId = manager.sendSimpleMessage(
+            "Saved direct note from composer",
+            to: favoritesJid,
+            forwarded: [],
+            conversationType: .saved
+        )
+        let proof = try makeDirectSavedMessage(
+            body: "Saved direct note from composer",
+            id: "server-copy-\(originId)",
+            children: "<origin-id xmlns='urn:xmpp:sid:0' id='\(originId)'/>"
+        )
+        let mam = try makeMamResult(message: proof, archiveId: "archive-state-\(originId)", queryId: "saved-state-direct-proof")
+
+        favoritesManager().receiveSaved(message: XMPPMessage(from: mam))
+
+        let realm = try WRealm.safe()
+        let stored = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: MessageStorageItem.genPrimary(messageId: originId, owner: owner)
+            )
+        )
+        let display = SavedMessageDisplayPolicy.presentation(for: stored, currentUserJid: owner, currentUserName: "Igor Boldin")
+        let state = SavedMessageStatePolicy.presentation(
+            for: stored,
+            displayAuthorJid: display.displayAuthorJid,
+            isSavedForward: display.isSavedForward,
+            isDirectSavedNote: display.isDirectSavedNote,
+            currentUserJid: owner
+        )
+
+        XCTAssertEqual(stored.state, .sending)
+        XCTAssertEqual(stored.archivedId, "archive-state-\(originId)")
+        XCTAssertTrue(state.showsDeliveryIndicator)
+        XCTAssertEqual(state.effectiveState, .read)
+    }
+
+    func testSavedForwardedFromSelfShowsDisplayedAfterArchiveProof() throws {
+        let message = try makeForwardedSavedMessage(
+            innerFrom: ownerResource,
+            innerTo: contactJid,
+            body: "Saved self forward",
+            id: "saved-state-self-forward-1",
+            innerId: "inner-state-self-forward-1"
+        )
+        let mam = try makeMamResult(message: message, archiveId: "archive-state-self-forward-1", queryId: "saved-state-self-forward")
+        let stored = try receiveSaved(XMPPMessage(from: mam))
+
+        let display = SavedMessageDisplayPolicy.presentation(for: stored, currentUserJid: owner, currentUserName: "Igor Boldin")
+        let state = SavedMessageStatePolicy.presentation(
+            for: stored,
+            displayAuthorJid: display.displayAuthorJid,
+            isSavedForward: display.isSavedForward,
+            isDirectSavedNote: display.isDirectSavedNote,
+            currentUserJid: owner
+        )
+
+        XCTAssertTrue(display.isSavedForward)
+        XCTAssertEqual(display.displayAuthorJid, owner)
+        XCTAssertTrue(state.showsDeliveryIndicator)
+        XCTAssertEqual(state.effectiveState, .read)
+    }
+
+    func testSavedForwardedFromOtherShowsNoDeliveryIndicator() throws {
+        let message = try makeForwardedSavedMessage(id: "saved-state-other-forward-1")
+        let mam = try makeMamResult(message: message, archiveId: "archive-state-other-forward-1", queryId: "saved-state-other-forward")
+        let stored = try receiveSaved(XMPPMessage(from: mam))
+
+        let display = SavedMessageDisplayPolicy.presentation(for: stored, currentUserJid: owner, currentUserName: "Igor Boldin")
+        let state = SavedMessageStatePolicy.presentation(
+            for: stored,
+            displayAuthorJid: display.displayAuthorJid,
+            isSavedForward: display.isSavedForward,
+            isDirectSavedNote: display.isDirectSavedNote,
+            currentUserJid: owner
+        )
+
+        XCTAssertTrue(display.isSavedForward)
+        XCTAssertEqual(display.displayAuthorJid, contactJid)
+        XCTAssertFalse(state.showsDeliveryIndicator)
+        XCTAssertEqual(state.effectiveState, .none)
+    }
+
+    func testSavedPendingMessageShowsSendingUntilServerProof() throws {
+        configureFavorites()
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        let originId = manager.sendSimpleMessage(
+            "Pending saved note",
+            to: favoritesJid,
+            forwarded: [],
+            conversationType: .saved
+        )
+
+        let realm = try WRealm.safe()
+        let stored = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: MessageStorageItem.genPrimary(messageId: originId, owner: owner)
+            )
+        )
+        let display = SavedMessageDisplayPolicy.presentation(for: stored, currentUserJid: owner, currentUserName: "Igor Boldin")
+        let state = SavedMessageStatePolicy.presentation(
+            for: stored,
+            displayAuthorJid: display.displayAuthorJid,
+            isSavedForward: display.isSavedForward,
+            isDirectSavedNote: display.isDirectSavedNote,
+            currentUserJid: owner
+        )
+
+        XCTAssertEqual(stored.archivedId, "")
+        XCTAssertTrue(state.showsDeliveryIndicator)
+        XCTAssertEqual(state.effectiveState, .sending)
+    }
+
+    func testSavedReadLogicDoesNotSendDisplayMarkerForForwardedOtherAuthor() throws {
+        let stored = try receiveSaved(try makeForwardedSavedMessage(id: "saved-state-read-marker-1"))
+        let display = SavedMessageDisplayPolicy.presentation(for: stored, currentUserJid: owner, currentUserName: "Igor Boldin")
+        let state = SavedMessageStatePolicy.presentation(
+            for: stored,
+            displayAuthorJid: display.displayAuthorJid,
+            isSavedForward: display.isSavedForward,
+            isDirectSavedNote: display.isDirectSavedNote,
+            currentUserJid: owner
+        )
+
+        XCTAssertFalse(state.shouldSendDisplayedMarker)
+        XCTAssertFalse(SavedMessageStatePolicy.shouldSendDisplayedMarker(conversationType: .saved))
+        XCTAssertFalse(SavedMessageStatePolicy.shouldSendDisplayedMarker(for: stored))
+    }
+
+    func testSavedStatePolicyDoesNotAffectRegularChatMessages() {
+        let message = MessageStorageItem()
+        message.owner = owner
+        message.opponent = contactJid
+        message.conversationType = .regular
+        message.outgoing = true
+        message.state = .deliver
+
+        let state = SavedMessageStatePolicy.presentation(
+            for: message,
+            displayAuthorJid: owner,
+            isSavedForward: false,
+            isDirectSavedNote: false,
+            currentUserJid: owner
+        )
+
+        XCTAssertTrue(state.showsDeliveryIndicator)
+        XCTAssertEqual(state.effectiveState, .deliver)
+        XCTAssertTrue(state.shouldSendDisplayedMarker)
+        XCTAssertTrue(SavedMessageStatePolicy.shouldSendDisplayedMarker(conversationType: .regular))
+    }
+
     func testSavedMamResultRoutesToSavedConversation() throws {
         let direct = try makeDirectSavedMessage(id: "saved-mam-1")
         let result = try makeMamResult(message: direct, archiveId: "archive-saved-1", queryId: "saved-query-1")
