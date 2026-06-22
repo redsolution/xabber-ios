@@ -169,6 +169,7 @@ final class SavedMessagesEntryPointTests: XCTestCase {
 
     func testSavedFilterShowsOnlySavedConversationRows() throws {
         try seedAccount("owner@example.com")
+        try seedFavoritesService(owner: "owner@example.com", node: "favorites.example.com")
         try seedLastChat(jid: "favorites.example.com", owner: "owner@example.com", conversationType: .saved)
         try seedLastChat(jid: "romeo@example.com", owner: "owner@example.com", conversationType: .regular)
 
@@ -215,6 +216,17 @@ final class SavedMessagesEntryPointTests: XCTestCase {
 
         try realm.write {
             realm.add(account, update: .modified)
+        }
+    }
+
+    private func seedFavoritesService(owner: String, node: String) throws {
+        let realm = try WRealm.safe()
+        let item = XMPPFavoritesManagerStorageItem()
+        item.owner = owner
+        item.node = node
+
+        try realm.write {
+            realm.add(item, update: .modified)
         }
     }
 
