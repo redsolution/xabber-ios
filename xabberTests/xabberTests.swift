@@ -22162,6 +22162,221 @@ final class FavoritesFeatureTests: XCTestCase {
         XCTAssertEqual(groupReference.metadata?["nickname"] as? String, "Alexey Boldin")
     }
 
+    func testSavedForwardedMessageDisplaysOriginalAuthor() throws {
+        let stored = try receiveSaved(try makeForwardedSavedMessage())
+
+        let presentation = SavedMessageDisplayPolicy.presentation(
+            for: stored,
+            currentUserJid: owner,
+            currentUserName: "Igor Boldin"
+        )
+
+        XCTAssertTrue(presentation.isSavedForward)
+        XCTAssertFalse(presentation.isDirectSavedNote)
+        XCTAssertEqual(presentation.displayAuthorJid, contactJid)
+        XCTAssertEqual(presentation.displayAuthorName, contactJid)
+        XCTAssertFalse(presentation.displayOutgoing)
+        XCTAssertEqual(presentation.visibleBody, "Forwarded saved message")
+        XCTAssertEqual(presentation.visibleDate, "2026-03-24T12:34:56+0000".xmppDate)
+        assertStoredAsSavedServiceConversation(stored)
+    }
+
+    func testSavedDirectNoteDisplaysCurrentUserAsAuthor() throws {
+        let stored = try receiveSaved(try makeDirectSavedMessage())
+
+        let presentation = SavedMessageDisplayPolicy.presentation(
+            for: stored,
+            currentUserJid: owner,
+            currentUserName: "Igor Boldin"
+        )
+
+        XCTAssertFalse(presentation.isSavedForward)
+        XCTAssertTrue(presentation.isDirectSavedNote)
+        XCTAssertEqual(presentation.displayAuthorJid, owner)
+        XCTAssertEqual(presentation.displayAuthorName, "Igor Boldin")
+        XCTAssertTrue(presentation.displayOutgoing)
+        XCTAssertEqual(presentation.visibleBody, "Saved direct note")
+    }
+
+    func testSavedNestedForwardDisplaysInnerForwardStructure() throws {
+        let stored = try receiveSaved(try makeNestedForwardedSavedMessage())
+
+        let presentation = SavedMessageDisplayPolicy.presentation(
+            for: stored,
+            currentUserJid: owner,
+            currentUserName: "Igor Boldin"
+        )
+
+        XCTAssertTrue(presentation.isSavedForward)
+        XCTAssertEqual(presentation.visibleBody, "Nested saved forward")
+        XCTAssertEqual(presentation.visibleForwards.count, 1)
+        XCTAssertEqual(presentation.visibleForwards.first?.messageId, "nested-original-1")
+        XCTAssertEqual(presentation.visibleForwards.first?.body, "Nested original body")
+        XCTAssertEqual(presentation.visibleReferences.map(\.kind.rawValue), ["forward"])
+    }
+
+    func testSavedGroupMessageDisplaysOriginalParticipantName() throws {
+        let stored = try receiveSaved(try makeGroupForwardedSavedMessage())
+
+        let presentation = SavedMessageDisplayPolicy.presentation(
+            for: stored,
+            currentUserJid: owner,
+            currentUserName: "Igor Boldin"
+        )
+
+        XCTAssertTrue(presentation.isSavedForward)
+        XCTAssertEqual(presentation.displayAuthorJid, contactJid)
+        XCTAssertEqual(presentation.displayAuthorName, "Alexey Boldin")
+        XCTAssertEqual(presentation.groupchatAuthorNickname, "Alexey Boldin")
+        XCTAssertEqual(presentation.groupchatAuthorId, "user-1")
+    }
+
+    func testSavedForwardedAttachmentRendersInSavedChat() throws {
+        let stored = try receiveSaved(try makeForwardedSavedMessage(
+            body: "Saved media message",
+            id: "saved-display-media-1",
+            innerId: "inner-display-media-1",
+            innerChildren: """
+            <reference xmlns='https://xabber.com/protocol/references' begin='0' end='0' type='mutable'>
+              <file-sharing xmlns='https://xabber.com/protocol/files'>
+                <file>
+                  <name>photo.jpg</name>
+                  <media-type>image/jpeg</media-type>
+                  <size>42</size>
+                  <height>100</height>
+                  <width>200</width>
+                </file>
+                <sources>
+                  <uri>https://files.example.com/photo.jpg</uri>
+                </sources>
+              </file-sharing>
+            </reference>
+            """
+        ))
+
+        let presentation = SavedMessageDisplayPolicy.presentation(
+            for: stored,
+            currentUserJid: owner,
+            currentUserName: "Igor Boldin"
+        )
+        let mapped = ChatViewController.mapReferenceAttachments(presentation.visibleReferences)
+
+        XCTAssertEqual(presentation.visibleReferences.first?.kind, .media)
+        XCTAssertEqual(mapped.images.count, 1)
+        XCTAssertEqual(mapped.images.first?.url?.absoluteString, "https://files.example.com/photo.jpg")
+    }
+
+    func testSavedForwardedVoiceMessageRendersInSavedChat() throws {
+        let stored = try receiveSaved(try makeForwardedSavedMessage(
+            body: "",
+            id: "saved-display-voice-1",
+            innerId: "inner-display-voice-1",
+            innerChildren: """
+            <reference xmlns='https://xabber.com/protocol/references' begin='0' end='0' type='mutable'>
+              <voice-message xmlns='https://xabber.com/protocol/voice-messages'>
+                <file-sharing xmlns='https://xabber.com/protocol/files'>
+                  <file>
+                    <name>voice.opus</name>
+                    <media-type>audio/ogg</media-type>
+                    <duration>7</duration>
+                    <size>42</size>
+                    <hash>voice-hash</hash>
+                    <meters>0.1 0.2 0.3</meters>
+                  </file>
+                  <sources>
+                    <uri>https://files.example.com/voice.opus</uri>
+                  </sources>
+                </file-sharing>
+              </voice-message>
+            </reference>
+            """
+        ))
+
+        let presentation = SavedMessageDisplayPolicy.presentation(
+            for: stored,
+            currentUserJid: owner,
+            currentUserName: "Igor Boldin"
+        )
+        let mapped = ChatViewController.mapReferenceAttachments(presentation.visibleReferences)
+
+        XCTAssertEqual(presentation.visibleReferences.first?.kind, .voice)
+        XCTAssertEqual(mapped.audio.count, 1)
+        XCTAssertEqual(mapped.audio.first?.duration, 7)
+    }
+
+    func testSavedForwardedLocationRendersInSavedChat() throws {
+        let stored = try receiveSaved(try makeForwardedSavedMessage(
+            body: "Pinned location",
+            id: "saved-display-location-1",
+            innerId: "inner-display-location-1",
+            innerChildren: """
+            <reference xmlns='https://xabber.com/protocol/references' begin='0' end='15' type='decoration'>
+              <link xmlns='https://xabber.com/protocol/markup'>geo:56.838011,60.597465</link>
+            </reference>
+            """
+        ))
+
+        let presentation = SavedMessageDisplayPolicy.presentation(
+            for: stored,
+            currentUserJid: owner,
+            currentUserName: "Igor Boldin"
+        )
+
+        XCTAssertEqual(presentation.visibleBody, "Pinned location")
+        XCTAssertEqual(presentation.visibleReferences.first?.kind, .markup)
+        XCTAssertEqual(presentation.visibleReferences.first?.metadata?["uri"] as? String, "geo:56.838011,60.597465")
+    }
+
+    func testSavedForwardedLinkAndMarkupRenderInSavedChat() throws {
+        let stored = try receiveSaved(try makeForwardedSavedMessage(
+            body: "Open link",
+            id: "saved-display-markup-1",
+            innerId: "inner-display-markup-1",
+            innerChildren: """
+            <reference xmlns='https://xabber.com/protocol/references' begin='0' end='4' type='decoration'>
+              <bold xmlns='https://xabber.com/protocol/markup'/>
+              <link xmlns='https://xabber.com/protocol/markup'>https://xabber.com</link>
+            </reference>
+            """
+        ))
+
+        let presentation = SavedMessageDisplayPolicy.presentation(
+            for: stored,
+            currentUserJid: owner,
+            currentUserName: "Igor Boldin"
+        )
+        let body = SavedMessageDisplayPolicy.attributedBody(
+            for: presentation,
+            attributes: [.font: UIFont.systemFont(ofSize: 14)]
+        )
+
+        XCTAssertEqual(presentation.visibleReferences.first?.kind, .markup)
+        XCTAssertEqual(presentation.visibleReferences.first?.metadata?["styles"] as? [String], ["bold", "uri"])
+        XCTAssertEqual(body.string, "Open link")
+        XCTAssertEqual(body.attribute(.link, at: 0, effectiveRange: nil) as? String, "https://xabber.com")
+    }
+
+    func testSavedDeletedMessageRendersDeletedStateInSavedChat() throws {
+        let stored = try receiveSaved(try makeForwardedSavedMessage(id: "saved-display-deleted-1"))
+        let realm = try WRealm.safe()
+
+        try realm.write {
+            stored.markAutoDeleted()
+        }
+
+        let presentation = SavedMessageDisplayPolicy.presentation(
+            for: stored,
+            currentUserJid: owner,
+            currentUserName: "Igor Boldin"
+        )
+
+        XCTAssertTrue(presentation.isSavedForward)
+        XCTAssertTrue(presentation.isDeleted)
+        XCTAssertEqual(presentation.deleteState, .autoDeleted)
+        XCTAssertEqual(presentation.visibleBody, "")
+        XCTAssertTrue(presentation.visibleReferences.isEmpty)
+    }
+
     func testSavedMamResultRoutesToSavedConversation() throws {
         let direct = try makeDirectSavedMessage(id: "saved-mam-1")
         let result = try makeMamResult(message: direct, archiveId: "archive-saved-1", queryId: "saved-query-1")

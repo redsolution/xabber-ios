@@ -506,6 +506,7 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         instance.originalStanza = envelope.isForwardedSaved ? envelope.storageMessage : envelope.outerMessage
 
         instance.references.append(objectsIn: parseReferences(message, primary: instance.primary, jid: savedServiceJid, owner: self.owner))
+        instance.inlineForwards.append(objectsIn: parseInlineMessages(message, parentId: instance.primary, jid: savedServiceJid, owner: self.owner))
         instance.updateDisplayMode()
         instance.references.forEach { $0.messageId = instance.primary }
 

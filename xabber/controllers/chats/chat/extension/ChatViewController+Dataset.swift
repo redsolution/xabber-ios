@@ -94,6 +94,228 @@ struct ChatDatasourceSnapshot {
     }
 }
 
+struct SavedMessageDisplayPolicy {
+    struct Presentation {
+        let isSavedMessage: Bool
+        let isSavedForward: Bool
+        let isDirectSavedNote: Bool
+        let displayAuthorJid: String
+        let displayAuthorName: String
+        let displayAvatarSource: String?
+        let displayOutgoing: Bool
+        let visibleBody: String
+        let visibleReferences: [MessageReferenceStorageItem]
+        let visibleForwards: [MessageForwardsInlineStorageItem]
+        let visibleDate: Date
+        let groupchatAuthorRole: String
+        let groupchatAuthorId: String
+        let groupchatAuthorNickname: String
+        let groupchatAuthorBadge: String
+        let isDeleted: Bool
+        let deleteState: MessageStorageItem.DeleteState
+        let authorColorKey: String
+    }
+
+    private static let savedForwardCardSuffix = "_saved-forwarded"
+
+    static func presentation(
+        for item: MessageStorageItem,
+        currentUserJid: String,
+        currentUserName: String? = nil
+    ) -> Presentation {
+        let isSavedMessage = item.conversationType == .saved
+        let isSavedForward = isSavedMessage && isSyntheticSavedForwardCard(item.groupchatCard)
+        let isDeleted = item.isDeleted || item.deleteState == .autoDeleted
+        let references = isDeleted ? [] : item.references.toArray()
+        let visibleForwards = isDeleted ? [] : item.inlineForwards.toArray()
+        let directAuthorName = nonEmpty(currentUserName) ?? currentUserJid
+
+        guard isSavedMessage else {
+            let authorJid = item.outgoing ? currentUserJid : item.opponent
+            let fallbackName = item.outgoing ? directAuthorName : authorJid
+            let groupName = MessageStorageItem.getGroupchatAuthorNickname(references)
+            let groupJid = MessageStorageItem.groupchatMessageAuthorJid(references)
+            let groupId = MessageStorageItem.groupchatMessageAuthorId(references)
+            return Presentation(
+                isSavedMessage: false,
+                isSavedForward: false,
+                isDirectSavedNote: false,
+                displayAuthorJid: nonEmpty(groupJid) ?? authorJid,
+                displayAuthorName: nonEmpty(groupName) ?? fallbackName,
+                displayAvatarSource: nonEmpty(item.groupchatCard?.avatarURI) ?? avatarSource(from: references),
+                displayOutgoing: item.outgoing,
+                visibleBody: isDeleted ? "" : item.body,
+                visibleReferences: references,
+                visibleForwards: visibleForwards,
+                visibleDate: item.date,
+                groupchatAuthorRole: item.groupchatMetadata?["role"] as? String ?? "member",
+                groupchatAuthorId: nonEmpty(item.groupchatAuthorId) ?? nonEmpty(groupId) ?? "",
+                groupchatAuthorNickname: nonEmpty(item.groupchatAuthorNickname) ?? nonEmpty(groupName) ?? "",
+                groupchatAuthorBadge: nonEmpty(item.groupchatAuthorBadge) ?? "",
+                isDeleted: isDeleted,
+                deleteState: item.deleteState,
+                authorColorKey: nonEmpty(groupId) ?? nonEmpty(groupJid) ?? authorJid
+            )
+        }
+
+        if isSavedForward {
+            let groupName = MessageStorageItem.getGroupchatAuthorNickname(references)
+            let groupJid = MessageStorageItem.groupchatMessageAuthorJid(references)
+            let groupId = MessageStorageItem.groupchatMessageAuthorId(references)
+            let authorJid = nonEmpty(groupJid)
+                ?? nonEmpty(item.groupchatCard?.jid)
+                ?? nonEmpty(item.groupchatCard?.nickname)
+                ?? currentUserJid
+            let authorName = nonEmpty(groupName)
+                ?? nonEmpty(item.groupchatCard?.nickname)
+                ?? authorJid
+            let authorRole = nonEmpty(item.groupchatMetadata?["role"] as? String)
+                ?? nonEmpty(item.groupchatCard?.role.rawValue)
+                ?? "member"
+            return Presentation(
+                isSavedMessage: true,
+                isSavedForward: true,
+                isDirectSavedNote: false,
+                displayAuthorJid: authorJid,
+                displayAuthorName: authorName,
+                displayAvatarSource: avatarSource(from: references) ?? nonEmpty(item.groupchatCard?.avatarURI),
+                displayOutgoing: authorJid == currentUserJid,
+                visibleBody: isDeleted ? "" : item.body,
+                visibleReferences: references,
+                visibleForwards: visibleForwards,
+                visibleDate: item.sentDate,
+                groupchatAuthorRole: authorRole,
+                groupchatAuthorId: nonEmpty(groupId) ?? nonEmpty(item.groupchatCard?.userId) ?? "",
+                groupchatAuthorNickname: authorName,
+                groupchatAuthorBadge: nonEmpty(item.groupchatAuthorBadge) ?? "",
+                isDeleted: isDeleted,
+                deleteState: item.deleteState,
+                authorColorKey: nonEmpty(groupId) ?? nonEmpty(groupJid) ?? authorJid
+            )
+        }
+
+        return Presentation(
+            isSavedMessage: true,
+            isSavedForward: false,
+            isDirectSavedNote: true,
+            displayAuthorJid: currentUserJid,
+            displayAuthorName: directAuthorName,
+            displayAvatarSource: nil,
+            displayOutgoing: true,
+            visibleBody: isDeleted ? "" : item.body,
+            visibleReferences: references,
+            visibleForwards: visibleForwards,
+            visibleDate: item.date,
+            groupchatAuthorRole: "member",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isDeleted: isDeleted,
+            deleteState: item.deleteState,
+            authorColorKey: currentUserJid
+        )
+    }
+
+    static func attributedAuthor(for presentation: Presentation) -> NSAttributedString? {
+        guard presentation.displayAuthorName.isNotEmpty else { return nil }
+        return NSAttributedString(string: presentation.displayAuthorName, attributes: [
+            .font: UIFont.systemFont(ofSize: 14, weight: .medium),
+            .foregroundColor: ChatViewController.getUsernamePalette(for: presentation.authorColorKey).tint500
+        ])
+    }
+
+    static func attributedBody(
+        for presentation: Presentation,
+        attributes: [NSAttributedString.Key: Any],
+        searchedText: String? = nil,
+        searchedTextColor: UIColor? = nil
+    ) -> NSAttributedString {
+        let body = presentation.visibleBody
+        let string = NSMutableAttributedString(string: body.trimmingCharacters(in: .newlines))
+        if string.length > 0 {
+            string.addAttributes(attributes, range: NSRange(location: 0, length: string.length))
+        }
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineSpacing = 1.5
+        paragraph.allowsDefaultTighteningForTruncation = true
+
+        for reference in presentation.visibleReferences where !reference.isLocallyHiddenByReport {
+            if reference.end <= reference.begin { continue }
+            if reference.end > body.count { continue }
+            switch reference.kind {
+            case .markup:
+                applyMarkup(reference, to: string)
+            case .mention:
+                string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .semibold), range: reference.range)
+                string.addAttribute(.foregroundColor, value: AccountColorManager.shared.palette(for: presentation.displayAuthorJid).tint700, range: reference.range)
+                if let url = reference.metadata?["uri"] as? String ?? reference.url {
+                    string.addAttribute(.link, value: url, range: reference.range)
+                }
+            default:
+                break
+            }
+        }
+
+        if let searchedText = searchedText, searchedText.isNotEmpty {
+            let range = (string.string as NSString).range(of: searchedText, options: [.caseInsensitive, .diacriticInsensitive])
+            if range.location != NSNotFound {
+                string.addAttribute(.backgroundColor, value: searchedTextColor ?? MDCPalette.blue.tint200, range: range)
+            }
+        }
+        if string.length > 0 {
+            string.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: string.length))
+        }
+        if string.string.starts(with: "\n") {
+            string.deleteCharacters(in: NSRange(0..<"\n".count))
+        }
+        return string
+    }
+
+    private static func applyMarkup(_ reference: MessageReferenceStorageItem, to string: NSMutableAttributedString) {
+        guard let styles = reference.metadata?["styles"] as? [String] else { return }
+        for style in styles {
+            if style == "bold" {
+                string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).bold(), range: reference.range)
+            }
+            if style == "italic" {
+                if styles.contains("bold") {
+                    string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).boldItalic(), range: reference.range)
+                } else {
+                    string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).italic(), range: reference.range)
+                }
+            }
+            if style == "underline" {
+                string.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: reference.range)
+            }
+            if style == "strike" {
+                string.addAttribute(.strikethroughStyle, value: 1, range: reference.range)
+            }
+            if style == "uri",
+               let url = reference.metadata?["uri"] as? String {
+                string.addAttribute(.link, value: url, range: reference.range)
+            }
+        }
+    }
+
+    private static func isSyntheticSavedForwardCard(_ card: GroupchatUserStorageItem?) -> Bool {
+        card?.primary.hasSuffix(savedForwardCardSuffix) == true
+    }
+
+    private static func avatarSource(from references: [MessageReferenceStorageItem]) -> String? {
+        nonEmpty(references.first(where: { $0.kind == .groupchat })?.metadata?["avatar_uri"] as? String)
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              value.isNotEmpty else {
+            return nil
+        }
+        return value
+    }
+}
+
 struct ChatDatasetWindow: Equatable {
     static let empty = ChatDatasetWindow(minIndex: 0, maxIndex: 0)
 
@@ -5736,6 +5958,14 @@ extension ChatViewController {
                 avatarUrl: nil
             ))
         }
+
+        func displayPresentation(for item: MessageStorageItem) -> SavedMessageDisplayPolicy.Presentation {
+            SavedMessageDisplayPolicy.presentation(
+                for: item,
+                currentUserJid: self.owner,
+                currentUserName: self.ownerSender.displayName
+            )
+        }
                 
         dataset.enumerated().forEach {
             (offset, item) in
@@ -5743,27 +5973,43 @@ extension ChatViewController {
 //            let references = Array(item.references.toArray().compactMap { $0.loadModel() })
 //            let inlineForwards = Array(item.inlineForwards.sorted(byKeyPath: "originalDate", ascending: true).toArray().compactMap { $0.loadModel() })
             
-            let isDownloaded = !item.references.filter { $0.isDownloaded }.isEmpty
+            let presentation = displayPresentation(for: item)
+            let displaySender = presentation.isSavedMessage
+                ? Sender(id: presentation.displayAuthorJid, displayName: presentation.displayAuthorName)
+                : (item.outgoing ? self.ownerSender : self.opponentSender)
+            let isDownloaded = !presentation.visibleReferences.filter { $0.isDownloaded }.isEmpty
             let kind: MessageKind
+            let textAttributes: [NSAttributedString.Key: Any] = [
+                .foregroundColor: UIColor.label,
+                .font: UIFont.preferredFont(forTextStyle: .body)
+            ]
             switch item.displayAs {
                 case .text:
-                    kind = .attributedText(
-                        item.createRefBody(
-                            [
-                                NSAttributedString.Key.foregroundColor: UIColor.label,
-                                NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .body)//UIFont.systemFont(ofSize: 16, weight: .regular),
-                            ],
-                            searchedText: self.searchTextObserver.value,
-                            searchedTextColor: .systemGreen
+                    if presentation.isSavedMessage {
+                        kind = .attributedText(
+                            SavedMessageDisplayPolicy.attributedBody(
+                                for: presentation,
+                                attributes: textAttributes,
+                                searchedText: self.searchTextObserver.value,
+                                searchedTextColor: .systemGreen
+                            )
                         )
-                    )
+                    } else {
+                        kind = .attributedText(
+                            item.createRefBody(
+                                textAttributes,
+                                searchedText: self.searchTextObserver.value,
+                                searchedTextColor: .systemGreen
+                            )
+                        )
+                    }
                 case .call:
-                    kind = .call(CallAttachment(primary: item.primary, incoming: !item.outgoing, missed: item.references.first?.metadata?["callState"] as? String == "missed"))
+                    kind = .call(CallAttachment(primary: item.primary, incoming: !presentation.displayOutgoing, missed: presentation.visibleReferences.first?.metadata?["callState"] as? String == "missed"))
 //                    kind = .attributedText(NSAttributedString())
                 case .system:
                     kind = .system(
                         NSAttributedString(
-                            string: item.body,
+                            string: presentation.visibleBody,
                             attributes: [
                                 .font: UIFont.preferredFont(forTextStyle: .caption1).italic(),
                                 .foregroundColor: UIColor.white,
@@ -5781,21 +6027,22 @@ extension ChatViewController {
             var withAuthor: Bool = false
             var withAvatar: Bool = false
             var tailed: Bool = true
-            let date = item.date
+            let date = presentation.visibleDate
             let prevMessage = offset - 1
             let nextMessage = offset + 1
             
             if self.avatarVerticalPosition == "top" {
                 if prevMessage >= 0 {
                     let prevItem = dataset[prevMessage]
+                    let prevPresentation = displayPresentation(for: prevItem)
                     if self.conversationType == .group {
                         withAvatar = !(prevItem.groupchatCard?.userId == item.groupchatCard?.userId)
                         tailed = !(prevItem.groupchatCard?.userId == item.groupchatCard?.userId)
                         
                     } else {
-                        tailed = !(item.outgoing == prevItem.outgoing)
+                        tailed = !(presentation.displayOutgoing == prevPresentation.displayOutgoing)
                     }
-                    if isDateChange(from: item.date, to: prevItem.date) {
+                    if isDateChange(from: presentation.visibleDate, to: prevPresentation.visibleDate) {
                         tailed = true
                         if self.conversationType == .group {
                             withAvatar = true
@@ -5805,9 +6052,10 @@ extension ChatViewController {
             }
             if prevMessage >= 0 {
                 let prevItem = dataset[prevMessage]
+                let prevPresentation = displayPresentation(for: prevItem)
                 if self.conversationType == .group {
                     withAuthor = !(prevItem.groupchatCard?.userId == item.groupchatCard?.userId)
-                    if isDateChange(from: item.date, to: prevItem.date) {
+                    if isDateChange(from: presentation.visibleDate, to: prevPresentation.visibleDate) {
                         withAuthor = true
                     }
                 }
@@ -5817,6 +6065,7 @@ extension ChatViewController {
 
             if nextMessage < dataset.count {
                 let nextItem = dataset[nextMessage]
+                let nextPresentation = displayPresentation(for: nextItem)
                 
                 if self.avatarVerticalPosition == "bottom" {
                     if self.conversationType == .group {
@@ -5824,9 +6073,9 @@ extension ChatViewController {
                         tailed = !(nextItem.groupchatCard?.userId == item.groupchatCard?.userId)
                         
                     } else {
-                        tailed = !(item.outgoing == nextItem.outgoing)
+                        tailed = !(presentation.displayOutgoing == nextPresentation.displayOutgoing)
                     }
-                    if isDateChange(from: item.date, to: nextItem.date) {
+                    if isDateChange(from: presentation.visibleDate, to: nextPresentation.visibleDate) {
                         tailed = true
                         if self.conversationType == .group {
                             withAvatar = true
@@ -5835,19 +6084,12 @@ extension ChatViewController {
                 }
             }
             var attributedAuthor: NSAttributedString? = nil
-            if withAuthor && !item.outgoing {
-                if let nickname = item.groupchatAuthorNickname,
-                   nickname.isNotEmpty,
-                   let uuid = item.groupchatCard?.jid
-                        ?? item.groupchatCard?.userId
-                        ?? item.groupchatMetadata?["jid"] as? String
-                        ?? item.groupchatAuthorId,
-                   uuid.isNotEmpty {
-                    attributedAuthor = NSAttributedString(string: nickname, attributes: [
-                        .font: UIFont.systemFont(ofSize: 14, weight: .medium),
-                        .foregroundColor: ChatViewController.getUsernamePalette(for: uuid).tint500
-                    ])
-                }
+            if presentation.isSavedForward {
+                withAuthor = !presentation.displayOutgoing
+                withAvatar = presentation.displayAvatarSource?.isNotEmpty == true
+                attributedAuthor = withAuthor ? SavedMessageDisplayPolicy.attributedAuthor(for: presentation) : nil
+            } else if withAuthor && !presentation.displayOutgoing {
+                attributedAuthor = SavedMessageDisplayPolicy.attributedAuthor(for: presentation)
             }
           
             if item.editDate != nil {
@@ -5862,16 +6104,16 @@ extension ChatViewController {
                item.displayAs == .text,
                let str = self.searchTextObserver.value,
                str.isNotEmpty,
-               item.body.contains(str) {
+               presentation.visibleBody.contains(str) {
                 searchString = str
             }
             
             
-            let references = item.references.toArray()
+            let references = presentation.visibleReferences
             let mappedReferences = Self.mapReferenceAttachments(references, revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries)
-            let forwards: [MessageAttachment] = item.inlineForwards.toArray().compactMap({ return mapAttachment($0) })
+            let forwards: [MessageAttachment] = presentation.visibleForwards.compactMap({ return mapAttachment($0) })
             var indicator: IndicatorType = .none
-            if item.outgoing {
+            if presentation.displayOutgoing {
                 switch item.state {
                         
                     case .sended:
@@ -5893,7 +6135,7 @@ extension ChatViewController {
                 }
             }
             
-            var timeString = Self.attachmentTimeFormatter.string(from: item.date)
+            var timeString = Self.attachmentTimeFormatter.string(from: presentation.visibleDate)
             if item.afterburnInterval > 0 {
                 timeString = "\(timeString) ⦁ \(item.afterburnInterval.prettyMinuteFormatedString)"
             }
@@ -5907,7 +6149,7 @@ extension ChatViewController {
                     NSAttributedString.Key.font: UIFont.systemFont(ofSize: 10, weight: .regular)
                 ]
             )
-            if item.outgoing {
+            if presentation.displayOutgoing {
                 withAuthor = false
             }
 //            if (dataset.count > 1 && (offset + 1) < dataset.count) || (offset + 1 == dataset.count) {
@@ -5973,26 +6215,26 @@ extension ChatViewController {
                 primary: item.primary,
                 jid: self.jid,
                 owner: self.owner,
-                outgoing: item.outgoing,
-                sender: item.outgoing ? self.ownerSender : self.opponentSender,
+                outgoing: presentation.displayOutgoing,
+                sender: displaySender,
                 messageId: item.messageId,
                 sentDate: date,
                 editDate: item.editDate,
                 kind: kind,
                 withAuthor: withAuthor,
-                withAvatar: self.conversationType == .group && !item.outgoing,
+                withAvatar: withAvatar || (self.conversationType == .group && !presentation.displayOutgoing),
                 error: item.state == .error,
                 errorType: item.messageError ?? "",
                 canPinMessage: [.system, .sticker].contains(item.displayAs) ? false : self.canUnpinMessage.value,
-                canEditMessage: item.archivedId.isNotEmpty ? item.displayAs == .text && item.outgoing : false,
+                canEditMessage: item.archivedId.isNotEmpty ? item.displayAs == .text && presentation.displayOutgoing : false,
                 canDeleteMessage: [MessageStorageItem.MessageSendingState.deliver, MessageStorageItem.MessageSendingState.read].contains(item.state),
                 forwards: forwards,
-                isOutgoing: item.outgoing,
+                isOutgoing: presentation.displayOutgoing,
                 isEdited: item.editDate != nil,
-                groupchatAuthorRole: item.groupchatMetadata?["role"] as? String ?? "member",
-                groupchatAuthorId: item.groupchatAuthorId ?? "",
-                groupchatAuthorNickname: item.groupchatAuthorNickname ?? "",
-                groupchatAuthorBadge: item.groupchatAuthorBadge ?? "",
+                groupchatAuthorRole: presentation.groupchatAuthorRole,
+                groupchatAuthorId: presentation.groupchatAuthorId,
+                groupchatAuthorNickname: presentation.groupchatAuthorNickname,
+                groupchatAuthorBadge: presentation.groupchatAuthorBadge,
                 isHasAttachedMessages: item.isHasAttachedMessages,
                 isDownloaded: isDownloaded,
                 state: item.displayAs == .call ? .none : item.state,
@@ -6013,7 +6255,7 @@ extension ChatViewController {
                     audios: mappedReferences.audio,
                 timeMarkerText: timeMarkerString,
                 indicator: indicator,
-                avatarUrl: withAvatar ? item.groupchatCard?.avatarURI : nil,
+                avatarUrl: withAvatar ? presentation.displayAvatarSource : nil,
                 attributedAuthor: attributedAuthor
             ))
         }
