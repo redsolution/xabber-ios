@@ -8,6 +8,7 @@
 
 import XCTest
 import UIKit
+import RealmSwift
 @testable import xabber
 
 final class LeftMenuSelectionPresentationPolicyTests: XCTestCase {
@@ -103,6 +104,169 @@ final class LeftMenuSplitPresentationAnimationPolicyTests: XCTestCase {
 
         XCTAssertFalse(
             LeftMenuSplitPresentationAnimationPolicy.disablesAnimations(for: phase)
+        )
+    }
+}
+
+@MainActor
+final class SavedMessagesEntryPointTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+
+    override func setUp() {
+        super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "SavedMessagesEntryPointTests-\(name)-\(UUID().uuidString)"
+        )
+        AccountManager.shared.users.removeAll()
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    override func tearDown() {
+        AccountManager.shared.users.removeAll()
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        super.tearDown()
+    }
+
+    func testLeftMenuShowsSavedMessagesWhenFavoritesServiceAvailable() {
+        let item = LeftMenuSavedMessagesEntryPolicy.menuItem(
+            enabledAccountJids: ["owner@example.com"],
+            favoritesNodesByOwner: ["owner@example.com": "favorites.example.com"],
+            unreadCount: 0
+        )
+
+        XCTAssertEqual(item?.key, "saved")
+        XCTAssertEqual(item?.title, SavedMessagesChatListPresentationPolicy.title)
+        XCTAssertEqual(item?.icon, XMPPFavoritesManagerStorageItem.imageName)
+        XCTAssertEqual(item?.subtitle, "0")
+    }
+
+    func testLeftMenuHidesSavedMessagesWhenFavoritesServiceUnavailable() {
+        XCTAssertNil(LeftMenuSavedMessagesEntryPolicy.menuItem(
+            enabledAccountJids: ["owner@example.com"],
+            favoritesNodesByOwner: [:],
+            unreadCount: 0
+        ))
+        XCTAssertNil(LeftMenuSavedMessagesEntryPolicy.menuItem(
+            enabledAccountJids: ["owner@example.com"],
+            favoritesNodesByOwner: ["owner@example.com": ""],
+            unreadCount: 0
+        ))
+    }
+
+    func testSavedMenuTapOpensSavedFilterOrSavedChat() {
+        let controller = LeftMenuViewController()
+
+        controller.didSelectRootScreenBy(key: "saved")
+
+        XCTAssertEqual(controller.savedMessagesChatsVc?.filter.value, .saved)
+        XCTAssertFalse(controller.savedMessagesChatsVc?.shouldShowBottomBar ?? true)
+    }
+
+    func testSavedFilterShowsOnlySavedConversationRows() throws {
+        try seedAccount("owner@example.com")
+        try seedLastChat(jid: "favorites.example.com", owner: "owner@example.com", conversationType: .saved)
+        try seedLastChat(jid: "romeo@example.com", owner: "owner@example.com", conversationType: .regular)
+
+        let controller = LastChatsViewController()
+        controller.enabledAccounts.accept(["owner@example.com"])
+        controller.updateDatasource(.saved)
+
+        let rows = try XCTUnwrap(controller.chatsObserver?.toArray())
+        XCTAssertEqual(rows.map(\.jid), ["favorites.example.com"])
+        XCTAssertTrue(rows.allSatisfy { $0.conversationType == .saved })
+    }
+
+    func testSavedRowUsesBookmarkIconAndSavedTitle() {
+        XCTAssertEqual(SavedMessagesChatListPresentationPolicy.title, "Saved messages")
+        XCTAssertEqual(SavedMessagesChatListPresentationPolicy.avatarIconName, XMPPFavoritesManagerStorageItem.imageName)
+    }
+
+    func testSavedRowShowsAccountSubtitleInMultiAccountMode() {
+        XCTAssertEqual(
+            SavedMessagesChatListPresentationPolicy.previewText(
+                lastMessageText: nil,
+                owner: "owner@example.com",
+                enabledAccountCount: 2
+            ),
+            "owner@example.com"
+        )
+    }
+
+    func testSavedRowDoesNotExposePresenceOrBlockActions() {
+        let item = makeSavedDatasource()
+
+        XCTAssertFalse(LastChatsViewController.canShowCallAction(for: item))
+        XCTAssertFalse(LastChatsViewController.canShowBlockAction(for: item))
+        XCTAssertNil(SavedMessagesChatListPresentationPolicy.entity)
+        XCTAssertEqual(SavedMessagesChatListPresentationPolicy.status, .offline)
+    }
+
+    private func seedAccount(_ jid: String) throws {
+        let realm = try WRealm.safe()
+        let account = AccountStorageItem()
+        account.jid = jid
+        account.username = jid
+        account.enabled = true
+
+        try realm.write {
+            realm.add(account, update: .modified)
+        }
+    }
+
+    private func seedLastChat(
+        jid: String,
+        owner: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) throws {
+        let realm = try WRealm.safe()
+        let chat = LastChatsStorageItem()
+        chat.jid = jid
+        chat.owner = owner
+        chat.conversationType = conversationType
+        chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)
+        chat.messageDate = Date(timeIntervalSince1970: conversationType == .saved ? 2 : 1)
+
+        try realm.write {
+            realm.add(chat, update: .modified)
+        }
+    }
+
+    private func makeSavedDatasource() -> LastChatsViewController.Datasource {
+        LastChatsViewController.Datasource(
+            jid: "favorites.example.com",
+            owner: "owner@example.com",
+            username: SavedMessagesChatListPresentationPolicy.title,
+            attributedUsername: nil,
+            message: "Save messages here",
+            date: nil,
+            state: nil,
+            isMute: false,
+            isSynced: true,
+            status: SavedMessagesChatListPresentationPolicy.status,
+            entity: SavedMessagesChatListPresentationPolicy.entity,
+            conversationType: .saved,
+            unread: 0,
+            unreadString: nil,
+            hasUnreadMention: false,
+            color: .clear,
+            isDraft: false,
+            hasAttachment: false,
+            userNickname: nil,
+            isSystemMessage: true,
+            isPinned: false,
+            subRequest: false,
+            isEncrypted: false,
+            avatarUrl: nil,
+            hasErrorInChat: false,
+            updateTS: 0,
+            isVerificationActionRequired: false,
+            specialMessageKind: .none,
+            avatars: []
         )
     }
 }

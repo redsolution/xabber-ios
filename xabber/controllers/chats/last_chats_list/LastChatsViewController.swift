@@ -539,6 +539,27 @@ enum LastChatsRowUpdatePolicy {
     }
 }
 
+enum SavedMessagesChatListPresentationPolicy {
+    static let title = "Saved messages"
+    static let avatarIconName = XMPPFavoritesManagerStorageItem.imageName
+    static let singleAccountPlaceholder = "Save messages here"
+    static let status: ResourceStatus = .offline
+    static let entity: RosterItemEntity? = nil
+
+    static func previewText(
+        lastMessageText: String?,
+        owner: String,
+        enabledAccountCount: Int
+    ) -> String {
+        if let text = lastMessageText?.trimmingCharacters(in: .whitespacesAndNewlines),
+           text.isNotEmpty {
+            return text
+        }
+
+        return enabledAccountCount > 1 ? owner : singleAccountPlaceholder
+    }
+}
+
 class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuieting {
     
     enum Filter: Int {
@@ -1735,6 +1756,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             
             var out: [Datasource] = []
             let collectionItems = collection.toArray()
+            let enabledAccountCount = max(enabledAccounts.value.count, AccountManager.shared.users.count)
             
             let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
             
@@ -1857,6 +1879,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             out.append(contentsOf: collectionItems.compactMap {
                 item in
                 let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
+                let isSavedConversation = item.conversationType == .saved
                 
                 let subscriptionRequest: Bool = item.rosterItem?.isThereSubscriptionRequest() ?? false
                 
@@ -1874,9 +1897,12 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     if lastMessage.isDeleted {
                         message = blankMessageText
                     }
-                } else if item.conversationType == .saved {
-                    let usersCount = AccountManager.shared.users.count
-                    message = usersCount > 1 ? item.owner : "Save messages here"
+                } else if isSavedConversation {
+                    message = SavedMessagesChatListPresentationPolicy.previewText(
+                        lastMessageText: nil,
+                        owner: item.owner,
+                        enabledAccountCount: enabledAccountCount
+                    )
                 } else {
                     message = blankMessageText
                 }
@@ -1886,7 +1912,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     message = draft
                     isDraft = true
                 }
-                if item.conversationType != .group {
+                if item.conversationType != .group && !isSavedConversation {
                     if let action = CommonChatStatesManager.shared.actionText(for: item.jid, owner: item.owner) {
                         message = action
                     }
@@ -1923,8 +1949,16 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     isSystemMessage = true
                 }
                 
-                let username = item.rosterItem?.displayName ?? item.jid
+                let username = isSavedConversation
+                    ? SavedMessagesChatListPresentationPolicy.title
+                    : item.rosterItem?.displayName ?? item.jid
                 var attributedUsername: NSAttributedString? = nil
+                let messageState = isSavedConversation
+                    ? nil
+                    : item.lastMessage?.outgoing ?? true ? item.lastMessage?.state ?? nil : nil
+                let subRequest = isSavedConversation
+                    ? false
+                    : (XMPPJID(string: item.jid)?.isServer ?? true) ? false : subscriptionRequest
                 
                 var isVerificationActionRequired: Bool = false
                                 
@@ -1971,11 +2005,11 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     attributedUsername: attributedUsername,
                     message: message,
                     date: date,
-                    state: item.lastMessage?.outgoing ?? true ? item.lastMessage?.state ?? nil : nil,
+                    state: messageState,
                     isMute: item.isMuted,
                     isSynced: item.isSynced,
-                    status: primaryResource?.status ?? .offline,
-                    entity: primaryResource?.entity ?? .contact,
+                    status: isSavedConversation ? SavedMessagesChatListPresentationPolicy.status : primaryResource?.status ?? .offline,
+                    entity: isSavedConversation ? SavedMessagesChatListPresentationPolicy.entity : primaryResource?.entity ?? .contact,
                     conversationType: item.conversationType,
                     unread: item.lastMessage?.outgoing ?? false ? 0 : item.unread,
                     unreadString: nil,
@@ -1986,9 +2020,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     userNickname: nickname,
                     isSystemMessage: isSystemMessage,
                     isPinned: item.isPinned,
-                    subRequest: (XMPPJID(string: item.jid)?.isServer ?? true) ? false :  subscriptionRequest,
+                    subRequest: subRequest,
                     isEncrypted: item.conversationType.isEncrypted,
-                    avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
+                    avatarUrl: isSavedConversation ? nil : item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
                     hasErrorInChat: item.hasErrorInChat,
                     updateTS: item.updateTS,
                     isVerificationActionRequired: isVerificationActionRequired,

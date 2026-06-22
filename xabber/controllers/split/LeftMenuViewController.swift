@@ -144,6 +144,39 @@ enum SearchSectionNavigationContainerPolicy {
     }
 }
 
+enum LeftMenuSavedMessagesEntryPolicy {
+    static func hasAvailableFavoritesService(
+        enabledAccountJids: [String],
+        favoritesNodesByOwner: [String: String]
+    ) -> Bool {
+        enabledAccountJids.contains {
+            favoritesNodesByOwner[$0]?.isNotEmpty == true
+        }
+    }
+
+    static func menuItem(
+        enabledAccountJids: [String],
+        favoritesNodesByOwner: [String: String],
+        unreadCount: Int
+    ) -> LeftMenuViewController.Datasource? {
+        guard hasAvailableFavoritesService(
+            enabledAccountJids: enabledAccountJids,
+            favoritesNodesByOwner: favoritesNodesByOwner
+        ) else {
+            return nil
+        }
+
+        return LeftMenuViewController.Datasource(
+            title: SavedMessagesChatListPresentationPolicy.title,
+            icon: XMPPFavoritesManagerStorageItem.imageName,
+            key: "saved",
+            category: "",
+            subtitle: "\(unreadCount)",
+            showTriangle: false
+        )
+    }
+}
+
 enum LeftMenuFirstPresentationPolicy {
     static func rowAnimation(
         requested: UITableView.RowAnimation,
@@ -598,28 +631,50 @@ class LeftMenuViewController: UIViewController {
             let contacts = realm.objects(RosterStorageItem.self).filter("owner IN %@ AND isHidden == false AND removed == false AND ask_ == %@ AND isContact == true AND NOT (jid IN %@)", jids, "in", ignoredJids)
             let notificationsCount = NotificationsSupport.unreadVisibleCount(in: realm, owners: jids)
             let invitations = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@ AND isRead == false", jids)
+            let favoritesNodesByOwner = Dictionary(
+                uniqueKeysWithValues: realm
+                    .objects(XMPPFavoritesManagerStorageItem.self)
+                    .filter("owner IN %@", jids)
+                    .compactMap { $0.node.isNotEmpty ? ($0.owner, $0.node) : nil }
+            )
+            let savedUnread = realm
+                .objects(LastChatsStorageItem.self)
+                .filter("owner IN %@ AND conversationType_ == %@", jids, ClientSynchronizationManager.ConversationType.saved.rawValue)
+                .compactMap(\.unread)
+                .reduce(0, +)
+            let savedItem = LeftMenuSavedMessagesEntryPolicy.menuItem(
+                enabledAccountJids: jids,
+                favoritesNodesByOwner: favoritesNodesByOwner,
+                unreadCount: savedUnread
+            )
             if CommonConfigManager.shared.config.support_groupchats {
-                self.datasource = [[
+                var mainItems = [
                     Datasource(title: "Chats", icon: "custom.bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
                     Datasource(title: "Calls", icon: "phone", key: "calls", category: "", subtitle: "\(calls.count)", showTriangle: false),
                     Datasource(title: "Notifications", icon: "bell", key: "notifications", category: "", subtitle: "\(notificationsCount)", showTriangle: false),
                     Datasource(title: "Contacts", icon: "person", key: "contacts", category: "contacts", subtitle: "\(contacts.count)", showTriangle: false),
                     Datasource(title: "Groups", icon: "person.2", key: "groups", category: "public", subtitle: "\(invitations.count)", showTriangle: false),
                     Datasource(title: "Archive", icon: "archivebox", key: "archive", category: "", subtitle: "\(archived)", showTriangle: false),
-//                    Datasource(title: "Saved messages", icon: "bookmark", key: "saved", category: "", subtitle: "0", showTriangle: false),
-                ],[
+                ]
+                if let savedItem {
+                    mainItems.append(savedItem)
+                }
+                self.datasource = [mainItems, [
                    Datasource(title: "Settings", icon: "gearshape", key: "settings", category: "", subtitle: "0", showTriangle: false),
                 ]
                ]
             } else {
-                self.datasource = [[
+                var mainItems = [
                     Datasource(title: "Chats", icon: "custom.bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
                     Datasource(title: "Calls", icon: "phone", key: "calls", category: "", subtitle: "\(calls.count)", showTriangle: false),
                     Datasource(title: "Notifications", icon: "bell", key: "notifications", category: "", subtitle: "\(notificationsCount)", showTriangle: false),
                     Datasource(title: "Contacts", icon: "person", key: "contacts", category: "contacts", subtitle: "\(contacts.count)", showTriangle: false),
                     Datasource(title: "Archive", icon: "archivebox", key: "archive", category: "", subtitle: "\(archived)", showTriangle: false),
-//                    Datasource(title: "Saved messages", icon: "bookmark", key: "saved", category: "", subtitle: "0", showTriangle: false),
-                ],[
+                ]
+                if let savedItem {
+                    mainItems.append(savedItem)
+                }
+                self.datasource = [mainItems, [
                    Datasource(title: "Settings", icon: "gearshape", key: "settings", category: "", subtitle: "0", showTriangle: false),
                 ]
                ]
@@ -666,6 +721,10 @@ class LeftMenuViewController: UIViewController {
             let contacts = realm.objects(RosterStorageItem.self).filter("owner IN %@ AND isHidden == false AND removed == false AND ask_ == %@ AND isContact == true AND NOT (jid IN %@)", jids, "in", ignoredJids)
             let notifications = realm.objects(NotificationStorageItem.self).filter("owner IN %@ AND isRead == false AND shouldShow == true", jids)
             let invitations = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@ AND isRead == false", jids)
+            let favoritesNodes = realm.objects(XMPPFavoritesManagerStorageItem.self).filter("owner IN %@", jids)
+            let savedConversations = realm
+                .objects(LastChatsStorageItem.self)
+                .filter("owner IN %@ AND conversationType_ == %@", jids, ClientSynchronizationManager.ConversationType.saved.rawValue)
             let section = 0
             
             let badDevices = realm
@@ -800,6 +859,42 @@ class LeftMenuViewController: UIViewController {
                     
                 } onDisposed: {
                     
+                }
+                .disposed(by: self.bag)
+
+            Observable
+                .collection(from: favoritesNodes)
+                .skip(1)
+                .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+                .subscribe { _ in
+                    self.loadDatasource()
+                    self.tableView.reloadData()
+                } onError: { _ in
+
+                } onCompleted: {
+
+                } onDisposed: {
+
+                }
+                .disposed(by: self.bag)
+
+            Observable
+                .collection(from: savedConversations)
+                .skip(1)
+                .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+                .subscribe { results in
+                    self.updateDatasourceSubtitle(
+                        for: "saved",
+                        section: section,
+                        subtitle: "\(results.compactMap(\.unread).reduce(0, +))"
+                    )
+
+                } onError: { _ in
+
+                } onCompleted: {
+
+                } onDisposed: {
+
                 }
                 .disposed(by: self.bag)
             
