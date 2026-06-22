@@ -8992,6 +8992,30 @@ final class MessageArchiveRequestClassificationTests: XCTestCase {
             .compactMap(\.stringValue)
     }
 
+    private func captureSearchRequest(
+        manager: MessageArchiveManager,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        text: String,
+        queryId: String
+    ) throws -> (queryId: String, iq: XMPPIQ) {
+        let stream = CapturingXMPPStream()
+        var sentElement: DDXMLElement?
+        stream.onSendElement = { element in
+            sentElement = element
+        }
+
+        let returnedQueryId = manager.searchText(
+            stream,
+            jid: jid,
+            conversationType: conversationType,
+            text: text,
+            queryId: queryId
+        )
+
+        return (returnedQueryId, XMPPIQ(from: try XCTUnwrap(sentElement)))
+    }
+
     func testBootstrapPurposeMarksInitialArchiveLoaded() {
         XCTAssertTrue(MessageArchiveManager.RequestPurpose.bootstrap.marksInitialArchiveLoaded)
     }
@@ -9139,6 +9163,29 @@ final class MessageArchiveRequestClassificationTests: XCTestCase {
         )
 
         XCTAssertEqual(dataFormFieldValues(in: iq, named: "conversation-type"), [])
+    }
+
+    func testSavedSearchMamUsesFavoritesWithFilter() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        manager.isExtendedArchiveAvailable = true
+        let favoritesJid = "favorites.example.com"
+        let searchText = "saved needle"
+
+        let request = try captureSearchRequest(
+            manager: manager,
+            jid: favoritesJid,
+            conversationType: .saved,
+            text: searchText,
+            queryId: "saved-search"
+        )
+
+        XCTAssertEqual(request.queryId, "saved-search")
+        XCTAssertEqual(dataFormFieldValues(in: request.iq, named: "with"), [favoritesJid])
+        XCTAssertEqual(dataFormFieldValues(in: request.iq, named: "withtext"), [searchText])
+        XCTAssertEqual(
+            dataFormFieldValues(in: request.iq, named: "conversation-type"),
+            [ClientSynchronizationManager.ConversationType.saved.rawValue]
+        )
     }
 
     func testInitialBootstrapPolicyStartsForEmptyUnconfirmedOrUnsyncedChatsOnly() {
@@ -16599,6 +16646,65 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XCTAssertEqual(chat?.isPinned, true)
     }
 
+    func testSavedPinSendsSyncConversationWithFavoritesType() throws {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.isAvailable = true
+        let favoritesJid = "favorites.xmppdev01.xabber.com"
+        try configureFavoritesNode(favoritesJid)
+        let stream = CapturingXMPPStream()
+        var sentElement: DDXMLElement?
+        stream.onSendElement = { element in
+            sentElement = element
+        }
+
+        XCTAssertTrue(manager.pinChat(stream, jid: favoritesJid, conversationType: .saved))
+
+        let iq = XMPPIQ(from: try XCTUnwrap(sentElement))
+        let conversation = try XCTUnwrap(
+            iq.element(forName: "query")?.element(forName: "conversation")
+        )
+        XCTAssertEqual(conversation.attributeStringValue(forName: "jid"), favoritesJid)
+        XCTAssertEqual(
+            conversation.attributeStringValue(forName: "type"),
+            ClientSynchronizationManager.ConversationType.saved.rawValue
+        )
+        XCTAssertNotEqual(conversation.attributeStringValue(forName: "pinned"), "0")
+    }
+
+    func testSavedUnpinSendsSyncConversationWithFavoritesType() throws {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.isAvailable = true
+        let favoritesJid = "favorites.xmppdev01.xabber.com"
+        try configureFavoritesNode(favoritesJid)
+        let realm = try WRealm.safe()
+        let chat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: favoritesJid, owner: owner, conversationType: .saved)
+        ))
+        try realm.write {
+            chat.isPinned = true
+            chat.pinnedPosition = 42
+        }
+        let stream = CapturingXMPPStream()
+        var sentElement: DDXMLElement?
+        stream.onSendElement = { element in
+            sentElement = element
+        }
+
+        XCTAssertTrue(manager.pinChat(stream, jid: favoritesJid, conversationType: .saved))
+
+        let iq = XMPPIQ(from: try XCTUnwrap(sentElement))
+        let conversation = try XCTUnwrap(
+            iq.element(forName: "query")?.element(forName: "conversation")
+        )
+        XCTAssertEqual(conversation.attributeStringValue(forName: "jid"), favoritesJid)
+        XCTAssertEqual(
+            conversation.attributeStringValue(forName: "type"),
+            ClientSynchronizationManager.ConversationType.saved.rawValue
+        )
+        XCTAssertEqual(conversation.attributeStringValue(forName: "pinned"), "0")
+    }
+
     func testSavedSyncDeletedClearsOnlyCurrentOwnerSavedConversation() throws {
         let manager = ClientSynchronizationManager(withOwner: owner)
         let favoritesJid = "favorites.xmppdev01.xabber.com"
@@ -19337,6 +19443,90 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         }
     }
 
+    private func makeSavedActionSearchDatasource(
+        owner: String = "owner@example.com",
+        favoritesJid: String = "favorites.example.com",
+        username: String = "Saved messages"
+    ) -> SearchResultsViewController.Datasource {
+        SearchResultsViewController.Datasource(
+            jid: favoritesJid,
+            owner: owner,
+            username: username,
+            attributedUsername: nil,
+            message: "Hello",
+            date: Date(timeIntervalSince1970: 1_711_283_200),
+            state: nil,
+            isMute: false,
+            isSynced: true,
+            status: .offline,
+            entity: .contact,
+            conversationType: .saved,
+            unread: 0,
+            unreadString: nil,
+            hasUnreadMention: false,
+            color: .clear,
+            isDraft: false,
+            hasAttachment: false,
+            userNickname: nil,
+            isSystemMessage: false,
+            isPinned: false,
+            subRequest: false,
+            isEncrypted: false,
+            avatarUrl: nil,
+            hasErrorInChat: false,
+            updateTS: 0,
+            isVerificationActionRequired: false,
+            messageArchiveId: nil
+        )
+    }
+
+    func testSavedSearchResultOpensSavedChat() {
+        let updater = ChatSearchResultsController()
+        let favoritesJid = "favorites.example.com"
+        let datasource = makeSavedActionSearchDatasource(favoritesJid: favoritesJid)
+        var didDismissSearch = false
+        var openedItem: SearchResultsViewController.Datasource?
+
+        InPlaceSearchResultRouteHelper.open(
+            datasource,
+            updater: updater,
+            dismissSearch: { didDismissSearch = true },
+            reload: {},
+            openNewChat: { item, completion in
+                openedItem = item
+                completion(nil)
+            }
+        )
+
+        XCTAssertTrue(didDismissSearch)
+        XCTAssertEqual(openedItem?.owner, datasource.owner)
+        XCTAssertEqual(openedItem?.jid, favoritesJid)
+        XCTAssertEqual(openedItem?.conversationType, .saved)
+    }
+
+    func testSavedContextOpenDoesNotCreateRegularChatForOriginalAuthor() {
+        let updater = ChatSearchResultsController()
+        let favoritesJid = "favorites.example.com"
+        let originalAuthorJid = "alexey.boldin@example.com"
+        let datasource = makeSavedActionSearchDatasource(favoritesJid: favoritesJid, username: "Alexey Boldin")
+        var openedItem: SearchResultsViewController.Datasource?
+
+        InPlaceSearchResultRouteHelper.open(
+            datasource,
+            updater: updater,
+            dismissSearch: {},
+            reload: {},
+            openNewChat: { item, completion in
+                openedItem = item
+                completion(nil)
+            }
+        )
+
+        XCTAssertEqual(openedItem?.jid, favoritesJid)
+        XCTAssertNotEqual(openedItem?.jid, originalAuthorJid)
+        XCTAssertEqual(openedItem?.conversationType, .saved)
+    }
+
     func testAccountNavigationButtonUsesSystemBarButtonHitTarget() {
         let button = LastChatsViewController().accountNavButton
 
@@ -21479,6 +21669,39 @@ final class FavoritesFeatureTests: XCTestCase {
     }
 
     @discardableResult
+    private func seedMessage(
+        ownerOverride: String? = nil,
+        opponent: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        messageId: String,
+        archivedId: String,
+        body: String = "Task 10 message",
+        date: Date = Date(timeIntervalSince1970: 1_711_285_000)
+    ) throws -> MessageStorageItem {
+        let messageOwner = ownerOverride ?? owner
+        let realm = try WRealm.safe()
+        let message = MessageStorageItem()
+        message.owner = messageOwner
+        message.opponent = opponent
+        message.primary = MessageStorageItem.genPrimary(messageId: messageId, owner: messageOwner)
+        message.messageId = messageId
+        message.archivedId = archivedId
+        message.body = body
+        message.legacyBody = body
+        message.date = date
+        message.sentDate = date
+        message.outgoing = true
+        message.conversationType = conversationType
+        message.state = .sended
+
+        try realm.write {
+            realm.add(message, update: .modified)
+        }
+
+        return try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: message.primary))
+    }
+
+    @discardableResult
     private func seedLastChat(
         jid: String,
         conversationType: ClientSynchronizationManager.ConversationType,
@@ -21644,6 +21867,122 @@ final class FavoritesFeatureTests: XCTestCase {
         )
         XCTAssertEqual(row.owner, owner)
         XCTAssertEqual(row.node, "favorites2.xmppdev01.xabber.com")
+    }
+
+    func testSavedDeleteAllClearsOnlySavedConversation() throws {
+        try seedLastChat(jid: favoritesJid, conversationType: .saved)
+        let currentSaved = try seedMessage(
+            opponent: favoritesJid,
+            conversationType: .saved,
+            messageId: "saved-delete-all-current",
+            archivedId: "archive-saved-delete-all-current"
+        )
+        let otherSavedService = try seedMessage(
+            opponent: "favorites.backup.xmppdev01.xabber.com",
+            conversationType: .saved,
+            messageId: "saved-delete-all-other-service",
+            archivedId: "archive-saved-delete-all-other-service"
+        )
+        let otherOwnerSaved = try seedMessage(
+            ownerOverride: "other.owner@xmppdev01.xabber.com",
+            opponent: favoritesJid,
+            conversationType: .saved,
+            messageId: "saved-delete-all-other-owner",
+            archivedId: "archive-saved-delete-all-other-owner"
+        )
+        let regular = try seedMessage(
+            opponent: contactJid,
+            conversationType: .regular,
+            messageId: "saved-delete-all-regular",
+            archivedId: "archive-saved-delete-all-regular"
+        )
+        let group = try seedMessage(
+            opponent: groupchatJid,
+            conversationType: .group,
+            messageId: "saved-delete-all-group",
+            archivedId: "archive-saved-delete-all-group"
+        )
+        let encrypted = try seedMessage(
+            opponent: contactJid,
+            conversationType: .omemo,
+            messageId: "saved-delete-all-omemo",
+            archivedId: "archive-saved-delete-all-omemo"
+        )
+
+        MessageDeleteManager(withOwner: owner).deleteAllMessages(
+            CapturingXMPPStream(),
+            jid: favoritesJid,
+            conversationType: .saved,
+            callback: nil
+        )
+
+        XCTAssertTrue(currentSaved.isDeleted)
+        XCTAssertFalse(otherSavedService.isDeleted)
+        XCTAssertFalse(otherOwnerSaved.isDeleted)
+        XCTAssertFalse(regular.isDeleted)
+        XCTAssertFalse(group.isDeleted)
+        XCTAssertFalse(encrypted.isDeleted)
+    }
+
+    func testSavedDeleteAllUsesServerRewriteWhenAvailable() throws {
+        try seedLastChat(jid: favoritesJid, conversationType: .saved)
+        try seedMessage(
+            opponent: favoritesJid,
+            conversationType: .saved,
+            messageId: "saved-delete-all-rewrite",
+            archivedId: "archive-saved-delete-all-rewrite"
+        )
+        let stream = CapturingXMPPStream()
+        var sentElement: DDXMLElement?
+        stream.onSendElement = { element in
+            sentElement = element
+        }
+
+        MessageDeleteManager(withOwner: owner).deleteAllMessages(
+            stream,
+            jid: favoritesJid,
+            conversationType: .saved,
+            callback: nil
+        )
+
+        let iq = XMPPIQ(from: try XCTUnwrap(sentElement))
+        let retract = try XCTUnwrap(iq.element(forName: "retract-all"))
+        XCTAssertEqual(retract.attributeStringValue(forName: "conversation"), favoritesJid)
+        XCTAssertEqual(
+            retract.attributeStringValue(forName: "type"),
+            ClientSynchronizationManager.ConversationType.saved.rawValue
+        )
+        XCTAssertTrue(["0", "false"].contains(retract.attributeStringValue(forName: "symmetric") ?? ""))
+    }
+
+    func testSavedIndividualRetractUsesFavoritesConversation() throws {
+        let message = try seedMessage(
+            opponent: favoritesJid,
+            conversationType: .saved,
+            messageId: "saved-individual-retract",
+            archivedId: "archive-saved-individual-retract"
+        )
+        let stream = CapturingXMPPStream()
+        var sentElement: DDXMLElement?
+        stream.onSendElement = { element in
+            sentElement = element
+        }
+
+        MessageDeleteManager(withOwner: owner).deleteMessage(
+            stream,
+            primary: message.primary,
+            symmetric: false,
+            callback: nil
+        )
+
+        let iq = XMPPIQ(from: try XCTUnwrap(sentElement))
+        let retract = try XCTUnwrap(iq.element(forName: "retract-message"))
+        XCTAssertEqual(retract.attributeStringValue(forName: "conversation"), favoritesJid)
+        XCTAssertEqual(
+            retract.attributeStringValue(forName: "type"),
+            ClientSynchronizationManager.ConversationType.saved.rawValue
+        )
+        XCTAssertEqual(retract.attributeStringValue(forName: "id"), "archive-saved-individual-retract")
     }
 
     func testBuildForwardMessageTargetsFavoritesNodeAndAddsForwardReference() throws {

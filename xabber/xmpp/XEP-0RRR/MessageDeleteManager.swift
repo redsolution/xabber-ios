@@ -358,6 +358,25 @@ class MessageDeleteManager: AbstractXMPPManager {
         }
         return true
     }
+
+    private func savedConversationJid(for instance: MessageStorageItem, in realm: Realm) -> String {
+        if let node = realm
+            .object(
+                ofType: XMPPFavoritesManagerStorageItem.self,
+                forPrimaryKey: XMPPFavoritesManagerStorageItem.genPrimary(owner: owner)
+            )?
+            .node,
+           node.isNotEmpty {
+            return node
+        }
+
+        if let node = AccountManager.shared.find(for: owner)?.favorites.node,
+           node.isNotEmpty {
+            return node
+        }
+
+        return instance.opponent
+    }
     
     open func deleteMessage(_ xmppStream: XMPPStream, primary: String, symmetric: Bool, callback: ((String?, Bool) -> Void)?) {
         
@@ -370,6 +389,9 @@ class MessageDeleteManager: AbstractXMPPManager {
                 retract.addAttribute(withName: "symmetric", boolValue: symmetric)
                 retract.addAttribute(withName: "id", stringValue: instance.archivedId)
                 retract.addAttribute(withName: "type", stringValue: instance.conversationType_)
+                if instance.conversationType == .saved {
+                    retract.addAttribute(withName: "conversation", stringValue: savedConversationJid(for: instance, in: realm))
+                }
                 xmppStream.send(XMPPIQ(iqType: .set, to: instance.conversationType == .group ? XMPPJID(string: instance.opponent) : nil, elementID: elementId, child: retract))
                 
                 queryIds.insert(elementId)
