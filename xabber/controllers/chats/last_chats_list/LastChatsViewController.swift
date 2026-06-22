@@ -560,6 +560,63 @@ enum SavedMessagesChatListPresentationPolicy {
     }
 }
 
+enum SavedMessagesAvailabilityPolicy {
+    static func favoritesNodesByOwner(in realm: Realm, enabledOwners: [String]) -> [String: String] {
+        Dictionary(
+            uniqueKeysWithValues: realm
+                .objects(XMPPFavoritesManagerStorageItem.self)
+                .filter("owner IN %@", enabledOwners)
+                .compactMap { item -> (String, String)? in
+                    guard item.node.isNotEmpty else { return nil }
+                    return (item.owner, item.node)
+                }
+        )
+    }
+
+    static func visibleSavedLastChatsPredicate(
+        enabledOwners: [String],
+        favoritesNodesByOwner: [String: String]
+    ) -> NSPredicate {
+        let savedTypePredicate = NSPredicate(
+            format: "conversationType_ == %@",
+            ClientSynchronizationManager.ConversationType.saved.rawValue
+        )
+        let availableOwnerNodePredicates = enabledOwners.compactMap { owner -> NSPredicate? in
+            guard let node = favoritesNodesByOwner[owner], node.isNotEmpty else { return nil }
+            return NSPredicate(format: "owner == %@ AND jid == %@", owner, node)
+        }
+
+        guard availableOwnerNodePredicates.isNotEmpty else {
+            return NSCompoundPredicate(andPredicateWithSubpredicates: [
+                savedTypePredicate,
+                NSPredicate(format: "owner == %@", "__xabber_saved_messages_unavailable__")
+            ])
+        }
+
+        return NSCompoundPredicate(andPredicateWithSubpredicates: [
+            savedTypePredicate,
+            NSCompoundPredicate(orPredicateWithSubpredicates: availableOwnerNodePredicates)
+        ])
+    }
+
+    static func visibleSavedLastChats(
+        in realm: Realm,
+        enabledOwners: [String],
+        favoritesNodesByOwner: [String: String]? = nil
+    ) -> Results<LastChatsStorageItem> {
+        let nodesByOwner = favoritesNodesByOwner ?? self.favoritesNodesByOwner(
+            in: realm,
+            enabledOwners: enabledOwners
+        )
+        return realm
+            .objects(LastChatsStorageItem.self)
+            .filter(visibleSavedLastChatsPredicate(
+                enabledOwners: enabledOwners,
+                favoritesNodesByOwner: nodesByOwner
+            ))
+    }
+}
+
 class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuieting {
     
     enum Filter: Int {
@@ -1134,7 +1191,14 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             case .archived:
                 predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@", argumentArray: [true, Array(enabledAccounts.value)])
             case .saved:
-                predicate = NSPredicate(format: "owner IN %@ AND conversationType_ == %@", argumentArray: [Array(enabledAccounts.value), ClientSynchronizationManager.ConversationType.saved.rawValue])
+                let enabledOwners = Array(enabledAccounts.value)
+                predicate = SavedMessagesAvailabilityPolicy.visibleSavedLastChatsPredicate(
+                    enabledOwners: enabledOwners,
+                    favoritesNodesByOwner: SavedMessagesAvailabilityPolicy.favoritesNodesByOwner(
+                        in: realm,
+                        enabledOwners: enabledOwners
+                    )
+                )
             }
             chatsObserver = realm
                 .objects(LastChatsStorageItem.self)
@@ -1736,7 +1800,14 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@ AND NOT (jid IN %@)", argumentArray: [true, Array(enabledAccounts.value), ignoredJids])
                 }
             case .saved:
-                predicate = NSPredicate(format: "owner IN %@ AND conversationType_ == %@", argumentArray: [Array(enabledAccounts.value), ClientSynchronizationManager.ConversationType.saved.rawValue])
+                let enabledOwners = Array(enabledAccounts.value)
+                predicate = SavedMessagesAvailabilityPolicy.visibleSavedLastChatsPredicate(
+                    enabledOwners: enabledOwners,
+                    favoritesNodesByOwner: SavedMessagesAvailabilityPolicy.favoritesNodesByOwner(
+                        in: realm,
+                        enabledOwners: enabledOwners
+                    )
+                )
             }
             var collection = realm
                 .objects(LastChatsStorageItem.self)

@@ -631,15 +631,16 @@ class LeftMenuViewController: UIViewController {
             let contacts = realm.objects(RosterStorageItem.self).filter("owner IN %@ AND isHidden == false AND removed == false AND ask_ == %@ AND isContact == true AND NOT (jid IN %@)", jids, "in", ignoredJids)
             let notificationsCount = NotificationsSupport.unreadVisibleCount(in: realm, owners: jids)
             let invitations = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@ AND isRead == false", jids)
-            let favoritesNodesByOwner = Dictionary(
-                uniqueKeysWithValues: realm
-                    .objects(XMPPFavoritesManagerStorageItem.self)
-                    .filter("owner IN %@", jids)
-                    .compactMap { $0.node.isNotEmpty ? ($0.owner, $0.node) : nil }
+            let favoritesNodesByOwner = SavedMessagesAvailabilityPolicy.favoritesNodesByOwner(
+                in: realm,
+                enabledOwners: jids
             )
-            let savedUnread = realm
-                .objects(LastChatsStorageItem.self)
-                .filter("owner IN %@ AND conversationType_ == %@", jids, ClientSynchronizationManager.ConversationType.saved.rawValue)
+            let savedUnread = SavedMessagesAvailabilityPolicy
+                .visibleSavedLastChats(
+                    in: realm,
+                    enabledOwners: jids,
+                    favoritesNodesByOwner: favoritesNodesByOwner
+                )
                 .compactMap(\.unread)
                 .reduce(0, +)
             let savedItem = LeftMenuSavedMessagesEntryPolicy.menuItem(
@@ -722,9 +723,14 @@ class LeftMenuViewController: UIViewController {
             let notifications = realm.objects(NotificationStorageItem.self).filter("owner IN %@ AND isRead == false AND shouldShow == true", jids)
             let invitations = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@ AND isRead == false", jids)
             let favoritesNodes = realm.objects(XMPPFavoritesManagerStorageItem.self).filter("owner IN %@", jids)
-            let savedConversations = realm
-                .objects(LastChatsStorageItem.self)
-                .filter("owner IN %@ AND conversationType_ == %@", jids, ClientSynchronizationManager.ConversationType.saved.rawValue)
+            let savedConversations = SavedMessagesAvailabilityPolicy.visibleSavedLastChats(
+                in: realm,
+                enabledOwners: jids,
+                favoritesNodesByOwner: SavedMessagesAvailabilityPolicy.favoritesNodesByOwner(
+                    in: realm,
+                    enabledOwners: jids
+                )
+            )
             let section = 0
             
             let badDevices = realm

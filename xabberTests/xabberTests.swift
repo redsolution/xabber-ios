@@ -26,6 +26,32 @@ import MaterialComponents
 import SignalProtocolObjC
 @testable import xabber
 
+final class AppLaunchEnvironmentPolicyTests: XCTestCase {
+    func testHostedXCTestCanDisableAccountAutoconnect() {
+        XCTAssertFalse(AppLaunchEnvironmentPolicy.shouldAutoconnectAccounts(
+            isPushKit: false,
+            environment: [
+                "XCTestConfigurationFilePath": "/tmp/test.xctestconfiguration",
+                "TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT": "1"
+            ]
+        ))
+    }
+
+    func testNormalLaunchKeepsAccountAutoconnectEnabled() {
+        XCTAssertTrue(AppLaunchEnvironmentPolicy.shouldAutoconnectAccounts(
+            isPushKit: false,
+            environment: [:]
+        ))
+    }
+
+    func testPushKitLaunchKeepsAccountAutoconnectDisabled() {
+        XCTAssertFalse(AppLaunchEnvironmentPolicy.shouldAutoconnectAccounts(
+            isPushKit: true,
+            environment: [:]
+        ))
+    }
+}
+
 final class ChatFloatingHeaderLayoutPolicyTests: XCTestCase {
     func testCollectionInsetsReserveNavbarAtTopAndComposerAtBottom() {
         let insets = ChatFloatingHeaderLayoutPolicy.collectionInsets(
@@ -22431,6 +22457,110 @@ final class FavoritesFeatureTests: XCTestCase {
         let messages = try WRealm.safe().objects(MessageStorageItem.self)
         XCTAssertEqual(messages.count, 1)
         assertStoredAsSavedServiceConversation(try XCTUnwrap(messages.first))
+    }
+
+    func testSavedRepairHandlesChangedFavoritesServiceNode() throws {
+        let oldFavoritesJid = "old-favorites.xmppdev01.xabber.com"
+        let seeded = try seedSavedMessage(
+            opponent: oldFavoritesJid,
+            messageId: "repair-changed-node-1",
+            archivedId: "archive-repair-changed-node-1",
+            withReference: true,
+            withInlineForward: true
+        )
+        try seedLastChat(jid: oldFavoritesJid, conversationType: .saved)
+
+        configureFavorites()
+
+        let realm = try WRealm.safe()
+        let repaired = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: seeded.primary))
+        assertStoredAsSavedServiceConversation(repaired)
+        XCTAssertEqual(repaired.references.first?.jid, favoritesJid)
+        XCTAssertEqual(repaired.inlineForwards.first?.jid, favoritesJid)
+        let newChat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: favoritesJid, owner: owner, conversationType: .saved)
+        ))
+        XCTAssertEqual(newChat.lastMessage?.primary, seeded.primary)
+
+        let visibleSavedRows = SavedMessagesAvailabilityPolicy.visibleSavedLastChats(in: realm, enabledOwners: [owner])
+        XCTAssertEqual(visibleSavedRows.count, 1)
+        XCTAssertEqual(visibleSavedRows.first?.jid, favoritesJid)
+    }
+
+    func testSavedRepairIsOwnerScoped() throws {
+        let otherOwner = "other.owner@xmppdev01.xabber.com"
+        try seedSavedMessage(opponent: contactJid, messageId: "repair-owner-current-1", archivedId: "archive-repair-owner-current-1")
+        try seedMessage(
+            ownerOverride: otherOwner,
+            opponent: contactJid,
+            conversationType: .saved,
+            messageId: "repair-owner-other-1",
+            archivedId: "archive-repair-owner-other-1"
+        )
+
+        configureFavorites()
+
+        let realm = try WRealm.safe()
+        let current = try XCTUnwrap(realm.object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: MessageStorageItem.genPrimary(messageId: "repair-owner-current-1", owner: owner)
+        ))
+        let other = try XCTUnwrap(realm.object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: MessageStorageItem.genPrimary(messageId: "repair-owner-other-1", owner: otherOwner)
+        ))
+        XCTAssertEqual(current.opponent, favoritesJid)
+        XCTAssertEqual(other.opponent, contactJid)
+    }
+
+    func testSavedRowsRemainHiddenWhenFavoritesServiceUnavailable() throws {
+        let cachedChat = try seedLastChat(jid: favoritesJid, conversationType: .saved)
+
+        let realm = try WRealm.safe()
+        let visibleSavedRows = SavedMessagesAvailabilityPolicy.visibleSavedLastChats(in: realm, enabledOwners: [owner])
+        let menuItem = LeftMenuSavedMessagesEntryPolicy.menuItem(
+            enabledAccountJids: [owner],
+            favoritesNodesByOwner: [:],
+            unreadCount: cachedChat.unread
+        )
+
+        XCTAssertEqual(visibleSavedRows.count, 0)
+        XCTAssertNil(menuItem)
+    }
+
+    func testCachedSavedRowsDoNotCrashWithoutDiscoveredService() throws {
+        try seedLastChat(jid: favoritesJid, conversationType: .saved)
+        try seedSavedMessage(
+            opponent: favoritesJid,
+            messageId: "cached-no-service-1",
+            archivedId: "archive-cached-no-service-1"
+        )
+        let manager = XMPPFavoritesManager(withOwner: owner)
+
+        XCTAssertFalse(manager.isAvailable())
+        manager.update(XMPPStream())
+
+        let realm = try WRealm.safe()
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 1)
+        XCTAssertEqual(SavedMessagesAvailabilityPolicy.visibleSavedLastChats(in: realm, enabledOwners: [owner]).count, 0)
+    }
+
+    func testWebCreatedSavedMamRowImportsIntoIosSavedConversation() throws {
+        let webCreated = try makeDirectSavedMessage(
+            from: "\(owner)/xabber-web",
+            to: favoritesJid,
+            body: "Saved from web",
+            id: "web-created-saved-1"
+        )
+        let mam = try makeMamResult(message: webCreated, archiveId: "archive-web-created-saved-1", queryId: "web-created-saved")
+
+        favoritesManager().receiveSaved(message: XMPPMessage(from: mam))
+
+        let stored = try XCTUnwrap(try WRealm.safe().objects(MessageStorageItem.self).first)
+        assertStoredAsSavedServiceConversation(stored)
+        XCTAssertEqual(stored.messageId, "web-created-saved-1")
+        XCTAssertEqual(stored.archivedId, "archive-web-created-saved-1")
     }
 
     func testSavedStorageRepairPreservesMessagePrimaryAndReferences() throws {

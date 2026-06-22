@@ -35,6 +35,19 @@ func getAppVersion() -> String {
     return "\(version).\(build)"
 }
 
+enum AppLaunchEnvironmentPolicy {
+    static func shouldAutoconnectAccounts(
+        isPushKit: Bool,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        guard !isPushKit else { return false }
+
+        let isHostedXCTest = environment["XCTestConfigurationFilePath"] != nil
+        let disablesAutoconnect = environment["TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT"] == "1"
+        return !(isHostedXCTest && disablesAutoconnect)
+    }
+}
+
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
     enum RemoteNotificationOutcome: Equatable {
@@ -129,8 +142,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
 //        setupRootViewController()
         
-        DDLogDebug("app didFinishLaunching accountAutoConnect=\(!self.isPushKit) pushKit=\(self.isPushKit)")
-        AccountManager.shared.load(!self.isPushKit)
+        let shouldAutoconnectAccounts = AppLaunchEnvironmentPolicy.shouldAutoconnectAccounts(isPushKit: self.isPushKit)
+        DDLogDebug("app didFinishLaunching accountAutoConnect=\(shouldAutoconnectAccounts) pushKit=\(self.isPushKit)")
+        AccountManager.shared.load(shouldAutoconnectAccounts)
         ApplicationStateManager.shared.prepare()
         CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .appLaunch)
         
