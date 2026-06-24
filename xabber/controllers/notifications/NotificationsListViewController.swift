@@ -38,14 +38,25 @@ struct NotificationsListCoordinator {
         owners: [String],
         filter: NotificationsListViewController.Filter,
         filterAccount: String?,
+        unreadOnly: Bool = false,
+        searchQuery: String? = nil,
         headerBuilder: (NotificationsListViewController.Filter) -> NotificationsListViewController.Datasource?,
         listMapper: ([NotificationStorageItem], [String: RosterStorageItem]) -> [NotificationsListViewController.Datasource]
     ) -> DerivedState {
         let selectedOwners = filterAccount.map { [$0] } ?? owners
-        let notifications = NotificationsSupport.notifications(in: realm, owners: selectedOwners, filter: filter).toArray()
-        let rosterMap = NotificationsSupport.rosterMap(in: realm, for: notifications)
+        let allNotifications = NotificationsSupport.notifications(
+            in: realm,
+            owners: selectedOwners,
+            filter: filter,
+            unreadOnly: unreadOnly
+        ).toArray()
+        let rosterMap = NotificationsSupport.rosterMap(in: realm, for: allNotifications)
+        let notifications = allNotifications.filter {
+            NotificationsSupport.notification($0, rosterMap: rosterMap, matchesSearchQuery: searchQuery)
+        }
+        let hasSearchQuery = NotificationsSupport.hasSearchQuery(searchQuery)
         var sections: [NotificationsListViewController.Datasource] = []
-        if let header = headerBuilder(filter) {
+        if !hasSearchQuery, let header = headerBuilder(filter) {
             sections.append(header)
         }
         sections.append(contentsOf: listMapper(notifications, rosterMap))
@@ -144,6 +155,61 @@ enum NotificationsSupport {
 
     static func unreadVisibleCount(in realm: Realm, owners: [String]) -> Int {
         unreadCounters(in: realm, owners: owners).total
+    }
+
+    static func unreadVisibleCount(
+        in realm: Realm,
+        owners: [String],
+        filter: NotificationsListViewController.Filter,
+        filterAccount: String?
+    ) -> Int {
+        let selectedOwners = filterAccount.map { [$0] } ?? owners
+        return notifications(in: realm, owners: selectedOwners, filter: filter, unreadOnly: true).count
+    }
+
+    static func hasSearchQuery(_ query: String?) -> Bool {
+        normalizedSearchQuery(query).isNotEmpty
+    }
+
+    static func notification(
+        _ item: NotificationStorageItem,
+        rosterMap: [String: RosterStorageItem],
+        matchesSearchQuery query: String?
+    ) -> Bool {
+        let normalizedQuery = normalizedSearchQuery(query)
+        guard normalizedQuery.isNotEmpty else {
+            return true
+        }
+
+        let categoryText: String
+        switch item.category {
+        case .device:
+            categoryText = "security device"
+        case .mention:
+            categoryText = "mentions mention"
+        case .info:
+            categoryText = "information info"
+        case .contact:
+            categoryText = "contact subscription"
+        }
+
+        let values: [String?] = [
+            titleText(for: item, rosterMap: rosterMap),
+            messageText(for: item),
+            item.jid,
+            displayJid(for: item),
+            item.owner,
+            item.category.rawValue,
+            categoryText
+        ]
+
+        return values.contains {
+            ($0 ?? "").localizedCaseInsensitiveContains(normalizedQuery)
+        }
+    }
+
+    private static func normalizedSearchQuery(_ query: String?) -> String {
+        (query ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func rosterMap(in realm: Realm, for items: [NotificationStorageItem]) -> [String: RosterStorageItem] {
@@ -442,10 +508,50 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     var filter: BehaviorRelay<Filter> = BehaviorRelay(value: .all)
     var filterAccount: BehaviorRelay<String?> = BehaviorRelay(value: nil)
+    var unreadOnly: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     var filterMenu: UIMenu = UIMenu()
+    internal let bottomSearchHostView = BottomSearchHostView(frame: .zero)
+    internal let notificationsCompactBottomBarView = FloatingBottomBarView(frame: .zero)
     private let datasourceQueue = DispatchQueue(label: "com.xabber.notifications.datasource", qos: .userInitiated)
     private var datasourceGeneration: Int = 0
-    private var lastConfiguredBarsState: (filter: Filter, account: String?)?
+    private var notificationSearchQuery: String = ""
+    private var lastConfiguredBarsState: (filter: Filter, account: String?, unreadOnly: Bool)?
+
+    internal final var isNotificationsCompactBottomBarHidden: Bool {
+        notificationsCompactBottomBarView.superview == nil || notificationsCompactBottomBarView.isHidden
+    }
+
+    internal final var notificationsCompactBottomBarCenterTitle: String? {
+        notificationsCompactBottomBarView.centerButton.title(for: .normal)
+    }
+
+    internal final var notificationsCompactBottomBarFilterButton: UIButton {
+        notificationsCompactBottomBarView.leftButton
+    }
+
+    internal final var notificationsCompactBottomBarPrimaryButton: UIButton {
+        notificationsCompactBottomBarView.centerButton
+    }
+
+    internal final var isNotificationsCompactUnreadFilterActive: Bool {
+        unreadOnly.value
+    }
+
+    internal final var isNotificationsCompactReadAllButtonEnabled: Bool {
+        notificationsCompactBottomBarView.centerButton.isEnabled
+    }
+
+    private var shouldUseNotificationsCompactBottomBar: Bool {
+        effectiveHorizontalSizeClass == .compact
+    }
+
+    private var effectiveHorizontalSizeClass: UIUserInterfaceSizeClass {
+        if let navigationSizeClass = navigationController?.traitCollection.horizontalSizeClass,
+           navigationSizeClass != .unspecified {
+            return navigationSizeClass
+        }
+        return traitCollection.horizontalSizeClass
+    }
 
     struct DatasourceSnapshot {
         let datasource: [Datasource]
@@ -458,9 +564,186 @@ class NotificationsListViewController: SimpleBaseViewController {
             .toArray()
             .compactMap { $0.jid }
     }
+
+    private func matchingEnabledOwners(in realm: Realm) -> [String] {
+        let owners = Self.enabledOwnerJids(in: realm)
+        if let filterAccount = filterAccount.value {
+            return owners.contains(filterAccount) ? [filterAccount] : []
+        }
+        return owners
+    }
+
+    private func matchingUnreadNotificationCount() -> Int {
+        do {
+            let realm = try WRealm.safe()
+            return NotificationsSupport.unreadVisibleCount(
+                in: realm,
+                owners: matchingEnabledOwners(in: realm),
+                filter: filter.value,
+                filterAccount: nil
+            )
+        } catch {
+            DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
+            return 0
+        }
+    }
+
+    internal final func configureNotificationsBottomSearchIfNeeded() {
+        guard isViewLoaded else { return }
+
+        guard shouldUseNotificationsCompactBottomBar else {
+            let hadSearchQuery = notificationSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty
+            if bottomSearchHostView.superview != nil {
+                bottomSearchHostView.setExpanded(false, animated: false)
+                bottomSearchHostView.setQuery(nil, notify: false)
+                bottomSearchHostView.isHidden = true
+            }
+            notificationSearchQuery = ""
+            notificationsCompactBottomBarView.isHidden = true
+            updateNotificationsTableInsetsForBottomSearch()
+            if hadSearchQuery {
+                scheduleDatasourceReload()
+            }
+            return
+        }
+
+        BottomInPlaceSearchHostHelper.install(
+            searchView: bottomSearchHostView,
+            in: view
+        )
+        bottomSearchHostView.isHidden = false
+        bottomSearchHostView.searchTextField.placeholder = "Search".localizeString(id: "search", arguments: [])
+        bottomSearchHostView.onBegin = { [weak self] in
+            self?.notificationBottomSearchPresentationStateDidChange()
+        }
+        bottomSearchHostView.onQueryChanged = { [weak self] query in
+            guard let self else { return }
+            self.notificationSearchQuery = query ?? ""
+            self.scheduleDatasourceReload()
+            self.notificationBottomSearchPresentationStateDidChange()
+        }
+        bottomSearchHostView.onCancel = { [weak self] in
+            guard let self else { return }
+            self.notificationSearchQuery = ""
+            self.scheduleDatasourceReload()
+            self.notificationBottomSearchPresentationStateDidChange()
+        }
+        updateNotificationsTableInsetsForBottomSearch()
+    }
+
+    private func notificationBottomSearchPresentationStateDidChange() {
+        updateNotificationsCompactBottomBarState()
+        if isViewLoaded {
+            view.bringSubviewToFront(bottomSearchHostView)
+        }
+    }
+
+    internal final func installNotificationsCompactBottomBarIfNeeded() {
+        guard isViewLoaded, shouldUseNotificationsCompactBottomBar else { return }
+        guard bottomSearchHostView.superview != nil else { return }
+
+        guard notificationsCompactBottomBarView.superview == nil else {
+            view.bringSubviewToFront(notificationsCompactBottomBarView)
+            view.bringSubviewToFront(bottomSearchHostView)
+            return
+        }
+
+        view.addSubview(notificationsCompactBottomBarView)
+        notificationsCompactBottomBarView.leftButton.addTarget(
+            self,
+            action: #selector(onNotificationsCompactUnreadFilterButtonTouchUpInside),
+            for: .touchUpInside
+        )
+        notificationsCompactBottomBarView.centerButton.addTarget(
+            self,
+            action: #selector(onNotificationsCompactReadAllButtonTouchUpInside),
+            for: .touchUpInside
+        )
+
+        NSLayoutConstraint.activate([
+            notificationsCompactBottomBarView.bottomAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+                constant: -FloatingBottomBarView.Metrics.bottomOffset
+            ),
+            notificationsCompactBottomBarView.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor,
+                constant: FloatingBottomBarView.Metrics.horizontalInset
+            ),
+            notificationsCompactBottomBarView.trailingAnchor.constraint(
+                equalTo: bottomSearchHostView.collapsedButton.leadingAnchor,
+                constant: -NativeGlassBarStyle.interItemSpacing
+            ),
+            notificationsCompactBottomBarView.heightAnchor.constraint(equalToConstant: FloatingBottomBarView.Metrics.height)
+        ])
+
+        view.bringSubviewToFront(notificationsCompactBottomBarView)
+        view.bringSubviewToFront(bottomSearchHostView)
+    }
+
+    internal final func updateNotificationsCompactBottomBarState() {
+        guard isViewLoaded else { return }
+
+        if shouldUseNotificationsCompactBottomBar {
+            configureNotificationsBottomSearchIfNeeded()
+            installNotificationsCompactBottomBarIfNeeded()
+        } else {
+            configureNotificationsBottomSearchIfNeeded()
+        }
+
+        let isActive = unreadOnly.value
+        notificationsCompactBottomBarView.leftButton.accessibilityIdentifier = "notifications_unread_filter_button"
+        notificationsCompactBottomBarView.leftButton.accessibilityLabel = "Unread notifications filter"
+        notificationsCompactBottomBarView.updateLeftButton(
+            imageName: isActive ? "bell.badge.fill" : "bell",
+            isActive: isActive
+        )
+
+        let readAllTitle = "Read all".localizeString(id: "notifications_read_all_button", arguments: [])
+        notificationsCompactBottomBarView.setCenterButtonTitle(
+            readAllTitle,
+            accessibilityIdentifier: "notifications_read_all_bottom_button",
+            accessibilityLabel: readAllTitle
+        )
+        notificationsCompactBottomBarView.setCenterButtonEnabled(matchingUnreadNotificationCount() > 0)
+        notificationsCompactBottomBarView.isHidden = !shouldUseNotificationsCompactBottomBar || bottomSearchHostView.isExpanded
+        notificationsCompactBottomBarView.refreshAppearance()
+
+        if notificationsCompactBottomBarView.superview != nil {
+            view.bringSubviewToFront(notificationsCompactBottomBarView)
+            view.bringSubviewToFront(bottomSearchHostView)
+        }
+        updateNotificationsTableInsetsForBottomSearch()
+    }
+
+    internal final func updateNotificationsTableInsetsForBottomSearch() {
+        let isBottomSearchVisible = bottomSearchHostView.superview != nil && !bottomSearchHostView.isHidden
+        let isCompactBarVisible = notificationsCompactBottomBarView.superview != nil &&
+            !isNotificationsCompactBottomBarHidden
+        let bottomInset = isBottomSearchVisible || isCompactBarVisible
+            ? max(BottomSearchHostView.Metrics.reservedBottomInset, FloatingBottomBarView.Metrics.reservedBottomInset)
+            : 0
+
+        if tableView.contentInset.bottom != bottomInset {
+            tableView.contentInset.bottom = bottomInset
+        }
+        if tableView.verticalScrollIndicatorInsets.bottom != bottomInset {
+            tableView.verticalScrollIndicatorInsets.bottom = bottomInset
+        }
+    }
+
+    @objc
+    private final func onNotificationsCompactUnreadFilterButtonTouchUpInside(_ sender: UIButton) {
+        unreadOnly.accept(!unreadOnly.value)
+        updateNotificationsCompactBottomBarState()
+    }
+
+    @objc
+    private final func onNotificationsCompactReadAllButtonTouchUpInside(_ sender: UIButton) {
+        markMatchingUnreadNotificationsRead()
+    }
     
     func configureBars(animated: Bool = false) {
-        lastConfiguredBarsState = (filter: filter.value, account: filterAccount.value)
+        lastConfiguredBarsState = (filter: filter.value, account: filterAccount.value, unreadOnly: unreadOnly.value)
         let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .plain, target: self, action: nil)
         button.accessibilityIdentifier = "notifications_filter_menu_button"
         var childs: [UIMenuElement] = [
@@ -553,6 +836,11 @@ class NotificationsListViewController: SimpleBaseViewController {
         
         let readAllNotificationsButton = UIBarButtonItem(image: imageLiteral("checkmark"), style: .plain, target: self, action: #selector(onReadAllNotifications))
         readAllNotificationsButton.accessibilityIdentifier = "notifications_mark_all_read_button"
+        updateNotificationsCompactBottomBarState()
+        if shouldUseNotificationsCompactBottomBar {
+            self.navigationItem.setRightBarButtonItems([], animated: animated)
+            return
+        }
         if childs.isEmpty {
             self.navigationItem.setRightBarButtonItems([readAllNotificationsButton], animated: animated)
         } else {
@@ -561,7 +849,11 @@ class NotificationsListViewController: SimpleBaseViewController {
     }
         
     @objc
-    private func onReadAllNotifications(_ sender: UIBarButtonItem) {
+    private func onReadAllNotifications(_ sender: AnyObject) {
+        markMatchingUnreadNotificationsRead()
+    }
+
+    private func markMatchingUnreadNotificationsRead() {
         self.datasource.forEach {
             $0.childs.forEach {
                 $0.isRead = true
@@ -573,26 +865,33 @@ class NotificationsListViewController: SimpleBaseViewController {
         }
         do {
             let realm = try WRealm.safe()
-            let owners = filterAccount.value.map { [$0] } ?? AccountManager.shared.users.map { $0.jid }
-            let allNotifications = NotificationsSupport.notifications(
+            let owners = matchingEnabledOwners(in: realm)
+            let targetPrimaries = NotificationsSupport.notifications(
                 in: realm,
                 owners: owners,
-                filter: self.filter.value
-            )
+                filter: self.filter.value,
+                unreadOnly: true
+            ).map(\.primary)
             var messagePrimariesByOwner: [String: Set<String>] = [:]
             var affectedChatsByOwner: [String: Set<String>] = [:]
+            var affectedOwners = Set<String>()
             try realm.write {
-                allNotifications.forEach {
-                    $0.isRead = true
-                    guard $0.category == .mention else {
+                targetPrimaries.forEach { primary in
+                    guard let item = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: primary),
+                          item.isRead == false else {
                         return
                     }
-                    if let sourceChatJid = MentionNotificationSync.groupchatJidForLastChatMentionState(from: $0) {
-                        affectedChatsByOwner[$0.owner, default: []].insert(sourceChatJid)
+                    item.isRead = true
+                    affectedOwners.insert(item.owner)
+                    guard item.category == .mention else {
+                        return
                     }
-                    let result = MentionNotificationSync.reconcile(notification: $0, in: realm)
+                    if let sourceChatJid = MentionNotificationSync.groupchatJidForLastChatMentionState(from: item) {
+                        affectedChatsByOwner[item.owner, default: []].insert(sourceChatJid)
+                    }
+                    let result = MentionNotificationSync.reconcile(notification: item, in: realm)
                     if let messagePrimary = result.linkedMessagePrimaryToMarkRead {
-                        messagePrimariesByOwner[$0.owner, default: []].insert(messagePrimary)
+                        messagePrimariesByOwner[item.owner, default: []].insert(messagePrimary)
                     }
                 }
                 affectedChatsByOwner.forEach { owner, chats in
@@ -605,7 +904,7 @@ class NotificationsListViewController: SimpleBaseViewController {
                 }
             }
             AccountManager.shared.users
-                .filter { owners.contains($0.jid) }
+                .filter { affectedOwners.contains($0.jid) }
                 .forEach { user in
                 if user.xmppStream.isAuthenticated {
                     user.action { user, stream in
@@ -616,6 +915,7 @@ class NotificationsListViewController: SimpleBaseViewController {
         } catch {
             DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
         }
+        updateNotificationsCompactBottomBarState()
         scheduleDatasourceReload()
     }
 
@@ -742,7 +1042,12 @@ class NotificationsListViewController: SimpleBaseViewController {
         return out
     }
 
-    func buildDatasourceSnapshot(filter: Filter, filterAccount: String?) -> DatasourceSnapshot {
+    func buildDatasourceSnapshot(
+        filter: Filter,
+        filterAccount: String?,
+        unreadOnly: Bool = false,
+        searchQuery: String? = nil
+    ) -> DatasourceSnapshot {
         do {
             let realm = try WRealm.safe()
             let owners = Self.enabledOwnerJids(in: realm)
@@ -751,6 +1056,8 @@ class NotificationsListViewController: SimpleBaseViewController {
                 owners: owners,
                 filter: filter,
                 filterAccount: filterAccount,
+                unreadOnly: unreadOnly,
+                searchQuery: searchQuery,
                 headerBuilder: self.headerSection(for:),
                 listMapper: self.mapResultByDate(_:rosterMap:)
             ).listDatasource
@@ -808,9 +1115,11 @@ class NotificationsListViewController: SimpleBaseViewController {
         return (changedSections, changedRows)
     }
 
-    private func updateBarsIfNeeded(filter: Filter, filterAccount: String?) {
-        let state = (filter: filter, account: filterAccount)
-        guard lastConfiguredBarsState?.filter != state.filter || lastConfiguredBarsState?.account != state.account else {
+    private func updateBarsIfNeeded(filter: Filter, filterAccount: String?, unreadOnly: Bool) {
+        let state = (filter: filter, account: filterAccount, unreadOnly: unreadOnly)
+        guard lastConfiguredBarsState?.filter != state.filter ||
+            lastConfiguredBarsState?.account != state.account ||
+            lastConfiguredBarsState?.unreadOnly != state.unreadOnly else {
             return
         }
         lastConfiguredBarsState = state
@@ -822,9 +1131,16 @@ class NotificationsListViewController: SimpleBaseViewController {
         let generation = datasourceGeneration
         let filter = self.filter.value
         let filterAccount = self.filterAccount.value
+        let unreadOnly = self.unreadOnly.value
+        let searchQuery = self.notificationSearchQuery
 
         datasourceQueue.async {
-            let snapshot = self.buildDatasourceSnapshot(filter: filter, filterAccount: filterAccount)
+            let snapshot = self.buildDatasourceSnapshot(
+                filter: filter,
+                filterAccount: filterAccount,
+                unreadOnly: unreadOnly,
+                searchQuery: searchQuery
+            )
             DispatchQueue.main.async {
                 guard generation == self.datasourceGeneration else {
                     return
@@ -845,7 +1161,8 @@ class NotificationsListViewController: SimpleBaseViewController {
                 let shouldShowEmptyState = descriptor != nil
                 self.emptyScreenShowObserver.accept(shouldShowEmptyState)
                 self.emptyView.isHidden = !shouldShowEmptyState
-                self.updateBarsIfNeeded(filter: filter, filterAccount: filterAccount)
+                self.updateBarsIfNeeded(filter: filter, filterAccount: filterAccount, unreadOnly: unreadOnly)
+                self.updateNotificationsCompactBottomBarState()
                 guard isCompatible else {
                     self.tableView.reloadData()
                     return
@@ -896,6 +1213,8 @@ class NotificationsListViewController: SimpleBaseViewController {
                     self.navigationItem.setLeftBarButton(makeNotificationsBackButton(), animated: false)
                 }
         }
+        configureNotificationsBottomSearchIfNeeded()
+        updateNotificationsCompactBottomBarState()
         configureBars(animated: false)
     }
     
@@ -910,7 +1229,9 @@ class NotificationsListViewController: SimpleBaseViewController {
         super.viewWillAppear(animated)
         refreshContinuousSplitBackgroundAppearance()
         NavigationLargeTitlePolicy.apply(to: self)
+        configureNotificationsBottomSearchIfNeeded()
         self.configureBars(animated: false)
+        updateNotificationsCompactBottomBarState()
         self.tabBarController?.tabBar.isHidden = false
         self.tabBarController?.tabBar.layoutIfNeeded()
         AccountManager.shared.users.forEach {
@@ -922,6 +1243,18 @@ class NotificationsListViewController: SimpleBaseViewController {
                 }
             }
         }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+
+        guard previousTraitCollection?.horizontalSizeClass != effectiveHorizontalSizeClass else {
+            return
+        }
+
+        configureNotificationsBottomSearchIfNeeded()
+        configureBars(animated: false)
+        updateNotificationsCompactBottomBarState()
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -965,6 +1298,21 @@ class NotificationsListViewController: SimpleBaseViewController {
                     
                 } onDisposed: {
                     
+                }.disposed(by: self.bag)
+
+            self.unreadOnly
+                .asObservable()
+                .distinctUntilChanged()
+                .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
+                .subscribe { _ in
+                    self.scheduleDatasourceReload()
+                    self.updateNotificationsCompactBottomBarState()
+                } onError: { _ in
+
+                } onCompleted: {
+
+                } onDisposed: {
+
                 }.disposed(by: self.bag)
             
             
@@ -1312,6 +1660,7 @@ extension NotificationsListViewController: NotificationsControllerFilterProtocol
         } else {
             self.filterAccount.accept(nil)
         }
+        updateNotificationsCompactBottomBarState()
     }
     
     func shouldFilterBy(category: String?) {
@@ -1319,9 +1668,11 @@ extension NotificationsListViewController: NotificationsControllerFilterProtocol
               category != Filter.all.rawValue,
               let filterValue = Filter(rawValue: category) else {
             filter.accept(.all)
+            updateNotificationsCompactBottomBarState()
             return
         }
         filter.accept(filterValue)
+        updateNotificationsCompactBottomBarState()
     }
 }
 

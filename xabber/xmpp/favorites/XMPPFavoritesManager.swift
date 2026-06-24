@@ -88,6 +88,7 @@ enum SavedMessageParser {
         var innerMessage: XMPPMessage? = nil
         var isForwardedSaved = false
         var date = deliveryDate(from: outerMessage)
+        var originalForwardedDate: Date? = nil
 
         if let reference = outerMessage.element(forName: "reference"),
            let forwarded = reference.element(forName: "forwarded", xmlns: "urn:xmpp:forward:0"),
@@ -97,11 +98,12 @@ enum SavedMessageParser {
             innerMessage = storageMessage
             isForwardedSaved = true
             date = forwardedDate
+            originalForwardedDate = deliveryDate(fromForwarded: forwarded)
         }
 
         guard let originalFromJid = storageMessage.from?.bare,
               let originalToJid = storageMessage.to?.bare,
-              let sentDate = deliveryDate(from: storageMessage),
+              let sentDate = originalForwardedDate ?? deliveryDate(from: storageMessage),
               let messageDate = date else {
             return nil
         }
@@ -180,6 +182,22 @@ enum SavedMessageParser {
 
     private static func deliveryDate(from message: XMPPMessage) -> Date? {
         getDeliveryDate(message)
+    }
+
+    private static func deliveryDate(fromForwarded forwarded: DDXMLElement) -> Date? {
+        if let dateString = forwarded.element(forName: "time")?.attributeStringValue(forName: "stamp"),
+           let date = dateString.xmppDate {
+            return date
+        }
+        if let dateString = forwarded.element(forName: "delay", xmlns: "urn:xmpp:delay")?.attributeStringValue(forName: "stamp"),
+           let date = dateString.xmppDate {
+            return date
+        }
+        if let dateString = forwarded.element(forName: "delay")?.attributeStringValue(forName: "stamp"),
+           let date = dateString.xmppDate {
+            return date
+        }
+        return nil
     }
 
     private static func groupDisplayAuthorJid(from message: XMPPMessage) -> String? {

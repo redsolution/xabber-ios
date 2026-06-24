@@ -1313,7 +1313,7 @@ class MessageStorageItem: Object {
                                     thumb.addAttribute(withName: "uri", stringValue: value)
                                     file.addChild(thumb)
                                 }
-                            case "media-type", "name", "height", "width", "size", "desc", "duration", "hash", "orientation":
+                            case "media-type", "name", "height", "width", "size", "desc", "duration", "hash", "orientation", "video_duration":
                                 if let value = $0.value as? String {
                                     file.addChild(DDXMLElement(name: $0.key, stringValue: value))
                                 } else if let value = $0.value as? Int {

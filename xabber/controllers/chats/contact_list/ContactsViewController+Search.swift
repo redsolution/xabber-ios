@@ -23,44 +23,47 @@ import UIKit
 
 extension ContactsViewController {
     internal var isShowingSearchResults: Bool {
-        BottomInPlaceSearchHostHelper.shouldShowResults(
-            searchView: bottomSearchHostView,
-            updater: chatSearchResultsController
-        )
+        false
     }
     
     internal func configureSearchBar() {
         navigationItem.searchController = nil
         installBottomSearchHostIfNeeded()
-        BottomInPlaceSearchHostHelper.configure(
-            searchView: bottomSearchHostView,
-            updater: chatSearchResultsController,
-            reload: { [weak self] in
-                self?.reloadInPlaceSearchResultsIfNeeded()
-            },
-            activeChanged: { [weak self] _ in
-                self?.bottomSearchPresentationStateDidChange()
-            }
-        )
-        searchController.searchResultsUpdater = chatSearchResultsController
+        bottomSearchHostView.searchTextField.placeholder = contactsSearchPlaceholderText
+        searchController.searchBar.placeholder = contactsSearchPlaceholderText
+        bottomSearchHostView.onBegin = { [weak self] in
+            guard let self else { return }
+            self.contactsSearchQuery = self.bottomSearchHostView.query
+            self.runDatasetUpdateTask(force: true)
+            self.bottomSearchPresentationStateDidChange()
+        }
+        bottomSearchHostView.onQueryChanged = { [weak self] query in
+            guard let self else { return }
+            self.contactsSearchQuery = query
+            self.runDatasetUpdateTask(force: true)
+            self.bottomSearchPresentationStateDidChange()
+        }
+        bottomSearchHostView.onCancel = { [weak self] in
+            guard let self else { return }
+            self.contactsSearchQuery = nil
+            self.runDatasetUpdateTask(force: true)
+            self.bottomSearchPresentationStateDidChange()
+        }
     }
 
     internal func dismissBottomSearchForRoute() {
-        BottomInPlaceSearchHostHelper.dismiss(
-            searchView: bottomSearchHostView,
-            updater: chatSearchResultsController,
-            reload: { [weak self] in
-                self?.reloadInPlaceSearchResultsIfNeeded()
-            },
-            activeChanged: { [weak self] _ in
-                self?.bottomSearchPresentationStateDidChange()
-            }
-        )
+        UIView.performWithoutAnimation {
+            bottomSearchHostView.setQuery(nil, notify: false)
+            bottomSearchHostView.setExpanded(false, animated: false)
+            contactsSearchQuery = nil
+            runDatasetUpdateTask(force: true)
+            bottomSearchPresentationStateDidChange()
+        }
     }
 
     internal func bottomSearchPresentationStateDidChange() {
         refreshEmptyStateVisibility(isSearchActive: bottomSearchHostView.isExpanded)
-        updateTableInsetsForBottomSearch()
+        updateContactsCompactBottomBarState()
         if isViewLoaded {
             view.bringSubviewToFront(bottomSearchHostView)
         }
@@ -76,9 +79,12 @@ extension ContactsViewController {
     }
 
     internal func updateTableInsetsForBottomSearch() {
-        let bottomInset = bottomSearchHostView.superview == nil
-            ? 0
-            : BottomSearchHostView.Metrics.reservedBottomInset
+        let isBottomSearchVisible = bottomSearchHostView.superview != nil && !bottomSearchHostView.isHidden
+        let isCompactBarVisible = contactsCompactBottomBarFilterButton.superview != nil &&
+            !isContactsCompactBottomBarHidden
+        let bottomInset = isBottomSearchVisible || isCompactBarVisible
+            ? max(BottomSearchHostView.Metrics.reservedBottomInset, FloatingBottomBarView.Metrics.reservedBottomInset)
+            : 0
 
         if tableView.contentInset.bottom != bottomInset {
             tableView.contentInset.bottom = bottomInset
@@ -96,11 +102,9 @@ extension ContactsViewController {
     }
 
     internal func clearInPlaceSearchResultsForDismissal() {
-        chatSearchResultsController.reset()
+        contactsSearchQuery = nil
         guard isViewLoaded else { return }
-        UIView.performWithoutAnimation {
-            tableView.reloadData()
-        }
+        runDatasetUpdateTask(force: true)
     }
 }
 
@@ -134,40 +138,5 @@ extension ContactsViewController: UISearchControllerDelegate {
     func didDismissSearchController(_ searchController: UISearchController) {
         print("UISearchControllerDelegate invoked method: \(#function).")
         refreshEmptyStateVisibility(isSearchActive: false)
-    }
-}
-
-extension ContactsViewController: SearchResultsDelegateProtocol {
-    func openChat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
-        let vc = ChatViewController()
-        vc.owner = owner
-        vc.jid = jid
-        vc.conversationType = conversationType
-        showStacked(vc, in: self)
-    }
-
-    internal func openSearchResult(_ item: SearchResultsViewController.Datasource) {
-        InPlaceSearchResultRouteHelper.open(
-            item,
-            updater: chatSearchResultsController,
-            dismissSearch: { [weak self] in
-                self?.dismissBottomSearchForRoute()
-            },
-            reload: { [weak self] in
-                self?.reloadInPlaceSearchResultsIfNeeded()
-            },
-            openNewChat: { [weak self] item, completion in
-                guard let self else {
-                    completion(nil)
-                    return
-                }
-                let vc = ChatViewController()
-                vc.owner = item.owner
-                vc.jid = item.jid
-                vc.conversationType = item.conversationType
-                showStacked(vc, in: self)
-                completion(vc)
-            }
-        )
     }
 }

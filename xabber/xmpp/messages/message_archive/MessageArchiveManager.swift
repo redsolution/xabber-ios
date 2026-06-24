@@ -463,7 +463,11 @@ class MessageArchiveManager: AbstractXMPPManager {
                 return true
             }
 
-            return localMessageCount == 0 && !isInitialArchiveLoaded
+            if !isInitialArchiveLoaded {
+                return true
+            }
+
+            return false
         }
     }
 
@@ -703,6 +707,22 @@ class MessageArchiveManager: AbstractXMPPManager {
         direction: RegularArchiveGapRepairDirection,
         pageSize: Int
     ) -> RegularChatArchiveRequestPlan {
+        archiveGapRepairRequestPlan(
+            jid: jid,
+            conversationType: .regular,
+            gap: gap,
+            direction: direction,
+            pageSize: pageSize
+        )
+    }
+
+    static func archiveGapRepairRequestPlan(
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        gap: RegularChatArchiveGap,
+        direction: RegularArchiveGapRepairDirection,
+        pageSize: Int
+    ) -> RegularChatArchiveRequestPlan {
         let pageSize = regularArchivePageSize(requested: pageSize)
         switch direction {
         case .older:
@@ -711,7 +731,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             return RegularChatArchiveRequestPlan(
                 kind: .gapRepair,
                 jid: jid,
-                conversationType: .regular,
+                conversationType: conversationType,
                 purpose: .gapRepair,
                 nextPage: request.nextPage,
                 prevPage: request.prevPage,
@@ -728,7 +748,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             return RegularChatArchiveRequestPlan(
                 kind: .gapRepair,
                 jid: jid,
-                conversationType: .regular,
+                conversationType: conversationType,
                 purpose: .gapRepair,
                 nextPage: request.nextPage,
                 prevPage: request.prevPage,
@@ -856,6 +876,47 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     var callbacksQueue: Set<CallbackQueueItem> = Set<CallbackQueueItem>()
+    private let callbacksQueueLock = NSRecursiveLock()
+
+    @discardableResult
+    internal func upsertCallbackQueueItem(_ item: CallbackQueueItem) -> CallbackQueueItem? {
+        callbacksQueueLock.lock()
+        defer { callbacksQueueLock.unlock() }
+        return callbacksQueue.update(with: item)
+    }
+
+    internal func firstCallbackQueueItem(where predicate: (CallbackQueueItem) -> Bool) -> CallbackQueueItem? {
+        callbacksQueueLock.lock()
+        defer { callbacksQueueLock.unlock() }
+        return callbacksQueue.first(where: predicate)
+    }
+
+    internal func callbackQueueContains(where predicate: (CallbackQueueItem) -> Bool) -> Bool {
+        callbacksQueueLock.lock()
+        defer { callbacksQueueLock.unlock() }
+        return callbacksQueue.contains(where: predicate)
+    }
+
+    internal func callbackQueueItems(where predicate: (CallbackQueueItem) -> Bool = { _ in true }) -> [CallbackQueueItem] {
+        callbacksQueueLock.lock()
+        defer { callbacksQueueLock.unlock() }
+        return callbacksQueue.filter(predicate)
+    }
+
+    internal func removeCallbackQueueItem(_ item: CallbackQueueItem) {
+        callbacksQueueLock.lock()
+        defer { callbacksQueueLock.unlock() }
+        callbacksQueue.remove(item)
+    }
+
+    @discardableResult
+    internal func drainCallbackQueueItems() -> [CallbackQueueItem] {
+        callbacksQueueLock.lock()
+        defer { callbacksQueueLock.unlock() }
+        let items = Array(callbacksQueue)
+        callbacksQueue.removeAll()
+        return items
+    }
 
     private struct FallbackEndPageCallbackKey: Hashable {
         let owner: String
@@ -1084,10 +1145,9 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
 
     internal func pendingArchiveRequestQueryIds(archiveProducingOnly: Bool = true) -> [String] {
-        self.callbacksQueue
-            .filter { item in
-                !archiveProducingOnly || item.task.purpose.isArchiveHistoryProducing
-            }
+        self.callbackQueueItems { item in
+            !archiveProducingOnly || item.task.purpose.isArchiveHistoryProducing
+        }
             .map(\.elementId)
             .sorted()
     }
@@ -1098,8 +1158,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         reason: MessageArchiveRequestFailureReason,
         errorDescription: String?
     ) -> [MessageArchiveRequestFailureEvent] {
-        let pendingItems = self.callbacksQueue
-            .filter { $0.task.purpose.isArchiveHistoryProducing }
+        let pendingItems = self.callbackQueueItems { $0.task.purpose.isArchiveHistoryProducing }
             .sorted { $0.elementId < $1.elementId }
         let pendingQueryCount = pendingItems.count
 
@@ -1151,7 +1210,7 @@ class MessageArchiveManager: AbstractXMPPManager {
 
     private func removePendingArchiveRequestAfterFailure(_ item: CallbackQueueItem) {
         let queryId = item.elementId
-        self.callbacksQueue.remove(item)
+        self.removeCallbackQueueItem(item)
         self.queryIds.remove(queryId)
         self.persistedMessageCountsByQueryId.removeValue(forKey: queryId)
         self.searchResultsQueries.remove(queryId)
@@ -1265,6 +1324,41 @@ class MessageArchiveManager: AbstractXMPPManager {
             archiveEnded: queryExhausted && task.archiveEndEligibility,
             persistedMessageCount: persistedMessageCount,
             requestCursorId: task.messageId
+        )
+    }
+
+    private func shouldCommitOwnedArchiveEnd(
+        task: MAMRequestItem,
+        state: MessageArchivePageEndState,
+        count: Int
+    ) -> Bool {
+        guard task.archiveEndEligibility,
+              !task.consumerManagesArchiveEnd,
+              state.archiveEnded else {
+            return false
+        }
+        if count == 0 {
+            return true
+        }
+        return state.persistedMessageCount > 0
+    }
+
+    private func applyOwnedConversationArchivePageResultIfNeeded(
+        task: MAMRequestItem,
+        state: MessageArchivePageEndState,
+        first: String,
+        last: String,
+        count: Int
+    ) {
+        guard shouldCommitOwnedArchiveEnd(task: task, state: state, count: count) else {
+            return
+        }
+        applyConversationArchivePageResult(
+            task: task,
+            state: state,
+            first: first,
+            last: last,
+            count: count
         )
     }
 
@@ -1452,7 +1546,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         let streamKind = Self.streamKind(for: stream)
         if iq.iqType == .error,
            let elementId = iq.elementID {
-            let localCallbackRegistered = self.callbacksQueue.contains(where: { $0.elementId == elementId })
+            let localCallbackRegistered = self.callbackQueueContains { $0.elementId == elementId }
             let dispatcherRegistered = MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: elementId)
             let fallbackRegistered = Self.hasFallbackEndPageCallback(owner: self.owner, queryId: elementId)
             let localQueryRegistered = self.queryIds.contains(elementId)
@@ -1468,9 +1562,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                 ("route", localCallbackRegistered ? "activeLocalCallback" : ((dispatcherRegistered || fallbackRegistered || localQueryRegistered) ? "fallbackOrRegistered" : "staleNoActiveContext"))
             ])
             DDLogDebug(
-                "MessageArchiveManager.read mamErrorReceived owner=\(self.owner) elementId=\(elementId) streamKind=\(streamKind.rawValue) localCallbackRegistered=\(self.callbacksQueue.contains(where: { $0.elementId == elementId })) dispatcherRegistered=\(MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: elementId))"
+                "MessageArchiveManager.read mamErrorReceived owner=\(self.owner) elementId=\(elementId) streamKind=\(streamKind.rawValue) localCallbackRegistered=\(localCallbackRegistered) dispatcherRegistered=\(MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: elementId))"
             )
-            if let item = self.callbacksQueue.first(where: { $0.elementId == elementId }) {
+            if let item = self.firstCallbackQueueItem(where: { $0.elementId == elementId }) {
                 let queryId = item.task.queryId ?? elementId
                 let pageEndState = self.makePageEndState(
                     for: item.task,
@@ -1488,7 +1582,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                     streamKind: streamKind
                 )
                 self.finishRegularArchiveRequest(queryId: queryId, item: item, state: nil, first: "", last: "", count: 0)
-                self.callbacksQueue.remove(item)
+                self.removeCallbackQueueItem(item)
                 self.queryIds.remove(elementId)
                 return true
             }
@@ -1529,7 +1623,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         let first = set.element(forName: "first")?.stringValue ?? ""
         let last = set.element(forName: "last")?.stringValue ?? ""
         let resultCount = set.element(forName: "count")?.stringValueAsNSInteger() ?? 0
-        let localCallbackRegistered = self.callbacksQueue.contains(where: { $0.elementId == elementId })
+        let localCallbackRegistered = self.callbackQueueContains { $0.elementId == elementId }
         let dispatcherRegistered = MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: queryId)
         let fallbackRegistered = Self.hasFallbackEndPageCallback(owner: self.owner, queryId: queryId)
         let localQueryRegistered = self.queryIds.contains(elementId) || self.queryIds.contains(queryId)
@@ -1549,10 +1643,10 @@ class MessageArchiveManager: AbstractXMPPManager {
             ("last", last)
         ])
         DDLogDebug(
-            "MessageArchiveManager.read mamFinalReceived owner=\(self.owner) elementId=\(elementId) queryId=\(queryId) streamKind=\(streamKind.rawValue) localCallbackRegistered=\(self.callbacksQueue.contains(where: { $0.elementId == elementId })) dispatcherRegistered=\(MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: queryId)) count=\(resultCount) complete=\(complete)"
+            "MessageArchiveManager.read mamFinalReceived owner=\(self.owner) elementId=\(elementId) queryId=\(queryId) streamKind=\(streamKind.rawValue) localCallbackRegistered=\(localCallbackRegistered) dispatcherRegistered=\(MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: queryId)) count=\(resultCount) complete=\(complete)"
         )
 //        DispatchQueue.global().async {
-            if let item = self.callbacksQueue.first(where: { $0.elementId == elementId }) {
+            if let item = self.firstCallbackQueueItem(where: { $0.elementId == elementId }) {
                 if item.task.isContinues {
                     let nextPage = set.element(forName: "last")?.stringValue
                     do {
@@ -1563,10 +1657,17 @@ class MessageArchiveManager: AbstractXMPPManager {
                                 queryId: queryId,
                                 queryExhausted: count == 0 || complete
                             )
+                            self.applyOwnedConversationArchivePageResultIfNeeded(
+                                task: item.task,
+                                state: pageEndState,
+                                first: first,
+                                last: last,
+                                count: count
+                            )
                             
                             if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: item.jid, owner: self.owner, conversationType: item.task.conversationType)) {
                                 if count == 0 {
-                                    if item.task.archiveEndEligibility && !item.task.consumerManagesArchiveEnd {
+                                    if self.shouldCommitOwnedArchiveEnd(task: item.task, state: pageEndState, count: count) {
                                         try realm.write {
                                             instance.fullArchiveLoaded = pageEndState.archiveEnded
                                         }
@@ -1574,13 +1675,13 @@ class MessageArchiveManager: AbstractXMPPManager {
                                     self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
                                     self.completeCallback(item.callback)
                                     self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
-                                    self.callbacksQueue.remove(item)
+                                    self.removeCallbackQueueItem(item)
                                     return true
                                 }
                                 if complete {
 //                                    try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
                                     try realm.write {
-                                        if item.task.archiveEndEligibility && !item.task.consumerManagesArchiveEnd {
+                                        if self.shouldCommitOwnedArchiveEnd(task: item.task, state: pageEndState, count: count) {
                                             instance.fullArchiveLoaded = pageEndState.archiveEnded
                                         }
                                         if !item.task.consumerManagesHistoryCursor {
@@ -1595,7 +1696,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                                     self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
                                     self.completeCallback(item.callback)
                                     self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
-                                    self.callbacksQueue.remove(item)
+                                    self.removeCallbackQueueItem(item)
                                     return true
                                 }
                             }
@@ -1603,14 +1704,14 @@ class MessageArchiveManager: AbstractXMPPManager {
                                 self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
                                 self.completeCallback(item.callback)
                                 self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
-                                self.callbacksQueue.remove(item)
+                                self.removeCallbackQueueItem(item)
                                 return true
                             }
                             if complete {
                                 self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
                                 self.completeCallback(item.callback)
                                 self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
-                                self.callbacksQueue.remove(item)
+                                self.removeCallbackQueueItem(item)
                                 return true
                             }
                             self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
@@ -1637,9 +1738,16 @@ class MessageArchiveManager: AbstractXMPPManager {
                                 queryId: queryId,
                                 queryExhausted: count == 0 || complete
                             )
+                            self.applyOwnedConversationArchivePageResultIfNeeded(
+                                task: item.task,
+                                state: pageEndState,
+                                first: first,
+                                last: last,
+                                count: count
+                            )
                             if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: item.jid, owner: self.owner, conversationType: item.task.conversationType)) {
                                 try realm.write {
-                                    if item.task.archiveEndEligibility && !item.task.consumerManagesArchiveEnd {
+                                    if self.shouldCommitOwnedArchiveEnd(task: item.task, state: pageEndState, count: count) {
                                         instance.fullArchiveLoaded = pageEndState.archiveEnded
                                     }
                                     if item.task.purpose.marksInitialArchiveLoaded {
@@ -1659,14 +1767,14 @@ class MessageArchiveManager: AbstractXMPPManager {
                             if count == 0 {
 //                                try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
                                 self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
-                                self.callbacksQueue.remove(item)
+                                self.removeCallbackQueueItem(item)
                                 self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
                                 return true
                             }
                             if fin.attributeBoolValue(forName: "complete") {
 //                                try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
                                 self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count)
-                                self.callbacksQueue.remove(item)
+                                self.removeCallbackQueueItem(item)
                                 self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
                                 return true
                             }
@@ -1684,7 +1792,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                     self.finishRegularArchiveRequest(queryId: queryId, item: item, state: state, first: first, last: last, count: item.task.max)
                 }
                 self.unregisterArchiveQueryId(queryId)
-                self.callbacksQueue.remove(item)
+                self.removeCallbackQueueItem(item)
             } else {
                 let count = resultCount
                 let pageEndState = MessageArchivePageEndState(
@@ -1738,10 +1846,10 @@ class MessageArchiveManager: AbstractXMPPManager {
         let taskId = [jid ?? "global_search", conversationType.rawValue].prp()
         if let continuesTaskID = continuesTaskID {
             if taskId != continuesTaskID {
-                if let item = self.callbacksQueue.first(where: { $0.task.taskID == continuesTaskID }) {
+                if let item = self.firstCallbackQueueItem(where: { $0.task.taskID == continuesTaskID }) {
                     item.callback?()
                     DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-                        self.callbacksQueue.remove(item)
+                        self.removeCallbackQueueItem(item)
                     }
                 }
             }
@@ -1769,10 +1877,10 @@ class MessageArchiveManager: AbstractXMPPManager {
         let taskId = ["media", jid ?? "global", conversationType.rawValue].prp()
         if let continuesTaskID = continuesTaskID {
             if taskId != continuesTaskID {
-                if let item = self.callbacksQueue.first(where: { $0.task.taskID == continuesTaskID }) {
+                if let item = self.firstCallbackQueueItem(where: { $0.task.taskID == continuesTaskID }) {
                     item.callback?()
                     DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-                        self.callbacksQueue.remove(item)
+                        self.removeCallbackQueueItem(item)
                     }
                 }
             }
@@ -1978,7 +2086,7 @@ class MessageArchiveManager: AbstractXMPPManager {
 
                 if let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary) {
                     chat.lastLoadedMessageHistoryId = archiveState.oldestLoadedArchiveId ?? chat.lastLoadedMessageHistoryId
-                    if task.conversationType == .regular {
+                    if task.conversationType.supportsSnapshotArchiveRepair {
                         chat.fullArchiveLoaded = archiveState.olderArchiveEndReached
                     }
                     if task.purpose == .bootstrap {
@@ -2197,7 +2305,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             consumerManagesHistoryCursor: consumerManagesHistoryCursor,
             deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof
         )
-        self.callbacksQueue.update(with:
+        self.upsertCallbackQueueItem(
             CallbackQueueItem(
                 jid: jid ?? "",
                 elementId: elementId,
@@ -2531,6 +2639,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             max: pageRequest.max,
             consumerManagesArchiveEnd: true,
             consumerManagesHistoryCursor: true,
+            deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof,
             callback: callback,
             requestCallbacks: requestCallbacks
         )
@@ -2573,6 +2682,9 @@ class MessageArchiveManager: AbstractXMPPManager {
             nextPage: pageRequest.nextPage,
             prevPage: pageRequest.prevPage,
             max: pageRequest.max,
+            consumerManagesArchiveEnd: true,
+            consumerManagesHistoryCursor: true,
+            deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof,
             callback: callback,
             requestCallbacks: requestCallbacks
         )
@@ -2591,9 +2703,37 @@ class MessageArchiveManager: AbstractXMPPManager {
         requestCallbacks: RequestCallbacks = .none,
         deferCoverageCommitUntilConsumerProof: Bool = false
     ) -> String {
+        getGapRepairHistory(
+            stream,
+            for: jid,
+            conversationType: .regular,
+            gap: gap,
+            direction: direction,
+            pageSize: pageSize,
+            queryId: queryId,
+            callback: callback,
+            requestCallbacks: requestCallbacks,
+            deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof
+        )
+    }
+
+    @discardableResult
+    internal func getGapRepairHistory(
+        _ stream: XMPPStream,
+        for jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        gap: RegularChatArchiveGap,
+        direction: RegularArchiveGapRepairDirection,
+        pageSize: Int? = nil,
+        queryId: String? = nil,
+        callback: (() -> Void)? = nil,
+        requestCallbacks: RequestCallbacks = .none,
+        deferCoverageCommitUntilConsumerProof: Bool = false
+    ) -> String {
         let effectivePageSize = Self.regularArchivePageSize(requested: pageSize, defaultPageSize: self.pageSize)
-        let plan = Self.regularGapRepairRequestPlan(
+        let plan = Self.archiveGapRepairRequestPlan(
             jid: jid,
+            conversationType: conversationType,
             gap: gap,
             direction: direction,
             pageSize: effectivePageSize
@@ -2639,10 +2779,10 @@ class MessageArchiveManager: AbstractXMPPManager {
         let taskId = [jid, conversationType.rawValue].prp()
         if let continuesTaskID = continuesTaskID {
             if taskId != continuesTaskID {
-                if let item = self.callbacksQueue.first(where: { $0.task.taskID == continuesTaskID }) {
+                if let item = self.firstCallbackQueueItem(where: { $0.task.taskID == continuesTaskID }) {
                     item.callback?()
                     DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-                        self.callbacksQueue.remove(item)
+                        self.removeCallbackQueueItem(item)
                     }
                 }
             }
@@ -2678,9 +2818,9 @@ class MessageArchiveManager: AbstractXMPPManager {
     public final func continueLoadHistory(_ stream: XMPPStream, task: MAMRequestItem, nextPage: String?, requestCallbacks: RequestCallbacks = .none, callback: (() -> Void)? = nil) {
 //        guard continuesTaskID == task.taskID else { return }
         guard let nextPage = nextPage else {
-            if let item = self.callbacksQueue.first(where: { $0.task.taskID == task.taskID }) {
+            if let item = self.firstCallbackQueueItem(where: { $0.task.taskID == task.taskID }) {
                 item.callback?()
-                self.callbacksQueue.remove(item)
+                self.removeCallbackQueueItem(item)
             }
             return
         }
@@ -2713,9 +2853,9 @@ class MessageArchiveManager: AbstractXMPPManager {
     public final func endLoadHistory(jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
         let taskId = [jid, conversationType.rawValue].prp()
         if let continuesTaskID = continuesTaskID, continuesTaskID == taskId {
-            if let item = self.callbacksQueue.first(where: { $0.task.taskID == continuesTaskID }) {
+            if let item = self.firstCallbackQueueItem(where: { $0.task.taskID == continuesTaskID }) {
                 item.callback?()
-                self.callbacksQueue.remove(item)
+                self.removeCallbackQueueItem(item)
             }
             self.continuesTaskID = nil
         }
@@ -2892,7 +3032,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 instance.markAutoDeleted()
             }
             
-            let requestCallbacks = self.callbacksQueue.first(where: { $0.elementId == queryId })?.requestCallbacks ?? .none
+            let requestCallbacks = self.firstCallbackQueueItem(where: { $0.elementId == queryId })?.requestCallbacks ?? .none
             self.notifyDidReceiveMessage(instance, queryId: queryId, callbacks: requestCallbacks)
         }
         return true
@@ -3063,8 +3203,8 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     func didResetState() {
-        self.callbacksQueue.forEach { $0.callback?() }
-        self.callbacksQueue.removeAll()
+        let pendingItems = self.drainCallbackQueueItems()
+        pendingItems.forEach { $0.callback?() }
         self.queryIds.removeAll()
         self.persistedMessageCountsByQueryId.removeAll()
         self.regularArchiveInFlightByKey.removeAll()

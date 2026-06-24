@@ -228,6 +228,78 @@ final class ContactsListAppearanceTests: XCTestCase {
         assertContactsLargeTitle(useLargeTitle: false, isGroup: true)
     }
 
+    func testScopedContactSearchFiltersContactRowsAndDropsHeadersAndButtons() {
+        let contact = ContactsViewController.Datasource(
+            owner: "owner@example.com",
+            title: "Alice Contact",
+            jid: "alice@example.com",
+            subtitle: "alice@example.com",
+            groups: ["Friends"],
+            conversationType: .regular
+        )
+        let header = ContactsViewController.Datasource(
+            owner: "",
+            title: "Contact Requests",
+            jid: "",
+            subtitle: "",
+            groups: [],
+            conversationType: .regular,
+            isHeader: true
+        )
+        let button = ContactsViewController.Datasource(
+            owner: "",
+            title: "Show all",
+            jid: "",
+            subtitle: "",
+            groups: [],
+            conversationType: .regular,
+            isButton: true
+        )
+
+        let results = ContactsListSupport.filteredDatasourceRows(
+            [header, button, contact],
+            searchQuery: "alice"
+        )
+
+        XCTAssertEqual(results, [contact])
+    }
+
+    func testScopedGroupSearchMatchesGroupMetadataAndMembers() {
+        let group = ContactsViewController.Datasource(
+            owner: "owner@example.com",
+            title: "Roadmap Group",
+            jid: "roadmap@example.com",
+            subtitle: "Planning",
+            groups: ["Work"],
+            conversationType: .group,
+            descr: "Product planning",
+            members: [
+                ContactsViewController.GroupDisplayMember(
+                    name: "Juliet",
+                    jid: "juliet@example.com",
+                    uuid: "member-1"
+                )
+            ],
+            entity: .groupchat
+        )
+        let otherGroup = ContactsViewController.Datasource(
+            owner: "owner@example.com",
+            title: "Random Group",
+            jid: "random@example.com",
+            subtitle: "Other",
+            groups: [],
+            conversationType: .group,
+            entity: .groupchat
+        )
+
+        let results = ContactsListSupport.filteredDatasourceRows(
+            [group, otherGroup],
+            searchQuery: "juliet"
+        )
+
+        XCTAssertEqual(results, [group])
+    }
+
     func testContactsCategoriesLargeTitleFollowsCommonConfig() {
         assertCategoryLargeTitle(useLargeTitle: true, isGroup: false)
         assertCategoryLargeTitle(useLargeTitle: false, isGroup: false)
@@ -300,6 +372,7 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertTrue(controller.bottomSearchHostView.superview === controller.view)
         XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
         XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
+        XCTAssertTrue(controller.isContactsCompactBottomBarHidden)
         XCTAssertFalse(controller.searchController.hidesBottomBarWhenPushed)
         XCTAssertFalse(controller.searchController.definesPresentationContext)
     }
@@ -322,6 +395,11 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertTrue(controller.bottomSearchHostView.superview === controller.view)
         XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
         XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
+        XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
+        XCTAssertEqual(
+            controller.contactsCompactBottomBarCenterTitle,
+            "Add Contact".localizeString(id: "contacts_empty_add_contact", arguments: [])
+        )
     }
 
     func testContactsConfigureSearchBarInstallsBottomSearchWithoutMutatingAppearance() {
@@ -392,6 +470,28 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertTrue(controller.bottomBar.superview == nil || controller.bottomBar.isHidden)
     }
 
+    func testContactsCompactBottomSearchExpansionHidesAndRestoresActionBar() {
+        let controller = ContactsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+
+        XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
+
+        controller.bottomSearchHostView.collapsedButton.sendActions(for: .touchUpInside)
+
+        XCTAssertTrue(controller.bottomSearchHostView.isExpanded)
+        XCTAssertFalse(controller.bottomSearchHostView.surfaceView.isHidden)
+        XCTAssertTrue(controller.isContactsCompactBottomBarHidden)
+
+        controller.bottomSearchHostView.cancelButton.sendActions(for: .touchUpInside)
+
+        XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
+        XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
+        XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
+    }
+
     func testGroupsListUsesSameInsetGroupedTransparentSplitAppearanceInRegularWidth() {
         let controller = ContactsViewController()
         controller.isGroup = true
@@ -422,6 +522,11 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertTrue(controller.tableView.isOpaque)
         XCTAssertTrue(controller.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
         XCTAssertTrue(controller.view.isOpaque)
+        XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
+        XCTAssertEqual(
+            controller.contactsCompactBottomBarCenterTitle,
+            "Create Group".localizeString(id: "create_group", arguments: [])
+        )
     }
 
     func testContactsCategoryUsesInsetGroupedTransparentSplitAppearanceAndNativeSpacingInRegularWidth() {
@@ -708,30 +813,141 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertEqual(spy.categoryFilters, ["public"])
     }
 
-    func testContactsCompactSplitNavbarButtonsAreVisibleAfterLoad() throws {
+    func testContactsCompactSplitUsesBottomActionsAndClearsNavbarDuplicates() throws {
         let controller = ContactsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
 
-        controller.loadViewIfNeeded()
+        container.loadViewIfNeeded()
 
         XCTAssertEqual(controller.navigationItem.leftBarButtonItem?.accessibilityIdentifier, "contacts_back_to_chats_button")
-        let rightItems = try XCTUnwrap(controller.navigationItem.rightBarButtonItems)
-        XCTAssertEqual(rightItems.compactMap(\.accessibilityIdentifier), [
-            "contacts_filter_menu_button",
-            "contacts_add_button"
-        ])
+        XCTAssertTrue(controller.navigationItem.rightBarButtonItems?.isEmpty ?? true)
+        XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
+        XCTAssertEqual(controller.contactsCompactBottomBarFilterButton.accessibilityIdentifier, "contacts_online_filter_button")
+        XCTAssertEqual(controller.contactsCompactBottomBarPrimaryButton.accessibilityIdentifier, "contacts_add_contact_bottom_button")
     }
 
-    func testGroupsCompactSplitNavbarButtonsAreVisibleAfterLoad() throws {
+    func testGroupsCompactSplitUsesBottomActionsAndClearsNavbarDuplicates() throws {
+        let controller = ContactsViewController()
+        controller.isGroup = true
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.navigationItem.leftBarButtonItem?.accessibilityIdentifier, "groups_back_to_chats_button")
+        XCTAssertTrue(controller.navigationItem.rightBarButtonItems?.isEmpty ?? true)
+        XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
+        XCTAssertEqual(controller.contactsCompactBottomBarFilterButton.accessibilityIdentifier, "groups_online_filter_button")
+        XCTAssertEqual(controller.contactsCompactBottomBarPrimaryButton.accessibilityIdentifier, "groups_create_group_bottom_button")
+    }
+
+    func testContactsCompactBottomFilterReceivesHitWhenSearchHostIsCollapsed() {
+        let controller = ContactsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+        container.view.layoutIfNeeded()
+        navigationController.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+
+        let button = controller.contactsCompactBottomBarFilterButton
+        let buttonPoint = controller.view.convert(
+            CGPoint(x: button.bounds.midX, y: button.bounds.midY),
+            from: button
+        )
+
+        XCTAssertTrue(controller.view.hitTest(buttonPoint, with: nil) === button)
+    }
+
+    func testContactsCompactPrimaryFlowBuildsAddContactController() {
+        let controller = ContactsViewController()
+
+        let flowController = controller.makeAddContactFlowViewController()
+
+        XCTAssertTrue(flowController is AddNewContactViewController)
+    }
+
+    func testGroupsCompactPrimaryFlowBuildsPublicCreateGroupController() throws {
         let controller = ContactsViewController()
         controller.isGroup = true
 
-        controller.loadViewIfNeeded()
+        let flowController = try XCTUnwrap(
+            controller.makeCreatePublicGroupFlowViewController() as? CreateNewGroupViewController
+        )
 
-        XCTAssertEqual(controller.navigationItem.leftBarButtonItem?.accessibilityIdentifier, "groups_back_to_chats_button")
-        let rightItems = try XCTUnwrap(controller.navigationItem.rightBarButtonItems)
-        XCTAssertEqual(rightItems.compactMap(\.accessibilityIdentifier), [
-            "groups_filter_menu_button",
-            "groups_add_button"
+        XCTAssertFalse(flowController.createIncognitoGroup)
+    }
+
+    func testContactsCompactBottomFilterTogglesAllAndOnlineContacts() {
+        let controller = ContactsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.category, "all")
+        XCTAssertTrue(controller.showOffline)
+        XCTAssertFalse(controller.isContactsCompactOnlineFilterActive)
+
+        controller.contactsCompactBottomBarFilterButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(controller.category, "online")
+        XCTAssertFalse(controller.showOffline)
+        XCTAssertTrue(controller.isContactsCompactOnlineFilterActive)
+
+        controller.contactsCompactBottomBarFilterButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(controller.category, "all")
+        XCTAssertTrue(controller.showOffline)
+        XCTAssertFalse(controller.isContactsCompactOnlineFilterActive)
+    }
+
+    func testGroupsCompactBottomFilterTogglesOnlineWithoutChangingCategory() {
+        let controller = ContactsViewController()
+        controller.isGroup = true
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.category, "public")
+        XCTAssertTrue(controller.showOffline)
+        XCTAssertFalse(controller.isContactsCompactOnlineFilterActive)
+
+        controller.contactsCompactBottomBarFilterButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(controller.category, "public")
+        XCTAssertFalse(controller.showOffline)
+        XCTAssertTrue(controller.isContactsCompactOnlineFilterActive)
+
+        controller.contactsCompactBottomBarFilterButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(controller.category, "public")
+        XCTAssertTrue(controller.showOffline)
+        XCTAssertFalse(controller.isContactsCompactOnlineFilterActive)
+    }
+
+    func testContactsTraitChangeRestoresRegularNavbarAndHidesCompactBottomBar() {
+        let controller = ContactsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let parent = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        parent.loadViewIfNeeded()
+        XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
+        XCTAssertTrue(controller.navigationItem.rightBarButtonItems?.isEmpty ?? true)
+
+        parent.setOverrideTraitCollection(
+            UITraitCollection(horizontalSizeClass: .regular),
+            forChild: navigationController
+        )
+        controller.traitCollectionDidChange(UITraitCollection(horizontalSizeClass: .compact))
+
+        XCTAssertTrue(controller.isContactsCompactBottomBarHidden)
+        XCTAssertEqual(controller.navigationItem.rightBarButtonItems?.compactMap(\.accessibilityIdentifier), [
+            "contacts_filter_menu_button",
+            "contacts_add_button"
         ])
     }
 

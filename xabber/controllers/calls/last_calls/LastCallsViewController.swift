@@ -195,12 +195,47 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal var isCallHistoryLoaded: Bool = false
     
     internal var topAccountJid: String = ""
+
+    internal final var isCallsCompactBottomBarHidden: Bool {
+        callsCompactBottomBarView.superview == nil || callsCompactBottomBarView.isHidden
+    }
+
+    internal final var callsCompactBottomBarCenterTitle: String? {
+        callsCompactBottomBarView.centerButton.title(for: .normal)
+    }
+
+    internal final var callsCompactBottomBarFilterButton: UIButton {
+        callsCompactBottomBarView.leftButton
+    }
+
+    internal final var callsCompactBottomBarPrimaryButton: UIButton {
+        callsCompactBottomBarView.centerButton
+    }
+
+    internal final var isCallsCompactStartCallButtonEnabled: Bool {
+        callsCompactBottomBarView.centerButton.isEnabled
+    }
+
+    internal final var isCallsCompactMissedFilterActive: Bool {
+        filter.value == .missed
+    }
+
+    private var shouldUseCallsCompactBottomBar: Bool {
+        effectiveHorizontalSizeClass == .compact
+    }
+
+    private var effectiveHorizontalSizeClass: UIUserInterfaceSizeClass {
+        if let navigationSizeClass = navigationController?.traitCollection.horizontalSizeClass,
+           navigationSizeClass != .unspecified {
+            return navigationSizeClass
+        }
+        return traitCollection.horizontalSizeClass
+    }
     
     internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(ItemCell.self, forCellReuseIdentifier: ItemCell.cellName)
-        view.register(ChatListTableViewCell.self, forCellReuseIdentifier: ChatListTableViewCell.cellName)
         view.separatorStyle = .singleLine
         view.cellLayoutMarginsFollowReadableWidth = true
         view.rowHeight = UITableView.automaticDimension
@@ -216,13 +251,19 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         return view
     }()
     
-    internal let chatSearchResultsController = ChatSearchResultsController()
+    private let localSearchResultsUpdater = EmptySearchResultsUpdater()
+    internal var callsSearchQuery: String? = nil
 
     internal lazy var searchController: UISearchController = {
-        InPlaceSearchHostHelper.makeSearchController(updater: chatSearchResultsController)
+        InPlaceSearchHostHelper.makeSearchController(
+            updater: localSearchResultsUpdater,
+            placeholder: callsSearchPlaceholderText
+        )
     }()
 
     internal let bottomSearchHostView = BottomSearchHostView(frame: .zero)
+
+    internal let callsCompactBottomBarView = FloatingBottomBarView(frame: .zero)
     
     internal let addButton: UIBarButtonItem = {
 //        let button = UIBarButtonItem(barButtonSystemItem: .add, target: nil, action: nil)
@@ -248,6 +289,10 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         
         return label
     }()
+
+    internal var callsSearchPlaceholderText: String {
+        "Search calls".localizeString(id: "calls_search_hint", arguments: [])
+    }
     
     internal func updateTitle() {
         if AccountManager.shared.connectingUsers.value.isNotEmpty {
@@ -285,7 +330,12 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 enabledAccounts.accept(accounts)
             }
             let results = CallsListCoordinator
-                .deriveState(realm: realm, enabledAccounts: accounts, filter: filter.value)
+                .deriveState(
+                    realm: realm,
+                    enabledAccounts: accounts,
+                    filter: filter.value,
+                    searchQuery: callsSearchQuery
+                )
                 .listDatasource
             applyCallDatasource(results)
             isCallHistoryLoaded = true
@@ -425,7 +475,7 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         let descriptor = Self.emptyStateDescriptor(
             hasResolvedSnapshot: enabledAccounts.value.isNotEmpty,
             isLoading: !isCallHistoryLoaded,
-            isSearchActive: isSearchActive ?? searchController.isActive,
+            isSearchActive: isSearchActive ?? bottomSearchHostView.isExpanded,
             callHistoryIsEmpty: callHistoryIsEmpty ?? datasource.isEmpty,
             hasCallableContacts: hasCallableContacts
         )
@@ -544,6 +594,81 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         callsBackButton
     }
 
+    internal final func installCallsCompactBottomBarIfNeeded() {
+        guard isViewLoaded, shouldUseCallsCompactBottomBar else { return }
+        guard bottomSearchHostView.superview != nil else { return }
+
+        guard callsCompactBottomBarView.superview == nil else {
+            view.bringSubviewToFront(callsCompactBottomBarView)
+            view.bringSubviewToFront(bottomSearchHostView)
+            return
+        }
+
+        view.addSubview(callsCompactBottomBarView)
+        callsCompactBottomBarView.leftButton.addTarget(
+            self,
+            action: #selector(onCallsCompactFilterButtonTouchUpInside),
+            for: .touchUpInside
+        )
+
+        NSLayoutConstraint.activate([
+            callsCompactBottomBarView.bottomAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+                constant: -FloatingBottomBarView.Metrics.bottomOffset
+            ),
+            callsCompactBottomBarView.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor,
+                constant: FloatingBottomBarView.Metrics.horizontalInset
+            ),
+            callsCompactBottomBarView.trailingAnchor.constraint(
+                equalTo: bottomSearchHostView.collapsedButton.leadingAnchor,
+                constant: -NativeGlassBarStyle.interItemSpacing
+            ),
+            callsCompactBottomBarView.heightAnchor.constraint(equalToConstant: FloatingBottomBarView.Metrics.height)
+        ])
+
+        view.bringSubviewToFront(callsCompactBottomBarView)
+        view.bringSubviewToFront(bottomSearchHostView)
+    }
+
+    internal final func updateCallsCompactBottomBarState() {
+        guard isViewLoaded else { return }
+
+        if shouldUseCallsCompactBottomBar {
+            installCallsCompactBottomBarIfNeeded()
+        }
+
+        let isActive = isCallsCompactMissedFilterActive
+        callsCompactBottomBarView.leftButton.accessibilityIdentifier = "calls_missed_filter_button"
+        callsCompactBottomBarView.leftButton.accessibilityLabel = "Missed calls filter"
+        callsCompactBottomBarView.updateLeftButton(
+            imageName: "phone.arrow.down.left",
+            isActive: isActive
+        )
+
+        let startCallTitle = "Start Call".localizeString(id: "calls_empty_start_call", arguments: [])
+        callsCompactBottomBarView.setCenterButtonTitle(
+            startCallTitle,
+            accessibilityIdentifier: "calls_start_call_bottom_button",
+            accessibilityLabel: startCallTitle
+        )
+        callsCompactBottomBarView.setCenterButtonEnabled(false)
+        callsCompactBottomBarView.isHidden = !shouldUseCallsCompactBottomBar || bottomSearchHostView.isExpanded
+        callsCompactBottomBarView.refreshAppearance()
+
+        if callsCompactBottomBarView.superview != nil {
+            view.bringSubviewToFront(callsCompactBottomBarView)
+            view.bringSubviewToFront(bottomSearchHostView)
+        }
+        updateTableInsetsForBottomSearch()
+    }
+
+    @objc
+    private final func onCallsCompactFilterButtonTouchUpInside(_ sender: UIButton) {
+        shouldFilterBy(category: isCallsCompactMissedFilterActive ? nil : CallsListFilter.missed.rawValue)
+        updateCallsCompactBottomBarState()
+    }
+
     internal func configureBars(animated: Bool = false, updateNavigationItems: Bool = true) {
         self.title = "Calls".localizeString(id: "chat_calls_title", arguments: [])
         securityButton.target = self
@@ -552,7 +677,23 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             case .tabs:
                 let filterBarButton = makeCallsFilterButton()
                 if updateNavigationItems {
-                    if CommonConfigManager.shared.config.use_yubikey {
+                    if shouldUseCallsCompactBottomBar {
+                        let rightAssignment: NavigationBarItemOwnership.Assignment = CommonConfigManager.shared.config.use_yubikey
+                            ? .item(securityButton)
+                            : .none
+                        NavigationBarItemOwnership.setIfChanged(
+                            rightAssignment,
+                            on: navigationItem,
+                            side: .right,
+                            animated: animated
+                        )
+                        NavigationBarItemOwnership.setIfChanged(
+                            .item(accountBarButton),
+                            on: navigationItem,
+                            side: .left,
+                            animated: animated
+                        )
+                    } else if CommonConfigManager.shared.config.use_yubikey {
                         NavigationBarItemOwnership.setIfChanged(
                             .items([callsAddBarButton, securityButton]),
                             on: navigationItem,
@@ -606,7 +747,7 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                         animated: animated
                     )
                     NavigationBarItemOwnership.setIfChanged(
-                        .item(makeCallsFilterButton()),
+                        shouldUseCallsCompactBottomBar ? .none : .item(makeCallsFilterButton()),
                         on: navigationItem,
                         side: .right,
                         animated: animated
@@ -621,6 +762,7 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 }
                 self.bottomBar.isHidden = true
         }
+        updateCallsCompactBottomBarState()
     }
     
     internal let securityButton: UIBarButtonItem = {
@@ -681,8 +823,7 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         
         let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
         bottomBar.updateFrame(to: frame)
-        updateTableInsetsForBottomSearch()
-        view.bringSubviewToFront(bottomSearchHostView)
+        updateCallsCompactBottomBarState()
     }
     
     internal func configure() {
@@ -729,9 +870,9 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     override func viewDidLoad() {
         super.viewDidLoad()
         configure()
+        configureSearchBar()
         configureBars(animated: false)
 //        configureNavbar()
-        configureSearchBar()
         load()
         activateConstraints()
         
@@ -775,6 +916,17 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         } else {
             self.securityButton.tintColor = .systemRed
         }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+
+        guard previousTraitCollection?.horizontalSizeClass != effectiveHorizontalSizeClass else {
+            return
+        }
+
+        configureBars(animated: false)
+        updateCallsCompactBottomBarState()
     }
 
     private var isSearchHostNavigationTransitionActive: Bool {

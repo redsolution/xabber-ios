@@ -92,6 +92,8 @@
 	<integer>32</integer>
 	<key>use_large_title</key>
 	<false/>
+	<key>use_telegram_attachment_picker</key>
+	<true/>
 	<key>default_report_address</key>
 	<string></string>
 	<key>developer_operated_xmpp_domains</key>

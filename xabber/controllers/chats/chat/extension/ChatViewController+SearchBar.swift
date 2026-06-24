@@ -3022,7 +3022,13 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-")
             ])
             DDLogDebug("ChatViewController.remoteHistoryFinal queryId=\(queryId) statePersisted=\(state.persistedMessageCount) flushed=\(completion.flushedMessageCount) effectivePersisted=\(effectiveState.persistedMessageCount) count=\(count) received=\(completion.persistenceSummary.received) queued=\(completion.persistenceSummary.queued) savedNew=\(completion.persistenceSummary.savedNew) updatedExisting=\(completion.persistenceSummary.updatedExisting) skipped=\(completion.persistenceSummary.skipped) failed=\(completion.persistenceSummary.failed) visibleRows=\(visibleRows)")
-            if self.handleInitialBootstrapEndPageIfNeeded(queryId: queryId, count: count, persistedMessageCount: effectiveState.persistedMessageCount) {
+            if self.handleInitialBootstrapEndPageIfNeeded(
+                queryId: queryId,
+                state: effectiveState,
+                count: count,
+                persistedMessageCount: effectiveState.persistedMessageCount,
+                visibleRowsForConversation: visibleRows
+            ) {
                 ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
                     ("queryId", queryId),
                     ("handler", "initialBootstrap")

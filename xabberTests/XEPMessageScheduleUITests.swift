@@ -481,6 +481,24 @@ final class XEPMessageScheduleUITests: XCTestCase {
         }
     }
 
+    func testAttachmentButtonStaysEnabledWhenSendReadinessIsBlocked() {
+        let inputView = ModernXabberInputView(frame: CGRect(x: 0, y: 0, width: 390, height: 49))
+        inputView.changeState(to: .normal)
+
+        inputView.isSendButtonEnabled = false
+        inputView.changeSendButtonState(to: .record)
+
+        XCTAssertFalse(inputView.attachButton.isHidden)
+        XCTAssertTrue(inputView.attachButton.isEnabled)
+        XCTAssertFalse(inputView.sendButton.isEnabled)
+
+        inputView.changeSendButtonState(to: .send)
+
+        XCTAssertFalse(inputView.attachButton.isHidden)
+        XCTAssertTrue(inputView.attachButton.isEnabled)
+        XCTAssertFalse(inputView.sendButton.isEnabled)
+    }
+
     func testChatControllerRefreshHidesScheduledMessagesButtonAfterRowsDisappear() throws {
         let owner = "alice@example.com"
         let conversation = "bob@example.com"

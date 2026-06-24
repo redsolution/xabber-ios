@@ -487,6 +487,31 @@ enum AppRoute {
 
         return .chat(owner: owner, jid: jid, conversationType: conversationType)
     }
+
+    static func chatAtMessage(
+        jid: String,
+        owner: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        stanzaId: String,
+        configure: ((ChatViewController?) -> Void)? = nil
+    ) -> AppRoute? {
+        guard let openMessageRequest = ChatOpenMessageRequest.openAtMessage(
+            jid: jid,
+            owner: owner,
+            conversationType: conversationType,
+            stanzaId: stanzaId
+        ) else {
+            return nil
+        }
+
+        return .chatMessage(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType,
+            openMessageRequest: openMessageRequest,
+            configure: configure
+        )
+    }
 }
 
 enum AppRootLifecycleEvent {
@@ -709,6 +734,25 @@ final class AppRootCoordinator: NSObject {
         }
     }
 
+    @discardableResult
+    func openChat(
+        jid: String,
+        owner: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        stanzaId: String
+    ) -> Bool {
+        guard let route = AppRoute.chatAtMessage(
+            jid: jid,
+            owner: owner,
+            conversationType: conversationType,
+            stanzaId: stanzaId
+        ) else {
+            return false
+        }
+
+        return self.route(route)
+    }
+
     func addBlurredScreen() {
         guard appDelegate?.excludeBlur != true else { return }
         guard blurEffectView == nil,
@@ -901,7 +945,7 @@ final class AppRootCoordinator: NSObject {
             vc.jid = jid
             vc.conversationType = conversationType
             if let openMessageRequest {
-                vc.pendingOpenMessageRequest = openMessageRequest
+                vc.queueOpenMessageRequest(openMessageRequest)
             }
             configureCallback?(vc)
             if let presenter = splitController?.viewControllers
@@ -934,7 +978,7 @@ final class AppRootCoordinator: NSObject {
                 vc.jid = jid
                 vc.conversationType = conversationType
                 if let openMessageRequest {
-                    vc.pendingOpenMessageRequest = openMessageRequest
+                    vc.queueOpenMessageRequest(openMessageRequest)
                 }
                 configureCallback?(vc)
                 navigationController.pushViewController(vc, animated: false)

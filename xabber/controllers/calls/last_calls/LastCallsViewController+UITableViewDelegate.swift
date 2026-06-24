@@ -27,18 +27,10 @@ extension LastCallsViewController: UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        if isShowingSearchResults {
-            return 84
-        }
         return UITableView.automaticDimension
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        if isShowingSearchResults {
-            guard let item = chatSearchResultsController.item(at: indexPath) else { return }
-            openSearchResult(item)
-            return
-        }
         let item = datasource[indexPath.row]
         tableView.deselectRow(at: indexPath, animated: true)
         self.onCall(jid: item.jid, owner: item.owner)

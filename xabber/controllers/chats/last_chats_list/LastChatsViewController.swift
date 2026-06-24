@@ -542,6 +542,7 @@ enum LastChatsRowUpdatePolicy {
 enum SavedMessagesChatListPresentationPolicy {
     static let title = "Saved messages"
     static let avatarIconName = XMPPFavoritesManagerStorageItem.imageName
+    static let leftMenuIconName = "bookmark"
     static let singleAccountPlaceholder = "Save messages here"
     static let status: ResourceStatus = .offline
     static let entity: RosterItemEntity? = nil
@@ -897,7 +898,21 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         return view
     }()
 
-    private let floatingBottomBarView = FloatingBottomBarView(frame: .zero)
+    private let floatingBottomBarView: FloatingBottomBarView = {
+        let view = FloatingBottomBarView(frame: .zero)
+        let title = "Mark all as read".localizeString(id: "mark_all_as_read_button", arguments: [])
+
+        view.leftButton.accessibilityIdentifier = "last_chats_filter_button"
+        view.leftButton.accessibilityLabel = "Unread chats filter"
+        view.setCenterButtonTitle(
+            title,
+            accessibilityIdentifier: "last_chats_mark_all_read_button",
+            accessibilityLabel: title
+        )
+        view.setCenterButtonEnabled(false)
+
+        return view
+    }()
 
     private var unreadCounterBag: DisposeBag = DisposeBag()
     
@@ -1537,38 +1552,79 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             || changes.moves.isNotEmpty
     }
 
+    internal static func shouldReloadStructuralTableChanges(
+        _ changes: ChangesWithIndexPath,
+        isQuietModeActive: Bool
+    ) -> Bool {
+        return isQuietModeActive && hasStructuralTableChanges(changes)
+    }
+
     internal final var floatingBottomBarTitle: String? {
-        floatingBottomBarView.titleLabel.text
+        floatingBottomBarView.centerButton.title(for: .normal)
     }
 
     internal final var isFloatingBottomBarHidden: Bool {
         floatingBottomBarView.isHidden
     }
 
+    internal final var floatingBottomBarFilterButton: UIButton {
+        floatingBottomBarView.leftButton
+    }
+
+    internal final var markAllReadButton: UIButton {
+        floatingBottomBarView.centerButton
+    }
+
+    internal final var isMarkAllReadButtonEnabled: Bool {
+        floatingBottomBarView.centerButton.isEnabled
+    }
+
     internal var hasConnectingEnabledAccounts: Bool {
         !AccountManager.shared.connectingUsers.value.isDisjoint(with: self.enabledAccounts.value)
+    }
+
+    internal struct UnreadChatReadCandidate: Equatable {
+        let owner: String
+        let jid: String
+        let conversationType: ClientSynchronizationManager.ConversationType
+        let isArchived: Bool
+        let unread: Int
+        let lastMessagePrimary: String?
+        let lastMessageId: String
+    }
+
+    internal struct UnreadChatReadTarget: Equatable {
+        let owner: String
+        let messageTarget: MessageManager.LastChatReadTarget
+    }
+
+    internal static func unreadChatReadTargets(
+        from candidates: [UnreadChatReadCandidate],
+        enabledAccounts: Set<String>
+    ) -> [UnreadChatReadTarget] {
+        candidates.compactMap { candidate in
+            guard enabledAccounts.contains(candidate.owner),
+                  !candidate.isArchived,
+                  candidate.unread > 0 else {
+                return nil
+            }
+
+            return UnreadChatReadTarget(
+                owner: candidate.owner,
+                messageTarget: MessageManager.LastChatReadTarget(
+                    jid: candidate.jid,
+                    conversationType: candidate.conversationType,
+                    lastMessagePrimary: candidate.lastMessagePrimary,
+                    lastMessageId: candidate.lastMessageId
+                )
+            )
+        }
     }
 
     internal var hasVisibleAccountSyncBootstrapInProgress: Bool {
         enabledAccounts.value.contains { jid in
             AccountManager.shared.find(for: jid)?.syncManager.isBootstrapCriticalSyncInProgress() == true
         }
-    }
-
-    internal final func floatingBottomBarTitle(forUnreadChatsCount unreadChatsCount: Int) -> String {
-        if hasConnectingEnabledAccounts {
-            return "Connecting".localizeString(id: "plurals.accounts_of_connecting.item_0", arguments: [])
-        }
-
-        if unreadChatsCount == 0 {
-            return CommonConfigManager.shared.config.app_name
-        }
-
-        if unreadChatsCount == 1 {
-            return "1 unread chat"
-        }
-
-        return "\(unreadChatsCount) unread chats"
     }
 
     internal final func reloadTableViewOrDeferForActiveSwipe() {
@@ -2447,6 +2503,12 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             return
         }
 
+        guard self.tableView.dataSource != nil else {
+            prepare()
+            self.finishDatasetUpdateCycle()
+            return
+        }
+
         guard Self.hasStructuralTableChanges(changes) else {
             let replacementPlan = self.replacementUpdatePlan(
                 changes: changes,
@@ -2463,6 +2525,16 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 reloads: replacementPlan.reloads,
                 reconfigures: replacementPlan.reconfigures
             )
+            self.finishDatasetUpdateCycle()
+            return
+        }
+
+        if Self.shouldReloadStructuralTableChanges(
+            changes,
+            isQuietModeActive: isLeftMenuFirstPresentationQuietModeActive
+        ) {
+            prepare()
+            self.tableView.reloadData()
             self.finishDatasetUpdateCycle()
             return
         }
@@ -2692,9 +2764,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             action: #selector(onFilterButtonTouchUpInside),
             for: .touchUpInside
         )
-        self.floatingBottomBarView.rightButton.addTarget(
+        self.floatingBottomBarView.centerButton.addTarget(
             self,
-            action: #selector(onAddButtonTouchUpInside),
+            action: #selector(onMarkAllReadButtonTouchUpInside),
             for: .touchUpInside
         )
 
@@ -2704,14 +2776,13 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 constant: -FloatingBottomBarView.Metrics.bottomOffset
             ),
             self.floatingBottomBarView.leadingAnchor.constraint(
-                greaterThanOrEqualTo: self.view.safeAreaLayoutGuide.leadingAnchor,
+                equalTo: self.view.safeAreaLayoutGuide.leadingAnchor,
                 constant: FloatingBottomBarView.Metrics.horizontalInset
             ),
             self.floatingBottomBarView.trailingAnchor.constraint(
                 equalTo: self.bottomSearchHostView.collapsedButton.leadingAnchor,
                 constant: -NativeGlassBarStyle.interItemSpacing
             ),
-            self.floatingBottomBarView.widthAnchor.constraint(lessThanOrEqualToConstant: FloatingBottomBarView.Metrics.maxWidth),
             self.floatingBottomBarView.heightAnchor.constraint(equalToConstant: FloatingBottomBarView.Metrics.height)
         ])
 
@@ -2743,8 +2814,52 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             }
         }
 
-        self.floatingBottomBarView.setTitle(self.floatingBottomBarTitle(forUnreadChatsCount: unreadChatsCount))
+        self.floatingBottomBarView.setCenterButtonEnabled(
+            unreadChatsCount > 0 && !self.hasConnectingEnabledAccounts
+        )
         self.updateFloatingToolbarFilterButtonState()
+    }
+
+    internal final func unreadChatReadTargets() -> [UnreadChatReadTarget] {
+        do {
+            let realm = try WRealm.safe()
+            let candidates = realm
+                .objects(LastChatsStorageItem.self)
+                .filter(
+                    "isArchived == false AND unread > 0 AND owner IN %@",
+                    Array(self.enabledAccounts.value)
+                )
+                .sorted(byKeyPath: "messageDate", ascending: false)
+                .map {
+                    UnreadChatReadCandidate(
+                        owner: $0.owner,
+                        jid: $0.jid,
+                        conversationType: $0.conversationType,
+                        isArchived: $0.isArchived,
+                        unread: $0.unread,
+                        lastMessagePrimary: $0.lastMessage?.primary,
+                        lastMessageId: $0.lastMessageId
+                    )
+                }
+
+            return Self.unreadChatReadTargets(
+                from: Array(candidates),
+                enabledAccounts: self.enabledAccounts.value
+            )
+        } catch {
+            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    internal final func markUnreadChatsAsRead(_ targets: [UnreadChatReadTarget]) {
+        Dictionary(grouping: targets, by: \.owner).forEach { owner, ownerTargets in
+            AccountManager.shared.find(for: owner)?.unsafeAction { user, _ in
+                ownerTargets.forEach {
+                    user.messages.readLastMessage($0.messageTarget)
+                }
+            }
+        }
     }
 
     internal final func updateFloatingToolbarFilterButtonState() {
@@ -2970,15 +3085,26 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     var normalState: Filter = .chats
     
     func onTitleBarButtonTapped() {
+        guard !self.hasConnectingEnabledAccounts else {
+            self.updateUnreadChatsCounter()
+            return
+        }
+
+        let targets = self.unreadChatReadTargets()
+        guard !targets.isEmpty else {
+            self.updateUnreadChatsCounter(count: 0)
+            return
+        }
+
+        self.markUnreadChatsAsRead(targets)
+        self.canUpdateDataset = true
+        self.runDatasetUpdateTask()
+
         if self.filter.value == .unread {
-            self.enabledAccounts.value.forEach {
-                AccountManager.shared.find(for: $0)?.unsafeAction({ user, stream in
-                    user.messages.readAllMessages()
-                })
-            }
-            self.canUpdateDataset = true
-            self.runDatasetUpdateTask()
             self.filter.accept(normalState)
+            self.configureBarsAfterFilterChange()
+        } else {
+            self.updateUnreadChatsCounter()
         }
     }
     
@@ -3033,6 +3159,11 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     @objc
     func onFilterButtonTouchUpInside(_ sender: AnyObject) {
         onLeftBarButtonTapped()
+    }
+
+    @objc
+    private func onMarkAllReadButtonTouchUpInside(_ sender: UIButton) {
+        onTitleBarButtonTapped()
     }
     
     func onLeftBarButtonTapped() {

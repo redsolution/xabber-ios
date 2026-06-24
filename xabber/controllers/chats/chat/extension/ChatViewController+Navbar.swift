@@ -23,6 +23,32 @@ import UIKit
 import MaterialComponents
 import CocoaLumberjack
 
+enum ChatNavigationTitleTextPolicy {
+    static func displayTitle(
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        groupName: String? = nil,
+        rosterDisplayName: String? = nil
+    ) -> String {
+        if conversationType == .saved {
+            return SavedMessagesChatListPresentationPolicy.title
+        }
+        if conversationType == .group,
+           let groupName = normalizedTitle(groupName) {
+            return groupName
+        }
+        if let rosterDisplayName = normalizedTitle(rosterDisplayName) {
+            return rosterDisplayName
+        }
+        return jid
+    }
+
+    private static func normalizedTitle(_ value: String?) -> String? {
+        let title = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty ? nil : title
+    }
+}
+
 extension ChatViewController{
     func presentationControllerWillDismiss(_ presentationController: UIPresentationController) {
         self.addObservers()
@@ -39,6 +65,13 @@ extension ChatViewController {
     
     internal final func updateTitle() -> NSAttributedString {
         let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
+        func appendTitle(_ title: String, color: UIColor) {
+            attributedTitle.append(NSAttributedString(string: title, attributes: [
+                .foregroundColor: color,
+                .font: UIFont.systemFont(ofSize: 17, weight: .semibold)
+            ]))
+        }
+
         do {
             let realm = try WRealm.safe()
             let indicatorAttach = NSTextAttachment()
@@ -73,20 +106,40 @@ extension ChatViewController {
                     }
                 
             }
+
+            if self.conversationType == .saved {
+                appendTitle(
+                    ChatNavigationTitleTextPolicy.displayTitle(
+                        jid: self.jid,
+                        conversationType: self.conversationType
+                    ),
+                    color: color
+                )
+                return attributedTitle
+            }
+
             if self.conversationType == .group {
                 if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                    attributedTitle.append(NSAttributedString(string: instance.name, attributes: [
-                        .foregroundColor: color,
-                        .font: UIFont.systemFont(ofSize: 17, weight: .semibold)
-                    ]))
+                    appendTitle(
+                        ChatNavigationTitleTextPolicy.displayTitle(
+                            jid: self.jid,
+                            conversationType: self.conversationType,
+                            groupName: instance.name
+                        ),
+                        color: color
+                    )
                     return attributedTitle
                 }
             } else {
                 if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                    attributedTitle.append(NSAttributedString(string: instance.displayName, attributes: [
-                        .foregroundColor: color,
-                        .font: UIFont.systemFont(ofSize: 17, weight: .semibold)
-                    ]))
+                    appendTitle(
+                        ChatNavigationTitleTextPolicy.displayTitle(
+                            jid: self.jid,
+                            conversationType: self.conversationType,
+                            rosterDisplayName: instance.displayName
+                        ),
+                        color: color
+                    )
                     return attributedTitle
                 }
             }
@@ -94,10 +147,13 @@ extension ChatViewController {
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
-        attributedTitle.append(NSAttributedString(string: self.jid, attributes: [
-            .foregroundColor: UIColor.label,
-            .font: UIFont.systemFont(ofSize: 17, weight: .semibold)
-        ]))
+        appendTitle(
+            ChatNavigationTitleTextPolicy.displayTitle(
+                jid: self.jid,
+                conversationType: self.conversationType
+            ),
+            color: .label
+        )
         return attributedTitle
     }
 }

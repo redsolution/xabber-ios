@@ -35,6 +35,10 @@ enum ChatHistoryPagingConfiguration {
     static let pageSize: Int = 100
 }
 
+enum ChatInitialFirstFrameHistoryConfiguration {
+    static let pageSize: Int = 60
+}
+
 enum ChatOpenMessageRequestSource: String {
     case mentionNotification = "mention-notification"
     case pushNotification = "push-notification"
@@ -46,12 +50,13 @@ enum ChatOpenMessageRequestSource: String {
     case pinnedMessage = "pinned-message"
     case initialUnreadBoundary = "initial-unread-boundary"
     case savedVisiblePosition = "saved-visible-position"
+    case directOpenAtMessage = "direct-open-at-message"
 
     var usesTransientHighlight: Bool {
         switch self {
         case .voicePlayer, .composerReferencePreview, .composerEditPreview, .pinnedMessage:
             return true
-        case .mentionNotification, .pushNotification, .search, .external, .initialUnreadBoundary, .savedVisiblePosition:
+        case .mentionNotification, .pushNotification, .search, .external, .initialUnreadBoundary, .savedVisiblePosition, .directOpenAtMessage:
             return false
         }
     }
@@ -99,6 +104,40 @@ struct ChatOpenMessageRequest: Equatable {
         self.markReadOnVisible = markReadOnVisible
         self.source = source
         self.targetResolution = targetResolution
+    }
+
+    static func openAtMessage(
+        jid: String,
+        owner: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        stanzaId: String,
+        sourceDate: Date = Date()
+    ) -> ChatOpenMessageRequest? {
+        guard let archivedId = normalizedIdentifier(stanzaId) else {
+            return nil
+        }
+
+        return ChatOpenMessageRequest(
+            chatJid: jid,
+            owner: owner,
+            conversationType: conversationType,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: archivedId,
+                messageId: nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: sourceDate
+            ),
+            highlight: false,
+            markReadOnVisible: false,
+            source: .directOpenAtMessage
+        )
+    }
+
+    private static func normalizedIdentifier(_ value: String) -> String? {
+        let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 }
 
@@ -1175,6 +1214,7 @@ class ChatViewController: MessagesViewController {
     }
         
     let datasourcePageSize: Int = ChatHistoryPagingConfiguration.pageSize
+    let initialFirstFramePageSize: Int = ChatInitialFirstFrameHistoryConfiguration.pageSize
         
     var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
 
@@ -1191,12 +1231,7 @@ class ChatViewController: MessagesViewController {
     
 // datasource
     var messagesObserver: Results<MessageStorageItem>!
-    var datasource: [Datasource] = [] {
-        didSet {
-            print("SETTED")
-            self.datasourceSnapshot = ChatDatasourceCoordinator.makeSnapshot(items: datasource)
-        }
-    }
+    var datasource: [Datasource] = []
     var datasourceSnapshot: ChatDatasourceSnapshot = .empty
     var pendingOutgoingAutoScrollRequest: ChatOutgoingAutoScrollRequest? = nil
     var observerPrimaryIndexMap: [String: Int] = [:]
@@ -1224,6 +1259,7 @@ class ChatViewController: MessagesViewController {
     var initialHistoryAppearancePending: Bool = true
     var hasRenderedStableInitialHistory: Bool = false
     var hasCompletedInitialHistoryViewAppearance: Bool = false
+    var initialLatestOpenStabilizationState: ChatInitialLatestOpenStabilizationState = .inactive
     var isApplyingBootstrapAnchorWindow: Bool = false
     var pendingForceLatestOpen: Bool = false
     var pendingForceLatestOpenAnimated: Bool = false
@@ -1236,6 +1272,7 @@ class ChatViewController: MessagesViewController {
     
 // gallery
     var isAccessToPhotoGranted: Bool? = nil
+    var chatAttachmentFlowCoordinator: ChatAttachmentFlowCoordinating? = nil
     
 // Status
     var statusTextObserver: BehaviorRelay<String> = BehaviorRelay(value: " ")
@@ -1318,8 +1355,10 @@ class ChatViewController: MessagesViewController {
     var initialBootstrapQueryId: String? = nil
     var isInitialBootstrapInFlight: Bool = false
     var didReceiveInitialBootstrapEndPage: Bool = false
+    var initialBootstrapPageEndState: MessageArchivePageEndState? = nil
     var initialBootstrapResultCount: Int? = nil
     var initialBootstrapPersistedMessageCount: Int? = nil
+    var initialBootstrapVisibleRowsForConversation: Int? = nil
     var didEnterInitialBootstrapObserverSettlePhase: Bool = false
     var didObserveInitialBootstrapPostIdleTick: Bool = false
     var initialBootstrapLocalHistoryFallbackWorkItem: DispatchWorkItem? = nil
@@ -2525,7 +2564,9 @@ class ChatViewController: MessagesViewController {
         }
 
         let frame = shouldShowButton ? visibleFrame : hiddenFrame
-        let shouldAnimate = animated && self.hasPositionedScrollDownButton && !isVisibilitySuppressed
+        let shouldAnimate = self.shouldAnimateDuringInitialLatestStabilization(requestedAnimated: animated) &&
+            self.hasPositionedScrollDownButton &&
+            !isVisibilitySuppressed
         let updates = {
             self.scrollDownButton.frame = frame
         }
@@ -2634,22 +2675,121 @@ class ChatViewController: MessagesViewController {
         )
     }
 
+    internal var isInitialLatestOpenStabilizing: Bool {
+        self.initialLatestOpenStabilizationState != .inactive
+    }
+
+    internal func beginInitialLatestOpenStabilizationIfNeeded() {
+        guard ChatInitialLatestOpenStabilizationPolicy.shouldStart(
+            forceLatestOpen: ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen()
+        ) else {
+            return
+        }
+
+        if self.initialLatestOpenStabilizationState == .inactive {
+            self.initialLatestOpenStabilizationState = .active
+        }
+    }
+
+    internal func markInitialLatestOpenBottomAlignedIfNeeded() {
+        self.initialLatestOpenStabilizationState = ChatInitialLatestOpenStabilizationPolicy.stateAfterBottomAlignment(
+            current: self.initialLatestOpenStabilizationState,
+            hasRealMessages: self.datasource.contains { !$0.isFakeMessage }
+        )
+        self.completeInitialLatestOpenStabilizationIfPossible()
+    }
+
+    internal func completeInitialLatestOpenStabilizationIfPossible() {
+        guard ChatInitialLatestOpenStabilizationPolicy.shouldComplete(
+            state: self.initialLatestOpenStabilizationState,
+            hasViewAppeared: self.hasCompletedInitialHistoryViewAppearance
+        ) else {
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  ChatInitialLatestOpenStabilizationPolicy.shouldComplete(
+                    state: self.initialLatestOpenStabilizationState,
+                    hasViewAppeared: self.hasCompletedInitialHistoryViewAppearance
+                  ) else {
+                return
+            }
+
+            self.initialLatestOpenStabilizationState = .inactive
+        }
+    }
+
+    internal func newestRealDatasourcePrimary() -> String? {
+        self.datasource.last(where: { !$0.isFakeMessage })?.primary
+    }
+
+    internal func newestLocalMessagePrimaryForLatestOpen() -> String? {
+        do {
+            let provider = ChatLocalHistoryPageProvider(
+                realm: try WRealm.safe(),
+                owner: self.owner,
+                jid: self.jid,
+                conversationType: self.conversationType
+            )
+            return provider.latest(limit: 1).last?.primary
+        } catch {
+            DDLogDebug("ChatViewController.newestLocalMessagePrimaryForLatestOpen: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    internal func shouldSkipInitialLatestForcedContentRender(forceRender: Bool) -> Bool {
+        ChatInitialLatestOpenStabilizationPolicy.shouldSkipForcedContentRender(
+            state: self.initialLatestOpenStabilizationState,
+            forceRender: forceRender,
+            hasRealDatasource: self.datasource.contains { !$0.isFakeMessage },
+            newestLocalPrimary: self.newestLocalMessagePrimaryForLatestOpen(),
+            datasourceNewestPrimary: self.newestRealDatasourcePrimary()
+        )
+    }
+
+    internal func initialLatestObserverRefreshAction(baseShouldOpenLatest: Bool) -> ChatInitialLatestOpenStabilizationPolicy.ObserverRefreshAction {
+        ChatInitialLatestOpenStabilizationPolicy.observerRefreshAction(
+            state: self.initialLatestOpenStabilizationState,
+            baseShouldOpenLatest: baseShouldOpenLatest,
+            newestLocalPrimary: self.newestLocalMessagePrimaryForLatestOpen(),
+            datasourceNewestPrimary: self.newestRealDatasourcePrimary()
+        )
+    }
+
+    internal func shouldAnimateDuringInitialLatestStabilization(requestedAnimated: Bool) -> Bool {
+        ChatInitialLatestOpenStabilizationPolicy.shouldAnimateAuxiliaryUpdate(
+            state: self.initialLatestOpenStabilizationState,
+            requestedAnimated: requestedAnimated
+        )
+    }
+
     internal func scrollToLatestTimeline(animated: Bool) {
+        let isStabilizing = self.isInitialLatestOpenStabilizing
         self.mapAndApplyTimelineLatest(
             mode: .windowReload(),
             animated: false,
             invalidateLayout: true,
+            limit: isStabilizing ? self.initialFirstFramePageSize : nil,
+            suppressDefaultBottomScroll: isStabilizing,
             completion: { [weak self] in
                 guard let self else {
                     return
                 }
-                self.finishLatestBottomScroll(animated: animated, consumePendingForceLatest: true)
+                self.finishLatestBottomScroll(
+                    animated: isStabilizing ? false : animated,
+                    consumePendingForceLatest: true
+                )
             },
             cancelledCompletion: { [weak self] in
                 guard let self else {
                     return
                 }
-                self.finishLatestBottomScroll(animated: animated, consumePendingForceLatest: true)
+                self.finishLatestBottomScroll(
+                    animated: isStabilizing ? false : animated,
+                    consumePendingForceLatest: true
+                )
             }
         )
     }
@@ -2659,6 +2799,7 @@ class ChatViewController: MessagesViewController {
             return
         }
 
+        self.beginInitialLatestOpenStabilizationIfNeeded()
         self.clearSuppressedOpenMessageRequestState()
         self.pendingForceLatestOpen = true
         self.pendingForceLatestOpenAnimated = self.pendingForceLatestOpenAnimated || animated
@@ -2693,15 +2834,24 @@ class ChatViewController: MessagesViewController {
             return
         }
 
+        let isStabilizing = self.isInitialLatestOpenStabilizing
+        self.view.layoutIfNeeded()
+        self.updateChatCollectionInsets()
         self.messagesCollectionView.layoutIfNeeded()
         guard self.datasource.isNotEmpty else {
             self.setFloatingDateVisible(true)
             return
         }
 
-        self.scrollToBottom(animated: animated)
-        self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: animated)
+        let shouldSkipScroll = isStabilizing &&
+            self.initialLatestOpenStabilizationState == .bottomAligned &&
+            self.isNearBottom(threshold: 1)
+        if !shouldSkipScroll {
+            self.scrollToBottom(animated: isStabilizing ? false : animated)
+        }
+        self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: isStabilizing ? false : animated)
         self.setFloatingDateVisible(true)
+        self.markInitialLatestOpenBottomAlignedIfNeeded()
 
         if consumePendingForceLatest {
             self.pendingForceLatestOpen = false
@@ -2758,6 +2908,7 @@ class ChatViewController: MessagesViewController {
     internal func updateUnreadMentionsNavigatorFrame(animated: Bool) {
         let shouldShowNavigator = self.shouldShowUnreadMentionsNavigator.value
         let frame = shouldShowNavigator ? self.unreadMentionsNavigatorVisibleFrame() : self.unreadMentionsNavigatorHiddenFrame()
+        let shouldAnimate = self.shouldAnimateDuringInitialLatestStabilization(requestedAnimated: animated)
         let updates = {
             self.unreadMentionsNavigatorView.frame = frame
         }
@@ -2765,7 +2916,7 @@ class ChatViewController: MessagesViewController {
         self.unreadMentionsNavigatorView.isUserInteractionEnabled = shouldShowNavigator
         self.unreadMentionsNavigatorView.isHidden = false
 
-        if animated {
+        if shouldAnimate {
             UIView.animate(withDuration: 0.33, delay: 0.0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.8, options: [.curveEaseIn]) {
                 updates()
             } completion: { _ in
@@ -3554,7 +3705,7 @@ class ChatViewController: MessagesViewController {
         let visibilityChanged = floatingBubblesStackView.isHidden != shouldHideStack
         let heightChanged = abs(floatingBubblesHeight - height) > 0.5
         let shouldAnimate = ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
-            requestedAnimated: animated,
+            requestedAnimated: self.shouldAnimateDuringInitialLatestStabilization(requestedAnimated: animated),
             isTransitionActive: self.isNavigationTransitionActive,
             isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
         )
@@ -3804,6 +3955,9 @@ class ChatViewController: MessagesViewController {
         self.updateUnreadMentionsNavigatorFrame(animated: false)
         self.updateScrollDownButtonFrame(animated: false)
         self.updateInitialMessageOverlayFrame()
+        guard !self.datasource.isEmpty else {
+            return
+        }
         
         let collectionUpdates = {
             (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
@@ -4169,6 +4323,7 @@ class ChatViewController: MessagesViewController {
         self.hasCompletedInitialHistoryViewAppearance = true
         self.recordChatOpenTimingViewDidAppear()
         self.finishInitialHistoryAppearanceIfPossible()
+        self.completeInitialLatestOpenStabilizationIfPossible()
         self.performPendingOpenMessageRequestIfNeeded()
         self.shouldChangeFrame()
         self.willUpdateFloatingDate()

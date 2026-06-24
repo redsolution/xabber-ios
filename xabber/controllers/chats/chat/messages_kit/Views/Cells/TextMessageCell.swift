@@ -539,7 +539,7 @@ public class TextMessageCell: MessageContentCell {
                     }
                 }
             } else {
-                avatarView.isHidden = true
+                avatarView.image = UIImageView.getDefaultAvatar(for: message.groupchatAuthorNickname, owner: message.owner, size: 32)
             }
         } else {
             avatarView.isHidden = true

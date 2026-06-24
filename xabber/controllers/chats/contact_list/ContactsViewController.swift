@@ -41,6 +41,7 @@ struct ContactsFilterState: Equatable {
     let filteredGroups: Set<String>
     let showOffline: Bool
     let isGroup: Bool
+    let searchQuery: String?
 }
 
 struct ContactsListCoordinator {
@@ -220,6 +221,51 @@ enum ContactsListSupport {
             return false
         }
         return primaryResource.status != .offline
+    }
+
+    static func hasSearchQuery(_ query: String?) -> Bool {
+        normalizedSearchQuery(query) != nil
+    }
+
+    static func filteredDatasourceRows(
+        _ rows: [ContactsViewController.Datasource],
+        searchQuery: String?
+    ) -> [ContactsViewController.Datasource] {
+        guard let query = normalizedSearchQuery(searchQuery) else {
+            return rows
+        }
+
+        return rows.filter { item in
+            guard !item.isHeader, !item.isButton else {
+                return false
+            }
+            return datasourceItem(item, matches: query)
+        }
+    }
+
+    private static func datasourceItem(
+        _ item: ContactsViewController.Datasource,
+        matches query: String
+    ) -> Bool {
+        let values = [
+            item.owner,
+            item.jid,
+            item.title,
+            item.subtitle,
+            item.bottomLine ?? "",
+            item.descr ?? "",
+            item.groups.joined(separator: " "),
+            item.members.map(\.name).joined(separator: " "),
+            item.members.compactMap(\.jid).joined(separator: " ")
+        ]
+        return values.contains {
+            $0.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private static func normalizedSearchQuery(_ query: String?) -> String? {
+        let normalized = query?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return normalized.isEmpty ? nil : normalized
     }
 
     static func memberStats(groupchatJid: String, owner: String, context: Context) -> (members: Int, contacts: Int, membersList: [ContactsViewController.GroupDisplayMember]) {
@@ -539,7 +585,6 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(ContactCell.self, forCellReuseIdentifier: ContactCell.cellName)
-        view.register(ChatListTableViewCell.self, forCellReuseIdentifier: ChatListTableViewCell.cellName)
 //        view.register(GroupCell.self, forCellReuseIdentifier: GroupCell.cellName)
         view.register(AddContactCell.self, forCellReuseIdentifier: AddContactCell.cellName)
         view.register(GroupInviteCell.self, forCellReuseIdentifier: GroupInviteCell.cellName)
@@ -586,7 +631,8 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
     var showOffline: Bool = true
     open var isGroup: Bool = false {
         didSet {
-            print("set")
+            searchController.searchBar.placeholder = contactsSearchPlaceholderText
+            bottomSearchHostView.searchTextField.placeholder = contactsSearchPlaceholderText
         }
     }
     
@@ -605,13 +651,19 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         return queue
     }()
     
-    internal let chatSearchResultsController = ChatSearchResultsController()
+    private let localSearchResultsUpdater = EmptySearchResultsUpdater()
+    internal var contactsSearchQuery: String? = nil
 
     internal lazy var searchController: UISearchController = {
-        InPlaceSearchHostHelper.makeSearchController(updater: chatSearchResultsController)
+        InPlaceSearchHostHelper.makeSearchController(
+            updater: localSearchResultsUpdater,
+            placeholder: contactsSearchPlaceholderText
+        )
     }()
 
     internal let bottomSearchHostView = BottomSearchHostView(frame: .zero)
+
+    private let contactsCompactBottomBarView = FloatingBottomBarView(frame: .zero)
     
     internal let addButton: UIBarButtonItem = {
         let button = UIBarButtonItem(barButtonSystemItem: .add, target: nil, action: nil)
@@ -682,6 +734,12 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
     //    }
     
     var hasContactsRequestSection: Bool = false
+
+    internal var contactsSearchPlaceholderText: String {
+        isGroup
+            ? "Search groups".localizeString(id: "groups_search_hint", arguments: [])
+            : "Search contacts".localizeString(id: "contact_search_hint", arguments: [])
+    }
     
     internal func currentFilterState() -> ContactsFilterState {
         ContactsFilterState(
@@ -689,8 +747,29 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             filteredAccounts: filteredAccounts,
             filteredGroups: filteredGroups,
             showOffline: showOffline,
-            isGroup: isGroup
+            isGroup: isGroup,
+            searchQuery: contactsSearchQuery
         )
+    }
+
+    internal final var isContactsCompactBottomBarHidden: Bool {
+        contactsCompactBottomBarView.superview == nil || contactsCompactBottomBarView.isHidden
+    }
+
+    internal final var contactsCompactBottomBarCenterTitle: String? {
+        contactsCompactBottomBarView.centerButton.title(for: .normal)
+    }
+
+    internal final var isContactsCompactOnlineFilterActive: Bool {
+        showOffline == false
+    }
+
+    internal final var contactsCompactBottomBarFilterButton: UIButton {
+        contactsCompactBottomBarView.leftButton
+    }
+
+    internal final var contactsCompactBottomBarPrimaryButton: UIButton {
+        contactsCompactBottomBarView.centerButton
     }
 
     internal static func visibleDatasourceIsEmpty(_ datasource: [[Datasource]]) -> Bool {
@@ -897,9 +976,12 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         }
         
         if categoryHeader.isNotEmpty {
-            return [categoryHeader, out]
+            if ContactsListSupport.hasSearchQuery(state.searchQuery) {
+                return [ContactsListSupport.filteredDatasourceRows(out, searchQuery: state.searchQuery)]
+            }
+            return [categoryHeader, ContactsListSupport.filteredDatasourceRows(out, searchQuery: state.searchQuery)]
         } else {
-            return [out]
+            return [ContactsListSupport.filteredDatasourceRows(out, searchQuery: state.searchQuery)]
         }
     }
     
@@ -1179,9 +1261,12 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         }
         out = out.sorted(by: { $0.isHeader == true && $0.status.statusToSortedItem() > $1.status.statusToSortedItem() })
         if categoryHeader.isNotEmpty {
-            return [categoryHeader, out]
+            if ContactsListSupport.hasSearchQuery(state.searchQuery) {
+                return [ContactsListSupport.filteredDatasourceRows(out, searchQuery: state.searchQuery)]
+            }
+            return [categoryHeader, ContactsListSupport.filteredDatasourceRows(out, searchQuery: state.searchQuery)]
         } else {
-            return [out]
+            return [ContactsListSupport.filteredDatasourceRows(out, searchQuery: state.searchQuery)]
         }
     }
     
@@ -1209,7 +1294,8 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                     filteredAccounts: [],
                     filteredGroups: [],
                     showOffline: true,
-                    isGroup: state.isGroup
+                    isGroup: state.isGroup,
+                    searchQuery: nil
                 )
                 let featureContext = ContactsListSupport.makeContext(realm: $0, state: featureState)
                 let featureHasAnyContent = state.isGroup
@@ -1246,7 +1332,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                 for: self.datasource,
                 featureHasAnyContent: featureHasAnyContent,
                 hasResolvedSnapshot: hasResolvedSnapshot,
-                isSearchActive: self.searchController.isActive
+                isSearchActive: self.bottomSearchHostView.isExpanded
             )
         }
 
@@ -1303,7 +1389,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             for: datasource,
             featureHasAnyContent: currentFeatureHasAnyContent,
             hasResolvedSnapshot: currentSnapshotIsResolved,
-            isSearchActive: isSearchActive ?? searchController.isActive
+            isSearchActive: isSearchActive ?? bottomSearchHostView.isExpanded
         )
     }
 
@@ -1546,16 +1632,24 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
     }
 
     internal func openAddContactFlow() {
-        let vc = CreateNewEntityViewController()
-        vc.leftMenuSelectRootCategoryDelegate = leftMenuDelegate
-        showModal(vc, parent: self)
+        showModal(makeAddContactFlowViewController(), parent: self)
     }
 
     internal func openCreatePublicGroupFlow() {
+        showModal(makeCreatePublicGroupFlowViewController(), parent: self)
+    }
+
+    internal func makeAddContactFlowViewController() -> UIViewController {
+        let vc = AddNewContactViewController()
+        vc.leftMenuSelectRootCategoryDelegate = leftMenuDelegate
+        return vc
+    }
+
+    internal func makeCreatePublicGroupFlowViewController() -> UIViewController {
         let vc = CreateNewGroupViewController()
         vc.createIncognitoGroup = false
         vc.leftMenuSelectRootCategoryDelegate = leftMenuDelegate
-        showModal(vc, parent: self)
+        return vc
     }
     
     internal final func showRegisterYubikeyDialog() {
@@ -1637,6 +1731,120 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
 
     private func makeContactsAddButton() -> UIBarButtonItem {
         contactsAddButton
+    }
+
+    private var shouldUseContactsCompactBottomBar: Bool {
+        effectiveHorizontalSizeClass == .compact
+    }
+
+    private var effectiveHorizontalSizeClass: UIUserInterfaceSizeClass {
+        if let navigationSizeClass = navigationController?.traitCollection.horizontalSizeClass,
+           navigationSizeClass != .unspecified {
+            return navigationSizeClass
+        }
+        return traitCollection.horizontalSizeClass
+    }
+
+    private var contactsCompactBottomBarPrimaryTitle: String {
+        if isGroup {
+            return "Create Group".localizeString(id: "create_group", arguments: [])
+        }
+        return "Add Contact".localizeString(id: "contacts_empty_add_contact", arguments: [])
+    }
+
+    internal final func installContactsCompactBottomBarIfNeeded() {
+        guard isViewLoaded, shouldUseContactsCompactBottomBar else { return }
+        guard contactsCompactBottomBarView.superview == nil else {
+            view.bringSubviewToFront(contactsCompactBottomBarView)
+            view.bringSubviewToFront(bottomSearchHostView)
+            return
+        }
+
+        view.addSubview(contactsCompactBottomBarView)
+        contactsCompactBottomBarView.leftButton.addTarget(
+            self,
+            action: #selector(onContactsCompactFilterButtonTouchUpInside),
+            for: .touchUpInside
+        )
+        contactsCompactBottomBarView.centerButton.addTarget(
+            self,
+            action: #selector(onContactsCompactPrimaryButtonTouchUpInside),
+            for: .touchUpInside
+        )
+
+        NSLayoutConstraint.activate([
+            contactsCompactBottomBarView.bottomAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+                constant: -FloatingBottomBarView.Metrics.bottomOffset
+            ),
+            contactsCompactBottomBarView.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor,
+                constant: FloatingBottomBarView.Metrics.horizontalInset
+            ),
+            contactsCompactBottomBarView.trailingAnchor.constraint(
+                equalTo: bottomSearchHostView.collapsedButton.leadingAnchor,
+                constant: -NativeGlassBarStyle.interItemSpacing
+            ),
+            contactsCompactBottomBarView.heightAnchor.constraint(equalToConstant: FloatingBottomBarView.Metrics.height)
+        ])
+
+        view.bringSubviewToFront(contactsCompactBottomBarView)
+        view.bringSubviewToFront(bottomSearchHostView)
+    }
+
+    internal final func updateContactsCompactBottomBarState() {
+        guard isViewLoaded else { return }
+
+        if shouldUseContactsCompactBottomBar {
+            installContactsCompactBottomBarIfNeeded()
+        }
+
+        let prefix = contactsNavigationPrefix
+        let active = isContactsCompactOnlineFilterActive
+        contactsCompactBottomBarView.leftButton.accessibilityIdentifier = "\(prefix)_online_filter_button"
+        contactsCompactBottomBarView.leftButton.accessibilityLabel = isGroup ? "Online groups filter" : "Online contacts filter"
+        contactsCompactBottomBarView.updateLeftButton(
+            imageName: active ? "person.fill" : "person",
+            isActive: active
+        )
+
+        contactsCompactBottomBarView.setCenterButtonTitle(
+            contactsCompactBottomBarPrimaryTitle,
+            accessibilityIdentifier: isGroup
+                ? "groups_create_group_bottom_button"
+                : "contacts_add_contact_bottom_button",
+            accessibilityLabel: contactsCompactBottomBarPrimaryTitle
+        )
+        contactsCompactBottomBarView.setCenterButtonEnabled(true)
+        contactsCompactBottomBarView.isHidden = !shouldUseContactsCompactBottomBar || bottomSearchHostView.isExpanded
+        contactsCompactBottomBarView.refreshAppearance()
+
+        if contactsCompactBottomBarView.superview != nil {
+            view.bringSubviewToFront(contactsCompactBottomBarView)
+            view.bringSubviewToFront(bottomSearchHostView)
+        }
+        updateTableInsetsForBottomSearch()
+    }
+
+    @objc
+    private final func onContactsCompactFilterButtonTouchUpInside(_ sender: UIButton) {
+        if isGroup {
+            showOffline.toggle()
+            runDatasetUpdateTask(force: true)
+            updateContactsCompactBottomBarState()
+            return
+        }
+
+        shouldFilterBy(category: isContactsCompactOnlineFilterActive ? Filter.all.rawValue : Filter.online.rawValue)
+    }
+
+    @objc
+    private final func onContactsCompactPrimaryButtonTouchUpInside(_ sender: UIButton) {
+        if isGroup {
+            openCreatePublicGroupFlow()
+        } else {
+            openAddContactFlow()
+        }
     }
 
     func configureBars(animated: Bool = false, updateNavigationItems: Bool = true) {
@@ -1866,9 +2074,22 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         
         filterMenu = UIMenu(options: [.singleSelection], children: childs)
         button.menu = filterMenu
+
+        updateContactsCompactBottomBarState()
+
+        if shouldUseContactsCompactBottomBar {
+            if updateNavigationItems {
+                NavigationBarItemOwnership.setIfChanged(
+                    .none,
+                    on: navigationItem,
+                    side: .right,
+                    animated: animated
+                )
+            }
+            return
+        }
         
         let addBarButton = makeContactsAddButton()
-        let offlineButton = UIBarButtonItem(image: imageLiteral("person"), style: .plain, target: self, action: #selector(showOfflineSelector))
         let rightAssignment: NavigationBarItemOwnership.Assignment
         if isGroup {
             if childs.count > 0 {
@@ -1927,8 +2148,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         
         let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
         bottomBar.updateFrame(to: frame)
-        updateTableInsetsForBottomSearch()
-        view.bringSubviewToFront(bottomSearchHostView)
+        updateContactsCompactBottomBarState()
     }
     
     internal func updateTitle() {
@@ -1998,6 +2218,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         super.viewDidLoad()
         configure()
         configureSearchBar()
+        updateContactsCompactBottomBarState()
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
@@ -2042,6 +2263,17 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         } else {
             self.securityButton.tintColor = .systemRed
         }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+
+        guard previousTraitCollection?.horizontalSizeClass != effectiveHorizontalSizeClass else {
+            return
+        }
+
+        configureBars(animated: false)
+        updateContactsCompactBottomBarState()
     }
 
     private var isSearchHostNavigationTransitionActive: Bool {
@@ -2104,6 +2336,7 @@ extension ContactsViewController: ContactsControllerFilterProtocol {
     func changeOfflineVisibilityState() -> Bool {
         self.showOffline = !self.showOffline
         self.runDatasetUpdateTask(force: true)
+        self.updateContactsCompactBottomBarState()
         return self.showOffline
     }
     
@@ -2111,6 +2344,7 @@ extension ContactsViewController: ContactsControllerFilterProtocol {
         self.filteredGroups = Set(groups)
         self.categoryDelegate?.filterDidSelect(groups: groups)
         self.runDatasetUpdateTask(force: true)
+        self.updateContactsCompactBottomBarState()
     }
     
     func shouldFilterBy(account: String?) {
@@ -2127,6 +2361,7 @@ extension ContactsViewController: ContactsControllerFilterProtocol {
         self.categoryDelegate?.filterDidSelect(account: self.filteredAccounts.first)
         self.runDatasetUpdateTask(force: true)
         self.configureBars(animated: false)
+        self.updateContactsCompactBottomBarState()
     }
     
     func shouldFilterBy(category: String?) {
@@ -2149,6 +2384,7 @@ extension ContactsViewController: ContactsControllerFilterProtocol {
             self.filter.accept(.all)
         }
         self.configureBars(animated: false)
+        self.updateContactsCompactBottomBarState()
         self.updateTitle()
     }
 }

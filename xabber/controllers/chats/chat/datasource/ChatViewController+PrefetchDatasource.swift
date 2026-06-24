@@ -33,6 +33,12 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         let hasRemoteNewerAvailable: Bool
     }
 
+    private struct BoundaryPagingSuppressionContext {
+        let suppressRemoteBoundaryPaging: Bool
+        let contentHeight: CGFloat
+        let visibleHeight: CGFloat
+    }
+
     private func triggerPaging(_ pageDirection: ChatHistoryPageDirection) {
         self.setDatasourceLoadingEnabled(false)
         switch pageDirection {
@@ -130,12 +136,38 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         )
     }
 
+    private func shortContentRemotePagingSuppressionContext(
+        availability: BoundaryPagingAvailability
+    ) -> BoundaryPagingSuppressionContext {
+        let contentHeight = self.messagesCollectionView.collectionViewLayout.collectionViewContentSize.height
+        let visibleHeight = max(
+            0,
+            self.messagesCollectionView.bounds.height -
+                self.messagesCollectionView.adjustedContentInset.top -
+                self.messagesCollectionView.adjustedContentInset.bottom
+        )
+        let hasRealMessages = self.datasource.contains { !$0.isFakeMessage }
+        let shouldSuppress = ChatShortContentRemotePagingSuppressionPolicy.shouldSuppressRemoteBoundaryPaging(
+            hasRealMessages: hasRealMessages,
+            hasLocalOlderAvailable: availability.hasLocalOlderAvailable,
+            hasLocalNewerAvailable: availability.hasLocalNewerAvailable,
+            contentHeight: contentHeight,
+            visibleHeight: visibleHeight
+        )
+        return BoundaryPagingSuppressionContext(
+            suppressRemoteBoundaryPaging: shouldSuppress,
+            contentHeight: contentHeight,
+            visibleHeight: visibleHeight
+        )
+    }
+
     internal func interactiveBoundaryPagingDirection(
         isUserScrolling: Bool,
         gestureTranslationY: CGFloat,
         boundaryContext: ChatHistoryPagingBoundaryContext
     ) -> ChatHistoryPageDirection? {
         let availability = self.boundaryPagingAvailability(boundaryContext: boundaryContext)
+        let suppressionContext = self.shortContentRemotePagingSuppressionContext(availability: availability)
         let residentCount = self.virtualTimelineState.residentPrimaryKeys.count
         let pageDirection = ChatHistoryPagingPolicy.triggerDirection(
             isUserScrolling: isUserScrolling,
@@ -148,12 +180,14 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             hasLocalOlderAvailable: availability.hasLocalOlderAvailable,
             hasLocalNewerAvailable: availability.hasLocalNewerAvailable,
             hasRemoteOlderAvailable: availability.hasRemoteOlderAvailable,
-            hasRemoteNewerAvailable: availability.hasRemoteNewerAvailable
+            hasRemoteNewerAvailable: availability.hasRemoteNewerAvailable,
+            suppressRemoteBoundaryPaging: suppressionContext.suppressRemoteBoundaryPaging
         )
         self.logBoundaryPagingDecision(
             trigger: "interactive",
             boundaryContext: boundaryContext,
             availability: availability,
+            suppressionContext: suppressionContext,
             residentCount: residentCount,
             gestureTranslationY: gestureTranslationY,
             selectedDirection: pageDirection
@@ -166,6 +200,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         boundaryContext: ChatHistoryPagingBoundaryContext
     ) -> ChatHistoryPageDirection? {
         let availability = self.boundaryPagingAvailability(boundaryContext: boundaryContext)
+        let suppressionContext = self.shortContentRemotePagingSuppressionContext(availability: availability)
         let residentCount = self.virtualTimelineState.residentPrimaryKeys.count
         let pageDirection = ChatHistoryPagingPolicy.fallbackDirectionForShortContentDrag(
             canLoadDatasource: self.canLoadDatasource,
@@ -177,12 +212,14 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             hasLocalOlderAvailable: availability.hasLocalOlderAvailable,
             hasLocalNewerAvailable: availability.hasLocalNewerAvailable,
             hasRemoteOlderAvailable: availability.hasRemoteOlderAvailable,
-            hasRemoteNewerAvailable: availability.hasRemoteNewerAvailable
+            hasRemoteNewerAvailable: availability.hasRemoteNewerAvailable,
+            suppressRemoteBoundaryPaging: suppressionContext.suppressRemoteBoundaryPaging
         )
         self.logBoundaryPagingDecision(
             trigger: "dragEnd",
             boundaryContext: boundaryContext,
             availability: availability,
+            suppressionContext: suppressionContext,
             residentCount: residentCount,
             gestureTranslationY: gestureTranslationY,
             selectedDirection: pageDirection
@@ -194,6 +231,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         trigger: String,
         boundaryContext: ChatHistoryPagingBoundaryContext,
         availability: BoundaryPagingAvailability,
+        suppressionContext: BoundaryPagingSuppressionContext,
         residentCount: Int,
         gestureTranslationY: CGFloat,
         selectedDirection: ChatHistoryPageDirection?
@@ -211,6 +249,9 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             ("localNewer", availability.hasLocalNewerAvailable),
             ("remoteOlder", availability.hasRemoteOlderAvailable),
             ("remoteNewer", availability.hasRemoteNewerAvailable),
+            ("suppressRemoteBoundaryPaging", suppressionContext.suppressRemoteBoundaryPaging),
+            ("contentHeight", Int(suppressionContext.contentHeight)),
+            ("visibleHeight", Int(suppressionContext.visibleHeight)),
             ("residentCount", residentCount),
             ("isResidentAtLiveTail", self.virtualTimelineState.isResidentAtLiveTail),
             ("canLoadDatasource", self.canLoadDatasource),

@@ -48,6 +48,9 @@ extension SearchResultsViewController: UITableViewDataSource {
         case .contacts:
             guard chatsDatasource.indices.contains(indexPath.row) else { return nil }
             return chatsDatasource[indexPath.row]
+        case .groups:
+            guard groupsDatasource.indices.contains(indexPath.row) else { return nil }
+            return groupsDatasource[indexPath.row]
         case .messages:
             guard messagesDatasource.indices.contains(indexPath.row) else { return nil }
             return messagesDatasource[indexPath.row]
@@ -113,6 +116,8 @@ extension SearchResultsViewController: UITableViewDataSource {
         switch sections[section].kind {
         case .contacts:
             return chatsDatasource.count
+        case .groups:
+            return groupsDatasource.count
         case .messages:
             return messagesDatasource.count
         }

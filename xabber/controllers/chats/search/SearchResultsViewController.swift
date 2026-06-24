@@ -33,6 +33,7 @@ class SearchResultsViewController: SimpleBaseViewController {
     struct Section {
         enum Kind {
             case contacts
+            case groups
             case messages
         }
         
@@ -42,10 +43,10 @@ class SearchResultsViewController: SimpleBaseViewController {
     }
 
     static var searchPlaceholderText: String {
-        "Search contacts and messages".localizeString(id: "search_contacts_and_messages", arguments: [])
+        "Search messages, contacts and groups".localizeString(id: "search_messages_contacts_groups", arguments: [])
     }
 
-    static func makeSections(hasContacts: Bool, hasMessages: Bool) -> [Section] {
+    static func makeSections(hasContacts: Bool, hasGroups: Bool = false, hasMessages: Bool) -> [Section] {
         var sections: [Section] = []
         if hasContacts {
             sections.append(
@@ -53,6 +54,15 @@ class SearchResultsViewController: SimpleBaseViewController {
                     header: "Contacts".localizeString(id: "contacts", arguments: []),
                     footer: "",
                     kind: .contacts
+                )
+            )
+        }
+        if hasGroups {
+            sections.append(
+                Section(
+                    header: "Groups".localizeString(id: "channel_group_chat_title", arguments: []),
+                    footer: "",
+                    kind: .groups
                 )
             )
         }
@@ -71,6 +81,7 @@ class SearchResultsViewController: SimpleBaseViewController {
     internal func updateSections() {
         sections = Self.makeSections(
             hasContacts: chatsDatasource.isNotEmpty,
+            hasGroups: groupsDatasource.isNotEmpty,
             hasMessages: messagesDatasource.isNotEmpty
         )
     }
@@ -144,6 +155,7 @@ class SearchResultsViewController: SimpleBaseViewController {
     }
     
     var chatsDatasource: [Datasource] = []
+    var groupsDatasource: [Datasource] = []
     var messagesDatasource: [Datasource] = []
     
     var isLoadingDone: Bool = true
@@ -227,9 +239,8 @@ class SearchResultsViewController: SimpleBaseViewController {
             realm
                 .objects(MessageStorageItem.self)
                 .filter(
-                    "owner == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND body CONTAINS[cd] %@",
+                    "owner == %@ AND isDeleted == false AND messageType != %@ AND body CONTAINS[cd] %@",
                     owner,
-                    ClientSynchronizationManager.ConversationType.omemo.rawValue,
                     MessageStorageItem.MessageDisplayType.system.rawValue,
                     text
                 )
@@ -688,12 +699,15 @@ class SearchResultsViewController: SimpleBaseViewController {
 }
 
 enum InPlaceSearchHostHelper {
-    static func makeSearchController(updater: UISearchResultsUpdating) -> UISearchController {
+    static func makeSearchController(
+        updater: UISearchResultsUpdating,
+        placeholder: String = ChatSearchResultsController.placeholderText
+    ) -> UISearchController {
         let controller = UISearchController(searchResultsController: nil)
 
         controller.searchResultsUpdater = updater
         controller.searchBar.searchBarStyle = .default
-        controller.searchBar.placeholder = ChatSearchResultsController.placeholderText
+        controller.searchBar.placeholder = placeholder
         // Apple recommends disabling obscuring when the same controller shows content and in-place results.
         controller.obscuresBackgroundDuringPresentation = false
 
@@ -738,6 +752,10 @@ enum InPlaceSearchHostHelper {
     }
 }
 
+final class EmptySearchResultsUpdater: NSObject, UISearchResultsUpdating {
+    func updateSearchResults(for searchController: UISearchController) {}
+}
+
 enum BottomInPlaceSearchHostHelper {
     static func install(
         searchView: BottomSearchHostView,
@@ -764,10 +782,11 @@ enum BottomInPlaceSearchHostHelper {
     static func configure(
         searchView: BottomSearchHostView,
         updater: ChatSearchResultsController,
+        placeholder: String = ChatSearchResultsController.placeholderText,
         reload: @escaping () -> Void,
         activeChanged: @escaping (Bool) -> Void
     ) {
-        searchView.searchTextField.placeholder = ChatSearchResultsController.placeholderText
+        searchView.searchTextField.placeholder = placeholder
         updater.onSnapshotChanged = reload
         searchView.onBegin = { [weak searchView, weak updater] in
             guard let searchView, let updater else { return }
@@ -866,6 +885,7 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
     }
 
     internal var chatsDatasource: [Datasource] = []
+    internal var groupsDatasource: [Datasource] = []
     internal var messagesDatasource: [Datasource] = []
     internal var isLoadingDone: Bool = true
     internal var sections: [Section] = []
@@ -922,6 +942,7 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
     internal func reset() {
         usesInjectedSnapshot = false
         chatsDatasource = []
+        groupsDatasource = []
         messagesDatasource = []
         sections = []
         messagesQueue = []
@@ -932,11 +953,13 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
 
     internal func replaceSnapshot(
         chats: [Datasource] = [],
+        groups: [Datasource] = [],
         messages: [Datasource] = [],
         isLoadingDone: Bool = true
     ) {
         usesInjectedSnapshot = true
         chatsDatasource = chats
+        groupsDatasource = groups
         messagesDatasource = messages
         self.isLoadingDone = isLoadingDone
         updateSections()
@@ -952,6 +975,8 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
         switch sections[section].kind {
         case .contacts:
             return chatsDatasource.count
+        case .groups:
+            return groupsDatasource.count
         case .messages:
             return messagesDatasource.count
         }
@@ -970,6 +995,11 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                 return nil
             }
             return chatsDatasource[indexPath.row]
+        case .groups:
+            guard groupsDatasource.indices.contains(indexPath.row) else {
+                return nil
+            }
+            return groupsDatasource[indexPath.row]
         case .messages:
             guard messagesDatasource.indices.contains(indexPath.row) else {
                 return nil
@@ -1056,8 +1086,19 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
     private func updateSections() {
         sections = SearchResultsViewController.makeSections(
             hasContacts: chatsDatasource.isNotEmpty,
+            hasGroups: groupsDatasource.isNotEmpty,
             hasMessages: messagesDatasource.isNotEmpty
         )
+    }
+
+    private static func isGroupSearchResult(_ item: Datasource) -> Bool {
+        guard item.conversationType == .group || item.conversationType == .channel else {
+            if let entity = item.entity {
+                return [.groupchat, .incognitoChat, .privateChat].contains(entity)
+            }
+            return false
+        }
+        return true
     }
 
     private final func searchForAccount(_ owner: String, search text: String, withUIStream: Bool) {
@@ -1067,9 +1108,8 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
             realm
                 .objects(MessageStorageItem.self)
                 .filter(
-                    "owner == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND body CONTAINS[cd] %@",
+                    "owner == %@ AND isDeleted == false AND messageType != %@ AND body CONTAINS[cd] %@",
                     owner,
-                    ClientSynchronizationManager.ConversationType.omemo.rawValue,
                     MessageStorageItem.MessageDisplayType.system.rawValue,
                     text
                 )
@@ -1087,41 +1127,48 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                 }
             )
 
+            let remoteConversationTypes: [ClientSynchronizationManager.ConversationType] = [.regular, .group]
             if withUIStream {
                 XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
-                    let queryId = session.mam?.searchText(
-                        stream,
-                        conversationType: .regular,
-                        text: text,
-                        max: 100,
-                        loadFull: false,
-                        requestCallbacks: requestCallbacks
-                    ) ?? ""
-                    self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
+                    remoteConversationTypes.forEach { conversationType in
+                        let queryId = session.mam?.searchText(
+                            stream,
+                            conversationType: conversationType,
+                            text: text,
+                            max: 100,
+                            loadFull: false,
+                            requestCallbacks: requestCallbacks
+                        ) ?? ""
+                        self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
+                    }
                 } fail: {
                     AccountManager.shared.find(for: owner)?.action({ user, stream in
+                        remoteConversationTypes.forEach { conversationType in
+                            let queryId = user.mam.searchText(
+                                stream,
+                                conversationType: conversationType,
+                                text: text,
+                                max: 100,
+                                loadFull: false,
+                                requestCallbacks: requestCallbacks
+                            )
+                            self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
+                        }
+                    })
+                }
+            } else {
+                AccountManager.shared.find(for: owner)?.action({ user, stream in
+                    remoteConversationTypes.forEach { conversationType in
                         let queryId = user.mam.searchText(
                             stream,
-                            conversationType: .regular,
+                            conversationType: conversationType,
                             text: text,
                             max: 100,
                             loadFull: false,
                             requestCallbacks: requestCallbacks
                         )
                         self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
-                    })
-                }
-            } else {
-                AccountManager.shared.find(for: owner)?.action({ user, stream in
-                    let queryId = user.mam.searchText(
-                        stream,
-                        conversationType: .regular,
-                        text: text,
-                        max: 100,
-                        loadFull: false,
-                        requestCallbacks: requestCallbacks
-                    )
-                    self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
+                    }
                 })
             }
         } catch {
@@ -1130,7 +1177,11 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
     }
 
     internal final func updateMessagesSearchResults() throws {
+        var seenMessagePrimaries: Set<String> = []
         messagesDatasource = try messagesQueue.sorted(by: { $0.date > $1.date }).compactMap { messageItem -> Datasource? in
+            guard seenMessagePrimaries.insert(messageItem.primary).inserted else {
+                return nil
+            }
             let realm = try WRealm.safe()
             guard let item = realm.object(
                 ofType: LastChatsStorageItem.self,
@@ -1167,8 +1218,15 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                 isSystemMessage = true
             }
 
-            let username = messageItem.outgoing ? AccountManager.shared.find(for: messageItem.owner)?.username ?? messageItem.opponent : item.rosterItem?.displayName ?? item.jid
+            let username = item.rosterItem?.displayName ?? item.jid
             var attributedUsername: NSAttributedString? = nil
+            let primaryResource = item.rosterItem?.getPrimaryResource()
+            let entity: RosterItemEntity = {
+                if item.conversationType == .group {
+                    return primaryResource?.entity ?? .groupchat
+                }
+                return primaryResource?.entity ?? .contact
+            }()
 
             if item.conversationType.isEncrypted {
                 let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
@@ -1221,8 +1279,8 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                 state: messageItem.outgoing ? messageItem.state : nil,
                 isMute: false,
                 isSynced: false,
-                status: .offline,
-                entity: .contact,
+                status: primaryResource?.status ?? .offline,
+                entity: entity,
                 conversationType: item.conversationType,
                 unread: 0,
                 unreadString: isInvite ? "1" : nil,
@@ -1250,6 +1308,7 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
         do {
             usesInjectedSnapshot = false
             chatsDatasource = []
+            groupsDatasource = []
             guard let searchText = searchText, searchText.isNotEmpty else {
                 reset()
                 return
@@ -1265,13 +1324,14 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                 .filter("owner IN %@ AND (jid CONTAINS[cd] %@ OR customUsername CONTAINS[cd] %@ OR username CONTAINS[cd] %@)", enabledAccounts, searchText, searchText, searchText)
                 .sorted(byKeyPath: "jid", ascending: true)
 
-            chatsDatasource = chats.compactMap { item -> Datasource? in
+            let chatResults: [Datasource] = chats.compactMap { item -> Datasource? in
                 if (XMPPJID(string: item.jid)?.isServer ?? false) && item.conversationType != .saved {
                     return nil
                 }
                 let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
                 let subscriptionRequest: Bool = item.rosterItem?.isThereSubscriptionRequest() ?? false
                 let primaryResource = item.rosterItem?.getPrimaryResource()
+                let entity = primaryResource?.entity ?? (item.conversationType == .group ? RosterItemEntity.groupchat : .contact)
                 let date = item.messageDate == Date(timeIntervalSince1970: 0) ? nil : item.messageDate
                 var message: String
 
@@ -1380,7 +1440,7 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                     isMute: item.isMuted,
                     isSynced: item.isSynced,
                     status: primaryResource?.status ?? .offline,
-                    entity: primaryResource?.entity ?? .contact,
+                    entity: entity,
                     conversationType: item.conversationType,
                     unread: item.lastMessage?.outgoing ?? false ? 0 : item.unread,
                     unreadString: isInvite ? "1" : nil,
@@ -1401,11 +1461,17 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                 )
             }
 
-            let jids = Set(chatsDatasource.compactMap { [$0.owner, $0.jid].prp() })
-            chatsDatasource.append(contentsOf: roster.compactMap({ item -> Datasource? in
+            chatsDatasource = chatResults.filter { !Self.isGroupSearchResult($0) }
+            groupsDatasource = chatResults.filter { Self.isGroupSearchResult($0) }
+
+            let jids = Set((chatsDatasource + groupsDatasource).compactMap { [$0.owner, $0.jid].prp() })
+            let rosterResults: [Datasource] = roster.compactMap({ item -> Datasource? in
                 if jids.contains([item.owner, item.jid].prp()) { return nil }
                 let primaryResource = item.getPrimaryResource()
-                let conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
+                let conversationType = item.isContact
+                    ? ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
+                    : .group
+                let entity = primaryResource?.entity ?? (item.isContact ? RosterItemEntity.contact : .groupchat)
                 return Datasource(
                     jid: item.jid,
                     owner: item.owner,
@@ -1417,7 +1483,7 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                     isMute: false,
                     isSynced: true,
                     status: primaryResource?.status ?? .offline,
-                    entity: primaryResource?.entity ?? .contact,
+                    entity: entity,
                     conversationType: conversationType,
                     unread: 0,
                     unreadString: nil,
@@ -1436,7 +1502,9 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                     isVerificationActionRequired: false,
                     messageArchiveId: nil
                 )
-            }))
+            })
+            chatsDatasource.append(contentsOf: rosterResults.filter { !Self.isGroupSearchResult($0) })
+            groupsDatasource.append(contentsOf: rosterResults.filter { Self.isGroupSearchResult($0) })
             messagesDatasource = []
             messagesQueue = []
             isLoadingDone = false

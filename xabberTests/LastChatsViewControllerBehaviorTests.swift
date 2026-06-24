@@ -17,10 +17,27 @@
 
 import XCTest
 import UIKit
+import RealmSwift
 @testable import xabber
 
 @MainActor
 final class LastChatsViewControllerBehaviorTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+
+    override func setUp() {
+        super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "LastChatsViewControllerBehaviorTests-\(name)-\(UUID().uuidString)"
+        )
+    }
+
+    override func tearDown() {
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        super.tearDown()
+    }
+
     func testConfigureBarsTabsWithNoSecurityShowsOnlyAddButton() {
         withInterfaceType(.tabs, useYubikey: false) {
             let controller = LastChatsViewController()
@@ -79,7 +96,16 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         assertLargeTitle(useLargeTitle: false)
     }
 
-    func testFloatingBottomBarTitleUsesConnectingAndUnreadCounts() {
+    func testFloatingBottomBarTitleShowsMarkAllAsReadAction() {
+        let controller = LastChatsViewController()
+
+        XCTAssertEqual(
+            controller.floatingBottomBarTitle,
+            "Mark all as read".localizeString(id: "mark_all_as_read_button", arguments: [])
+        )
+    }
+
+    func testMarkAllAsReadButtonStateFollowsUnreadAndConnectingState() {
         let controller = LastChatsViewController()
         let previousEnabledAccounts = controller.enabledAccounts.value
         let previousConnectingAccounts = AccountManager.shared.connectingUsers.value
@@ -91,25 +117,170 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
 
         let ownerJid = "owner@example.com"
         controller.enabledAccounts.accept([ownerJid])
+        AccountManager.shared.connectingUsers.accept([])
+
+        controller.updateUnreadChatsCounter(count: 0)
+        XCTAssertFalse(controller.isMarkAllReadButtonEnabled)
+
+        controller.updateUnreadChatsCounter(count: 1)
+        XCTAssertTrue(controller.isMarkAllReadButtonEnabled)
 
         AccountManager.shared.connectingUsers.accept([ownerJid])
-        XCTAssertEqual(
-            controller.floatingBottomBarTitle(forUnreadChatsCount: 2),
-            "Connecting".localizeString(id: "plurals.accounts_of_connecting.item_0", arguments: [])
+        controller.updateUnreadChatsCounter(count: 1)
+        XCTAssertFalse(controller.isMarkAllReadButtonEnabled)
+    }
+
+    func testBottomSearchExpansionHidesAndRestoresLastChatsActionBar() {
+        let controller = LastChatsViewController()
+        controller.loadViewIfNeeded()
+
+        XCTAssertFalse(controller.isFloatingBottomBarHidden)
+
+        controller.bottomSearchHostView.setExpanded(true, animated: false)
+        controller.bottomSearchPresentationStateDidChange()
+
+        XCTAssertTrue(controller.isFloatingBottomBarHidden)
+        XCTAssertFalse(controller.bottomSearchHostView.surfaceView.isHidden)
+
+        controller.bottomSearchHostView.cancelButton.sendActions(for: .touchUpInside)
+
+        XCTAssertFalse(controller.isFloatingBottomBarHidden)
+        XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
+    }
+
+    func testBottomSearchCollapsedPassesHitsToLastChatsActionButtons() {
+        let controller = LastChatsViewController()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        controller.loadViewIfNeeded()
+        controller.updateUnreadChatsCounter(count: 1)
+        controller.view.layoutIfNeeded()
+
+        let filterButton = controller.floatingBottomBarFilterButton
+        let markAllButton = controller.markAllReadButton
+        let filterPoint = controller.view.convert(
+            CGPoint(x: filterButton.bounds.midX, y: filterButton.bounds.midY),
+            from: filterButton
+        )
+        let markAllPoint = controller.view.convert(
+            CGPoint(x: markAllButton.bounds.midX, y: markAllButton.bounds.midY),
+            from: markAllButton
         )
 
-        AccountManager.shared.connectingUsers.accept([])
-        XCTAssertEqual(
-            controller.floatingBottomBarTitle(forUnreadChatsCount: 0),
-            CommonConfigManager.shared.config.app_name
+        XCTAssertTrue(controller.view.hitTest(filterPoint, with: nil) === filterButton)
+        XCTAssertTrue(controller.view.hitTest(markAllPoint, with: nil) === markAllButton)
+    }
+
+    func testChatSearchMapsGroupMessagesIntoMessageResults() throws {
+        let owner = "owner@example.com"
+        let groupJid = "group@example.com"
+        let realm = try WRealm.safe()
+        let chat = LastChatsStorageItem()
+        chat.primary = LastChatsStorageItem.genPrimary(jid: groupJid, owner: owner, conversationType: .group)
+        chat.owner = owner
+        chat.jid = groupJid
+        chat.conversationType = .group
+
+        let message = MessageStorageItem()
+        message.primary = "group-message-primary"
+        message.owner = owner
+        message.opponent = groupJid
+        message.conversationType = .group
+        message.body = "group search needle"
+        message.date = Date(timeIntervalSince1970: 10)
+        message.archivedId = "archive-group-message"
+
+        try realm.write {
+            realm.add(chat, update: .modified)
+            realm.add(message, update: .modified)
+        }
+
+        let updater = ChatSearchResultsController()
+        updater.messagesQueue = [message]
+        try updater.updateMessagesSearchResults()
+
+        XCTAssertEqual(updater.numberOfSections(), 1)
+        XCTAssertEqual(updater.titleForHeader(in: 0), "Messages".localizeString(id: "groupchat_member_messages", arguments: []))
+        let result = try XCTUnwrap(updater.item(at: IndexPath(row: 0, section: 0)))
+        XCTAssertEqual(result.jid, groupJid)
+        XCTAssertEqual(result.conversationType, .group)
+        XCTAssertEqual(result.entity, .groupchat)
+        XCTAssertEqual(result.messageArchiveId, "archive-group-message")
+    }
+
+    func testMarkAllAsReadTargetsOnlyUnreadNonArchivedEnabledChats() {
+        let targets = LastChatsViewController.unreadChatReadTargets(
+            from: [
+                .init(
+                    owner: "enabled@example.com",
+                    jid: "unread@example.com",
+                    conversationType: .regular,
+                    isArchived: false,
+                    unread: 2,
+                    lastMessagePrimary: "primary-1",
+                    lastMessageId: "message-1"
+                ),
+                .init(
+                    owner: "enabled@example.com",
+                    jid: "read@example.com",
+                    conversationType: .regular,
+                    isArchived: false,
+                    unread: 0,
+                    lastMessagePrimary: "primary-2",
+                    lastMessageId: "message-2"
+                ),
+                .init(
+                    owner: "enabled@example.com",
+                    jid: "archived@example.com",
+                    conversationType: .regular,
+                    isArchived: true,
+                    unread: 3,
+                    lastMessagePrimary: "primary-3",
+                    lastMessageId: "message-3"
+                ),
+                .init(
+                    owner: "disabled@example.com",
+                    jid: "disabled@example.com",
+                    conversationType: .regular,
+                    isArchived: false,
+                    unread: 1,
+                    lastMessagePrimary: "primary-4",
+                    lastMessageId: "message-4"
+                ),
+                .init(
+                    owner: "enabled@example.com",
+                    jid: "fallback@example.com",
+                    conversationType: .omemo,
+                    isArchived: false,
+                    unread: 1,
+                    lastMessagePrimary: nil,
+                    lastMessageId: "server-last-id"
+                )
+            ],
+            enabledAccounts: ["enabled@example.com"]
         )
+
         XCTAssertEqual(
-            controller.floatingBottomBarTitle(forUnreadChatsCount: 1),
-            "1 unread chat"
-        )
-        XCTAssertEqual(
-            controller.floatingBottomBarTitle(forUnreadChatsCount: 2),
-            "2 unread chats"
+            targets,
+            [
+                .init(
+                    owner: "enabled@example.com",
+                    messageTarget: .init(
+                        jid: "unread@example.com",
+                        conversationType: .regular,
+                        lastMessagePrimary: "primary-1",
+                        lastMessageId: "message-1"
+                    )
+                ),
+                .init(
+                    owner: "enabled@example.com",
+                    messageTarget: .init(
+                        jid: "fallback@example.com",
+                        conversationType: .omemo,
+                        lastMessagePrimary: nil,
+                        lastMessageId: "server-last-id"
+                    )
+                )
+            ]
         )
     }
 
@@ -206,6 +377,106 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         wait(for: [done], timeout: 1.0)
 
         XCTAssertTrue(controller.datasource.isEmpty)
+    }
+
+    func testQuietModeStructuralChangesUseReloadFallback() {
+        let structural = ChangesWithIndexPath(
+            inserts: [IndexPath(row: 0, section: 0)],
+            deletes: [],
+            replaces: [],
+            moves: []
+        )
+        let replacementOnly = ChangesWithIndexPath(
+            inserts: [],
+            deletes: [],
+            replaces: [IndexPath(row: 0, section: 0)],
+            moves: []
+        )
+
+        XCTAssertTrue(
+            LastChatsViewController.shouldReloadStructuralTableChanges(
+                structural,
+                isQuietModeActive: true
+            )
+        )
+        XCTAssertFalse(
+            LastChatsViewController.shouldReloadStructuralTableChanges(
+                structural,
+                isQuietModeActive: false
+            )
+        )
+        XCTAssertFalse(
+            LastChatsViewController.shouldReloadStructuralTableChanges(
+                replacementOnly,
+                isQuietModeActive: true
+            )
+        )
+    }
+
+    func testApplyQuietModeStructuralUpdatesReloadsTable() {
+        let controller = LastChatsViewController()
+        let oldItem = makeDatasource(jid: "romeo@example.com", owner: "owner@example.com")
+        let newItem = makeDatasource(jid: "juliet@example.com", owner: "owner@example.com")
+        let oldSections = LastChatsViewController.makeDatasourceSections(from: [oldItem], showsSkeleton: false)
+        let newSections = LastChatsViewController.makeDatasourceSections(from: [oldItem, newItem], showsSkeleton: false)
+        let staleVisibleSections = LastChatsViewController.makeDatasourceSections(from: [], showsSkeleton: false)
+        let done = expectation(description: "quiet mode structural reload applied")
+        controller.loadViewIfNeeded()
+        controller.showSkeleton.accept(false)
+        controller.setDatasource([], sections: staleVisibleSections, showsSkeleton: false)
+        controller.tableView.reloadData()
+        controller.beginLeftMenuFirstPresentationQuietMode()
+
+        let changes = LastChatsViewController.sectionedChanges(
+            oldSections: oldSections,
+            newSections: newSections
+        )
+
+        controller.apply(
+            changes: changes,
+            oldSections: oldSections,
+            newSections: newSections,
+            oldShowsSkeleton: false,
+            newShowsSkeleton: false,
+            prepare: {
+                controller.setDatasource([oldItem, newItem], sections: newSections, showsSkeleton: false)
+                done.fulfill()
+            }
+        )
+        wait(for: [done], timeout: 1.0)
+
+        XCTAssertEqual(controller.datasource.map(\.jid), ["romeo@example.com", "juliet@example.com"])
+        XCTAssertEqual(controller.tableView.numberOfRows(inSection: 0), 2)
+    }
+
+    func testApplyWithDisconnectedTableViewUpdatesDatasourceWithoutBatching() {
+        let controller = LastChatsViewController()
+        let item = makeDatasource(jid: "romeo@example.com", owner: "owner@example.com")
+        let oldSections = LastChatsViewController.makeDatasourceSections(from: [], showsSkeleton: false)
+        let newSections = LastChatsViewController.makeDatasourceSections(from: [item], showsSkeleton: false)
+        let done = expectation(description: "disconnected table update applied")
+        XCTAssertNil(controller.tableView.dataSource)
+
+        let changes = LastChatsViewController.sectionedChanges(
+            oldSections: oldSections,
+            newSections: newSections
+        )
+
+        controller.apply(
+            changes: changes,
+            oldSections: oldSections,
+            newSections: newSections,
+            oldShowsSkeleton: false,
+            newShowsSkeleton: false,
+            prepare: {
+                controller.setDatasource([item], sections: newSections, showsSkeleton: false)
+                done.fulfill()
+            }
+        )
+        wait(for: [done], timeout: 1.0)
+
+        XCTAssertEqual(controller.datasource.map(\.jid), ["romeo@example.com"])
+        XCTAssertNil(controller.tableView.dataSource)
     }
 
     func testChatListCellUsesCachedAvatarSynchronously() {

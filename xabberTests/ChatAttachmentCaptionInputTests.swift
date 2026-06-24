@@ -1,0 +1,476 @@
+import AVFoundation
+import UIKit
+import XCTest
+@testable import xabber
+
+@MainActor
+final class ChatAttachmentCaptionInputTests: XCTestCase {
+    func testPreviewShowsCaptionInputAndStartsEmpty() {
+        let preview = makePreview(drafts: [makeTask13AssetDraft(localIdentifier: "asset-1")])
+
+        preview.loadViewIfNeeded()
+
+        XCTAssertNotNil(preview.captionInputView.superview)
+        XCTAssertEqual(preview.captionInputView.text, "")
+        XCTAssertEqual(preview.captionInputView.placeholderLabel.text, "Add a caption")
+    }
+
+    func testTypingUpdatesSheetOwnedCaptionState() throws {
+        let source = FakeTask13SelectableSourceController(source: .gallery)
+        let sheet = makeSheet(source: source)
+        let draft = makeTask13AssetDraft(localIdentifier: "asset-1")
+
+        sheet.loadViewIfNeeded()
+        source.replaceSelectedDrafts([draft])
+        let preview = try openPreview(from: sheet)
+        preview.captionInputView.textView.text = "Trip photo"
+        preview.captionInputView.textViewDidChange(preview.captionInputView.textView)
+
+        XCTAssertEqual(sheet.captionState.rawText, "Trip photo")
+        XCTAssertEqual(preview.captionInputView.text, "Trip photo")
+    }
+
+    func testCaptionIsPreservedAfterPreviewCloseReopenSourceSwitchAndPresentationChange() throws {
+        let source = FakeTask13SelectableSourceController(source: .gallery)
+        let sheet = makeSheet(source: source)
+        let draft = makeTask13AssetDraft(localIdentifier: "asset-1")
+
+        sheet.loadViewIfNeeded()
+        source.replaceSelectedDrafts([draft])
+        var preview = try openPreview(from: sheet)
+        preview.captionInputView.textView.text = "Keep me"
+        preview.captionInputView.textViewDidChange(preview.captionInputView.textView)
+        preview.closeButton.sendActions(for: .touchUpInside)
+
+        sheet.switchSource(to: .file)
+        sheet.switchSource(to: .gallery)
+        sheet.chatAttachmentSheetPresentationStateDidChange(.expanded)
+        sheet.chatAttachmentSheetPresentationStateDidChange(.compact)
+        preview = try openPreview(from: sheet)
+
+        XCTAssertEqual(preview.captionInputView.text, "Keep me")
+        XCTAssertEqual(sheet.captionState.rawText, "Keep me")
+    }
+
+    func testCaptionStaysWhenRemovingOneItemFromMultiItemBatch() throws {
+        let source = FakeTask13SelectableSourceController(source: .gallery)
+        let sheet = makeSheet(source: source)
+        let first = makeTask13AssetDraft(localIdentifier: "asset-1")
+        let second = makeTask13AssetDraft(localIdentifier: "asset-2")
+
+        sheet.loadViewIfNeeded()
+        source.replaceSelectedDrafts([first, second])
+        let preview = try openPreview(from: sheet)
+        preview.captionInputView.textView.text = "Batch caption"
+        preview.captionInputView.textViewDidChange(preview.captionInputView.textView)
+        preview.removeCurrentDraft()
+
+        XCTAssertEqual(sheet.captionState.rawText, "Batch caption")
+        XCTAssertEqual(preview.captionInputView.text, "Batch caption")
+        XCTAssertEqual(sheet.selectedAttachmentDrafts.map(\.id), [second.id])
+    }
+
+    func testRemovingLastSelectedItemDismissesPreviewAndClearsCaption() throws {
+        let source = FakeTask13SelectableSourceController(source: .gallery)
+        var dismissedCount = 0
+        let sheet = makeSheet(
+            source: source,
+            previewDismissalHandler: { _, _, completion in
+                dismissedCount += 1
+                completion?()
+            }
+        )
+        let draft = makeTask13AssetDraft(localIdentifier: "asset-1")
+
+        sheet.loadViewIfNeeded()
+        source.replaceSelectedDrafts([draft])
+        let preview = try openPreview(from: sheet)
+        preview.captionInputView.textView.text = "Remove me"
+        preview.captionInputView.textViewDidChange(preview.captionInputView.textView)
+        preview.removeCurrentDraft()
+
+        XCTAssertTrue(sheet.captionState.isEmpty)
+        XCTAssertNil(sheet.previewViewController)
+        XCTAssertEqual(dismissedCount, 1)
+    }
+
+    func testWhitespaceOnlyCaptionMapsToEmptyOutgoingBody() {
+        let result = ChatAttachmentCaptionOutgoingBodyPolicy.makeOutgoingBody(
+            caption: " \n\t ",
+            conversationType: .regular
+        )
+
+        XCTAssertEqual(result.body, "")
+        XCTAssertEqual(result.legacyBody, "")
+    }
+
+    func testNonEmptyCaptionMapsToOutgoingBodyWithoutMutatingMediaReferenceOffsets() {
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .media
+        reference.begin = 0
+        reference.end = 0
+
+        let result = ChatAttachmentCaptionOutgoingBodyPolicy.makeOutgoingBody(
+            caption: "  Hello media  ",
+            conversationType: .regular,
+            references: [reference]
+        )
+
+        XCTAssertEqual(result.body, "  Hello media  ")
+        XCTAssertEqual(result.legacyBody, "  Hello media  ")
+        XCTAssertEqual(reference.begin, 0)
+        XCTAssertEqual(reference.end, 0)
+    }
+
+    func testCaptionBodyPolicyIsSameForRegularGroupAndEncryptedConversations() {
+        let captions = [
+            ChatAttachmentCaptionOutgoingBodyPolicy.makeOutgoingBody(caption: "Hello", conversationType: .regular),
+            ChatAttachmentCaptionOutgoingBodyPolicy.makeOutgoingBody(caption: "Hello", conversationType: .group),
+            ChatAttachmentCaptionOutgoingBodyPolicy.makeOutgoingBody(caption: "Hello", conversationType: .omemo)
+        ]
+
+        XCTAssertEqual(captions.map(\.body), ["Hello", "Hello", "Hello"])
+        XCTAssertEqual(captions.map(\.legacyBody), ["Hello", "Hello", "Hello"])
+    }
+
+    func testSheetShowsTabsAtZeroSelectedAndCaptionSendBarWhenSelected() {
+        let source = FakeTask13SelectableSourceController(source: .gallery)
+        let sheet = makeSheet(source: source)
+
+        sheet.loadViewIfNeeded()
+
+        XCTAssertFalse(sheet.sourceBarView.isHidden)
+        XCTAssertTrue(sheet.selectionComposerBarView.isHidden)
+        XCTAssertTrue(sheet.selectionPreviewBarView.isHidden)
+
+        source.replaceSelectedDrafts([makeTask13AssetDraft(localIdentifier: "asset-1")])
+
+        XCTAssertTrue(sheet.sourceBarView.isHidden)
+        XCTAssertFalse(sheet.selectionComposerBarView.isHidden)
+        XCTAssertTrue(sheet.selectionPreviewBarView.isHidden)
+        XCTAssertEqual(sheet.selectionComposerBarView.selectedCount, 1)
+        XCTAssertTrue(sheet.selectionComposerBarView.sendButton.isEnabled)
+        XCTAssertTrue(sheet.statusBannerView.isHidden)
+    }
+
+    func testSheetBottomControlsAreAnchoredToKeyboardLayoutGuide() throws {
+        let source = FakeTask13SelectableSourceController(source: .gallery)
+        let sheet = makeSheet(source: source)
+
+        sheet.loadViewIfNeeded()
+
+        let bottomConstraint = try XCTUnwrap(sheet.bottomControlsBottomConstraint)
+        XCTAssertTrue(bottomConstraint.firstItem === sheet.bottomControlsContainerView)
+        XCTAssertEqual(bottomConstraint.firstAttribute, .bottom)
+        XCTAssertTrue(bottomConstraint.secondItem === sheet.view.keyboardLayoutGuide)
+        XCTAssertEqual(bottomConstraint.secondAttribute, .top)
+        XCTAssertEqual(bottomConstraint.constant, 0)
+    }
+
+    func testSheetSendButtonIsIconOnlyCircularNativeGlassButton() throws {
+        let source = FakeTask13SelectableSourceController(source: .gallery)
+        let sheet = makeSheet(source: source)
+
+        sheet.loadViewIfNeeded()
+        source.replaceSelectedDrafts([makeTask13AssetDraft(localIdentifier: "asset-1")])
+
+        let sendButton = sheet.selectionComposerBarView.sendButton
+        XCTAssertNil(sendButton.title(for: .normal))
+        XCTAssertNil(sendButton.configuration?.title)
+        XCTAssertNotNil(sendButton.image(for: .normal) ?? sendButton.configuration?.image)
+        XCTAssertEqual(sendButton.accessibilityLabel, "Send")
+        XCTAssertEqual(sendButton.layer.cornerRadius, NativeGlassBarStyle.buttonSize / 2, accuracy: 0.001)
+        XCTAssertTrue(
+            sendButton.constraints.contains {
+                $0.firstAttribute == .width && $0.constant == NativeGlassBarStyle.buttonSize
+            }
+        )
+        XCTAssertTrue(
+            sendButton.constraints.contains {
+                $0.firstAttribute == .height && $0.constant == NativeGlassBarStyle.buttonSize
+            }
+        )
+    }
+
+    func testSheetCaptionPersistsForBatchAndClearsWhenLastDraftIsRemoved() {
+        let source = FakeTask13SelectableSourceController(source: .gallery)
+        let sheet = makeSheet(source: source)
+        let draft = makeTask13AssetDraft(localIdentifier: "asset-1")
+
+        sheet.loadViewIfNeeded()
+        source.replaceSelectedDrafts([draft])
+        sheet.selectionComposerBarView.captionInputView.textView.text = "Grid caption"
+        sheet.selectionComposerBarView.captionInputView.textViewDidChange(
+            sheet.selectionComposerBarView.captionInputView.textView
+        )
+
+        XCTAssertEqual(sheet.captionState.rawText, "Grid caption")
+
+        source.replaceSelectedDrafts([])
+
+        XCTAssertTrue(sheet.captionState.isEmpty)
+        XCTAssertTrue(sheet.selectionComposerBarView.isHidden)
+        XCTAssertFalse(sheet.sourceBarView.isHidden)
+        XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "")
+    }
+
+    func testSheetSendStartsPreparationThenRequestsSendWithPreparedDrafts() {
+        let source = FakeTask13SelectableSourceController(source: .gallery)
+        let preparation = FakeTask13MediaPreparationCoordinator()
+        let delegate = FakeTask13SheetDelegate()
+        let sheet = makeSheet(source: source, mediaPreparationCoordinator: preparation)
+        sheet.delegate = delegate
+        let draft = makeTask13AssetDraft(localIdentifier: "asset-1")
+
+        sheet.loadViewIfNeeded()
+        source.replaceSelectedDrafts([draft])
+        sheet.selectionComposerBarView.captionInputView.textView.text = "Batch caption"
+        sheet.selectionComposerBarView.captionInputView.textViewDidChange(
+            sheet.selectionComposerBarView.captionInputView.textView
+        )
+
+        XCTAssertEqual(preparation.prepareCallCount, 0)
+
+        sheet.selectionComposerBarView.sendButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(preparation.prepareCallCount, 1)
+        XCTAssertEqual(preparation.receivedDrafts.first?.map(\.id), [draft.id])
+        XCTAssertEqual(preparation.receivedDrafts.first?.first?.preparationState, .pending)
+        XCTAssertEqual(delegate.requestedDraftIDs, [draft.id])
+        XCTAssertEqual(delegate.requestedCaption.rawText, "Batch caption")
+        XCTAssertTrue(sheet.selectedAttachmentDrafts.allSatisfy { draft in
+            if case .prepared = draft.preparationState {
+                return true
+            }
+            return false
+        })
+    }
+
+    func testSendButtonRemainsDisabledAndDoesNotCallCoordinatorSend() throws {
+        let source = FakeTask13SelectableSourceController(source: .gallery)
+        let delegate = FakeTask13SheetDelegate()
+        let sheet = makeSheet(source: source)
+        sheet.delegate = delegate
+        sheet.loadViewIfNeeded()
+        source.replaceSelectedDrafts([makeTask13AssetDraft(localIdentifier: "asset-1")])
+        let preview = try openPreview(from: sheet)
+        preview.captionInputView.textView.text = "Caption"
+        preview.captionInputView.textViewDidChange(preview.captionInputView.textView)
+        preview.sendButton.sendActions(for: .touchUpInside)
+
+        XCTAssertFalse(preview.sendButton.isEnabled)
+        XCTAssertEqual(delegate.sendCount, 0)
+        XCTAssertEqual(sheet.captionState.rawText, "Caption")
+    }
+
+    private func makeSheet(
+        source: ChatAttachmentSourceControlling,
+        mediaPreparationCoordinator: ChatAttachmentMediaPreparing = ChatAttachmentMediaPreparationCoordinator(),
+        previewDismissalHandler: @escaping ChatAttachmentSheetViewController.PreviewDismissalHandler = { _, _, completion in completion?() }
+    ) -> ChatAttachmentSheetViewController {
+        ChatAttachmentSheetViewController(
+            context: ChatAttachmentFlowContext(
+                owner: "alice@example.com",
+                jid: "bob@example.com",
+                conversationType: .regular,
+                forwardedMessageIds: []
+            ),
+            sourceControllerFactory: FakeTask13SourceControllerFactory(source: source),
+            mediaPreparationCoordinator: mediaPreparationCoordinator,
+            previewPresentationHandler: { _, _, _, completion in completion?() },
+            previewDismissalHandler: previewDismissalHandler
+        )
+    }
+
+    private func makePreview(drafts: [AttachmentDraft]) -> ChatAttachmentPreviewViewController {
+        ChatAttachmentPreviewViewController(
+            drafts: drafts,
+            mediaProvider: FakeTask13PreviewMediaProvider(),
+            videoPresenter: FakeTask13PreviewVideoPresenter()
+        )
+    }
+
+    private func openPreview(
+        from sheet: ChatAttachmentSheetViewController,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> ChatAttachmentPreviewViewController {
+        sheet.selectionPreviewBarView.previewButton.sendActions(for: .touchUpInside)
+        return try XCTUnwrap(sheet.previewViewController, file: file, line: line)
+    }
+}
+
+private final class FakeTask13SourceControllerFactory: ChatAttachmentSourceControllerFactory {
+    private let source: ChatAttachmentSourceControlling
+
+    init(source: ChatAttachmentSourceControlling) {
+        self.source = source
+    }
+
+    func makeController(
+        for source: ChatAttachmentSource,
+        context: ChatAttachmentFlowContext
+    ) -> ChatAttachmentSourceControlling {
+        self.source.source == source ? self.source : ChatAttachmentPlaceholderSourceViewController(source: source)
+    }
+}
+
+private final class FakeTask13SelectableSourceController: UIViewController,
+    ChatAttachmentSourceControlling,
+    ChatAttachmentDraftSelectionProviding,
+    ChatAttachmentDraftSelectionMutating {
+    let source: ChatAttachmentSource
+    var onSelectionCountChanged: ((Int) -> Void)?
+    var onSelectedAttachmentDraftsChanged: (([AttachmentDraft]) -> Void)?
+    private(set) var selectedAttachmentDrafts: [AttachmentDraft] = []
+
+    var viewController: UIViewController {
+        self
+    }
+
+    init(source: ChatAttachmentSource) {
+        self.source = source
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func replaceSelectedDrafts(_ drafts: [AttachmentDraft]) {
+        selectedAttachmentDrafts = drafts
+        onSelectionCountChanged?(drafts.count)
+        onSelectedAttachmentDraftsChanged?(drafts)
+    }
+
+    @discardableResult
+    func removeSelectedAttachmentDraft(withID draftID: String) -> [AttachmentDraft] {
+        selectedAttachmentDrafts.removeAll { $0.id == draftID }
+        onSelectionCountChanged?(selectedAttachmentDrafts.count)
+        onSelectedAttachmentDraftsChanged?(selectedAttachmentDrafts)
+        return selectedAttachmentDrafts
+    }
+
+    @discardableResult
+    func replaceSelectedAttachmentDraft(withID draftID: String, updatedDraft: AttachmentDraft) -> [AttachmentDraft] {
+        guard let index = selectedAttachmentDrafts.firstIndex(where: { $0.id == draftID }) else {
+            return selectedAttachmentDrafts
+        }
+
+        selectedAttachmentDrafts[index] = updatedDraft
+        onSelectionCountChanged?(selectedAttachmentDrafts.count)
+        onSelectedAttachmentDraftsChanged?(selectedAttachmentDrafts)
+        return selectedAttachmentDrafts
+    }
+}
+
+private final class FakeTask13PreviewMediaProvider: ChatAttachmentPreviewMediaProviding {
+    @discardableResult
+    func requestPreviewMedia(
+        for draft: AttachmentDraft,
+        targetSize: CGSize,
+        completion: @escaping (ChatAttachmentPreviewMedia) -> Void
+    ) -> Int {
+        completion(.filePlaceholder(filename: draft.filename, byteSize: draft.byteSize))
+        return 1
+    }
+
+    func cancelPreviewMediaRequest(_ requestID: Int) {}
+}
+
+private final class FakeTask13PreviewVideoPresenter: ChatAttachmentPreviewVideoPresenting {
+    func presentVideo(playerItem: AVPlayerItem, from viewController: UIViewController) {}
+}
+
+private final class FakeTask13SheetDelegate: ChatAttachmentSheetViewControllerDelegate {
+    private(set) var sendCount = 0
+    private(set) var requestedDraftIDs: [String] = []
+    private(set) var requestedCaption = ChatAttachmentCaptionState()
+
+    func chatAttachmentSheetViewControllerDidSend(_ sheet: ChatAttachmentSheetViewController) {
+        sendCount += 1
+    }
+
+    func chatAttachmentSheetViewController(
+        _ sheet: ChatAttachmentSheetViewController,
+        didRequestSend drafts: [AttachmentDraft],
+        captionState: ChatAttachmentCaptionState
+    ) {
+        sendCount += 1
+        requestedDraftIDs = drafts.map(\.id)
+        requestedCaption = captionState
+    }
+
+    func chatAttachmentSheetViewControllerDidDismiss(_ sheet: ChatAttachmentSheetViewController) {}
+    func chatAttachmentSheetViewController(
+        _ sheet: ChatAttachmentSheetViewController,
+        didRequestPremiumFor owner: String
+    ) {}
+    func chatAttachmentSheetViewController(_ sheet: ChatAttachmentSheetViewController, didFailWith error: ChatAttachmentFlowError) {}
+    func chatAttachmentSheetViewController(_ sheet: ChatAttachmentSheetViewController, didUpdateSelectionCount count: Int) {}
+}
+
+private final class FakeTask13MediaPreparationCoordinator: ChatAttachmentMediaPreparing {
+    private(set) var prepareCallCount = 0
+    private(set) var receivedDrafts: [[AttachmentDraft]] = []
+
+    @discardableResult
+    func prepare(
+        drafts: [AttachmentDraft],
+        completion: @escaping ([AttachmentDraft]) -> Void
+    ) -> ChatAttachmentMediaPreparationCancellable {
+        prepareCallCount += 1
+        receivedDrafts.append(drafts)
+        completion(drafts.map(makePreparedDraft(from:)))
+        return FakeTask13PreparationTask()
+    }
+
+    private func makePreparedDraft(from draft: AttachmentDraft) -> AttachmentDraft {
+        if case .prepared = draft.preparationState {
+            return draft
+        }
+
+        var preparedDraft = draft
+        let filename = draft.filename.isEmpty ? "\(draft.id).jpg" : draft.filename
+        let url = URL(fileURLWithPath: "/tmp/\(filename)")
+        preparedDraft.preparationState = .prepared(
+            AttachmentPreparedFile(
+                localFileURL: url,
+                referenceURL: url,
+                filename: filename,
+                byteSize: max(1, draft.byteSize),
+                mediaType: "image/jpeg",
+                dimensions: draft.dimensions,
+                duration: draft.duration,
+                videoPreviewKey: nil,
+                videoOrientation: nil,
+                videoDurationLabel: nil,
+                videoPreviewLocalURL: nil,
+                temporaryData: nil
+            )
+        )
+        return preparedDraft
+    }
+}
+
+private final class FakeTask13PreparationTask: ChatAttachmentMediaPreparationCancellable {
+    private(set) var isCancelled = false
+
+    func cancel() {
+        isCancelled = true
+    }
+}
+
+private func makeTask13AssetDraft(localIdentifier: String) -> AttachmentDraft {
+    AttachmentDraft(
+        id: AttachmentAssetDraft(assetLocalIdentifier: localIdentifier).id,
+        source: .gallery,
+        mediaKind: .image,
+        thumbnailState: .none,
+        filename: "\(localIdentifier).jpg",
+        byteSize: 0,
+        duration: nil,
+        dimensions: CGSize(width: 12, height: 8),
+        preparationState: .pending
+    )
+}

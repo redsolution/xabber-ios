@@ -732,6 +732,24 @@ extension MessageManager {
     }
     
     public func sendMediaMessage(_ attachments: [MessageReferenceStorageItem], to jid: String, forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType) {
+        sendMediaMessage(
+            attachments,
+            to: jid,
+            forwarded: forwarded,
+            conversationType: conversationType,
+            body: "",
+            legacyBody: ""
+        )
+    }
+
+    public func sendMediaMessage(
+        _ attachments: [MessageReferenceStorageItem],
+        to jid: String,
+        forwarded: [String],
+        conversationType: ClientSynchronizationManager.ConversationType,
+        body: String,
+        legacyBody captionLegacyBody: String
+    ) {
         if attachments.isEmpty { return }
         do {
             let realm = try  WRealm.safe()
@@ -741,8 +759,9 @@ extension MessageManager {
             toForward.forEach {
                 legacyBody += "\($0.body)\n"
             }
+            legacyBody += captionLegacyBody
             
-            instance.configureOutgoingMessage("",
+            instance.configureOutgoingMessage(body,
                                               legacy: legacyBody,
                                               messageId: UUID().uuidString,
                                               owner: owner,

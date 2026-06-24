@@ -232,7 +232,19 @@ final class FloatingBottomBarView: UIView {
         static let reservedBottomInset = height + bottomOffset + tableInsetPadding
     }
 
-    let effectView: UIVisualEffectView = {
+    let leftButton: UIButton = {
+        let button = UIButton(type: .system)
+
+        button.translatesAutoresizingMaskIntoConstraints = false
+        NativeGlassBarStyle.applyDetachedIconButtonStyle(
+            to: button,
+            tintColor: NativeGlassBarStyle.iconTintColor
+        )
+
+        return button
+    }()
+
+    let centerEffectView: UIVisualEffectView = {
         let view = UIVisualEffectView(effect: NativeGlassBarStyle.makeEffect(interactive: true))
 
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -241,46 +253,26 @@ final class FloatingBottomBarView: UIView {
         return view
     }()
 
-    let leftButton: UIButton = {
+    let centerButton: UIButton = {
         let button = UIButton(type: .system)
 
         button.translatesAutoresizingMaskIntoConstraints = false
-        NativeGlassBarStyle.applyIconButtonStyle(
-            to: button,
-            tintColor: NativeGlassBarStyle.iconTintColor,
-            prefersNativeGlass: false
-        )
-        button.accessibilityLabel = "Unread chats filter"
-
-        return button
-    }()
-
-    let titleLabel: UILabel = {
-        let label = UILabel(frame: .zero)
-
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
-        label.textColor = .label
-        label.textAlignment = .center
-        label.numberOfLines = 1
-        label.adjustsFontSizeToFitWidth = true
-        label.minimumScaleFactor = 0.75
-        label.setContentHuggingPriority(.required, for: .horizontal)
-        label.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        return label
-    }()
-
-    let rightButton: UIButton = {
-        let button = UIButton(type: .system)
-
-        button.translatesAutoresizingMaskIntoConstraints = false
-        NativeGlassBarStyle.applyIconButtonStyle(
-            to: button,
-            tintColor: NativeGlassBarStyle.iconTintColor,
-            prefersNativeGlass: false
-        )
-        button.accessibilityLabel = "Add"
+        button.setTitleColor(.label, for: .normal)
+        button.setTitleColor(.secondaryLabel, for: .disabled)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        button.titleLabel?.adjustsFontSizeToFitWidth = true
+        button.titleLabel?.minimumScaleFactor = 0.75
+        button.titleLabel?.lineBreakMode = .byTruncatingTail
+        button.contentHorizontalAlignment = .center
+        button.contentVerticalAlignment = .center
+        button.backgroundColor = .clear
+        button.layer.borderWidth = 0
+        button.layer.borderColor = nil
+        button.layer.shadowColor = nil
+        button.layer.shadowOpacity = 0
+        button.layer.shadowRadius = 0
+        button.layer.shadowOffset = .zero
+        button.layer.shadowPath = nil
 
         return button
     }()
@@ -294,22 +286,33 @@ final class FloatingBottomBarView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func setTitle(_ title: String) {
-        titleLabel.text = title
-        titleLabel.accessibilityLabel = title
-    }
-
     func updateLeftButton(imageName: String, isActive: Bool) {
         configure(button: leftButton, imageName: imageName)
         leftButton.accessibilityValue = isActive ? "On" : "Off"
     }
 
-    func updateRightButton(imageName: String) {
-        configure(button: rightButton, imageName: imageName)
+    func setCenterButtonEnabled(_ isEnabled: Bool) {
+        centerButton.isEnabled = isEnabled
+        centerEffectView.alpha = isEnabled ? 1.0 : 0.55
+        centerButton.accessibilityValue = isEnabled ? nil : "Disabled"
+    }
+
+    func setCenterButtonTitle(
+        _ title: String,
+        accessibilityIdentifier: String,
+        accessibilityLabel: String? = nil
+    ) {
+        centerButton.setTitle(title, for: .normal)
+        centerButton.accessibilityIdentifier = accessibilityIdentifier
+        centerButton.accessibilityLabel = accessibilityLabel ?? title
     }
 
     func refreshAppearance() {
-        NativeGlassBarStyle.applySurface(to: effectView, cornerStyle: .capsule, interactive: true)
+        NativeGlassBarStyle.applySurface(to: centerEffectView, cornerStyle: .capsule, interactive: true)
+        NativeGlassBarStyle.applyDetachedIconButtonStyle(
+            to: leftButton,
+            tintColor: NativeGlassBarStyle.iconTintColor
+        )
     }
 
     private func setup() {
@@ -317,59 +320,48 @@ final class FloatingBottomBarView: UIView {
         backgroundColor = .clear
         isOpaque = false
 
-        addSubview(effectView)
-
-        let contentView = effectView.contentView
-        contentView.addSubview(leftButton)
-        contentView.addSubview(titleLabel)
-        contentView.addSubview(rightButton)
+        addSubview(leftButton)
+        addSubview(centerEffectView)
+        centerEffectView.contentView.addSubview(centerButton)
 
         NSLayoutConstraint.activate([
-            effectView.topAnchor.constraint(equalTo: topAnchor),
-            effectView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            effectView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            effectView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
             leftButton.leadingAnchor.constraint(
-                equalTo: contentView.leadingAnchor,
-                constant: Metrics.contentInset
+                equalTo: leadingAnchor
             ),
-            leftButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            leftButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             leftButton.widthAnchor.constraint(equalToConstant: Metrics.buttonSize),
             leftButton.heightAnchor.constraint(equalToConstant: Metrics.buttonSize),
 
-            rightButton.trailingAnchor.constraint(
-                equalTo: contentView.trailingAnchor,
-                constant: -Metrics.contentInset
+            centerEffectView.leadingAnchor.constraint(
+                equalTo: leftButton.trailingAnchor,
+                constant: NativeGlassBarStyle.interItemSpacing
             ),
-            rightButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            rightButton.widthAnchor.constraint(equalToConstant: Metrics.buttonSize),
-            rightButton.heightAnchor.constraint(equalToConstant: Metrics.buttonSize),
+            centerEffectView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            centerEffectView.topAnchor.constraint(equalTo: topAnchor),
+            centerEffectView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            centerEffectView.heightAnchor.constraint(equalToConstant: Metrics.height),
 
-            titleLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(
-                greaterThanOrEqualTo: leftButton.trailingAnchor,
-                constant: 8
+            centerButton.leadingAnchor.constraint(
+                equalTo: centerEffectView.contentView.leadingAnchor
             ),
-            titleLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: rightButton.leadingAnchor,
-                constant: -8
-            )
+            centerButton.trailingAnchor.constraint(
+                equalTo: centerEffectView.contentView.trailingAnchor
+            ),
+            centerButton.topAnchor.constraint(equalTo: centerEffectView.contentView.topAnchor),
+            centerButton.bottomAnchor.constraint(equalTo: centerEffectView.contentView.bottomAnchor)
         ])
 
         configure(button: leftButton, imageName: "line.3.horizontal.decrease.circle")
-        configure(button: rightButton, imageName: "plus")
+        setCenterButtonEnabled(true)
     }
 
     private func configure(button: UIButton, imageName: String) {
         let image = imageLiteral(imageName, dimension: Metrics.iconSize)
 
-        NativeGlassBarStyle.applyIconButtonStyle(
+        NativeGlassBarStyle.applyDetachedIconButtonStyle(
             to: button,
             tintColor: NativeGlassBarStyle.iconTintColor,
-            image: image,
-            prefersNativeGlass: false
+            image: image
         )
     }
 }
@@ -420,7 +412,7 @@ final class BottomSearchHostView: UIView, UITextFieldDelegate {
         let textField = UISearchTextField(frame: .zero)
 
         textField.translatesAutoresizingMaskIntoConstraints = false
-        textField.placeholder = ChatSearchResultsController.placeholderText
+        textField.placeholder = "Search".localizeString(id: "search", arguments: [])
         textField.returnKeyType = .search
         textField.enablesReturnKeyAutomatically = false
         textField.clearButtonMode = .whileEditing
@@ -488,6 +480,30 @@ final class BottomSearchHostView: UIView, UITextFieldDelegate {
         if notify {
             onQueryChanged?(searchTextField.text)
         }
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isUserInteractionEnabled, !isHidden, alpha > 0.01 else {
+            return nil
+        }
+
+        if isExpanded {
+            let surfacePoint = convert(point, to: surfaceView)
+            guard !surfaceView.isHidden,
+                  surfaceView.alpha > 0.01,
+                  surfaceView.point(inside: surfacePoint, with: event) else {
+                return nil
+            }
+            return surfaceView.hitTest(surfacePoint, with: event)
+        }
+
+        let buttonPoint = convert(point, to: collapsedButton)
+        guard !collapsedButton.isHidden,
+              collapsedButton.alpha > 0.01,
+              collapsedButton.point(inside: buttonPoint, with: event) else {
+            return nil
+        }
+        return collapsedButton.hitTest(buttonPoint, with: event)
     }
 
     @discardableResult

@@ -369,6 +369,7 @@ extension ChatViewController {
             .observe(on: MainScheduler.asyncInstance)
             .subscribe { value in
 //                self.showFloatingDateObserver.accept(false)
+                let animated = self.shouldAnimateDuringInitialLatestStabilization(requestedAnimated: true)
                 let shouldShow = ChatScrollDownButtonVisibilityPolicy.shouldShow(
                     contentOffsetY: value,
                     isNearBottom: self.isNearBottom(),
@@ -383,7 +384,7 @@ extension ChatViewController {
                         self.shouldShowScrollDownButton.accept(false)
                     }
                 }
-                self.refreshUnreadMentionsNavigatorState(animated: true)
+                self.refreshUnreadMentionsNavigatorState(animated: animated)
             }
             .disposed(by: bag)
 
@@ -608,7 +609,9 @@ extension ChatViewController {
         }
         _ = self.completeInitialBootstrapIfNeeded()
         self.rebuildUnreadMentionItems()
-        self.refreshUnreadMentionsNavigatorState(animated: true)
+        self.refreshUnreadMentionsNavigatorState(
+            animated: self.shouldAnimateDuringInitialLatestStabilization(requestedAnimated: true)
+        )
         let id = self.opponentSender.id
         if !(item.rosterItem?.isInvalidated ?? false) {
             self.opponentSender = Sender(

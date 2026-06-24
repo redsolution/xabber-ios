@@ -46,7 +46,7 @@ enum SavedMessageStatePolicy {
             )
         }
 
-        let authoredByCurrentUser = isDirectSavedNote || displayAuthorJid == currentUserJid
+        let authoredByCurrentUser = isDirectSavedNote || isSameBareJid(displayAuthorJid, currentUserJid)
         let hasProof = hasArchiveOrServiceProof(item)
         if !authoredByCurrentUser && hasProof {
             return Presentation(
@@ -97,6 +97,15 @@ enum SavedMessageStatePolicy {
 
     private static func isPendingState(_ state: MessageStorageItem.MessageSendingState) -> Bool {
         state == .sending || state == .uploading || state == .notSended
+    }
+
+    private static func isSameBareJid(_ lhs: String, _ rhs: String) -> Bool {
+        normalizedBareJid(lhs).caseInsensitiveCompare(normalizedBareJid(rhs)) == .orderedSame
+    }
+
+    private static func normalizedBareJid(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return XMPPJID(string: trimmed)?.bare ?? trimmed
     }
 }
 

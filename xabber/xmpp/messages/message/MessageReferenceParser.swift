@@ -318,6 +318,7 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 metadata["width"] = file.element(forName: "width")?.stringValueAsNSInteger() ?? 0
                 metadata["size"] = file.element(forName: "size")?.stringValueAsNSInteger() ?? 0
                 metadata["desc"] = file.element(forName: "desc")?.stringValue ?? ""
+                metadata["duration"] = file.element(forName: "duration")?.stringValueAsNSInteger() ?? 0
                 metadata["hash"] = file.element(forName: "hash")?.stringValue ?? ""
                 metadata["orientation"] = file.element(forName: "orientation")?.stringValue ?? ""
                 metadata["video_duration"] = file.element(forName: "video_duration")?.stringValue ?? ""

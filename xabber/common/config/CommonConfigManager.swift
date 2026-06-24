@@ -135,6 +135,7 @@ class CommonConfigManager: NSObject {
         var symbol_weight: String
         var chat_avatar_size: Int
         var use_large_title: Bool
+        var use_telegram_attachment_picker: Bool?
         var default_report_address: String
         var developer_operated_xmpp_domains: [String]?
         var support_xabber_account: Bool
@@ -159,6 +160,10 @@ class CommonConfigManager: NSObject {
             case .heavy: return .heavy
             case .black: return .black
         }
+    }
+
+    var isTelegramAttachmentPickerEnabled: Bool {
+        return config.use_telegram_attachment_picker ?? true
     }
     
     var config: CommonConfig

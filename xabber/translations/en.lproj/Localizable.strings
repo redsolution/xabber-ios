@@ -2993,6 +2993,8 @@ I don\'t need luck. I have ammo.";
 
 
 "contact_search_hint" = "Search contacts";
+"groups_search_hint" = "Search groups";
+"calls_search_hint" = "Search calls";
 
 
 "sender_is_you" = "You: ";
@@ -3152,6 +3154,7 @@ I don\'t need luck. I have ammo.";
 
 
 "mark_all_as_read_button" = "Mark all as read";
+"notifications_read_all_button" = "Read all";
 
 
 "all_chats_were_market_as_read_toast" = "All messages were marked as read";
@@ -3251,6 +3254,7 @@ I don\'t need luck. I have ammo.";
 
 
 "search_contacts_and_messages" = "Search contacts and messages";
+"search_messages_contacts_groups" = "Search messages, contacts and groups";
 
 
 "contacts_list_is_empty" = "Contacts list is empty";
@@ -6520,3 +6524,90 @@ What’s your name?";
 "scheduled_message_preview_fallback" = "Scheduled message";
 "scheduled_message_status_pending" = "Pending";
 "scheduled_message_status_failed" = "Failed";
+
+/* Telegram-style attachment picker */
+"chat_attachment_source_gallery" = "Gallery";
+"chat_attachment_source_file" = "File";
+"chat_attachment_source_location" = "Location";
+"chat_attachment_source_gallery_accessibility" = "Gallery attachments";
+"chat_attachment_source_file_accessibility" = "File attachments";
+"chat_attachment_source_location_accessibility" = "Location attachment";
+"chat_attachment_accessibility_selected" = "Selected";
+"chat_attachment_accessibility_unavailable" = "Unavailable";
+"chat_attachment_accessibility_not_selected" = "Not selected";
+"chat_attachment_accessibility_selected_order" = "Selected %@";
+"chat_attachment_accessibility_selection_limit_reached" = "Selection limit reached";
+"chat_attachment_action_retry" = "Retry";
+"chat_attachment_action_remove" = "Remove";
+"chat_attachment_action_cancel" = "Cancel";
+"chat_attachment_action_done" = "Done";
+"chat_attachment_action_back" = "Back";
+"chat_attachment_action_send" = "Send";
+"chat_attachment_action_selected" = "Selected";
+"chat_attachment_action_edit" = "Edit";
+"chat_attachment_action_ok" = "OK";
+"chat_attachment_editor_rotate" = "Rotate";
+"chat_attachment_caption_placeholder" = "Add a caption";
+"chat_attachment_caption_accessibility_label" = "Caption";
+"chat_attachment_preview_one_item" = "Preview 1 item";
+"chat_attachment_preview_multiple_items" = "Preview %@ items";
+"chat_attachment_preview_loading" = "Loading";
+"chat_attachment_preview_unavailable" = "Unavailable";
+"chat_attachment_preview_video_accessibility" = "Video %@";
+"chat_attachment_preview_play_video" = "Play video";
+"chat_attachment_preview_duration_seconds" = "%@ seconds";
+"chat_attachment_edit_unavailable_title" = "Cannot Edit Image";
+"chat_attachment_edit_unavailable_message" = "This image is not available for editing.";
+"chat_attachment_status_preparing_attachment_title" = "Preparing attachment";
+"chat_attachment_status_pending_attachment_message" = "This item is not ready yet.";
+"chat_attachment_status_preparing_attachment_message" = "This item is being prepared.";
+"chat_attachment_status_attachment_unavailable_title" = "Attachment unavailable";
+"chat_attachment_status_photos_access_changed_message" = "Photo access changed. Retry or remove this item.";
+"chat_attachment_status_asset_unavailable_message" = "This item is no longer available.";
+"chat_attachment_status_icloud_download_failed_message" = "iCloud download failed. Retry when the item is available.";
+"chat_attachment_status_unreadable_file_message" = "The file cannot be read. Choose it again or remove it.";
+"chat_attachment_status_unsupported_metadata_message" = "This attachment metadata is unsupported.";
+"chat_attachment_status_oversized_file_message" = "This attachment is too large.";
+"chat_attachment_status_preparation_failed_message" = "Preparation failed. Retry or remove this item.";
+"chat_attachment_status_attention_needed_title" = "Some attachments need attention";
+"chat_attachment_status_remove_or_retry_one_message" = "Remove or retry the unavailable item before sending.";
+"chat_attachment_status_remove_or_retry_many_message" = "Remove or retry unavailable items before sending.";
+"chat_attachment_status_preparing_attachments_title" = "Preparing attachments";
+"chat_attachment_status_ready_count_message" = "%@ of %@ ready.";
+"chat_attachment_status_no_attachments_title" = "No attachments selected";
+"chat_attachment_status_no_attachments_message" = "Select at least one attachment before sending.";
+"chat_attachment_status_attachments_not_ready_title" = "Attachments not ready";
+"chat_attachment_status_attachments_not_ready_message" = "Some attachments are not ready yet. Remove unavailable items or retry preparation.";
+"chat_attachment_status_file_transfer_unavailable_title" = "File transfer unavailable";
+"chat_attachment_status_file_transfer_unavailable_message" = "File transfer is unavailable for this account.";
+"chat_attachment_status_cannot_prepare_title" = "Cannot prepare attachments";
+"chat_attachment_status_cannot_prepare_message" = "Refresh the selection or remove failed items.";
+"chat_attachment_status_account_unavailable_title" = "Account unavailable";
+"chat_attachment_status_account_unavailable_message" = "Reconnect the account before sending attachments.";
+"chat_attachment_status_send_failed_title" = "Send failed";
+"chat_attachment_status_send_failed_message" = "The message could not be sent. Try again.";
+"chat_attachment_gallery_camera_accessibility" = "Camera";
+"chat_attachment_gallery_camera_unavailable_accessibility" = "Camera unavailable";
+"chat_attachment_gallery_loading_photo_accessibility" = "Loading photo";
+"chat_attachment_gallery_photo_accessibility" = "Photo";
+"chat_attachment_gallery_photo_icloud_accessibility" = "Photo in iCloud";
+"chat_attachment_gallery_photo_unavailable_accessibility" = "Photo unavailable";
+"chat_attachment_gallery_no_photos_videos" = "No photos or videos";
+"chat_attachment_photos_allow_access_action" = "Allow Photo Access";
+"chat_attachment_photos_manage_action" = "Manage Photos...";
+"chat_attachment_photos_open_settings_action" = "Open Settings";
+"chat_attachment_photos_request_access_message" = "Allow Photos access to choose images and videos.";
+"chat_attachment_photos_limited_access_message" = "Limited Photos access is enabled.";
+"chat_attachment_photos_denied_message" = "Photo Library access is required to select images.";
+"chat_attachment_photos_unavailable_message" = "Photo Library access is unavailable.";
+"chat_attachment_gallery_collapse_action" = "Collapse";
+"chat_attachment_gallery_dismiss_action" = "Dismiss";
+"chat_attachment_gallery_manage_photos_accessibility" = "Manage Photos";
+"chat_attachment_gallery_recents_title" = "Recents";
+"chat_attachment_file_choose_files_action" = "Choose Files";
+"chat_attachment_file_no_files_selected" = "No files selected";
+"chat_attachment_file_loading_files" = "Loading files...";
+"chat_attachment_geolocation_allow_access_action" = "Allow Location Access";
+"chat_attachment_geolocation_denied_message" = "Location access is denied.";
+"chat_attachment_geolocation_restricted_message" = "Location access is restricted.";
+"chat_attachment_geolocation_unavailable_message" = "Location is unavailable.";

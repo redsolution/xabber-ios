@@ -149,7 +149,8 @@ struct CallsListCoordinator {
     static func deriveState(
         realm: Realm,
         enabledAccounts: Set<String>,
-        filter selectedFilter: CallsListFilter
+        filter selectedFilter: CallsListFilter,
+        searchQuery: String? = nil
     ) -> DerivedState {
         guard enabledAccounts.isNotEmpty else {
             let counters = Counters(total: 0, missed: 0, incoming: 0, outgoing: 0, declined: 0)
@@ -172,13 +173,17 @@ struct CallsListCoordinator {
                 continue
             }
 
-            if filteredItems.count < listLimit {
-                filteredItems.append(item)
-            }
+            filteredItems.append(item)
         }
 
+        let filteredDatasource = filterDatasource(
+            mapDatasource(items: filteredItems, realm: realm),
+            searchQuery: searchQuery
+        )
+        let limitedDatasource = Array(filteredDatasource.prefix(listLimit))
+
         return DerivedState(
-            listDatasource: mapDatasource(items: filteredItems, realm: realm),
+            listDatasource: limitedDatasource,
             categoriesDatasource: categoryDatasource(counters: counters),
             counters: counters
         )
@@ -249,6 +254,31 @@ struct CallsListCoordinator {
                 referencePrimary: item.references.first?.primary
             )
         }
+    }
+
+    private static func filterDatasource(
+        _ items: [LastCallsViewController.Datasource],
+        searchQuery: String?
+    ) -> [LastCallsViewController.Datasource] {
+        guard let query = normalizedSearchQuery(searchQuery) else {
+            return items
+        }
+
+        return items.filter { item in
+            [
+                item.username,
+                item.jid,
+                item.owner,
+                item.direction.title
+            ].contains {
+                $0.localizedCaseInsensitiveContains(query)
+            }
+        }
+    }
+
+    private static func normalizedSearchQuery(_ query: String?) -> String? {
+        let normalized = query?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return normalized.isEmpty ? nil : normalized
     }
 
     private static func categoryDatasource(counters: Counters) -> [[CategoryItem]] {

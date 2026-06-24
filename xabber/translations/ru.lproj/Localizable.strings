@@ -1348,7 +1348,7 @@
 "search__header_messages" = "Сообщения";
 
 
-"saved_messages__header" = "Сохраненные сообщения";
+"saved_messages__header" = "Избранное";
 
 
 "chat_settings__button_delete_all" = "Удалить все";
@@ -2338,6 +2338,8 @@
 
 
 "contact_search_hint" = "Поиск контактов";
+"groups_search_hint" = "Поиск групп";
+"calls_search_hint" = "Поиск звонков";
 
 
 "sender_is_you" = "Вы: ";
@@ -2497,6 +2499,7 @@
 
 
 "mark_all_as_read_button" = "Отметить все сообщения как прочитанные";
+"notifications_read_all_button" = "Прочитать все";
 
 
 "all_chats_were_market_as_read_toast" = "Все сообщения были помечены как прочитанные";
@@ -4664,6 +4667,7 @@
 
 
 "search" = "Поиск";
+"search_messages_contacts_groups" = "Поиск сообщений, контактов и групп";
 
 
 "clear" = "Очистить";
@@ -5446,3 +5450,90 @@
 "scheduled_message_preview_fallback" = "Отложенное сообщение";
 "scheduled_message_status_pending" = "Ожидает";
 "scheduled_message_status_failed" = "Ошибка";
+
+/* Telegram-style attachment picker */
+"chat_attachment_source_gallery" = "Галерея";
+"chat_attachment_source_file" = "Файл";
+"chat_attachment_source_location" = "Геопозиция";
+"chat_attachment_source_gallery_accessibility" = "Вложения из галереи";
+"chat_attachment_source_file_accessibility" = "Файловые вложения";
+"chat_attachment_source_location_accessibility" = "Вложение с геопозицией";
+"chat_attachment_accessibility_selected" = "Выбрано";
+"chat_attachment_accessibility_unavailable" = "Недоступно";
+"chat_attachment_accessibility_not_selected" = "Не выбрано";
+"chat_attachment_accessibility_selected_order" = "Выбрано %@";
+"chat_attachment_accessibility_selection_limit_reached" = "Достигнут лимит выбора";
+"chat_attachment_action_retry" = "Повторить";
+"chat_attachment_action_remove" = "Удалить";
+"chat_attachment_action_cancel" = "Отмена";
+"chat_attachment_action_done" = "Готово";
+"chat_attachment_action_back" = "Назад";
+"chat_attachment_action_send" = "Отправить";
+"chat_attachment_action_selected" = "Выбрано";
+"chat_attachment_action_edit" = "Изменить";
+"chat_attachment_action_ok" = "OK";
+"chat_attachment_editor_rotate" = "Повернуть";
+"chat_attachment_caption_placeholder" = "Добавить подпись";
+"chat_attachment_caption_accessibility_label" = "Подпись";
+"chat_attachment_preview_one_item" = "Предпросмотр 1 элемента";
+"chat_attachment_preview_multiple_items" = "Предпросмотр %@ элементов";
+"chat_attachment_preview_loading" = "Загрузка";
+"chat_attachment_preview_unavailable" = "Недоступно";
+"chat_attachment_preview_video_accessibility" = "Видео %@";
+"chat_attachment_preview_play_video" = "Воспроизвести видео";
+"chat_attachment_preview_duration_seconds" = "%@ с";
+"chat_attachment_edit_unavailable_title" = "Нельзя изменить изображение";
+"chat_attachment_edit_unavailable_message" = "Это изображение недоступно для редактирования.";
+"chat_attachment_status_preparing_attachment_title" = "Подготовка вложения";
+"chat_attachment_status_pending_attachment_message" = "Этот элемент ещё не готов.";
+"chat_attachment_status_preparing_attachment_message" = "Этот элемент подготавливается.";
+"chat_attachment_status_attachment_unavailable_title" = "Вложение недоступно";
+"chat_attachment_status_photos_access_changed_message" = "Доступ к фото изменился. Повторите или удалите элемент.";
+"chat_attachment_status_asset_unavailable_message" = "Этот элемент больше недоступен.";
+"chat_attachment_status_icloud_download_failed_message" = "Не удалось загрузить из iCloud. Повторите, когда элемент будет доступен.";
+"chat_attachment_status_unreadable_file_message" = "Файл нельзя прочитать. Выберите его снова или удалите.";
+"chat_attachment_status_unsupported_metadata_message" = "Метаданные этого вложения не поддерживаются.";
+"chat_attachment_status_oversized_file_message" = "Это вложение слишком большое.";
+"chat_attachment_status_preparation_failed_message" = "Не удалось подготовить. Повторите или удалите элемент.";
+"chat_attachment_status_attention_needed_title" = "Некоторые вложения требуют внимания";
+"chat_attachment_status_remove_or_retry_one_message" = "Удалите или повторите недоступный элемент перед отправкой.";
+"chat_attachment_status_remove_or_retry_many_message" = "Удалите или повторите недоступные элементы перед отправкой.";
+"chat_attachment_status_preparing_attachments_title" = "Подготовка вложений";
+"chat_attachment_status_ready_count_message" = "Готово %@ из %@.";
+"chat_attachment_status_no_attachments_title" = "Вложения не выбраны";
+"chat_attachment_status_no_attachments_message" = "Выберите хотя бы одно вложение перед отправкой.";
+"chat_attachment_status_attachments_not_ready_title" = "Вложения не готовы";
+"chat_attachment_status_attachments_not_ready_message" = "Некоторые вложения ещё не готовы. Удалите недоступные элементы или повторите подготовку.";
+"chat_attachment_status_file_transfer_unavailable_title" = "Передача файлов недоступна";
+"chat_attachment_status_file_transfer_unavailable_message" = "Передача файлов недоступна для этого аккаунта.";
+"chat_attachment_status_cannot_prepare_title" = "Не удалось подготовить вложения";
+"chat_attachment_status_cannot_prepare_message" = "Обновите выбор или удалите элементы с ошибкой.";
+"chat_attachment_status_account_unavailable_title" = "Аккаунт недоступен";
+"chat_attachment_status_account_unavailable_message" = "Подключите аккаунт перед отправкой вложений.";
+"chat_attachment_status_send_failed_title" = "Не удалось отправить";
+"chat_attachment_status_send_failed_message" = "Сообщение не удалось отправить. Попробуйте снова.";
+"chat_attachment_gallery_camera_accessibility" = "Камера";
+"chat_attachment_gallery_camera_unavailable_accessibility" = "Камера недоступна";
+"chat_attachment_gallery_loading_photo_accessibility" = "Загрузка фото";
+"chat_attachment_gallery_photo_accessibility" = "Фото";
+"chat_attachment_gallery_photo_icloud_accessibility" = "Фото в iCloud";
+"chat_attachment_gallery_photo_unavailable_accessibility" = "Фото недоступно";
+"chat_attachment_gallery_no_photos_videos" = "Нет фото или видео";
+"chat_attachment_photos_allow_access_action" = "Разрешить доступ к фото";
+"chat_attachment_photos_manage_action" = "Управлять фото...";
+"chat_attachment_photos_open_settings_action" = "Открыть настройки";
+"chat_attachment_photos_request_access_message" = "Разрешите доступ к фото, чтобы выбрать изображения и видео.";
+"chat_attachment_photos_limited_access_message" = "Включён ограниченный доступ к фото.";
+"chat_attachment_photos_denied_message" = "Для выбора изображений нужен доступ к медиатеке.";
+"chat_attachment_photos_unavailable_message" = "Доступ к медиатеке недоступен.";
+"chat_attachment_gallery_collapse_action" = "Свернуть";
+"chat_attachment_gallery_dismiss_action" = "Закрыть";
+"chat_attachment_gallery_manage_photos_accessibility" = "Управлять фото";
+"chat_attachment_gallery_recents_title" = "Недавние";
+"chat_attachment_file_choose_files_action" = "Выбрать файлы";
+"chat_attachment_file_no_files_selected" = "Файлы не выбраны";
+"chat_attachment_file_loading_files" = "Загрузка файлов...";
+"chat_attachment_geolocation_allow_access_action" = "Разрешить доступ к геопозиции";
+"chat_attachment_geolocation_denied_message" = "Доступ к геопозиции запрещён.";
+"chat_attachment_geolocation_restricted_message" = "Доступ к геопозиции ограничен.";
+"chat_attachment_geolocation_unavailable_message" = "Геопозиция недоступна.";

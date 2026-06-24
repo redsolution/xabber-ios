@@ -112,7 +112,8 @@ class ContactsCategoryViewController: BaseViewController {
             filteredAccounts: filteredAccounts,
             filteredGroups: filteredGroups,
             showOffline: true,
-            isGroup: isGroup
+            isGroup: isGroup,
+            searchQuery: nil
         )
     }
 

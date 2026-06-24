@@ -7663,8 +7663,9 @@ final class ChatBootstrapStateTests: XCTestCase {
             ChatBootstrapViewState.resolve(
                 messageCount: 3,
                 isSynced: true,
+                isInitialArchiveLoaded: true,
                 isInitialBootstrapInFlight: false,
-                hasPendingInitialAnchorRequest: true
+                hasPendingInitialAnchorRequest: false
             ),
             .content
         )
@@ -7697,6 +7698,7 @@ final class ChatBootstrapStateTests: XCTestCase {
             ChatBootstrapViewState.resolve(
                 messageCount: 3,
                 isSynced: true,
+                isInitialArchiveLoaded: true,
                 isInitialBootstrapInFlight: false,
                 hasPendingInitialAnchorRequest: hasPendingInitialAnchorRequest
             ),
@@ -7744,15 +7746,16 @@ final class ChatBootstrapStateTests: XCTestCase {
         )
     }
 
-    func testBootstrapStateShowsContentWhenSyncedChatHasLocalMessagesDuringBackgroundBootstrap() {
+    func testBootstrapStateKeepsSkeletonWhenSyncedChatHasLocalMessagesDuringInitialBootstrap() {
         XCTAssertEqual(
             ChatBootstrapViewState.resolve(
                 messageCount: 3,
                 isSynced: true,
+                isInitialArchiveLoaded: true,
                 isInitialBootstrapInFlight: true,
                 hasPendingInitialAnchorRequest: false
             ),
-            .content
+            .skeleton
         )
     }
 
@@ -7761,6 +7764,7 @@ final class ChatBootstrapStateTests: XCTestCase {
             ChatBootstrapViewState.resolve(
                 messageCount: 3,
                 isSynced: true,
+                isInitialArchiveLoaded: true,
                 isInitialBootstrapInFlight: false,
                 hasPendingInitialAnchorRequest: false
             ),
@@ -7783,7 +7787,20 @@ final class ChatBootstrapStateTests: XCTestCase {
         )
     }
 
-    func testBootstrapStateShowsContentForUnsyncedLocalMessagesWhenFallbackIsAllowed() {
+    func testBootstrapStateKeepsSkeletonWhenSyncedChatHasUnconfirmedLocalArchive() {
+        XCTAssertEqual(
+            ChatBootstrapViewState.resolve(
+                messageCount: 2,
+                isSynced: true,
+                isInitialArchiveLoaded: false,
+                isInitialBootstrapInFlight: false,
+                hasPendingInitialAnchorRequest: false
+            ),
+            .skeleton
+        )
+    }
+
+    func testBootstrapStateKeepsSkeletonForUnsyncedLocalMessagesWhenFallbackIsAllowed() {
         XCTAssertEqual(
             ChatBootstrapViewState.resolve(
                 messageCount: 2,
@@ -7792,7 +7809,7 @@ final class ChatBootstrapStateTests: XCTestCase {
                 hasPendingInitialAnchorRequest: false,
                 allowsStaleLocalHistory: true
             ),
-            .content
+            .skeleton
         )
     }
 
@@ -7859,6 +7876,73 @@ final class ChatBootstrapStateTests: XCTestCase {
                 isArchivePagePersisted: true,
                 requiresObserverSettle: true,
                 didObservePostIdleTick: false
+            )
+        )
+    }
+
+    func testInitialBootstrapCompletionWaitsWhenServerPageRowsAreNotProviderVisible() {
+        XCTAssertFalse(
+            ChatInitialBootstrapCompletionPolicy.shouldFinish(
+                didReceiveEndPage: true,
+                hasMessages: false,
+                didConfirmEmpty: false,
+                isMessagePipelineIdle: true,
+                isArchivePagePersisted: false,
+                requiresObserverSettle: false,
+                didObservePostIdleTick: false
+            )
+        )
+    }
+
+    func testInitialBootstrapArchiveEndCommitRequiresServerArchiveEndProof() {
+        XCTAssertFalse(
+            ChatInitialBootstrapArchiveEndCommitPolicy.shouldCommitArchiveEnd(
+                state: MessageArchivePageEndState(
+                    queryExhausted: false,
+                    archiveEnded: false,
+                    persistedMessageCount: 3
+                ),
+                resultCount: 3,
+                visibleRowsForLatestPage: 3
+            )
+        )
+    }
+
+    func testInitialBootstrapArchiveEndCommitAcceptsEmptyCompletePage() {
+        XCTAssertTrue(
+            ChatInitialBootstrapArchiveEndCommitPolicy.shouldCommitArchiveEnd(
+                state: MessageArchivePageEndState(
+                    queryExhausted: true,
+                    archiveEnded: true,
+                    persistedMessageCount: 0
+                ),
+                resultCount: 0,
+                visibleRowsForLatestPage: 0
+            )
+        )
+    }
+
+    func testInitialBootstrapArchiveEndCommitRejectsNonEmptyPageWithoutVisibleRows() {
+        XCTAssertFalse(
+            ChatInitialBootstrapArchiveEndCommitPolicy.shouldCommitArchiveEnd(
+                state: MessageArchivePageEndState(
+                    queryExhausted: true,
+                    archiveEnded: true,
+                    persistedMessageCount: 3
+                ),
+                resultCount: 3,
+                visibleRowsForLatestPage: 0
+            )
+        )
+        XCTAssertTrue(
+            ChatInitialBootstrapArchiveEndCommitPolicy.shouldCommitArchiveEnd(
+                state: MessageArchivePageEndState(
+                    queryExhausted: true,
+                    archiveEnded: true,
+                    persistedMessageCount: 3
+                ),
+                resultCount: 3,
+                visibleRowsForLatestPage: 3
             )
         )
     }
@@ -8193,28 +8277,19 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertEqual(controller.messagesCollectionView.numberOfSections, controller.datasource.count)
     }
 
-    func testSavedPositionLocalAnchorPopulatesDatasourceBeforeRunloopDeferredApply() throws {
+    func testSavedPositionLocalAnchorIsSuppressedToLatestFirstFrame() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 180)
         let controller = makeController()
-        let anchorIndex = 120
-        let anchorPrimary = "first-frame-message-\(anchorIndex)"
 
         controller.loadViewIfNeeded()
-        controller.configureDataset()
-        controller.pendingOpenMessageRequest = makeSavedPositionRequest(
-            primary: anchorPrimary,
-            archivedId: "archive-\(anchorIndex)",
-            messageId: "message-\(anchorIndex)",
-            sourceDate: Date(timeIntervalSince1970: TimeInterval(1_700_000_000 + anchorIndex))
-        )
         controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
 
-        XCTAssertFalse(controller.datasource.isEmpty)
-        XCTAssertGreaterThan(controller.messagesCollectionView.numberOfSections, 0)
-        XCTAssertNotNil(controller.datasourceSnapshot.primaryIndex[anchorPrimary])
-        XCTAssertTrue(controller.datasource.contains { $0.primary == anchorPrimary && !$0.isFakeMessage })
-        XCTAssertNotNil(controller.pendingOpenMessageRequest)
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertEqual(realMessages.count, controller.initialFirstFramePageSize)
+        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-179")
+        XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-0" })
+        XCTAssertNil(controller.pendingOpenMessageRequest)
 
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
@@ -8222,69 +8297,47 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertNil(controller.activeAnchorExecutionState)
     }
 
-    func testSavedPositionAnchorWindowCanPageNewerTowardLatestLocalMessages() throws {
+    func testLatestFirstFrameStartsAtLiveTailWithoutNewerPagingRequirement() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 180)
         let controller = makeController()
-        let anchorIndex = 120
 
         controller.loadViewIfNeeded()
-        controller.configureDataset()
-        controller.pendingOpenMessageRequest = makeSavedPositionRequest(
-            primary: "first-frame-message-\(anchorIndex)",
-            archivedId: "archive-\(anchorIndex)",
-            messageId: "message-\(anchorIndex)",
-            sourceDate: Date(timeIntervalSince1970: TimeInterval(1_700_000_000 + anchorIndex))
-        )
         controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
-
-        XCTAssertFalse(controller.datasource.contains { $0.primary == "first-frame-message-179" })
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertNil(controller.pendingOpenMessageRequest)
-        XCTAssertNil(controller.activeAnchorExecutionState)
-
-        let firstReal = try XCTUnwrap(controller.datasource.firstIndex(where: { !$0.isFakeMessage }))
-        let lastReal = try XCTUnwrap(controller.datasource.lastIndex(where: { !$0.isFakeMessage }))
-        let direction = controller.interactiveBoundaryPagingDirection(
-            isUserScrolling: true,
-            gestureTranslationY: -48,
-            boundaryContext: ChatHistoryPagingBoundaryContext(
-                firstRealSection: firstReal,
-                lastRealSection: lastReal,
-                visibleRealSections: [lastReal]
-            )
-        )
-
-        XCTAssertEqual(direction, .newer)
-
-        controller.performInteractiveHistoryPaging(direction: .newer)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
 
         XCTAssertTrue(controller.datasource.contains { $0.primary == "first-frame-message-179" })
         XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
     }
 
-    func testSavedPositionWithMissingLocalAnchorDoesNotFallBackToLatestLocalHistory() throws {
+    func testMissingLocalAnchorOpenRequestIsSuppressedToLatestLocalHistory() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 5)
-        let controller = makeController()
-
-        controller.loadViewIfNeeded()
-        controller.configureDataset()
-        controller.pendingOpenMessageRequest = makeSavedPositionRequest(
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = .regular
+        controller.queueOpenMessageRequest(makeSavedPositionRequest(
             primary: "missing-primary",
             archivedId: "missing-archive",
             messageId: "missing-message",
             sourceDate: Date(timeIntervalSince1970: 1_700_000_999)
-        )
+        ))
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+
+        controller.loadViewIfNeeded()
         controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
 
-        XCTAssertTrue(controller.datasource.isEmpty || controller.datasource.allSatisfy(\.isFakeMessage))
-        XCTAssertTrue(controller.datasourceSnapshot.items.isEmpty)
-        XCTAssertNotNil(controller.pendingOpenMessageRequest)
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertEqual(realMessages.count, 5)
+        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-4")
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
     }
 
-    func testUnsyncedChatWithLocalMessagesKeepsSkeletonFirstFrame() throws {
+    func testUnsyncedChatWithLocalMessagesKeepsSkeletonUntilArchiveBootstrapCompletes() throws {
         try seedChat(isSynced: false, isInitialArchiveLoaded: false)
         try seedMessages(count: 2)
         let controller = makeController()
@@ -8292,8 +8345,89 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.loadViewIfNeeded()
         controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
 
+        XCTAssertTrue(controller.showSkeletonObserver.value)
         XCTAssertTrue(controller.datasource.isEmpty || controller.datasource.allSatisfy(\.isFakeMessage))
         XCTAssertFalse(controller.datasource.contains { !$0.isFakeMessage })
+    }
+
+    func testLatestFirstFrameUsesSmallLocalWindowBeforeFullTimelinePreload() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 180)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertEqual(realMessages.count, controller.initialFirstFramePageSize)
+        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-179")
+        XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-0" })
+        controller.messagesCollectionView.layoutIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        XCTAssertTrue(controller.isNearBottom(threshold: 1))
+    }
+
+    func testRepeatedBootstrapContentRenderDoesNotMoveBottomAlignedLatestFirstFrame() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 180)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        let bottomOffset = controller.messagesCollectionView.contentOffset.y
+
+        controller.applyBootstrapViewState(.content, forceRender: true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, bottomOffset, accuracy: 0.5)
+        XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.last?.primary, "first-frame-message-179")
+    }
+
+    func testObserverRefreshWithSameNewestDoesNotMoveBottomAlignedLatestFirstFrame() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 180)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        let bottomOffset = controller.messagesCollectionView.contentOffset.y
+
+        controller.didReceiveChangeset()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, bottomOffset, accuracy: 0.5)
+        XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.last?.primary, "first-frame-message-179")
+    }
+
+    func testObserverRefreshWithNewNewestUpdatesLatestWindowWithoutLeavingBottom() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 180)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
+        try seedMessage(index: 180)
+
+        controller.didReceiveChangeset()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.last?.primary, "first-frame-message-180")
+        XCTAssertTrue(controller.isNearBottom(threshold: 1))
     }
 
     private func makeController() -> ChatViewController {
@@ -8326,23 +8460,34 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let realm = try WRealm.safe()
         try realm.write {
             (0..<count).forEach { index in
-                let message = MessageStorageItem()
-                message.primary = "first-frame-message-\(index)"
-                message.owner = owner
-                message.opponent = jid
-                message.conversationType = .regular
-                message.body = "Local message \(index)"
-                message.messageId = "message-\(index)"
-                message.archivedId = "archive-\(index)"
-                message.outgoing = index % 2 == 0
-                message.isRead = true
-                message.state = .read
-                message.displayAs = .text
-                message.date = Date(timeIntervalSince1970: TimeInterval(1_700_000_000 + index))
-                message.sentDate = message.date
-                realm.add(message, update: .modified)
+                realm.add(makeMessage(index: index), update: .modified)
             }
         }
+    }
+
+    private func seedMessage(index: Int) throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add(makeMessage(index: index), update: .modified)
+        }
+    }
+
+    private func makeMessage(index: Int) -> MessageStorageItem {
+        let message = MessageStorageItem()
+        message.primary = "first-frame-message-\(index)"
+        message.owner = owner
+        message.opponent = jid
+        message.conversationType = .regular
+        message.body = "Local message \(index)"
+        message.messageId = "message-\(index)"
+        message.archivedId = "archive-\(index)"
+        message.outgoing = index % 2 == 0
+        message.isRead = true
+        message.state = .read
+        message.displayAs = .text
+        message.date = Date(timeIntervalSince1970: TimeInterval(1_700_000_000 + index))
+        message.sentDate = message.date
+        return message
     }
 
     private func makeSavedPositionRequest(
@@ -8366,6 +8511,101 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             highlight: false,
             markReadOnVisible: false,
             source: .savedVisiblePosition
+        )
+    }
+}
+
+final class ChatInitialLatestOpenStabilizationPolicyTests: XCTestCase {
+
+    func testStabilizationStartsOnlyForForceLatestOpen() {
+        XCTAssertTrue(
+            ChatInitialLatestOpenStabilizationPolicy.shouldStart(forceLatestOpen: true)
+        )
+        XCTAssertFalse(
+            ChatInitialLatestOpenStabilizationPolicy.shouldStart(forceLatestOpen: false)
+        )
+    }
+
+    func testBottomAlignmentMovesActiveStateToBottomAlignedOnlyWhenRealMessagesExist() {
+        XCTAssertEqual(
+            ChatInitialLatestOpenStabilizationPolicy.stateAfterBottomAlignment(
+                current: .active,
+                hasRealMessages: true
+            ),
+            .bottomAligned
+        )
+        XCTAssertEqual(
+            ChatInitialLatestOpenStabilizationPolicy.stateAfterBottomAlignment(
+                current: .active,
+                hasRealMessages: false
+            ),
+            .active
+        )
+    }
+
+    func testStabilizationCompletesOnlyAfterViewAppearedAndBottomAligned() {
+        XCTAssertFalse(
+            ChatInitialLatestOpenStabilizationPolicy.shouldComplete(
+                state: .active,
+                hasViewAppeared: true
+            )
+        )
+        XCTAssertFalse(
+            ChatInitialLatestOpenStabilizationPolicy.shouldComplete(
+                state: .bottomAligned,
+                hasViewAppeared: false
+            )
+        )
+        XCTAssertTrue(
+            ChatInitialLatestOpenStabilizationPolicy.shouldComplete(
+                state: .bottomAligned,
+                hasViewAppeared: true
+            )
+        )
+    }
+
+    func testForcedContentRenderIsSkippedWhenLatestRealDatasourceAlreadyShowsNewestLocalMessage() {
+        XCTAssertTrue(
+            ChatInitialLatestOpenStabilizationPolicy.shouldSkipForcedContentRender(
+                state: .bottomAligned,
+                forceRender: true,
+                hasRealDatasource: true,
+                newestLocalPrimary: "newest",
+                datasourceNewestPrimary: "newest"
+            )
+        )
+        XCTAssertFalse(
+            ChatInitialLatestOpenStabilizationPolicy.shouldSkipForcedContentRender(
+                state: .bottomAligned,
+                forceRender: true,
+                hasRealDatasource: true,
+                newestLocalPrimary: "newest",
+                datasourceNewestPrimary: "old"
+            )
+        )
+    }
+
+    func testObserverRefreshKeepsCurrentWindowWithoutScrollWhenNewestIsUnchanged() {
+        XCTAssertEqual(
+            ChatInitialLatestOpenStabilizationPolicy.observerRefreshAction(
+                state: .bottomAligned,
+                baseShouldOpenLatest: true,
+                newestLocalPrimary: "newest",
+                datasourceNewestPrimary: "newest"
+            ),
+            .keepCurrentNoScroll
+        )
+    }
+
+    func testObserverRefreshOpensLatestNonAnimatedWhenNewestChangedDuringStabilization() {
+        XCTAssertEqual(
+            ChatInitialLatestOpenStabilizationPolicy.observerRefreshAction(
+                state: .bottomAligned,
+                baseShouldOpenLatest: true,
+                newestLocalPrimary: "newest",
+                datasourceNewestPrimary: "old"
+            ),
+            .openLatestNonAnimated
         )
     }
 }
@@ -9214,12 +9454,19 @@ final class MessageArchiveRequestClassificationTests: XCTestCase {
         )
     }
 
-    func testInitialBootstrapPolicyStartsForEmptyUnconfirmedOrUnsyncedChatsOnly() {
+    func testInitialBootstrapPolicyStartsForUnconfirmedOrUnsyncedChats() {
         XCTAssertTrue(
             MessageArchiveManager.ChatBootstrapRequestPolicy.shouldStartInitialBootstrap(
                 isSynced: true,
                 isInitialArchiveLoaded: false,
                 localMessageCount: 0
+            )
+        )
+        XCTAssertTrue(
+            MessageArchiveManager.ChatBootstrapRequestPolicy.shouldStartInitialBootstrap(
+                isSynced: true,
+                isInitialArchiveLoaded: false,
+                localMessageCount: 3
             )
         )
         XCTAssertTrue(
@@ -9801,6 +10048,27 @@ final class MessageArchivePagingRequestTests: XCTestCase {
         XCTAssertEqual(plan.purpose, .gapRepair)
         XCTAssertNil(plan.nextPage)
         XCTAssertEqual(plan.prevPage, "200")
+        XCTAssertTrue(plan.usesServerArchiveId)
+    }
+
+    func testSavedGapRepairPlanUsesSavedConversationType() {
+        let gap = RegularChatArchiveGap(
+            olderRangeNewestArchiveId: "200",
+            newerRangeOldestArchiveId: "400"
+        )
+        let plan = MessageArchiveManager.archiveGapRepairRequestPlan(
+            jid: "favorites.example.com",
+            conversationType: .saved,
+            gap: gap,
+            direction: .older,
+            pageSize: 100
+        )
+
+        XCTAssertEqual(plan.kind, .gapRepair)
+        XCTAssertEqual(plan.conversationType, .saved)
+        XCTAssertEqual(plan.purpose, .gapRepair)
+        XCTAssertEqual(plan.nextPage, "400")
+        XCTAssertNil(plan.prevPage)
         XCTAssertTrue(plan.usesServerArchiveId)
     }
 }
@@ -10813,6 +11081,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)
         chat.owner = owner
         chat.isSynced = true
+        chat.isInitialArchiveLoaded = true
         let message = MessageStorageItem()
         message.primary = "synced-local-message"
         message.owner = owner
@@ -10867,6 +11136,52 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             return XCTFail("Expected bootstrap request to start")
         }
         XCTAssertEqual(queuedTask(manager, queryId: queryId)?.max, 42)
+    }
+
+    func testSyncedRegularChatWithLocalMessagesAndUnconfirmedArchiveStartsBootstrapNewestPage() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let jid = "local-unconfirmed@example.com"
+        let realm = try WRealm.safe()
+
+        let chat = LastChatsStorageItem()
+        chat.jid = jid
+        chat.conversationType = .regular
+        chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        chat.owner = owner
+        chat.isSynced = true
+        chat.isInitialArchiveLoaded = false
+
+        let message = MessageStorageItem()
+        message.primary = "local-unconfirmed-message"
+        message.owner = owner
+        message.opponent = jid
+        message.conversationType = .regular
+        message.messageId = "local-unconfirmed-message"
+        message.archivedId = "100"
+        message.date = Date(timeIntervalSince1970: 100)
+
+        try realm.write {
+            realm.add(chat, update: .modified)
+            realm.add(message, update: .modified)
+        }
+
+        let result = manager.syncChat(
+            XMPPStream(),
+            jid: jid,
+            conversationType: .regular,
+            pageSize: 42,
+            callback: nil
+        )
+
+        guard case let .bootstrapStarted(queryId) = result else {
+            return XCTFail("Expected local unconfirmed regular chat to bootstrap")
+        }
+
+        let task = try XCTUnwrap(queuedTask(manager, queryId: queryId))
+        XCTAssertEqual(task.purpose, .bootstrap)
+        XCTAssertEqual(task.nextPage, "")
+        XCTAssertNil(task.prevPage)
+        XCTAssertEqual(task.max, 42)
     }
 
     func testSyncedRegularChatWithNoLocalMessagesStartsBootstrap() throws {
@@ -11160,6 +11475,105 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         <iq type='result' id='eligible-complete'>
           <fin xmlns='urn:xmpp:mam:2' complete='true' queryid='eligible-complete'>
             <set xmlns='http://jabber.org/protocol/rsm'>
+              <count>0</count>
+              <first></first>
+              <last></last>
+            </set>
+          </fin>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(stream, withIQ: iq))
+        wait(for: [callbackExpectation], timeout: 1.0)
+        XCTAssertEqual(receivedState, .init(queryExhausted: true, archiveEnded: true, persistedMessageCount: 0, requestCursorId: nil))
+        XCTAssertTrue(try fullArchiveLoaded())
+    }
+
+    func testSavedEligibleCompleteResponsePersistsScopedArchiveEndAndLastChatsMirror() throws {
+        let jid = "favorites.example.com"
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = XMPPStream()
+        try insertLastChat(jid: jid, conversationType: .saved)
+        var receivedState: MessageArchivePageEndState?
+        let callbackExpectation = expectation(description: "saved eligible completion state")
+
+        manager.requestArchive(
+            stream,
+            jid: jid,
+            isContinues: false,
+            conversationType: .saved,
+            purpose: .bootstrap,
+            queryId: "saved-eligible-complete",
+            nextPage: "",
+            requestCallbacks: .init(
+                onMessage: nil,
+                onEndPage: { _, state, _, _, _ in
+                    receivedState = state
+                    callbackExpectation.fulfill()
+                }
+            )
+        )
+
+        let iq = try makeIQ(xml: """
+        <iq type='result' id='saved-eligible-complete'>
+          <fin xmlns='urn:xmpp:mam:2' complete='true' queryid='saved-eligible-complete'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <count>0</count>
+              <first></first>
+              <last></last>
+            </set>
+          </fin>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(stream, withIQ: iq))
+        wait(for: [callbackExpectation], timeout: 1.0)
+        XCTAssertEqual(receivedState, .init(queryExhausted: true, archiveEnded: true, persistedMessageCount: 0, requestCursorId: nil))
+        XCTAssertTrue(try fullArchiveLoaded(jid: jid, conversationType: .saved))
+
+        let realm = try WRealm.safe()
+        let archiveState = try XCTUnwrap(
+            realm.object(
+                ofType: RegularChatArchiveSyncStateStorageItem.self,
+                forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: .saved
+                )
+            )
+        )
+        XCTAssertTrue(archiveState.olderArchiveEndReached)
+    }
+
+    func testSavedCompletePositiveCountWithoutPersistedRowsDoesNotCommitArchiveEnd() throws {
+        let jid = "favorites.example.com"
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = XMPPStream()
+        try insertLastChat(jid: jid, conversationType: .saved)
+        var receivedState: MessageArchivePageEndState?
+        let callbackExpectation = expectation(description: "saved positive-count completion state")
+
+        manager.requestArchive(
+            stream,
+            jid: jid,
+            isContinues: false,
+            conversationType: .saved,
+            purpose: .bootstrap,
+            queryId: "saved-positive-count-without-rows",
+            nextPage: "",
+            requestCallbacks: .init(
+                onMessage: nil,
+                onEndPage: { _, state, _, _, _ in
+                    receivedState = state
+                    callbackExpectation.fulfill()
+                }
+            )
+        )
+
+        let iq = try makeIQ(xml: """
+        <iq type='result' id='saved-positive-count-without-rows'>
+          <fin xmlns='urn:xmpp:mam:2' complete='true' queryid='saved-positive-count-without-rows'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
               <count>1</count>
               <first>first-id</first>
               <last>last-id</last>
@@ -11171,7 +11585,18 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         XCTAssertTrue(manager.read(stream, withIQ: iq))
         wait(for: [callbackExpectation], timeout: 1.0)
         XCTAssertEqual(receivedState, .init(queryExhausted: true, archiveEnded: true, persistedMessageCount: 0, requestCursorId: nil))
-        XCTAssertTrue(try fullArchiveLoaded())
+        XCTAssertFalse(try fullArchiveLoaded(jid: jid, conversationType: .saved))
+
+        let realm = try WRealm.safe()
+        let archiveState = realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
+                jid: jid,
+                owner: owner,
+                conversationType: .saved
+            )
+        )
+        XCTAssertNil(archiveState)
     }
 
     func testStartFilteredCompleteResponseDoesNotMarkArchiveEndedOrFullArchiveLoaded() throws {
@@ -11640,6 +12065,69 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
     }
 }
 
+final class MessageArchiveCallbackQueueThreadSafetyTests: XCTestCase {
+
+    private func makeQueueItem(index: Int, queryId: String) -> MessageArchiveManager.CallbackQueueItem {
+        let task = MessageArchiveManager.MAMRequestItem(
+            jid: "romeo@example.com",
+            taskID: "task-\(index % 16)",
+            isGroupchat: false,
+            messageId: nil,
+            conversationType: .regular,
+            isContinues: false,
+            maxDate: nil,
+            searchText: nil,
+            queryId: queryId,
+            afterId: nil,
+            nextPage: nil,
+            prevPage: nil,
+            max: 50,
+            tags: [],
+            start: nil,
+            end: nil,
+            purpose: .snapshotRepair,
+            coverageUpdateKind: .none,
+            archiveEndEligibility: true,
+            consumerManagesArchiveEnd: false,
+            consumerManagesHistoryCursor: false,
+            deferCoverageCommitUntilConsumerProof: false
+        )
+
+        return MessageArchiveManager.CallbackQueueItem(
+            jid: "romeo@example.com",
+            elementId: queryId,
+            task: task,
+            callback: nil,
+            requestCallbacks: .none
+        )
+    }
+
+    func testConcurrentCallbackQueueRegistrationLookupAndRemovalDoesNotRaceSetStorage() {
+        let manager = MessageArchiveManager(withOwner: "owner@example.com")
+        let queue = DispatchQueue(label: "MessageArchiveCallbackQueueThreadSafetyTests", attributes: .concurrent)
+        let group = DispatchGroup()
+
+        for index in 0..<500 {
+            group.enter()
+            queue.async {
+                let queryId = "MAM snapshot repair: thread-safe-\(index % 64)"
+                let item = self.makeQueueItem(index: index, queryId: queryId)
+
+                manager.upsertCallbackQueueItem(item)
+                _ = manager.callbackQueueContains { $0.elementId == queryId }
+                if let existing = manager.firstCallbackQueueItem(where: { $0.elementId == queryId }) {
+                    manager.removeCallbackQueueItem(existing)
+                }
+
+                group.leave()
+            }
+        }
+
+        XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
+        XCTAssertLessThanOrEqual(manager.callbackQueueItems(where: { _ in true }).count, 64)
+    }
+}
+
 final class LastChatUnreadCounterTests: XCTestCase {
 
     private let owner = "owner@example.com"
@@ -12008,6 +12496,28 @@ final class LastChatUnreadCounterTests: XCTestCase {
         XCTAssertEqual(chat.syncUnreadCount, 5)
         XCTAssertEqual(chat.runtimeUnreadCount, 0)
         XCTAssertEqual(chat.unread, 5)
+    }
+}
+
+final class ChatNavigationTitleTextPolicyTests: XCTestCase {
+    func testSavedConversationUsesProductTitleInsteadOfServiceJid() {
+        XCTAssertEqual(
+            ChatNavigationTitleTextPolicy.displayTitle(
+                jid: "favorites.example.com",
+                conversationType: .saved
+            ),
+            SavedMessagesChatListPresentationPolicy.title
+        )
+    }
+
+    func testRegularConversationFallsBackToJidWhenNoDisplayNameExists() {
+        XCTAssertEqual(
+            ChatNavigationTitleTextPolicy.displayTitle(
+                jid: "romeo@example.com",
+                conversationType: .regular
+            ),
+            "romeo@example.com"
+        )
     }
 }
 
@@ -12499,6 +13009,224 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 hasRemoteOlderAvailable: true
             ),
             .older
+        )
+    }
+
+    func testRemoteOlderDoesNotTriggerWhenEveryResidentMessageIsVisible() {
+        XCTAssertNil(
+            ChatHistoryPagingPolicy.triggerDirection(
+                isUserScrolling: true,
+                canLoadDatasource: true,
+                gestureTranslationY: 52,
+                boundaryContext: boundaryContext(
+                    firstRealSection: 0,
+                    lastRealSection: 1,
+                    visibleRealSections: [0, 1]
+                ),
+                currentPageMinIndex: 0,
+                currentPageMaxIndex: 2,
+                totalCount: 2,
+                hasRemoteOlderAvailable: true
+            )
+        )
+    }
+
+    func testShortContentFallbackDoesNotRequestRemoteOlderWhenEveryResidentMessageIsVisible() {
+        XCTAssertNil(
+            ChatHistoryPagingPolicy.fallbackDirectionForShortContentDrag(
+                canLoadDatasource: true,
+                gestureTranslationY: 52,
+                boundaryContext: boundaryContext(
+                    firstRealSection: 0,
+                    lastRealSection: 1,
+                    visibleRealSections: [0, 1]
+                ),
+                currentPageMinIndex: 0,
+                currentPageMaxIndex: 2,
+                totalCount: 2,
+                hasRemoteOlderAvailable: true
+            )
+        )
+    }
+
+    func testShortContentSuppressionIgnoresRemoteOlderOnlyBoundary() {
+        XCTAssertNil(
+            ChatHistoryPagingPolicy.triggerDirection(
+                isUserScrolling: true,
+                canLoadDatasource: true,
+                gestureTranslationY: 52,
+                boundaryContext: boundaryContext(
+                    firstRealSection: 0,
+                    lastRealSection: 1,
+                    visibleRealSections: [0]
+                ),
+                currentPageMinIndex: 0,
+                currentPageMaxIndex: 2,
+                totalCount: 2,
+                hasRemoteOlderAvailable: true,
+                suppressRemoteBoundaryPaging: true
+            )
+        )
+    }
+
+    func testShortContentSuppressionIgnoresRemoteNewerOnlyBoundary() {
+        XCTAssertNil(
+            ChatHistoryPagingPolicy.triggerDirection(
+                isUserScrolling: true,
+                canLoadDatasource: true,
+                gestureTranslationY: -52,
+                boundaryContext: boundaryContext(
+                    firstRealSection: 0,
+                    lastRealSection: 1,
+                    visibleRealSections: [1]
+                ),
+                currentPageMinIndex: 0,
+                currentPageMaxIndex: 2,
+                totalCount: 2,
+                hasRemoteNewerAvailable: true,
+                suppressRemoteBoundaryPaging: true
+            )
+        )
+    }
+
+    func testShortContentSuppressionKeepsHiddenLocalOlderPaging() {
+        XCTAssertEqual(
+            ChatHistoryPagingPolicy.triggerDirection(
+                isUserScrolling: true,
+                canLoadDatasource: true,
+                gestureTranslationY: 52,
+                boundaryContext: boundaryContext(
+                    firstRealSection: 0,
+                    lastRealSection: 1,
+                    visibleRealSections: [0]
+                ),
+                currentPageMinIndex: 0,
+                currentPageMaxIndex: 2,
+                totalCount: 2,
+                hasLocalOlderAvailable: true,
+                hasRemoteOlderAvailable: true,
+                suppressRemoteBoundaryPaging: true
+            ),
+            .older
+        )
+    }
+
+    func testShortContentSuppressionKeepsHiddenLocalNewerPaging() {
+        XCTAssertEqual(
+            ChatHistoryPagingPolicy.triggerDirection(
+                isUserScrolling: true,
+                canLoadDatasource: true,
+                gestureTranslationY: -52,
+                boundaryContext: boundaryContext(
+                    firstRealSection: 0,
+                    lastRealSection: 1,
+                    visibleRealSections: [1]
+                ),
+                currentPageMinIndex: 0,
+                currentPageMaxIndex: 2,
+                totalCount: 2,
+                hasLocalNewerAvailable: true,
+                hasRemoteNewerAvailable: true,
+                suppressRemoteBoundaryPaging: true
+            ),
+            .newer
+        )
+    }
+
+    func testShortContentFallbackSuppressionIgnoresRemoteOlderOnlyBoundary() {
+        XCTAssertNil(
+            ChatHistoryPagingPolicy.fallbackDirectionForShortContentDrag(
+                canLoadDatasource: true,
+                gestureTranslationY: 52,
+                boundaryContext: boundaryContext(
+                    firstRealSection: 0,
+                    lastRealSection: 1,
+                    visibleRealSections: [0]
+                ),
+                currentPageMinIndex: 0,
+                currentPageMaxIndex: 2,
+                totalCount: 2,
+                hasRemoteOlderAvailable: true,
+                suppressRemoteBoundaryPaging: true
+            )
+        )
+    }
+
+    func testShortContentGeometrySuppressesRemoteBoundaryPagingWithinTolerance() {
+        XCTAssertTrue(
+            ChatShortContentRemotePagingSuppressionPolicy.shouldSuppressRemoteBoundaryPaging(
+                hasRealMessages: true,
+                hasLocalOlderAvailable: false,
+                hasLocalNewerAvailable: false,
+                contentHeight: 408,
+                visibleHeight: 400
+            )
+        )
+    }
+
+    func testShortContentGeometryDoesNotSuppressWhenContentExceedsTolerance() {
+        XCTAssertFalse(
+            ChatShortContentRemotePagingSuppressionPolicy.shouldSuppressRemoteBoundaryPaging(
+                hasRealMessages: true,
+                hasLocalOlderAvailable: false,
+                hasLocalNewerAvailable: false,
+                contentHeight: 409,
+                visibleHeight: 400
+            )
+        )
+    }
+
+    func testShortContentGeometryDoesNotSuppressBeforeLayout() {
+        XCTAssertFalse(
+            ChatShortContentRemotePagingSuppressionPolicy.shouldSuppressRemoteBoundaryPaging(
+                hasRealMessages: true,
+                hasLocalOlderAvailable: false,
+                hasLocalNewerAvailable: false,
+                contentHeight: 0,
+                visibleHeight: 400
+            )
+        )
+        XCTAssertFalse(
+            ChatShortContentRemotePagingSuppressionPolicy.shouldSuppressRemoteBoundaryPaging(
+                hasRealMessages: true,
+                hasLocalOlderAvailable: false,
+                hasLocalNewerAvailable: false,
+                contentHeight: 120,
+                visibleHeight: 0
+            )
+        )
+    }
+
+    func testShortContentGeometryDoesNotSuppressWithoutRealMessages() {
+        XCTAssertFalse(
+            ChatShortContentRemotePagingSuppressionPolicy.shouldSuppressRemoteBoundaryPaging(
+                hasRealMessages: false,
+                hasLocalOlderAvailable: false,
+                hasLocalNewerAvailable: false,
+                contentHeight: 120,
+                visibleHeight: 400
+            )
+        )
+    }
+
+    func testShortContentGeometryDoesNotSuppressWhenHiddenLocalRowsExist() {
+        XCTAssertFalse(
+            ChatShortContentRemotePagingSuppressionPolicy.shouldSuppressRemoteBoundaryPaging(
+                hasRealMessages: true,
+                hasLocalOlderAvailable: true,
+                hasLocalNewerAvailable: false,
+                contentHeight: 120,
+                visibleHeight: 400
+            )
+        )
+        XCTAssertFalse(
+            ChatShortContentRemotePagingSuppressionPolicy.shouldSuppressRemoteBoundaryPaging(
+                hasRealMessages: true,
+                hasLocalOlderAvailable: false,
+                hasLocalNewerAvailable: true,
+                contentHeight: 120,
+                visibleHeight: 400
+            )
         )
     }
 
@@ -13305,6 +14033,37 @@ final class ChatVirtualTimelineEngineTests: XCTestCase {
         XCTAssertEqual(snapshot.state.activeRemoteLoad?.cursorId, gap.newerRangeOldestArchiveId)
     }
 
+    func testKnownGapRepairStillRunsWhenOlderArchiveEndReached() {
+        let gap = RegularChatArchiveGap(
+            olderRangeNewestArchiveId: "200",
+            newerRangeOldestArchiveId: "400"
+        )
+        let provider = FakeProvider(items: makeMessages(100..<501))
+        var engine = makeEngine(
+            provider: provider,
+            archiveState: ChatArchiveStateSnapshot(
+                primaryKey: "saved-chat",
+                persistedCursorId: nil,
+                fullArchiveLoaded: true,
+                knownGaps: [gap]
+            )
+        )
+        _ = engine.openAround(
+            anchor: ChatTimelineAnchor(
+                primary: "p0420",
+                archivedId: "420",
+                messageId: "m-420",
+                date: nil
+            )
+        )
+
+        let snapshot = engine.pageOlder(queryId: "gap-query")
+
+        XCTAssertEqual(snapshot.loadDecision, .remoteGapRepairOlder(gap))
+        XCTAssertNotEqual(snapshot.loadDecision, .endReached)
+        XCTAssertEqual(snapshot.state.activeRemoteLoad?.queryId, "gap-query")
+    }
+
     func testActiveRemoteLoadPreventsDuplicatePagingUntilFinish() {
         let provider = FakeProvider(items: makeMessages(900..<1_000))
         var engine = makeEngine(provider: provider)
@@ -13731,6 +14490,20 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
         )
     }
 
+    func testDirectOpenAtMessageRequestOpensBottomWhenMessageAnchorsAreDisabled() throws {
+        let request = try XCTUnwrap(
+            ChatOpenMessageRequest.openAtMessage(
+                jid: jid,
+                owner: owner,
+                conversationType: .regular,
+                stanzaId: "1711283295000000",
+                sourceDate: sourceDate
+            )
+        )
+
+        XCTAssertEqual(ChatInitialPositionPolicy.decision(for: makeState(), explicitRequest: request), .bottom)
+    }
+
     func testAutomaticUnreadAndSavedPositionOpenBottom() {
         let saved = ChatSavedVisiblePosition(
             messagePrimary: "saved-primary",
@@ -13889,6 +14662,67 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
     }
 }
 
+final class ChatOpenAtMessageRequestBuilderTests: XCTestCase {
+    func testBuilderStoresStanzaIdAsArchivedId() throws {
+        let sourceDate = Date(timeIntervalSince1970: 1_711_283_200)
+
+        let request = try XCTUnwrap(
+            ChatOpenMessageRequest.openAtMessage(
+                jid: "romeo@example.com",
+                owner: "juliet@example.com",
+                conversationType: .regular,
+                stanzaId: "1711283295000000",
+                sourceDate: sourceDate
+            )
+        )
+
+        XCTAssertEqual(request.chatJid, "romeo@example.com")
+        XCTAssertEqual(request.owner, "juliet@example.com")
+        XCTAssertEqual(request.conversationType, .regular)
+        XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
+        XCTAssertNil(request.anchor.messagePrimary)
+        XCTAssertNil(request.anchor.messageId)
+        XCTAssertEqual(request.anchor.sourceDate, sourceDate)
+        XCTAssertFalse(request.highlight)
+        XCTAssertFalse(request.markReadOnVisible)
+        XCTAssertEqual(request.source, .directOpenAtMessage)
+    }
+
+    func testBuilderRejectsBlankStanzaId() {
+        XCTAssertNil(
+            ChatOpenMessageRequest.openAtMessage(
+                jid: "romeo@example.com",
+                owner: "juliet@example.com",
+                conversationType: .regular,
+                stanzaId: "  "
+            )
+        )
+    }
+
+    func testRouteHelperWrapsOpenAtMessageRequest() throws {
+        let route = try XCTUnwrap(
+            AppRoute.chatAtMessage(
+                jid: "romeo@example.com",
+                owner: "juliet@example.com",
+                conversationType: .regular,
+                stanzaId: "1711283295000000"
+            )
+        )
+
+        guard case let .chatMessage(owner, jid, conversationType, openMessageRequest, configure) = route else {
+            return XCTFail("Expected chatMessage route")
+        }
+
+        let request = try XCTUnwrap(openMessageRequest)
+        XCTAssertEqual(owner, "juliet@example.com")
+        XCTAssertEqual(jid, "romeo@example.com")
+        XCTAssertEqual(conversationType, .regular)
+        XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
+        XCTAssertEqual(request.source, .directOpenAtMessage)
+        XCTAssertNil(configure)
+    }
+}
+
 final class ChatOpenMessageRequestHandlingPolicyTests: XCTestCase {
 
     private let allSources: [ChatOpenMessageRequestSource] = [
@@ -13901,24 +14735,25 @@ final class ChatOpenMessageRequestHandlingPolicyTests: XCTestCase {
         .composerEditPreview,
         .pinnedMessage,
         .initialUnreadBoundary,
-        .savedVisiblePosition
+        .savedVisiblePosition,
+        .directOpenAtMessage
     ]
 
-    func testMessageAnchorRequestsAreTemporarilyDisabledForEverySource() {
+    func testMessageAnchorRequestsAreSuppressedForEverySource() {
         allSources.forEach { source in
             XCTAssertFalse(
                 ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: source),
-                "\(source) should open latest while message anchors are temporarily disabled"
+                "\(source) should open latest while message anchors are suppressed"
             )
         }
     }
 
-    func testDisabledAnchorsForceLatestOnOpenAndSkipSavedFirstFrameRestore() {
+    func testSuppressedAnchorsForceLatestOnOpenAndSkipSavedFirstFramePosition() {
         XCTAssertTrue(ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen())
         XCTAssertFalse(ChatOpenMessageRequestHandlingPolicy.shouldRestoreSavedFirstFramePosition())
     }
 
-    func testScrollDownUnreadBoundaryTargetIsSuppressedToLatest() {
+    func testScrollDownUnreadBoundaryTargetIsNormalizedToLatest() {
         XCTAssertEqual(
             ChatOpenMessageRequestHandlingPolicy.effectiveScrollDownTarget(.unreadBoundary("300")),
             .latest
@@ -14406,10 +15241,11 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         XCTAssertTrue(ChatOpenMessageRequestSource.voicePlayer.usesTransientHighlight)
         XCTAssertTrue(ChatOpenMessageRequestSource.pinnedMessage.usesTransientHighlight)
         XCTAssertFalse(ChatOpenMessageRequestSource.search.usesTransientHighlight)
+        XCTAssertFalse(ChatOpenMessageRequestSource.directOpenAtMessage.usesTransientHighlight)
     }
 
     @MainActor
-    func testQueueOpenMessageRequestClearsAnchorStateWhenAnchorsAreDisabled() {
+    func testQueueOpenMessageRequestClearsAnchorStateWhenAnchorsAreSuppressed() {
         let controller = ChatViewController()
         controller.owner = "owner@example.com"
         controller.jid = "group@xabber.example"
@@ -14426,11 +15262,36 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         controller.isExecutingOpenMessageRequest = true
         controller.isMessageAnchorNavigationInFlight = true
 
-        controller.queueOpenMessageRequest(makeRequest(source: .pushNotification))
+        let nextRequest = makeRequest(source: .pushNotification)
+        controller.queueOpenMessageRequest(nextRequest)
 
         XCTAssertNil(controller.pendingOpenMessageRequest)
         XCTAssertNil(controller.activeAnchorExecutionState)
         XCTAssertNil(controller.activeAnchorExecutionHooks)
+        XCTAssertFalse(controller.isExecutingOpenMessageRequest)
+        XCTAssertFalse(controller.isMessageAnchorNavigationInFlight)
+        XCTAssertTrue(controller.pendingForceLatestOpen)
+    }
+
+    @MainActor
+    func testQueueDirectOpenAtMessageRequestUsesSuppressedForceLatestPath() throws {
+        let controller = ChatViewController()
+        controller.owner = "owner@example.com"
+        controller.jid = "group@xabber.example"
+        controller.conversationType = .group
+
+        let request = try XCTUnwrap(
+            ChatOpenMessageRequest.openAtMessage(
+                jid: "group@xabber.example",
+                owner: "owner@example.com",
+                conversationType: .group,
+                stanzaId: "1711283295000000"
+            )
+        )
+        controller.queueOpenMessageRequest(request)
+
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
         XCTAssertFalse(controller.isExecutingOpenMessageRequest)
         XCTAssertFalse(controller.isMessageAnchorNavigationInFlight)
         XCTAssertTrue(controller.pendingForceLatestOpen)
@@ -14993,6 +15854,148 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             ),
             .fail
         )
+    }
+}
+
+final class ChatConversationArchiveStateSnapshotTests: XCTestCase {
+
+    private let owner = "owner@example.com"
+    private let jid = "favorites.example.com"
+
+    override func setUp() {
+        super.setUp()
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "ChatConversationArchiveStateSnapshotTests-\(name)")
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    private func insertLastChat(
+        conversationType: ClientSynchronizationManager.ConversationType = .saved,
+        fullArchiveLoaded: Bool = false,
+        lastLoadedMessageHistoryId: String? = nil
+    ) throws {
+        let realm = try WRealm.safe()
+        let chat = LastChatsStorageItem()
+        chat.primary = LastChatsStorageItem.genPrimary(
+            jid: jid,
+            owner: owner,
+            conversationType: conversationType
+        )
+        chat.owner = owner
+        chat.jid = jid
+        chat.conversationType = conversationType
+        chat.fullArchiveLoaded = fullArchiveLoaded
+        chat.lastLoadedMessageHistoryId = lastLoadedMessageHistoryId
+
+        try realm.write {
+            realm.add(chat, update: .modified)
+        }
+    }
+
+    @MainActor
+    private func makeController(
+        conversationType: ClientSynchronizationManager.ConversationType = .saved
+    ) -> ChatViewController {
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = conversationType
+        return controller
+    }
+
+    @MainActor
+    func testSavedSnapshotReadsScopedArchiveEndStateBeforeLegacyLastChatsFallback() throws {
+        try insertLastChat(
+            conversationType: .saved,
+            fullArchiveLoaded: false,
+            lastLoadedMessageHistoryId: "legacy-cursor"
+        )
+        let realm = try WRealm.safe()
+        try realm.write {
+            let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(
+                owner: owner,
+                jid: jid,
+                conversationType: .saved,
+                in: realm
+            )
+            archiveState.oldestLoadedArchiveId = "server-oldest"
+            archiveState.newestLoadedArchiveId = "server-newest"
+            archiveState.olderArchiveEndReached = true
+            archiveState.newerLiveEdgeReached = false
+        }
+
+        let snapshot = makeController().loadChatArchiveStateSnapshot()
+
+        XCTAssertEqual(snapshot.persistedCursorId, "server-oldest")
+        XCTAssertTrue(snapshot.fullArchiveLoaded)
+        XCTAssertEqual(snapshot.newestCursorId, "server-newest")
+        XCTAssertFalse(snapshot.newerLiveEdgeReached)
+    }
+
+    @MainActor
+    func testSavedSnapshotFallsBackToLegacyLastChatsWhenScopedStateIsMissing() throws {
+        try insertLastChat(
+            conversationType: .saved,
+            fullArchiveLoaded: true,
+            lastLoadedMessageHistoryId: "legacy-cursor"
+        )
+
+        let snapshot = makeController().loadChatArchiveStateSnapshot()
+
+        XCTAssertEqual(snapshot.persistedCursorId, "legacy-cursor")
+        XCTAssertTrue(snapshot.fullArchiveLoaded)
+        XCTAssertNil(snapshot.newestCursorId)
+        XCTAssertTrue(snapshot.newerLiveEdgeReached)
+    }
+
+    @MainActor
+    func testSavedBootstrapArchiveEndCommitWritesScopedStateAndLastChatsMirror() throws {
+        try insertLastChat(conversationType: .saved, fullArchiveLoaded: false)
+        let controller = makeController()
+        let snapshot = controller.loadChatArchiveStateSnapshot()
+        let plan = ChatArchiveStateMutationPolicy.resolvePlan(
+            snapshot: snapshot,
+            resolvedCursorId: "server-oldest",
+            nextFullArchiveLoaded: true
+        )
+
+        let updated = controller.applyChatArchiveStateIfNeeded(
+            snapshot: snapshot,
+            plan: plan,
+            markNewerLiveEdgeReached: true
+        )
+
+        let realm = try WRealm.safe()
+        let archiveState = try XCTUnwrap(
+            realm.object(
+                ofType: RegularChatArchiveSyncStateStorageItem.self,
+                forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: .saved
+                )
+            )
+        )
+        let chat = try XCTUnwrap(
+            realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: .saved
+                )
+            )
+        )
+
+        XCTAssertEqual(updated.persistedCursorId, "server-oldest")
+        XCTAssertTrue(updated.fullArchiveLoaded)
+        XCTAssertEqual(archiveState.oldestLoadedArchiveId, "server-oldest")
+        XCTAssertTrue(archiveState.olderArchiveEndReached)
+        XCTAssertTrue(archiveState.newerLiveEdgeReached)
+        XCTAssertEqual(chat.lastLoadedMessageHistoryId, "server-oldest")
+        XCTAssertTrue(chat.fullArchiveLoaded)
     }
 }
 
@@ -16262,7 +17265,7 @@ final class ContactsListSupportTests: XCTestCase {
 
         let context = ContactsListSupport.makeContext(
             realm: realm,
-            state: ContactsFilterState(category: "all", filteredAccounts: [], filteredGroups: [], showOffline: true, isGroup: false)
+            state: ContactsFilterState(category: "all", filteredAccounts: [], filteredGroups: [], showOffline: true, isGroup: false, searchQuery: nil)
         )
         let datasource = ContactsListSupport.categoryDatasource(context: context)
 
@@ -16285,11 +17288,11 @@ final class ContactsListSupportTests: XCTestCase {
 
         let allContext = ContactsListSupport.makeContext(
             realm: realm,
-            state: ContactsFilterState(category: "all", filteredAccounts: [], filteredGroups: [], showOffline: true, isGroup: false)
+            state: ContactsFilterState(category: "all", filteredAccounts: [], filteredGroups: [], showOffline: true, isGroup: false, searchQuery: nil)
         )
         let filteredContext = ContactsListSupport.makeContext(
             realm: realm,
-            state: ContactsFilterState(category: "all", filteredAccounts: ["owner-1@example.com"], filteredGroups: [], showOffline: true, isGroup: false)
+            state: ContactsFilterState(category: "all", filteredAccounts: ["owner-1@example.com"], filteredGroups: [], showOffline: true, isGroup: false, searchQuery: nil)
         )
 
         XCTAssertEqual(ContactsListSupport.circleCounts(context: allContext).first?.count, 2)
@@ -18125,7 +19128,7 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         )
     }
 
-    func testLastChatsInitialOpenRequestIgnoresExplicitRequestWhenAnchorsAreDisabled() throws {
+    func testLastChatsInitialOpenRequestIgnoresExplicitRequestWhenAnchorsAreSuppressed() throws {
         try insertLastChat(
             jid: "romeo@example.com",
             conversationType: .regular
@@ -18148,19 +19151,54 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
             source: .pushNotification
         )
 
+        let request = LastChatsViewController.initialOpenRequest(
+            owner: owner,
+            jid: "romeo@example.com",
+            conversationType: .regular,
+            explicitOpenMessageRequest: explicitRequest,
+            in: realm
+        )
+
+        XCTAssertNil(request)
+    }
+
+    func testLastChatsNormalSelectionOpensLatestWhenSavedPositionExists() throws {
+        try insertLastChat(
+            jid: "romeo@example.com",
+            conversationType: .regular,
+            unread: 0,
+            lastMessageId: "last-message",
+            syncSnapshotLastArchiveId: "snapshot-last"
+        )
+        let realm = try WRealm.safe()
+        let primary = LastChatsStorageItem.genPrimary(
+            jid: "romeo@example.com",
+            owner: owner,
+            conversationType: .regular
+        )
+        let chat = try XCTUnwrap(realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary))
+        try realm.write {
+            chat.lastVisibleMessagePrimary = "saved-primary"
+            chat.lastVisibleMessageArchivedId = "1711283295000000"
+            chat.lastVisibleMessageId = "saved-message-id"
+            chat.lastVisibleMessageDate = Date(timeIntervalSince1970: 1_711_283_295)
+            chat.lastVisiblePositionSavedAtLastMessageId = "last-message"
+            chat.lastVisiblePositionSavedAtSnapshotLastArchiveId = "snapshot-last"
+        }
+
         XCTAssertNil(
             LastChatsViewController.initialOpenRequest(
                 owner: owner,
                 jid: "romeo@example.com",
                 conversationType: .regular,
-                explicitOpenMessageRequest: explicitRequest,
+                explicitOpenMessageRequest: nil,
                 in: realm
             )
         )
     }
 
     @MainActor
-    func testStackNewChatSeedsForceLatestOpenIntentWhenAnchorsAreDisabled() throws {
+    func testStackNewChatSeedsForceLatestOpenIntentWhenAnchorsAreSuppressed() throws {
         let controller = LastChatsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         navigationController.loadViewIfNeeded()
@@ -18504,11 +19542,11 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         let viewController: UIViewController
         let searchController: UISearchController
         let bottomSearchHostView: BottomSearchHostView
-        let updater: ChatSearchResultsController
+        let updater: ChatSearchResultsController?
         let configureSearchBar: () -> Void
         let activateSearch: () -> Void
         let viewWillAppear: () -> Void
-        let openSearchResult: (SearchResultsViewController.Datasource) -> Void
+        let openSearchResult: ((SearchResultsViewController.Datasource) -> Void)?
     }
 
     private final class TraitWindow: UIWindow {
@@ -18753,16 +19791,19 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertFalse(searchController.obscuresBackgroundDuringPresentation)
     }
 
-    func testSearchFieldsUseSharedContactsAndMessagesPlaceholder() {
-        let expected = ChatSearchResultsController.placeholderText
+    func testSearchFieldsUseScopedPlaceholders() {
+        let lastChatsPlaceholder = ChatSearchResultsController.placeholderText
 
         XCTAssertEqual(
-            expected,
-            "Search contacts and messages".localizeString(id: "search_contacts_and_messages", arguments: [])
+            lastChatsPlaceholder,
+            "Search messages, contacts and groups".localizeString(id: "search_messages_contacts_groups", arguments: [])
         )
-        XCTAssertEqual(LastChatsViewController().searchController.searchBar.placeholder, expected)
-        XCTAssertEqual(ContactsViewController().searchController.searchBar.placeholder, expected)
-        XCTAssertEqual(LastCallsViewController().searchController.searchBar.placeholder, expected)
+        XCTAssertEqual(LastChatsViewController().searchController.searchBar.placeholder, lastChatsPlaceholder)
+        XCTAssertEqual(ContactsViewController().searchController.searchBar.placeholder, "Search contacts".localizeString(id: "contact_search_hint", arguments: []))
+        let groups = ContactsViewController()
+        groups.isGroup = true
+        XCTAssertEqual(groups.searchController.searchBar.placeholder, "Search groups".localizeString(id: "groups_search_hint", arguments: []))
+        XCTAssertEqual(LastCallsViewController().searchController.searchBar.placeholder, "Search calls".localizeString(id: "calls_search_hint", arguments: []))
     }
 
     func testInPlaceSearchDoesNotObscureHostTableForSelection() {
@@ -18813,24 +19854,24 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
     }
 
     func testRepeatedConfigureSearchBarDoesNotAttachNavigationSearchControllerOrMutateChrome() {
-        let cases: [(String, UIViewController, UISearchController, BottomSearchHostView, ChatSearchResultsController, () -> Void)] = {
+        let cases: [(String, UIViewController, UISearchController, BottomSearchHostView, String, () -> Void)] = {
             let lastChats = LastChatsViewController()
             let contacts = ContactsViewController()
             let calls = LastCallsViewController()
             return [
-                ("Last Chats", lastChats, lastChats.searchController, lastChats.bottomSearchHostView, lastChats.chatSearchResultsController, {
+                ("Last Chats", lastChats, lastChats.searchController, lastChats.bottomSearchHostView, ChatSearchResultsController.placeholderText, {
                     lastChats.configureSearchBar()
                 }),
-                ("Contacts", contacts, contacts.searchController, contacts.bottomSearchHostView, contacts.chatSearchResultsController, {
+                ("Contacts", contacts, contacts.searchController, contacts.bottomSearchHostView, "Search contacts".localizeString(id: "contact_search_hint", arguments: []), {
                     contacts.configureSearchBar()
                 }),
-                ("Calls", calls, calls.searchController, calls.bottomSearchHostView, calls.chatSearchResultsController, {
+                ("Calls", calls, calls.searchController, calls.bottomSearchHostView, "Search calls".localizeString(id: "calls_search_hint", arguments: []), {
                     calls.configureSearchBar()
                 })
             ]
         }()
 
-        cases.forEach { name, viewController, searchController, bottomSearchHostView, updater, configureSearchBar in
+        cases.forEach { name, viewController, searchController, bottomSearchHostView, expectedPlaceholder, configureSearchBar in
             viewController.loadViewIfNeeded()
             _ = configureSearchBar()
             let attachedBottomSearchHost = bottomSearchHostView
@@ -18853,8 +19894,7 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
             XCTAssertNil(viewController.navigationItem.searchController, name)
             XCTAssertTrue(bottomSearchHostView === attachedBottomSearchHost, name)
             XCTAssertTrue(bottomSearchHostView.superview === viewController.view, name)
-            XCTAssertEqual(searchBar.placeholder, ChatSearchResultsController.placeholderText, name)
-            XCTAssertTrue(searchController.searchResultsUpdater as AnyObject === updater, name)
+            XCTAssertEqual(searchBar.placeholder, expectedPlaceholder, name)
             XCTAssertEqual(searchBar.backgroundColor, searchBarBackground, name)
             XCTAssertEqual(
                 searchBar.backgroundImage(for: .any, barMetrics: .default)?.pngData(),
@@ -19011,6 +20051,39 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertNil(viewController.tableView(viewController.tableView, titleForHeaderInSection: 1))
     }
 
+    func testLastChatsInPlaceSearchShowsContactsGroupsAndMessagesSections() {
+        let viewController = LastChatsViewController()
+        let contact = makeSearchResultsDatasource(jid: "contact-only@example.com")
+        let group = makeSearchResultsDatasource(
+            jid: "group-only@example.com",
+            entity: .groupchat,
+            conversationType: .group
+        )
+        let message = makeSearchResultsDatasource(jid: "message-only@example.com")
+
+        activateBottomSearch(viewController.bottomSearchHostView, updater: viewController.chatSearchResultsController)
+        viewController.chatSearchResultsController.replaceSnapshot(
+            chats: [contact],
+            groups: [group],
+            messages: [message]
+        )
+
+        XCTAssertEqual(viewController.numberOfSections(in: viewController.tableView), 3)
+        XCTAssertEqual(
+            viewController.tableView(viewController.tableView, titleForHeaderInSection: 0),
+            "Contacts".localizeString(id: "contacts", arguments: [])
+        )
+        XCTAssertEqual(
+            viewController.tableView(viewController.tableView, titleForHeaderInSection: 1),
+            "Groups".localizeString(id: "channel_group_chat_title", arguments: [])
+        )
+        XCTAssertEqual(
+            viewController.tableView(viewController.tableView, titleForHeaderInSection: 2),
+            "Messages".localizeString(id: "groupchat_member_messages", arguments: [])
+        )
+        XCTAssertEqual(viewController.chatSearchResultsController.item(at: IndexPath(row: 0, section: 1))?.conversationType, .group)
+    }
+
     func testInPlaceSearchShowsNoSectionHeadersWhenNoResultsAreAvailable() {
         let viewController = LastChatsViewController()
 
@@ -19029,11 +20102,11 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         let calls = LastCallsViewController()
 
         activateBottomSearch(lastChats.bottomSearchHostView, updater: lastChats.chatSearchResultsController, query: "")
-        activateBottomSearch(contacts.bottomSearchHostView, updater: contacts.chatSearchResultsController, query: "")
-        activateBottomSearch(calls.bottomSearchHostView, updater: calls.chatSearchResultsController, query: "")
+        contacts.bottomSearchHostView.setExpanded(true, animated: false)
+        contacts.bottomSearchHostView.setQuery("", notify: false)
+        calls.bottomSearchHostView.setExpanded(true, animated: false)
+        calls.bottomSearchHostView.setQuery("", notify: false)
         lastChats.chatSearchResultsController.replaceSnapshot(messages: [datasource])
-        contacts.chatSearchResultsController.replaceSnapshot(messages: [datasource])
-        calls.chatSearchResultsController.replaceSnapshot(messages: [datasource])
 
         XCTAssertFalse(lastChats.isShowingSearchResults)
         XCTAssertFalse(contacts.isShowingSearchResults)
@@ -19084,18 +20157,14 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         viewController.tableView.reloadData()
         XCTAssertEqual(viewController.tableView.numberOfSections, 2)
 
-        activateBottomSearch(viewController.bottomSearchHostView, updater: viewController.chatSearchResultsController)
-        viewController.chatSearchResultsController.replaceSnapshot(
-            messages: [makeSearchResultsDatasource(jid: "search-message@example.com")]
-        )
+        viewController.bottomSearchHostView.setExpanded(true, animated: false)
+        viewController.bottomSearchHostView.setQuery("", notify: false)
         viewController.tableView.reloadData()
-        XCTAssertEqual(viewController.tableView.numberOfSections, 1)
+        XCTAssertEqual(viewController.tableView.numberOfSections, 2)
 
         viewController.bottomSearchHostView.setQuery("", notify: false)
-        viewController.chatSearchResultsController.updateSearchResults(with: "")
 
         XCTAssertFalse(viewController.isShowingSearchResults)
-        XCTAssertEqual(viewController.chatSearchResultsController.numberOfSections(), 0)
         XCTAssertEqual(viewController.tableView.numberOfSections, viewController.datasource.count)
         XCTAssertEqual(viewController.tableView.numberOfRows(inSection: 0), 1)
         XCTAssertEqual(viewController.tableView.numberOfRows(inSection: 1), 1)
@@ -19112,18 +20181,14 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         viewController.tableView.reloadData()
         XCTAssertEqual(viewController.tableView.numberOfRows(inSection: 0), 2)
 
-        activateBottomSearch(viewController.bottomSearchHostView, updater: viewController.chatSearchResultsController)
-        viewController.chatSearchResultsController.replaceSnapshot(
-            messages: [makeSearchResultsDatasource(jid: "search-message@example.com")]
-        )
+        viewController.bottomSearchHostView.setExpanded(true, animated: false)
+        viewController.bottomSearchHostView.setQuery(nil, notify: false)
         viewController.tableView.reloadData()
-        XCTAssertEqual(viewController.tableView.numberOfRows(inSection: 0), 1)
+        XCTAssertEqual(viewController.tableView.numberOfRows(inSection: 0), 2)
 
         viewController.bottomSearchHostView.setQuery(nil, notify: false)
-        viewController.chatSearchResultsController.updateSearchResults(with: nil)
 
         XCTAssertFalse(viewController.isShowingSearchResults)
-        XCTAssertEqual(viewController.chatSearchResultsController.numberOfSections(), 0)
         XCTAssertEqual(viewController.tableView.numberOfSections, 1)
         XCTAssertEqual(viewController.tableView.numberOfRows(inSection: 0), 2)
     }
@@ -19166,69 +20231,57 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         assertNoSelectionOutline(in: cell)
     }
 
-    func testContactsSearchUsesInPlaceCoordinatorAndHostRows() {
-        let owner = "contacts-search-row-\(UUID().uuidString)@example.com"
+    func testContactsSearchUsesScopedHostRowsWithoutMessageResults() {
         let viewController = ContactsViewController()
-        let datasource = makeSearchResultsDatasource(owner: owner)
+        viewController.datasource = [[makeContactDatasource(jid: "scoped-contact@example.com")]]
 
         XCTAssertNil(viewController.searchController.searchResultsController)
-        XCTAssertTrue(viewController.searchController.searchResultsUpdater as AnyObject === viewController.chatSearchResultsController)
+        XCTAssertFalse(viewController.searchController.searchResultsUpdater is ChatSearchResultsController)
         XCTAssertFalse(viewController.searchController.searchResultsUpdater is UIViewController)
 
-        activateBottomSearch(viewController.bottomSearchHostView, updater: viewController.chatSearchResultsController)
-        viewController.chatSearchResultsController.replaceSnapshot(messages: [datasource])
+        viewController.bottomSearchHostView.setExpanded(true, animated: false)
+        viewController.bottomSearchHostView.setQuery("scoped", notify: false)
 
         XCTAssertEqual(viewController.numberOfSections(in: viewController.tableView), 1)
         XCTAssertEqual(viewController.tableView(viewController.tableView, numberOfRowsInSection: 0), 1)
-        XCTAssertEqual(
-            viewController.tableView(viewController.tableView, titleForHeaderInSection: 0),
-            "Messages".localizeString(id: "groupchat_member_messages", arguments: [])
-        )
+        XCTAssertNil(viewController.tableView(viewController.tableView, titleForHeaderInSection: 0))
 
         guard let cell = viewController.tableView(
             viewController.tableView,
             cellForRowAt: IndexPath(row: 0, section: 0)
-        ) as? ChatListTableViewCell else {
-            XCTFail("Contacts in-place search should render chat-list cells")
+        ) as? ContactsViewController.ContactCell else {
+            XCTFail("Contacts scoped search should render contact cells")
             return
         }
 
-        XCTAssertEqual(cell.backgroundColor, .systemBackground)
-        XCTAssertNil(cell.selectedBackgroundView)
-        XCTAssertEqual(cell.selectionStyle, .none)
+        XCTAssertNotNil(cell)
         assertNoSelectionOutline(in: cell)
     }
 
-    func testCallsSearchUsesInPlaceCoordinatorAndHostRows() {
-        let owner = "calls-search-row-\(UUID().uuidString)@example.com"
+    func testCallsSearchUsesScopedHostRowsWithoutMessageResults() {
         let viewController = LastCallsViewController()
-        let datasource = makeSearchResultsDatasource(owner: owner)
+        viewController.datasource = [makeLastCallDatasource(messagePrimary: "scoped-call")]
 
         XCTAssertNil(viewController.searchController.searchResultsController)
-        XCTAssertTrue(viewController.searchController.searchResultsUpdater as AnyObject === viewController.chatSearchResultsController)
+        XCTAssertFalse(viewController.searchController.searchResultsUpdater is ChatSearchResultsController)
         XCTAssertFalse(viewController.searchController.searchResultsUpdater is UIViewController)
 
-        activateBottomSearch(viewController.bottomSearchHostView, updater: viewController.chatSearchResultsController)
-        viewController.chatSearchResultsController.replaceSnapshot(messages: [datasource])
+        viewController.bottomSearchHostView.setExpanded(true, animated: false)
+        viewController.bottomSearchHostView.setQuery("scoped", notify: false)
 
         XCTAssertEqual(viewController.numberOfSections(in: viewController.tableView), 1)
         XCTAssertEqual(viewController.tableView(viewController.tableView, numberOfRowsInSection: 0), 1)
-        XCTAssertEqual(
-            viewController.tableView(viewController.tableView, titleForHeaderInSection: 0),
-            "Messages".localizeString(id: "groupchat_member_messages", arguments: [])
-        )
+        XCTAssertNil(viewController.tableView(viewController.tableView, titleForHeaderInSection: 0))
 
         guard let cell = viewController.tableView(
             viewController.tableView,
             cellForRowAt: IndexPath(row: 0, section: 0)
-        ) as? ChatListTableViewCell else {
-            XCTFail("Calls in-place search should render chat-list cells")
+        ) as? LastCallsViewController.ItemCell else {
+            XCTFail("Calls scoped search should render call cells")
             return
         }
 
-        XCTAssertEqual(cell.backgroundColor, .systemBackground)
-        XCTAssertNil(cell.selectedBackgroundView)
-        XCTAssertEqual(cell.selectionStyle, .none)
+        XCTAssertNotNil(cell)
         assertNoSelectionOutline(in: cell)
     }
 
@@ -19419,8 +20472,10 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
     }
 
     func testSelectedSearchResultDismissesActiveSearchBeforeRoutingInAllHosts() {
-        searchHostScenarios().forEach { scenario in
+        lastChatsSearchHostScenarios().forEach { scenario in
             let host = scenario.make()
+            let updater = try! XCTUnwrap(host.updater)
+            let openSearchResult = try! XCTUnwrap(host.openSearchResult)
             let navigationController = UINavigationController(rootViewController: host.viewController)
             let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
             container.loadViewIfNeeded()
@@ -19431,19 +20486,21 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
                 owner: "route-\(UUID().uuidString)@example.com",
                 jid: "romeo-\(UUID().uuidString)@example.com"
             )
-            host.openSearchResult(datasource)
+            openSearchResult(datasource)
 
             XCTAssertFalse(host.bottomSearchHostView.isExpanded, scenario.name)
             XCTAssertEqual(host.bottomSearchHostView.query, "", scenario.name)
-            XCTAssertEqual(host.updater.currentVc?.owner, datasource.owner, scenario.name)
-            XCTAssertEqual(host.updater.currentVc?.jid, datasource.jid, scenario.name)
-            XCTAssertEqual(host.updater.currentVc?.conversationType, datasource.conversationType, scenario.name)
+            XCTAssertEqual(updater.currentVc?.owner, datasource.owner, scenario.name)
+            XCTAssertEqual(updater.currentVc?.jid, datasource.jid, scenario.name)
+            XCTAssertEqual(updater.currentVc?.conversationType, datasource.conversationType, scenario.name)
         }
     }
 
     func testMatchedCurrentSearchResultDismissesSearchAndDoesNotPushNewChat() {
-        searchHostScenarios().forEach { scenario in
+        lastChatsSearchHostScenarios().forEach { scenario in
             let host = scenario.make()
+            let updater = try! XCTUnwrap(host.updater)
+            let openSearchResult = try! XCTUnwrap(host.openSearchResult)
             let navigationController = UINavigationController(rootViewController: host.viewController)
             let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
             container.loadViewIfNeeded()
@@ -19457,14 +20514,14 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
             currentChat.owner = datasource.owner
             currentChat.jid = datasource.jid
             currentChat.conversationType = datasource.conversationType
-            host.updater.currentVc = currentChat
+            updater.currentVc = currentChat
             let initialStackCount = navigationController.viewControllers.count
 
-            host.openSearchResult(datasource)
+            openSearchResult(datasource)
 
             XCTAssertFalse(host.bottomSearchHostView.isExpanded, scenario.name)
             XCTAssertEqual(host.bottomSearchHostView.query, "", scenario.name)
-            XCTAssertTrue(host.updater.currentVc === currentChat, scenario.name)
+            XCTAssertTrue(updater.currentVc === currentChat, scenario.name)
             XCTAssertEqual(navigationController.viewControllers.count, initialStackCount, scenario.name)
         }
     }
@@ -20074,6 +21131,20 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         ]
     }
 
+    private func lastChatsSearchHostScenarios() -> [SearchHostScenario] {
+        [
+            SearchHostScenario(name: "LastChats chats") {
+                self.makeLastChatsSearchHost(filter: .chats)
+            },
+            SearchHostScenario(name: "LastChats archived") {
+                self.makeLastChatsSearchHost(filter: .archived)
+            },
+            SearchHostScenario(name: "LastChats saved") {
+                self.makeLastChatsSearchHost(filter: .saved)
+            }
+        ]
+    }
+
     private func makeLastChatsSearchHost(filter: LastChatsViewController.Filter) -> SearchHost {
         let viewController = LastChatsViewController()
         viewController.filter.accept(filter)
@@ -20104,19 +21175,17 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
             viewController: viewController,
             searchController: viewController.searchController,
             bottomSearchHostView: viewController.bottomSearchHostView,
-            updater: viewController.chatSearchResultsController,
+            updater: nil,
             configureSearchBar: { viewController.configureSearchBar() },
             activateSearch: {
-                self.activateBottomSearch(
-                    viewController.bottomSearchHostView,
-                    updater: viewController.chatSearchResultsController
-                )
+                viewController.bottomSearchHostView.setExpanded(true, animated: false)
+                viewController.bottomSearchHostView.setQuery("romeo", notify: false)
             },
             viewWillAppear: {
                 viewController.beginAppearanceTransition(true, animated: false)
                 viewController.endAppearanceTransition()
             },
-            openSearchResult: { viewController.openSearchResult($0) }
+            openSearchResult: nil
         )
     }
 
@@ -20126,19 +21195,17 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
             viewController: viewController,
             searchController: viewController.searchController,
             bottomSearchHostView: viewController.bottomSearchHostView,
-            updater: viewController.chatSearchResultsController,
+            updater: nil,
             configureSearchBar: { viewController.configureSearchBar() },
             activateSearch: {
-                self.activateBottomSearch(
-                    viewController.bottomSearchHostView,
-                    updater: viewController.chatSearchResultsController
-                )
+                viewController.bottomSearchHostView.setExpanded(true, animated: false)
+                viewController.bottomSearchHostView.setQuery("romeo", notify: false)
             },
             viewWillAppear: {
                 viewController.beginAppearanceTransition(true, animated: false)
                 viewController.endAppearanceTransition()
             },
-            openSearchResult: { viewController.openSearchResult($0) }
+            openSearchResult: nil
         )
     }
 
@@ -20181,7 +21248,9 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
 
     private func makeSearchResultsDatasource(
         owner: String = "owner@example.com",
-        jid: String = "romeo@example.com"
+        jid: String = "romeo@example.com",
+        entity: RosterItemEntity = .contact,
+        conversationType: ClientSynchronizationManager.ConversationType = .regular
     ) -> SearchResultsViewController.Datasource {
         SearchResultsViewController.Datasource(
             jid: jid,
@@ -20194,8 +21263,8 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
             isMute: false,
             isSynced: true,
             status: .offline,
-            entity: .contact,
-            conversationType: .regular,
+            entity: entity,
+            conversationType: conversationType,
             unread: 0,
             unreadString: nil,
             hasUnreadMention: false,
@@ -21492,19 +22561,23 @@ final class FavoritesFeatureTests: XCTestCase {
         id: String = "saved-forwarded-1",
         innerId: String = "inner-forwarded-1",
         outerStamp: String = "2026-03-24T12:36:00+0000",
-        innerStamp: String = "2026-03-24T12:34:56+0000",
+        innerStamp: String? = "2026-03-24T12:34:56+0000",
+        forwardedDelayStamp: String? = nil,
         outerChildren: String = "",
         innerChildren: String = ""
     ) throws -> XMPPMessage {
-        try makeMessage(xml: """
+        let forwardedDelay = forwardedDelayStamp.map { "<delay xmlns='urn:xmpp:delay' stamp='\($0)'/>" } ?? ""
+        let innerTime = innerStamp.map { "<time stamp='\($0)'/>" } ?? ""
+        return try makeMessage(xml: """
         <message from='\(outerFrom ?? ownerResource)' to='\(outerTo ?? favoritesJid)' type='chat' id='\(id)'>
           <time stamp='\(outerStamp)'/>
           \(outerChildren)
           <body>&gt; \(body)</body>
           <reference xmlns='https://xabber.com/protocol/references' begin='0' end='\(body.count + 2)' type='mutable'>
             <forwarded xmlns='urn:xmpp:forward:0'>
+              \(forwardedDelay)
               <message from='\(innerFrom ?? contactJid)' to='\(innerTo ?? owner)' type='chat' id='\(innerId)'>
-                <time stamp='\(innerStamp)'/>
+                \(innerTime)
                 \(innerChildren)
                 <body>\(body)</body>
               </message>
@@ -21822,6 +22895,123 @@ final class FavoritesFeatureTests: XCTestCase {
         XCTAssertEqual(message.conversationType, .saved, file: file, line: line)
     }
 
+    private func makeSavedChatController() -> ChatViewController {
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = favoritesJid
+        controller.conversationType = .saved
+        controller.ownerSender = Sender(id: owner, displayName: "Igor Boldin")
+        controller.opponentSender = Sender(id: favoritesJid, displayName: favoritesJid)
+        controller.showSkeletonObserver.accept(false)
+        return controller
+    }
+
+    private func mappedSavedDatasource(
+        for message: MessageStorageItem,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> ChatViewController.Datasource {
+        let controller = makeSavedChatController()
+        let rows = controller.mapDataset(dataset: [message])
+        return try XCTUnwrap(rows.first { $0.primary == message.primary }, file: file, line: line)
+    }
+
+    private func seedRosterContact(
+        jid: String = "contact@xmppdev01.xabber.com",
+        username: String = "Alexey Boldin",
+        customUsername: String = "",
+        avatarMinUrl: String? = nil,
+        avatarMaxUrl: String? = nil,
+        oldschoolAvatarKey: String? = nil
+    ) throws {
+        let realm = try WRealm.safe()
+        let roster = RosterStorageItem()
+        roster.owner = owner
+        roster.jid = jid
+        roster.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
+        roster.username = username
+        roster.customUsername = customUsername
+        roster.avatarMinUrl = avatarMinUrl
+        roster.avatarMaxUrl = avatarMaxUrl
+        roster.oldschoolAvatarKey = oldschoolAvatarKey
+
+        try realm.write {
+            realm.add(roster, update: .modified)
+        }
+    }
+
+    private func makeSavedDatasourceForwardMessage(
+        id: String,
+        body: String = "Saved datasource forward",
+        authorJid: String,
+        authorName: String? = nil,
+        authorId: String? = nil,
+        authorAvatarUrl: String? = nil
+    ) -> MessageStorageItem {
+        let message = MessageStorageItem()
+        message.primary = "saved-datasource-\(id)"
+        message.owner = owner
+        message.opponent = favoritesJid
+        message.conversationType = .saved
+        message.messageId = id
+        message.archivedId = "archive-\(id)"
+        message.body = body
+        message.legacyBody = body
+        message.date = Date(timeIntervalSince1970: 1_711_285_000)
+        message.sentDate = message.date
+        message.displayAs = .text
+        message.state = .read
+        message.isRead = true
+
+        let card = GroupchatUserStorageItem()
+        card.primary = "\(message.primary)_saved-forwarded"
+        card.jid = authorJid
+        card.nickname = authorName ?? ""
+        card.userId = authorId ?? ""
+        message.groupchatCard = card
+
+        if authorName != nil || authorId != nil || authorAvatarUrl != nil {
+            let reference = MessageReferenceStorageItem()
+            reference.primary = "\(message.primary)-author"
+            reference.owner = owner
+            reference.jid = favoritesJid
+            reference.messageId = message.primary
+            reference.kind = .groupchat
+            var metadata: [String: Any] = ["jid": authorJid]
+            if let authorName {
+                metadata["nickname"] = authorName
+            }
+            if let authorId {
+                metadata["id"] = authorId
+            }
+            if let authorAvatarUrl {
+                metadata["avatar_uri"] = authorAvatarUrl
+            }
+            reference.metadata = metadata
+            message.references.append(reference)
+        }
+
+        return message
+    }
+
+    private func makeSavedDatasourceDirectNote(id: String = "saved-datasource-direct-1") -> MessageStorageItem {
+        let message = MessageStorageItem()
+        message.primary = "saved-datasource-\(id)"
+        message.owner = owner
+        message.opponent = favoritesJid
+        message.conversationType = .saved
+        message.messageId = id
+        message.archivedId = "archive-\(id)"
+        message.body = "Saved direct note"
+        message.legacyBody = message.body
+        message.date = Date(timeIntervalSince1970: 1_711_285_000)
+        message.sentDate = message.date
+        message.displayAs = .text
+        message.state = .read
+        message.isRead = true
+        return message
+    }
+
     private func firstForwardedPayload(
         in stanza: XMPPMessage,
         file: StaticString = #filePath,
@@ -22054,6 +23244,35 @@ final class FavoritesFeatureTests: XCTestCase {
 
         XCTAssertEqual(controller.datasource.first?.conversationType, .saved)
         XCTAssertEqual(controller.datasource.first?.jid, favoritesJid)
+    }
+
+    func testForwardTargetSavedMessagesUsesLocalizedTitleInsteadOfServiceJid() throws {
+        configureFavorites()
+
+        let controller = ShareDialogController()
+        controller.owner = owner
+        controller.forwardIds = ["forwarded-1"]
+        controller.load()
+        controller.updateDatasource()
+
+        let savedTarget = try XCTUnwrap(controller.datasource.first { $0.conversationType == .saved })
+        XCTAssertEqual(savedTarget.jid, favoritesJid)
+        XCTAssertEqual(savedTarget.username, "Saved messages".localizeString(id: "saved_messages__header", arguments: []))
+        XCTAssertNotEqual(savedTarget.username, favoritesJid)
+    }
+
+    func testForwardSearchSavedMessagesUsesLocalizedTitleInsteadOfServiceJid() throws {
+        configureFavorites()
+
+        let controller = ShareDialogSearchController()
+        controller.configure(owner: owner, forwardIds: ["forwarded-1"])
+        controller.load("favorites")
+        controller.updateDatasource()
+
+        let savedTarget = try XCTUnwrap(controller.datasource.first { $0.conversationType == .saved })
+        XCTAssertEqual(savedTarget.jid, favoritesJid)
+        XCTAssertEqual(savedTarget.username, "Saved messages".localizeString(id: "saved_messages__header", arguments: []))
+        XCTAssertNotEqual(savedTarget.username, favoritesJid)
     }
 
     func testForwardTargetsExcludeCurrentSourceChat() throws {
@@ -22643,11 +23862,36 @@ final class FavoritesFeatureTests: XCTestCase {
         XCTAssertTrue(presentation.isSavedForward)
         XCTAssertFalse(presentation.isDirectSavedNote)
         XCTAssertEqual(presentation.displayAuthorJid, contactJid)
-        XCTAssertEqual(presentation.displayAuthorName, contactJid)
+        XCTAssertEqual(presentation.displayAuthorName, JidManager.shared.prepareJid(jid: contactJid))
         XCTAssertFalse(presentation.displayOutgoing)
         XCTAssertEqual(presentation.visibleBody, "Forwarded saved message")
         XCTAssertEqual(presentation.visibleDate, "2026-03-24T12:34:56+0000".xmppDate)
         assertStoredAsSavedServiceConversation(stored)
+    }
+
+    func testSavedForwardedMessageUsesForwardedDelayForVisibleDate() throws {
+        let savedAt = "2026-06-23T10:00:00+0000"
+        let originalAt = "2026-03-24T12:34:56+0000"
+        let stored = try receiveSaved(try makeForwardedSavedMessage(
+            body: "Forwarded delay date",
+            id: "saved-forwarded-delay-date-1",
+            innerId: "inner-forwarded-delay-date-1",
+            outerStamp: savedAt,
+            innerStamp: nil,
+            forwardedDelayStamp: originalAt
+        ))
+
+        let presentation = SavedMessageDisplayPolicy.presentation(
+            for: stored,
+            currentUserJid: owner,
+            currentUserName: "Igor Boldin"
+        )
+        let row = try mappedSavedDatasource(for: stored)
+
+        XCTAssertEqual(stored.date, savedAt.xmppDate)
+        XCTAssertEqual(stored.sentDate, originalAt.xmppDate)
+        XCTAssertEqual(presentation.visibleDate, originalAt.xmppDate)
+        XCTAssertEqual(row.sentDate, originalAt.xmppDate)
     }
 
     func testSavedDirectNoteDisplaysCurrentUserAsAuthor() throws {
@@ -22698,6 +23942,156 @@ final class FavoritesFeatureTests: XCTestCase {
         XCTAssertEqual(presentation.displayAuthorName, "Alexey Boldin")
         XCTAssertEqual(presentation.groupchatAuthorNickname, "Alexey Boldin")
         XCTAssertEqual(presentation.groupchatAuthorId, "user-1")
+    }
+
+    func testSavedDatasourceSelfAuthoredForwardRendersOutgoingWithoutAuthorChrome() throws {
+        let stored = makeSavedDatasourceForwardMessage(
+            id: "saved-display-self-forward-1",
+            body: "Saved self forward",
+            authorJid: owner
+        )
+
+        let row = try mappedSavedDatasource(for: stored)
+
+        XCTAssertTrue(row.isOutgoing)
+        XCTAssertTrue(row.outgoing)
+        XCTAssertEqual(row.sender.id, owner)
+        XCTAssertFalse(row.withAuthor)
+        XCTAssertFalse(row.withAvatar)
+        XCTAssertNil(row.attributedAuthor)
+        XCTAssertNil(row.avatarUrl)
+    }
+
+    func testSavedDatasourceOtherRegularForwardRendersIncomingWithAuthorChrome() throws {
+        try seedRosterContact(
+            jid: contactJid,
+            username: "Alexey Boldin",
+            avatarMinUrl: "https://avatars.example.com/alexey-min.jpg",
+            avatarMaxUrl: "https://avatars.example.com/alexey-max.jpg"
+        )
+        let stored = makeSavedDatasourceForwardMessage(
+            id: "saved-display-other-regular-1",
+            authorJid: contactJid
+        )
+
+        let row = try mappedSavedDatasource(for: stored)
+
+        XCTAssertFalse(row.isOutgoing)
+        XCTAssertFalse(row.outgoing)
+        XCTAssertEqual(row.sender.id, contactJid)
+        XCTAssertEqual(row.sender.displayName, "Alexey Boldin")
+        XCTAssertTrue(row.withAuthor)
+        XCTAssertTrue(row.withAvatar)
+        XCTAssertEqual(row.attributedAuthor?.string, "Alexey Boldin")
+        XCTAssertEqual(row.groupchatAuthorNickname, "Alexey Boldin")
+        XCTAssertEqual(row.avatarUrl, "https://avatars.example.com/alexey-min.jpg")
+        XCTAssertEqual(row.indicator, .none)
+    }
+
+    func testSavedDatasourceOtherGroupForwardRendersIncomingWithAuthorChrome() throws {
+        try seedRosterContact(
+            jid: contactJid,
+            username: "Roster Alexey",
+            avatarMinUrl: "https://avatars.example.com/roster-alexey.jpg"
+        )
+        let stored = makeSavedDatasourceForwardMessage(
+            id: "saved-display-other-group-1",
+            body: "Group saved message",
+            authorJid: contactJid,
+            authorName: "Alexey Boldin",
+            authorId: "user-1",
+            authorAvatarUrl: "https://avatars.example.com/group-alexey.jpg"
+        )
+
+        let row = try mappedSavedDatasource(for: stored)
+
+        XCTAssertFalse(row.isOutgoing)
+        XCTAssertFalse(row.outgoing)
+        XCTAssertEqual(row.sender.id, contactJid)
+        XCTAssertTrue(row.withAuthor)
+        XCTAssertTrue(row.withAvatar)
+        XCTAssertEqual(row.attributedAuthor?.string, "Alexey Boldin")
+        XCTAssertEqual(row.groupchatAuthorNickname, "Alexey Boldin")
+        XCTAssertEqual(row.groupchatAuthorId, "user-1")
+        XCTAssertEqual(row.avatarUrl, "https://avatars.example.com/group-alexey.jpg")
+        XCTAssertEqual(row.indicator, .none)
+    }
+
+    func testSavedDatasourceGroupForwardWithJidNicknameUsesRosterAuthorChrome() throws {
+        try seedRosterContact(
+            jid: contactJid,
+            username: "Alexey From Roster",
+            avatarMinUrl: "https://avatars.example.com/alexey-roster.jpg"
+        )
+        let stored = makeSavedDatasourceForwardMessage(
+            id: "saved-display-group-jid-name-1",
+            body: "Group saved message without participant nickname",
+            authorJid: contactJid,
+            authorName: contactJid,
+            authorId: "user-1"
+        )
+
+        let row = try mappedSavedDatasource(for: stored)
+
+        XCTAssertFalse(row.isOutgoing)
+        XCTAssertEqual(row.sender.displayName, "Alexey From Roster")
+        XCTAssertEqual(row.attributedAuthor?.string, "Alexey From Roster")
+        XCTAssertEqual(row.groupchatAuthorNickname, "Alexey From Roster")
+        XCTAssertEqual(row.avatarUrl, "https://avatars.example.com/alexey-roster.jpg")
+    }
+
+    func testSavedDatasourceUnknownAuthorUsesPreparedJidFallback() throws {
+        let unknownJid = "unknown.user@xmppdev01.xabber.com"
+        let stored = makeSavedDatasourceForwardMessage(
+            id: "saved-display-unknown-author-1",
+            authorJid: unknownJid
+        )
+
+        let row = try mappedSavedDatasource(for: stored)
+
+        XCTAssertFalse(row.isOutgoing)
+        XCTAssertEqual(row.sender.displayName, JidManager.shared.prepareJid(jid: unknownJid))
+        XCTAssertEqual(row.attributedAuthor?.string, JidManager.shared.prepareJid(jid: unknownJid))
+        XCTAssertEqual(row.groupchatAuthorNickname, JidManager.shared.prepareJid(jid: unknownJid))
+        XCTAssertNil(row.avatarUrl)
+    }
+
+    func testSavedDatasourceDirectNoteRendersOutgoingWithoutAuthorChrome() throws {
+        let stored = makeSavedDatasourceDirectNote()
+
+        let row = try mappedSavedDatasource(for: stored)
+
+        XCTAssertTrue(row.isOutgoing)
+        XCTAssertTrue(row.outgoing)
+        XCTAssertEqual(row.sender.id, owner)
+        XCTAssertFalse(row.withAuthor)
+        XCTAssertFalse(row.withAvatar)
+        XCTAssertNil(row.attributedAuthor)
+        XCTAssertNil(row.avatarUrl)
+    }
+
+    func testTextMessageCellShowsDefaultAvatarWhenIncomingSavedAuthorHasNoAvatarUrl() throws {
+        try seedRosterContact(
+            jid: contactJid,
+            username: "Alexey Default"
+        )
+        let stored = makeSavedDatasourceForwardMessage(
+            id: "saved-display-default-avatar-1",
+            authorJid: contactJid
+        )
+        let row = try mappedSavedDatasource(for: stored)
+        let controller = makeSavedChatController()
+        controller.datasource = [row]
+        let messagesCollectionView = MessagesCollectionView()
+        messagesCollectionView.messagesDataSource = controller
+        let cell = TextMessageCell(frame: CGRect(x: 0, y: 0, width: 390, height: 80))
+
+        cell.configure(with: row, at: IndexPath(item: 0, section: 0), and: messagesCollectionView)
+
+        XCTAssertEqual(row.groupchatAuthorNickname, "Alexey Default")
+        XCTAssertNil(row.avatarUrl)
+        XCTAssertFalse(cell.avatarView.isHidden)
+        XCTAssertNotNil(cell.avatarView.image)
     }
 
     func testSavedForwardedAttachmentRendersInSavedChat() throws {
@@ -23061,6 +24455,48 @@ final class ComposerMentionsTests: XCTestCase {
 
         func messagesPanelOnIndicatorTouch() {
             indicatorTouchCount += 1
+        }
+    }
+
+    private enum SelectionPanelAction: Equatable {
+        case delete
+        case share
+        case copy
+        case reply
+        case forward
+        case close
+        case edit
+    }
+
+    private final class SelectionPanelActionDelegateSpy: MessagesSelectionPanelActionDelegate {
+        private(set) var actions: [SelectionPanelAction] = []
+
+        func selectionPanel(onClose panel: ModernXabberInputView.SelectionPanel) {
+            actions.append(.close)
+        }
+
+        func selectionPanel(onDelete panel: ModernXabberInputView.SelectionPanel) {
+            actions.append(.delete)
+        }
+
+        func selectionPanel(onCopy panel: ModernXabberInputView.SelectionPanel) {
+            actions.append(.copy)
+        }
+
+        func selectionPanel(onShare panel: ModernXabberInputView.SelectionPanel) {
+            actions.append(.share)
+        }
+
+        func selectionPanel(onReply panel: ModernXabberInputView.SelectionPanel) {
+            actions.append(.reply)
+        }
+
+        func selectionPanel(onForward panel: ModernXabberInputView.SelectionPanel) {
+            actions.append(.forward)
+        }
+
+        func selectionPanel(onEdit panel: ModernXabberInputView.SelectionPanel) {
+            actions.append(.edit)
         }
     }
 
@@ -23960,6 +25396,119 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertEqual(spy.indicatorTouchCount, 1)
     }
 
+    func testSelectionPanelUsesSharedGlassEffect() throws {
+        let panel = ModernXabberInputView.SelectionPanel(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 288,
+            height: NativeGlassBarStyle.minimumHeight
+        ))
+
+        if #available(iOS 26.0, *) {
+            let glassEffect = try XCTUnwrap(panel.surfaceView.effect as? UIGlassEffect)
+            XCTAssertTrue(glassEffect.isInteractive)
+            XCTAssertEqual(glassEffect.tintColor, NativeGlassBarStyle.nativeGlassTintColor)
+        } else {
+            XCTAssertTrue(panel.surfaceView.effect is UIBlurEffect)
+        }
+    }
+
+    func testSelectionPanelHostsAllButtonsInsideOneGlassSurfaceWithSharedTint() {
+        let panel = ModernXabberInputView.SelectionPanel(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 288,
+            height: NativeGlassBarStyle.minimumHeight
+        ))
+        panel.layoutIfNeeded()
+        panel.surfaceView.layoutIfNeeded()
+        panel.surfaceView.contentView.layoutIfNeeded()
+
+        XCTAssertTrue(panel.surfaceView.superview === panel)
+
+        for button in selectionPanelButtons(in: panel) {
+            XCTAssertTrue(button.isDescendant(of: panel.surfaceView.contentView))
+            XCTAssertEqual(button.tintColor, NativeGlassBarStyle.iconTintColor)
+            XCTAssertNotNil(button.image(for: .normal))
+            XCTAssertEqual(button.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+            XCTAssertEqual(button.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+            XCTAssertEqual(button.backgroundColor ?? .clear, .clear)
+            XCTAssertEqual(button.layer.borderWidth, 0, accuracy: 0.001)
+            XCTAssertEqual(button.layer.shadowOpacity, 0, accuracy: 0.001)
+        }
+    }
+
+    func testSelectionPanelButtonsFitInsideCapsuleOnCompactWidths() {
+        for width in [320.0, 360.0, 390.0] {
+            let inputView = ModernXabberInputView(frame: CGRect(
+                x: 0,
+                y: 0,
+                width: width,
+                height: ModernXabberInputView.defaultBarHeight
+            ))
+            inputView.showSelectionPanel()
+            inputView.setupFrames(CGRect(
+                x: 0,
+                y: 0,
+                width: width,
+                height: ModernXabberInputView.defaultBarHeight
+            ))
+            inputView.layoutIfNeeded()
+            inputView.selectionPanel.layoutIfNeeded()
+            inputView.selectionPanel.surfaceView.layoutIfNeeded()
+            inputView.selectionPanel.surfaceView.contentView.layoutIfNeeded()
+
+            let panel = inputView.selectionPanel
+            let allowedBounds = panel.surfaceView.bounds.insetBy(dx: -0.5, dy: -0.5)
+
+            XCTAssertEqual(panel.frame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+            XCTAssertEqual(panel.surfaceView.frame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+
+            for button in selectionPanelButtons(in: panel) {
+                let buttonFrame = button.convert(button.bounds, to: panel.surfaceView)
+                XCTAssertTrue(
+                    allowedBounds.contains(buttonFrame),
+                    "Button \(button) escaped selection capsule at width \(width): \(buttonFrame) not in \(panel.surfaceView.bounds)"
+                )
+            }
+        }
+    }
+
+    func testSelectionPanelHidesPrimaryComposerGlassWhileVisible() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        let composerEffectView = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+
+        inputView.showSelectionPanel()
+        inputView.layoutIfNeeded()
+
+        XCTAssertFalse(inputView.selectionPanel.isHidden)
+        XCTAssertTrue(composerEffectView.superview?.isHidden == true)
+    }
+
+    func testSelectionPanelButtonsKeepExistingDelegateCallbacks() {
+        let panel = ModernXabberInputView.SelectionPanel(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 288,
+            height: NativeGlassBarStyle.minimumHeight
+        ))
+        let spy = SelectionPanelActionDelegateSpy()
+        panel.delegate = spy
+
+        panel.deleteButton.sendActions(for: .touchUpInside)
+        panel.shareButton.sendActions(for: .touchUpInside)
+        panel.copyButton.sendActions(for: .touchUpInside)
+        panel.replyButton.sendActions(for: .touchUpInside)
+        panel.forwardButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(spy.actions, [.delete, .share, .copy, .reply, .forward])
+    }
+
     func testRecordingStateShowsOnlyRecordingControlsOnPrimaryGlass() throws {
         let inputView = ModernXabberInputView(frame: CGRect(
             x: 0,
@@ -24464,6 +26013,18 @@ final class ComposerMentionsTests: XCTestCase {
             return button.configuration == nil
         }
         return detachedButtonEffectView(in: button)?.isHidden ?? true
+    }
+
+    private func selectionPanelButtons(
+        in panel: ModernXabberInputView.SelectionPanel
+    ) -> [UIButton] {
+        [
+            panel.deleteButton,
+            panel.shareButton,
+            panel.copyButton,
+            panel.replyButton,
+            panel.forwardButton
+        ]
     }
 
     private func buttonGlyphImage(_ button: UIButton) -> UIImage? {

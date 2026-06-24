@@ -23,7 +23,7 @@ import UIKit
 import AVFoundation
 import Photos
 import MaterialComponents.MDCPalettes
-import MobileCoreServices
+import UniformTypeIdentifiers
 import Kingfisher
 import AudioToolbox
 import CocoaLumberjack
@@ -203,10 +203,8 @@ class ImagePickerViewController: UIViewController {
     
     @objc
     internal func openDocuments() {
-        let documentVC = UIDocumentPickerViewController(documentTypes: [String(kUTTypeItem)], in: .import)
-        if #available(iOS 11.0, *) {
-            documentVC.allowsMultipleSelection = true
-        }
+        let documentVC = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        documentVC.allowsMultipleSelection = true
         documentVC.delegate = self
         self.present(documentVC, animated: true, completion: nil)
     }

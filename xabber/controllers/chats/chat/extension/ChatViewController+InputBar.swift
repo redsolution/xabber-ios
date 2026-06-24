@@ -64,31 +64,65 @@ extension ChatViewController {
     @objc
     internal func showImagePicker() {
         self.view.endEditing(false)
+        DispatchQueue.main.async {
+            let isCloudStorageAvailable = AccountManager.shared.find(for: self.owner)?.cloudStorage.isAvailable() ?? false
+            let route = ChatAttachmentPickerRoutingPolicy.route(
+                isTelegramAttachmentPickerEnabled: CommonConfigManager.shared.config.use_telegram_attachment_picker,
+                isCloudStorageAvailable: isCloudStorageAvailable
+            )
+
+            switch route {
+            case .legacyImagePicker:
+                self.presentLegacyImagePickerAfterPhotoPermission()
+            case .telegramAttachmentFlow:
+                self.presentTelegramAttachmentFlow()
+            case .blocked(.cloudStorageUnavailable):
+                ToastPresenter().presentError(message: "File transfer is unavailable for this account.".localizeString(id: "media_picker_error_upload_unavailable", arguments: []))
+            }
+        }
+    }
+
+    private func presentLegacyImagePickerAfterPhotoPermission() {
         askPhotoPermision { (value) in
 //            DispatchQueue.main.asyncAfter(deadline: .now() + (keyboardState ? 0.0 : 0.0)) {
             DispatchQueue.main.async {
                 if value {
 //                    if AccountManager.shared.find(for: self.owner)?.httpUploads.isAvailable() ?? false {
 //                    if AccountManager.shared.find(for: self.owner)?.xUploads.isAvailable() ?? false {
-                    if AccountManager.shared.find(for: self.owner)?.cloudStorage.isAvailable() ?? false {
-                        let picker = ImagePickerViewController()
-                        picker.jid = self.jid
-                        picker.owner = self.owner
-                        picker.delegate = self
-                        picker.conversationType = self.conversationType
-                        picker.forwardedMessages = self.attachedMessagesIds.value
-                        picker.modalTransitionStyle = .coverVertical
-                        picker.modalPresentationStyle = .overFullScreen
-                        self.present(picker, animated: false, completion: nil)
-//                        UIApplication.shared.windows.last?.rootViewController?.present(picker, animated: false, completion: nil)
-                    } else {
-                        ToastPresenter().presentError(message: "File transfer is unavailable for this account.".localizeString(id: "media_picker_error_upload_unavailable", arguments: []))
-                    }
+                    self.presentLegacyImagePicker()
                 } else {
                     ToastPresenter().presentError(message: "Photo Library access is required to select images.".localizeString(id: "media_picker_error_photo_permission", arguments: []))
                 }
             }
         }
+    }
+
+    private func presentLegacyImagePicker() {
+        let picker = ImagePickerViewController()
+        picker.jid = self.jid
+        picker.owner = self.owner
+        picker.delegate = self
+        picker.conversationType = self.conversationType
+        picker.forwardedMessages = self.attachedMessagesIds.value
+        picker.modalTransitionStyle = .coverVertical
+        picker.modalPresentationStyle = .overFullScreen
+        self.present(picker, animated: false, completion: nil)
+    }
+
+    private func presentTelegramAttachmentFlow() {
+        let coordinator = ChatAttachmentFlowCoordinator(
+            presentingViewController: self,
+            context: ChatAttachmentFlowContext(
+                owner: self.owner,
+                jid: self.jid,
+                conversationType: self.conversationType,
+                forwardedMessageIds: self.attachedMessagesIds.value
+            ),
+            sheetAnchorProvider: self
+        )
+        coordinator.delegate = self
+        self.chatAttachmentFlowCoordinator = coordinator
+        coordinator.start()
     }
     
     @objc
@@ -170,5 +204,57 @@ extension ChatViewController {
         } else {
             updates()
         }
+    }
+}
+
+extension ChatViewController: ChatAttachmentFlowCoordinatorDelegate {
+    func chatAttachmentFlowCoordinatorDidSend(_ coordinator: ChatAttachmentFlowCoordinator) {
+        clearChatAttachmentFlowCoordinatorIfNeeded(coordinator)
+        onSendMessage()
+    }
+
+    func chatAttachmentFlowCoordinatorDidDismiss(_ coordinator: ChatAttachmentFlowCoordinator) {
+        onDismissPicker()
+        clearChatAttachmentFlowCoordinatorIfNeeded(coordinator)
+    }
+
+    func chatAttachmentFlowCoordinator(
+        _ coordinator: ChatAttachmentFlowCoordinator,
+        didRequestPremiumFor owner: String
+    ) {
+        SubscribtionsPresenter().present(animated: true, owner: owner, parent: self)
+    }
+
+    func chatAttachmentFlowCoordinator(
+        _ coordinator: ChatAttachmentFlowCoordinator,
+        didFailWith error: ChatAttachmentFlowError
+    ) {
+        clearChatAttachmentFlowCoordinatorIfNeeded(coordinator)
+        ToastPresenter().presentError(
+            message: "Unable to open attachment picker.".localizeString(
+                id: "media_picker_error_open_failed",
+                arguments: []
+            )
+        )
+    }
+
+    private func clearChatAttachmentFlowCoordinatorIfNeeded(_ coordinator: ChatAttachmentFlowCoordinator) {
+        guard let retainedCoordinator = chatAttachmentFlowCoordinator,
+              retainedCoordinator === coordinator else {
+            return
+        }
+
+        chatAttachmentFlowCoordinator = nil
+    }
+}
+
+extension ChatViewController: ChatAttachmentSheetAnchorProviding {
+    func chatAttachmentSheetComposerTopY(in containerView: UIView) -> CGFloat? {
+        guard let inputView = self.xabberInputView,
+              let inputSuperview = inputView.superview else {
+            return nil
+        }
+
+        return inputSuperview.convert(inputView.frame, to: containerView).minY
     }
 }

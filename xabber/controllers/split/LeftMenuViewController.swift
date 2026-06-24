@@ -168,12 +168,53 @@ enum LeftMenuSavedMessagesEntryPolicy {
 
         return LeftMenuViewController.Datasource(
             title: SavedMessagesChatListPresentationPolicy.title,
-            icon: XMPPFavoritesManagerStorageItem.imageName,
+            icon: SavedMessagesChatListPresentationPolicy.leftMenuIconName,
             key: "saved",
             category: "",
             subtitle: "\(unreadCount)",
             showTriangle: false
         )
+    }
+}
+
+enum LeftMenuSavedMessagesSelectionPolicy {
+    struct SavedChat: Equatable {
+        let owner: String
+        let jid: String
+    }
+
+    enum Decision: Equatable {
+        case showSavedList
+        case openChatDirectly(SavedChat)
+        case showSavedListAndOpenChat(SavedChat)
+    }
+
+    static func savedChats(
+        enabledAccountJids: [String],
+        favoritesNodesByOwner: [String: String]
+    ) -> [SavedChat] {
+        enabledAccountJids.compactMap { owner in
+            guard let jid = favoritesNodesByOwner[owner],
+                  jid.isNotEmpty else {
+                return nil
+            }
+            return SavedChat(owner: owner, jid: jid)
+        }
+    }
+
+    static func decision(
+        isCompact: Bool,
+        availableChats: [SavedChat]
+    ) -> Decision {
+        guard let firstChat = availableChats.first else {
+            return .showSavedList
+        }
+
+        if isCompact, availableChats.count == 1 {
+            return .openChatDirectly(firstChat)
+        }
+
+        return .showSavedListAndOpenChat(firstChat)
     }
 }
 
@@ -561,7 +602,7 @@ class LeftMenuViewController: UIViewController {
     var groupsVc: ContactsViewController? = nil
     var savedMessagesChatsVc: LastChatsViewController? = nil
     
-    private let tableView: UITableView = {
+    internal let tableView: UITableView = {
         let style: UITableView.Style = ContinuousSplitBackgroundExperiment.usesSplitListChrome ? .insetGrouped : .grouped
         let view = UITableView(frame: .zero, style: style)
         
@@ -1181,7 +1222,13 @@ extension LeftMenuViewController: UITableViewDataSource {
         }
         let item = datasource[indexPath.section][indexPath.row]
         
-        cell.configure(title: item.title, badge: item.subtitle, icon: item.icon, isImportant: true)
+        cell.configure(
+            title: item.title,
+            badge: item.subtitle,
+            icon: item.icon,
+            isImportant: true,
+            accessibilityIdentifier: "left_menu_\(item.key)_row"
+        )
         if item.key == "archive" {
             cell.badgeView.backgroundColor = .systemGray
         } else {
@@ -1429,7 +1476,8 @@ class MenuItemTableCell: UITableViewCell {
         badge: String,
         icon: String,
         isImportant: Bool,
-        iconRenderingMode: UIImage.RenderingMode = .alwaysTemplate
+        iconRenderingMode: UIImage.RenderingMode = .alwaysTemplate,
+        accessibilityIdentifier: String? = nil
     ) {
         self.titleLabel.text = title
         self.subtitleLabel.text = subtitle
@@ -1450,12 +1498,21 @@ class MenuItemTableCell: UITableViewCell {
         self.badgeView.setNeedsLayout()
         self.badgeView.invalidateIntrinsicContentSize()
         self.badgeView.layoutIfNeeded()
+        self.isAccessibilityElement = true
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.accessibilityLabel = title
+        self.accessibilityValue = self.badgeView.isHidden ? nil : badge
+        self.accessibilityTraits = [.button]
     }
     
     func setupSubviews() {
         self.backgroundColor = .clear
         self.layer.cornerRadius = 8
         self.layer.masksToBounds = true
+        self.contentView.isAccessibilityElement = false
+        self.titleLabel.isAccessibilityElement = false
+        self.subtitleLabel.isAccessibilityElement = false
+        self.badgeView.isAccessibilityElement = false
         self.contentView.addSubview(stack)
         self.stack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 56, right: 4)
         self.stack.addArrangedSubview(self.labelsStack)
@@ -1482,6 +1539,11 @@ class MenuItemTableCell: UITableViewCell {
         self.badgeView.backgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
         self.badgeView.setTitleColor(.white, for: .normal)
         self.badgeView.isHidden = true
+        self.isAccessibilityElement = false
+        self.accessibilityIdentifier = nil
+        self.accessibilityLabel = nil
+        self.accessibilityValue = nil
+        self.accessibilityTraits = []
     }
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -1741,29 +1803,90 @@ extension LeftMenuViewController: UITableViewDelegate {
         return true
     }
     
-    private func showSavedMessages(controller vc: UIViewController) -> Bool {
+    private func showSavedMessages(controller vc: BaseViewController) -> Bool {
+        guard self.splitViewController != nil else {
+            return false
+        }
+        return show(controller: vc, kind: .emptyChat)
+    }
+
+    private func savedMessagesChats() -> [LeftMenuSavedMessagesSelectionPolicy.SavedChat] {
+        do {
+            let realm = try WRealm.safe()
+            let enabledOwners = realm
+                .objects(AccountStorageItem.self)
+                .filter("enabled == true")
+                .sorted(byKeyPath: "order")
+                .toArray()
+                .compactMap(\.jid)
+            let favoritesNodesByOwner = SavedMessagesAvailabilityPolicy.favoritesNodesByOwner(
+                in: realm,
+                enabledOwners: enabledOwners
+            )
+            return LeftMenuSavedMessagesSelectionPolicy.savedChats(
+                enabledAccountJids: enabledOwners,
+                favoritesNodesByOwner: favoritesNodesByOwner
+            )
+        } catch {
+            DDLogDebug("LeftMenuViewController: \(#function). \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    private func savedMessagesController() -> LastChatsViewController {
+        if let vc = savedMessagesChatsVc {
+            vc.leftMenuSelectRootCategoryDelegate = self
+            vc.shouldShowBottomBar = false
+            vc.filter.accept(.saved)
+            return vc
+        }
+
+        let vc = LastChatsViewController()
+        vc.shouldShowBottomBar = false
+        vc.leftMenuSelectRootCategoryDelegate = self
+        vc.filter.accept(.saved)
+        self.savedMessagesChatsVc = vc
+        return vc
+    }
+
+    private func isCompactSavedMessagesSelection() -> Bool {
         guard let splitVC = self.splitViewController else {
             return false
         }
-        let supplementaryTargetBounds = LeftMenuSplitDestinationPreparer.targetBounds(
-            for: .supplementary,
-            in: splitVC,
-            presenter: self
+
+        return selectionPresentationAction(for: splitVC) == .compactRevealSupplementary
+    }
+
+    private func openSavedMessagesChat(_ chat: LeftMenuSavedMessagesSelectionPolicy.SavedChat) {
+        savedMessagesChatsVc?.stackNewChat(
+            owner: chat.owner,
+            jid: chat.jid,
+            conversationType: .saved,
+            configure: nil
         )
-        if usesStockCompactSplit(splitVC) {
-            splitVC.viewControllers = [self, vc]
-            applySelectionPresentation(to: splitVC)
-            return true
+    }
+
+    private func openSavedMessagesChatFromChats(_ chat: LeftMenuSavedMessagesSelectionPolicy.SavedChat) -> Bool {
+        let vc: LastChatsViewController
+        if let chatsVc {
+            vc = chatsVc
+        } else {
+            vc = LastChatsViewController()
+            self.chatsVc = vc
         }
 
-        LeftMenuSplitDestinationPreparer.prepare(
-            vc,
-            targetBounds: supplementaryTargetBounds
-        )
-        LeftMenuSplitDestinationPreparer.perform(.columnInstallation) {
-            splitVC.viewControllers = [self, vc]
+        vc.filter.accept(.chats)
+        vc.leftMenuSelectRootCategoryDelegate = self
+        guard show(controller: vc, kind: .emptyChat) else {
+            return false
         }
-        applySelectionPresentation(to: splitVC)
+
+        vc.stackNewChat(
+            owner: chat.owner,
+            jid: chat.jid,
+            conversationType: .saved,
+            configure: nil
+        )
         return true
     }
     
@@ -1785,7 +1908,7 @@ extension LeftMenuViewController: UITableViewDelegate {
 extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
     
     func didSelectRootScreenBy(key: String, category: String? = nil) {
-        if self.previousSelectedKey == key {
+        if self.previousSelectedKey == key, key != "saved" {
             revealSelectedContentColumn()
             return
         }
@@ -1957,16 +2080,23 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                 if self.archivedVc?.filter.value == .unread {
                     self.archivedVc?.filter.accept(.archived)
                 }
-                if let vc = self.savedMessagesChatsVc {
-                    vc.leftMenuSelectRootCategoryDelegate = self
+                let decision = LeftMenuSavedMessagesSelectionPolicy.decision(
+                    isCompact: isCompactSavedMessagesSelection(),
+                    availableChats: savedMessagesChats()
+                )
+
+                switch decision {
+                case .showSavedList:
+                    let vc = savedMessagesController()
                     didPresent = self.showSavedMessages(controller: vc)
-                } else {
-                    let vc = LastChatsViewController()
-                    vc.shouldShowBottomBar = false
-                    vc.leftMenuSelectRootCategoryDelegate = self
-                    vc.filter.accept(.saved)
-                    self.savedMessagesChatsVc = vc
+                case .openChatDirectly(let chat):
+                    didPresent = openSavedMessagesChatFromChats(chat)
+                case .showSavedListAndOpenChat(let chat):
+                    let vc = savedMessagesController()
                     didPresent = self.showSavedMessages(controller: vc)
+                    if didPresent {
+                        openSavedMessagesChat(chat)
+                    }
                 }
             default:
                 break

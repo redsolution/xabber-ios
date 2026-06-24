@@ -23,43 +23,47 @@ import UIKit
 
 extension LastCallsViewController {
     internal var isShowingSearchResults: Bool {
-        BottomInPlaceSearchHostHelper.shouldShowResults(
-            searchView: bottomSearchHostView,
-            updater: chatSearchResultsController
-        )
+        false
     }
     
     internal func configureSearchBar() {
         navigationItem.searchController = nil
         installBottomSearchHostIfNeeded()
-        BottomInPlaceSearchHostHelper.configure(
-            searchView: bottomSearchHostView,
-            updater: chatSearchResultsController,
-            reload: { [weak self] in
-                self?.reloadInPlaceSearchResultsIfNeeded()
-            },
-            activeChanged: { [weak self] _ in
-                self?.bottomSearchPresentationStateDidChange()
-            }
-        )
-        searchController.searchResultsUpdater = chatSearchResultsController
+        bottomSearchHostView.searchTextField.placeholder = callsSearchPlaceholderText
+        searchController.searchBar.placeholder = callsSearchPlaceholderText
+        bottomSearchHostView.onBegin = { [weak self] in
+            guard let self else { return }
+            self.callsSearchQuery = self.bottomSearchHostView.query
+            self.reloadCallDatasource()
+            self.bottomSearchPresentationStateDidChange()
+        }
+        bottomSearchHostView.onQueryChanged = { [weak self] query in
+            guard let self else { return }
+            self.callsSearchQuery = query
+            self.reloadCallDatasource()
+            self.bottomSearchPresentationStateDidChange()
+        }
+        bottomSearchHostView.onCancel = { [weak self] in
+            guard let self else { return }
+            self.callsSearchQuery = nil
+            self.reloadCallDatasource()
+            self.bottomSearchPresentationStateDidChange()
+        }
     }
 
     internal func dismissBottomSearchForRoute() {
-        BottomInPlaceSearchHostHelper.dismiss(
-            searchView: bottomSearchHostView,
-            updater: chatSearchResultsController,
-            reload: { [weak self] in
-                self?.reloadInPlaceSearchResultsIfNeeded()
-            },
-            activeChanged: { [weak self] _ in
-                self?.bottomSearchPresentationStateDidChange()
-            }
-        )
+        UIView.performWithoutAnimation {
+            bottomSearchHostView.setQuery(nil, notify: false)
+            bottomSearchHostView.setExpanded(false, animated: false)
+            callsSearchQuery = nil
+            reloadCallDatasource()
+            bottomSearchPresentationStateDidChange()
+        }
     }
 
     internal func bottomSearchPresentationStateDidChange() {
         refreshEmptyStateVisibility(isSearchActive: bottomSearchHostView.isExpanded)
+        updateCallsCompactBottomBarState()
         updateTableInsetsForBottomSearch()
         if isViewLoaded {
             view.bringSubviewToFront(bottomSearchHostView)
@@ -72,13 +76,16 @@ extension LastCallsViewController {
             searchView: bottomSearchHostView,
             in: view
         )
+        updateCallsCompactBottomBarState()
         updateTableInsetsForBottomSearch()
     }
 
     internal func updateTableInsetsForBottomSearch() {
-        let bottomInset = bottomSearchHostView.superview == nil
-            ? 0
-            : BottomSearchHostView.Metrics.reservedBottomInset
+        let isBottomSearchVisible = bottomSearchHostView.superview != nil && !bottomSearchHostView.isHidden
+        let isCompactBarVisible = callsCompactBottomBarView.superview != nil && !isCallsCompactBottomBarHidden
+        let bottomInset = isBottomSearchVisible || isCompactBarVisible
+            ? max(BottomSearchHostView.Metrics.reservedBottomInset, FloatingBottomBarView.Metrics.reservedBottomInset)
+            : 0
 
         if tableView.contentInset.bottom != bottomInset {
             tableView.contentInset.bottom = bottomInset
@@ -96,11 +103,9 @@ extension LastCallsViewController {
     }
 
     internal func clearInPlaceSearchResultsForDismissal() {
-        chatSearchResultsController.reset()
+        callsSearchQuery = nil
         guard isViewLoaded else { return }
-        UIView.performWithoutAnimation {
-            tableView.reloadData()
-        }
+        reloadCallDatasource()
     }
 }
 
@@ -134,40 +139,5 @@ extension LastCallsViewController: UISearchControllerDelegate {
     func didDismissSearchController(_ searchController: UISearchController) {
         print("UISearchControllerDelegate invoked method: \(#function).")
         refreshEmptyStateVisibility(isSearchActive: false)
-    }
-}
-
-extension LastCallsViewController: SearchResultsDelegateProtocol {
-    func openChat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
-        let vc = ChatViewController()
-        vc.owner = owner
-        vc.jid = jid
-        vc.conversationType = conversationType
-        showStacked(vc, in: self)
-    }
-
-    internal func openSearchResult(_ item: SearchResultsViewController.Datasource) {
-        InPlaceSearchResultRouteHelper.open(
-            item,
-            updater: chatSearchResultsController,
-            dismissSearch: { [weak self] in
-                self?.dismissBottomSearchForRoute()
-            },
-            reload: { [weak self] in
-                self?.reloadInPlaceSearchResultsIfNeeded()
-            },
-            openNewChat: { [weak self] item, completion in
-                guard let self else {
-                    completion(nil)
-                    return
-                }
-                let vc = ChatViewController()
-                vc.owner = item.owner
-                vc.jid = item.jid
-                vc.conversationType = item.conversationType
-                showStacked(vc, in: self)
-                completion(vc)
-            }
-        )
     }
 }

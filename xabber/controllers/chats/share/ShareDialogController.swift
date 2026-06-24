@@ -170,6 +170,10 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
         }
     }
 
+    static var savedMessagesTitle: String {
+        "Saved messages".localizeString(id: "saved_messages__header", arguments: [])
+    }
+
     internal func selectionAction(for item: Datasource) -> SelectionAction {
         if item.conversationType == .saved {
             return .sendImmediatelyToSaved(owner: item.owner, forwardedIds: forwardIds)
@@ -319,7 +323,9 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
                 isSystemMessage = true
             }
             
-            let username = item.rosterItem?.displayName ?? item.jid
+            let username = item.conversationType == .saved
+                ? ShareDialogController.savedMessagesTitle
+                : item.rosterItem?.displayName ?? item.jid
             var attributedUsername: NSAttributedString? = nil
             
             var isVerificationActionRequired: Bool = false

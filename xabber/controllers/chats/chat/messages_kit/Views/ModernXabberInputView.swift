@@ -827,81 +827,73 @@ class ModernXabberInputView: UIView {
     }
     
     class SelectionPanel: UIView {
-        
+        enum Metrics {
+            static let height: CGFloat = NativeGlassBarStyle.minimumHeight
+            static let contentInset: CGFloat = NativeGlassBarStyle.contentInset
+            static let buttonSize: CGFloat = NativeGlassBarStyle.buttonSize
+            static let iconSize: CGFloat = NativeGlassBarStyle.iconSize
+        }
+
         var delegate: MessagesSelectionPanelActionDelegate? = nil
-        
+
+        let surfaceView: UIVisualEffectView = {
+            let view = UIVisualEffectView(effect: NativeGlassBarStyle.makeEffect(interactive: true))
+
+            view.translatesAutoresizingMaskIntoConstraints = false
+            NativeGlassBarStyle.applySurface(to: view, cornerStyle: .capsule, interactive: true)
+
+            return view
+        }()
+
         let deleteButton: UIButton = {
-            let button = UIButton()
-            
-            button.setImage(imageLiteral("trash"), for: .normal)
-            button.tintColor = .tintColor
-            
-            return button
+            SelectionPanel.makeButton(imageName: "trash", accessibilityLabel: "Delete")
         }()
-        
+
         let shareButton: UIButton = {
-            let button = UIButton()
-            
-            button.setImage(imageLiteral("square.and.arrow.up"), for: .normal)
-            button.tintColor = .tintColor
-            
-            return button
+            SelectionPanel.makeButton(imageName: "square.and.arrow.up", accessibilityLabel: "Share")
         }()
-        
-        
+
         let replyButton: UIButton = {
-            let button = UIButton()
-            
-            button.setImage(imageLiteral("arrowshape.turn.up.left"), for: .normal)
-            button.tintColor = .tintColor
-            
-            return button
+            SelectionPanel.makeButton(imageName: "arrowshape.turn.up.left", accessibilityLabel: "Reply")
         }()
-        
+
         let copyButton: UIButton = {
-            let button = UIButton()
-            
-            button.setImage(imageLiteral("doc.on.doc"), for: .normal)
-            button.tintColor = .tintColor
-            
-            return button
+            SelectionPanel.makeButton(imageName: "doc.on.doc", accessibilityLabel: "Copy")
         }()
-        
+
         let forwardButton: UIButton = {
-            let button = UIButton()
-            
-            button.setImage(imageLiteral("arrowshape.turn.up.right"), for: .normal)
-            button.tintColor = .tintColor
-            
-            return button
+            SelectionPanel.makeButton(imageName: "arrowshape.turn.up.right", accessibilityLabel: "Forward")
         }()
-        
+
         let stack:UIStackView = {
             let stack = UIStackView()
-            
+
             stack.axis = .horizontal
             stack.alignment = .center
             stack.distribution = .equalSpacing
-            
-            
+            stack.spacing = 0
+            stack.translatesAutoresizingMaskIntoConstraints = false
+
             return stack
         }()
-        
-        
+
         override init(frame: CGRect) {
             super.init(frame: frame)
             setup()
         }
-        
+
         required init?(coder: NSCoder) {
             super.init(coder: coder)
             setup()
         }
-        
+
         internal var buttonConstraints: [NSLayoutConstraint] = []
-        
+
         internal func setup() {
-            self.addSubview(self.stack)
+            self.backgroundColor = .clear
+            self.isOpaque = false
+            self.addSubview(self.surfaceView)
+            self.surfaceView.contentView.addSubview(self.stack)
             self.stack.addArrangedSubview(self.deleteButton)
             self.stack.addArrangedSubview(self.shareButton)
             self.stack.addArrangedSubview(self.copyButton)
@@ -912,20 +904,60 @@ class ModernXabberInputView: UIView {
             self.copyButton.addTarget(self, action: #selector(onCopyButtonPress), for: .touchUpInside)
             self.replyButton.addTarget(self, action: #selector(onReplyButtonPress), for: .touchUpInside)
             self.forwardButton.addTarget(self, action: #selector(onForwardButtonPress), for: .touchUpInside)
-            var constraints = [self.deleteButton, self.shareButton, self.copyButton, self.replyButton, self.forwardButton].compactMap({ return [
-                $0.widthAnchor.constraint(equalToConstant: 44),
-                $0.heightAnchor.constraint(equalToConstant: 38)
-            ] }).flatMap({ $0 })
-//            constraints.append(contentsOf: [
-//                stack.heightAnchor.constraint(equalToConstant: 38),
-//                stack.leftAnchor.constraint(equalTo: self.leftAnchor),
-//                stack.rightAnchor.constraint(equalTo: self.rightAnchor)
-//            ])
+
+            let buttons = [self.deleteButton, self.shareButton, self.copyButton, self.replyButton, self.forwardButton]
+            let constraints = buttons.compactMap({ return [
+                $0.widthAnchor.constraint(equalToConstant: Metrics.buttonSize),
+                $0.heightAnchor.constraint(equalToConstant: Metrics.buttonSize)
+            ] }).flatMap({ $0 }) + [
+                self.surfaceView.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+                self.surfaceView.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+                self.surfaceView.topAnchor.constraint(equalTo: self.topAnchor),
+                self.surfaceView.bottomAnchor.constraint(equalTo: self.bottomAnchor),
+
+                self.stack.leadingAnchor.constraint(
+                    equalTo: self.surfaceView.contentView.leadingAnchor,
+                    constant: Metrics.contentInset
+                ),
+                self.stack.trailingAnchor.constraint(
+                    equalTo: self.surfaceView.contentView.trailingAnchor,
+                    constant: -Metrics.contentInset
+                ),
+                self.stack.topAnchor.constraint(equalTo: self.surfaceView.contentView.topAnchor),
+                self.stack.bottomAnchor.constraint(equalTo: self.surfaceView.contentView.bottomAnchor)
+            ]
             NSLayoutConstraint.activate(constraints)
         }
-        
+
         final func update() {
-            stack.frame = self.bounds
+            NativeGlassBarStyle.applySurface(to: surfaceView, cornerStyle: .capsule, interactive: true)
+            [deleteButton, shareButton, copyButton, replyButton, forwardButton].forEach {
+                NativeGlassBarStyle.applyIconButtonStyle(
+                    to: $0,
+                    tintColor: NativeGlassBarStyle.iconTintColor,
+                    prefersNativeGlass: false,
+                    forceConfigurationUpdate: false
+                )
+            }
+        }
+
+        private static func makeButton(
+            imageName: String,
+            accessibilityLabel: String
+        ) -> UIButton {
+            let button = UIButton(type: .system)
+            let image = imageLiteral(imageName, dimension: Metrics.iconSize)?
+                .withRenderingMode(.alwaysTemplate)
+
+            button.accessibilityLabel = accessibilityLabel
+            NativeGlassBarStyle.applyIconButtonStyle(
+                to: button,
+                tintColor: NativeGlassBarStyle.iconTintColor,
+                image: image,
+                prefersNativeGlass: false
+            )
+
+            return button
         }
         
         @objc
@@ -2456,9 +2488,13 @@ class ModernXabberInputView: UIView {
     
     public final func updateBottomPanels(withOffset offset: CGFloat) {
         selectionPanel.frame = CGRect(
-            origin: CGPoint(x: 16, y: offset + 2),
-            size: CGSize(width: self.bounds.width - 32, height: 38)
+            origin: CGPoint(x: NativeGlassBarStyle.horizontalInset, y: offset),
+            size: CGSize(
+                width: self.bounds.width - NativeGlassBarStyle.horizontalInset * 2,
+                height: NativeGlassBarStyle.minimumHeight
+            )
         )
+        selectionPanel.update()
         self.layoutComposerRecordingPanels()
         searchPanel.frame = CGRect(
             origin: CGPoint(x: 16, y: offset + 6),
@@ -2693,7 +2729,7 @@ class ModernXabberInputView: UIView {
 
     private func layoutLiquidGlassAppearance() {
         let contentHeight = self.currentComposerContentHeight()
-        self.mainInputShadowView.isHidden = self.state == .selection || self.state == .search || self.state == .skeleton
+        self.mainInputShadowView.isHidden = self.isSelectionPanelShowed || self.state == .selection || self.state == .search || self.state == .skeleton
         self.mainInputHeightConstraint?.constant = contentHeight + self.topInset
 
         // Keep the shared NativeGlass/blur material capsule style in sync on every layout pass.
@@ -3005,13 +3041,13 @@ class ModernXabberInputView: UIView {
 //                self.sendButton.setImage(imageLiteral( "microphone").withRenderingMode(.alwaysTemplate), for: .normal)
                 self.sendButton.setImage(imageLiteral("mic.fill", dimension: NativeGlassBarStyle.iconSize), for: .normal)
                 self.sendButton.tintColor = .secondaryLabel
-                self.attachButton.isEnabled = self.isSendButtonEnabled
+                self.attachButton.isEnabled = true
                 self.sendButton.isEnabled = self.isSendButtonEnabled
             case .send:
                 self.sendButton.setImage(imageLiteral("xabber.paperplane.fill", dimension: NativeGlassBarStyle.iconSize), for: .normal)
                 self.sendButton.tintColor = self.isSendButtonEnabled ? self.accountPalette.tint600 : .secondaryLabel
                 self.sendButton.isEnabled = self.isSendButtonEnabled
-                self.attachButton.isEnabled = self.isSendButtonEnabled
+                self.attachButton.isEnabled = true
         }
         self.refreshDetachedComposerButtonChrome()
     }

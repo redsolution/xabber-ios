@@ -111,6 +111,7 @@ final class LeftMenuSplitPresentationAnimationPolicyTests: XCTestCase {
 @MainActor
 final class SavedMessagesEntryPointTests: XCTestCase {
     private var previousRealmConfiguration: Realm.Configuration!
+    private var retainedTraitWindows: [UIWindow] = []
 
     override func setUp() {
         super.setUp()
@@ -126,6 +127,8 @@ final class SavedMessagesEntryPointTests: XCTestCase {
     }
 
     override func tearDown() {
+        retainedTraitWindows.forEach { $0.isHidden = true }
+        retainedTraitWindows.removeAll()
         AccountManager.shared.users.removeAll()
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
         previousRealmConfiguration = nil
@@ -141,7 +144,7 @@ final class SavedMessagesEntryPointTests: XCTestCase {
 
         XCTAssertEqual(item?.key, "saved")
         XCTAssertEqual(item?.title, SavedMessagesChatListPresentationPolicy.title)
-        XCTAssertEqual(item?.icon, XMPPFavoritesManagerStorageItem.imageName)
+        XCTAssertEqual(item?.icon, SavedMessagesChatListPresentationPolicy.leftMenuIconName)
         XCTAssertEqual(item?.subtitle, "0")
     }
 
@@ -167,6 +170,140 @@ final class SavedMessagesEntryPointTests: XCTestCase {
         XCTAssertFalse(controller.savedMessagesChatsVc?.shouldShowBottomBar ?? true)
     }
 
+    func testSavedMenuTapRunsEvenWhenSavedAlreadySelected() {
+        let controller = LeftMenuViewController()
+        controller.previousSelectedKey = "saved"
+
+        controller.didSelectRootScreenBy(key: "saved")
+
+        XCTAssertEqual(controller.savedMessagesChatsVc?.filter.value, .saved)
+        XCTAssertFalse(controller.savedMessagesChatsVc?.shouldShowBottomBar ?? true)
+    }
+
+    func testSavedMenuCellExposesActionAccessibilityTarget() {
+        let cell = MenuItemTableCell(style: .default, reuseIdentifier: MenuItemTableCell.cellName)
+
+        cell.configure(
+            title: SavedMessagesChatListPresentationPolicy.title,
+            badge: "0",
+            icon: XMPPFavoritesManagerStorageItem.imageName,
+            isImportant: true,
+            accessibilityIdentifier: "left_menu_saved_row"
+        )
+
+        XCTAssertTrue(cell.isAccessibilityElement)
+        XCTAssertEqual(cell.accessibilityIdentifier, "left_menu_saved_row")
+        XCTAssertEqual(cell.accessibilityLabel, SavedMessagesChatListPresentationPolicy.title)
+        XCTAssertTrue(cell.accessibilityTraits.contains(.button))
+    }
+
+    func testActualSavedMenuRowTapRoutesToSavedController() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(owner: "owner@example.com", node: "favorites.example.com")
+        try seedLastChat(jid: "favorites.example.com", owner: "owner@example.com", conversationType: .saved)
+
+        let controller = LeftMenuViewController()
+        let splitViewController = UISplitViewController(style: .tripleColumn)
+        splitViewController.viewControllers = [
+            controller,
+            UINavigationController(rootViewController: LastChatsViewController()),
+            UINavigationController(rootViewController: EmptyChatViewController())
+        ]
+        attachToTraitWindow(splitViewController, horizontalSizeClass: .regular)
+        controller.loadViewIfNeeded()
+
+        let savedRow = try XCTUnwrap(
+            controller.datasource.first?.firstIndex { $0.key == "saved" }
+        )
+
+        controller.tableView(
+            controller.tableView,
+            didSelectRowAt: IndexPath(row: savedRow, section: 0)
+        )
+
+        XCTAssertEqual(controller.previousSelectedKey, "saved")
+        XCTAssertEqual(controller.savedMessagesChatsVc?.filter.value, .saved)
+        XCTAssertFalse(controller.savedMessagesChatsVc?.shouldShowBottomBar ?? true)
+        let openedChat = try XCTUnwrap(openedSavedChat(in: controller))
+        XCTAssertEqual(openedChat.owner, "owner@example.com")
+        XCTAssertEqual(openedChat.jid, "favorites.example.com")
+        XCTAssertEqual(openedChat.conversationType, .saved)
+    }
+
+    func testActualSingleAccountCompactSavedMenuRowTapPushesSavedChatFromNormalChatsList() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(owner: "owner@example.com", node: "favorites.example.com")
+        try seedLastChat(jid: "favorites.example.com", owner: "owner@example.com", conversationType: .saved)
+
+        let controller = LeftMenuViewController()
+        let splitViewController = UISplitViewController(style: .tripleColumn)
+        splitViewController.viewControllers = [
+            controller,
+            UINavigationController(rootViewController: LastChatsViewController()),
+            UINavigationController(rootViewController: EmptyChatViewController())
+        ]
+        attachToTraitWindow(splitViewController, horizontalSizeClass: .compact)
+        controller.loadViewIfNeeded()
+
+        let savedRow = try XCTUnwrap(
+            controller.datasource.first?.firstIndex { $0.key == "saved" }
+        )
+
+        controller.tableView(
+            controller.tableView,
+            didSelectRowAt: IndexPath(row: savedRow, section: 0)
+        )
+
+        let chatsController = try XCTUnwrap(controller.chatsVc)
+        XCTAssertEqual(chatsController.filter.value, .chats)
+        XCTAssertIdentical(chatsController.navigationController?.viewControllers.first, chatsController)
+        let pushedChat = try XCTUnwrap(
+            chatsController.navigationController?.topViewController as? ChatViewController
+        )
+        XCTAssertEqual(controller.previousSelectedKey, "saved")
+        XCTAssertEqual(pushedChat.owner, "owner@example.com")
+        XCTAssertEqual(pushedChat.jid, "favorites.example.com")
+        XCTAssertEqual(pushedChat.conversationType, .saved)
+    }
+
+    func testSingleAccountCompactSavedSelectionOpensChatDirectly() {
+        let availableChats = [
+            LeftMenuSavedMessagesSelectionPolicy.SavedChat(owner: "owner@example.com", jid: "favorites.example.com")
+        ]
+
+        let decision = LeftMenuSavedMessagesSelectionPolicy.decision(
+            isCompact: true,
+            availableChats: availableChats
+        )
+
+        XCTAssertEqual(decision, .openChatDirectly(availableChats[0]))
+    }
+
+    func testSingleAccountRegularSavedSelectionShowsListAndOpensChat() {
+        let availableChats = [
+            LeftMenuSavedMessagesSelectionPolicy.SavedChat(owner: "owner@example.com", jid: "favorites.example.com")
+        ]
+
+        let decision = LeftMenuSavedMessagesSelectionPolicy.decision(
+            isCompact: false,
+            availableChats: availableChats
+        )
+
+        XCTAssertEqual(decision, .showSavedListAndOpenChat(availableChats[0]))
+    }
+
+    func testMultiAccountCompactSavedSelectionShowsListAndOpensFirstChat() {
+        let first = LeftMenuSavedMessagesSelectionPolicy.SavedChat(owner: "first@example.com", jid: "favorites.first.example.com")
+        let second = LeftMenuSavedMessagesSelectionPolicy.SavedChat(owner: "second@example.com", jid: "favorites.second.example.com")
+
+        let decision = LeftMenuSavedMessagesSelectionPolicy.decision(
+            isCompact: true,
+            availableChats: [first, second]
+        )
+
+        XCTAssertEqual(decision, .showSavedListAndOpenChat(first))
+    }
+
     func testSavedFilterShowsOnlySavedConversationRows() throws {
         try seedAccount("owner@example.com")
         try seedFavoritesService(owner: "owner@example.com", node: "favorites.example.com")
@@ -184,7 +321,9 @@ final class SavedMessagesEntryPointTests: XCTestCase {
 
     func testSavedRowUsesBookmarkIconAndSavedTitle() {
         XCTAssertEqual(SavedMessagesChatListPresentationPolicy.title, "Saved messages")
+        XCTAssertEqual(SavedMessagesChatListPresentationPolicy.leftMenuIconName, "bookmark")
         XCTAssertEqual(SavedMessagesChatListPresentationPolicy.avatarIconName, XMPPFavoritesManagerStorageItem.imageName)
+        XCTAssertEqual(SavedMessagesChatListPresentationPolicy.avatarIconName, "bookmark.fill")
     }
 
     func testSavedRowShowsAccountSubtitleInMultiAccountMode() {
@@ -280,6 +419,46 @@ final class SavedMessagesEntryPointTests: XCTestCase {
             specialMessageKind: .none,
             avatars: []
         )
+    }
+
+    private func attachToTraitWindow(
+        _ viewController: UIViewController,
+        horizontalSizeClass: UIUserInterfaceSizeClass
+    ) {
+        let window = TraitWindow(horizontalSizeClass: horizontalSizeClass)
+        retainedTraitWindows.append(window)
+        window.rootViewController = viewController
+        window.frame = UIScreen.main.bounds
+        window.isHidden = false
+        window.layoutIfNeeded()
+    }
+
+    private func openedSavedChat(in controller: LeftMenuViewController) -> ChatViewController? {
+        if let currentChat = controller.savedMessagesChatsVc?.currentChatVC {
+            return currentChat
+        }
+
+        return controller.savedMessagesChatsVc?.navigationController?.topViewController as? ChatViewController
+    }
+
+    private final class TraitWindow: UIWindow {
+        private let horizontalSizeClass: UIUserInterfaceSizeClass
+
+        init(horizontalSizeClass: UIUserInterfaceSizeClass) {
+            self.horizontalSizeClass = horizontalSizeClass
+            super.init(frame: UIScreen.main.bounds)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override var traitCollection: UITraitCollection {
+            UITraitCollection(traitsFrom: [
+                super.traitCollection,
+                UITraitCollection(horizontalSizeClass: horizontalSizeClass)
+            ])
+        }
     }
 }
 

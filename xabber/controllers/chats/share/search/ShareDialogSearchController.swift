@@ -143,7 +143,9 @@ class ShareDialogSearchController: BaseViewController {
                 isSystemMessage = true
             }
             
-            let username = item.rosterItem?.displayName ?? item.jid
+            let username = item.conversationType == .saved
+                ? ShareDialogController.savedMessagesTitle
+                : item.rosterItem?.displayName ?? item.jid
             var attributedUsername: NSAttributedString? = nil
             
             var isVerificationActionRequired: Bool = false

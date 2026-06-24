@@ -196,6 +196,36 @@ final class NotificationsListAppearanceTests: XCTestCase {
         )
     }
 
+    private func addNotification(
+        owner: String,
+        uniqueId: String,
+        category: XMPPNotificationsManager.Category = .info,
+        isRead: Bool,
+        text: String,
+        jid: String = "server@example.com",
+        associatedJid: String? = nil,
+        originalSenderJid: String? = nil,
+        dateOffset: TimeInterval = 0
+    ) {
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            let item = NotificationStorageItem()
+            item.owner = owner
+            item.jid = jid
+            item.uniqueId = uniqueId
+            item.primary = NotificationStorageItem.genPrimary(owner: owner, jid: jid, uniqueId: uniqueId)
+            item.category = category
+            item.isRead = isRead
+            item.text = text
+            item.fallbackText = text
+            item.associatedJid = associatedJid
+            item.originalSenderJid = originalSenderJid
+            item.shouldShow = true
+            item.date = Date(timeIntervalSince1970: 1_711_283_200 + dateOffset)
+            realm.add(item, update: .modified)
+        }
+    }
+
     func testNotificationsListUsesInsetGroupedTransparentSplitAppearance() {
         let controller = NotificationsListViewController()
         let container = embedInTraitContainer(controller, horizontalSizeClass: .regular)
@@ -373,17 +403,157 @@ final class NotificationsListAppearanceTests: XCTestCase {
         )
     }
 
-    func testNotificationsCompactSplitNavbarButtonsAreVisibleAfterLoad() throws {
+    func testNotificationsCompactSplitUsesBottomActionsAndClearsNavbarDuplicates() throws {
         let controller = NotificationsListViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
 
-        controller.loadViewIfNeeded()
+        container.loadViewIfNeeded()
 
         XCTAssertEqual(controller.navigationItem.leftBarButtonItem?.accessibilityIdentifier, "notifications_back_to_chats_button")
-        let rightItems = try XCTUnwrap(controller.navigationItem.rightBarButtonItems)
-        XCTAssertEqual(rightItems.compactMap(\.accessibilityIdentifier), [
-            "notifications_filter_menu_button",
-            "notifications_mark_all_read_button"
+        XCTAssertTrue(controller.navigationItem.rightBarButtonItems?.isEmpty ?? true)
+        XCTAssertFalse(controller.isNotificationsCompactBottomBarHidden)
+        XCTAssertEqual(controller.notificationsCompactBottomBarFilterButton.accessibilityIdentifier, "notifications_unread_filter_button")
+        XCTAssertEqual(controller.notificationsCompactBottomBarPrimaryButton.accessibilityIdentifier, "notifications_read_all_bottom_button")
+        XCTAssertEqual(
+            controller.notificationsCompactBottomBarCenterTitle,
+            "Read all".localizeString(id: "notifications_read_all_button", arguments: [])
+        )
+        XCTAssertTrue(controller.bottomSearchHostView.superview === controller.view)
+        XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
+    }
+
+    func testNotificationsRegularWidthKeepsNavbarActionsAndHidesCompactBottomBar() throws {
+        let controller = NotificationsListViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .regular)
+
+        container.loadViewIfNeeded()
+
+        XCTAssertTrue(controller.isNotificationsCompactBottomBarHidden)
+        XCTAssertFalse(controller.navigationItem.rightBarButtonItems?.isEmpty ?? true)
+    }
+
+    func testNotificationsCompactBottomFilterReceivesHitWhenSearchHostIsCollapsed() {
+        let controller = NotificationsListViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+        container.view.layoutIfNeeded()
+        navigationController.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+
+        let button = controller.notificationsCompactBottomBarFilterButton
+        let buttonPoint = controller.view.convert(
+            CGPoint(x: button.bounds.midX, y: button.bounds.midY),
+            from: button
+        )
+
+        XCTAssertTrue(controller.view.hitTest(buttonPoint, with: nil) === button)
+    }
+
+    func testNotificationsCompactUnreadFilterTogglesWithoutChangingCategoryOrAccount() {
+        let owner = "notifications-unread-filter-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner)
+        let controller = NotificationsListViewController()
+        controller.filter.accept(.mentions)
+        controller.filterAccount.accept(owner)
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+
+        XCTAssertFalse(controller.isNotificationsCompactUnreadFilterActive)
+
+        controller.notificationsCompactBottomBarFilterButton.sendActions(for: .touchUpInside)
+
+        XCTAssertTrue(controller.isNotificationsCompactUnreadFilterActive)
+        XCTAssertEqual(controller.filter.value, .mentions)
+        XCTAssertEqual(controller.filterAccount.value, owner)
+
+        controller.notificationsCompactBottomBarFilterButton.sendActions(for: .touchUpInside)
+
+        XCTAssertFalse(controller.isNotificationsCompactUnreadFilterActive)
+        XCTAssertEqual(controller.filter.value, .mentions)
+        XCTAssertEqual(controller.filterAccount.value, owner)
+    }
+
+    func testNotificationsReadAllMarksOnlyMatchingUnreadNotifications() throws {
+        let owner = "notifications-read-all-\(UUID().uuidString)@example.com"
+        let otherOwner = "notifications-read-all-other-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner)
+        addEnabledAccount(owner: otherOwner)
+        addNotification(owner: owner, uniqueId: "matching-unread", category: .info, isRead: false, text: "Matching info")
+        addNotification(owner: owner, uniqueId: "wrong-category", category: .device, isRead: false, text: "Security")
+        addNotification(owner: otherOwner, uniqueId: "wrong-owner", category: .info, isRead: false, text: "Other owner")
+        addNotification(owner: owner, uniqueId: "already-read", category: .info, isRead: true, text: "Already read")
+        let controller = NotificationsListViewController()
+        controller.filter.accept(.info)
+        controller.filterAccount.accept(owner)
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+        controller.notificationsCompactBottomBarPrimaryButton.sendActions(for: .touchUpInside)
+
+        let realm = try WRealm.safe()
+        func isRead(_ uniqueId: String, owner targetOwner: String = owner) -> Bool {
+            realm.object(
+                ofType: NotificationStorageItem.self,
+                forPrimaryKey: NotificationStorageItem.genPrimary(
+                    owner: targetOwner,
+                    jid: "server@example.com",
+                    uniqueId: uniqueId
+                )
+            )?.isRead ?? false
+        }
+
+        XCTAssertTrue(isRead("matching-unread"))
+        XCTAssertFalse(isRead("wrong-category"))
+        XCTAssertFalse(isRead("wrong-owner", owner: otherOwner))
+        XCTAssertTrue(isRead("already-read"))
+        XCTAssertFalse(controller.isNotificationsCompactReadAllButtonEnabled)
+    }
+
+    func testNotificationsLocalSearchFiltersStoredNotificationRows() {
+        let owner = "notifications-search-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner)
+        addNotification(owner: owner, uniqueId: "alpha", category: .info, isRead: false, text: "Alpha outage", dateOffset: 2)
+        addNotification(owner: owner, uniqueId: "beta", category: .info, isRead: false, text: "Beta maintenance", dateOffset: 1)
+        let controller = NotificationsListViewController()
+
+        let snapshot = controller.buildDatasourceSnapshot(
+            filter: .all,
+            filterAccount: nil,
+            unreadOnly: false,
+            searchQuery: "alpha"
+        )
+        let rows = snapshot.datasource.flatMap(\.childs).filter { !$0.isHeader }
+
+        XCTAssertEqual(rows.map(\.primary), [
+            NotificationStorageItem.genPrimary(owner: owner, jid: "server@example.com", uniqueId: "alpha")
         ])
+    }
+
+    func testNotificationsCompactSearchExpansionHidesAndRestoresBottomActions() {
+        let controller = NotificationsListViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+
+        XCTAssertFalse(controller.isNotificationsCompactBottomBarHidden)
+
+        controller.bottomSearchHostView.collapsedButton.sendActions(for: .touchUpInside)
+
+        XCTAssertTrue(controller.bottomSearchHostView.isExpanded)
+        XCTAssertTrue(controller.isNotificationsCompactBottomBarHidden)
+
+        controller.bottomSearchHostView.cancelButton.sendActions(for: .touchUpInside)
+
+        XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
+        XCTAssertFalse(controller.isNotificationsCompactBottomBarHidden)
     }
 
     func testNotificationsCategoriesRegularNavbarShowsSidebarButtonImmediately() {
