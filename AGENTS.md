@@ -31,6 +31,7 @@ Build, test, and maintain the Xabber iOS codebase with a strong bias toward safe
 - Use platform availability checks for APIs that may not exist on the deployment target.
 - Preserve accessibility identifiers when editing UI under test.
 - Never commit secrets, signing assets, private keys, or provisioning profiles.
+- After each completed task, create a focused git commit containing only the changes for that task unless the user explicitly says not to commit or the changes cannot be safely isolated from unrelated local work.
 
 ## Repo map
 
@@ -141,8 +142,10 @@ For any bug fix, feature, refactor, or investigation that is more than a trivial
 9. Implement the code change.
 10. Run the narrowest relevant verification.
 11. At the end of the task, run a build for the affected target or scheme on a connected device when available, falling back to simulator only when device execution is blocked, and check the build output for errors before closing the work.
-12. Update `decisions.md`, `shared/`, or `docs/` when the result is durable.
-13. Move the task note to the correct final state and record verification.
+12. After each build, remove DerivedData and disposable build artifacts that are not needed by subsequent builds, while preserving logs, result bundles, archives, or caches that are still required for diagnosis, handoff, or the next verification step.
+13. Update `decisions.md`, `shared/`, or `docs/` when the result is durable.
+14. Move the task note to the correct final state and record verification.
+15. Commit the completed task as a focused git commit, staging only the files changed for that task.
 
 If the task is cross-cutting and no single specialist clearly owns the entire change, start from `xabber-lead` and delegate through vault task and handoff notes.
 
@@ -200,6 +203,7 @@ Rules for imported markdown:
 - Use a simulator destination only when no suitable device is connected, signing blocks device builds, the target cannot run on device, or the user explicitly asks for simulator verification.
 - For any completed implementation task, run at least one build for the affected target before finishing, even if narrower tests were already run.
 - Always inspect the build output for actual compiler or linker errors and report the first meaningful failure if the build does not pass.
+- After each build, clean up DerivedData and disposable build products, logs, result bundles, archives, and temporary artifacts that are not needed for later builds or troubleshooting.
 - If a build cannot be run because of environment, signing, dependency, device, or simulator limitations, state that explicitly and record the blocker in the task note or vault notes.
 - When a test fails, diagnose the first meaningful failure before making broad refactors.
 - Report what was run, what passed, and what remains unverified.
