@@ -566,43 +566,6 @@ struct CloudStorageQuotaCategory: Equatable {
     let count: Int
 }
 
-struct CloudStorageAccountQuotaPayload: Equatable {
-    let used: Int
-    let quota: Int
-
-    static func parse(_ value: Any?) -> CloudStorageAccountQuotaPayload? {
-        guard let root = dictionary(from: value),
-              let used = int(from: root["used"]),
-              let quota = int(from: root["quota"]) else {
-            return nil
-        }
-        return CloudStorageAccountQuotaPayload(used: used, quota: quota)
-    }
-
-    private static func dictionary(from value: Any?) -> [String: Any]? {
-        if let dictionary = value as? [String: Any] {
-            return dictionary
-        }
-        if let dictionary = value as? NSDictionary {
-            return dictionary as? [String: Any]
-        }
-        return nil
-    }
-
-    private static func int(from value: Any?) -> Int? {
-        if let int = value as? Int {
-            return int
-        }
-        if let number = value as? NSNumber {
-            return number.intValue
-        }
-        if let string = value as? String {
-            return Int(string)
-        }
-        return nil
-    }
-}
-
 struct CloudStorageQuotaStatsPayload: Equatable {
     let quota: Int
     let total: CloudStorageQuotaCategory
@@ -678,7 +641,6 @@ enum CloudStorageQuotaAPIResponse {
 }
 
 protocol CloudStorageQuotaAPIClient {
-    func getQuota(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func getStats(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func uploadFile(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, metadata: [String: String]?, context: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
@@ -730,21 +692,6 @@ final class AlamofireCloudStorageTokenAPIClient: CloudStorageTokenAPIClient {
 }
 
 final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
-    func getQuota(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        guard let url = Self.apiURL(baseURL: baseURL, path: "v1/account/quota/") else {
-            completion(.failure(statusCode: nil, error: nil))
-            return
-        }
-
-        AF.request(
-            url,
-            method: .get,
-            parameters: nil,
-            encoding: JSONEncoding.default,
-            headers: Self.authHeaders(token)
-        ).responseJSON { Self.complete($0, completion: completion) }
-    }
-
     func getStats(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
         guard let url = Self.apiURL(baseURL: baseURL, path: "v1/files/stats/") else {
             completion(.failure(statusCode: nil, error: nil))
@@ -1594,34 +1541,7 @@ class XabberUploadManager: AbstractXMPPManager {
         }
 
         postQuotaRefreshDidStart(reason: reason, context: context)
-        Self.quotaAPIClient.getQuota(baseURL: context.baseURL, token: context.token) { [weak self] response in
-            guard let self = self else { return }
-            guard self.isCurrentQuotaRefresh(generation: generation, context: context) else { return }
-
-            switch response {
-            case .response(let code, let value):
-                if code == 401 {
-                    self.tokenWasExpired(context)
-                    self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .unauthorized)
-                } else if let code = code, code >= 200 && code < 300,
-                          let quotaPayload = CloudStorageAccountQuotaPayload.parse(value) {
-                    self.fetchStatsAndStoreQuota(context: context, generation: generation, reason: reason)
-                } else {
-                    self.fetchStatsAndStoreQuota(context: context, generation: generation, reason: reason)
-//                    self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .failure)
-                }
-
-            case .failure(let code, let error):
-                if code == 401 {
-                    self.tokenWasExpired(context)
-                    self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .unauthorized)
-                } else {
-                    DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
-                    self.fetchStatsAndStoreQuota(context: context, generation: generation, reason: reason)
-//                    self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .failure)
-                }
-            }
-        }
+        fetchStatsAndStoreQuota(context: context, generation: generation, reason: reason)
     }
 
     private func fetchStatsAndStoreQuota(

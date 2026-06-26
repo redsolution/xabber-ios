@@ -27732,7 +27732,6 @@ final class MediaUploadQuotaPolicyTests: XCTestCase {
 }
 
 private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
-    var quotaResponses: [CloudStorageQuotaAPIResponse] = []
     var statsResponses: [CloudStorageQuotaAPIResponse] = []
     var slotResponses: [CloudStorageQuotaAPIResponse] = []
     var uploadResponses: [CloudStorageQuotaAPIResponse] = []
@@ -27740,14 +27739,12 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     var avatarListResponses: [CloudStorageQuotaAPIResponse] = []
     var deleteResponses: [CloudStorageQuotaAPIResponse] = []
     var pendingStats: [(CloudStorageQuotaAPIResponse) -> Void] = []
-    private(set) var quotaBaseURLs: [URL] = []
     private(set) var statsBaseURLs: [URL] = []
     private(set) var slotBaseURLs: [URL] = []
     private(set) var uploadBaseURLs: [URL] = []
     private(set) var listBaseURLs: [URL] = []
     private(set) var avatarListBaseURLs: [URL] = []
     private(set) var deleteBaseURLs: [URL] = []
-    private(set) var quotaTokens: [String] = []
     private(set) var statsTokens: [String] = []
     private(set) var slotTokens: [String] = []
     private(set) var uploadTokens: [String] = []
@@ -27766,13 +27763,6 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     private(set) var listCallCount = 0
     private(set) var avatarListCallCount = 0
     private(set) var deleteCallCount = 0
-
-    func getQuota(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        quotaCallCount += 1
-        quotaBaseURLs.append(baseURL)
-        quotaTokens.append(token)
-        completion(quotaResponses.isEmpty ? defaultQuotaResponse() : quotaResponses.removeFirst())
-    }
 
     func getStats(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
         statsCallCount += 1
@@ -27886,25 +27876,6 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
         callbacks.forEach { $0(response) }
     }
 
-    private func defaultQuotaResponse() -> CloudStorageQuotaAPIResponse {
-        guard let response = statsResponses.first else {
-            return .response(statusCode: 200, value: ["used": 0, "quota": 0])
-        }
-        switch response {
-        case .response(let statusCode, let value):
-            guard let code = statusCode, code >= 200 && code < 300,
-                  let root = value as? [String: Any],
-                  let quota = int(from: root["quota"]),
-                  let total = root["total"] as? [String: Any],
-                  let used = int(from: total["used"]) else {
-                return .response(statusCode: 200, value: ["used": 0, "quota": 0])
-            }
-            return .response(statusCode: 200, value: ["used": used, "quota": quota])
-        case .failure:
-            return .response(statusCode: 200, value: ["used": 0, "quota": 0])
-        }
-    }
-
     private func pagePayload() -> [String: Any] {
         return [
             "total_pages": 1,
@@ -27914,12 +27885,6 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
         ]
     }
 
-    private func int(from value: Any?) -> Int? {
-        if let int = value as? Int { return int }
-        if let number = value as? NSNumber { return number.intValue }
-        if let string = value as? String { return Int(string) }
-        return nil
-    }
 }
 
 private final class FakeCloudStorageTokenAPIClient: CloudStorageTokenAPIClient {
@@ -28284,7 +28249,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(item.quotaBytes, 3000)
         XCTAssertEqual(item.totalBytes, 1200)
         XCTAssertEqual(item.imagesBytes, 400)
-        XCTAssertEqual(fakeClient.quotaTokens.first, "basic-token")
+        XCTAssertEqual(fakeClient.quotaCallCount, 0)
         XCTAssertEqual(fakeClient.statsTokens.first, "basic-token")
     }
 
@@ -28467,7 +28432,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         configuration.reconcilePremiumGalleryAvailability(isAvailable: true, storageURL: premiumGalleryURL.absoluteString)
         configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
         XCTAssertTrue(configuration.switchGallery(to: .basic))
-        fakeClient.quotaResponses = [.response(statusCode: 401, value: ["status": 401])]
+        fakeClient.statsResponses = [.response(statusCode: 401, value: ["status": 401])]
         let manager = account.cloudStorage
         let expectation = expectation(description: "unauthorized quota refresh")
 
@@ -28632,7 +28597,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(fakeClient.statsCallCount, 1)
     }
 
-    func testQuotaRefreshFetchesQuotaAndStatsFromSelectedPremiumGalleryEndpoint() throws {
+    func testQuotaRefreshUsesOnlyStatsEndpointForSelectedPremiumGallery() throws {
         let configuration = AccountGalleryConfiguration(owner: owner)
         configuration.reconcilePremiumGalleryAvailability(
             isAvailable: true,
@@ -28649,11 +28614,9 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         }
         wait(for: [expectation], timeout: 1)
 
-        XCTAssertEqual(fakeClient.quotaBaseURLs.first?.absoluteString, "https://premium.example/api/")
         XCTAssertEqual(fakeClient.statsBaseURLs.first?.absoluteString, "https://premium.example/api/")
-        XCTAssertEqual(fakeClient.quotaTokens.first, "premium-token")
         XCTAssertEqual(fakeClient.statsTokens.first, "premium-token")
-        XCTAssertEqual(fakeClient.quotaCallCount, 1)
+        XCTAssertEqual(fakeClient.quotaCallCount, 0)
         XCTAssertEqual(fakeClient.statsCallCount, 1)
     }
 
@@ -28711,12 +28674,13 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
 
         XCTAssertEqual(configuration.token(for: .basic, baseURL: basicGalleryURL), "basic-token-2")
         XCTAssertEqual(configuration.token(for: .premium, baseURL: premiumGalleryURL), "premium-token-1")
-        XCTAssertEqual(fakeClient.quotaBaseURLs.map(\.absoluteString), [
+        XCTAssertEqual(fakeClient.statsBaseURLs.map(\.absoluteString), [
             "https://gallery.example/api/",
             "https://premium.example/api/",
             "https://gallery.example/api/"
         ])
-        XCTAssertEqual(fakeClient.quotaTokens, ["basic-token-1", "premium-token-1", "basic-token-2"])
+        XCTAssertEqual(fakeClient.statsTokens, ["basic-token-1", "premium-token-1", "basic-token-2"])
+        XCTAssertEqual(fakeClient.quotaCallCount, 0)
         let item = try XCTUnwrap(try WRealm.safe().object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: owner))
         XCTAssertEqual(item.quotaBytes, 2000)
         XCTAssertEqual(item.totalBytes, 200)
