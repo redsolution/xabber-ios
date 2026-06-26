@@ -301,15 +301,19 @@ extension ChatViewController {
                 do {
                     let realm = try WRealm.safe()
                     let collection = realm.objects(MessageStorageItem.self).filter("primary IN %@", Array(results))
-                    if collection.filter({ $0.archivedId.isNotEmpty }).isEmpty {
-                        UIView.animate(withDuration: 0.1) {
-                            self.xabberInputView.selectionPanel.deleteButton.isEnabled = false
-                        }
-                    } else {
+                    let canDelete = collection.contains {
+                        $0.archivedId.isNotEmpty || PendingOutgoingMessageDeletionPolicy.canDeleteLocally($0)
+                    }
+                    if canDelete {
                         UIView.animate(withDuration: 0.1) {
                             self.xabberInputView.selectionPanel.deleteButton.isEnabled = true
                         }
+                    } else {
+                        UIView.animate(withDuration: 0.1) {
+                            self.xabberInputView.selectionPanel.deleteButton.isEnabled = false
+                        }
                     }
+                    self.deleteSelectionBarButton.isEnabled = canDelete
                 } catch {
                     DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
                 }

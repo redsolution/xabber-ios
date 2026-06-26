@@ -464,6 +464,84 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         XCTAssertEqual(realm.objects(OutgoingMessageQueueItem.self).filter("originId == %@", "message-1").count, 0)
     }
 
+    func testDeletingErrorPendingMessageRemovesMessageQueueAndStoredStanza() throws {
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { false }, recorder: recorder)
+        try storeSendingMessage(
+            originId: "message-1",
+            state: .error,
+            includeStoredStanza: true
+        )
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+
+        let primary = MessageStorageItem.genPrimary(messageId: "message-1", owner: "owner@example.com")
+        let realm = try WRealm.safe()
+        let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+        XCTAssertTrue(PendingOutgoingMessageDeletionPolicy.canDeleteLocally(message))
+
+        XCTAssertTrue(coordinator.deletePendingOutgoingMessage(primary: primary))
+
+        XCTAssertNil(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+        XCTAssertNil(realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: "\(primary)_stanza"))
+        XCTAssertEqual(realm.objects(OutgoingMessageQueueItem.self).filter("messagePrimary == %@", primary).count, 0)
+    }
+
+    func testDeletingAwaitingPendingMessageCancelsTimeoutRetry() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder, scheduler: scheduler)
+        try storeSendingMessage(originId: "message-1")
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+        let primary = MessageStorageItem.genPrimary(messageId: "message-1", owner: "owner@example.com")
+
+        XCTAssertTrue(coordinator.deletePendingOutgoingMessage(primary: primary))
+        scheduler.advance(by: 5)
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1"])
+        XCTAssertEqual(try WRealm.safe().objects(OutgoingMessageQueueItem.self).filter("messagePrimary == %@", primary).count, 0)
+    }
+
+    func testDeletingAwaitingFirstMessageUnblocksNextQueuedMessage() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder, scheduler: scheduler)
+        try storeSendingMessage(originId: "message-1")
+        try storeSendingMessage(originId: "message-2")
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1", createdAt: Date(timeIntervalSince1970: 1)))
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-2", createdAt: Date(timeIntervalSince1970: 2)))
+        let primary = MessageStorageItem.genPrimary(messageId: "message-1", owner: "owner@example.com")
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1"])
+
+        XCTAssertTrue(coordinator.deletePendingOutgoingMessage(primary: primary))
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1", "message-2"])
+    }
+
+    func testPendingOutgoingDeletePolicyExcludesArchivedSentAndIncomingMessages() {
+        let archivedError = makeMessageForPendingDeletePolicy(
+            outgoing: true,
+            state: .error,
+            archivedId: "archive-1"
+        )
+        let unarchivedSent = makeMessageForPendingDeletePolicy(
+            outgoing: true,
+            state: .sended,
+            archivedId: ""
+        )
+        let incomingError = makeMessageForPendingDeletePolicy(
+            outgoing: false,
+            state: .error,
+            archivedId: ""
+        )
+
+        XCTAssertFalse(PendingOutgoingMessageDeletionPolicy.canDeleteLocally(archivedError))
+        XCTAssertFalse(PendingOutgoingMessageDeletionPolicy.canDeleteLocally(unarchivedSent))
+        XCTAssertFalse(PendingOutgoingMessageDeletionPolicy.canDeleteLocally(incomingError))
+    }
+
     func testStaleDeliveryReceiptTimeoutCallbackIsIgnoredAfterQueueItemDeleted() throws {
         let scheduler = AccountPrimaryStreamTestScheduler()
         let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
@@ -937,7 +1015,10 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         owner: String = "owner@example.com",
         opponent: String = "romeo@example.com",
         originId: String,
-        includeReference: Bool = false
+        includeReference: Bool = false,
+        state: MessageStorageItem.MessageSendingState = .sending,
+        archivedId: String = "",
+        includeStoredStanza: Bool = false
     ) throws {
         let realm = try WRealm.safe()
         let message = MessageStorageItem()
@@ -950,7 +1031,8 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         message.displayAs = .text
         message.body = "Hello"
         message.legacyBody = "Hello"
-        message.state = .sending
+        message.state = state
+        message.archivedId = archivedId
         message.date = Date(timeIntervalSince1970: 1)
         message.sentDate = message.date
         if includeReference {
@@ -964,7 +1046,31 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         }
         try realm.write {
             realm.add(message, update: .modified)
+            if includeStoredStanza {
+                let stanza = MessageStanzaStorageItem()
+                stanza.set(
+                    originId,
+                    for: owner,
+                    with: makeRequest(owner: owner, opponent: opponent, originId: originId).stanzaXML,
+                    at: message.date,
+                    primary: message.primary
+                )
+                realm.add(stanza, update: .modified)
+            }
         }
+    }
+
+    private func makeMessageForPendingDeletePolicy(
+        outgoing: Bool,
+        state: MessageStorageItem.MessageSendingState,
+        archivedId: String
+    ) -> MessageStorageItem {
+        let message = MessageStorageItem()
+        message.outgoing = outgoing
+        message.state = state
+        message.archivedId = archivedId
+        message.displayAs = .text
+        return message
     }
 
     private func storeLastChat(

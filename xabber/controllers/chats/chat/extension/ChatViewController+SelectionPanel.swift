@@ -34,6 +34,11 @@ protocol MessagesSelectionPanelActionDelegate {
     func selectionPanel(onEdit panel: ModernXabberInputView.SelectionPanel)
 }
 
+private struct MessageDeletionRequest {
+    let localPendingIds: Set<String>
+    let archivedIds: Set<String>
+}
+
 extension ChatViewController: MessagesSelectionPanelActionDelegate {
     
     
@@ -261,33 +266,112 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
     }
     
     internal func deleteMessages(forIds toDeleteIds: Set<String>) {
-        var modifiedIds: Set<String> = Set<String>()
+        let request = messageDeletionRequest(forIds: toDeleteIds)
+        guard request.localPendingIds.isNotEmpty || request.archivedIds.isNotEmpty else {
+            return
+        }
+
+        guard request.archivedIds.isNotEmpty else {
+            let deletedCount = deletePendingOutgoingMessagesLocally(request.localPendingIds)
+            if deletedCount > 0 {
+                ToastPresenter().presentSuccess(message: "Success")
+            }
+            return
+        }
+
+        DeleteMessagePresenter(username: self.opponentSender.displayName, groupchat: self.conversationType == .group, sended: true)
+            .present(in: self, animated: true) { (result) in
+                guard let result = result else {
+                    return
+                }
+
+                _ = self.deletePendingOutgoingMessagesLocally(request.localPendingIds)
+                self.deleteArchivedMessages(forIds: request.archivedIds, symmetric: result)
+            }
+    }
+
+    @discardableResult
+    internal func deletePendingOutgoingMessagesLocally(_ ids: Set<String>) -> Int {
+        ids.reduce(0) { partialResult, primary in
+            partialResult + (deletePendingOutgoingMessageLocally(primary) ? 1 : 0)
+        }
+    }
+
+    @discardableResult
+    internal func deletePendingOutgoingMessageLocally(_ primary: String) -> Bool {
+        if self.showSkeletonObserver.value {
+            return false
+        }
+
+        let didDeleteViaCoordinator = AccountManager.shared
+            .find(for: self.owner)?
+            .sendCoordinator
+            .deletePendingOutgoingMessage(primary: primary) ?? false
+        let didDelete = didDeleteViaCoordinator || deletePendingOutgoingMessageWithoutCoordinator(primary)
+        if didDelete {
+            (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
+                .invalidateLastMessageCachedSize(primary: primary)
+        }
+        return didDelete
+    }
+
+    private func deletePendingOutgoingMessageWithoutCoordinator(_ primary: String) -> Bool {
+        do {
+            return try PendingOutgoingMessageDeletionStore.delete(primary: primary, owner: self.owner) != nil
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func messageDeletionRequest(forIds toDeleteIds: Set<String>) -> MessageDeletionRequest {
         do {
             let realm = try WRealm.safe()
-            try toDeleteIds.forEach {
-                primary in
-                try realm.write {
-                    if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-                        if instance.state == .error {
-                            if instance.isInvalidated { return }
-                            realm.delete(instance)
-                        } else {
-                            instance.isDeleted = true
-                            modifiedIds.insert(primary)
-                        }
-                    }
+            let messages = realm
+                .objects(MessageStorageItem.self)
+                .filter("primary IN %@", Array(toDeleteIds))
+            var localPendingIds = Set<String>()
+            var archivedIds = Set<String>()
+            messages.forEach { message in
+                if message.archivedId.isNotEmpty {
+                    archivedIds.insert(message.primary)
+                } else if PendingOutgoingMessageDeletionPolicy.canDeleteLocally(message) {
+                    localPendingIds.insert(message.primary)
                 }
+            }
+            return MessageDeletionRequest(localPendingIds: localPendingIds, archivedIds: archivedIds)
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return MessageDeletionRequest(localPendingIds: [], archivedIds: [])
+        }
+    }
+
+    private func deleteArchivedMessages(forIds toDeleteIds: Set<String>, symmetric: Bool) {
+        var modifiedIds = Set<String>()
+        do {
+            let realm = try WRealm.safe()
+            try toDeleteIds.forEach { primary in
+                guard let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+                      instance.archivedId.isNotEmpty else {
+                    return
+                }
+                try realm.write {
+                    instance.isDeleted = true
+                }
+                modifiedIds.insert(primary)
                 (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
                     .invalidateLastMessageCachedSize(primary: primary)
             }
-            
-//                        self.canUpdateDataset = true
-//                        self.runDatasetUpdateTask()
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
+
+        guard modifiedIds.isNotEmpty else {
+            return
+        }
+
         var messagesQueue = modifiedIds
-        
+
         func onSuccessDeleteMessage(errorMessage: String?, primary: String) {
             DispatchQueue.main.async {
                 self.view.hideToastActivity()
@@ -301,39 +385,34 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
                 }
             }
         }
-        DeleteMessagePresenter(username: self.opponentSender.displayName, groupchat: self.conversationType == .group, sended: true)
-            .present(in: self, animated: true) { (result) in
-                if let result = result {
-                    
-                    modifiedIds.forEach {
-                        primary in
-                        DispatchQueue.main.async {
-                            self.view.makeToastActivity(ToastPosition.center)
-                        }
-                        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                            session.retract?.deleteMessage(
-                                stream,
-                                primary: primary,
-                                symmetric: result,
-                                callback: { (errorMessage, success) in
-                                    onSuccessDeleteMessage(errorMessage: errorMessage, primary: primary)
-                                })
-                        }, fail: {
-                            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                                user.msgDeleteManager
-                                    .deleteMessage(stream,
-                                                   primary: primary,
-                                                   symmetric: result)
-                                {
-                                    (errorMessage, success) in
-                                    onSuccessDeleteMessage(errorMessage: errorMessage, primary: primary)
-                                }
-                            })
-                        })
-                    }
-                    LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
-                }
+
+        modifiedIds.forEach { primary in
+            DispatchQueue.main.async {
+                self.view.makeToastActivity(ToastPosition.center)
             }
+            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+                session.retract?.deleteMessage(
+                    stream,
+                    primary: primary,
+                    symmetric: symmetric,
+                    callback: { (errorMessage, success) in
+                        onSuccessDeleteMessage(errorMessage: errorMessage, primary: primary)
+                    })
+            }, fail: {
+                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+                    user.msgDeleteManager
+                        .deleteMessage(stream,
+                                       primary: primary,
+                                       symmetric: symmetric)
+                    {
+                        (errorMessage, success) in
+                        onSuccessDeleteMessage(errorMessage: errorMessage, primary: primary)
+                    }
+                })
+            })
+        }
+        LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
+        LastChats.updateLastMessage(owner: self.owner, jid: self.jid, conversationType: self.conversationType)
     }
     
 }

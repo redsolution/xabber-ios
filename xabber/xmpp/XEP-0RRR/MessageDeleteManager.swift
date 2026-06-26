@@ -383,6 +383,11 @@ class MessageDeleteManager: AbstractXMPPManager {
         do {
             let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                guard instance.archivedId.isNotEmpty else {
+                    callback?("Can`t delete message: unexpected error".localizeString(id: "cant_delete_message_error", arguments: []), false)
+                    return
+                }
+
                 let elementId = "RRR: \(NanoID.new(8))"
                 
                 let retract = DDXMLElement(name: "retract-message", xmlns: getPrimaryNamespace())
@@ -395,15 +400,6 @@ class MessageDeleteManager: AbstractXMPPManager {
                 xmppStream.send(XMPPIQ(iqType: .set, to: instance.conversationType == .group ? XMPPJID(string: instance.opponent) : nil, elementID: elementId, child: retract))
                 
                 queryIds.insert(elementId)
-                guard instance.archivedId.isNotEmpty else {
-                    if [.sending, .uploading, .notSended, .error].contains(instance.state) {
-                        instance.isDeleted = true
-                        callback?(nil, true)
-                    }
-                    callback?("Can`t delete message: unexpected error".localizeString(id: "cant_delete_message_error", arguments: []), false)
-                    return
-                }
-                
                 itemsQuery.insert(Item(primary, kind: .retract, messageId: instance.archivedId, iqId: elementId, callback: callback))
             }
         } catch {

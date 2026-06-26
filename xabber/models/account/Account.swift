@@ -1540,6 +1540,31 @@ final class AccountSendCoordinator {
     }
 
     @discardableResult
+    func deletePendingOutgoingMessage(primary: String) -> Bool {
+        do {
+            guard let result = try PendingOutgoingMessageDeletionStore.delete(primary: primary, owner: environment.owner) else {
+                return false
+            }
+            result.queuePrimaries.forEach {
+                cancelReceiptTimeout(queuePrimary: $0)
+            }
+            notifyPendingOutgoingCount()
+            drainNextReadyMessage(conversationJid: result.conversationJid, conversationType: result.conversationType)
+            environment.log(
+                "account_send_coordinator_pending_message_deleted",
+                queueDiagnostics([
+                    "messagePrimary": result.messagePrimary,
+                    "deletedQueueCount": result.queuePrimaries.count
+                ])
+            )
+            return true
+        } catch {
+            DDLogDebug("AccountSendCoordinator: deletePendingOutgoingMessage failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    @discardableResult
     static func persistRegularMessage(_ request: AccountQueuedMessageSendRequest) throws -> Bool {
         guard request.conversationType == .regular else {
             return false

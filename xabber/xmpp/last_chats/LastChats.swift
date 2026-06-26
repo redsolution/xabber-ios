@@ -40,7 +40,12 @@ class LastChats: AbstractXMPPManager {
                     if instance.isInvalidated { return }
                     instance.lastMessage = realm
                         .objects(MessageStorageItem.self)
-                        .filter("owner == %@ AND opponent == %@ AND isDeleted == false", owner, jid)
+                        .filter(
+                            "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND isDeleted == false",
+                            owner,
+                            jid,
+                            conversationType.rawValue
+                        )
                         .sorted(byKeyPath: "date", ascending: false)
                         .first
                 }

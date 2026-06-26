@@ -80,8 +80,14 @@ extension ChatViewController: ContextMenuDelegate {
                 showModal(vc, parent: self)
             case "delete":
                 self.deleteMessages(forIds: Set([primary]))
+            case "delete_error":
+                if !self.deletePendingOutgoingMessageLocally(primary) {
+                    self.deleteMessages(forIds: Set([primary]))
+                }
             case "delete_sending":
-                self.deleteSendingMessage(primary)
+                if !self.deletePendingOutgoingMessageLocally(primary) {
+                    self.deleteMessages(forIds: Set([primary]))
+                }
             case "retry":
                 self.retryMessageSend(primary)
             case "select":
@@ -344,16 +350,8 @@ extension ChatViewController: MessageCellDelegate {
         if self.showSkeletonObserver.value {
             return
         }
-        do {
-            let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-                try realm.write {
-                    realm.delete(instance)
-                }
-            }
-            LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        if !deletePendingOutgoingMessageLocally(primary) {
+            deleteMessages(forIds: Set([primary]))
         }
     }
     
@@ -448,6 +446,11 @@ extension ChatViewController: MessageCellDelegate {
         let item = datasource[indexPath.section]
         let primary = item.primary
         let hasMedia = item.images.isNotEmpty || item.videos.isNotEmpty || item.files.isNotEmpty || item.audios.isNotEmpty
+        let isLocallyDeletablePending = PendingOutgoingMessageDeletionPolicy.canDeleteLocally(
+            outgoing: item.isOutgoing,
+            archivedId: item.archivedId ?? "",
+            state: item.state
+        )
 //        CM.updateWindow(window: self.view)
         
         CM.currentMessagePrimary = primary
@@ -455,7 +458,7 @@ extension ChatViewController: MessageCellDelegate {
             CM.items = [[
                 ContextMenuItemWithImage(title: "Resend", image: imageLiteral("arrowshape.turn.up.backward")!, value: "retry", danger: false)
             ],[
-                ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete_error", danger: true)
+                ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: isLocallyDeletablePending ? "delete_error" : "delete", danger: true)
             ]]
         } else if item.isOutgoing {
             var actions = [
@@ -470,7 +473,7 @@ extension ChatViewController: MessageCellDelegate {
                 actions.append(ContextMenuItemWithImage(title: "Report Media".localizeString(id: "report_media_action", arguments: []), image: imageLiteral("exclamationmark.circle")!, value: "report_media", danger: false))
             }
             CM.items = [actions, [
-                ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete", danger: true)
+                ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: isLocallyDeletablePending ? "delete_sending" : "delete", danger: true)
             ]]
         } else {
             var actions = [

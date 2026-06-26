@@ -2176,7 +2176,7 @@ class ChatViewController: MessagesViewController {
     
     
     let deleteSelectionBarButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(title: "Clear chat", style: .done, target: nil, action: nil)
+        let button = UIBarButtonItem(title: "Delete", style: .done, target: nil, action: nil)
         
         return button
     }()
@@ -2969,7 +2969,7 @@ class ChatViewController: MessagesViewController {
         self.cancelSelectionBarButton.target = self
         self.cancelSelectionBarButton.action = #selector(onCancelSelection)
         self.deleteSelectionBarButton.target = self
-        self.deleteSelectionBarButton.action = #selector(onDeleteAllMessagesButtonTouchDown)
+        self.deleteSelectionBarButton.action = #selector(onDeleteMessagesButtonTouchDown)
     }
         
 

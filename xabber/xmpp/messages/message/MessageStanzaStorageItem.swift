@@ -42,6 +42,77 @@ class MessageStanzaStorageItem: Object {
     }
 }
 
+struct PendingOutgoingMessageDeletionResult {
+    let conversationJid: String
+    let conversationType: ClientSynchronizationManager.ConversationType
+    let messagePrimary: String
+    let queuePrimaries: [String]
+}
+
+enum PendingOutgoingMessageDeletionPolicy {
+    static let locallyDeletableStates: [MessageStorageItem.MessageSendingState] = [
+        .notSended,
+        .sending,
+        .uploading,
+        .error
+    ]
+
+    static func canDeleteLocally(_ message: MessageStorageItem) -> Bool {
+        canDeleteLocally(outgoing: message.outgoing, archivedId: message.archivedId, state: message.state)
+    }
+
+    static func canDeleteLocally(
+        outgoing: Bool,
+        archivedId: String,
+        state: MessageStorageItem.MessageSendingState
+    ) -> Bool {
+        outgoing && archivedId.isEmpty && locallyDeletableStates.contains(state)
+    }
+}
+
+enum PendingOutgoingMessageDeletionStore {
+    @discardableResult
+    static func delete(primary: String, owner expectedOwner: String? = nil) throws -> PendingOutgoingMessageDeletionResult? {
+        let realm = try WRealm.safe()
+        guard let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+              PendingOutgoingMessageDeletionPolicy.canDeleteLocally(message) else {
+            return nil
+        }
+        if let expectedOwner, message.owner != expectedOwner {
+            return nil
+        }
+
+        let owner = message.owner
+        let conversationJid = message.opponent
+        let conversationType = message.conversationType
+        let queueItems = Array(
+            realm
+                .objects(OutgoingMessageQueueItem.self)
+                .filter("owner == %@ AND messagePrimary == %@", owner, primary)
+        )
+        let queuePrimaries = queueItems.map(\.primary)
+        let storedStanza = realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: "\(primary)_stanza")
+
+        try realm.write {
+            if let storedStanza {
+                realm.delete(storedStanza)
+            }
+            realm.delete(queueItems)
+            realm.delete(message)
+        }
+
+        LastChats.updateErrorState(for: conversationJid, owner: owner, conversationType: conversationType)
+        LastChats.updateLastMessage(owner: owner, jid: conversationJid, conversationType: conversationType)
+
+        return PendingOutgoingMessageDeletionResult(
+            conversationJid: conversationJid,
+            conversationType: conversationType,
+            messagePrimary: primary,
+            queuePrimaries: queuePrimaries
+        )
+    }
+}
+
 class OutgoingMessageQueueItem: Object {
     enum State: String {
         case queued
