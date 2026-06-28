@@ -1,8 +1,21 @@
 import XCTest
+import RealmSwift
 @testable import xabber
 
 @MainActor
 final class ChatAttachmentSendIntegrationTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ChatAttachmentSendIntegrationTests-\(name)"
+        )
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
     func testSendButtonDisabledUntilEverySelectedDraftIsPrepared() {
         let pending = draft(id: "asset:pending", state: .pending)
         let prepared = preparedDraft(id: "asset:prepared", filename: "prepared.jpg")
@@ -17,14 +30,15 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         XCTAssertTrue(preview.sendButton.isEnabled)
     }
 
-    func testInlineSheetSendButtonAllowsPendingButBlocksUnavailableAndPreparingDrafts() {
+    func testInlineSheetSendButtonRequiresPreparedDrafts() {
         let pending = draft(id: "asset:pending", state: .pending)
         let prepared = preparedDraft(id: "asset:prepared", filename: "prepared.jpg")
         let preparing = draft(id: "asset:preparing", state: .preparing)
         let unavailable = draft(id: "asset:gone", state: .unavailable(.assetUnavailable))
 
         XCTAssertFalse(ChatAttachmentInlineSendabilityPolicy.canRequestSend(drafts: []))
-        XCTAssertTrue(ChatAttachmentInlineSendabilityPolicy.canRequestSend(drafts: [pending, prepared]))
+        XCTAssertFalse(ChatAttachmentInlineSendabilityPolicy.canRequestSend(drafts: [pending, prepared]))
+        XCTAssertTrue(ChatAttachmentInlineSendabilityPolicy.canRequestSend(drafts: [prepared]))
         XCTAssertFalse(ChatAttachmentInlineSendabilityPolicy.canRequestSend(drafts: [pending, preparing]))
         XCTAssertFalse(ChatAttachmentInlineSendabilityPolicy.canRequestSend(drafts: [pending, unavailable]))
     }
@@ -105,7 +119,7 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         XCTAssertEqual(states, [.available, .available, .available, .available])
     }
 
-    func testExhaustedNonPremiumQuotaRequestsPremiumAndDoesNotSend() {
+    func testExhaustedNonPremiumQuotaRequestsCloudStorageManagementAndDoesNotSend() {
         let sender = FakeTask18MediaMessageSender()
         let pipeline = makePipeline(
             quotaAccessProvider: FakeTask18QuotaAccessProvider(accesses: [.premiumRequired]),
@@ -117,7 +131,7 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
             drafts: [preparedDraft(id: "asset:image", filename: "image.jpg")]
         )
 
-        XCTAssertEqual(result, .premiumRequired(owner: Self.context.owner))
+        XCTAssertEqual(result, .cloudStorageQuotaExceeded(owner: Self.context.owner))
         XCTAssertTrue(sender.requests.isEmpty)
     }
 
@@ -145,6 +159,32 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         XCTAssertEqual(request.body, "Caption")
         XCTAssertEqual(request.legacyBody, "Caption")
         XCTAssertEqual(request.context.forwardedMessageIds, Self.context.forwardedMessageIds)
+    }
+
+    func testPreparedDraftSendCompletesBeforeQuotaRefreshFinishes() throws {
+        let refresher = FakeTask18QuotaRefresher(automaticallyCompletes: false)
+        let sender = FakeTask18MediaMessageSender()
+        let pipeline = makePipeline(quotaRefresher: refresher, sender: sender)
+        let sendExpectation = expectation(description: "send completes before quota refresh")
+        var capturedResult: ChatAttachmentSendResult?
+
+        pipeline.send(
+            drafts: [preparedDraft(id: "asset:image", filename: "image.jpg")],
+            captionState: ChatAttachmentCaptionState(rawText: "Caption"),
+            context: Self.context
+        ) { result in
+            capturedResult = result
+            sendExpectation.fulfill()
+        }
+
+        wait(for: [sendExpectation], timeout: 0.1)
+
+        XCTAssertEqual(capturedResult, .sent(referenceCount: 1))
+        XCTAssertEqual(sender.requests.count, 1)
+        XCTAssertEqual(refresher.refreshCallCount, 1)
+        XCTAssertEqual(refresher.pendingCompletionCount, 1)
+
+        refresher.completePending()
     }
 
     func testUnpreparedOrUnavailableDraftsBlockBeforeQuotaRefresh() {
@@ -186,6 +226,57 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
                 count: failures.count
             )
         )
+    }
+
+    func testWillSendMediaMessageWithCaptionCreatesUploadingRowBeforeUploadContinuation() throws {
+        let manager = MessageManager(withOwner: Self.context.owner, activeStream: false)
+        let reference = mediaReference(filename: "image.jpg")
+
+        let primary = manager.willSendMediaMessage(
+            [reference],
+            to: Self.context.jid,
+            forwarded: Self.context.forwardedMessageIds,
+            conversationType: Self.context.conversationType,
+            body: "Caption",
+            legacyBody: "Caption"
+        )
+
+        let realm = try WRealm.safe()
+        let messagePrimary = try XCTUnwrap(primary)
+        let stored = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: messagePrimary
+            )
+        )
+        XCTAssertEqual(stored.owner, Self.context.owner)
+        XCTAssertEqual(stored.opponent, Self.context.jid)
+        XCTAssertEqual(stored.conversationType, Self.context.conversationType)
+        XCTAssertEqual(stored.state, .uploading)
+        XCTAssertEqual(stored.body, "Caption")
+        XCTAssertEqual(stored.legacyBody, "Caption")
+        XCTAssertEqual(stored.references.count, 1)
+        XCTAssertEqual(stored.references.first?.messageId, stored.primary)
+        XCTAssertEqual(stored.references.first?.owner, Self.context.owner)
+        XCTAssertEqual(stored.references.first?.jid, Self.context.jid)
+        XCTAssertEqual(stored.references.first?.filename, "image.jpg")
+    }
+
+    func testWillSendMediaMessageWithCaptionReturnsNilForEmptyAttachmentsAndCreatesNoRow() throws {
+        let manager = MessageManager(withOwner: Self.context.owner, activeStream: false)
+
+        let primary = manager.willSendMediaMessage(
+            [],
+            to: Self.context.jid,
+            forwarded: [],
+            conversationType: Self.context.conversationType,
+            body: "Caption",
+            legacyBody: "Caption"
+        )
+
+        let realm = try WRealm.safe()
+        XCTAssertNil(primary)
+        XCTAssertTrue(realm.objects(MessageStorageItem.self).isEmpty)
     }
 
     private func makePipeline(
@@ -281,6 +372,22 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
             preparationState: state
         )
     }
+
+    private func mediaReference(filename: String) -> MessageReferenceStorageItem {
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .media
+        reference.mimeType = "image/jpeg"
+        reference.metadata = [
+            "filename": filename,
+            "size": 32,
+            "media-type": "image/jpeg",
+            "uri": "file:///tmp/\(filename)",
+            "name": filename
+        ]
+        reference.localFileUrl = URL(fileURLWithPath: "/tmp/\(filename)")
+        reference.conversationType = Self.context.conversationType
+        return reference
+    }
 }
 
 private final class FakeTask18CloudStorageAvailabilityProvider: ChatAttachmentCloudStorageAvailabilityProviding {
@@ -296,7 +403,17 @@ private final class FakeTask18CloudStorageAvailabilityProvider: ChatAttachmentCl
 }
 
 private final class FakeTask18QuotaRefresher: ChatAttachmentQuotaRefreshing {
+    private let automaticallyCompletes: Bool
     private(set) var refreshCallCount = 0
+    private var pendingCompletions: [(CloudStorageQuotaRefreshResult) -> Void] = []
+
+    var pendingCompletionCount: Int {
+        pendingCompletions.count
+    }
+
+    init(automaticallyCompletes: Bool = true) {
+        self.automaticallyCompletes = automaticallyCompletes
+    }
 
     func refreshQuota(
         owner: String,
@@ -305,7 +422,17 @@ private final class FakeTask18QuotaRefresher: ChatAttachmentQuotaRefreshing {
         completion: @escaping (CloudStorageQuotaRefreshResult) -> Void
     ) {
         refreshCallCount += 1
-        completion(.success)
+        if automaticallyCompletes {
+            completion(.success)
+        } else {
+            pendingCompletions.append(completion)
+        }
+    }
+
+    func completePending(result: CloudStorageQuotaRefreshResult = .success) {
+        let completions = pendingCompletions
+        pendingCompletions.removeAll()
+        completions.forEach { $0(result) }
     }
 }
 

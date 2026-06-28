@@ -369,6 +369,8 @@ final class ChatAttachmentGalleryCollectionViewCell: UICollectionViewCell {
     var representedItem: ChatAttachmentGalleryItem?
     var onPrepareForReuse: (() -> Void)?
     private weak var activeCameraPreviewProvider: ChatAttachmentCameraPreviewProviding?
+    private var baseAccessibilityLabel: String?
+    private var baseAccessibilityValue: String?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -401,8 +403,9 @@ final class ChatAttachmentGalleryCollectionViewCell: UICollectionViewCell {
         isUserInteractionEnabled = true
         accessibilityLabel = nil
         accessibilityValue = nil
-        accessibilityLabel = nil
         accessibilityTraits = []
+        baseAccessibilityLabel = nil
+        baseAccessibilityValue = nil
     }
 
     override func layoutSubviews() {
@@ -437,18 +440,7 @@ final class ChatAttachmentGalleryCollectionViewCell: UICollectionViewCell {
         contentView.alpha = 1
         isUserInteractionEnabled = true
         accessibilityTraits = []
-
-        switch state.selectionIndicatorState {
-        case .hidden:
-            break
-        case .available:
-            selectionRingView.isHidden = false
-        case .selected(let order):
-            selectionBadgeLabel.text = "\(order)"
-            selectionBadgeLabel.isHidden = false
-        case .blocked:
-            selectionBlockedView.isHidden = false
-        }
+        applySelectionIndicatorVisualState(state.selectionIndicatorState)
 
         switch state.thumbnailState {
         case .camera:
@@ -501,7 +493,16 @@ final class ChatAttachmentGalleryCollectionViewCell: UICollectionViewCell {
             accessibilityValue = ChatAttachmentLocalization.string(.accessibilityUnavailable)
         }
 
-        appendSelectionAccessibilityLabel(for: state.selectionIndicatorState)
+        baseAccessibilityLabel = accessibilityLabel
+        baseAccessibilityValue = accessibilityValue
+        applySelectionAccessibility(for: state.selectionIndicatorState)
+    }
+
+    func updateSelectionIndicator(_ selectionIndicatorState: ChatAttachmentGallerySelectionIndicatorState) {
+        applySelectionIndicatorVisualState(selectionIndicatorState)
+        accessibilityLabel = baseAccessibilityLabel
+        accessibilityValue = baseAccessibilityValue
+        applySelectionAccessibility(for: selectionIndicatorState)
     }
 
     private func setupView() {
@@ -627,7 +628,28 @@ final class ChatAttachmentGalleryCollectionViewCell: UICollectionViewCell {
         prepareForReuse()
     }
 
-    private func appendSelectionAccessibilityLabel(
+    private func applySelectionIndicatorVisualState(
+        _ selectionIndicatorState: ChatAttachmentGallerySelectionIndicatorState
+    ) {
+        selectionBadgeLabel.isHidden = true
+        selectionBadgeLabel.text = nil
+        selectionRingView.isHidden = true
+        selectionBlockedView.isHidden = true
+
+        switch selectionIndicatorState {
+        case .hidden:
+            break
+        case .available:
+            selectionRingView.isHidden = false
+        case .selected(let order):
+            selectionBadgeLabel.text = "\(order)"
+            selectionBadgeLabel.isHidden = false
+        case .blocked:
+            selectionBlockedView.isHidden = false
+        }
+    }
+
+    private func applySelectionAccessibility(
         for selectionIndicatorState: ChatAttachmentGallerySelectionIndicatorState
     ) {
         let selectionLabel: String?

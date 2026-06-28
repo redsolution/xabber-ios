@@ -690,6 +690,24 @@ extension MessageManager {
     }
     
     public func willSendMediaMessage(_ attachments: [MessageReferenceStorageItem], to jid: String, forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType) -> String? {
+        willSendMediaMessage(
+            attachments,
+            to: jid,
+            forwarded: forwarded,
+            conversationType: conversationType,
+            body: "",
+            legacyBody: ""
+        )
+    }
+
+    public func willSendMediaMessage(
+        _ attachments: [MessageReferenceStorageItem],
+        to jid: String,
+        forwarded: [String],
+        conversationType: ClientSynchronizationManager.ConversationType,
+        body: String,
+        legacyBody captionLegacyBody: String
+    ) -> String? {
         if attachments.isEmpty { return nil }
         do {
             let realm = try  WRealm.safe()
@@ -699,8 +717,9 @@ extension MessageManager {
             toForward.forEach {
                 legacyBody += "\($0.body)\n"
             }
+            legacyBody += captionLegacyBody
             
-            instance.configureOutgoingMessage("",
+            instance.configureOutgoingMessage(body,
                                               legacy: legacyBody,
                                               messageId: UUID().uuidString,
                                               owner: owner,
@@ -714,6 +733,12 @@ extension MessageManager {
             instance.conversationType = conversationType
             instance.state = .uploading
             instance.updatePrimary()
+            instance.references.forEach {
+                $0.owner = owner
+                $0.jid = jid
+                $0.messageId = instance.primary
+                $0.conversationType = conversationType
+            }
            
             try realm.write {
                 _ = instance.save(commitTransaction: false)
@@ -750,43 +775,37 @@ extension MessageManager {
         body: String,
         legacyBody captionLegacyBody: String
     ) {
-        if attachments.isEmpty { return }
-        do {
-            let realm = try  WRealm.safe()
-            let instance = MessageStorageItem()
-            var legacyBody: String = ""
-            let toForward = formForwardedMessages(forwarded)
-            toForward.forEach {
-                legacyBody += "\($0.body)\n"
-            }
-            legacyBody += captionLegacyBody
-            
-            instance.configureOutgoingMessage(body,
-                                              legacy: legacyBody,
-                                              messageId: UUID().uuidString,
-                                              owner: owner,
-                                              opponent: jid,
-                                              references: attachments,
-                                              inlineForwards: prepareForwards(forwarded,
-                                                                              primary: instance.primary,
-                                                                              isReport: false,
-                                                                              owner: owner,
-                                                                              jid: jid))
-            instance.conversationType = conversationType
-            instance.state = .uploading
-           
-            try realm.write {
-                _ = instance.save(commitTransaction: false)
-            }
-            let primary = instance.primary
-            uploadMedia(for: primary)
-            
-        } catch {
-            DDLogDebug("cant store new message item")
-        }
+        let primary = willSendMediaMessage(
+            attachments,
+            to: jid,
+            forwarded: forwarded,
+            conversationType: conversationType,
+            body: body,
+            legacyBody: captionLegacyBody
+        )
+        continueSendMediaMessage(primary)
     }
-    
+
     internal func uploadMedia(for primary: String, retry: Bool = false) {
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                let opponent = instance.opponent
+                let conversationType = instance.conversationType
+                try realm.write {
+                    instance.state = .uploading
+                    instance.messageError = nil
+                    instance.messageErrorCode = nil
+                    instance.references.forEach {
+                        $0.hasError = false
+                    }
+                }
+                LastChats.updateErrorState(for: opponent, owner: self.owner, conversationType: conversationType)
+            }
+        } catch {
+            DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
+        }
+
         AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
             user.cloudStorage.getFileData(message: primary, successCallback: {
                 do {
@@ -795,7 +814,13 @@ extension MessageManager {
                         try realm.write {
                             instance.createLegacyBody()
                             instance.state = .sending
+                            instance.messageError = nil
+                            instance.messageErrorCode = nil
+                            instance.references.forEach {
+                                $0.hasError = false
+                            }
                         }
+                        LastChats.updateErrorState(for: instance.opponent, owner: instance.owner, conversationType: instance.conversationType)
                     }
                     self.processSender(item: primary, retry: retry)
                 } catch {

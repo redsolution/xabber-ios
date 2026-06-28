@@ -12,20 +12,20 @@ import UIKit
 
 final class FloatingBottomBarViewTests: XCTestCase {
     func testDefaultEffectUsesNativeGlassWhenAvailable() throws {
-        let effect = NativeGlassBarStyle.makeEffect(interactive: true)
+        let effect = XabberGlassStyle.makeEffect(role: .bar, interactive: true)
 
         if #available(iOS 26.0, *) {
             let glassEffect = try XCTUnwrap(effect as? UIGlassEffect)
             XCTAssertTrue(glassEffect.isInteractive)
-            XCTAssertEqual(glassEffect.tintColor, NativeGlassBarStyle.nativeGlassTintColor)
+            XCTAssertEqual(glassEffect.tintColor, XabberGlassStyle.nativeGlassTintColor)
         } else {
             XCTAssertTrue(effect is UIBlurEffect)
         }
     }
 
     func testFallbackEffectUsesSystemMaterialBlur() {
-        XCTAssertEqual(NativeGlassBarStyle.fallbackBlurStyle, .systemMaterial)
-        XCTAssertTrue(NativeGlassBarStyle.makeEffect(prefersNativeGlass: false) is UIBlurEffect)
+        XCTAssertEqual(XabberGlassStyle.fallbackBlurStyle(for: .bar), .systemMaterial)
+        XCTAssertTrue(XabberGlassStyle.makeEffect(role: .bar, prefersNativeGlass: false) is UIBlurEffect)
     }
 
     func testControlsAreHostedInsideVisualEffectContentView() {

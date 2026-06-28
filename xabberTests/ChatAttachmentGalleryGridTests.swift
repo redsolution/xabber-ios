@@ -304,6 +304,118 @@ final class ChatAttachmentGalleryGridTests: XCTestCase {
         XCTAssertFalse(notDetermined.allowAccessButton.isHidden)
     }
 
+    func testSelectingVisibleAssetUpdatesSelectionOverlayWithoutThumbnailRerequest() throws {
+        let assets = (1...3).map { makeAsset(localIdentifier: "asset-\($0)") }
+        let thumbnailProvider = FakeGalleryThumbnailProvider()
+        let controller = makeGalleryController(
+            authorizer: FakeGalleryPhotoLibraryAuthorizer(status: .authorized),
+            dataProvider: FakeGalleryDataProvider(assets: assets),
+            thumbnailProvider: thumbnailProvider
+        )
+        let window = showGalleryController(controller)
+        _ = window
+        let firstAssetIndexPath = IndexPath(item: 1, section: 0)
+        let cell = try visibleGalleryCell(in: controller, at: firstAssetIndexPath)
+        let requestedAssetIDsBeforeSelection = thumbnailProvider.requestedAssetIDs
+
+        controller.collectionView(controller.galleryCollectionView, didSelectItemAt: firstAssetIndexPath)
+        controller.galleryCollectionView.layoutIfNeeded()
+
+        XCTAssertEqual(thumbnailProvider.requestedAssetIDs, requestedAssetIDsBeforeSelection)
+        XCTAssertTrue(cell.thumbnailImageView.image == nil || cell.loadingView.isAnimating)
+        XCTAssertTrue(cell.selectionRingView.isHidden)
+        XCTAssertFalse(cell.selectionBadgeLabel.isHidden)
+        XCTAssertEqual(cell.selectionBadgeLabel.text, "1")
+    }
+
+    func testDeselectingMiddleVisibleAssetRenumbersBadgesWithoutThumbnailRerequest() throws {
+        let assets = (1...4).map { makeAsset(localIdentifier: "asset-\($0)") }
+        let thumbnailProvider = FakeGalleryThumbnailProvider()
+        let controller = makeGalleryController(
+            authorizer: FakeGalleryPhotoLibraryAuthorizer(status: .authorized),
+            dataProvider: FakeGalleryDataProvider(assets: assets),
+            thumbnailProvider: thumbnailProvider
+        )
+        let window = showGalleryController(controller)
+        _ = window
+        controller.replaceSelectedDrafts([
+            makeAssetDraft(localIdentifier: "asset-1"),
+            makeAssetDraft(localIdentifier: "asset-2"),
+            makeAssetDraft(localIdentifier: "asset-3")
+        ])
+        controller.galleryCollectionView.layoutIfNeeded()
+        let secondAssetIndexPath = IndexPath(item: 2, section: 0)
+        let thirdAssetIndexPath = IndexPath(item: 3, section: 0)
+        _ = try visibleGalleryCell(in: controller, at: secondAssetIndexPath)
+        let thirdCell = try visibleGalleryCell(in: controller, at: thirdAssetIndexPath)
+        let requestedAssetIDsBeforeDeselection = thumbnailProvider.requestedAssetIDs
+
+        controller.collectionView(controller.galleryCollectionView, didSelectItemAt: secondAssetIndexPath)
+        controller.galleryCollectionView.layoutIfNeeded()
+
+        XCTAssertEqual(thumbnailProvider.requestedAssetIDs, requestedAssetIDsBeforeDeselection)
+        XCTAssertFalse(thirdCell.selectionBadgeLabel.isHidden)
+        XCTAssertEqual(thirdCell.selectionBadgeLabel.text, "2")
+    }
+
+    func testLeavingMaximumSelectionCountRefreshesVisibleBlockedStateWithoutThumbnailRerequest() throws {
+        let assets = (1...3).map { makeAsset(localIdentifier: "asset-\($0)") }
+        let thumbnailProvider = FakeGalleryThumbnailProvider()
+        let controller = makeGalleryController(
+            authorizer: FakeGalleryPhotoLibraryAuthorizer(status: .authorized),
+            dataProvider: FakeGalleryDataProvider(assets: assets),
+            thumbnailProvider: thumbnailProvider,
+            maximumSelectedDraftCount: 2
+        )
+        let window = showGalleryController(controller)
+        _ = window
+        controller.replaceSelectedDrafts([
+            makeAssetDraft(localIdentifier: "asset-1"),
+            makeAssetDraft(localIdentifier: "asset-2")
+        ])
+        controller.galleryCollectionView.layoutIfNeeded()
+        let firstAssetIndexPath = IndexPath(item: 1, section: 0)
+        let thirdAssetIndexPath = IndexPath(item: 3, section: 0)
+        let thirdCell = try visibleGalleryCell(in: controller, at: thirdAssetIndexPath)
+        XCTAssertFalse(thirdCell.selectionBlockedView.isHidden)
+        let requestedAssetIDsBeforeDeselection = thumbnailProvider.requestedAssetIDs
+
+        controller.collectionView(controller.galleryCollectionView, didSelectItemAt: firstAssetIndexPath)
+        controller.galleryCollectionView.layoutIfNeeded()
+
+        XCTAssertEqual(thumbnailProvider.requestedAssetIDs, requestedAssetIDsBeforeDeselection)
+        XCTAssertTrue(thirdCell.selectionBlockedView.isHidden)
+        XCTAssertFalse(thirdCell.selectionRingView.isHidden)
+    }
+
+    func testCellSelectionIndicatorUpdatePreservesThumbnailAndRebuildsAccessibility() {
+        let cell = ChatAttachmentGalleryCollectionViewCell(frame: CGRect(x: 0, y: 0, width: 120, height: 120))
+        let image = UIImage()
+        let asset = makeAsset(localIdentifier: "asset-1")
+        cell.configure(
+            state: ChatAttachmentGalleryCellStatePolicy.state(for: .asset(asset), thumbnailState: .image),
+            image: image
+        )
+
+        cell.updateSelectionIndicator(.selected(order: 2))
+
+        XCTAssertTrue(cell.thumbnailImageView.image === image)
+        XCTAssertFalse(cell.selectionBadgeLabel.isHidden)
+        XCTAssertEqual(cell.selectionBadgeLabel.text, "2")
+        XCTAssertEqual(
+            cell.accessibilityValue,
+            ChatAttachmentLocalization.string(.accessibilitySelectedOrder, arguments: ["2"])
+        )
+
+        cell.updateSelectionIndicator(.available)
+
+        XCTAssertTrue(cell.thumbnailImageView.image === image)
+        XCTAssertTrue(cell.selectionBadgeLabel.isHidden)
+        XCTAssertFalse(cell.selectionRingView.isHidden)
+        XCTAssertEqual(cell.accessibilityValue, ChatAttachmentLocalization.string(.accessibilityNotSelected))
+        XCTAssertFalse(cell.accessibilityLabel?.contains("2") == true)
+    }
+
     func testPhotoLibraryChangeRefreshesAssetsAndPrunesOnlyInaccessibleGalleryDrafts() {
         let authorizer = FakeGalleryPhotoLibraryAuthorizer(status: .limited)
         authorizer.accessibleAssetLocalIdentifiers = ["asset-kept"]
@@ -340,14 +452,46 @@ final class ChatAttachmentGalleryGridTests: XCTestCase {
     private func makeGalleryController(
         authorizer: FakeGalleryPhotoLibraryAuthorizer,
         dataProvider: FakeGalleryDataProvider = FakeGalleryDataProvider(),
-        thumbnailProvider: FakeGalleryThumbnailProvider = FakeGalleryThumbnailProvider()
+        thumbnailProvider: FakeGalleryThumbnailProvider = FakeGalleryThumbnailProvider(),
+        maximumSelectedDraftCount: Int = 10
     ) -> ChatAttachmentGallerySourceViewController {
         ChatAttachmentGallerySourceViewController(
             photoLibraryAuthorizer: authorizer,
             limitedLibraryPresenter: FakeGalleryLimitedLibraryPresenter(),
             settingsOpener: FakeGalleryApplicationSettingsOpener(),
             galleryDataProvider: dataProvider,
-            thumbnailProvider: thumbnailProvider
+            thumbnailProvider: thumbnailProvider,
+            maximumSelectedDraftCount: maximumSelectedDraftCount
+        )
+    }
+
+    private func showGalleryController(
+        _ controller: ChatAttachmentGallerySourceViewController,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> UIWindow {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        controller.view.frame = window.bounds
+        controller.view.layoutIfNeeded()
+        controller.galleryCollectionView.layoutIfNeeded()
+        XCTAssertFalse(controller.galleryCollectionView.visibleCells.isEmpty, file: file, line: line)
+        return window
+    }
+
+    private func visibleGalleryCell(
+        in controller: ChatAttachmentGallerySourceViewController,
+        at indexPath: IndexPath,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> ChatAttachmentGalleryCollectionViewCell {
+        controller.galleryCollectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: false)
+        controller.galleryCollectionView.layoutIfNeeded()
+        return try XCTUnwrap(
+            controller.galleryCollectionView.cellForItem(at: indexPath) as? ChatAttachmentGalleryCollectionViewCell,
+            file: file,
+            line: line
         )
     }
 
@@ -459,6 +603,7 @@ private final class FakeGalleryThumbnailProvider: ChatAttachmentGalleryThumbnail
     private(set) var cancelledRequestIDs: [Int] = []
     private(set) var cachedAssetIDs: [String] = []
     private(set) var stoppedCachingAssetIDs: [String] = []
+    private(set) var requestedAssetIDs: [String] = []
     private var nextRequestID = 1
 
     func requestThumbnail(
@@ -466,6 +611,7 @@ private final class FakeGalleryThumbnailProvider: ChatAttachmentGalleryThumbnail
         targetSize: CGSize,
         completion: @escaping (ChatAttachmentGalleryThumbnailResult) -> Void
     ) -> Int {
+        requestedAssetIDs.append(asset.localIdentifier)
         defer {
             nextRequestID += 1
         }

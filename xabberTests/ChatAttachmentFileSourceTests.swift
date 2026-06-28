@@ -86,6 +86,45 @@ final class ChatAttachmentFileSourceTests: XCTestCase {
         XCTAssertEqual(presenter.requestedAllowsMultipleSelection, true)
     }
 
+    func testChooseFilesButtonIsLaidOutBelowNavigationTitleWhenHostedInPageSheetWrapper() {
+        let gallery = ChatAttachmentGallerySourceViewController(
+            photoLibraryAuthorizer: FakeTask15PhotoLibraryAuthorizer(status: .authorized),
+            limitedLibraryPresenter: FakeTask15LimitedLibraryPresenter(),
+            settingsOpener: FakeTask15ApplicationSettingsOpener(),
+            galleryDataProvider: FakeTask15GalleryDataProvider(),
+            thumbnailProvider: FakeTask15GalleryThumbnailProvider()
+        )
+        let fileSource = makeFileSource()
+        let picker = ChatAttachmentSheetViewController(
+            context: Self.context,
+            sourceControllerFactory: Task15SourceFactory(gallery: gallery, file: fileSource)
+        )
+        let navigationController = UINavigationController(rootViewController: picker)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+
+        window.rootViewController = navigationController
+        window.isHidden = false
+        defer {
+            window.rootViewController = nil
+            window.isHidden = true
+        }
+        navigationController.loadViewIfNeeded()
+        picker.loadViewIfNeeded()
+        picker.switchSource(to: .file)
+        navigationController.view.setNeedsLayout()
+        navigationController.view.layoutIfNeeded()
+
+        let buttonFrame = fileSource.chooseFilesButton.convert(
+            fileSource.chooseFilesButton.bounds,
+            to: navigationController.view
+        )
+        let expectedTop = navigationController.navigationBar.frame.maxY + 12
+
+        XCTAssertEqual(picker.navigationItem.title, ChatAttachmentLocalization.string(.sourceFileTitle))
+        XCTAssertEqual(buttonFrame.minY, expectedTop, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(buttonFrame.minY, navigationController.navigationBar.frame.maxY)
+    }
+
     func testDocumentPickerCancelKeepsSelectionUnchanged() throws {
         let presenter = FakeTask15DocumentPickerPresenter()
         let controller = makeFileSource(documentPickerPresenter: presenter)
@@ -323,7 +362,7 @@ private final class Task15SourceFactory: ChatAttachmentSourceControllerFactory {
             return gallery
         case .file:
             return file
-        case .geolocation:
+        case .geolocation, .contact:
             return ChatAttachmentPlaceholderSourceViewController(source: source)
         }
     }

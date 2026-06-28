@@ -25,6 +25,7 @@
 		4E5800092F76000000ABC001 /* XEPMessageScheduleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E58000A2F76000000ABC001 /* XEPMessageScheduleUITests.swift */; };
 		4E5900022F77000000ABC001 /* ChatAttachmentPickerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900012F77000000ABC001 /* ChatAttachmentPickerModels.swift */; };
 		4E5900042F77000000ABC001 /* ChatAttachmentFlowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900032F77000000ABC001 /* ChatAttachmentFlowCoordinator.swift */; };
+		4E59004D2F8B000000ABC001 /* ChatAttachmentPickerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E59004C2F8B000000ABC001 /* ChatAttachmentPickerViewController.swift */; };
 		4E5900072F77000000ABC001 /* ChatAttachmentPickerEntryPointTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900062F77000000ABC001 /* ChatAttachmentPickerEntryPointTests.swift */; };
 		4E5900092F78000000ABC001 /* ChatAttachmentFlowCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900082F78000000ABC001 /* ChatAttachmentFlowCoordinatorTests.swift */; };
 		4E59000B2F79000000ABC001 /* ChatAttachmentDraftModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E59000A2F79000000ABC001 /* ChatAttachmentDraftModelTests.swift */; };
@@ -45,6 +46,7 @@
 		4E5900292F81000000ABC001 /* ChatAttachmentPreviewViewerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900282F81000000ABC001 /* ChatAttachmentPreviewViewerTests.swift */; };
 		4E59002B2F81000000ABC001 /* ChatAttachmentPreviewViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E59002A2F81000000ABC001 /* ChatAttachmentPreviewViewer.swift */; };
 		4E59002D2F82000000ABC001 /* ChatAttachmentCaptionInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E59002C2F82000000ABC001 /* ChatAttachmentCaptionInputTests.swift */; };
+		4E59004B2F8A000000ABC001 /* ChatAttachmentPickerPageSheetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E59004A2F8A000000ABC001 /* ChatAttachmentPickerPageSheetTests.swift */; };
 		4E59002F2F83000000ABC001 /* ChatAttachmentImageEditorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E59002E2F83000000ABC001 /* ChatAttachmentImageEditorTests.swift */; };
 		4E5900312F83000000ABC001 /* ChatAttachmentImageEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900302F83000000ABC001 /* ChatAttachmentImageEditor.swift */; };
 		4E5900332F84000000ABC001 /* ChatAttachmentFileSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900322F84000000ABC001 /* ChatAttachmentFileSourceTests.swift */; };
@@ -63,10 +65,12 @@
 		4E5300102F71000000ABC001 /* GroupchatInviteV3Parser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E53000E2F71000000ABC001 /* GroupchatInviteV3Parser.swift */; };
 		4E5300112F71000000ABC001 /* GroupchatInviteV3Parser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E53000E2F71000000ABC001 /* GroupchatInviteV3Parser.swift */; };
 		4E5300122F71000000ABC001 /* GroupchatInvitePersistenceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E53000F2F71000000ABC001 /* GroupchatInvitePersistenceService.swift */; };
-		4E5400022F72000000ABC001 /* NavigationBarItemOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5400012F72000000ABC001 /* NavigationBarItemOwnership.swift */; };
-		4E5400042F72000000ABC001 /* ChatNavigationBarStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5400032F72000000ABC001 /* ChatNavigationBarStateTests.swift */; };
-		4E5500022F73000000ABC001 /* LastChatsViewControllerBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5500012F73000000ABC001 /* LastChatsViewControllerBehaviorTests.swift */; };
-		16345A174ECC23AC3F97AF2E /* AccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 163452C65A63992FE656E475 /* AccountManager.swift */; };
+			4E5400022F72000000ABC001 /* NavigationBarItemOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5400012F72000000ABC001 /* NavigationBarItemOwnership.swift */; };
+			4E5400042F72000000ABC001 /* ChatNavigationBarStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5400032F72000000ABC001 /* ChatNavigationBarStateTests.swift */; };
+			4E5500022F73000000ABC001 /* LastChatsViewControllerBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5500012F73000000ABC001 /* LastChatsViewControllerBehaviorTests.swift */; };
+			4E6000022F90000000ABC001 /* XabberGlassStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6000012F90000000ABC001 /* XabberGlassStyle.swift */; };
+			4E6000042F90000000ABC001 /* XabberGlassStyleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6000032F90000000ABC001 /* XabberGlassStyleTests.swift */; };
+			16345A174ECC23AC3F97AF2E /* AccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 163452C65A63992FE656E475 /* AccountManager.swift */; };
 		16345A67514437CA9DA437F7 /* LastChats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16345968863BF3D05325BFCF /* LastChats.swift */; };
 		1A1FDE9327B6809D008B240F /* ContactInfoViewControllerExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1FDE9227B6809D008B240F /* ContactInfoViewControllerExtensions.swift */; };
 		1A24A7C927B292B60052F12B /* VideosMediaCollectionCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A24A7C827B292B60052F12B /* VideosMediaCollectionCell.swift */; };
@@ -870,10 +874,12 @@
 		4E5300092F72000000ABC001 /* ClientSynchronizationPaginationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientSynchronizationPaginationTests.swift; sourceTree = "<group>"; };
 		4E53000E2F71000000ABC001 /* GroupchatInviteV3Parser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatInviteV3Parser.swift; sourceTree = "<group>"; };
 		4E53000F2F71000000ABC001 /* GroupchatInvitePersistenceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatInvitePersistenceService.swift; sourceTree = "<group>"; };
-		4E5400012F72000000ABC001 /* NavigationBarItemOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationBarItemOwnership.swift; sourceTree = "<group>"; };
-		4E5400032F72000000ABC001 /* ChatNavigationBarStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatNavigationBarStateTests.swift; sourceTree = "<group>"; };
-		4E5500012F73000000ABC001 /* LastChatsViewControllerBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsViewControllerBehaviorTests.swift; sourceTree = "<group>"; };
-		16345968863BF3D05325BFCF /* LastChats.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = LastChats.swift; sourceTree = "<group>"; };
+			4E5400012F72000000ABC001 /* NavigationBarItemOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationBarItemOwnership.swift; sourceTree = "<group>"; };
+			4E5400032F72000000ABC001 /* ChatNavigationBarStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatNavigationBarStateTests.swift; sourceTree = "<group>"; };
+			4E5500012F73000000ABC001 /* LastChatsViewControllerBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsViewControllerBehaviorTests.swift; sourceTree = "<group>"; };
+			4E6000012F90000000ABC001 /* XabberGlassStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XabberGlassStyle.swift; sourceTree = "<group>"; };
+			4E6000032F90000000ABC001 /* XabberGlassStyleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XabberGlassStyleTests.swift; sourceTree = "<group>"; };
+			16345968863BF3D05325BFCF /* LastChats.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = LastChats.swift; sourceTree = "<group>"; };
 		1A1FDE9227B6809D008B240F /* ContactInfoViewControllerExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactInfoViewControllerExtensions.swift; sourceTree = "<group>"; };
 		1A24A7C827B292B60052F12B /* VideosMediaCollectionCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideosMediaCollectionCell.swift; sourceTree = "<group>"; };
 		1A297EFD2807F669007129CD /* sq */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = sq; path = sq.lproj/Main.strings; sourceTree = "<group>"; };
@@ -1511,6 +1517,7 @@
 		66994D5021AD7DAE00EC84A4 /* ImagePickerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePickerViewController.swift; sourceTree = "<group>"; };
 		4E5900012F77000000ABC001 /* ChatAttachmentPickerModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentPickerModels.swift; sourceTree = "<group>"; };
 		4E5900032F77000000ABC001 /* ChatAttachmentFlowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentFlowCoordinator.swift; sourceTree = "<group>"; };
+		4E59004C2F8B000000ABC001 /* ChatAttachmentPickerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentPickerViewController.swift; sourceTree = "<group>"; };
 		4E5900062F77000000ABC001 /* ChatAttachmentPickerEntryPointTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentPickerEntryPointTests.swift; sourceTree = "<group>"; };
 		4E5900082F78000000ABC001 /* ChatAttachmentFlowCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentFlowCoordinatorTests.swift; sourceTree = "<group>"; };
 		4E59000A2F79000000ABC001 /* ChatAttachmentDraftModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentDraftModelTests.swift; sourceTree = "<group>"; };
@@ -1531,6 +1538,7 @@
 		4E5900282F81000000ABC001 /* ChatAttachmentPreviewViewerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentPreviewViewerTests.swift; sourceTree = "<group>"; };
 		4E59002A2F81000000ABC001 /* ChatAttachmentPreviewViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentPreviewViewer.swift; sourceTree = "<group>"; };
 		4E59002C2F82000000ABC001 /* ChatAttachmentCaptionInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentCaptionInputTests.swift; sourceTree = "<group>"; };
+		4E59004A2F8A000000ABC001 /* ChatAttachmentPickerPageSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentPickerPageSheetTests.swift; sourceTree = "<group>"; };
 		4E59002E2F83000000ABC001 /* ChatAttachmentImageEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentImageEditorTests.swift; sourceTree = "<group>"; };
 		4E5900302F83000000ABC001 /* ChatAttachmentImageEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentImageEditor.swift; sourceTree = "<group>"; };
 		4E5900322F84000000ABC001 /* ChatAttachmentFileSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachmentFileSourceTests.swift; sourceTree = "<group>"; };
@@ -3486,6 +3494,7 @@
 			children = (
 				4E5900012F77000000ABC001 /* ChatAttachmentPickerModels.swift */,
 				4E5900032F77000000ABC001 /* ChatAttachmentFlowCoordinator.swift */,
+				4E59004C2F8B000000ABC001 /* ChatAttachmentPickerViewController.swift */,
 				4E59000C2F79000000ABC001 /* ChatAttachmentDraftModels.swift */,
 				4E5900102F7A000000ABC001 /* ChatAttachmentSheetPresentation.swift */,
 				4E5900142F7B000000ABC001 /* ChatAttachmentSourceBar.swift */,
@@ -3810,6 +3819,7 @@
 			isa = PBXGroup;
 			children = (
 					4E1000032F66000000ABC001 /* FloatingBottomBarViewTests.swift */,
+					4E6000032F90000000ABC001 /* XabberGlassStyleTests.swift */,
 					4E1000052F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift */,
 					4E5600012F74000000ABC001 /* LeftMenuSelectionPresentationPolicyTests.swift */,
 					4E2000032F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift */,
@@ -3836,6 +3846,7 @@
 					4E5900262F80000000ABC001 /* ChatAttachmentOrderedSelectionTests.swift */,
 					4E5900282F81000000ABC001 /* ChatAttachmentPreviewViewerTests.swift */,
 					4E59002C2F82000000ABC001 /* ChatAttachmentCaptionInputTests.swift */,
+					4E59004A2F8A000000ABC001 /* ChatAttachmentPickerPageSheetTests.swift */,
 					4E59002E2F83000000ABC001 /* ChatAttachmentImageEditorTests.swift */,
 					4E5900322F84000000ABC001 /* ChatAttachmentFileSourceTests.swift */,
 					4E5900382F85000000ABC001 /* ChatAttachmentGeolocationSourceTests.swift */,
@@ -3982,10 +3993,11 @@
 			isa = PBXGroup;
 			children = (
 				66FA15DE2BD7C4F8009AAC55 /* bottom_bar */,
-				66AD011522D714E900823398 /* tab_bar */,
-				6644E27B213D0FBA001726DD /* NavBarController.swift */,
-				4E5400012F72000000ABC001 /* NavigationBarItemOwnership.swift */,
-			);
+					66AD011522D714E900823398 /* tab_bar */,
+					6644E27B213D0FBA001726DD /* NavBarController.swift */,
+					4E5400012F72000000ABC001 /* NavigationBarItemOwnership.swift */,
+					4E6000012F90000000ABC001 /* XabberGlassStyle.swift */,
+				);
 			path = bars;
 			sourceTree = "<group>";
 		};
@@ -5448,6 +5460,7 @@
 				66994D5121AD7DAE00EC84A4 /* ImagePickerViewController.swift in Sources */,
 				4E5900022F77000000ABC001 /* ChatAttachmentPickerModels.swift in Sources */,
 				4E5900042F77000000ABC001 /* ChatAttachmentFlowCoordinator.swift in Sources */,
+				4E59004D2F8B000000ABC001 /* ChatAttachmentPickerViewController.swift in Sources */,
 				4E59000D2F79000000ABC001 /* ChatAttachmentDraftModels.swift in Sources */,
 				4E5900112F7A000000ABC001 /* ChatAttachmentSheetPresentation.swift in Sources */,
 				4E5900152F7B000000ABC001 /* ChatAttachmentSourceBar.swift in Sources */,
@@ -5547,8 +5560,9 @@
 				84B8E7412C4A8F5000DCB86E /* XabberActivity.swift in Sources */,
 				6678DFFB2497813400B3640B /* GroupchatContactInfoViewController+UITableViewDelegate.swift in Sources */,
 				6644E27C213D0FBA001726DD /* NavBarController.swift in Sources */,
-				4E5400022F72000000ABC001 /* NavigationBarItemOwnership.swift in Sources */,
-				66E6A14C248FAEB9006F6968 /* GroupchatInfoViewController+InfoScreenHeaderButtonDelegate.swift in Sources */,
+					4E5400022F72000000ABC001 /* NavigationBarItemOwnership.swift in Sources */,
+					4E6000022F90000000ABC001 /* XabberGlassStyle.swift in Sources */,
+					66E6A14C248FAEB9006F6968 /* GroupchatInfoViewController+InfoScreenHeaderButtonDelegate.swift in Sources */,
 				4D9C8FD928534E45003E35BE /* SettingsViewController+InfoScreenHeaderButtonDelegate.swift in Sources */,
 				1A939B2A27E49EC100014E43 /* MasksSelectionViewController+TableViewDelegate.swift in Sources */,
 				84882D422C492C7D003C94E9 /* XabberActivityViewController.swift in Sources */,
@@ -5769,8 +5783,9 @@
 					66B48FDA26F858EC0088D6A4 /* Base64Extras.swift in Sources */,
 					66AE4E7824E12F7C00FF11DC /* xabberTests.swift in Sources */,
 					4E4100052F6B000000ABC001 /* PushNotificationRoutingTests.swift in Sources */,
-					4E2000042F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift in Sources */,
-					4E1000042F66000000ABC001 /* FloatingBottomBarViewTests.swift in Sources */,
+						4E2000042F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift in Sources */,
+						4E6000042F90000000ABC001 /* XabberGlassStyleTests.swift in Sources */,
+						4E1000042F66000000ABC001 /* FloatingBottomBarViewTests.swift in Sources */,
 					4E31000A2F69000000ABC001 /* CallsListCoordinatorTests.swift in Sources */,
 					4E3200022F6A000000ABC001 /* ContactsListAppearanceTests.swift in Sources */,
 					4E3300022F6A100000ABC001 /* NotificationsListAppearanceTests.swift in Sources */,
@@ -5793,6 +5808,7 @@
 					4E5900242F80000000ABC001 /* ChatAttachmentOrderedSelectionTests.swift in Sources */,
 					4E5900292F81000000ABC001 /* ChatAttachmentPreviewViewerTests.swift in Sources */,
 					4E59002D2F82000000ABC001 /* ChatAttachmentCaptionInputTests.swift in Sources */,
+					4E59004B2F8A000000ABC001 /* ChatAttachmentPickerPageSheetTests.swift in Sources */,
 					4E59002F2F83000000ABC001 /* ChatAttachmentImageEditorTests.swift in Sources */,
 					4E5900332F84000000ABC001 /* ChatAttachmentFileSourceTests.swift in Sources */,
 					4E5900392F85000000ABC001 /* ChatAttachmentGeolocationSourceTests.swift in Sources */,

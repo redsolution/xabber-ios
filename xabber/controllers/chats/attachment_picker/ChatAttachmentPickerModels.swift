@@ -4,6 +4,7 @@ enum ChatAttachmentSource: Hashable {
     case gallery
     case file
     case geolocation
+    case contact
 }
 
 enum ChatAttachmentFlowError: Error, Equatable {

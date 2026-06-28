@@ -289,52 +289,34 @@ final class ChatAttachmentGallerySourceViewController: UIViewController,
     }
 
     func replaceSelectedDrafts(_ drafts: [AttachmentDraft]) {
-        let previousDrafts = selectedDrafts
-        selectedDrafts = drafts
-        cleanupTemporaryDrafts(removedFrom: previousDrafts, now: drafts)
-        reloadGalleryItems()
-        notifySelectionChanged()
+        updateSelectedDrafts(drafts, notifySelectionChanged: true)
     }
 
     func syncSelectedAttachmentDrafts(_ drafts: [AttachmentDraft]) {
-        guard drafts != selectedDrafts else {
-            return
-        }
-
-        let previousDrafts = selectedDrafts
-        selectedDrafts = drafts
-        cleanupTemporaryDrafts(removedFrom: previousDrafts, now: drafts)
-        if isViewLoaded {
-            reloadGalleryItems()
-        }
+        updateSelectedDrafts(drafts, notifySelectionChanged: false)
     }
 
     @discardableResult
     func removeSelectedAttachmentDraft(withID draftID: String) -> [AttachmentDraft] {
-        let previousDrafts = selectedDrafts
-        selectedDrafts.removeAll { $0.id == draftID }
+        let updatedDrafts = selectedDrafts.filter { $0.id != draftID }
 
-        guard selectedDrafts != previousDrafts else {
+        guard updatedDrafts != selectedDrafts else {
             return selectedDrafts
         }
 
-        cleanupTemporaryDrafts(removedFrom: previousDrafts, now: selectedDrafts)
-        reloadGalleryItems()
-        notifySelectionChanged()
+        updateSelectedDrafts(updatedDrafts, notifySelectionChanged: true)
         return selectedDrafts
     }
 
     @discardableResult
     func replaceSelectedAttachmentDraft(withID draftID: String, updatedDraft: AttachmentDraft) -> [AttachmentDraft] {
-        let previousDrafts = selectedDrafts
         guard let index = selectedDrafts.firstIndex(where: { $0.id == draftID }) else {
             return selectedDrafts
         }
 
-        selectedDrafts[index] = updatedDraft
-        cleanupTemporaryDrafts(removedFrom: previousDrafts, now: selectedDrafts)
-        reloadGalleryItems()
-        notifySelectionChanged()
+        var updatedDrafts = selectedDrafts
+        updatedDrafts[index] = updatedDraft
+        updateSelectedDrafts(updatedDrafts, notifySelectionChanged: true)
         return selectedDrafts
     }
 
@@ -498,18 +480,31 @@ final class ChatAttachmentGallerySourceViewController: UIViewController,
     }
 
     private func applySelectionToggle(for draft: AttachmentDraft) {
-        let previousDrafts = selectedDrafts
         let result = ChatAttachmentSelectionPolicy(maximumSelectedCount: maximumSelectedDraftCount)
             .toggle(draft: draft, in: selectedDrafts)
 
         switch result {
         case .selected(let drafts), .deselected(let drafts):
-            selectedDrafts = drafts
-            cleanupTemporaryDrafts(removedFrom: previousDrafts, now: drafts)
-            reloadGalleryItems()
-            notifySelectionChanged()
+            updateSelectedDrafts(drafts, notifySelectionChanged: true)
         case .blocked:
             break
+        }
+    }
+
+    private func updateSelectedDrafts(
+        _ drafts: [AttachmentDraft],
+        notifySelectionChanged shouldNotifySelectionChanged: Bool
+    ) {
+        guard drafts != selectedDrafts else {
+            return
+        }
+
+        let previousDrafts = selectedDrafts
+        selectedDrafts = drafts
+        cleanupTemporaryDrafts(removedFrom: previousDrafts, now: drafts)
+        refreshGalleryAfterSelectionChange()
+        if shouldNotifySelectionChanged {
+            notifySelectionChanged()
         }
     }
 
@@ -629,10 +624,29 @@ final class ChatAttachmentGallerySourceViewController: UIViewController,
     }
 
     private func reloadGalleryItems() {
-        galleryItems = ChatAttachmentGalleryItemPolicy.items(
+        applyGalleryItems(makeGalleryItems())
+    }
+
+    private func refreshGalleryAfterSelectionChange() {
+        let nextGalleryItems = makeGalleryItems()
+        guard nextGalleryItems == galleryItems else {
+            applyGalleryItems(nextGalleryItems)
+            return
+        }
+
+        refreshVisibleSelectionIndicators()
+        updateEmptyGalleryState()
+    }
+
+    private func makeGalleryItems() -> [ChatAttachmentGalleryItem] {
+        ChatAttachmentGalleryItemPolicy.items(
             from: galleryDataProvider.fetchAssets(),
             capturedDrafts: selectedDrafts
         )
+    }
+
+    private func applyGalleryItems(_ items: [ChatAttachmentGalleryItem]) {
+        galleryItems = items
 
         let sectionedItems = ChatAttachmentGallerySectionPolicy.sectionedItems(from: galleryItems)
         var snapshot = NSDiffableDataSourceSnapshot<Int, ChatAttachmentGalleryItem>()
@@ -640,10 +654,47 @@ final class ChatAttachmentGallerySourceViewController: UIViewController,
         snapshot.appendItems(sectionedItems[0], toSection: 0)
         snapshot.appendItems(sectionedItems[1], toSection: 1)
         galleryDataSource?.apply(snapshot, animatingDifferences: false)
-        galleryCollectionView.reloadData()
+        updateEmptyGalleryState()
+    }
 
+    private func updateEmptyGalleryState() {
         let hasOnlyCameraTile = galleryItems == [.camera]
         emptyGalleryLabel.isHidden = galleryCollectionView.isHidden || !hasOnlyCameraTile
+    }
+
+    private func refreshVisibleSelectionIndicators() {
+        galleryCollectionView.visibleCells
+            .compactMap { $0 as? ChatAttachmentGalleryCollectionViewCell }
+            .forEach { cell in
+                guard let item = cell.representedItem,
+                      let selectionIndicatorState = selectionIndicatorState(for: item) else {
+                    return
+                }
+
+                cell.updateSelectionIndicator(selectionIndicatorState)
+            }
+    }
+
+    private func selectionIndicatorState(
+        for item: ChatAttachmentGalleryItem
+    ) -> ChatAttachmentGallerySelectionIndicatorState? {
+        switch item {
+        case .camera:
+            return nil
+        case .captured(let capturedMedia):
+            return selectionIndicatorState(forDraftID: capturedMedia.id)
+        case .asset(let asset):
+            let draftID = AttachmentAssetDraft(assetLocalIdentifier: asset.localIdentifier).id
+            return selectionIndicatorState(forDraftID: draftID)
+        }
+    }
+
+    private func selectionIndicatorState(forDraftID draftID: String) -> ChatAttachmentGallerySelectionIndicatorState {
+        if let selectionOrder = selectionOrder(forDraftID: draftID) {
+            return .selected(order: selectionOrder)
+        }
+
+        return isSelectionBlocked(forDraftID: draftID) ? .blocked : .available
     }
 
     private func configure(

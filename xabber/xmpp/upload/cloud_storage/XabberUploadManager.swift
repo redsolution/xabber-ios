@@ -1071,6 +1071,86 @@ class XabberUploadManager: AbstractXMPPManager {
         return mimeType + "+voice"
     }
 
+    private enum GalleryUploadEndpoint: String {
+        case slot
+        case upload
+    }
+
+    private var galleryUploadMaxRetryAttempts: Int {
+        3
+    }
+
+    private func performGalleryRequestWithRetry(
+        endpoint: GalleryUploadEndpoint,
+        filename: String,
+        attempt: Int = 1,
+        operation: @escaping (@escaping (CloudStorageQuotaAPIResponse) -> Void) -> Void,
+        completion: @escaping (CloudStorageQuotaAPIResponse) -> Void
+    ) {
+        operation { [weak self] response in
+            guard let self else {
+                completion(response)
+                return
+            }
+
+            guard attempt < self.galleryUploadMaxRetryAttempts,
+                  self.isRetryableGalleryResponse(response) else {
+                completion(response)
+                return
+            }
+
+            DDLogDebug("XabberUploadManager: retrying \(endpoint.rawValue) for \(filename), attempt \(attempt + 1)/\(self.galleryUploadMaxRetryAttempts)")
+            self.performGalleryRequestWithRetry(
+                endpoint: endpoint,
+                filename: filename,
+                attempt: attempt + 1,
+                operation: operation,
+                completion: completion
+            )
+        }
+    }
+
+    private func isRetryableGalleryResponse(_ response: CloudStorageQuotaAPIResponse) -> Bool {
+        switch response {
+        case .response(let statusCode, _):
+            return isRetryableGalleryStatusCode(statusCode)
+        case .failure(let statusCode, let error):
+            return isRetryableGalleryStatusCode(statusCode) || isRetryableGalleryNetworkError(error)
+        }
+    }
+
+    private func isRetryableGalleryStatusCode(_ statusCode: Int?) -> Bool {
+        guard let statusCode else {
+            return false
+        }
+        return statusCode == 408 || (500...599).contains(statusCode)
+    }
+
+    private func isRetryableGalleryNetworkError(_ error: Error?) -> Bool {
+        guard let error else {
+            return false
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain,
+           [
+            NSURLErrorTimedOut,
+            NSURLErrorNetworkConnectionLost,
+            NSURLErrorNotConnectedToInternet,
+            NSURLErrorCannotFindHost,
+            NSURLErrorCannotConnectToHost,
+            NSURLErrorDNSLookupFailed
+           ].contains(nsError.code) {
+            return true
+        }
+
+        if let underlyingError = (error as? AFError)?.underlyingError {
+            return isRetryableGalleryNetworkError(underlyingError)
+        }
+
+        return false
+    }
+
     private func refreshQuotaIfCurrent(_ context: CloudStorageGalleryRequestContext, reason: CloudStorageQuotaRefreshReason, force: Bool) {
         guard isCurrent(context) else { return }
         refreshQuota(reason: reason, force: force)
@@ -1148,14 +1228,21 @@ class XabberUploadManager: AbstractXMPPManager {
             }
             let uploadContext = self.uploadContext(for: mimeType, metadata: metadata)
             let uploadMimeType = self.uploadMimeType(mimeType, context: uploadContext)
-            Self.quotaAPIClient.uploadFile(
-                baseURL: context.baseURL,
-                token: context.token,
-                data: data,
+            self.performGalleryRequestWithRetry(
+                endpoint: .upload,
                 filename: filename,
-                mimeType: uploadMimeType,
-                metadata: metadata,
-                context: uploadContext,
+                operation: { responseCompletion in
+                    Self.quotaAPIClient.uploadFile(
+                        baseURL: context.baseURL,
+                        token: context.token,
+                        data: data,
+                        filename: filename,
+                        mimeType: uploadMimeType,
+                        metadata: metadata,
+                        context: uploadContext,
+                        completion: responseCompletion
+                    )
+                },
                 completion: completion
             )
         }
@@ -1185,14 +1272,21 @@ class XabberUploadManager: AbstractXMPPManager {
             let uploadContext = self.uploadContext(for: mimeType, metadata: metadata)
             let uploadMimeType = self.uploadMimeType(mimeType ?? "", context: uploadContext)
 
-            Self.quotaAPIClient.uploadFile(
-                baseURL: context.baseURL,
-                token: context.token,
-                data: data,
+            self.performGalleryRequestWithRetry(
+                endpoint: .upload,
                 filename: filename,
-                mimeType: uploadMimeType,
-                metadata: metadata,
-                context: uploadContext
+                operation: { responseCompletion in
+                    Self.quotaAPIClient.uploadFile(
+                        baseURL: context.baseURL,
+                        token: context.token,
+                        data: data,
+                        filename: filename,
+                        mimeType: uploadMimeType,
+                        metadata: metadata,
+                        context: uploadContext,
+                        completion: responseCompletion
+                    )
+                }
             ) { [weak self] response in
                 guard let self = self else { return }
                 guard self.isCurrent(context) else {
@@ -1314,6 +1408,7 @@ class XabberUploadManager: AbstractXMPPManager {
                             primary,
                             [MessageReferenceStorageItem.Kind.voice.rawValue, MessageReferenceStorageItem.Kind.media.rawValue])
                     .isEmpty {
+                    clearUploadErrorInRealm(messageId: primary)
                     successCallback()
                 }
             } catch {
@@ -1327,11 +1422,14 @@ class XabberUploadManager: AbstractXMPPManager {
                 .filter("owner == %@ AND messageId == %@ AND kind_ IN %@ AND isUploaded == false",
                         owner,
                         primary,
-                        [MessageReferenceStorageItem.Kind.voice.rawValue, MessageReferenceStorageItem.Kind.media.rawValue])
+                            [MessageReferenceStorageItem.Kind.voice.rawValue, MessageReferenceStorageItem.Kind.media.rawValue])
             if references.isEmpty {
+                clearUploadErrorInRealm(messageId: primary)
                 successCallback()
                 return
             }
+
+            clearUploadErrorInRealm(messageId: primary)
 
             references.forEach { reference in
                 guard !didFail else { return }
@@ -1473,6 +1571,24 @@ class XabberUploadManager: AbstractXMPPManager {
             }
         } catch {
             DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    private func clearUploadErrorInRealm(messageId: String) {
+        do {
+            let realm = try WRealm.safe()
+            if let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: messageId) {
+                try realm.write {
+                    if message.isInvalidated { return }
+                    message.messageError = nil
+                    message.messageErrorCode = nil
+                    message.references.forEach {
+                        $0.hasError = false
+                    }
+                }
+            }
+        } catch {
+            DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
         }
     }
 
@@ -1736,7 +1852,18 @@ class XabberUploadManager: AbstractXMPPManager {
             hash: data.sha256Data.hexEncodedString()
         )
 
-        Self.quotaAPIClient.requestSlot(baseURL: context.baseURL, token: context.token, request: request) { [weak self] response in
+        performGalleryRequestWithRetry(
+            endpoint: .slot,
+            filename: filename,
+            operation: { responseCompletion in
+                Self.quotaAPIClient.requestSlot(
+                    baseURL: context.baseURL,
+                    token: context.token,
+                    request: request,
+                    completion: responseCompletion
+                )
+            }
+        ) { [weak self] response in
             guard let self = self else { return }
             guard self.isCurrent(context) else {
                 completion(false)
@@ -1754,6 +1881,9 @@ class XabberUploadManager: AbstractXMPPManager {
             if code == 403 {
                 errorCallback(403)
                 self.refreshQuotaIfCurrent(context, reason: .uploadQuotaExceeded, force: true)
+                completion(false)
+            } else if self.isRetryableGalleryResponse(response) {
+                errorCallback(code)
                 completion(false)
             } else {
                 if code == 401 {

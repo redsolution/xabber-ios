@@ -5455,9 +5455,11 @@
 "chat_attachment_source_gallery" = "Галерея";
 "chat_attachment_source_file" = "Файл";
 "chat_attachment_source_location" = "Геопозиция";
+"chat_attachment_source_contact" = "Контакты";
 "chat_attachment_source_gallery_accessibility" = "Вложения из галереи";
 "chat_attachment_source_file_accessibility" = "Файловые вложения";
 "chat_attachment_source_location_accessibility" = "Вложение с геопозицией";
+"chat_attachment_source_contact_accessibility" = "Вложения контактов";
 "chat_attachment_accessibility_selected" = "Выбрано";
 "chat_attachment_accessibility_unavailable" = "Недоступно";
 "chat_attachment_accessibility_not_selected" = "Не выбрано";
@@ -5469,6 +5471,7 @@
 "chat_attachment_action_done" = "Готово";
 "chat_attachment_action_back" = "Назад";
 "chat_attachment_action_send" = "Отправить";
+"chat_attachment_action_reset_selection" = "Сбросить выбор";
 "chat_attachment_action_selected" = "Выбрано";
 "chat_attachment_action_edit" = "Изменить";
 "chat_attachment_action_ok" = "OK";
@@ -5512,6 +5515,9 @@
 "chat_attachment_status_account_unavailable_message" = "Подключите аккаунт перед отправкой вложений.";
 "chat_attachment_status_send_failed_title" = "Не удалось отправить";
 "chat_attachment_status_send_failed_message" = "Сообщение не удалось отправить. Попробуйте снова.";
+"chat_attachment_cloud_storage_quota_exceeded_title" = "В Cloud Storage нет места";
+"chat_attachment_cloud_storage_quota_exceeded_message" = "В Cloud Storage недостаточно места для отправки этих вложений. Откройте Cloud Storage, чтобы освободить место.";
+"chat_attachment_cloud_storage_quota_exceeded_open_action" = "Открыть Cloud Storage";
 "chat_attachment_gallery_camera_accessibility" = "Камера";
 "chat_attachment_gallery_camera_unavailable_accessibility" = "Камера недоступна";
 "chat_attachment_gallery_loading_photo_accessibility" = "Загрузка фото";

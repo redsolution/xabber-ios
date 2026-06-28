@@ -19,27 +19,31 @@ import RxCocoa
 import RxRealm
 
 enum LeftMenuSurfaceEffectFactory {
-    static let fallbackBlurStyle: UIBlurEffect.Style = .systemThinMaterial
-    static let nativeGlassTintColor = UIColor.systemBackground.withAlphaComponent(0.16)
-    static let fallbackSurfaceBackgroundColor = UIColor.systemBackground.withAlphaComponent(0.28)
+    static var fallbackBlurStyle: UIBlurEffect.Style {
+        XabberGlassStyle.fallbackBlurStyle(for: .leftMenuSurface)
+    }
+
+    static var nativeGlassTintColor: UIColor? {
+        XabberGlassStyle.nativeGlassTintColor
+    }
+
+    static var fallbackSurfaceBackgroundColor: UIColor {
+        XabberGlassStyle.surfaceBackgroundColor(role: .leftMenuSurface, prefersNativeGlass: false)
+    }
 
     static func makeEffect(prefersNativeGlass: Bool = true) -> UIVisualEffect {
-        if prefersNativeGlass, #available(iOS 26.0, *) {
-            let effect = UIGlassEffect(style: .regular)
-            effect.tintColor = nativeGlassTintColor
-            effect.isInteractive = false
-            return effect
-        }
-
-        return UIBlurEffect(style: fallbackBlurStyle)
+        XabberGlassStyle.makeEffect(
+            role: .leftMenuSurface,
+            interactive: false,
+            prefersNativeGlass: prefersNativeGlass
+        )
     }
 
     static func surfaceBackgroundColor(prefersNativeGlass: Bool = true) -> UIColor {
-        if prefersNativeGlass, #available(iOS 26.0, *) {
-            return .clear
-        }
-
-        return fallbackSurfaceBackgroundColor
+        XabberGlassStyle.surfaceBackgroundColor(
+            role: .leftMenuSurface,
+            prefersNativeGlass: prefersNativeGlass
+        )
     }
 }
 

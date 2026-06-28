@@ -17,14 +17,14 @@ final class LeftMenuSurfaceEffectFactoryTests: XCTestCase {
         if #available(iOS 26.0, *) {
             let glassEffect = try XCTUnwrap(effect as? UIGlassEffect)
             XCTAssertFalse(glassEffect.isInteractive)
-            XCTAssertEqual(glassEffect.tintColor, LeftMenuSurfaceEffectFactory.nativeGlassTintColor)
+            XCTAssertEqual(glassEffect.tintColor, XabberGlassStyle.nativeGlassTintColor)
         } else {
             XCTAssertTrue(effect is UIBlurEffect)
         }
     }
 
     func testFallbackEffectUsesExistingThinMaterialBlur() {
-        XCTAssertEqual(LeftMenuSurfaceEffectFactory.fallbackBlurStyle, .systemThinMaterial)
+        XCTAssertEqual(XabberGlassStyle.fallbackBlurStyle(for: .leftMenuSurface), .systemThinMaterial)
         XCTAssertTrue(LeftMenuSurfaceEffectFactory.makeEffect(prefersNativeGlass: false) is UIBlurEffect)
     }
 
@@ -37,7 +37,7 @@ final class LeftMenuSurfaceEffectFactoryTests: XCTestCase {
     func testFallbackSurfaceBackgroundPreservesExistingOverlay() {
         XCTAssertEqual(
             LeftMenuSurfaceEffectFactory.surfaceBackgroundColor(prefersNativeGlass: false),
-            UIColor.systemBackground.withAlphaComponent(0.28)
+            XabberGlassStyle.leftMenuFallbackSurfaceBackgroundColor
         )
     }
 }

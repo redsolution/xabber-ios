@@ -847,7 +847,7 @@ final class CallsVisualStyleTests: XCTestCase {
         if #available(iOS 26.0, *) {
             let glassEffect = try XCTUnwrap(effect as? UIGlassEffect)
             XCTAssertFalse(glassEffect.isInteractive)
-            XCTAssertEqual(glassEffect.tintColor, ContinuousSplitCellBackgroundStyle.nativeGlassTintColor)
+            XCTAssertEqual(glassEffect.tintColor, XabberGlassStyle.nativeGlassTintColor)
         } else {
             XCTAssertTrue(effect is UIBlurEffect)
         }
@@ -865,7 +865,7 @@ final class CallsVisualStyleTests: XCTestCase {
 
         XCTAssertTrue(normalEffect is UIBlurEffect)
         XCTAssertTrue(highlightedEffect is UIBlurEffect)
-        XCTAssertEqual(ContinuousSplitCellBackgroundStyle.normalFallbackBlurStyle, .systemThinMaterial)
-        XCTAssertEqual(ContinuousSplitCellBackgroundStyle.highlightedFallbackBlurStyle, .systemMaterial)
+        XCTAssertEqual(XabberGlassStyle.fallbackBlurStyle(for: .splitCellNormal), .systemThinMaterial)
+        XCTAssertEqual(XabberGlassStyle.fallbackBlurStyle(for: .splitCellHighlighted), .systemMaterial)
     }
 }

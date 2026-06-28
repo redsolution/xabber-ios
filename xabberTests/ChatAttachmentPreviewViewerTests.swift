@@ -14,7 +14,7 @@ final class ChatAttachmentPreviewViewerTests: XCTestCase {
         XCTAssertTrue(sheet.selectionComposerBarView.isHidden)
         XCTAssertFalse(sheet.sourceBarView.isHidden)
 
-        source.replaceSelectedDrafts([makeAssetDraft(localIdentifier: "asset-1")])
+        source.replaceSelectedDrafts([makePreparedAssetDraft(localIdentifier: "asset-1")])
 
         XCTAssertTrue(sheet.selectionPreviewBarView.isHidden)
         XCTAssertEqual(sheet.selectionPreviewBarView.selectedCount, 1)
@@ -59,6 +59,120 @@ final class ChatAttachmentPreviewViewerTests: XCTestCase {
 
         XCTAssertEqual(preview.currentIndex, 0)
         XCTAssertEqual(preview.countLabel.text, "1 / 3")
+    }
+
+    func testPreviewSendButtonUsesChatComposerIconOnlyGlassStyle() {
+        let preview = makePreview(drafts: [makeAssetDraft(localIdentifier: "asset-1")])
+
+        preview.loadViewIfNeeded()
+
+        XCTAssertNil(preview.sendButton.title(for: .normal))
+        XCTAssertNil(preview.sendButton.configuration?.title)
+        XCTAssertNotNil(preview.sendButton.image(for: .normal) ?? preview.sendButton.configuration?.image)
+        XCTAssertEqual(preview.sendButton.tintColor, .secondaryLabel)
+        XCTAssertTrue(
+            preview.sendButton.constraints.contains {
+                $0.firstAttribute == .width && $0.constant == NativeGlassBarStyle.buttonSize
+            }
+        )
+        XCTAssertTrue(
+            preview.sendButton.constraints.contains {
+                $0.firstAttribute == .height && $0.constant == NativeGlassBarStyle.buttonSize
+            }
+        )
+    }
+
+    func testPreviewUsesChatLikeComposerAndKeepsEditOutsideComposer() throws {
+        let draft = makeAssetDraft(localIdentifier: "asset-1")
+        let preview = makePreview(drafts: [draft])
+
+        preview.loadViewIfNeeded()
+        preview.view.frame = CGRect(x: 0, y: 0, width: 390, height: 780)
+        preview.view.layoutIfNeeded()
+
+        let composer = try XCTUnwrap(
+            firstSubview(
+                in: preview.view,
+                accessibilityIdentifier: "chatAttachmentPreview.composerBar",
+                as: UIView.self
+            )
+        )
+        let resetButton = try XCTUnwrap(
+            firstSubview(
+                in: preview.view,
+                accessibilityIdentifier: "chatAttachmentPreview.composer.resetButton",
+                as: UIButton.self
+            )
+        )
+
+        XCTAssertTrue(resetButton.isDescendant(of: composer))
+        XCTAssertTrue(preview.captionInputView.isDescendant(of: composer))
+        XCTAssertTrue(preview.sendButton.isDescendant(of: composer))
+        XCTAssertFalse(preview.editButton.isDescendant(of: composer))
+        XCTAssertFalse(preview.editButton.isHidden)
+        XCTAssertEqual(resetButton.frame.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(resetButton.frame.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(preview.sendButton.frame.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(preview.sendButton.frame.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(
+            preview.captionInputView.frame.minX,
+            resetButton.frame.maxX + NativeGlassBarStyle.interItemSpacing,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            preview.sendButton.frame.minX,
+            preview.captionInputView.frame.maxX + NativeGlassBarStyle.interItemSpacing,
+            accuracy: 0.001
+        )
+        XCTAssertNil(resetButton.title(for: .normal))
+        XCTAssertNil(resetButton.configuration?.title)
+        XCTAssertNotNil(resetButton.image(for: .normal) ?? resetButton.configuration?.image)
+    }
+
+    func testPreviewComposerGrowsWithMultilineCaptionAndKeepsCollectionAboveBottomControls() throws {
+        let draft = makePreparedAssetDraft(localIdentifier: "asset-1")
+        let preview = makePreview(drafts: [draft])
+
+        preview.loadViewIfNeeded()
+        preview.view.frame = CGRect(x: 0, y: 0, width: 390, height: 780)
+        preview.view.layoutIfNeeded()
+
+        let bottomControls = try XCTUnwrap(
+            firstSubview(
+                in: preview.view,
+                accessibilityIdentifier: "chatAttachmentPreview.bottomControls",
+                as: UIView.self
+            )
+        )
+        let composer = try XCTUnwrap(
+            firstSubview(
+                in: preview.view,
+                accessibilityIdentifier: "chatAttachmentPreview.composerBar",
+                as: UIView.self
+            )
+        )
+        let collapsedComposerHeight = NativeGlassBarStyle.minimumHeight
+            + 8
+            + NativeGlassBarStyle.bottomOffset
+
+        XCTAssertEqual(composer.frame.height, collapsedComposerHeight, accuracy: 0.001)
+        XCTAssertEqual(bottomControls.frame.height, collapsedComposerHeight + 8, accuracy: 0.001)
+        XCTAssertEqual(preview.collectionView.frame.maxY, bottomControls.frame.minY - 8, accuracy: 0.001)
+
+        preview.captionInputView.textView.text = Array(repeating: "Long caption line", count: 40).joined(separator: "\n")
+        preview.captionInputView.textViewDidChange(preview.captionInputView.textView)
+        preview.view.layoutIfNeeded()
+
+        let expandedCaptionHeight = preview.captionInputView.frame.height
+        let expandedComposerHeight = expandedCaptionHeight + 8 + NativeGlassBarStyle.bottomOffset
+        XCTAssertEqual(expandedCaptionHeight, 138, accuracy: 0.001)
+        XCTAssertTrue(preview.captionInputView.textView.isScrollEnabled)
+        XCTAssertEqual(composer.frame.height, expandedComposerHeight, accuracy: 0.001)
+        XCTAssertEqual(bottomControls.frame.height, expandedComposerHeight + 8, accuracy: 0.001)
+        XCTAssertEqual(preview.collectionView.frame.maxY, bottomControls.frame.minY - 8, accuracy: 0.001)
+        XCTAssertEqual(preview.composerBarView.resetButton.frame.maxY, preview.captionInputView.frame.maxY, accuracy: 0.001)
+        XCTAssertEqual(preview.sendButton.frame.maxY, preview.captionInputView.frame.maxY, accuracy: 0.001)
+        XCTAssertFalse(preview.editButton.isDescendant(of: composer))
     }
 
     func testRemovingMiddleDraftUpdatesSourceAndPreview() throws {
@@ -114,6 +228,51 @@ final class ChatAttachmentPreviewViewerTests: XCTestCase {
         XCTAssertTrue(source.selectedAttachmentDrafts.isEmpty)
         XCTAssertNil(sheet.previewViewController)
         XCTAssertEqual(dismissedPreviewCount, 1)
+    }
+
+    func testPreviewResetButtonClearsEntireSelectionAndDismissesPreview() throws {
+        let source = FakeTask12SelectableSourceController(source: .gallery)
+        var presentedPreview: ChatAttachmentPreviewViewController?
+        var dismissedPreviewCount = 0
+        let sheet = makeSheet(
+            source: source,
+            previewPresentationHandler: { _, preview, _, completion in
+                presentedPreview = preview as? ChatAttachmentPreviewViewController
+                completion?()
+            },
+            previewDismissalHandler: { _, _, completion in
+                dismissedPreviewCount += 1
+                completion?()
+            }
+        )
+        let first = makeAssetDraft(localIdentifier: "asset-1")
+        let second = makeAssetDraft(localIdentifier: "asset-2")
+
+        sheet.loadViewIfNeeded()
+        source.replaceSelectedDrafts([first, second])
+        sheet.selectionComposerBarView.captionInputView.textView.text = "Reset all"
+        sheet.selectionComposerBarView.captionInputView.textViewDidChange(
+            sheet.selectionComposerBarView.captionInputView.textView
+        )
+        sheet.selectionPreviewBarView.previewButton.sendActions(for: .touchUpInside)
+        let preview = try XCTUnwrap(presentedPreview)
+        let resetButton = try XCTUnwrap(
+            firstSubview(
+                in: preview.view,
+                accessibilityIdentifier: "chatAttachmentPreview.composer.resetButton",
+                as: UIButton.self
+            )
+        )
+
+        resetButton.sendActions(for: .touchUpInside)
+
+        XCTAssertTrue(source.selectedAttachmentDrafts.isEmpty)
+        XCTAssertTrue(sheet.selectedAttachmentDrafts.isEmpty)
+        XCTAssertTrue(sheet.captionState.isEmpty)
+        XCTAssertNil(sheet.previewViewController)
+        XCTAssertEqual(dismissedPreviewCount, 1)
+        XCTAssertFalse(sheet.sourceBarView.isHidden)
+        XCTAssertTrue(sheet.selectionComposerBarView.isHidden)
     }
 
     func testRemovingCapturedDraftUsesGalleryCleanupPath() throws {
@@ -287,6 +446,28 @@ final class ChatAttachmentPreviewViewerTests: XCTestCase {
             videoPresenter: videoPresenter
         )
     }
+
+    private func firstSubview<T: UIView>(
+        in root: UIView,
+        accessibilityIdentifier: String,
+        as type: T.Type
+    ) -> T? {
+        if root.accessibilityIdentifier == accessibilityIdentifier {
+            return root as? T
+        }
+
+        for subview in root.subviews {
+            if let match = firstSubview(
+                in: subview,
+                accessibilityIdentifier: accessibilityIdentifier,
+                as: type
+            ) {
+                return match
+            }
+        }
+
+        return nil
+    }
 }
 
 private final class FakeTask12SourceControllerFactory: ChatAttachmentSourceControllerFactory {
@@ -307,7 +488,8 @@ private final class FakeTask12SourceControllerFactory: ChatAttachmentSourceContr
 private final class FakeTask12SelectableSourceController: UIViewController,
     ChatAttachmentSourceControlling,
     ChatAttachmentDraftSelectionProviding,
-    ChatAttachmentDraftSelectionMutating {
+    ChatAttachmentDraftSelectionMutating,
+    ChatAttachmentDraftSelectionSyncing {
     let source: ChatAttachmentSource
     var onSelectionCountChanged: ((Int) -> Void)?
     var onSelectedAttachmentDraftsChanged: (([AttachmentDraft]) -> Void)?
@@ -330,6 +512,11 @@ private final class FakeTask12SelectableSourceController: UIViewController,
         selectedAttachmentDrafts = drafts
         onSelectionCountChanged?(drafts.count)
         onSelectedAttachmentDraftsChanged?(drafts)
+    }
+
+    func syncSelectedAttachmentDrafts(_ drafts: [AttachmentDraft]) {
+        selectedAttachmentDrafts = drafts
+        onSelectionCountChanged?(drafts.count)
     }
 
     @discardableResult
@@ -483,6 +670,28 @@ private func makeAssetDraft(localIdentifier: String) -> AttachmentDraft {
         dimensions: CGSize(width: 12, height: 8),
         preparationState: .pending
     )
+}
+
+private func makePreparedAssetDraft(localIdentifier: String) -> AttachmentDraft {
+    var draft = makeAssetDraft(localIdentifier: localIdentifier)
+    let url = URL(fileURLWithPath: "/tmp/\(draft.filename)")
+    draft.preparationState = .prepared(
+        AttachmentPreparedFile(
+            localFileURL: url,
+            referenceURL: url,
+            filename: draft.filename,
+            byteSize: max(1, draft.byteSize),
+            mediaType: "image/jpeg",
+            dimensions: draft.dimensions,
+            duration: draft.duration,
+            videoPreviewKey: nil,
+            videoOrientation: nil,
+            videoDurationLabel: nil,
+            videoPreviewLocalURL: nil,
+            temporaryData: nil
+        )
+    )
+    return draft
 }
 
 private func makeCapturedDraft(filename: String) -> AttachmentDraft {

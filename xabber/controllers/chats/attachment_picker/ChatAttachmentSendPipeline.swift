@@ -12,6 +12,7 @@ enum ChatAttachmentSendBlockReason: Equatable {
 enum ChatAttachmentSendResult: Equatable {
     case sent(referenceCount: Int)
     case premiumRequired(owner: String)
+    case cloudStorageQuotaExceeded(owner: String)
     case blocked(ChatAttachmentSendBlockReason)
 }
 
@@ -39,9 +40,9 @@ enum ChatAttachmentInlineSendabilityPolicy {
 
         return drafts.allSatisfy { draft in
             switch draft.preparationState {
-            case .pending, .prepared:
+            case .prepared:
                 return true
-            case .preparing, .unavailable:
+            case .pending, .preparing, .unavailable:
                 return false
             }
         }
@@ -126,37 +127,43 @@ final class ChatAttachmentSendPipeline: ChatAttachmentSendCoordinating {
             return
         }
 
-        quotaRefresher.refreshQuota(
-            owner: context.owner,
-            reason: .preUploadValidation,
-            force: true
-        ) { [quotaAccessProvider, referenceBuilder, mediaMessageSender] _ in
-            switch quotaAccessProvider.currentAccess(owner: context.owner) {
-            case .available:
-                do {
-                    let references = try referenceBuilder.makeReferences(
-                        from: drafts,
-                        context: context
-                    )
-                    let outgoingBody = ChatAttachmentCaptionOutgoingBodyPolicy.makeOutgoingBody(
-                        captionState: captionState,
-                        conversationType: context.conversationType,
-                        references: references
-                    )
-                    mediaMessageSender.sendMediaMessage(
-                        references: references,
-                        body: outgoingBody.body,
-                        legacyBody: outgoingBody.legacyBody,
-                        context: context
-                    ) { didSend in
-                        completion(didSend ? .sent(referenceCount: references.count) : .blocked(.sendFailed))
-                    }
-                } catch {
-                    completion(.blocked(.referenceBuildFailed))
+        switch quotaAccessProvider.currentAccess(owner: context.owner) {
+        case .available:
+            break
+        case .premiumRequired:
+            completion(.cloudStorageQuotaExceeded(owner: context.owner))
+            return
+        }
+
+        do {
+            let references = try referenceBuilder.makeReferences(
+                from: drafts,
+                context: context
+            )
+            let outgoingBody = ChatAttachmentCaptionOutgoingBodyPolicy.makeOutgoingBody(
+                captionState: captionState,
+                conversationType: context.conversationType,
+                references: references
+            )
+            mediaMessageSender.sendMediaMessage(
+                references: references,
+                body: outgoingBody.body,
+                legacyBody: outgoingBody.legacyBody,
+                context: context
+            ) { [quotaRefresher] didSend in
+                completion(didSend ? .sent(referenceCount: references.count) : .blocked(.sendFailed))
+                guard didSend else {
+                    return
                 }
-            case .premiumRequired:
-                completion(.premiumRequired(owner: context.owner))
+
+                quotaRefresher.refreshQuota(
+                    owner: context.owner,
+                    reason: .preUploadValidation,
+                    force: true
+                ) { _ in }
             }
+        } catch {
+            completion(.blocked(.referenceBuildFailed))
         }
     }
 }
@@ -202,18 +209,26 @@ final class AccountChatAttachmentMediaMessageSender: ChatAttachmentMediaMessageS
             return
         }
 
-        account.action { user, _ in
-            DispatchQueue.global(qos: .userInitiated).async {
-                user.messages.sendMediaMessage(
-                    references,
-                    to: context.jid,
-                    forwarded: context.forwardedMessageIds,
-                    conversationType: context.conversationType,
-                    body: body,
-                    legacyBody: legacyBody
-                )
+        DispatchQueue.global(qos: .userInitiated).async {
+            let primary = account.messages.willSendMediaMessage(
+                references,
+                to: context.jid,
+                forwarded: context.forwardedMessageIds,
+                conversationType: context.conversationType,
+                body: body,
+                legacyBody: legacyBody
+            )
+            guard let primary else {
                 DispatchQueue.main.async {
-                    completion(true)
+                    completion(false)
+                }
+                return
+            }
+
+            DispatchQueue.main.async {
+                completion(true)
+                DispatchQueue.global(qos: .utility).async {
+                    account.messages.continueSendMediaMessage(primary)
                 }
             }
         }

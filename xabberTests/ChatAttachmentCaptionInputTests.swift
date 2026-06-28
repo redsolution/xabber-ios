@@ -12,7 +12,74 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
 
         XCTAssertNotNil(preview.captionInputView.superview)
         XCTAssertEqual(preview.captionInputView.text, "")
-        XCTAssertEqual(preview.captionInputView.placeholderLabel.text, "Add a caption")
+        XCTAssertEqual(preview.captionInputView.placeholderLabel.text, "Message")
+    }
+
+    func testCaptionInputUsesChatInputTextViewAndComposerPlaceholder() {
+        let captionInputView = ChatAttachmentCaptionInputView()
+
+        XCTAssertTrue(captionInputView.textView is InputTextView)
+        XCTAssertEqual(captionInputView.textView.textContainerInset, UIEdgeInsets(top: 7, left: 4, bottom: 9, right: 8))
+        XCTAssertEqual(captionInputView.textView.placeholder, "Message")
+        XCTAssertEqual(captionInputView.placeholderLabel.text, "Message")
+        XCTAssertEqual(captionInputView.placeholderLabel.textColor, .secondaryLabel)
+    }
+
+    func testCaptionInputHostsTextAndPlaceholderAboveRoundedGlassSurface() {
+        let captionInputView = ChatAttachmentCaptionInputView()
+
+        captionInputView.layoutIfNeeded()
+
+        XCTAssertEqual(captionInputView.backgroundColor ?? .clear, .clear)
+        XCTAssertFalse(captionInputView.isOpaque)
+        XCTAssertTrue(captionInputView.backgroundEffectView.superview === captionInputView)
+        XCTAssertTrue(captionInputView.subviews.first === captionInputView.backgroundEffectView)
+        XCTAssertTrue(captionInputView.backgroundEffectView.isUserInteractionEnabled)
+        XCTAssertEqual(captionInputView.backgroundEffectView.layer.cornerRadius, NativeGlassBarStyle.cornerRadius, accuracy: 0.001)
+        XCTAssertTrue(captionInputView.textView.superview === captionInputView.backgroundEffectView.contentView)
+        XCTAssertTrue(captionInputView.placeholderLabel.superview === captionInputView.textView)
+    }
+
+    func testCaptionInputMatchesChatComposerHeightBehavior() {
+        let captionInputView = ChatAttachmentCaptionInputView()
+        captionInputView.frame = CGRect(x: 0, y: 0, width: 320, height: NativeGlassBarStyle.minimumHeight)
+
+        captionInputView.layoutIfNeeded()
+
+        let heightConstraint = captionInputView.constraints.first { $0.firstAttribute == .height }
+        XCTAssertNotNil(heightConstraint)
+        XCTAssertEqual(
+            heightConstraint?.constant ?? 0,
+            NativeGlassBarStyle.minimumHeight,
+            accuracy: 0.001
+        )
+        XCTAssertFalse(captionInputView.textView.isScrollEnabled)
+
+        captionInputView.textView.text = Array(repeating: "Long caption line", count: 40).joined(separator: "\n")
+        captionInputView.textViewDidChange(captionInputView.textView)
+
+        XCTAssertEqual(
+            heightConstraint?.constant ?? 0,
+            138,
+            accuracy: 0.001
+        )
+        XCTAssertTrue(captionInputView.textView.isScrollEnabled)
+    }
+
+    func testCaptionInputTogglesChatPlaceholderVisibilityOnTextChanges() {
+        let captionInputView = ChatAttachmentCaptionInputView()
+
+        XCTAssertFalse(captionInputView.placeholderLabel.isHidden)
+
+        captionInputView.textView.text = "Caption"
+        captionInputView.textViewDidChange(captionInputView.textView)
+
+        XCTAssertTrue(captionInputView.placeholderLabel.isHidden)
+
+        captionInputView.textView.text = ""
+        captionInputView.textViewDidChange(captionInputView.textView)
+
+        XCTAssertFalse(captionInputView.placeholderLabel.isHidden)
     }
 
     func testTypingUpdatesSheetOwnedCaptionState() throws {
@@ -179,7 +246,6 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
         XCTAssertNil(sendButton.configuration?.title)
         XCTAssertNotNil(sendButton.image(for: .normal) ?? sendButton.configuration?.image)
         XCTAssertEqual(sendButton.accessibilityLabel, "Send")
-        XCTAssertEqual(sendButton.layer.cornerRadius, NativeGlassBarStyle.buttonSize / 2, accuracy: 0.001)
         XCTAssertTrue(
             sendButton.constraints.contains {
                 $0.firstAttribute == .width && $0.constant == NativeGlassBarStyle.buttonSize
@@ -190,6 +256,116 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
                 $0.firstAttribute == .height && $0.constant == NativeGlassBarStyle.buttonSize
             }
         )
+        XCTAssertNil(
+            sheet.selectionComposerBarView
+                .subviews
+                .first { $0.accessibilityIdentifier == "chatAttachmentSheet.selectionComposerBar.count" }
+        )
+    }
+
+    func testSheetSendButtonUsesComposerTintFromFlowContext() {
+        let source = FakeTask13SelectableSourceController(source: .gallery)
+        let composerTintColor = UIColor(red: 0.4, green: 0.2, blue: 0.9, alpha: 1)
+        let sheet = makeSheet(source: source, composerTintColor: composerTintColor)
+
+        sheet.loadViewIfNeeded()
+        source.replaceSelectedDrafts([makeTask13AssetDraft(localIdentifier: "asset-1")])
+
+        XCTAssertEqual(sheet.selectionComposerBarView.sendButton.tintColor, composerTintColor)
+    }
+
+    func testSheetSelectionComposerMatchesChatComposerLayoutWithResetButton() throws {
+        let source = FakeTask13SelectableSourceController(source: .gallery)
+        let sheet = makeSheet(source: source)
+
+        sheet.loadViewIfNeeded()
+        sheet.view.frame = CGRect(x: 0, y: 0, width: 390, height: 700)
+        source.replaceSelectedDrafts([makeTask13AssetDraft(localIdentifier: "asset-1")])
+        sheet.view.layoutIfNeeded()
+
+        let composer = sheet.selectionComposerBarView
+        let resetButton = try XCTUnwrap(
+            firstSubview(
+                in: composer,
+                accessibilityIdentifier: "chatAttachmentSheet.selectionComposerBar.resetButton",
+                as: UIButton.self
+            )
+        )
+        let captionInputView = composer.captionInputView
+        let sendButton = composer.sendButton
+
+        XCTAssertTrue(resetButton.isDescendant(of: composer))
+        XCTAssertTrue(captionInputView.isDescendant(of: composer))
+        XCTAssertTrue(sendButton.isDescendant(of: composer))
+        XCTAssertEqual(resetButton.frame.minX, NativeGlassBarStyle.horizontalInset, accuracy: 0.001)
+        XCTAssertEqual(resetButton.frame.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(resetButton.frame.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(
+            captionInputView.frame.minX,
+            resetButton.frame.maxX + NativeGlassBarStyle.interItemSpacing,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            captionInputView.frame.height,
+            NativeGlassBarStyle.minimumHeight,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            sendButton.frame.minX,
+            captionInputView.frame.maxX + NativeGlassBarStyle.interItemSpacing,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(sendButton.frame.maxX, composer.bounds.maxX - NativeGlassBarStyle.horizontalInset, accuracy: 0.001)
+        XCTAssertEqual(sendButton.frame.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(sendButton.frame.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertNil(resetButton.title(for: .normal))
+        XCTAssertNil(resetButton.configuration?.title)
+        XCTAssertNotNil(resetButton.image(for: .normal) ?? resetButton.configuration?.image)
+    }
+
+    func testSheetSelectionComposerGrowsWithMultilineCaptionAndCollapsesWhenCleared() {
+        let source = FakeTask13SelectableSourceController(source: .gallery)
+        let sheet = makeSheet(source: source)
+
+        sheet.loadViewIfNeeded()
+        sheet.view.frame = CGRect(x: 0, y: 0, width: 390, height: 700)
+        source.replaceSelectedDrafts([makeTask13AssetDraft(localIdentifier: "asset-1")])
+        sheet.view.layoutIfNeeded()
+
+        let composer = sheet.selectionComposerBarView
+        let captionInputView = composer.captionInputView
+        let collapsedBarHeight = NativeGlassBarStyle.minimumHeight
+            + 8
+            + NativeGlassBarStyle.bottomOffset
+
+        XCTAssertEqual(sheet.bottomControlsContainerView.frame.height, collapsedBarHeight, accuracy: 0.001)
+        XCTAssertEqual(composer.frame.height, collapsedBarHeight, accuracy: 0.001)
+
+        captionInputView.textView.text = Array(repeating: "Long caption line", count: 40).joined(separator: "\n")
+        captionInputView.textViewDidChange(captionInputView.textView)
+        sheet.view.layoutIfNeeded()
+
+        let expandedCaptionHeight = captionInputView.frame.height
+        XCTAssertEqual(expandedCaptionHeight, 138, accuracy: 0.001)
+        XCTAssertTrue(captionInputView.textView.isScrollEnabled)
+        XCTAssertEqual(
+            sheet.bottomControlsContainerView.frame.height,
+            expandedCaptionHeight + 8 + NativeGlassBarStyle.bottomOffset,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(composer.frame.height, sheet.bottomControlsContainerView.frame.height, accuracy: 0.001)
+        XCTAssertEqual(composer.resetButton.frame.maxY, captionInputView.frame.maxY, accuracy: 0.001)
+        XCTAssertEqual(composer.sendButton.frame.maxY, captionInputView.frame.maxY, accuracy: 0.001)
+
+        captionInputView.textView.text = ""
+        captionInputView.textViewDidChange(captionInputView.textView)
+        sheet.view.layoutIfNeeded()
+
+        XCTAssertEqual(captionInputView.frame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertFalse(captionInputView.textView.isScrollEnabled)
+        XCTAssertEqual(sheet.bottomControlsContainerView.frame.height, collapsedBarHeight, accuracy: 0.001)
+        XCTAssertEqual(composer.resetButton.frame.maxY, captionInputView.frame.maxY, accuracy: 0.001)
+        XCTAssertEqual(composer.sendButton.frame.maxY, captionInputView.frame.maxY, accuracy: 0.001)
     }
 
     func testSheetCaptionPersistsForBatchAndClearsWhenLastDraftIsRemoved() {
@@ -214,13 +390,43 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
         XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "")
     }
 
-    func testSheetSendStartsPreparationThenRequestsSendWithPreparedDrafts() {
+    func testSheetResetButtonClearsSelectedBatchCaptionAndRestoresSourceBar() throws {
+        let source = FakeTask13SelectableSourceController(source: .gallery)
+        let sheet = makeSheet(source: source)
+        let draft = makeTask13AssetDraft(localIdentifier: "asset-1")
+
+        sheet.loadViewIfNeeded()
+        source.replaceSelectedDrafts([draft])
+        sheet.selectionComposerBarView.captionInputView.textView.text = "Reset me"
+        sheet.selectionComposerBarView.captionInputView.textViewDidChange(
+            sheet.selectionComposerBarView.captionInputView.textView
+        )
+
+        let resetButton = try XCTUnwrap(
+            firstSubview(
+                in: sheet.selectionComposerBarView,
+                accessibilityIdentifier: "chatAttachmentSheet.selectionComposerBar.resetButton",
+                as: UIButton.self
+            )
+        )
+        resetButton.sendActions(for: .touchUpInside)
+
+        XCTAssertTrue(sheet.selectedAttachmentDrafts.isEmpty)
+        XCTAssertTrue(source.selectedAttachmentDrafts.isEmpty)
+        XCTAssertTrue(sheet.captionState.isEmpty)
+        XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "")
+        XCTAssertTrue(sheet.selectionComposerBarView.isHidden)
+        XCTAssertFalse(sheet.sourceBarView.isHidden)
+        XCTAssertTrue(sheet.statusBannerView.isHidden)
+    }
+
+    func testSheetStartsPreparationWhenDraftIsSelectedAndSendRequestsPreparedDrafts() {
         let source = FakeTask13SelectableSourceController(source: .gallery)
         let preparation = FakeTask13MediaPreparationCoordinator()
         let delegate = FakeTask13SheetDelegate()
         let sheet = makeSheet(source: source, mediaPreparationCoordinator: preparation)
         sheet.delegate = delegate
-        let draft = makeTask13AssetDraft(localIdentifier: "asset-1")
+        let draft = makeTask13AssetDraft(localIdentifier: "asset-1", prepared: false)
 
         sheet.loadViewIfNeeded()
         source.replaceSelectedDrafts([draft])
@@ -229,21 +435,22 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
             sheet.selectionComposerBarView.captionInputView.textView
         )
 
-        XCTAssertEqual(preparation.prepareCallCount, 0)
-
-        sheet.selectionComposerBarView.sendButton.sendActions(for: .touchUpInside)
-
         XCTAssertEqual(preparation.prepareCallCount, 1)
         XCTAssertEqual(preparation.receivedDrafts.first?.map(\.id), [draft.id])
         XCTAssertEqual(preparation.receivedDrafts.first?.first?.preparationState, .pending)
-        XCTAssertEqual(delegate.requestedDraftIDs, [draft.id])
-        XCTAssertEqual(delegate.requestedCaption.rawText, "Batch caption")
+        XCTAssertEqual(delegate.sendCount, 0)
         XCTAssertTrue(sheet.selectedAttachmentDrafts.allSatisfy { draft in
             if case .prepared = draft.preparationState {
                 return true
             }
             return false
         })
+
+        sheet.selectionComposerBarView.sendButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(preparation.prepareCallCount, 1)
+        XCTAssertEqual(delegate.requestedDraftIDs, [draft.id])
+        XCTAssertEqual(delegate.requestedCaption.rawText, "Batch caption")
     }
 
     func testSendButtonRemainsDisabledAndDoesNotCallCoordinatorSend() throws {
@@ -252,7 +459,7 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
         let sheet = makeSheet(source: source)
         sheet.delegate = delegate
         sheet.loadViewIfNeeded()
-        source.replaceSelectedDrafts([makeTask13AssetDraft(localIdentifier: "asset-1")])
+        source.replaceSelectedDrafts([makeTask13AssetDraft(localIdentifier: "asset-1", prepared: false)])
         let preview = try openPreview(from: sheet)
         preview.captionInputView.textView.text = "Caption"
         preview.captionInputView.textViewDidChange(preview.captionInputView.textView)
@@ -265,6 +472,7 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
 
     private func makeSheet(
         source: ChatAttachmentSourceControlling,
+        composerTintColor: UIColor = .systemBlue,
         mediaPreparationCoordinator: ChatAttachmentMediaPreparing = ChatAttachmentMediaPreparationCoordinator(),
         previewDismissalHandler: @escaping ChatAttachmentSheetViewController.PreviewDismissalHandler = { _, _, completion in completion?() }
     ) -> ChatAttachmentSheetViewController {
@@ -273,7 +481,8 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
                 owner: "alice@example.com",
                 jid: "bob@example.com",
                 conversationType: .regular,
-                forwardedMessageIds: []
+                forwardedMessageIds: [],
+                composerTintColor: composerTintColor
             ),
             sourceControllerFactory: FakeTask13SourceControllerFactory(source: source),
             mediaPreparationCoordinator: mediaPreparationCoordinator,
@@ -298,6 +507,28 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
         sheet.selectionPreviewBarView.previewButton.sendActions(for: .touchUpInside)
         return try XCTUnwrap(sheet.previewViewController, file: file, line: line)
     }
+
+    private func firstSubview<T: UIView>(
+        in root: UIView,
+        accessibilityIdentifier: String,
+        as type: T.Type
+    ) -> T? {
+        if root.accessibilityIdentifier == accessibilityIdentifier {
+            return root as? T
+        }
+
+        for subview in root.subviews {
+            if let match = firstSubview(
+                in: subview,
+                accessibilityIdentifier: accessibilityIdentifier,
+                as: type
+            ) {
+                return match
+            }
+        }
+
+        return nil
+    }
 }
 
 private final class FakeTask13SourceControllerFactory: ChatAttachmentSourceControllerFactory {
@@ -318,7 +549,8 @@ private final class FakeTask13SourceControllerFactory: ChatAttachmentSourceContr
 private final class FakeTask13SelectableSourceController: UIViewController,
     ChatAttachmentSourceControlling,
     ChatAttachmentDraftSelectionProviding,
-    ChatAttachmentDraftSelectionMutating {
+    ChatAttachmentDraftSelectionMutating,
+    ChatAttachmentDraftSelectionSyncing {
     let source: ChatAttachmentSource
     var onSelectionCountChanged: ((Int) -> Void)?
     var onSelectedAttachmentDraftsChanged: (([AttachmentDraft]) -> Void)?
@@ -341,6 +573,11 @@ private final class FakeTask13SelectableSourceController: UIViewController,
         selectedAttachmentDrafts = drafts
         onSelectionCountChanged?(drafts.count)
         onSelectedAttachmentDraftsChanged?(drafts)
+    }
+
+    func syncSelectedAttachmentDrafts(_ drafts: [AttachmentDraft]) {
+        selectedAttachmentDrafts = drafts
+        onSelectionCountChanged?(drafts.count)
     }
 
     @discardableResult
@@ -461,8 +698,8 @@ private final class FakeTask13PreparationTask: ChatAttachmentMediaPreparationCan
     }
 }
 
-private func makeTask13AssetDraft(localIdentifier: String) -> AttachmentDraft {
-    AttachmentDraft(
+private func makeTask13AssetDraft(localIdentifier: String, prepared: Bool = true) -> AttachmentDraft {
+    var draft = AttachmentDraft(
         id: AttachmentAssetDraft(assetLocalIdentifier: localIdentifier).id,
         source: .gallery,
         mediaKind: .image,
@@ -473,4 +710,27 @@ private func makeTask13AssetDraft(localIdentifier: String) -> AttachmentDraft {
         dimensions: CGSize(width: 12, height: 8),
         preparationState: .pending
     )
+    guard prepared else {
+        return draft
+    }
+
+    let url = URL(fileURLWithPath: "/tmp/\(localIdentifier).jpg")
+    draft.byteSize = 1
+    draft.preparationState = .prepared(
+        AttachmentPreparedFile(
+            localFileURL: url,
+            referenceURL: url,
+            filename: draft.filename,
+            byteSize: draft.byteSize,
+            mediaType: "image/jpeg",
+            dimensions: draft.dimensions,
+            duration: draft.duration,
+            videoPreviewKey: nil,
+            videoOrientation: nil,
+            videoDurationLabel: nil,
+            videoPreviewLocalURL: nil,
+            temporaryData: nil
+        )
+    )
+    return draft
 }

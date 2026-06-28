@@ -4,9 +4,11 @@ enum ChatAttachmentLocalizationKey: String, CaseIterable {
     case sourceGalleryTitle = "chat_attachment_source_gallery"
     case sourceFileTitle = "chat_attachment_source_file"
     case sourceLocationTitle = "chat_attachment_source_location"
+    case sourceContactTitle = "chat_attachment_source_contact"
     case sourceGalleryAccessibilityLabel = "chat_attachment_source_gallery_accessibility"
     case sourceFileAccessibilityLabel = "chat_attachment_source_file_accessibility"
     case sourceLocationAccessibilityLabel = "chat_attachment_source_location_accessibility"
+    case sourceContactAccessibilityLabel = "chat_attachment_source_contact_accessibility"
     case accessibilitySelected = "chat_attachment_accessibility_selected"
     case accessibilityUnavailable = "chat_attachment_accessibility_unavailable"
     case accessibilityNotSelected = "chat_attachment_accessibility_not_selected"
@@ -18,6 +20,7 @@ enum ChatAttachmentLocalizationKey: String, CaseIterable {
     case actionDone = "chat_attachment_action_done"
     case actionBack = "chat_attachment_action_back"
     case actionSend = "chat_attachment_action_send"
+    case actionResetSelection = "chat_attachment_action_reset_selection"
     case actionSelected = "chat_attachment_action_selected"
     case actionEdit = "chat_attachment_action_edit"
     case actionOK = "chat_attachment_action_ok"
@@ -61,6 +64,9 @@ enum ChatAttachmentLocalizationKey: String, CaseIterable {
     case statusAccountUnavailableMessage = "chat_attachment_status_account_unavailable_message"
     case statusSendFailedTitle = "chat_attachment_status_send_failed_title"
     case statusSendFailedMessage = "chat_attachment_status_send_failed_message"
+    case cloudStorageQuotaExceededTitle = "chat_attachment_cloud_storage_quota_exceeded_title"
+    case cloudStorageQuotaExceededMessage = "chat_attachment_cloud_storage_quota_exceeded_message"
+    case cloudStorageQuotaExceededOpenAction = "chat_attachment_cloud_storage_quota_exceeded_open_action"
     case galleryCameraAccessibilityLabel = "chat_attachment_gallery_camera_accessibility"
     case galleryCameraUnavailableAccessibilityLabel = "chat_attachment_gallery_camera_unavailable_accessibility"
     case galleryLoadingPhotoAccessibilityLabel = "chat_attachment_gallery_loading_photo_accessibility"
@@ -92,9 +98,11 @@ enum ChatAttachmentLocalizationKey: String, CaseIterable {
         case .sourceGalleryTitle: return "Gallery"
         case .sourceFileTitle: return "File"
         case .sourceLocationTitle: return "Location"
+        case .sourceContactTitle: return "Contacts"
         case .sourceGalleryAccessibilityLabel: return "Gallery attachments"
         case .sourceFileAccessibilityLabel: return "File attachments"
         case .sourceLocationAccessibilityLabel: return "Location attachment"
+        case .sourceContactAccessibilityLabel: return "Contacts attachments"
         case .accessibilitySelected: return "Selected"
         case .accessibilityUnavailable: return "Unavailable"
         case .accessibilityNotSelected: return "Not selected"
@@ -106,6 +114,7 @@ enum ChatAttachmentLocalizationKey: String, CaseIterable {
         case .actionDone: return "Done"
         case .actionBack: return "Back"
         case .actionSend: return "Send"
+        case .actionResetSelection: return "Clear selection"
         case .actionSelected: return "Selected"
         case .actionEdit: return "Edit"
         case .actionOK: return "OK"
@@ -149,6 +158,9 @@ enum ChatAttachmentLocalizationKey: String, CaseIterable {
         case .statusAccountUnavailableMessage: return "Reconnect the account before sending attachments."
         case .statusSendFailedTitle: return "Send failed"
         case .statusSendFailedMessage: return "The message could not be sent. Try again."
+        case .cloudStorageQuotaExceededTitle: return "Cloud Storage is full"
+        case .cloudStorageQuotaExceededMessage: return "There is not enough space in Cloud Storage to send these attachments. Open Cloud Storage to free up space."
+        case .cloudStorageQuotaExceededOpenAction: return "Open Cloud Storage"
         case .galleryCameraAccessibilityLabel: return "Camera"
         case .galleryCameraUnavailableAccessibilityLabel: return "Camera unavailable"
         case .galleryLoadingPhotoAccessibilityLabel: return "Loading photo"
@@ -202,9 +214,10 @@ struct ChatAttachmentSourceBarConfiguration: Equatable {
         sourceAvailability: [ChatAttachmentSource: ChatAttachmentSourceAvailability] = [
             .gallery: .available,
             .file: .available,
-            .geolocation: .hidden
+            .geolocation: .disabled,
+            .contact: .disabled
         ],
-        orderedSources: [ChatAttachmentSource] = [.gallery, .file, .geolocation]
+        orderedSources: [ChatAttachmentSource] = [.gallery, .file, .geolocation, .contact]
     ) {
         self.sourceAvailability = sourceAvailability
         self.orderedSources = orderedSources
@@ -225,16 +238,28 @@ struct ChatAttachmentSourceBarConfiguration: Equatable {
 
 protocol ChatAttachmentSourceBarViewDelegate: AnyObject {
     func chatAttachmentSourceBarView(_ view: ChatAttachmentSourceBarView, didSelect source: ChatAttachmentSource)
+    func chatAttachmentSourceBarViewDidRequestDismiss(_ view: ChatAttachmentSourceBarView)
+}
+
+extension ChatAttachmentSourceBarViewDelegate {
+    func chatAttachmentSourceBarViewDidRequestDismiss(_ view: ChatAttachmentSourceBarView) {}
 }
 
 final class ChatAttachmentSourceBarView: UIView {
     weak var delegate: ChatAttachmentSourceBarViewDelegate?
 
-    private let separatorView = UIView()
+    let sourceSurfaceView = UIVisualEffectView()
+    let dismissButton = UIButton(type: .system)
     private let stackView = UIStackView()
     private var buttonsBySource: [ChatAttachmentSource: ChatAttachmentSourceButton] = [:]
     private var configuration: ChatAttachmentSourceBarConfiguration = .default
     private(set) var selectedSource: ChatAttachmentSource = .gallery
+
+    var selectedTintColor: UIColor = .systemBlue {
+        didSet {
+            buttonsBySource.values.forEach(updateButtonState)
+        }
+    }
 
     var visibleSources: [ChatAttachmentSource] {
         configuration.visibleSources
@@ -269,33 +294,62 @@ final class ChatAttachmentSourceBarView: UIView {
     }
 
     private func setupView() {
-        backgroundColor = .systemBackground
+        backgroundColor = .clear
+        isOpaque = false
         translatesAutoresizingMaskIntoConstraints = false
 
-        separatorView.backgroundColor = .separator
-        separatorView.translatesAutoresizingMaskIntoConstraints = false
+        sourceSurfaceView.translatesAutoresizingMaskIntoConstraints = false
+        sourceSurfaceView.isUserInteractionEnabled = true
+        sourceSurfaceView.contentView.isUserInteractionEnabled = true
+        NativeGlassBarStyle.applySurface(to: sourceSurfaceView, cornerStyle: .capsule, interactive: true)
 
         stackView.axis = .horizontal
         stackView.alignment = .fill
         stackView.distribution = .fillEqually
-        stackView.spacing = 4
-        stackView.layoutMargins = UIEdgeInsets(top: 6, left: 8, bottom: 8, right: 8)
+        stackView.spacing = 0
+        stackView.layoutMargins = UIEdgeInsets(
+            top: 0,
+            left: NativeGlassBarStyle.contentInset,
+            bottom: 0,
+            right: NativeGlassBarStyle.contentInset
+        )
         stackView.isLayoutMarginsRelativeArrangement = true
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(separatorView)
-        addSubview(stackView)
+        dismissButton.translatesAutoresizingMaskIntoConstraints = false
+        dismissButton.accessibilityIdentifier = "chatAttachmentSheet.sourceBar.dismissButton"
+        dismissButton.accessibilityLabel = ChatAttachmentLocalization.string(.galleryDismissAction)
+        dismissButton.addTarget(self, action: #selector(dismissButtonTapped), for: .touchUpInside)
+        NativeGlassBarStyle.applyDetachedIconButtonStyle(
+            to: dismissButton,
+            tintColor: .label,
+            image: UIImage(systemName: "chevron.down")?
+                .upscale(dimension: NativeGlassBarStyle.iconSize)
+                .withRenderingMode(.alwaysTemplate)
+        )
+
+        addSubview(sourceSurfaceView)
+        addSubview(dismissButton)
+        sourceSurfaceView.contentView.addSubview(stackView)
 
         NSLayoutConstraint.activate([
-            separatorView.topAnchor.constraint(equalTo: topAnchor),
-            separatorView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separatorView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separatorView.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
+            dismissButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+            dismissButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            dismissButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+            dismissButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
 
-            stackView.topAnchor.constraint(equalTo: separatorView.bottomAnchor),
-            stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stackView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            sourceSurfaceView.leadingAnchor.constraint(
+                equalTo: dismissButton.trailingAnchor,
+                constant: NativeGlassBarStyle.interItemSpacing
+            ),
+            sourceSurfaceView.topAnchor.constraint(equalTo: topAnchor),
+            sourceSurfaceView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            sourceSurfaceView.trailingAnchor.constraint(equalTo: trailingAnchor),
+
+            stackView.topAnchor.constraint(equalTo: sourceSurfaceView.contentView.topAnchor),
+            stackView.leadingAnchor.constraint(equalTo: sourceSurfaceView.contentView.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: sourceSurfaceView.contentView.trailingAnchor),
+            stackView.bottomAnchor.constraint(equalTo: sourceSurfaceView.contentView.bottomAnchor)
         ])
     }
 
@@ -322,19 +376,18 @@ final class ChatAttachmentSourceBarView: UIView {
 
     private func configureButtonContent(_ button: ChatAttachmentSourceButton) {
         var configuration = UIButton.Configuration.plain()
-        configuration.image = UIImage(systemName: button.source.sourceBarSystemImageName)
-        configuration.imagePlacement = .top
-        configuration.imagePadding = 4
-        configuration.title = button.source.sourceBarTitle
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)
-        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
-            var attributes = attributes
-            attributes.font = UIFont.preferredFont(forTextStyle: .caption2)
-            return attributes
-        }
+        configuration.image = UIImage(systemName: button.source.sourceBarSystemImageName)?
+            .upscale(dimension: NativeGlassBarStyle.iconSize)
+            .withRenderingMode(.alwaysTemplate)
+        configuration.title = nil
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
         button.configuration = configuration
-        button.layer.cornerRadius = 8
-        button.layer.masksToBounds = true
+        button.setTitle(nil, for: .normal)
+        button.setTitle(nil, for: .highlighted)
+        button.setTitle(nil, for: .disabled)
+        button.backgroundColor = .clear
+        button.contentHorizontalAlignment = .center
+        button.contentVerticalAlignment = .center
     }
 
     private func updateButtonState(_ button: ChatAttachmentSourceButton) {
@@ -342,15 +395,13 @@ final class ChatAttachmentSourceBarView: UIView {
 
         var configuration = button.configuration ?? UIButton.Configuration.plain()
         if button.isEnabled {
-            configuration.baseForegroundColor = button.isSelected ? .systemBlue : .secondaryLabel
-            configuration.background.backgroundColor = button.isSelected
-                ? UIColor.systemBlue.withAlphaComponent(0.12)
-                : .clear
+            configuration.baseForegroundColor = button.isSelected ? selectedTintColor : .secondaryLabel
         } else {
             configuration.baseForegroundColor = .tertiaryLabel
-            configuration.background.backgroundColor = .clear
         }
+        configuration.background.backgroundColor = .clear
         button.configuration = configuration
+        button.tintColor = configuration.baseForegroundColor
 
         var traits: UIAccessibilityTraits = [.button]
         if button.isSelected {
@@ -378,6 +429,11 @@ final class ChatAttachmentSourceBarView: UIView {
 
         delegate?.chatAttachmentSourceBarView(self, didSelect: sender.source)
     }
+
+    @objc
+    private func dismissButtonTapped() {
+        delegate?.chatAttachmentSourceBarViewDidRequestDismiss(self)
+    }
 }
 
 private final class ChatAttachmentSourceButton: UIButton {
@@ -402,6 +458,8 @@ private extension ChatAttachmentSource {
             return ChatAttachmentLocalization.string(.sourceFileTitle)
         case .geolocation:
             return ChatAttachmentLocalization.string(.sourceLocationTitle)
+        case .contact:
+            return ChatAttachmentLocalization.string(.sourceContactTitle)
         }
     }
 
@@ -413,6 +471,8 @@ private extension ChatAttachmentSource {
             return ChatAttachmentLocalization.string(.sourceFileAccessibilityLabel)
         case .geolocation:
             return ChatAttachmentLocalization.string(.sourceLocationAccessibilityLabel)
+        case .contact:
+            return ChatAttachmentLocalization.string(.sourceContactAccessibilityLabel)
         }
     }
 
@@ -424,6 +484,8 @@ private extension ChatAttachmentSource {
             return "doc"
         case .geolocation:
             return "location"
+        case .contact:
+            return "person.2"
         }
     }
 
@@ -435,6 +497,8 @@ private extension ChatAttachmentSource {
             return "file"
         case .geolocation:
             return "geolocation"
+        case .contact:
+            return "contact"
         }
     }
 }

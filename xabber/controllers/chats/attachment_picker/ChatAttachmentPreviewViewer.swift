@@ -142,18 +142,25 @@ enum ChatAttachmentCaptionOutgoingBodyPolicy {
 }
 
 final class ChatAttachmentCaptionInputView: UIView, UITextViewDelegate {
-    let textView = UITextView()
-    let placeholderLabel = UILabel()
+    let backgroundEffectView = ChatAttachmentSheetGlassStyle.makeEffectView(interactive: true)
+    let textView = InputTextView()
+
+    var placeholderLabel: UILabel {
+        textView.placeholderLabel
+    }
 
     var onTextChanged: ((String) -> Void)?
+    var onPreferredHeightChanged: ((CGFloat) -> Void)?
 
     var text: String {
         get { textView.text ?? "" }
         set { setText(newValue, notify: true) }
     }
 
-    private let minHeight: CGFloat = 44
-    private let maxHeight: CGFloat = 108
+    private(set) var preferredHeight: CGFloat = NativeGlassBarStyle.minimumHeight
+    private let minHeight: CGFloat = NativeGlassBarStyle.minimumHeight
+    private let maxTextViewHeight: CGFloat = ChatAttachmentPickerComposerStyle.maxTextViewHeight
+    private let composerTextVerticalPadding: CGFloat = ChatAttachmentPickerComposerStyle.textVerticalInset * 2
     private var heightConstraint: NSLayoutConstraint?
 
     override init(frame: CGRect) {
@@ -183,6 +190,10 @@ final class ChatAttachmentCaptionInputView: UIView, UITextViewDelegate {
 
     private func setText(_ text: String, notify: Bool) {
         textView.text = text
+        textView.typingAttributes = [
+            .font: textView.font ?? UIFont.preferredFont(forTextStyle: .body),
+            .foregroundColor: UIColor.label
+        ]
         updatePlaceholderVisibility()
         updateHeight()
         if notify {
@@ -191,34 +202,29 @@ final class ChatAttachmentCaptionInputView: UIView, UITextViewDelegate {
     }
 
     private func setupView() {
-        backgroundColor = UIColor.secondarySystemBackground
-        layer.cornerRadius = 16
+        backgroundColor = .clear
+        isOpaque = false
+        layer.cornerRadius = NativeGlassBarStyle.cornerRadius
+        layer.cornerCurve = .continuous
         layer.masksToBounds = true
         translatesAutoresizingMaskIntoConstraints = false
         accessibilityIdentifier = "chatAttachmentPreview.captionInput"
 
-        textView.backgroundColor = .clear
-        textView.font = UIFont.preferredFont(forTextStyle: .body)
-        textView.textColor = .label
-        textView.adjustsFontForContentSizeCategory = true
-        textView.textContainerInset = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        textView.textContainer.lineFragmentPadding = 0
-        textView.isScrollEnabled = false
+        ChatAttachmentPickerComposerStyle.applyCaptionSurface(to: backgroundEffectView)
+
+        ChatAttachmentPickerComposerStyle.configureCaptionTextView(textView)
         textView.delegate = self
         textView.translatesAutoresizingMaskIntoConstraints = false
         textView.accessibilityIdentifier = "chatAttachmentPreview.captionTextView"
         textView.accessibilityLabel = ChatAttachmentLocalization.string(.captionAccessibilityLabel)
-        textView.accessibilityHint = ChatAttachmentLocalization.string(.captionPlaceholder)
+        textView.accessibilityHint = ChatAttachmentPickerComposerStyle.placeholderText
+        textView.typingAttributes = [
+            .font: textView.font ?? UIFont.preferredFont(forTextStyle: .body),
+            .foregroundColor: UIColor.label
+        ]
 
-        placeholderLabel.text = ChatAttachmentLocalization.string(.captionPlaceholder)
-        placeholderLabel.font = UIFont.preferredFont(forTextStyle: .body)
-        placeholderLabel.textColor = .placeholderText
-        placeholderLabel.adjustsFontForContentSizeCategory = true
-        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
-        placeholderLabel.isAccessibilityElement = false
-
-        addSubview(textView)
-        addSubview(placeholderLabel)
+        addSubview(backgroundEffectView)
+        backgroundEffectView.contentView.addSubview(textView)
 
         let heightConstraint = heightAnchor.constraint(equalToConstant: minHeight)
         self.heightConstraint = heightConstraint
@@ -226,30 +232,75 @@ final class ChatAttachmentCaptionInputView: UIView, UITextViewDelegate {
         NSLayoutConstraint.activate([
             heightConstraint,
 
-            textView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            textView.topAnchor.constraint(equalTo: topAnchor),
-            textView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            backgroundEffectView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backgroundEffectView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backgroundEffectView.topAnchor.constraint(equalTo: topAnchor),
+            backgroundEffectView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 14),
-            placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: textView.trailingAnchor, constant: -14),
-            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 10)
+            textView.leadingAnchor.constraint(
+                equalTo: backgroundEffectView.contentView.leadingAnchor,
+                constant: ChatAttachmentPickerComposerStyle.textHorizontalInset
+            ),
+            textView.trailingAnchor.constraint(
+                equalTo: backgroundEffectView.contentView.trailingAnchor,
+                constant: -ChatAttachmentPickerComposerStyle.textHorizontalInset
+            ),
+            textView.topAnchor.constraint(
+                equalTo: backgroundEffectView.contentView.topAnchor,
+                constant: ChatAttachmentPickerComposerStyle.textVerticalInset
+            ),
+            textView.bottomAnchor.constraint(
+                equalTo: backgroundEffectView.contentView.bottomAnchor,
+                constant: -ChatAttachmentPickerComposerStyle.textVerticalInset
+            )
         ])
 
         updatePlaceholderVisibility()
     }
 
     private func updatePlaceholderVisibility() {
-        placeholderLabel.isHidden = !(textView.text ?? "").isEmpty
+        textView.placeholderLabel.isHidden = !(textView.text ?? "").isEmpty
     }
 
     private func updateHeight() {
-        let fittingSize = CGSize(width: bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width - 32, height: .greatestFiniteMagnitude)
-        let fittingHeight = textView.sizeThatFits(fittingSize).height
-        let clampedHeight = min(max(fittingHeight, minHeight), maxHeight)
-        heightConstraint?.constant = clampedHeight
-        textView.isScrollEnabled = fittingHeight > maxHeight
+        let fallbackContainerWidth = max(0, UIScreen.main.bounds.width - 32)
+        let fittingWidth = textView.bounds.width > 0
+            ? textView.bounds.width
+            : max(
+                0,
+                (bounds.width > 0 ? bounds.width : fallbackContainerWidth)
+                    - ChatAttachmentPickerComposerStyle.textHorizontalInset * 2
+            )
+        let fittingSize = CGSize(width: fittingWidth, height: .greatestFiniteMagnitude)
+        let fittingHeight = textView.sizeThatFits(fittingSize).height.rounded(.down)
+        let textViewHeight = min(fittingHeight, maxTextViewHeight)
+        let rawHeight = textViewHeight + composerTextVerticalPadding
+        let nextHeight = rawHeight <= singleLineComposerHeight + collapsedHeightTolerance
+            ? minHeight
+            : max(minHeight, rawHeight)
+        textView.isScrollEnabled = fittingHeight >= maxTextViewHeight
+
+        guard abs(nextHeight - preferredHeight) > 0.5 else {
+            return
+        }
+
+        preferredHeight = nextHeight
+        heightConstraint?.constant = nextHeight
+        onPreferredHeightChanged?(nextHeight)
         invalidateIntrinsicContentSize()
+    }
+
+    private var singleLineComposerHeight: CGFloat {
+        let font = textView.font ?? UIFont.preferredFont(forTextStyle: .body)
+        return font.lineHeight
+            + textView.textContainerInset.top
+            + textView.textContainerInset.bottom
+            + (textView.textContainer.lineFragmentPadding * 2)
+            + composerTextVerticalPadding
+    }
+
+    private var collapsedHeightTolerance: CGFloat {
+        1
     }
 }
 
@@ -278,7 +329,8 @@ final class ChatAttachmentSelectionPreviewBarView: UIView {
     }
 
     private func setupView() {
-        backgroundColor = .systemBackground
+        backgroundColor = .clear
+        isOpaque = false
         translatesAutoresizingMaskIntoConstraints = false
         accessibilityIdentifier = "chatAttachmentSheet.previewBar"
 
@@ -333,6 +385,7 @@ protocol ChatAttachmentPreviewViewControllerDelegate: AnyObject {
         _ preview: ChatAttachmentPreviewViewController,
         didRequestSend drafts: [AttachmentDraft]
     )
+    func chatAttachmentPreviewViewControllerDidRequestSelectionReset(_ preview: ChatAttachmentPreviewViewController)
 }
 
 extension ChatAttachmentPreviewViewControllerDelegate {
@@ -340,6 +393,8 @@ extension ChatAttachmentPreviewViewControllerDelegate {
         _ preview: ChatAttachmentPreviewViewController,
         didRetryDraftWithID draftID: String
     ) {}
+
+    func chatAttachmentPreviewViewControllerDidRequestSelectionReset(_ preview: ChatAttachmentPreviewViewController) {}
 }
 
 final class ChatAttachmentPreviewViewController: UIViewController {
@@ -359,12 +414,19 @@ final class ChatAttachmentPreviewViewController: UIViewController {
 
     let closeButton = UIButton(type: .system)
     let countLabel = UILabel()
-    let sendButton = UIButton(type: .system)
+    let composerBarView = ChatAttachmentSelectionComposerBarView()
     let removeButton = UIButton(type: .system)
     let editButton = UIButton(type: .system)
-    let captionInputView = ChatAttachmentCaptionInputView()
     let statusBannerView = ChatAttachmentStatusBannerView()
     let collectionView: UICollectionView
+
+    var sendButton: UIButton {
+        composerBarView.sendButton
+    }
+
+    var captionInputView: ChatAttachmentCaptionInputView {
+        composerBarView.captionInputView
+    }
 
     private let mediaProvider: ChatAttachmentPreviewMediaProviding
     private let videoPresenter: ChatAttachmentPreviewVideoPresenting
@@ -374,6 +436,7 @@ final class ChatAttachmentPreviewViewController: UIViewController {
     private let imageEditorDismissalHandler: ImageEditorDismissalHandler
     private let onCaptionChanged: (ChatAttachmentCaptionState) -> Void
     private let sendAvailabilityProvider: ([AttachmentDraft]) -> Bool
+    private let composerTintColor: UIColor
     private var activeImageEditRequestID: Int?
 
     private(set) var drafts: [AttachmentDraft]
@@ -382,6 +445,7 @@ final class ChatAttachmentPreviewViewController: UIViewController {
     private(set) var lastImageEditSourceError: ChatAttachmentImageEditSourceError?
     private(set) var lastImageEditOutputError: ChatAttachmentImageEditOutputBuilderError?
     private var statusBannerHeightConstraint: NSLayoutConstraint?
+    private var composerBarHeightConstraint: NSLayoutConstraint?
 
     var currentDraft: AttachmentDraft? {
         guard drafts.indices.contains(currentIndex) else {
@@ -405,6 +469,7 @@ final class ChatAttachmentPreviewViewController: UIViewController {
         imageEditorDismissalHandler: @escaping ImageEditorDismissalHandler = { editor, animated, completion in
             editor.dismiss(animated: animated, completion: completion)
         },
+        composerTintColor: UIColor = .systemBlue,
         onCaptionChanged: @escaping (ChatAttachmentCaptionState) -> Void = { _ in },
         sendAvailabilityProvider: @escaping ([AttachmentDraft]) -> Bool = ChatAttachmentSendabilityPolicy.canRequestSend
     ) {
@@ -422,6 +487,7 @@ final class ChatAttachmentPreviewViewController: UIViewController {
         self.imageEditorDismissalHandler = imageEditorDismissalHandler
         self.onCaptionChanged = onCaptionChanged
         self.sendAvailabilityProvider = sendAvailabilityProvider
+        self.composerTintColor = composerTintColor
 
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .horizontal
@@ -457,16 +523,6 @@ final class ChatAttachmentPreviewViewController: UIViewController {
         countLabel.translatesAutoresizingMaskIntoConstraints = false
         countLabel.accessibilityIdentifier = "chatAttachmentPreview.countLabel"
 
-        var sendConfiguration = UIButton.Configuration.filled()
-        sendConfiguration.title = ChatAttachmentLocalization.string(.actionSend)
-        sendConfiguration.cornerStyle = .capsule
-        sendButton.configuration = sendConfiguration
-        sendButton.isEnabled = false
-        sendButton.translatesAutoresizingMaskIntoConstraints = false
-        sendButton.accessibilityIdentifier = "chatAttachmentPreview.sendButton"
-        sendButton.accessibilityLabel = ChatAttachmentLocalization.string(.actionSend)
-        sendButton.addTarget(self, action: #selector(sendButtonTapped), for: .touchUpInside)
-
         collectionView.backgroundColor = .black
         collectionView.isPagingEnabled = true
         collectionView.showsHorizontalScrollIndicator = false
@@ -501,6 +557,19 @@ final class ChatAttachmentPreviewViewController: UIViewController {
         editButton.accessibilityLabel = ChatAttachmentLocalization.string(.actionEdit)
         editButton.addTarget(self, action: #selector(editButtonTapped), for: .touchUpInside)
 
+        composerBarView.accessibilityIdentifier = "chatAttachmentPreview.composerBar"
+        composerBarView.composerTintColor = composerTintColor
+        composerBarView.resetButton.accessibilityIdentifier = "chatAttachmentPreview.composer.resetButton"
+        composerBarView.captionInputView.accessibilityIdentifier = "chatAttachmentPreview.captionInput"
+        composerBarView.sendButton.accessibilityIdentifier = "chatAttachmentPreview.sendButton"
+        composerBarView.sendButton.addTarget(self, action: #selector(sendButtonTapped), for: .touchUpInside)
+        composerBarView.onResetRequested = { [weak self] in
+            self?.resetSelectionButtonTapped()
+        }
+        composerBarView.onPreferredHeightChanged = { [weak self] height in
+            self?.updateComposerBarHeight(height)
+        }
+
         let bottomControlsView = UIView()
         bottomControlsView.translatesAutoresizingMaskIntoConstraints = false
         bottomControlsView.accessibilityIdentifier = "chatAttachmentPreview.bottomControls"
@@ -513,7 +582,7 @@ final class ChatAttachmentPreviewViewController: UIViewController {
         }
 
         captionInputView.apply(captionState)
-        captionInputView.onTextChanged = { [weak self] text in
+        composerBarView.onCaptionChanged = { [weak self] text in
             guard let self else {
                 return
             }
@@ -524,15 +593,17 @@ final class ChatAttachmentPreviewViewController: UIViewController {
 
         rootView.addSubview(closeButton)
         rootView.addSubview(countLabel)
+        rootView.addSubview(editButton)
         rootView.addSubview(collectionView)
         rootView.addSubview(bottomControlsView)
         bottomControlsView.addSubview(statusBannerView)
-        bottomControlsView.addSubview(captionInputView)
-        bottomControlsView.addSubview(removeButton)
-        bottomControlsView.addSubview(editButton)
-        bottomControlsView.addSubview(sendButton)
+        bottomControlsView.addSubview(composerBarView)
         let statusHeightConstraint = statusBannerView.heightAnchor.constraint(equalToConstant: 0)
         statusBannerHeightConstraint = statusHeightConstraint
+        let composerBarHeightConstraint = composerBarView.heightAnchor.constraint(
+            equalToConstant: composerBarView.preferredBarHeight
+        )
+        self.composerBarHeightConstraint = composerBarHeightConstraint
 
         NSLayoutConstraint.activate([
             closeButton.leadingAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.leadingAnchor, constant: 8),
@@ -543,40 +614,37 @@ final class ChatAttachmentPreviewViewController: UIViewController {
             countLabel.centerXAnchor.constraint(equalTo: rootView.centerXAnchor),
             countLabel.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
             countLabel.leadingAnchor.constraint(greaterThanOrEqualTo: closeButton.trailingAnchor, constant: 8),
-            countLabel.trailingAnchor.constraint(lessThanOrEqualTo: rootView.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+            countLabel.trailingAnchor.constraint(lessThanOrEqualTo: editButton.leadingAnchor, constant: -8),
+
+            editButton.trailingAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+            editButton.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+            editButton.heightAnchor.constraint(equalToConstant: 44),
 
             collectionView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
             collectionView.topAnchor.constraint(equalTo: closeButton.bottomAnchor, constant: 8),
             collectionView.bottomAnchor.constraint(equalTo: bottomControlsView.topAnchor, constant: -8),
 
-            bottomControlsView.leadingAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.leadingAnchor, constant: 12),
-            bottomControlsView.trailingAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+            bottomControlsView.leadingAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.leadingAnchor),
+            bottomControlsView.trailingAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.trailingAnchor),
             bottomControlsView.bottomAnchor.constraint(equalTo: rootView.keyboardLayoutGuide.topAnchor, constant: -8),
 
-            statusBannerView.leadingAnchor.constraint(equalTo: bottomControlsView.leadingAnchor),
-            statusBannerView.trailingAnchor.constraint(equalTo: bottomControlsView.trailingAnchor),
+            statusBannerView.leadingAnchor.constraint(
+                equalTo: bottomControlsView.leadingAnchor,
+                constant: NativeGlassBarStyle.horizontalInset
+            ),
+            statusBannerView.trailingAnchor.constraint(
+                equalTo: bottomControlsView.trailingAnchor,
+                constant: -NativeGlassBarStyle.horizontalInset
+            ),
             statusBannerView.topAnchor.constraint(equalTo: bottomControlsView.topAnchor),
             statusHeightConstraint,
 
-            captionInputView.leadingAnchor.constraint(equalTo: bottomControlsView.leadingAnchor),
-            captionInputView.trailingAnchor.constraint(equalTo: bottomControlsView.trailingAnchor),
-            captionInputView.topAnchor.constraint(equalTo: statusBannerView.bottomAnchor, constant: 8),
-
-            removeButton.leadingAnchor.constraint(equalTo: bottomControlsView.leadingAnchor),
-            removeButton.topAnchor.constraint(equalTo: captionInputView.bottomAnchor, constant: 8),
-            removeButton.bottomAnchor.constraint(equalTo: bottomControlsView.bottomAnchor),
-            removeButton.heightAnchor.constraint(equalToConstant: 44),
-
-            editButton.centerXAnchor.constraint(equalTo: bottomControlsView.centerXAnchor),
-            editButton.centerYAnchor.constraint(equalTo: removeButton.centerYAnchor),
-            editButton.leadingAnchor.constraint(greaterThanOrEqualTo: removeButton.trailingAnchor, constant: 8),
-            editButton.heightAnchor.constraint(equalToConstant: 44),
-
-            sendButton.trailingAnchor.constraint(equalTo: bottomControlsView.trailingAnchor),
-            sendButton.centerYAnchor.constraint(equalTo: removeButton.centerYAnchor),
-            sendButton.leadingAnchor.constraint(greaterThanOrEqualTo: editButton.trailingAnchor, constant: 8),
-            sendButton.heightAnchor.constraint(equalToConstant: 36)
+            composerBarView.leadingAnchor.constraint(equalTo: bottomControlsView.leadingAnchor),
+            composerBarView.trailingAnchor.constraint(equalTo: bottomControlsView.trailingAnchor),
+            composerBarView.topAnchor.constraint(equalTo: statusBannerView.bottomAnchor, constant: 8),
+            composerBarView.bottomAnchor.constraint(equalTo: bottomControlsView.bottomAnchor),
+            composerBarHeightConstraint
         ])
 
         view = rootView
@@ -676,7 +744,7 @@ final class ChatAttachmentPreviewViewController: UIViewController {
             removeButton.isEnabled = false
             editButton.isHidden = true
             editButton.isEnabled = false
-            sendButton.isEnabled = false
+            composerBarView.update(selectedCount: 0, isSendEnabled: false)
             statusBannerView.apply(.hidden)
             statusBannerHeightConstraint?.constant = 0
             return
@@ -687,7 +755,10 @@ final class ChatAttachmentPreviewViewController: UIViewController {
         let canEditCurrentDraft = currentDraft.map(ChatAttachmentImageEditAvailabilityPolicy.isEditable) ?? false
         editButton.isHidden = !canEditCurrentDraft
         editButton.isEnabled = canEditCurrentDraft
-        sendButton.isEnabled = sendAvailabilityProvider(drafts)
+        composerBarView.update(
+            selectedCount: drafts.count,
+            isSendEnabled: sendAvailabilityProvider(drafts)
+        )
         updateStatusBanner()
     }
 
@@ -701,6 +772,15 @@ final class ChatAttachmentPreviewViewController: UIViewController {
         let viewModel = ChatAttachmentDraftStatusPolicy.viewModel(for: currentDraft)
         statusBannerView.apply(viewModel.kind == .ready ? .hidden : viewModel)
         statusBannerHeightConstraint?.constant = statusBannerView.isHidden ? 0 : 74
+    }
+
+    private func updateComposerBarHeight(_ height: CGFloat) {
+        composerBarHeightConstraint?.constant = height
+        guard isViewLoaded else {
+            return
+        }
+
+        view.setNeedsLayout()
     }
 
     private func configureIconButton(
@@ -727,6 +807,10 @@ final class ChatAttachmentPreviewViewController: UIViewController {
     @objc
     private func removeButtonTapped() {
         removeCurrentDraft()
+    }
+
+    private func resetSelectionButtonTapped() {
+        delegate?.chatAttachmentPreviewViewControllerDidRequestSelectionReset(self)
     }
 
     private func retryCurrentDraft() {

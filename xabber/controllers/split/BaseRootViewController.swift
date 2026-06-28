@@ -522,30 +522,40 @@ extension UITableView {
 }
 
 enum ContinuousSplitCellBackgroundStyle {
-    static let nativeGlassTintColor = UIColor.systemBackground.withAlphaComponent(0.16)
-    static let normalFallbackBlurStyle: UIBlurEffect.Style = .systemThinMaterial
-    static let highlightedFallbackBlurStyle: UIBlurEffect.Style = .systemMaterial
-    static let normalBackgroundColor = UIColor.systemBackground.withAlphaComponent(0.24)
+    static var nativeGlassTintColor: UIColor? {
+        XabberGlassStyle.nativeGlassTintColor
+    }
+
+    static var normalFallbackBlurStyle: UIBlurEffect.Style {
+        XabberGlassStyle.fallbackBlurStyle(for: .splitCellNormal)
+    }
+
+    static var highlightedFallbackBlurStyle: UIBlurEffect.Style {
+        XabberGlassStyle.fallbackBlurStyle(for: .splitCellHighlighted)
+    }
+
+    static var normalBackgroundColor: UIColor {
+        XabberGlassStyle.splitCellNormalBackgroundColor
+    }
 
     static func makeEffect(
         isHighlighted: Bool,
         prefersNativeGlass: Bool = true,
         tintColor: UIColor? = nil
     ) -> UIVisualEffect {
-        if prefersNativeGlass, #available(iOS 26.0, *) {
-            let effect = UIGlassEffect(style: .regular)
-            effect.isInteractive = false
-            effect.tintColor = tintColor ?? nativeGlassTintColor
-            return effect
-        }
-
-        return UIBlurEffect(style: isHighlighted ? highlightedFallbackBlurStyle : normalFallbackBlurStyle)
+        XabberGlassStyle.makeEffect(
+            role: isHighlighted ? .splitCellHighlighted : .splitCellNormal,
+            interactive: false,
+            prefersNativeGlass: prefersNativeGlass,
+            tintColor: tintColor
+        )
     }
 
     static func backgroundColor(isHighlighted: Bool, selectedColor: UIColor) -> UIColor {
-        isHighlighted
-            ? selectedColor.withAlphaComponent(0.35)
-            : normalBackgroundColor
+        XabberGlassStyle.splitCellBackgroundColor(
+            isHighlighted: isHighlighted,
+            selectedColor: selectedColor
+        )
     }
 }
 
@@ -718,7 +728,10 @@ extension UITableViewCell {
             var background = UIBackgroundConfiguration.listGroupedCell()
             background.visualEffect = ContinuousSplitCellBackgroundStyle.makeEffect(
                 isHighlighted: isHighlighted,
-                tintColor: isHighlighted ? selectedColor.withAlphaComponent(0.18) : nil
+                tintColor: XabberGlassStyle.splitCellTintColor(
+                    isHighlighted: isHighlighted,
+                    selectedColor: selectedColor
+                )
             )
             background.backgroundColor = ContinuousSplitCellBackgroundStyle.backgroundColor(
                 isHighlighted: isHighlighted,

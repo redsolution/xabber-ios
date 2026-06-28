@@ -21,7 +21,8 @@ final class ChatAttachmentAccessibilityLocalizationTests: XCTestCase {
                 sourceAvailability: [
                     .gallery: .available,
                     .file: .disabled,
-                    .geolocation: .hidden
+                    .geolocation: .disabled,
+                    .contact: .disabled
                 ]
             ),
             selectedSource: .gallery
@@ -29,16 +30,24 @@ final class ChatAttachmentAccessibilityLocalizationTests: XCTestCase {
 
         let galleryButton = try XCTUnwrap(sourceBar.button(for: .gallery))
         let fileButton = try XCTUnwrap(sourceBar.button(for: .file))
+        let contactButton = try XCTUnwrap(sourceBar.button(for: .contact))
 
-        XCTAssertEqual(galleryButton.configuration?.title, ChatAttachmentLocalization.string(.sourceGalleryTitle))
+        XCTAssertNil(galleryButton.configuration?.title)
         XCTAssertEqual(galleryButton.accessibilityLabel, ChatAttachmentLocalization.string(.sourceGalleryAccessibilityLabel))
         XCTAssertEqual(galleryButton.accessibilityValue, ChatAttachmentLocalization.string(.accessibilitySelected))
         XCTAssertTrue(galleryButton.accessibilityTraits.contains(.selected))
 
-        XCTAssertEqual(fileButton.configuration?.title, ChatAttachmentLocalization.string(.sourceFileTitle))
+        XCTAssertNil(fileButton.configuration?.title)
         XCTAssertEqual(fileButton.accessibilityLabel, ChatAttachmentLocalization.string(.sourceFileAccessibilityLabel))
         XCTAssertEqual(fileButton.accessibilityValue, ChatAttachmentLocalization.string(.accessibilityUnavailable))
         XCTAssertTrue(fileButton.accessibilityTraits.contains(.notEnabled))
+
+        XCTAssertNil(contactButton.configuration?.title)
+        XCTAssertEqual(contactButton.accessibilityLabel, ChatAttachmentLocalization.string(.sourceContactAccessibilityLabel))
+        XCTAssertEqual(contactButton.accessibilityValue, ChatAttachmentLocalization.string(.accessibilityUnavailable))
+        XCTAssertTrue(contactButton.accessibilityTraits.contains(.notEnabled))
+
+        XCTAssertEqual(sourceBar.dismissButton.accessibilityLabel, ChatAttachmentLocalization.string(.galleryDismissAction))
     }
 
     func testStatusBannerExposesLocalizedActionsAndProgressAccessibility() {
@@ -109,7 +118,7 @@ final class ChatAttachmentAccessibilityLocalizationTests: XCTestCase {
         editor.loadViewIfNeeded()
 
         XCTAssertEqual(captionInput.textView.accessibilityLabel, ChatAttachmentLocalization.string(.captionAccessibilityLabel))
-        XCTAssertEqual(captionInput.textView.accessibilityHint, ChatAttachmentLocalization.string(.captionPlaceholder))
+        XCTAssertEqual(captionInput.textView.accessibilityHint, ChatAttachmentPickerComposerStyle.placeholderText)
         XCTAssertTrue(captionInput.textView.adjustsFontForContentSizeCategory)
 
         XCTAssertEqual(editor.cancelButton.accessibilityLabel, ChatAttachmentLocalization.string(.actionCancel))

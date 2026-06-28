@@ -55,13 +55,13 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         )
     }
 
-    func testAvailabilityPolicyKeepsSourceHiddenWithoutWireContract() {
+    func testAvailabilityPolicyDisablesSourceWithoutWireContract() {
         XCTAssertEqual(
             ChatAttachmentGeolocationSourceAvailabilityPolicy.availability(
                 isWireContractEnabled: false,
                 isLocationServicesEnabled: true
             ),
-            .hidden
+            .disabled
         )
     }
 
@@ -85,14 +85,15 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         )
     }
 
-    func testDefaultSourceBarConfigurationKeepsGeolocationHiddenUntilWireContract() {
+    func testDefaultSourceBarConfigurationKeepsFutureSourcesVisibleDisabledUntilWireContract() {
         let configuration = ChatAttachmentGeolocationSourceAvailabilityPolicy.sourceBarConfiguration(
             isWireContractEnabled: false,
             isLocationServicesEnabled: true
         )
 
-        XCTAssertEqual(configuration.visibleSources, [.gallery, .file])
-        XCTAssertEqual(configuration.availability(for: .geolocation), .hidden)
+        XCTAssertEqual(configuration.visibleSources, [.gallery, .file, .geolocation, .contact])
+        XCTAssertEqual(configuration.availability(for: .geolocation), .disabled)
+        XCTAssertEqual(configuration.availability(for: .contact), .disabled)
     }
 
     func testRequestAccessAndCancelDoNotMutateSelectionCount() {
@@ -157,4 +158,3 @@ private final class FakeTask16GeolocationAuthorizer: ChatAttachmentGeolocationAu
         completion(requestResult)
     }
 }
-

@@ -793,7 +793,7 @@ final class ChatVerificationTopBarStyleTests: XCTestCase {
         if #available(iOS 26.0, *) {
             let glassEffect = try XCTUnwrap(effectView.effect as? UIGlassEffect)
             XCTAssertTrue(glassEffect.isInteractive)
-            XCTAssertEqual(glassEffect.tintColor, NativeGlassBarStyle.nativeGlassTintColor)
+            XCTAssertEqual(glassEffect.tintColor, XabberGlassStyle.nativeGlassTintColor)
         } else {
             XCTAssertTrue(effectView.effect is UIBlurEffect)
         }
@@ -6623,6 +6623,55 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         XCTAssertEqual(result.files.map(\.primary), ["file"])
         XCTAssertTrue(result.images.first?.isSensitive == true)
         XCTAssertTrue(result.videos.first?.isSensitive == true)
+    }
+
+    func testMapReferenceAttachmentsUsesLocalImageFileBeforeUploadCompletes() throws {
+        let localURL = try XCTUnwrap(URL(string: "file:///tmp/uploading-local-image.jpg"))
+        let image = MessageReferenceStorageItem()
+        image.primary = "uploading-image"
+        image.mimeType = "image/jpeg"
+        image.kind = .media
+        image.metadata = ["media-type": "image/jpeg"]
+        image.localFileUrl = localURL
+
+        let result = ChatViewController.mapReferenceAttachments([image])
+
+        XCTAssertEqual(result.images.map(\.primary), ["uploading-image"])
+        XCTAssertEqual(result.images.first?.url, localURL)
+    }
+
+    func testMapReferenceAttachmentsPrefersRemoteImageUrlAfterUploadCompletes() throws {
+        let localURL = try XCTUnwrap(URL(string: "file:///tmp/uploading-local-image.jpg"))
+        let remoteURL = try XCTUnwrap(URL(string: "https://files.example.com/uploaded-image.jpg"))
+        let image = MessageReferenceStorageItem()
+        image.primary = "uploaded-image"
+        image.mimeType = "image/jpeg"
+        image.kind = .media
+        image.metadata = ["media-type": "image/jpeg"]
+        image.localFileUrl = localURL
+        image.downloadUrl = remoteURL
+
+        let result = ChatViewController.mapReferenceAttachments([image])
+
+        XCTAssertEqual(result.images.map(\.primary), ["uploaded-image"])
+        XCTAssertEqual(result.images.first?.url, remoteURL)
+    }
+
+    func testMapReferenceAttachmentsDoesNotUseAssetUriAsUploadingImagePreview() throws {
+        let assetURL = try XCTUnwrap(URL(string: "asset://photo-library-local-id"))
+        let image = MessageReferenceStorageItem()
+        image.primary = "asset-image"
+        image.mimeType = "image/jpeg"
+        image.kind = .media
+        image.metadata = [
+            "media-type": "image/jpeg",
+            "uri": assetURL.absoluteString
+        ]
+
+        let result = ChatViewController.mapReferenceAttachments([image])
+
+        XCTAssertEqual(result.images.map(\.primary), ["asset-image"])
+        XCTAssertNil(result.images.first?.url)
     }
 
     func testMapReferenceAttachmentsKeepsSensitiveFlagWhenRevealedInCurrentSession() {
@@ -25141,7 +25190,9 @@ final class ComposerMentionsTests: XCTestCase {
         let effectView = try XCTUnwrap(composerEffectView(containing: inputView.textField))
 
         if #available(iOS 26.0, *) {
-            XCTAssertTrue(effectView.effect is UIGlassEffect)
+            let glassEffect = try XCTUnwrap(effectView.effect as? UIGlassEffect)
+            XCTAssertTrue(glassEffect.isInteractive)
+            XCTAssertEqual(glassEffect.tintColor, XabberGlassStyle.nativeGlassTintColor)
         } else {
             XCTAssertTrue(effectView.effect is UIBlurEffect)
         }
@@ -25407,7 +25458,7 @@ final class ComposerMentionsTests: XCTestCase {
         if #available(iOS 26.0, *) {
             let glassEffect = try XCTUnwrap(panel.surfaceView.effect as? UIGlassEffect)
             XCTAssertTrue(glassEffect.isInteractive)
-            XCTAssertEqual(glassEffect.tintColor, NativeGlassBarStyle.nativeGlassTintColor)
+            XCTAssertEqual(glassEffect.tintColor, XabberGlassStyle.nativeGlassTintColor)
         } else {
             XCTAssertTrue(panel.surfaceView.effect is UIBlurEffect)
         }
@@ -27763,35 +27814,48 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     private(set) var listCallCount = 0
     private(set) var avatarListCallCount = 0
     private(set) var deleteCallCount = 0
+    private let lock = NSRecursiveLock()
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
 
     func getStats(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        statsCallCount += 1
-        statsBaseURLs.append(baseURL)
-        statsTokens.append(token)
-        if statsResponses.isEmpty {
-            pendingStats.append(completion)
-        } else {
-            completion(statsResponses.removeFirst())
+        withLock {
+            statsCallCount += 1
+            statsBaseURLs.append(baseURL)
+            statsTokens.append(token)
+            if statsResponses.isEmpty {
+                pendingStats.append(completion)
+            } else {
+                completion(statsResponses.removeFirst())
+            }
         }
     }
 
     func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        slotCallCount += 1
-        slotBaseURLs.append(baseURL)
-        slotTokens.append(token)
-        completion(slotResponses.isEmpty ? .failure(statusCode: nil, error: nil) : slotResponses.removeFirst())
+        withLock {
+            slotCallCount += 1
+            slotBaseURLs.append(baseURL)
+            slotTokens.append(token)
+            completion(slotResponses.isEmpty ? .failure(statusCode: nil, error: nil) : slotResponses.removeFirst())
+        }
     }
 
     func uploadFile(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, metadata: [String : String]?, context: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        uploadCallCount += 1
-        uploadBaseURLs.append(baseURL)
-        uploadTokens.append(token)
-        uploadContexts.append(context)
-        uploadData.append(data)
-        let response = uploadResponses.isEmpty
-            ? defaultUploadResponse(data: data, filename: filename, context: context)
-            : uploadResponses.removeFirst()
-        completion(response)
+        withLock {
+            uploadCallCount += 1
+            uploadBaseURLs.append(baseURL)
+            uploadTokens.append(token)
+            uploadContexts.append(context)
+            uploadData.append(data)
+            let response = uploadResponses.isEmpty
+                ? defaultUploadResponse(data: data, filename: filename, context: context)
+                : uploadResponses.removeFirst()
+            completion(response)
+        }
     }
 
     private func defaultUploadResponse(data: Data, filename: String, context: String) -> CloudStorageQuotaAPIResponse {
@@ -27818,11 +27882,13 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     }
 
     func deleteMedia(baseURL: URL, token: String, fileID: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        deleteCallCount += 1
-        deleteBaseURLs.append(baseURL)
-        deleteTokens.append(token)
-        deleteFileIDs.append(fileID)
-        completion(deleteResponses.isEmpty ? .response(statusCode: 204, value: [:]) : deleteResponses.removeFirst())
+        withLock {
+            deleteCallCount += 1
+            deleteBaseURLs.append(baseURL)
+            deleteTokens.append(token)
+            deleteFileIDs.append(fileID)
+            completion(deleteResponses.isEmpty ? .response(statusCode: 204, value: [:]) : deleteResponses.removeFirst())
+        }
     }
 
     func deleteAvatar(baseURL: URL, token: String, fileID: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
@@ -27830,26 +27896,32 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     }
 
     func deleteGallery(baseURL: URL, token: String, jid: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        deleteCallCount += 1
-        deleteBaseURLs.append(baseURL)
-        deleteTokens.append(token)
-        completion(deleteResponses.isEmpty ? .response(statusCode: 204, value: [:]) : deleteResponses.removeFirst())
+        withLock {
+            deleteCallCount += 1
+            deleteBaseURLs.append(baseURL)
+            deleteTokens.append(token)
+            completion(deleteResponses.isEmpty ? .response(statusCode: 204, value: [:]) : deleteResponses.removeFirst())
+        }
     }
 
     func getFiles(baseURL: URL, token: String, type: MimeIconTypes, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        listCallCount += 1
-        listBaseURLs.append(baseURL)
-        listTokens.append(token)
-        listTypes.append(type)
-        listPages.append(page)
-        completion(listResponses.isEmpty ? .response(statusCode: 200, value: pagePayload()) : listResponses.removeFirst())
+        withLock {
+            listCallCount += 1
+            listBaseURLs.append(baseURL)
+            listTokens.append(token)
+            listTypes.append(type)
+            listPages.append(page)
+            completion(listResponses.isEmpty ? .response(statusCode: 200, value: pagePayload()) : listResponses.removeFirst())
+        }
     }
 
     func getAvatars(baseURL: URL, token: String, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        avatarListCallCount += 1
-        avatarListBaseURLs.append(baseURL)
-        avatarListTokens.append(token)
-        completion(avatarListResponses.isEmpty ? .response(statusCode: 200, value: pagePayload()) : avatarListResponses.removeFirst())
+        withLock {
+            avatarListCallCount += 1
+            avatarListBaseURLs.append(baseURL)
+            avatarListTokens.append(token)
+            completion(avatarListResponses.isEmpty ? .response(statusCode: 200, value: pagePayload()) : avatarListResponses.removeFirst())
+        }
     }
 
     func getFilesToDelete(baseURL: URL, token: String, percent: Int, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
@@ -27857,23 +27929,29 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     }
 
     func deleteMediaFor(baseURL: URL, token: String, percent: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        deleteCallCount += 1
-        deleteBaseURLs.append(baseURL)
-        deleteTokens.append(token)
-        completion(deleteResponses.isEmpty ? .response(statusCode: 204, value: [:]) : deleteResponses.removeFirst())
+        withLock {
+            deleteCallCount += 1
+            deleteBaseURLs.append(baseURL)
+            deleteTokens.append(token)
+            completion(deleteResponses.isEmpty ? .response(statusCode: 204, value: [:]) : deleteResponses.removeFirst())
+        }
     }
 
     func deleteMediaForAll(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        deleteCallCount += 1
-        deleteBaseURLs.append(baseURL)
-        deleteTokens.append(token)
-        completion(deleteResponses.isEmpty ? .response(statusCode: 204, value: [:]) : deleteResponses.removeFirst())
+        withLock {
+            deleteCallCount += 1
+            deleteBaseURLs.append(baseURL)
+            deleteTokens.append(token)
+            completion(deleteResponses.isEmpty ? .response(statusCode: 204, value: [:]) : deleteResponses.removeFirst())
+        }
     }
 
     func completeStats(_ response: CloudStorageQuotaAPIResponse) {
-        let callbacks = pendingStats
-        pendingStats.removeAll()
-        callbacks.forEach { $0(response) }
+        withLock {
+            let callbacks = pendingStats
+            pendingStats.removeAll()
+            callbacks.forEach { $0(response) }
+        }
     }
 
     private func pagePayload() -> [String: Any] {
@@ -27884,7 +27962,6 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
             "items": []
         ]
     }
-
 }
 
 private final class FakeCloudStorageTokenAPIClient: CloudStorageTokenAPIClient {
@@ -28197,7 +28274,7 @@ final class CloudStorageUpsellCardStateTests: XCTestCase {
 }
 
 final class CloudStorageQuotaRefreshTests: XCTestCase {
-    private let owner = "quota-alice@xabber.com"
+    private lazy var owner = "quota-\(UUID().uuidString)@xabber.com"
     private let basicGalleryURL = URL(string: "https://gallery.example/api/")!
     private let premiumGalleryURL = URL(string: "https://premium.example/api/")!
     private var fakeClient: FakeCloudStorageQuotaAPIClient!
@@ -28595,6 +28672,202 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(shouldContinue, false)
         XCTAssertEqual(fakeClient.slotCallCount, 1)
         XCTAssertEqual(fakeClient.statsCallCount, 1)
+    }
+
+    func testSlotTimeoutRetriesBeforeMediaUploadContinues() {
+        fakeClient.slotResponses = [
+            .failure(statusCode: nil, error: timeoutError()),
+            .failure(statusCode: nil, error: timeoutError()),
+            .response(statusCode: 200, value: [:])
+        ]
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "media upload")
+
+        manager.uploadMedia(data: Data("hello".utf8), filename: "hello.txt", mimeType: "text/plain") { response in
+            if case .response(let code, _) = response {
+                XCTAssertEqual(code, 200)
+            } else {
+                XCTFail("Expected upload to continue after slot retry")
+            }
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(fakeClient.slotCallCount, 3)
+        XCTAssertEqual(fakeClient.uploadCallCount, 1)
+    }
+
+    func testUploadTimeoutRetriesBeforeCompletion() {
+        fakeClient.slotResponses = [
+            .response(statusCode: 200, value: [:]),
+            .response(statusCode: 200, value: [:]),
+            .response(statusCode: 200, value: [:])
+        ]
+        fakeClient.uploadResponses = [
+            .failure(statusCode: nil, error: timeoutError()),
+            .failure(statusCode: nil, error: timeoutError()),
+            .response(statusCode: 200, value: uploadPayload(filename: "hello.txt"))
+        ]
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "media upload")
+
+        manager.uploadMedia(data: Data("hello".utf8), filename: "hello.txt", mimeType: "text/plain") { response in
+            if case .response(let code, _) = response {
+                XCTAssertEqual(code, 200)
+            } else {
+                XCTFail("Expected upload to succeed after timeout retry")
+            }
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(fakeClient.slotCallCount, 1)
+        XCTAssertEqual(fakeClient.uploadCallCount, 3)
+    }
+
+    func testPersistentUploadTimeoutLeavesRetryableFailedMessageWithoutAggregateSuccess() throws {
+        let firstURL = try makeTemporaryUploadFile(name: "first.jpg", contents: Data("first".utf8))
+        let secondURL = try makeTemporaryUploadFile(name: "second.jpg", contents: Data("second".utf8))
+        defer {
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+        let primary = try seedUploadingMediaMessage(localFileURLs: [firstURL, secondURL])
+        fakeClient.slotResponses = Array(
+            repeating: .response(statusCode: 200, value: [:]),
+            count: 4
+        )
+        fakeClient.uploadResponses = [
+            .response(statusCode: 200, value: uploadPayload(filename: firstURL.lastPathComponent)),
+            .failure(statusCode: nil, error: timeoutError()),
+            .failure(statusCode: nil, error: timeoutError()),
+            .failure(statusCode: nil, error: timeoutError())
+        ]
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "upload failure")
+        var successCount = 0
+        var failureCount = 0
+
+        manager.getFileData(message: primary, successCallback: {
+            successCount += 1
+        }, failCallback: {
+            failureCount += 1
+            expectation.fulfill()
+        })
+        wait(for: [expectation], timeout: 1)
+
+        let realm = try WRealm.safe()
+        let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+        XCTAssertEqual(successCount, 0)
+        XCTAssertEqual(failureCount, 1)
+        XCTAssertEqual(fakeClient.uploadCallCount, 4)
+        XCTAssertEqual(message.state, .error)
+        XCTAssertEqual(message.references.count, 2)
+        XCTAssertEqual(message.references.filter("isUploaded == true").count, 1)
+        XCTAssertEqual(message.references.filter("isUploaded == false").count, 1)
+        XCTAssertTrue(message.references.allSatisfy(\.hasError))
+        XCTAssertEqual(message.references.compactMap(\.localFileUrl).count, 2)
+        XCTAssertNotNil(message.messageError)
+    }
+
+    func testRecoveredUploadTimeoutUploadsEntireBatchBeforeAggregateSuccess() throws {
+        let firstURL = try makeTemporaryUploadFile(name: "first-success.jpg", contents: Data("first".utf8))
+        let secondURL = try makeTemporaryUploadFile(name: "second-retry.jpg", contents: Data("second".utf8))
+        defer {
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+        let primary = try seedUploadingMediaMessage(localFileURLs: [firstURL, secondURL])
+        fakeClient.slotResponses = Array(
+            repeating: .response(statusCode: 200, value: [:]),
+            count: 2
+        )
+        fakeClient.uploadResponses = [
+            .response(statusCode: 200, value: uploadPayload(filename: firstURL.lastPathComponent)),
+            .failure(statusCode: nil, error: timeoutError()),
+            .response(statusCode: 200, value: uploadPayload(filename: secondURL.lastPathComponent))
+        ]
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "upload success")
+        var successCount = 0
+        var failureCount = 0
+
+        manager.getFileData(message: primary, successCallback: {
+            successCount += 1
+            expectation.fulfill()
+        }, failCallback: {
+            failureCount += 1
+        })
+        wait(for: [expectation], timeout: 1)
+
+        let realm = try WRealm.safe()
+        let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+        XCTAssertEqual(successCount, 1)
+        XCTAssertEqual(failureCount, 0)
+        XCTAssertEqual(fakeClient.slotCallCount, 2)
+        XCTAssertEqual(fakeClient.uploadCallCount, 3)
+        XCTAssertEqual(message.references.count, 2)
+        XCTAssertEqual(message.references.filter("isUploaded == true").count, 2)
+        XCTAssertTrue(message.references.allSatisfy { $0.downloadUrl != nil })
+        XCTAssertNil(message.messageError)
+    }
+
+    func testRetryAfterPersistentUploadTimeoutClearsVisibleUploadErrorState() throws {
+        let firstURL = try makeTemporaryUploadFile(name: "first-clears-error.jpg", contents: Data("first".utf8))
+        let secondURL = try makeTemporaryUploadFile(name: "second-clears-error.jpg", contents: Data("second".utf8))
+        defer {
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+        let primary = try seedUploadingMediaMessage(localFileURLs: [firstURL, secondURL])
+        fakeClient.slotResponses = Array(
+            repeating: .response(statusCode: 200, value: [:]),
+            count: 4
+        )
+        fakeClient.uploadResponses = [
+            .response(statusCode: 200, value: uploadPayload(filename: firstURL.lastPathComponent)),
+            .failure(statusCode: nil, error: timeoutError()),
+            .failure(statusCode: nil, error: timeoutError()),
+            .failure(statusCode: nil, error: timeoutError())
+        ]
+        let manager = XabberUploadManager(withOwner: owner)
+        let firstFailure = expectation(description: "initial upload failure")
+
+        manager.getFileData(message: primary, successCallback: {
+            XCTFail("Initial upload should fail after exhausted retries")
+        }, failCallback: {
+            firstFailure.fulfill()
+        })
+        wait(for: [firstFailure], timeout: 1)
+
+        var realm = try WRealm.safe()
+        var message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+        XCTAssertEqual(message.state, .error)
+        XCTAssertNotNil(message.messageError)
+        XCTAssertEqual(message.messageErrorCode, "500")
+        XCTAssertTrue(message.references.allSatisfy(\.hasError))
+
+        fakeClient.slotResponses = [
+            .response(statusCode: 200, value: [:])
+        ]
+        fakeClient.uploadResponses = [
+            .response(statusCode: 200, value: uploadPayload(filename: secondURL.lastPathComponent))
+        ]
+        let retrySuccess = expectation(description: "retry upload success")
+
+        manager.getFileData(message: primary, successCallback: {
+            retrySuccess.fulfill()
+        }, failCallback: {
+            XCTFail("Retry should upload the remaining reference")
+        })
+        wait(for: [retrySuccess], timeout: 1)
+
+        realm = try WRealm.safe()
+        message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+        XCTAssertEqual(message.references.filter("isUploaded == true").count, 2)
+        XCTAssertNil(message.messageError)
+        XCTAssertNil(message.messageErrorCode)
+        XCTAssertFalse(message.references.contains(where: \.hasError))
     }
 
     func testQuotaRefreshUsesOnlyStatsEndpointForSelectedPremiumGallery() throws {
@@ -29008,6 +29281,59 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         try! realm.write {
             realm.add(item, update: .modified)
         }
+    }
+
+    private func seedUploadingMediaMessage(localFileURLs: [URL]) throws -> String {
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        let references = localFileURLs.map { localURL in
+            let reference = MessageReferenceStorageItem()
+            reference.kind = .media
+            reference.mimeType = "image/jpeg"
+            reference.metadata = [
+                "filename": localURL.lastPathComponent,
+                "name": localURL.lastPathComponent,
+                "size": 32,
+                "media-type": "image/jpeg",
+                "uri": localURL.absoluteString
+            ]
+            reference.localFileUrl = localURL
+            reference.conversationType = .regular
+            return reference
+        }
+        return try XCTUnwrap(
+            manager.willSendMediaMessage(
+                references,
+                to: "quota-bob@xabber.com",
+                forwarded: [],
+                conversationType: .regular,
+                body: "Caption",
+                legacyBody: "Caption"
+            )
+        )
+    }
+
+    private func makeTemporaryUploadFile(name: String, contents: Data) throws -> URL {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("CloudStorageQuotaRefreshTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent(name)
+        try contents.write(to: fileURL)
+        return fileURL
+    }
+
+    private func timeoutError() -> NSError {
+        NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
+    }
+
+    private func uploadPayload(filename: String) -> [String: Any] {
+        [
+            "file": "https://gallery.example/\(filename)",
+            "name": filename,
+            "hash": "hash-\(filename)",
+            "quota": 3000,
+            "used": 128,
+            "id": 7
+        ]
     }
 
     private func statsPayload(quota: Int, totalUsed: Int, imagesUsed: Int = 0) -> [String: Any] {
@@ -31704,13 +32030,14 @@ final class AudioPlayerBarViewTests: XCTestCase {
         if #available(iOS 26.0, *) {
             let glassEffect = try XCTUnwrap(effect as? UIGlassEffect)
             XCTAssertTrue(glassEffect.isInteractive)
+            XCTAssertEqual(glassEffect.tintColor, XabberGlassStyle.nativeGlassTintColor)
         } else {
             XCTAssertTrue(effect is UIBlurEffect)
         }
     }
 
     func testFallbackEffectUsesSystemMaterialBlur() {
-        XCTAssertEqual(AudioPlayerBarEffectFactory.fallbackBlurStyle, .systemMaterial)
+        XCTAssertEqual(AudioPlayerBarEffectFactory.fallbackBlurStyle, XabberGlassStyle.fallbackBlurStyle(for: .audioPlayer))
         XCTAssertTrue(AudioPlayerBarEffectFactory.makeEffect(prefersNativeGlass: false) is UIBlurEffect)
     }
 
@@ -31724,6 +32051,9 @@ final class AudioPlayerBarViewTests: XCTestCase {
         XCTAssertTrue(view.closeButton.superview === view.effectView.contentView)
         XCTAssertFalse(view.containsDescendant(ofType: UISlider.self))
         XCTAssertFalse(view.containsDescendant(ofType: UIProgressView.self))
+        XCTAssertEqual(view.effectView.layer.borderWidth, 0, accuracy: 0.001)
+        XCTAssertNil(view.effectView.layer.borderColor)
+        XCTAssertEqual(view.effectView.layer.shadowOpacity, 0, accuracy: 0.001)
     }
 
     func testButtonsUseSharedIconOnlyStyle() {

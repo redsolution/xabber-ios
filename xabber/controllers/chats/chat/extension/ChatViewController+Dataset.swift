@@ -3653,7 +3653,7 @@ extension ChatViewController {
             case .image:
                 images.append(ImageAttachment(
                     primary: item.primary,
-                    url: item.downloadUrl ?? item.videoPreviewUrl,
+                    url: Self.imageDisplayURL(for: item),
                     size: item.sizeInPx ?? CGSize(square: 128),
                     isSensitive: item.isSensitive,
                     isSensitiveRevealed: revealedSensitiveMediaPrimaries.contains(item.primary)
@@ -3679,6 +3679,17 @@ extension ChatViewController {
         }
 
         return (images, videos, audio, files)
+    }
+
+    private static func imageDisplayURL(for reference: MessageReferenceStorageItem) -> URL? {
+        if let downloadUrl = reference.downloadUrl {
+            return downloadUrl
+        }
+        if let localFileUrl = reference.localFileUrl,
+           localFileUrl.isFileURL {
+            return localFileUrl
+        }
+        return reference.videoPreviewUrl
     }
     
     internal func willUpdateFloatingDate() {

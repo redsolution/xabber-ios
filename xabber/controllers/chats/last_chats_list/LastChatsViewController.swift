@@ -138,17 +138,16 @@ protocol SharedAudioPlayerPanelDelegate {
 }
 
 enum AudioPlayerBarEffectFactory {
-    static let fallbackBlurStyle: UIBlurEffect.Style = .systemMaterial
+    static var fallbackBlurStyle: UIBlurEffect.Style {
+        XabberGlassStyle.fallbackBlurStyle(for: .audioPlayer)
+    }
 
     static func makeEffect(prefersNativeGlass: Bool = true) -> UIVisualEffect {
-        if prefersNativeGlass, #available(iOS 26.0, *) {
-            let effect = UIGlassEffect(style: .regular)
-            effect.isInteractive = true
-            effect.tintColor = UIColor.systemBackground.withAlphaComponent(0.16)
-            return effect
-        }
-
-        return UIBlurEffect(style: fallbackBlurStyle)
+        XabberGlassStyle.makeEffect(
+            role: .audioPlayer,
+            interactive: true,
+            prefersNativeGlass: prefersNativeGlass
+        )
     }
 }
 
@@ -224,17 +223,12 @@ final class AudioPlayerBarView: UIView {
     let effectView: UIVisualEffectView = {
         let view = UIVisualEffectView(effect: AudioPlayerBarEffectFactory.makeEffect())
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.backgroundColor = .clear
-        view.isOpaque = false
-        view.clipsToBounds = true
-        if #available(iOS 26.0, *) {
-            view.cornerConfiguration = .capsule()
-        } else {
-            view.layer.cornerRadius = Metrics.height / 2
-            view.layer.cornerCurve = .continuous
-        }
-        view.layer.borderWidth = 1.0 / UIScreen.main.scale
-        view.layer.borderColor = UIColor.separator.withAlphaComponent(0.32).cgColor
+        XabberGlassStyle.applySurface(
+            to: view,
+            role: .audioPlayer,
+            cornerStyle: .capsule,
+            interactive: true
+        )
         return view
     }()
 

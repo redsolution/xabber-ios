@@ -428,7 +428,7 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
         rootView.addSubview(filesTableView)
 
         NSLayoutConstraint.activate([
-            chooseFilesButton.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 12),
+            chooseFilesButton.topAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.topAnchor, constant: 12),
             chooseFilesButton.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 16),
             chooseFilesButton.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -16),
             chooseFilesButton.heightAnchor.constraint(equalToConstant: 44),

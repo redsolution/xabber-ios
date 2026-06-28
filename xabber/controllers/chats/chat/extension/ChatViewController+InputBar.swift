@@ -116,9 +116,9 @@ extension ChatViewController {
                 owner: self.owner,
                 jid: self.jid,
                 conversationType: self.conversationType,
-                forwardedMessageIds: self.attachedMessagesIds.value
-            ),
-            sheetAnchorProvider: self
+                forwardedMessageIds: self.attachedMessagesIds.value,
+                composerTintColor: self.accountPallete.tint600
+            )
         )
         coordinator.delegate = self
         self.chatAttachmentFlowCoordinator = coordinator
@@ -245,16 +245,5 @@ extension ChatViewController: ChatAttachmentFlowCoordinatorDelegate {
         }
 
         chatAttachmentFlowCoordinator = nil
-    }
-}
-
-extension ChatViewController: ChatAttachmentSheetAnchorProviding {
-    func chatAttachmentSheetComposerTopY(in containerView: UIView) -> CGFloat? {
-        guard let inputView = self.xabberInputView,
-              let inputSuperview = inputView.superview else {
-            return nil
-        }
-
-        return inputSuperview.convert(inputView.frame, to: containerView).minY
     }
 }

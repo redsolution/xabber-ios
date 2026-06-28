@@ -74,13 +74,13 @@ class ModernXabberInputView: UIView {
     }
 
     private static func makeGlassEffect(
+        role: XabberGlassStyle.SurfaceRole = .bar,
         interactive: Bool = false,
-        tintAlpha: CGFloat = 0.16,
-        fallbackStyle: UIBlurEffect.Style = .systemMaterial,
         prefersNativeGlass: Bool = true,
-        nativeGlassStyle: NativeGlassBarStyle.GlassEffectStyle = .regular
+        nativeGlassStyle: XabberGlassStyle.GlassEffectStyle? = nil
     ) -> UIVisualEffect {
-        NativeGlassBarStyle.makeEffect(
+        XabberGlassStyle.makeEffect(
+            role: role,
             interactive: interactive,
             prefersNativeGlass: prefersNativeGlass,
             nativeGlassStyle: nativeGlassStyle
@@ -88,17 +88,15 @@ class ModernXabberInputView: UIView {
     }
 
     private static func makeGlassEffectView(
+        role: XabberGlassStyle.SurfaceRole = .bar,
         interactive: Bool = false,
-        tintAlpha: CGFloat = 0.16,
-        fallbackStyle: UIBlurEffect.Style = .systemMaterial,
         prefersNativeGlass: Bool = true,
-        nativeGlassStyle: NativeGlassBarStyle.GlassEffectStyle = .regular
+        nativeGlassStyle: XabberGlassStyle.GlassEffectStyle? = nil
     ) -> UIVisualEffectView {
         let view = UIVisualEffectView(
             effect: makeGlassEffect(
+                role: role,
                 interactive: interactive,
-                tintAlpha: tintAlpha,
-                fallbackStyle: fallbackStyle,
                 prefersNativeGlass: prefersNativeGlass,
                 nativeGlassStyle: nativeGlassStyle
             )
@@ -110,11 +108,11 @@ class ModernXabberInputView: UIView {
     }
 
     private static func applyToolbarGlassLayer(to view: UIVisualEffectView) {
-        NativeGlassBarStyle.applySurface(
+        XabberGlassStyle.applySurface(
             to: view,
+            role: .clearInputSurface,
             cornerStyle: .fixed(LiquidGlassMetrics.composerCornerRadius),
-            interactive: true,
-            nativeGlassStyle: .clear
+            interactive: true
         )
     }
 
@@ -1609,8 +1607,8 @@ class ModernXabberInputView: UIView {
 
     private let mainInputGlassView: UIVisualEffectView = {
         let view = ModernXabberInputView.makeGlassEffectView(
-            interactive: true,
-            fallbackStyle: .systemMaterial
+            role: .clearInputSurface,
+            interactive: true
         )
         ModernXabberInputView.applyToolbarGlassLayer(to: view)
         return view
@@ -1656,7 +1654,6 @@ class ModernXabberInputView: UIView {
         private let pulseEffectView: UIVisualEffectView = {
             let view = ModernXabberInputView.makeGlassEffectView(
                 interactive: false,
-                fallbackStyle: .systemMaterial,
                 prefersNativeGlass: true
             )
 

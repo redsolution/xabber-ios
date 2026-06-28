@@ -53,7 +53,7 @@ enum ChatAttachmentGeolocationSourceAvailabilityPolicy {
         isLocationServicesEnabled: Bool
     ) -> ChatAttachmentSourceAvailability {
         guard isWireContractEnabled else {
-            return .hidden
+            return .disabled
         }
 
         return isLocationServicesEnabled ? .available : .disabled
@@ -70,8 +70,10 @@ enum ChatAttachmentGeolocationSourceAvailabilityPolicy {
                 .geolocation: availability(
                     isWireContractEnabled: isWireContractEnabled,
                     isLocationServicesEnabled: isLocationServicesEnabled
-                )
-            ]
+                ),
+                .contact: .disabled
+            ],
+            orderedSources: [.gallery, .file, .geolocation, .contact]
         )
     }
 }
