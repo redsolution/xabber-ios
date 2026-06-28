@@ -84,6 +84,48 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         XCTAssertTrue(sender.requests.isEmpty)
     }
 
+    func testAllCloudStorageFileDraftsSkipAvailabilityQuotaAndPostSendRefresh() throws {
+        let refresher = FakeTask18QuotaRefresher()
+        let sender = FakeTask18MediaMessageSender()
+        let pipeline = makePipeline(
+            isCloudStorageAvailable: false,
+            quotaRefresher: refresher,
+            quotaAccessProvider: FakeTask18QuotaAccessProvider(accesses: [.premiumRequired]),
+            sender: sender
+        )
+
+        let result = sendSynchronously(
+            pipeline: pipeline,
+            drafts: [cloudFileDraft(id: 7, filename: "report.pdf")]
+        )
+
+        XCTAssertEqual(result, .sent(referenceCount: 1))
+        XCTAssertEqual(refresher.refreshCallCount, 0)
+        let request = try XCTUnwrap(sender.requests.first)
+        XCTAssertEqual(sender.requests.count, 1)
+        XCTAssertTrue(try XCTUnwrap(request.references.first).isUploaded)
+        XCTAssertEqual(request.references.first?.downloadUrl?.absoluteString, "https://gallery.example/files/report.pdf")
+    }
+
+    func testMixedLocalAndCloudDraftsKeepCloudStorageAvailabilityGate() {
+        let sender = FakeTask18MediaMessageSender()
+        let pipeline = makePipeline(
+            isCloudStorageAvailable: false,
+            sender: sender
+        )
+
+        let result = sendSynchronously(
+            pipeline: pipeline,
+            drafts: [
+                cloudFileDraft(id: 7, filename: "report.pdf"),
+                preparedDraft(id: "file:local", filename: "local.pdf", mediaKind: .file, mediaType: "application/pdf")
+            ]
+        )
+
+        XCTAssertEqual(result, .blocked(.cloudStorageUnavailable))
+        XCTAssertTrue(sender.requests.isEmpty)
+    }
+
     func testQuotaAvailableStatesAllowSend() {
         let states: [MediaUploadQuotaPolicy.Access] = [
             MediaUploadQuotaPolicy.access(
@@ -351,6 +393,19 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
             byteSize: 32,
             state: .prepared(preparedFile)
         )
+    }
+
+    private func cloudFileDraft(id: Int, filename: String) -> AttachmentDraft {
+        ChatAttachmentCloudStorageFile(
+            id: id,
+            remoteURL: URL(string: "https://gallery.example/files/\(filename)")!,
+            filename: filename,
+            byteSize: 32,
+            mediaType: "application/pdf",
+            hash: "hash-\(id)",
+            createdAt: nil,
+            metadata: nil
+        ).makeAttachmentDraft()
     }
 
     private func draft(

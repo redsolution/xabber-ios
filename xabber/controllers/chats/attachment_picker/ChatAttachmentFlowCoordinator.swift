@@ -383,6 +383,7 @@ final class DefaultChatAttachmentSourceControllerFactory: ChatAttachmentSourceCo
             return ChatAttachmentGallerySourceViewController()
         case .file:
             return ChatAttachmentFileSourceViewController(
+                owner: context.owner,
                 fileDraftBuilder: ChatAttachmentFileDraftBuilder(
                     maximumFileSize: ChatAttachmentFileUploadLimitProvider.maxUploadFileSize(owner: context.owner)
                 )

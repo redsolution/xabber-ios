@@ -28870,6 +28870,27 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertFalse(message.references.contains(where: \.hasError))
     }
 
+    func testAlreadyUploadedMediaReferencesSkipGalleryUpload() throws {
+        let primary = try seedUploadingMediaMessageWithAlreadyUploadedReference()
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "already uploaded reference completes")
+        var successCount = 0
+        var failureCount = 0
+
+        manager.getFileData(message: primary, successCallback: {
+            successCount += 1
+            expectation.fulfill()
+        }, failCallback: {
+            failureCount += 1
+        })
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(successCount, 1)
+        XCTAssertEqual(failureCount, 0)
+        XCTAssertEqual(fakeClient.slotCallCount, 0)
+        XCTAssertEqual(fakeClient.uploadCallCount, 0)
+    }
+
     func testQuotaRefreshUsesOnlyStatsEndpointForSelectedPremiumGallery() throws {
         let configuration = AccountGalleryConfiguration(owner: owner)
         configuration.reconcilePremiumGalleryAvailability(
@@ -29303,6 +29324,35 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         return try XCTUnwrap(
             manager.willSendMediaMessage(
                 references,
+                to: "quota-bob@xabber.com",
+                forwarded: [],
+                conversationType: .regular,
+                body: "Caption",
+                legacyBody: "Caption"
+            )
+        )
+    }
+
+    private func seedUploadingMediaMessageWithAlreadyUploadedReference() throws -> String {
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .media
+        reference.mimeType = "file"
+        reference.metadata = [
+            "filename": "remote.pdf",
+            "name": "remote.pdf",
+            "size": 32,
+            "media-type": "application/pdf",
+            "uri": "https://gallery.example/files/remote.pdf",
+            "fileID": 42,
+            "hash": "remote-hash"
+        ]
+        reference.downloadUrl = URL(string: "https://gallery.example/files/remote.pdf")!
+        reference.isUploaded = true
+        reference.conversationType = .regular
+        return try XCTUnwrap(
+            manager.willSendMediaMessage(
+                [reference],
                 to: "quota-bob@xabber.com",
                 forwarded: [],
                 conversationType: .regular,

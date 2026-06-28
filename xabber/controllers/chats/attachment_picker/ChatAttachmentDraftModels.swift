@@ -59,6 +59,15 @@ struct AttachmentPreparedFile: Equatable {
     let videoDurationLabel: String?
     let videoPreviewLocalURL: URL?
     let temporaryData: Data?
+    var uploadedRemoteFile: AttachmentUploadedRemoteFile? = nil
+}
+
+struct AttachmentUploadedRemoteFile: Equatable {
+    let remoteURL: URL
+    let fileID: Int
+    let hash: String?
+    let createdAt: Date?
+    let metadata: [String: String]?
 }
 
 enum AttachmentPreparationState: Equatable {
@@ -79,6 +88,20 @@ struct AttachmentDraft: Equatable, Identifiable {
     var dimensions: CGSize?
     var preparationState: AttachmentPreparationState
     var originalDraftID: String? = nil
+}
+
+extension AttachmentDraft {
+    var uploadedRemoteFile: AttachmentUploadedRemoteFile? {
+        guard case .prepared(let file) = preparationState else {
+            return nil
+        }
+
+        return file.uploadedRemoteFile
+    }
+
+    var requiresUpload: Bool {
+        uploadedRemoteFile == nil
+    }
 }
 
 enum ChatAttachmentReferenceBuilderError: Error, Equatable {
@@ -119,13 +142,24 @@ struct ChatAttachmentReferenceBuilder {
         reference.mimeType = MimeIcon(preparedFile.mediaType).value.rawValue
         reference.temporaryData = preparedFile.temporaryData
 
+        let uploadedRemoteFile = preparedFile.uploadedRemoteFile
         var metadata: [String: Any] = [
             "filename": preparedFile.filename,
             "size": preparedFile.byteSize,
             "media-type": preparedFile.mediaType,
-            "uri": preparedFile.referenceURL.absoluteString,
+            "uri": uploadedRemoteFile?.remoteURL.absoluteString ?? preparedFile.referenceURL.absoluteString,
             "name": displayName(for: draft.mediaKind, filename: preparedFile.filename)
         ]
+
+        if let uploadedRemoteFile {
+            metadata["fileID"] = uploadedRemoteFile.fileID
+            if let hash = uploadedRemoteFile.hash {
+                metadata["hash"] = hash
+            }
+            uploadedRemoteFile.metadata?.forEach { key, value in
+                metadata[key] = value
+            }
+        }
 
         if let dimensions = preparedFile.dimensions ?? draft.dimensions {
             metadata["width"] = Self.roundedPixelValue(dimensions.width)
@@ -158,7 +192,12 @@ struct ChatAttachmentReferenceBuilder {
         }
 
         reference.metadata = metadata
-        reference.localFileUrl = preparedFile.localFileURL
+        if let uploadedRemoteFile {
+            reference.downloadUrl = uploadedRemoteFile.remoteURL
+            reference.isUploaded = true
+        } else {
+            reference.localFileUrl = preparedFile.localFileURL
+        }
         reference.primary = UUID().uuidString
 
         return reference

@@ -333,6 +333,265 @@ enum ChatAttachmentFileImportFailure: Equatable {
     }
 }
 
+struct AttachmentCloudStorageFileDraft: Equatable, Hashable {
+    let fileID: Int
+
+    var id: String {
+        "cloud-file:\(fileID)"
+    }
+
+    static func fileID(from id: String) -> Int? {
+        let prefix = "cloud-file:"
+        guard id.hasPrefix(prefix) else {
+            return nil
+        }
+
+        return Int(id.dropFirst(prefix.count))
+    }
+}
+
+struct ChatAttachmentCloudStorageFile: Equatable {
+    let id: Int
+    let remoteURL: URL
+    let filename: String
+    let byteSize: Int
+    let mediaType: String
+    let hash: String?
+    let createdAt: Date?
+    let metadata: [String: String]?
+
+    init(
+        id: Int,
+        remoteURL: URL,
+        filename: String,
+        byteSize: Int,
+        mediaType: String,
+        hash: String?,
+        createdAt: Date?,
+        metadata: [String: String]?
+    ) {
+        self.id = id
+        self.remoteURL = remoteURL
+        self.filename = filename
+        self.byteSize = byteSize
+        self.mediaType = mediaType
+        self.hash = hash
+        self.createdAt = createdAt
+        self.metadata = metadata
+    }
+
+    init?(payload: NSDictionary) {
+        guard let id = Self.int(from: payload["id"]),
+              let remoteURLString = payload["file"] as? String,
+              let remoteURL = URL(string: remoteURLString),
+              let filename = payload["name"] as? String,
+              !filename.isEmpty,
+              let byteSize = Self.int(from: payload["size"]) else {
+            return nil
+        }
+
+        self.id = id
+        self.remoteURL = remoteURL
+        self.filename = filename
+        self.byteSize = byteSize
+        self.mediaType = Self.normalizedMediaType(payload["media_type"] as? String)
+        self.hash = payload["hash"] as? String
+        self.createdAt = (payload["created_at"] as? String).flatMap(Self.date(from:))
+        self.metadata = Self.stringMetadata(from: payload["metadata"])
+    }
+
+    func makeAttachmentDraft() -> AttachmentDraft {
+        let uploadedRemoteFile = AttachmentUploadedRemoteFile(
+            remoteURL: remoteURL,
+            fileID: id,
+            hash: hash,
+            createdAt: createdAt,
+            metadata: metadata
+        )
+        let preparedFile = AttachmentPreparedFile(
+            localFileURL: remoteURL,
+            referenceURL: remoteURL,
+            filename: filename,
+            byteSize: byteSize,
+            mediaType: mediaType,
+            dimensions: nil,
+            duration: nil,
+            videoPreviewKey: nil,
+            videoOrientation: nil,
+            videoDurationLabel: nil,
+            videoPreviewLocalURL: nil,
+            temporaryData: nil,
+            uploadedRemoteFile: uploadedRemoteFile
+        )
+
+        return AttachmentDraft(
+            id: AttachmentCloudStorageFileDraft(fileID: id).id,
+            source: .file,
+            mediaKind: Self.mediaKind(for: mediaType),
+            thumbnailState: .none,
+            filename: filename,
+            byteSize: byteSize,
+            duration: nil,
+            dimensions: nil,
+            preparationState: .prepared(preparedFile)
+        )
+    }
+
+    var mediaKind: AttachmentMediaKind {
+        Self.mediaKind(for: mediaType)
+    }
+
+    private static func normalizedMediaType(_ value: String?) -> String {
+        guard let value,
+              !value.isEmpty else {
+            return "application/octet-stream"
+        }
+
+        if let separatorIndex = value.firstIndex(of: ";") {
+            return String(value[..<separatorIndex])
+        }
+
+        return value
+    }
+
+    private static func mediaKind(for mediaType: String) -> AttachmentMediaKind {
+        if mediaType == "image/gif" {
+            return .animatedImage
+        }
+
+        switch MimeIcon(mediaType).value {
+        case .image:
+            return .image
+        case .video:
+            return .video
+        case .audio:
+            return .audio
+        case .document, .pdf, .table, .presentation, .archive, .file, .avatar:
+            return .file
+        }
+    }
+
+    private static func int(from value: Any?) -> Int? {
+        if let int = value as? Int {
+            return int
+        }
+        if let number = value as? NSNumber {
+            return number.intValue
+        }
+        if let string = value as? String {
+            return Int(string)
+        }
+        return nil
+    }
+
+    private static func stringMetadata(from value: Any?) -> [String: String]? {
+        let dictionary: NSDictionary?
+        if let value = value as? NSDictionary {
+            dictionary = value
+        } else if let value = value as? [String: Any] {
+            dictionary = value as NSDictionary
+        } else {
+            dictionary = nil
+        }
+
+        guard let dictionary else {
+            return nil
+        }
+
+        var metadata: [String: String] = [:]
+        dictionary.forEach { key, value in
+            guard let key = key as? String else {
+                return
+            }
+            if let value = value as? String {
+                metadata[key] = value
+            } else if let value = value as? NSNumber {
+                metadata[key] = value.stringValue
+            }
+        }
+        return metadata.isEmpty ? nil : metadata
+    }
+
+    private static func date(from value: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+        if let date = formatter.date(from: value) {
+            return date
+        }
+
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
+        return formatter.date(from: value)
+    }
+}
+
+struct ChatAttachmentCloudStorageFileListing: Equatable {
+    let files: [ChatAttachmentCloudStorageFile]
+    let totalObjects: Int
+    let objPerPage: Int
+    let totalPages: Int
+    let page: Int
+
+    static func make(
+        items: [NSDictionary],
+        totalObjects: Int,
+        objPerPage: Int,
+        totalPages: Int,
+        page: Int
+    ) -> ChatAttachmentCloudStorageFileListing {
+        ChatAttachmentCloudStorageFileListing(
+            files: items.compactMap(ChatAttachmentCloudStorageFile.init(payload:)),
+            totalObjects: totalObjects,
+            objPerPage: objPerPage,
+            totalPages: max(totalPages, 1),
+            page: page
+        )
+    }
+}
+
+protocol ChatAttachmentCloudStorageFileListingProviding: AnyObject {
+    func loadCloudStorageFiles(
+        owner: String,
+        page: Int,
+        completion: @escaping (Result<ChatAttachmentCloudStorageFileListing, Error>) -> Void
+    )
+}
+
+enum ChatAttachmentCloudStorageFileListingError: Error {
+    case unavailable
+}
+
+final class AccountChatAttachmentCloudStorageFileListingProvider: ChatAttachmentCloudStorageFileListingProviding {
+    func loadCloudStorageFiles(
+        owner: String,
+        page: Int,
+        completion: @escaping (Result<ChatAttachmentCloudStorageFileListing, Error>) -> Void
+    ) {
+        guard let account = AccountManager.shared.find(for: owner) else {
+            completion(.failure(ChatAttachmentCloudStorageFileListingError.unavailable))
+            return
+        }
+
+        account.action { user, _ in
+            user.cloudStorage.getFilesOfType(type: .file, page: page) { items, totalObjects, objPerPage, totalPages in
+                DispatchQueue.main.async {
+                    completion(
+                        .success(
+                            ChatAttachmentCloudStorageFileListing.make(
+                                items: items,
+                                totalObjects: totalObjects,
+                                objPerPage: objPerPage,
+                                totalPages: totalPages,
+                                page: page
+                            )
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
 final class ChatAttachmentFileSourceViewController: UIViewController,
     ChatAttachmentSourceControlling,
     ChatAttachmentDraftSelectionProviding,
@@ -349,12 +608,25 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
     let emptyStateLabel = UILabel()
     let errorMessageLabel = UILabel()
 
+    private enum FileTableSection {
+        case selectedLocalFiles
+        case cloudFiles
+    }
+
+    private let owner: String?
     private let documentPickerPresenter: ChatAttachmentDocumentPickerPresenting
     private let fileDraftBuilder: ChatAttachmentFileDraftBuilding
+    private let cloudStorageFileProvider: ChatAttachmentCloudStorageFileListingProviding?
     private let maximumSelectedDraftCount: Int
     private(set) var selectedDrafts: [AttachmentDraft] = []
     private(set) var lastImportFailures: [ChatAttachmentFileImportFailure] = []
     private(set) var isImportingDocuments = false
+    private(set) var cloudStorageFiles: [ChatAttachmentCloudStorageFile] = []
+    private(set) var isLoadingCloudStorageFiles = false
+    private(set) var hasLoadedCloudStorageFiles = false
+    private var cloudStorageCurrentPage = 0
+    private var cloudStorageTotalPages = 1
+    private var cloudStorageLoadFailed = false
 
     var viewController: UIViewController {
         self
@@ -368,13 +640,45 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
         selectedDrafts.filter { $0.source == .file }
     }
 
+    private var localFileDrafts: [AttachmentDraft] {
+        fileDrafts.filter { $0.uploadedRemoteFile == nil }
+    }
+
+    private var visibleSections: [FileTableSection] {
+        var sections: [FileTableSection] = []
+        if !localFileDrafts.isEmpty {
+            sections.append(.selectedLocalFiles)
+        }
+        if shouldShowCloudFilesSection {
+            sections.append(.cloudFiles)
+        }
+        return sections
+    }
+
+    private var shouldShowCloudFilesSection: Bool {
+        owner != nil
+            || !cloudStorageFiles.isEmpty
+            || isLoadingCloudStorageFiles
+            || cloudStorageLoadFailed
+    }
+
     init(
+        owner: String? = nil,
         documentPickerPresenter: ChatAttachmentDocumentPickerPresenting = UIDocumentChatAttachmentDocumentPickerPresenter(),
         fileDraftBuilder: ChatAttachmentFileDraftBuilding = ChatAttachmentFileDraftBuilder(),
+        cloudStorageFileProvider: ChatAttachmentCloudStorageFileListingProviding? = nil,
         maximumSelectedDraftCount: Int = 10
     ) {
+        self.owner = owner
         self.documentPickerPresenter = documentPickerPresenter
         self.fileDraftBuilder = fileDraftBuilder
+        if let cloudStorageFileProvider {
+            self.cloudStorageFileProvider = cloudStorageFileProvider
+        } else if owner != nil {
+            self.cloudStorageFileProvider = AccountChatAttachmentCloudStorageFileListingProvider()
+        } else {
+            self.cloudStorageFileProvider = nil
+        }
         self.maximumSelectedDraftCount = maximumSelectedDraftCount
         super.init(nibName: nil, bundle: nil)
     }
@@ -453,6 +757,7 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        loadInitialCloudStorageFilesIfNeeded()
         renderState()
     }
 
@@ -500,8 +805,21 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
         return selectedDrafts
     }
 
+    func numberOfSections(in tableView: UITableView) -> Int {
+        visibleSections.count
+    }
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        fileDrafts.count
+        guard visibleSections.indices.contains(section) else {
+            return 0
+        }
+
+        switch visibleSections[section] {
+        case .selectedLocalFiles:
+            return localFileDrafts.count
+        case .cloudFiles:
+            return cloudStorageFiles.count
+        }
     }
 
     func tableView(
@@ -510,16 +828,71 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
     ) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "ChatAttachmentFileCell")
             ?? UITableViewCell(style: .subtitle, reuseIdentifier: "ChatAttachmentFileCell")
-        let draft = fileDrafts[indexPath.row]
-        var content = cell.defaultContentConfiguration()
-        content.text = draft.filename
-        content.secondaryText = AccountQuotaStorageItem.beautify(size: draft.byteSize)
-        content.image = UIImage(systemName: iconName(for: draft))
-        cell.contentConfiguration = content
-        cell.accessibilityIdentifier = "chatAttachmentFile.cell.\(indexPath.row)"
-        cell.accessibilityLabel = [draft.filename, AccountQuotaStorageItem.beautify(size: draft.byteSize)]
-            .joined(separator: ", ")
+        cell.accessoryType = .none
+
+        guard visibleSections.indices.contains(indexPath.section) else {
+            cell.contentConfiguration = UIListContentConfiguration.cell()
+            return cell
+        }
+
+        switch visibleSections[indexPath.section] {
+        case .selectedLocalFiles:
+            guard localFileDrafts.indices.contains(indexPath.row) else {
+                cell.contentConfiguration = UIListContentConfiguration.cell()
+                return cell
+            }
+
+            let draft = localFileDrafts[indexPath.row]
+            var content = cell.defaultContentConfiguration()
+            content.text = draft.filename
+            content.secondaryText = AccountQuotaStorageItem.beautify(size: draft.byteSize)
+            content.image = UIImage(systemName: iconName(for: draft))
+            cell.contentConfiguration = content
+            cell.accessibilityIdentifier = "chatAttachmentFile.cell.\(indexPath.row)"
+            cell.accessibilityLabel = [draft.filename, AccountQuotaStorageItem.beautify(size: draft.byteSize)]
+                .joined(separator: ", ")
+        case .cloudFiles:
+            guard cloudStorageFiles.indices.contains(indexPath.row) else {
+                cell.contentConfiguration = UIListContentConfiguration.cell()
+                return cell
+            }
+
+            let file = cloudStorageFiles[indexPath.row]
+            var content = cell.defaultContentConfiguration()
+            content.text = file.filename
+            content.secondaryText = AccountQuotaStorageItem.beautify(size: file.byteSize)
+            content.image = UIImage(systemName: iconName(for: file))
+            cell.contentConfiguration = content
+            cell.accessibilityIdentifier = "chatAttachmentFile.cloudFileCell.\(indexPath.row)"
+            cell.accessibilityLabel = [file.filename, AccountQuotaStorageItem.beautify(size: file.byteSize)]
+                .joined(separator: ", ")
+            cell.accessoryType = isCloudFileSelected(file) ? .checkmark : .none
+        }
         return cell
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        guard visibleSections.indices.contains(indexPath.section),
+              visibleSections[indexPath.section] == .cloudFiles,
+              cloudStorageFiles.indices.contains(indexPath.row) else {
+            return
+        }
+
+        toggleCloudFileSelection(cloudStorageFiles[indexPath.row])
+    }
+
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        guard visibleSections.indices.contains(section) else {
+            return nil
+        }
+
+        switch visibleSections[section] {
+        case .selectedLocalFiles:
+            return "Selected files"
+        case .cloudFiles:
+            return nil
+        }
     }
 
     func tableView(
@@ -528,11 +901,26 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
         forRowAt indexPath: IndexPath
     ) {
         guard editingStyle == .delete,
-              fileDrafts.indices.contains(indexPath.row) else {
+              visibleSections.indices.contains(indexPath.section),
+              visibleSections[indexPath.section] == .selectedLocalFiles,
+              localFileDrafts.indices.contains(indexPath.row) else {
             return
         }
 
-        removeSelectedAttachmentDraft(withID: fileDrafts[indexPath.row].id)
+        removeSelectedAttachmentDraft(withID: localFileDrafts[indexPath.row].id)
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === filesTableView else {
+            return
+        }
+
+        let distanceToBottom = scrollView.contentSize.height
+            - scrollView.bounds.height
+            - scrollView.contentOffset.y
+        if distanceToBottom < 120 {
+            loadNextCloudStorageFilesPageIfNeeded()
+        }
     }
 
     @objc
@@ -610,13 +998,98 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
         onSelectedAttachmentDraftsChanged?(selectedDrafts)
     }
 
+    func loadNextCloudStorageFilesPageIfNeeded() {
+        guard hasLoadedCloudStorageFiles,
+              !isLoadingCloudStorageFiles,
+              cloudStorageCurrentPage < cloudStorageTotalPages else {
+            return
+        }
+
+        loadCloudStorageFiles(page: cloudStorageCurrentPage + 1)
+    }
+
+    private func loadInitialCloudStorageFilesIfNeeded() {
+        guard owner != nil,
+              cloudStorageFileProvider != nil,
+              !hasLoadedCloudStorageFiles,
+              !isLoadingCloudStorageFiles else {
+            return
+        }
+
+        loadCloudStorageFiles(page: 1)
+    }
+
+    private func loadCloudStorageFiles(page: Int) {
+        guard let owner,
+              let cloudStorageFileProvider else {
+            return
+        }
+
+        isLoadingCloudStorageFiles = true
+        cloudStorageLoadFailed = false
+        renderState()
+
+        cloudStorageFileProvider.loadCloudStorageFiles(owner: owner, page: page) { [weak self] result in
+            guard let self else {
+                return
+            }
+
+            self.isLoadingCloudStorageFiles = false
+            self.hasLoadedCloudStorageFiles = true
+
+            switch result {
+            case .success(let listing):
+                self.cloudStorageLoadFailed = false
+                self.cloudStorageCurrentPage = listing.page
+                self.cloudStorageTotalPages = listing.totalPages
+                self.appendCloudStorageFiles(listing.files)
+            case .failure:
+                self.cloudStorageLoadFailed = true
+            }
+
+            self.renderState()
+        }
+    }
+
+    private func appendCloudStorageFiles(_ files: [ChatAttachmentCloudStorageFile]) {
+        let existingIDs = Set(cloudStorageFiles.map(\.id))
+        cloudStorageFiles.append(contentsOf: files.filter { !existingIDs.contains($0.id) })
+    }
+
+    private func toggleCloudFileSelection(_ file: ChatAttachmentCloudStorageFile) {
+        let draftID = AttachmentCloudStorageFileDraft(fileID: file.id).id
+        if selectedDrafts.contains(where: { $0.id == draftID }) {
+            removeSelectedAttachmentDraft(withID: draftID)
+            return
+        }
+
+        guard selectedDrafts.count < maximumSelectedDraftCount else {
+            lastImportFailures = [.maximumSelectionCountReached]
+            renderState()
+            return
+        }
+
+        selectedDrafts.append(file.makeAttachmentDraft())
+        lastImportFailures = []
+        renderState()
+        notifySelectionChanged()
+    }
+
+    private func isCloudFileSelected(_ file: ChatAttachmentCloudStorageFile) -> Bool {
+        let draftID = AttachmentCloudStorageFileDraft(fileID: file.id).id
+        return selectedDrafts.contains { $0.id == draftID }
+    }
+
     private func renderState() {
         guard isViewLoaded else {
             return
         }
 
         filesTableView.reloadData()
-        emptyStateLabel.isHidden = !fileDrafts.isEmpty
+        updateCloudStorageFooter()
+        emptyStateLabel.isHidden = !localFileDrafts.isEmpty
+            || !cloudStorageFiles.isEmpty
+            || isLoadingCloudStorageFiles
         chooseFilesButton.isEnabled = !isImportingDocuments
 
         if isImportingDocuments {
@@ -630,10 +1103,33 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
             errorMessageLabel.textColor = .systemRed
             errorMessageLabel.text = failure.message
             errorMessageLabel.isHidden = false
+        } else if cloudStorageLoadFailed {
+            errorMessageLabel.textColor = .systemRed
+            errorMessageLabel.text = "Cloud files are unavailable.".localizeString(id: "media_picker_error_cloud_files_unavailable", arguments: [])
+            errorMessageLabel.isHidden = false
         } else {
             errorMessageLabel.text = nil
             errorMessageLabel.isHidden = true
         }
+    }
+
+    private func updateCloudStorageFooter() {
+        guard isLoadingCloudStorageFiles else {
+            filesTableView.tableFooterView = UIView()
+            return
+        }
+
+        let footer = UIView(frame: CGRect(x: 0, y: 0, width: filesTableView.bounds.width, height: 44))
+        footer.accessibilityIdentifier = "chatAttachmentFile.cloudFilesLoading"
+        let activityIndicator = UIActivityIndicatorView(style: .medium)
+        activityIndicator.translatesAutoresizingMaskIntoConstraints = false
+        activityIndicator.startAnimating()
+        footer.addSubview(activityIndicator)
+        NSLayoutConstraint.activate([
+            activityIndicator.centerXAnchor.constraint(equalTo: footer.centerXAnchor),
+            activityIndicator.centerYAnchor.constraint(equalTo: footer.centerYAnchor)
+        ])
+        filesTableView.tableFooterView = footer
     }
 
     private func cleanupFileDrafts(
@@ -656,6 +1152,19 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
 
     private func iconName(for draft: AttachmentDraft) -> String {
         switch draft.mediaKind {
+        case .image, .animatedImage:
+            return "photo"
+        case .video:
+            return "film"
+        case .audio:
+            return "waveform"
+        case .file:
+            return "doc"
+        }
+    }
+
+    private func iconName(for file: ChatAttachmentCloudStorageFile) -> String {
+        switch file.mediaKind {
         case .image, .animatedImage:
             return "photo"
         case .video:

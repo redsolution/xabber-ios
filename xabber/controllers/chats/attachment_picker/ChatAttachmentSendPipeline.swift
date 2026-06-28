@@ -49,6 +49,12 @@ enum ChatAttachmentInlineSendabilityPolicy {
     }
 }
 
+enum ChatAttachmentDraftUploadRequirementPolicy {
+    static func requiresUpload(drafts: [AttachmentDraft]) -> Bool {
+        drafts.contains { $0.requiresUpload }
+    }
+}
+
 protocol ChatAttachmentCloudStorageAvailabilityProviding: AnyObject {
     func isCloudStorageAvailable(owner: String) -> Bool
 }
@@ -122,17 +128,20 @@ final class ChatAttachmentSendPipeline: ChatAttachmentSendCoordinating {
             return
         }
 
-        guard cloudStorageAvailabilityProvider.isCloudStorageAvailable(owner: context.owner) else {
-            completion(.blocked(.cloudStorageUnavailable))
-            return
-        }
+        let requiresUpload = ChatAttachmentDraftUploadRequirementPolicy.requiresUpload(drafts: drafts)
+        if requiresUpload {
+            guard cloudStorageAvailabilityProvider.isCloudStorageAvailable(owner: context.owner) else {
+                completion(.blocked(.cloudStorageUnavailable))
+                return
+            }
 
-        switch quotaAccessProvider.currentAccess(owner: context.owner) {
-        case .available:
-            break
-        case .premiumRequired:
-            completion(.cloudStorageQuotaExceeded(owner: context.owner))
-            return
+            switch quotaAccessProvider.currentAccess(owner: context.owner) {
+            case .available:
+                break
+            case .premiumRequired:
+                completion(.cloudStorageQuotaExceeded(owner: context.owner))
+                return
+            }
         }
 
         do {
@@ -152,7 +161,7 @@ final class ChatAttachmentSendPipeline: ChatAttachmentSendCoordinating {
                 context: context
             ) { [quotaRefresher] didSend in
                 completion(didSend ? .sent(referenceCount: references.count) : .blocked(.sendFailed))
-                guard didSend else {
+                guard didSend, requiresUpload else {
                     return
                 }
 

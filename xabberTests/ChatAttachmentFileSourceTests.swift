@@ -86,6 +86,165 @@ final class ChatAttachmentFileSourceTests: XCTestCase {
         XCTAssertEqual(presenter.requestedAllowsMultipleSelection, true)
     }
 
+    func testCloudStorageFileListingSkipsMalformedRowsAndMapsValidPayload() throws {
+        let listing = ChatAttachmentCloudStorageFileListing.make(
+            items: [
+                [
+                    "id": 7,
+                    "file": "https://gallery.example/files/report.pdf",
+                    "name": "report.pdf",
+                    "size": 42,
+                    "media_type": "application/pdf",
+                    "hash": "remote-hash",
+                    "created_at": "2026-06-29T10:11:12.123+0000",
+                    "metadata": ["source": "test"]
+                ] as NSDictionary,
+                [
+                    "id": 8,
+                    "name": "missing-url.pdf",
+                    "size": 12,
+                    "media_type": "application/pdf"
+                ] as NSDictionary
+            ],
+            totalObjects: 2,
+            objPerPage: 20,
+            totalPages: 1,
+            page: 1
+        )
+
+        let file = try XCTUnwrap(listing.files.first)
+        XCTAssertEqual(listing.files.count, 1)
+        XCTAssertEqual(file.id, 7)
+        XCTAssertEqual(file.remoteURL.absoluteString, "https://gallery.example/files/report.pdf")
+        XCTAssertEqual(file.filename, "report.pdf")
+        XCTAssertEqual(file.byteSize, 42)
+        XCTAssertEqual(file.mediaType, "application/pdf")
+        XCTAssertEqual(file.hash, "remote-hash")
+        XCTAssertEqual(file.metadata?["source"], "test")
+    }
+
+    func testFileSourceLoadsFirstCloudStoragePageAndRendersRowsForOwner() {
+        let provider = FakeTask15CloudStorageFileListingProvider(results: [
+            .success(makeCloudListing(files: [makeCloudFile(id: 7, filename: "report.pdf")], page: 1, totalPages: 1))
+        ])
+        let controller = makeFileSource(cloudStorageFileProvider: provider)
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(provider.requests, [FakeTask15CloudStorageFileListingProvider.Request(owner: Self.context.owner, page: 1)])
+        XCTAssertEqual(controller.filesTableView.numberOfSections, 1)
+        XCTAssertEqual(controller.filesTableView.numberOfRows(inSection: 0), 1)
+        let cell = controller.tableView(
+            controller.filesTableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        )
+        XCTAssertEqual(cell.textLabel?.text ?? cell.contentConfigurationText, "report.pdf")
+        XCTAssertEqual(cell.accessibilityIdentifier, "chatAttachmentFile.cloudFileCell.0")
+    }
+
+    func testScrollingNearBottomLoadsNextCloudStoragePageOnce() {
+        let provider = FakeTask15CloudStorageFileListingProvider(results: [
+            .success(makeCloudListing(files: [makeCloudFile(id: 1, filename: "first.pdf")], page: 1, totalPages: 2)),
+            .success(makeCloudListing(files: [makeCloudFile(id: 2, filename: "second.pdf")], page: 2, totalPages: 2))
+        ])
+        let controller = makeFileSource(cloudStorageFileProvider: provider)
+
+        controller.loadViewIfNeeded()
+        controller.filesTableView.frame = CGRect(x: 0, y: 0, width: 390, height: 200)
+        controller.filesTableView.contentSize = CGSize(width: 390, height: 800)
+        controller.filesTableView.contentOffset = CGPoint(x: 0, y: 620)
+        controller.scrollViewDidScroll(controller.filesTableView)
+        controller.scrollViewDidScroll(controller.filesTableView)
+
+        XCTAssertEqual(provider.requests.map(\.page), [1, 2])
+        XCTAssertEqual(controller.filesTableView.numberOfRows(inSection: 0), 2)
+    }
+
+    func testTappingCloudStorageFileTogglesSelectionAndCheckmark() {
+        let provider = FakeTask15CloudStorageFileListingProvider(results: [
+            .success(makeCloudListing(files: [makeCloudFile(id: 7, filename: "report.pdf")], page: 1, totalPages: 1))
+        ])
+        let controller = makeFileSource(cloudStorageFileProvider: provider)
+        var emittedCounts: [Int] = []
+        controller.onSelectionCountChanged = { emittedCounts.append($0) }
+
+        controller.loadViewIfNeeded()
+        controller.tableView(controller.filesTableView, didSelectRowAt: IndexPath(row: 0, section: 0))
+
+        XCTAssertEqual(controller.selectedAttachmentDrafts.map(\.id), ["cloud-file:7"])
+        XCTAssertEqual(emittedCounts, [1])
+        XCTAssertEqual(
+            controller.tableView(controller.filesTableView, cellForRowAt: IndexPath(row: 0, section: 0)).accessoryType,
+            .checkmark
+        )
+
+        controller.tableView(controller.filesTableView, didSelectRowAt: IndexPath(row: 0, section: 0))
+
+        XCTAssertTrue(controller.selectedAttachmentDrafts.isEmpty)
+        XCTAssertEqual(emittedCounts, [1, 0])
+    }
+
+    func testLocalPickedFileCoexistsWithSelectedCloudFileInSeparateSection() throws {
+        let provider = FakeTask15CloudStorageFileListingProvider(results: [
+            .success(makeCloudListing(files: [makeCloudFile(id: 7, filename: "report.pdf")], page: 1, totalPages: 1))
+        ])
+        let presenter = FakeTask15DocumentPickerPresenter()
+        let controller = makeFileSource(
+            documentPickerPresenter: presenter,
+            cloudStorageFileProvider: provider
+        )
+        let localURL = try makeTemporaryFile(named: "local.pdf", contents: Data([1]))
+
+        controller.loadViewIfNeeded()
+        controller.tableView(controller.filesTableView, didSelectRowAt: IndexPath(row: 0, section: 0))
+        controller.chooseFilesButton.sendActions(for: .touchUpInside)
+        presenter.complete(.picked([localURL]))
+
+        XCTAssertEqual(controller.selectedAttachmentDrafts.map(\.filename), ["report.pdf", "local.pdf"])
+        XCTAssertEqual(controller.filesTableView.numberOfSections, 2)
+        XCTAssertEqual(controller.filesTableView.numberOfRows(inSection: 0), 1)
+        XCTAssertEqual(controller.filesTableView.numberOfRows(inSection: 1), 1)
+    }
+
+    func testMaximumSelectionCountAppliesAcrossLocalAndCloudFiles() throws {
+        let provider = FakeTask15CloudStorageFileListingProvider(results: [
+            .success(makeCloudListing(files: [
+                makeCloudFile(id: 10, filename: "allowed.pdf"),
+                makeCloudFile(id: 11, filename: "blocked.pdf")
+            ], page: 1, totalPages: 1))
+        ])
+        let controller = makeFileSource(cloudStorageFileProvider: provider)
+        let selected = try (0..<9).map { try makePreparedFileDraft(filename: "file-\($0).pdf") }
+
+        controller.loadViewIfNeeded()
+        controller.syncSelectedAttachmentDrafts(selected)
+        controller.tableView(controller.filesTableView, didSelectRowAt: IndexPath(row: 0, section: 1))
+        controller.tableView(controller.filesTableView, didSelectRowAt: IndexPath(row: 1, section: 1))
+
+        XCTAssertEqual(controller.selectedAttachmentDrafts.count, 10)
+        XCTAssertEqual(controller.selectedAttachmentDrafts.last?.filename, "allowed.pdf")
+        XCTAssertEqual(controller.lastImportFailures, [.maximumSelectionCountReached])
+    }
+
+    func testReferenceBuilderEmitsAlreadyUploadedRemoteReferenceForCloudFileDraft() throws {
+        let draft = makeCloudFile(id: 7, filename: "report.pdf").makeAttachmentDraft()
+
+        let reference = try XCTUnwrap(
+            ChatAttachmentReferenceBuilder()
+                .makeReferences(from: [draft], context: Self.context)
+                .first
+        )
+
+        XCTAssertTrue(reference.isUploaded)
+        XCTAssertNil(reference.localFileUrl)
+        XCTAssertEqual(reference.downloadUrl?.absoluteString, "https://gallery.example/files/report.pdf")
+        XCTAssertEqual(reference.fileID, 7)
+        XCTAssertEqual(reference.filehash, "hash-7")
+        XCTAssertEqual(reference.metadata?["uri"] as? String, "https://gallery.example/files/report.pdf")
+        XCTAssertEqual(reference.metadata?["filename"] as? String, "report.pdf")
+        XCTAssertEqual(reference.metadata?["media-type"] as? String, "application/pdf")
+    }
+
     func testChooseFilesButtonIsLaidOutBelowNavigationTitleWhenHostedInPageSheetWrapper() {
         let gallery = ChatAttachmentGallerySourceViewController(
             photoLibraryAuthorizer: FakeTask15PhotoLibraryAuthorizer(status: .authorized),
@@ -249,11 +408,41 @@ final class ChatAttachmentFileSourceTests: XCTestCase {
 
     private func makeFileSource(
         documentPickerPresenter: ChatAttachmentDocumentPickerPresenting = FakeTask15DocumentPickerPresenter(),
-        fileDraftBuilder: ChatAttachmentFileDraftBuilding? = nil
+        fileDraftBuilder: ChatAttachmentFileDraftBuilding? = nil,
+        cloudStorageFileProvider: ChatAttachmentCloudStorageFileListingProviding? = nil
     ) -> ChatAttachmentFileSourceViewController {
         ChatAttachmentFileSourceViewController(
+            owner: cloudStorageFileProvider == nil ? nil : Self.context.owner,
             documentPickerPresenter: documentPickerPresenter,
-            fileDraftBuilder: fileDraftBuilder ?? ChatAttachmentFileDraftBuilder(outputDirectory: makeTemporaryDirectory())
+            fileDraftBuilder: fileDraftBuilder ?? ChatAttachmentFileDraftBuilder(outputDirectory: makeTemporaryDirectory()),
+            cloudStorageFileProvider: cloudStorageFileProvider
+        )
+    }
+
+    private func makeCloudFile(id: Int, filename: String) -> ChatAttachmentCloudStorageFile {
+        ChatAttachmentCloudStorageFile(
+            id: id,
+            remoteURL: URL(string: "https://gallery.example/files/\(filename)")!,
+            filename: filename,
+            byteSize: 64,
+            mediaType: "application/pdf",
+            hash: "hash-\(id)",
+            createdAt: nil,
+            metadata: nil
+        )
+    }
+
+    private func makeCloudListing(
+        files: [ChatAttachmentCloudStorageFile],
+        page: Int,
+        totalPages: Int
+    ) -> ChatAttachmentCloudStorageFileListing {
+        ChatAttachmentCloudStorageFileListing(
+            files: files,
+            totalObjects: files.count,
+            objPerPage: 20,
+            totalPages: totalPages,
+            page: page
         )
     }
 
@@ -341,6 +530,35 @@ private final class FakeTask15SecurityScopedResourceAccessor: ChatAttachmentSecu
 
     func stopAccessingSecurityScopedResource(for url: URL) {
         stoppedURLs.append(url)
+    }
+}
+
+private final class FakeTask15CloudStorageFileListingProvider: ChatAttachmentCloudStorageFileListingProviding {
+    struct Request: Equatable {
+        let owner: String
+        let page: Int
+    }
+
+    private var results: [Result<ChatAttachmentCloudStorageFileListing, Error>]
+    private(set) var requests: [Request] = []
+
+    init(results: [Result<ChatAttachmentCloudStorageFileListing, Error>]) {
+        self.results = results
+    }
+
+    func loadCloudStorageFiles(
+        owner: String,
+        page: Int,
+        completion: @escaping (Result<ChatAttachmentCloudStorageFileListing, Error>) -> Void
+    ) {
+        requests.append(Request(owner: owner, page: page))
+        completion(results.isEmpty ? .failure(NSError(domain: "cloud", code: -1)) : results.removeFirst())
+    }
+}
+
+private extension UITableViewCell {
+    var contentConfigurationText: String? {
+        (contentConfiguration as? UIListContentConfiguration)?.text
     }
 }
 

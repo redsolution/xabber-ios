@@ -1202,6 +1202,11 @@ final class PhotoKitChatAttachmentPreviewMediaProvider: ChatAttachmentPreviewMed
 
         if draft.source == .file,
            case .prepared(let file) = draft.preparationState {
+            if file.uploadedRemoteFile != nil {
+                completion(.filePlaceholder(filename: draft.filename, byteSize: draft.byteSize))
+                return Int(PHInvalidImageRequestID)
+            }
+
             completion(previewMediaForPreparedFileDraft(draft, localFileURL: file.localFileURL))
             return Int(PHInvalidImageRequestID)
         }
