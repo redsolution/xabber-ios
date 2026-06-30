@@ -6435,7 +6435,7 @@ extension ChatViewController {
             ]
             switch item.displayAs {
                 case .text:
-                    if presentation.isSavedMessage {
+                    if presentation.isSavedMessage || presentation.visibleBody != item.body {
                         kind = .attributedText(
                             SavedMessageDisplayPolicy.attributedBody(
                                 for: presentation,

@@ -6725,6 +6725,51 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         XCTAssertEqual(location.geoURI, "geo:51.5007,-0.1246")
     }
 
+    func testRegularLocationDatasourceHidesGeoFallbackText() throws {
+        let geoURI = "geo:55.023572396255425,82.91758934882486"
+        let reference = MessageReferenceStorageItem()
+        reference.primary = "geoloc-reference"
+        reference.kind = .geoloc
+        reference.url = geoURI
+        reference.metadata = [
+            "lat": "55.023572396255425",
+            "lon": "82.91758934882486",
+            "text": "Sovetskaya Street, 13, Novosibirsk",
+            "uri": geoURI
+        ]
+
+        let message = MessageStorageItem()
+        message.primary = "geoloc-message"
+        message.messageId = "geoloc-message"
+        message.owner = "owner@example.com"
+        message.opponent = "juliet@example.com"
+        message.conversationType = .regular
+        message.outgoing = true
+        message.body = geoURI
+        message.legacyBody = geoURI
+        message.date = Date(timeIntervalSince1970: 1_724_000_000)
+        message.sentDate = message.date
+        message.references.append(reference)
+
+        let controller = ChatViewController()
+        controller.owner = message.owner
+        controller.jid = message.opponent
+        controller.conversationType = .regular
+        controller.ownerSender = Sender(id: message.owner, displayName: "Owner")
+        controller.opponentSender = Sender(id: message.opponent, displayName: "Juliet")
+        controller.showSkeletonObserver.accept(false)
+
+        let rows = controller.mapDataset(dataset: [message])
+        let row = try XCTUnwrap(rows.first { $0.primary == message.primary })
+
+        XCTAssertEqual(row.locations.count, 1)
+        if case .attributedText(let text) = row.kind {
+            XCTAssertEqual(text.string, "")
+        } else {
+            XCTFail("Expected location message to render as attributed text")
+        }
+    }
+
     func testMapReferenceAttachmentsMapsContactReferenceIntoContactAttachment() throws {
         let reference = MessageReferenceStorageItem()
         reference.primary = "contact-reference"
