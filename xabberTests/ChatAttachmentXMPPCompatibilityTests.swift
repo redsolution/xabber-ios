@@ -134,6 +134,228 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
         XCTAssertEqual(parsed.metadata?["uri"] as? String, body)
     }
 
+    func testContactSharingReferenceRoundTripsPayloadAndAvatarMetadata() throws {
+        let body = "Alice Capulet (alice@example.com)"
+        let reference = contactReference(
+            body: body,
+            contactJid: "alice@example.com",
+            nickname: "Alice",
+            given: "Alice",
+            family: "Capulet",
+            avatarMetadata: [
+                "avatar_id": "74c4ecf80b09aa4f7c58f5563db80f8251289898",
+                "avatar_type": "image/png",
+                "avatar_bytes": "6459",
+                "avatar_url": "https://example.com/avatars/alice.png",
+                "avatar_width": "96",
+                "avatar_height": "96"
+            ]
+        )
+
+        let message = try makeMessage(body: body, references: [reference])
+        let referenceElement = try XCTUnwrap(message.elements(forName: "reference").first)
+        let contactElement = try XCTUnwrap(referenceElement.element(
+            forName: "contact",
+            xmlns: "https://xabber.com/protocol/contact-sharing"
+        ))
+        let nameElement = try XCTUnwrap(contactElement.element(forName: "name"))
+        let avatarInfo = try XCTUnwrap(contactElement.element(forName: "avatar")?.element(
+            forName: "info",
+            xmlns: "urn:xmpp:avatar:metadata"
+        ))
+
+        XCTAssertEqual(referenceElement.attributeStringValue(forName: "type"), "mutable")
+        XCTAssertEqual(contactElement.attributeStringValue(forName: "jid"), "alice@example.com")
+        XCTAssertEqual(contactElement.element(forName: "nickname")?.stringValue, "Alice")
+        XCTAssertEqual(nameElement.element(forName: "given")?.stringValue, "Alice")
+        XCTAssertEqual(nameElement.element(forName: "family")?.stringValue, "Capulet")
+        XCTAssertEqual(avatarInfo.attributeStringValue(forName: "id"), "74c4ecf80b09aa4f7c58f5563db80f8251289898")
+        XCTAssertEqual(avatarInfo.attributeStringValue(forName: "type"), "image/png")
+        XCTAssertEqual(avatarInfo.attributeStringValue(forName: "bytes"), "6459")
+        XCTAssertEqual(avatarInfo.attributeStringValue(forName: "url"), "https://example.com/avatars/alice.png")
+        XCTAssertEqual(avatarInfo.attributeStringValue(forName: "width"), "96")
+        XCTAssertEqual(avatarInfo.attributeStringValue(forName: "height"), "96")
+
+        let parsed = try XCTUnwrap(parseReferences(
+            message,
+            primary: "contact-primary",
+            jid: jid,
+            owner: owner
+        ).first)
+
+        XCTAssertEqual(parsed.kind, .contact)
+        XCTAssertEqual(parsed.url, "xmpp:alice@example.com")
+        XCTAssertEqual(parsed.mimeType, "contact")
+        XCTAssertTrue(parsed.isUploaded)
+        XCTAssertNil(parsed.localFileUrl)
+        XCTAssertEqual(parsed.metadata?["contact_jid"] as? String, "alice@example.com")
+        XCTAssertEqual(parsed.metadata?["nickname"] as? String, "Alice")
+        XCTAssertEqual(parsed.metadata?["given"] as? String, "Alice")
+        XCTAssertEqual(parsed.metadata?["family"] as? String, "Capulet")
+        XCTAssertEqual(parsed.metadata?["avatar_id"] as? String, "74c4ecf80b09aa4f7c58f5563db80f8251289898")
+        XCTAssertEqual(parsed.metadata?["avatar_type"] as? String, "image/png")
+        XCTAssertEqual(parsed.metadata?["avatar_bytes"] as? String, "6459")
+        XCTAssertEqual(parsed.metadata?["avatar_url"] as? String, "https://example.com/avatars/alice.png")
+        XCTAssertEqual(parsed.metadata?["avatar_width"] as? String, "96")
+        XCTAssertEqual(parsed.metadata?["avatar_height"] as? String, "96")
+    }
+
+    func testContactSharingMinimalReferenceParsesWithJIDOnly() throws {
+        let body = "alice@example.com"
+        let message = try makeMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <contact xmlns='https://xabber.com/protocol/contact-sharing'
+                       jid='alice@example.com'/>
+            </reference>
+            """,
+            body: body
+        )
+
+        let parsed = try XCTUnwrap(parseReferences(
+            message,
+            primary: "contact-minimal-primary",
+            jid: jid,
+            owner: owner
+        ).first)
+
+        XCTAssertEqual(parsed.kind, .contact)
+        XCTAssertEqual(parsed.metadata?["contact_jid"] as? String, "alice@example.com")
+        XCTAssertNil(parsed.metadata?["nickname"])
+        XCTAssertEqual(parsed.url, "xmpp:alice@example.com")
+    }
+
+    func testContactSharingParserSkipsMissingJIDAndWrongNamespacePayloads() throws {
+        let body = "Alice (alice@example.com)"
+        let cases = [
+            """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <contact xmlns='https://xabber.com/protocol/contact-sharing'>
+                <nickname>Alice</nickname>
+              </contact>
+            </reference>
+            """,
+            """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <contact xmlns='urn:example:wrong'
+                       jid='alice@example.com'>
+                <nickname>Alice</nickname>
+              </contact>
+            </reference>
+            """,
+            """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <vCard xmlns='vcard-temp'>
+                <FN>Alice Capulet</FN>
+                <EMAIL><USERID>alice@example.com</USERID></EMAIL>
+              </vCard>
+            </reference>
+            """
+        ]
+
+        for referenceXML in cases {
+            let message = try makeMessage(referenceXML: referenceXML, body: body)
+            XCTAssertTrue(parseReferences(
+                message,
+                primary: UUID().uuidString,
+                jid: jid,
+                owner: owner
+            ).isEmpty)
+        }
+    }
+
+    func testContactSharingMalformedAvatarMetadataDoesNotInvalidateContactCard() throws {
+        let body = "Alice (alice@example.com)"
+        let message = try makeMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <contact xmlns='https://xabber.com/protocol/contact-sharing'
+                       jid='alice@example.com'>
+                <nickname>Alice</nickname>
+                <avatar>
+                  <info xmlns='urn:xmpp:avatar:metadata'
+                        bytes='not-a-number'
+                        width='wide'
+                        height='tall'/>
+                </avatar>
+              </contact>
+            </reference>
+            """,
+            body: body
+        )
+
+        let parsed = try XCTUnwrap(parseReferences(
+            message,
+            primary: "contact-malformed-avatar-primary",
+            jid: jid,
+            owner: owner
+        ).first)
+
+        XCTAssertEqual(parsed.kind, .contact)
+        XCTAssertEqual(parsed.metadata?["contact_jid"] as? String, "alice@example.com")
+        XCTAssertEqual(parsed.metadata?["nickname"] as? String, "Alice")
+    }
+
+    func testContactSharingConfigureIncomingMessageHidesFallbackBody() throws {
+        let body = "Alice Capulet (alice@example.com)"
+        let message = try makeMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <contact xmlns='https://xabber.com/protocol/contact-sharing'
+                       jid='alice@example.com'>
+                <nickname>Alice</nickname>
+                <name>
+                  <given>Alice</given>
+                  <family>Capulet</family>
+                </name>
+              </contact>
+            </reference>
+            """,
+            body: body
+        )
+        let item = MessageStorageItem()
+
+        item.configureIncomingMessage(
+            message,
+            owner: owner,
+            opponent: jid,
+            outgoing: false,
+            isRead: false,
+            date: Date(timeIntervalSince1970: 10)
+        )
+
+        XCTAssertEqual(item.body, "")
+        XCTAssertEqual(item.legacyBody, body)
+        XCTAssertEqual(item.references.first?.kind, .contact)
+    }
+
+    func testInvalidContactSharingConfigureIncomingMessageKeepsFallbackBody() throws {
+        let body = "Alice (alice@example.com)"
+        let message = try makeMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <contact xmlns='https://xabber.com/protocol/contact-sharing'>
+                <nickname>Alice</nickname>
+              </contact>
+            </reference>
+            """,
+            body: body
+        )
+        let item = MessageStorageItem()
+
+        item.configureIncomingMessage(
+            message,
+            owner: owner,
+            opponent: jid,
+            outgoing: false,
+            isRead: false,
+            date: Date(timeIntervalSince1970: 10)
+        )
+
+        XCTAssertTrue(item.references.isEmpty)
+        XCTAssertEqual(item.body, body)
+    }
+
     func testGeolocParserSkipsMalformedMultipleAndWrongNamespacePayloads() throws {
         let cases = [
             """
@@ -371,6 +593,41 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
             "uri": body
         ]
         extraMetadata.forEach { metadata[$0.key] = $0.value }
+        reference.metadata = metadata
+        return reference
+    }
+
+    private func contactReference(
+        body: String,
+        contactJid: String,
+        nickname: String? = nil,
+        given: String? = nil,
+        family: String? = nil,
+        avatarMetadata: [String: String] = [:]
+    ) -> MessageReferenceStorageItem {
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .contact
+        reference.mimeType = "contact"
+        reference.owner = owner
+        reference.jid = jid
+        reference.conversationType = .regular
+        reference.begin = 0
+        reference.end = body.count
+        reference.url = "xmpp:\(contactJid)"
+        reference.isUploaded = true
+        var metadata: [String: Any] = [
+            "contact_jid": contactJid
+        ]
+        if let nickname {
+            metadata["nickname"] = nickname
+        }
+        if let given {
+            metadata["given"] = given
+        }
+        if let family {
+            metadata["family"] = family
+        }
+        avatarMetadata.forEach { metadata[$0.key] = $0.value }
         reference.metadata = metadata
         return reference
     }

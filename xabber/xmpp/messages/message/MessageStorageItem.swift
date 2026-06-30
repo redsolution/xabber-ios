@@ -1398,6 +1398,67 @@ class MessageStorageItem: Object {
                         geoloc.addChild(DDXMLElement(name: key, stringValue: value))
                     }
                     referenceElement.addChild(geoloc)
+                case .contact:
+                    func metadataString(for key: String) -> String? {
+                        guard let value = reference.metadata?[key] else { return nil }
+                        if let value = value as? String, value.isNotEmpty {
+                            return value
+                        }
+                        if let value = value as? Int {
+                            return "\(value)"
+                        }
+                        if let value = value as? Double, value.isFinite {
+                            return "\(value)"
+                        }
+                        return nil
+                    }
+                    guard let contactJID = metadataString(for: "contact_jid")?
+                        .trimmingCharacters(in: .whitespacesAndNewlines),
+                          contactJID.isNotEmpty,
+                          let contactJIDObject = XMPPJID(string: contactJID),
+                          contactJIDObject.resource == nil,
+                          contactJIDObject.bare == contactJID else {
+                        return
+                    }
+                    let contact = DDXMLElement(
+                        name: "contact",
+                        xmlns: "https://xabber.com/protocol/contact-sharing"
+                    )
+                    contact.addAttribute(withName: "jid", stringValue: contactJID)
+                    if let nickname = metadataString(for: "nickname") {
+                        contact.addChild(DDXMLElement(name: "nickname", stringValue: nickname))
+                    }
+                    let name = DDXMLElement(name: "name")
+                    if let given = metadataString(for: "given") {
+                        name.addChild(DDXMLElement(name: "given", stringValue: given))
+                    }
+                    if let family = metadataString(for: "family") {
+                        name.addChild(DDXMLElement(name: "family", stringValue: family))
+                    }
+                    if name.children?.isEmpty == false {
+                        contact.addChild(name)
+                    }
+                    let avatarAttributes: [(metadataKey: String, xmlKey: String)] = [
+                        ("avatar_id", "id"),
+                        ("avatar_type", "type"),
+                        ("avatar_bytes", "bytes"),
+                        ("avatar_url", "url"),
+                        ("avatar_width", "width"),
+                        ("avatar_height", "height")
+                    ]
+                    let avatar = DDXMLElement(name: "avatar")
+                    let info = DDXMLElement(name: "info", xmlns: "urn:xmpp:avatar:metadata")
+                    var hasAvatarAttribute = false
+                    avatarAttributes.forEach { metadataKey, xmlKey in
+                        guard let value = metadataString(for: metadataKey) else { return }
+                        info.addAttribute(withName: xmlKey, stringValue: value)
+                        hasAvatarAttribute = true
+                    }
+                    if hasAvatarAttribute {
+                        avatar.addChild(info)
+                        contact.addChild(avatar)
+                    }
+                    referenceElement.addChild(contact)
                 case .systemMessage:
                     let systemMessage = DDXMLElement(
                         name: "system-message",

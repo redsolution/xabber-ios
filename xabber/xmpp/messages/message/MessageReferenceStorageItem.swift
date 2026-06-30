@@ -209,6 +209,7 @@ class MessageReferenceStorageItem: Object {
         case call = "call"
         case systemMessage = "system-message"
         case geoloc = "geoloc"
+        case contact = "contact"
         case none = ""
     }
     
@@ -306,7 +307,7 @@ class MessageReferenceStorageItem: Object {
     
     var downloadUrl: URL? {
         get {
-            guard kind != .geoloc else { return nil }
+            guard ![Kind.geoloc, .contact].contains(kind) else { return nil }
             guard let uri = self.url else { return nil }
             return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
         }

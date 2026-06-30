@@ -25,6 +25,8 @@ import RealmSwift
 private let groupchatXMLNS = "https://xabber.com/protocol/groups"
 private let referencesXMLNS = "https://xabber.com/protocol/references"
 private let geolocXMLNS = "http://jabber.org/protocol/geoloc"
+private let contactSharingXMLNS = "https://xabber.com/protocol/contact-sharing"
+private let avatarMetadataXMLNS = "urn:xmpp:avatar:metadata"
 
 private func isAnonymousMutableReference(_ reference: DDXMLElement) -> Bool {
     let elementChildren = reference.children?.compactMap { $0 as? DDXMLElement } ?? []
@@ -53,6 +55,37 @@ private func validGeolocElement(from reference: DDXMLElement) -> DDXMLElement? {
         return nil
     }
     return geoloc
+}
+
+private func contactElement(from reference: DDXMLElement) -> DDXMLElement? {
+    guard reference.xmlns() == referencesXMLNS,
+          reference.attributeStringValue(forName: "type") == "mutable" else {
+        return nil
+    }
+    let contactElements = reference
+        .elements(forName: "contact")
+        .filter { $0.xmlns() == contactSharingXMLNS }
+    guard contactElements.count == 1 else { return nil }
+    return contactElements[0]
+}
+
+private func validContactJID(_ value: String?) -> String? {
+    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          value.isNotEmpty,
+          let jid = XMPPJID(string: value),
+          jid.resource == nil,
+          jid.bare == value else {
+        return nil
+    }
+    return value
+}
+
+private func validContactElement(from reference: DDXMLElement) -> DDXMLElement? {
+    guard let contact = contactElement(from: reference),
+          validContactJID(contact.attributeStringValue(forName: "jid")) != nil else {
+        return nil
+    }
+    return contact
 }
 
 private func childText(_ element: DDXMLElement, name: String) -> String? {
@@ -265,6 +298,8 @@ func getReferenceType(_ ref: DDXMLElement) -> String? {
         return "media"
     } else if validGeolocElement(from: ref) != nil {
         return "geoloc"
+    } else if validContactElement(from: ref) != nil {
+        return "contact"
     } else if ref.attributeStringValue(forName: "type") == "decoration" {
         if ref.element(forName: "quote", xmlns: "https://xabber.com/protocol/markup") != nil {
             return "quote"
@@ -456,6 +491,46 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 reference.mimeType = "location"
                 reference.url = geoURI
                 reference.isUploaded = true
+            case .contact:
+                guard let contact = contactElement(from: ref),
+                      let contactJID = validContactJID(contact.attributeStringValue(forName: "jid")) else {
+                    return nil
+                }
+                metadata["contact_jid"] = contactJID
+                if let nickname = childText(contact, name: "nickname") {
+                    metadata["nickname"] = nickname
+                }
+                if let name = contact.element(forName: "name") {
+                    if let given = childText(name, name: "given") {
+                        metadata["given"] = given
+                    }
+                    if let family = childText(name, name: "family") {
+                        metadata["family"] = family
+                    }
+                }
+                if let avatarInfo = contact
+                    .element(forName: "avatar")?
+                    .element(forName: "info", xmlns: avatarMetadataXMLNS) {
+                    [
+                        ("id", "avatar_id"),
+                        ("type", "avatar_type"),
+                        ("bytes", "avatar_bytes"),
+                        ("url", "avatar_url"),
+                        ("width", "avatar_width"),
+                        ("height", "avatar_height")
+                    ].forEach { sourceKey, metadataKey in
+                        guard let value = avatarInfo
+                            .attributeStringValue(forName: sourceKey)?
+                            .trimmingCharacters(in: .whitespacesAndNewlines),
+                              value.isNotEmpty else {
+                            return
+                        }
+                        metadata[metadataKey] = value
+                    }
+                }
+                reference.mimeType = "contact"
+                reference.url = "xmpp:\(contactJID)"
+                reference.isUploaded = true
             case .markup:
                 var styles: [String] = []
                 if ref.element(forName: "bold") != nil { styles.append("bold") }
@@ -598,7 +673,7 @@ extension String {
             ref.begin = begin
             ref.end = end
             switch ref.kind {
-            case .media, .voice, .forward, .groupchat, .geoloc:
+            case .media, .voice, .forward, .groupchat, .geoloc, .contact:
                 if let range = Range<String.Index>(ref.range, in: out) {
                     out.removeSubrange(range)
                 }
