@@ -131,6 +131,16 @@ protocol ChatLocationSnapshotProviding: AnyObject {
     )
 }
 
+enum ChatAttachmentGeolocationMapControlsStyle {
+    static let currentLocationIconName = "scope"
+
+    static var currentLocationIcon: UIImage? {
+        UIImage(systemName: currentLocationIconName)?
+            .upscale(dimension: NativeGlassBarStyle.iconSize)
+            .withRenderingMode(.alwaysTemplate)
+    }
+}
+
 final class CoreLocationChatAttachmentGeolocationAuthorizer: NSObject,
     ChatAttachmentGeolocationAuthorizing,
     CLLocationManagerDelegate {
@@ -501,6 +511,7 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
     var onSelectedAttachmentDraftsChanged: (([AttachmentDraft]) -> Void)?
 
     let mapView = MKMapView()
+    let searchSurfaceView = UIVisualEffectView(effect: NativeGlassBarStyle.makeEffect(role: .bar, interactive: true))
     let searchTextField = UITextField()
     let searchResultsTableView = UITableView(frame: .zero, style: .plain)
     let currentLocationButton = UIButton(type: .system)
@@ -565,13 +576,21 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
         mapView.accessibilityIdentifier = "chatAttachmentGeolocation.map"
         mapView.showsUserLocation = false
 
+        searchSurfaceView.translatesAutoresizingMaskIntoConstraints = false
+        searchSurfaceView.isUserInteractionEnabled = true
+        searchSurfaceView.contentView.isUserInteractionEnabled = true
+        NativeGlassBarStyle.applySurface(to: searchSurfaceView, cornerStyle: .capsule, interactive: true)
+
         searchTextField.translatesAutoresizingMaskIntoConstraints = false
         searchTextField.accessibilityIdentifier = "chatAttachmentGeolocation.searchField"
         searchTextField.placeholder = ChatAttachmentLocalization.string(.geolocationSearchPlaceholder)
-        searchTextField.borderStyle = .roundedRect
+        searchTextField.borderStyle = .none
         searchTextField.returnKeyType = .search
         searchTextField.clearButtonMode = .whileEditing
-        searchTextField.backgroundColor = .secondarySystemBackground
+        searchTextField.backgroundColor = .clear
+        searchTextField.textColor = .label
+        searchTextField.font = .preferredFont(forTextStyle: .body)
+        searchTextField.adjustsFontForContentSizeCategory = true
         searchTextField.addTarget(self, action: #selector(searchTextChanged), for: .editingChanged)
 
         searchResultsTableView.translatesAutoresizingMaskIntoConstraints = false
@@ -582,21 +601,23 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
         searchResultsTableView.keyboardDismissMode = .onDrag
         searchResultsTableView.register(UITableViewCell.self, forCellReuseIdentifier: "locationSearchCell")
 
-        var currentConfiguration = UIButton.Configuration.filled()
-        currentConfiguration.image = UIImage(systemName: "location.fill")
-        currentConfiguration.cornerStyle = .capsule
         currentLocationButton.translatesAutoresizingMaskIntoConstraints = false
         currentLocationButton.accessibilityIdentifier = "chatAttachmentGeolocation.currentLocationButton"
-        currentLocationButton.configuration = currentConfiguration
         currentLocationButton.addTarget(self, action: #selector(currentLocationTapped), for: .touchUpInside)
+        NativeGlassBarStyle.applyDetachedIconButtonStyle(
+            to: currentLocationButton,
+            tintColor: NativeGlassBarStyle.iconTintColor,
+            image: ChatAttachmentGeolocationMapControlsStyle.currentLocationIcon
+        )
 
         requestAccessButton.isHidden = true
         statusLabel.isHidden = true
 
         rootView.addSubview(mapView)
-        rootView.addSubview(searchTextField)
+        rootView.addSubview(searchSurfaceView)
         rootView.addSubview(searchResultsTableView)
         rootView.addSubview(currentLocationButton)
+        searchSurfaceView.contentView.addSubview(searchTextField)
 
         NSLayoutConstraint.activate([
             mapView.topAnchor.constraint(equalTo: rootView.topAnchor),
@@ -604,18 +625,38 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
             mapView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
             mapView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
 
-            searchTextField.topAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.topAnchor, constant: 12),
-            searchTextField.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 16),
-            searchTextField.trailingAnchor.constraint(equalTo: currentLocationButton.leadingAnchor, constant: -12),
-            searchTextField.heightAnchor.constraint(equalToConstant: 44),
+            searchSurfaceView.topAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.topAnchor, constant: 12),
+            searchSurfaceView.leadingAnchor.constraint(
+                equalTo: rootView.leadingAnchor,
+                constant: NativeGlassBarStyle.horizontalInset
+            ),
+            searchSurfaceView.trailingAnchor.constraint(
+                equalTo: currentLocationButton.leadingAnchor,
+                constant: -NativeGlassBarStyle.interItemSpacing
+            ),
+            searchSurfaceView.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.minimumHeight),
+
+            searchTextField.topAnchor.constraint(equalTo: searchSurfaceView.contentView.topAnchor),
+            searchTextField.leadingAnchor.constraint(
+                equalTo: searchSurfaceView.contentView.leadingAnchor,
+                constant: NativeGlassBarStyle.contentInset
+            ),
+            searchTextField.trailingAnchor.constraint(
+                equalTo: searchSurfaceView.contentView.trailingAnchor,
+                constant: -NativeGlassBarStyle.contentInset
+            ),
+            searchTextField.bottomAnchor.constraint(equalTo: searchSurfaceView.contentView.bottomAnchor),
 
             currentLocationButton.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -16),
-            currentLocationButton.centerYAnchor.constraint(equalTo: searchTextField.centerYAnchor),
-            currentLocationButton.widthAnchor.constraint(equalToConstant: 44),
-            currentLocationButton.heightAnchor.constraint(equalToConstant: 44),
+            currentLocationButton.centerYAnchor.constraint(equalTo: searchSurfaceView.centerYAnchor),
+            currentLocationButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+            currentLocationButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
 
-            searchResultsTableView.topAnchor.constraint(equalTo: searchTextField.bottomAnchor, constant: 8),
-            searchResultsTableView.leadingAnchor.constraint(equalTo: searchTextField.leadingAnchor),
+            searchResultsTableView.topAnchor.constraint(
+                equalTo: searchSurfaceView.bottomAnchor,
+                constant: NativeGlassBarStyle.interItemSpacing
+            ),
+            searchResultsTableView.leadingAnchor.constraint(equalTo: searchSurfaceView.leadingAnchor),
             searchResultsTableView.trailingAnchor.constraint(equalTo: currentLocationButton.trailingAnchor),
             searchResultsTableView.heightAnchor.constraint(lessThanOrEqualToConstant: 220)
         ])

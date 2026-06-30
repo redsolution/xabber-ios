@@ -84,6 +84,43 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         XCTAssertEqual(configuration.availability(for: .contact), .disabled)
     }
 
+    func testSearchControlsUseNativeGlassBottomBarMetricsAndScopeIcon() throws {
+        let controller = ChatAttachmentGeolocationSourceViewController(
+            authorizer: FakeTask16GeolocationAuthorizer(status: .authorized, requestResult: .authorized)
+        )
+        let hostView = UIView(frame: CGRect(x: 0, y: 0, width: 393, height: 700))
+
+        controller.loadViewIfNeeded()
+        hostView.addSubview(controller.view)
+        controller.view.frame = hostView.bounds
+        hostView.layoutIfNeeded()
+
+        let searchSurfaceView = try XCTUnwrap(
+            controller.searchTextField.superview?.superview as? UIVisualEffectView
+        )
+        let currentLocationImage = try XCTUnwrap(
+            controller.currentLocationButton.image(for: .normal)
+                ?? controller.currentLocationButton.configuration?.image
+        )
+
+        XCTAssertEqual(ChatAttachmentGeolocationMapControlsStyle.currentLocationIconName, "scope")
+        XCTAssertEqual(searchSurfaceView.frame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertEqual(searchSurfaceView.frame.minX, NativeGlassBarStyle.horizontalInset, accuracy: 0.001)
+        XCTAssertEqual(searchSurfaceView.layer.cornerRadius, NativeGlassBarStyle.cornerRadius, accuracy: 0.001)
+        XCTAssertTrue(controller.searchTextField.isDescendant(of: searchSurfaceView.contentView))
+        XCTAssertEqual(controller.searchTextField.borderStyle, .none)
+        XCTAssertEqual(controller.searchTextField.backgroundColor ?? .clear, .clear)
+        XCTAssertEqual(controller.currentLocationButton.frame.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(controller.currentLocationButton.frame.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(controller.currentLocationButton.tintColor, NativeGlassBarStyle.iconTintColor)
+        XCTAssertEqual(
+            controller.currentLocationButton.frame.minX - searchSurfaceView.frame.maxX,
+            NativeGlassBarStyle.interItemSpacing,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(currentLocationImage.renderingMode, .alwaysTemplate)
+    }
+
     func testInitializationDoesNotQueryLocationServicesEnabled() {
         let authorizer = FakeTask16GeolocationAuthorizer(
             status: .authorized,
