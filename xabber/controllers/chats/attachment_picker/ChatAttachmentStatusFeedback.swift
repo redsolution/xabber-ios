@@ -59,7 +59,30 @@ enum ChatAttachmentDraftStatusPolicy {
                 showsRemoveAction: false,
                 blocksSend: true
             )
-        case .prepared, .preparedLocation:
+        case .prepared:
+            return ChatAttachmentStatusBannerViewModel(
+                kind: .ready,
+                title: "",
+                message: "",
+                progress: nil,
+                blockedItemCount: 0,
+                showsRetryAction: false,
+                showsRemoveAction: false,
+                blocksSend: false
+            )
+        case .preparedLocation(let location):
+            guard location.localSnapshotURL != nil else {
+                return ChatAttachmentStatusBannerViewModel(
+                    kind: .preparing,
+                    title: ChatAttachmentLocalization.string(.statusPreparingAttachmentTitle),
+                    message: ChatAttachmentLocalization.string(.statusPreparingAttachmentMessage),
+                    progress: nil,
+                    blockedItemCount: 0,
+                    showsRetryAction: false,
+                    showsRemoveAction: false,
+                    blocksSend: true
+                )
+            }
             return ChatAttachmentStatusBannerViewModel(
                 kind: .ready,
                 title: "",
@@ -132,12 +155,7 @@ enum ChatAttachmentBatchStatusPolicy {
             )
         }
 
-        let preparedCount = drafts.filter { draft in
-            if case .prepared = draft.preparationState {
-                return true
-            }
-            return false
-        }.count
+        let preparedCount = drafts.filter(\.isPreparedForSend).count
 
         if preparedCount == drafts.count {
             return ChatAttachmentStatusBannerViewModel(

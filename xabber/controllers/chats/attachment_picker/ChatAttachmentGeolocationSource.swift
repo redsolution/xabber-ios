@@ -123,6 +123,14 @@ protocol ChatAttachmentGeolocationToastPresenting: AnyObject {
     func showToast(message: String, in view: UIView)
 }
 
+protocol ChatLocationSnapshotProviding: AnyObject {
+    func makeSnapshot(
+        for location: ChatAttachmentResolvedLocation,
+        size: CGSize,
+        completion: @escaping (Result<URL, Error>) -> Void
+    )
+}
+
 final class CoreLocationChatAttachmentGeolocationAuthorizer: NSObject,
     ChatAttachmentGeolocationAuthorizing,
     CLLocationManagerDelegate {
@@ -350,6 +358,109 @@ final class ToastSwiftChatAttachmentGeolocationToastPresenter: ChatAttachmentGeo
     }
 }
 
+private enum ChatLocationSnapshotError: Error {
+    case imageEncodingFailed
+    case outputWriteFailed
+}
+
+final class MapKitChatLocationSnapshotProvider: ChatLocationSnapshotProviding {
+    private let outputDirectory: URL
+    private let fileManager: FileManager
+    private let uuidProvider: () -> UUID
+
+    init(
+        outputDirectory: URL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("xabber-chat-location-snapshots", isDirectory: true),
+        fileManager: FileManager = .default,
+        uuidProvider: @escaping () -> UUID = UUID.init
+    ) {
+        self.outputDirectory = outputDirectory
+        self.fileManager = fileManager
+        self.uuidProvider = uuidProvider
+    }
+
+    func makeSnapshot(
+        for location: ChatAttachmentResolvedLocation,
+        size: CGSize,
+        completion: @escaping (Result<URL, Error>) -> Void
+    ) {
+        let snapshotSize = CGSize(
+            width: max(1, size.width),
+            height: max(1, size.height)
+        )
+        let coordinate = location.coordinate.clLocationCoordinate
+        let options = MKMapSnapshotter.Options()
+        options.region = MKCoordinateRegion(
+            center: coordinate,
+            latitudinalMeters: 1_000,
+            longitudinalMeters: 1_000
+        )
+        options.size = snapshotSize
+        options.scale = UIScreen.main.scale
+        options.mapType = .standard
+
+        MKMapSnapshotter(options: options).start { [weak self] snapshot, error in
+            guard let self else { return }
+            if let error {
+                completion(.failure(error))
+                return
+            }
+            guard let snapshot else {
+                completion(.failure(ChatLocationSnapshotError.imageEncodingFailed))
+                return
+            }
+
+            do {
+                let destinationURL = try self.writeSnapshotImage(snapshot.image)
+                completion(.success(destinationURL))
+            } catch {
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private func writeSnapshotImage(_ image: UIImage) throws -> URL {
+        guard let data = Self.imageWithMarker(image).pngData() else {
+            throw ChatLocationSnapshotError.imageEncodingFailed
+        }
+
+        do {
+            try fileManager.createDirectory(
+                at: outputDirectory,
+                withIntermediateDirectories: true
+            )
+            let url = outputDirectory
+                .appendingPathComponent("\(uuidProvider().uuidString).png")
+                .standardizedFileURL
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            throw ChatLocationSnapshotError.outputWriteFailed
+        }
+    }
+
+    private static func imageWithMarker(_ image: UIImage) -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: image.size)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+            let center = CGPoint(x: image.size.width / 2, y: image.size.height / 2)
+            let radius = max(6, min(image.size.width, image.size.height) * 0.035)
+            let markerRect = CGRect(
+                x: center.x - radius,
+                y: center.y - radius,
+                width: radius * 2,
+                height: radius * 2
+            )
+            UIColor.systemRed.setFill()
+            UIBezierPath(ovalIn: markerRect).fill()
+            UIColor.white.setStroke()
+            let ring = UIBezierPath(ovalIn: markerRect.insetBy(dx: -2, dy: -2))
+            ring.lineWidth = 3
+            ring.stroke()
+        }
+    }
+}
+
 final class ChatAttachmentGeolocationSourceViewController: UIViewController,
     ChatAttachmentSourceControlling,
     ChatAttachmentDraftSelectionProviding,
@@ -372,10 +483,12 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
     private let currentLocationProvider: ChatAttachmentCurrentLocationProviding
     private let searchProvider: ChatAttachmentGeolocationSearchProviding
     private let reverseGeocoder: ChatAttachmentGeolocationReverseGeocoding
+    private let snapshotProvider: ChatLocationSnapshotProviding
     private let toastPresenter: ChatAttachmentGeolocationToastPresenting
     private var searchResults: [ChatAttachmentGeolocationSearchCompletion] = []
     private var selectedDrafts: [AttachmentDraft] = []
     private var selectedAnnotation: MKPointAnnotation?
+    private var activeSnapshotRequestID: UUID?
 
     private(set) var permissionState: ChatAttachmentGeolocationPermissionState
 
@@ -392,6 +505,7 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
         currentLocationProvider: ChatAttachmentCurrentLocationProviding = CoreLocationChatAttachmentCurrentLocationProvider(),
         searchProvider: ChatAttachmentGeolocationSearchProviding = MapKitChatAttachmentGeolocationSearchProvider(),
         reverseGeocoder: ChatAttachmentGeolocationReverseGeocoding = CoreLocationChatAttachmentReverseGeocoder(),
+        snapshotProvider: ChatLocationSnapshotProviding = MapKitChatLocationSnapshotProvider(),
         toastPresenter: ChatAttachmentGeolocationToastPresenting = ToastSwiftChatAttachmentGeolocationToastPresenter(),
         isWireContractEnabled: Bool = true
     ) {
@@ -399,6 +513,7 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
         self.currentLocationProvider = currentLocationProvider
         self.searchProvider = searchProvider
         self.reverseGeocoder = reverseGeocoder
+        self.snapshotProvider = snapshotProvider
         self.toastPresenter = toastPresenter
         self.permissionState = ChatAttachmentGeolocationPermissionPolicy.state(
             for: authorizer.authorizationStatus,
@@ -487,6 +602,9 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
 
     func syncSelectedAttachmentDrafts(_ drafts: [AttachmentDraft]) {
         selectedDrafts = drafts
+        if !drafts.contains(where: { $0.source == .geolocation }) {
+            activeSnapshotRequestID = nil
+        }
     }
 
     @discardableResult
@@ -511,14 +629,30 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
 
     func cancelLocationSelection() {
         selectedDrafts.removeAll { $0.source == .geolocation }
+        activeSnapshotRequestID = nil
         notifySelectionChanged()
     }
 
     func selectResolvedLocation(_ location: ChatAttachmentResolvedLocation) {
-        let draft = makeLocationDraft(from: location)
+        let requestID = UUID()
+        activeSnapshotRequestID = requestID
+        let draft = makeLocationDraft(from: location, localSnapshotURL: nil)
         selectedDrafts = [draft]
         updateMapSelection(location)
         notifySelectionChanged()
+        snapshotProvider.makeSnapshot(
+            for: location,
+            size: Self.snapshotSize
+        ) { [weak self] result in
+            let applyResult: () -> Void = {
+                self?.completeSnapshotResult(result, for: location, requestID: requestID)
+            }
+            if Thread.isMainThread {
+                applyResult()
+            } else {
+                DispatchQueue.main.async(execute: applyResult)
+            }
+        }
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -642,14 +776,17 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
         searchResultsTableView.isHidden = results.isEmpty
     }
 
-    private func makeLocationDraft(from location: ChatAttachmentResolvedLocation) -> AttachmentDraft {
+    private func makeLocationDraft(
+        from location: ChatAttachmentResolvedLocation,
+        localSnapshotURL: URL?
+    ) -> AttachmentDraft {
         let preparedLocation = AttachmentPreparedLocation(
             coordinate: location.coordinate,
             displayAddress: location.displayAddress,
             accuracy: location.accuracy,
             geoURI: Self.geoURI(for: location.coordinate),
             createdAt: Date(),
-            localSnapshotURL: nil
+            localSnapshotURL: localSnapshotURL
         )
         return AttachmentDraft(
             id: "location:\(preparedLocation.geoURI)",
@@ -662,6 +799,24 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
             dimensions: nil,
             preparationState: .preparedLocation(preparedLocation)
         )
+    }
+
+    private func completeSnapshotResult(
+        _ result: Result<URL, Error>,
+        for location: ChatAttachmentResolvedLocation,
+        requestID: UUID
+    ) {
+        guard activeSnapshotRequestID == requestID else {
+            return
+        }
+
+        switch result {
+        case .success(let snapshotURL):
+            selectedDrafts = [makeLocationDraft(from: location, localSnapshotURL: snapshotURL)]
+            notifySelectionChanged()
+        case .failure:
+            showToast(message: ChatAttachmentLocalization.string(.geolocationSnapshotFailedMessage))
+        }
     }
 
     private func updateMapSelection(_ location: ChatAttachmentResolvedLocation) {
@@ -689,7 +844,11 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
     }
 
     private func showToast(for reason: ChatAttachmentGeolocationBlockReason) {
-        toastPresenter.showToast(message: toastMessage(for: reason), in: view)
+        showToast(message: toastMessage(for: reason))
+    }
+
+    private func showToast(message: String) {
+        toastPresenter.showToast(message: message, in: view)
     }
 
     private func toastMessage(for reason: ChatAttachmentGeolocationBlockReason) -> String {
@@ -716,6 +875,10 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
 
     private static func geoURI(for coordinate: AttachmentLocationCoordinate) -> String {
         "geo:\(coordinate.latitude),\(coordinate.longitude)"
+    }
+
+    private static var snapshotSize: CGSize {
+        CGSize(width: 640, height: 640)
     }
 }
 

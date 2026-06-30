@@ -324,6 +324,40 @@ final class ChatAttachmentPreviewViewerTests: XCTestCase {
         XCTAssertEqual(provider.requestedDraftIDs, [assetDraft.id, capturedDraft.id])
     }
 
+    func testPreviewProviderUsesPreparedLocationSnapshotImage() throws {
+        let snapshotURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("location-preview-\(UUID().uuidString).png")
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: snapshotURL)
+        }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let sourceImage = UIGraphicsImageRenderer(
+            size: CGSize(width: 12, height: 12),
+            format: format
+        ).image { context in
+            UIColor.systemGreen.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 12, height: 12))
+        }
+        try XCTUnwrap(sourceImage.pngData()).write(to: snapshotURL)
+        let provider = PhotoKitChatAttachmentPreviewMediaProvider()
+        let draft = makePreparedLocationDraft(snapshotURL: snapshotURL)
+        var receivedMedia: ChatAttachmentPreviewMedia?
+
+        provider.requestPreviewMedia(
+            for: draft,
+            targetSize: CGSize(width: 120, height: 120)
+        ) { media in
+            receivedMedia = media
+        }
+
+        guard case .image(let image) = receivedMedia else {
+            return XCTFail("Expected location snapshot preview image")
+        }
+        XCTAssertEqual(image.size.width, sourceImage.size.width)
+        XCTAssertEqual(image.size.height, sourceImage.size.height)
+    }
+
     func testVideoPreviewRequestsPlayerPresentation() throws {
         let provider = FakeTask12PreviewMediaProvider()
         let presenter = FakeTask12PreviewVideoPresenter()
@@ -720,5 +754,27 @@ private func makeFileDraft(filename: String = "document.pdf", byteSize: Int = 1)
         duration: nil,
         dimensions: nil,
         preparationState: .pending
+    )
+}
+
+private func makePreparedLocationDraft(snapshotURL: URL?) -> AttachmentDraft {
+    let location = AttachmentPreparedLocation(
+        coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
+        displayAddress: "Westminster",
+        accuracy: nil,
+        geoURI: "geo:51.5007,-0.1246",
+        createdAt: Date(timeIntervalSince1970: 1_782_799_200),
+        localSnapshotURL: snapshotURL
+    )
+    return AttachmentDraft(
+        id: "location:\(location.geoURI)",
+        source: .geolocation,
+        mediaKind: .location,
+        thumbnailState: .none,
+        filename: "Location",
+        byteSize: 0,
+        duration: nil,
+        dimensions: nil,
+        preparationState: .preparedLocation(location)
     )
 }

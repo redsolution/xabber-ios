@@ -22,17 +22,7 @@ enum ChatAttachmentSendabilityPolicy {
             return false
         }
 
-        return drafts.allSatisfy { draft in
-            if case .prepared = draft.preparationState {
-                return true
-            }
-
-            if case .preparedLocation = draft.preparationState {
-                return true
-            }
-
-            return false
-        }
+        return drafts.allSatisfy(\.isPreparedForSend)
     }
 }
 
@@ -43,12 +33,7 @@ enum ChatAttachmentInlineSendabilityPolicy {
         }
 
         return drafts.allSatisfy { draft in
-            switch draft.preparationState {
-            case .prepared, .preparedLocation:
-                return true
-            case .pending, .preparing, .unavailable:
-                return false
-            }
+            draft.isPreparedForSend
         }
     }
 }

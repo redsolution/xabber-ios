@@ -30,6 +30,8 @@ final class ChatAttachmentErrorProgressStateTests: XCTestCase {
 
         XCTAssertEqual(ChatAttachmentBatchStatusPolicy.viewModel(for: []).kind, .hidden)
         XCTAssertEqual(ChatAttachmentBatchStatusPolicy.viewModel(for: [prepared]).kind, .ready)
+        XCTAssertEqual(ChatAttachmentBatchStatusPolicy.viewModel(for: [locationDraft(snapshotURL: URL(fileURLWithPath: "/tmp/map.png"))]).kind, .ready)
+        XCTAssertEqual(ChatAttachmentBatchStatusPolicy.viewModel(for: [locationDraft(snapshotURL: nil)]).kind, .preparing)
 
         let preparingViewModel = ChatAttachmentBatchStatusPolicy.viewModel(for: [prepared, pending, preparing])
         XCTAssertEqual(preparingViewModel.kind, .preparing)
@@ -210,6 +212,28 @@ final class ChatAttachmentErrorProgressStateTests: XCTestCase {
             temporaryData: nil
         )
         return draft(id: id, state: .prepared(file))
+    }
+
+    private func locationDraft(snapshotURL: URL?) -> AttachmentDraft {
+        let location = AttachmentPreparedLocation(
+            coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
+            displayAddress: "Westminster",
+            accuracy: nil,
+            geoURI: "geo:51.5007,-0.1246",
+            createdAt: Date(timeIntervalSince1970: 1_782_799_200),
+            localSnapshotURL: snapshotURL
+        )
+        return AttachmentDraft(
+            id: "location:\(location.geoURI)",
+            source: .geolocation,
+            mediaKind: .location,
+            thumbnailState: .none,
+            filename: "Location",
+            byteSize: 0,
+            duration: nil,
+            dimensions: nil,
+            preparationState: .preparedLocation(location)
+        )
     }
 }
 

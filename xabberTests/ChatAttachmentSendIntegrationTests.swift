@@ -23,6 +23,8 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         XCTAssertFalse(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: []))
         XCTAssertFalse(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: [pending, prepared]))
         XCTAssertTrue(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: [prepared]))
+        XCTAssertFalse(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: [locationDraft(snapshotURL: nil)]))
+        XCTAssertTrue(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: [locationDraft()]))
 
         let preview = ChatAttachmentPreviewViewController(drafts: [prepared])
         preview.loadViewIfNeeded()
@@ -455,14 +457,16 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         ).makeAttachmentDraft()
     }
 
-    private func locationDraft() -> AttachmentDraft {
+    private func locationDraft(
+        snapshotURL: URL? = URL(fileURLWithPath: "/tmp/location-snapshot.png")
+    ) -> AttachmentDraft {
         let location = AttachmentPreparedLocation(
             coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
             displayAddress: "Westminster",
             accuracy: 12.5,
             geoURI: "geo:51.5007,-0.1246",
             createdAt: Date(timeIntervalSince1970: 1_782_799_200),
-            localSnapshotURL: nil
+            localSnapshotURL: snapshotURL
         )
         return AttachmentDraft(
             id: "location:\(location.geoURI)",

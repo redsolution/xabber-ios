@@ -201,6 +201,21 @@ final class ChatAttachmentDraftModelTests: XCTestCase {
         XCTAssertEqual(reference.metadata?["text"] as? String, "Westminster")
         XCTAssertEqual(reference.metadata?["timestamp"] as? String, "2026-06-30T06:00:00Z")
         XCTAssertEqual(reference.metadata?["uri"] as? String, "geo:51.5007,-0.1246")
+        XCTAssertNil(reference.metadata?["local-snapshot-url"])
+    }
+
+    func testReferenceBuilderRejectsPreparedLocationWithoutSnapshot() {
+        let location = preparedLocation(localSnapshotURL: nil)
+        let draft = locationDraft(location: location)
+
+        XCTAssertThrowsError(
+            try ChatAttachmentReferenceBuilder().makeReferences(from: [draft], context: Self.context)
+        ) { error in
+            XCTAssertEqual(
+                error as? ChatAttachmentReferenceBuilderError,
+                .draftNotPrepared(draft.id)
+            )
+        }
     }
 
     func testGeolocOutgoingBodyUsesGeoURIFallback() throws {
@@ -288,14 +303,16 @@ final class ChatAttachmentDraftModelTests: XCTestCase {
         )
     }
 
-    private func preparedLocation() -> AttachmentPreparedLocation {
+    private func preparedLocation(
+        localSnapshotURL: URL? = URL(fileURLWithPath: "/tmp/location-snapshot.png")
+    ) -> AttachmentPreparedLocation {
         AttachmentPreparedLocation(
             coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
             displayAddress: "Westminster",
             accuracy: 12.5,
             geoURI: "geo:51.5007,-0.1246",
             createdAt: Date(timeIntervalSince1970: 1_782_799_200),
-            localSnapshotURL: nil
+            localSnapshotURL: localSnapshotURL
         )
     }
 

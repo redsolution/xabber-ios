@@ -123,6 +123,17 @@ extension AttachmentDraft {
         return location
     }
 
+    var isPreparedForSend: Bool {
+        switch preparationState {
+        case .prepared:
+            return true
+        case .preparedLocation(let location):
+            return location.localSnapshotURL != nil
+        case .pending, .preparing, .unavailable:
+            return false
+        }
+    }
+
     var requiresUpload: Bool {
         if preparedLocation != nil {
             return false
@@ -155,6 +166,9 @@ struct ChatAttachmentReferenceBuilder {
         case .prepared(let file):
             return makeFileReference(from: draft, preparedFile: file, context: context)
         case .preparedLocation(let location):
+            guard location.localSnapshotURL != nil else {
+                throw ChatAttachmentReferenceBuilderError.draftNotPrepared(draft.id)
+            }
             return makeLocationReference(from: draft, location: location, context: context)
         case .unavailable(let reason):
             throw ChatAttachmentReferenceBuilderError.draftUnavailable(draft.id, reason)
@@ -263,9 +277,6 @@ struct ChatAttachmentReferenceBuilder {
         }
         if let accuracy = location.accuracy, accuracy.isFinite {
             metadata["accuracy"] = Self.geolocNumberString(accuracy)
-        }
-        if let localSnapshotURL = location.localSnapshotURL {
-            metadata["local-snapshot-url"] = localSnapshotURL.absoluteString
         }
         reference.metadata = metadata
 

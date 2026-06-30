@@ -1205,6 +1205,11 @@ final class PhotoKitChatAttachmentPreviewMediaProvider: ChatAttachmentPreviewMed
         targetSize: CGSize,
         completion: @escaping (ChatAttachmentPreviewMedia) -> Void
     ) -> Int {
+        if case .preparedLocation(let location) = draft.preparationState {
+            completion(previewMediaForPreparedLocation(location, draft: draft))
+            return Int(PHInvalidImageRequestID)
+        }
+
         if let capturedURL = draft.capturedLocalFileURL {
             completion(previewMediaForCapturedDraft(draft, localFileURL: capturedURL))
             return Int(PHInvalidImageRequestID)
@@ -1240,6 +1245,19 @@ final class PhotoKitChatAttachmentPreviewMediaProvider: ChatAttachmentPreviewMed
         }
 
         imageManager.cancelImageRequest(PHImageRequestID(requestID))
+    }
+
+    private func previewMediaForPreparedLocation(
+        _ location: AttachmentPreparedLocation,
+        draft: AttachmentDraft
+    ) -> ChatAttachmentPreviewMedia {
+        guard let snapshotURL = location.localSnapshotURL else {
+            return .filePlaceholder(filename: draft.filename, byteSize: draft.byteSize)
+        }
+        guard let image = UIImage(contentsOfFile: snapshotURL.path) else {
+            return .unavailable
+        }
+        return .image(image)
     }
 
     private func previewMediaForCapturedDraft(

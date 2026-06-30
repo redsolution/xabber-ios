@@ -95,9 +95,12 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
             status: .authorized,
             requestResult: .authorized
         )
+        let snapshotURL = URL(fileURLWithPath: "/tmp/westminster-map.png")
+        let snapshotProvider = FakeTask4LocationSnapshotProvider(result: .success(snapshotURL))
         let controller = ChatAttachmentGeolocationSourceViewController(
             authorizer: authorizer,
-            searchProvider: searchProvider
+            searchProvider: searchProvider,
+            snapshotProvider: snapshotProvider
         )
         var emittedCounts: [Int] = []
         var emittedDrafts: [[AttachmentDraft]] = []
@@ -120,13 +123,17 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
 
         XCTAssertEqual(searchProvider.queries, [])
         XCTAssertEqual(searchProvider.resolvedCompletions, [completion])
-        XCTAssertEqual(emittedCounts, [1])
+        XCTAssertEqual(emittedCounts, [1, 1])
         XCTAssertEqual(emittedDrafts.last?.map(\.id), [draft.id])
         XCTAssertEqual(draft.source, .geolocation)
         XCTAssertEqual(draft.mediaKind, .location)
         XCTAssertEqual(location.coordinate, AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246))
         XCTAssertEqual(location.displayAddress, "Westminster")
         XCTAssertEqual(location.geoURI, "geo:51.5007,-0.1246")
+        XCTAssertEqual(location.localSnapshotURL, snapshotURL)
+        XCTAssertEqual(snapshotProvider.locations.map(\.coordinate), [location.coordinate])
+        XCTAssertFalse(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: [try XCTUnwrap(emittedDrafts.first?.first)]))
+        XCTAssertTrue(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: [draft]))
     }
 
     func testCurrentLocationDeniedShowsToastAndDoesNotMutateSelection() {
@@ -158,10 +165,17 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
             )
         )
         let reverseGeocoder = FakeTask3ReverseGeocoder(address: "Current Address")
+        let snapshotProvider = FakeTask4LocationSnapshotProvider(
+            results: [
+                .success(URL(fileURLWithPath: "/tmp/current-map.png")),
+                .success(URL(fileURLWithPath: "/tmp/replacement-map.png"))
+            ]
+        )
         let controller = ChatAttachmentGeolocationSourceViewController(
             authorizer: FakeTask16GeolocationAuthorizer(status: .authorized, requestResult: .authorized),
             currentLocationProvider: locationProvider,
-            reverseGeocoder: reverseGeocoder
+            reverseGeocoder: reverseGeocoder,
+            snapshotProvider: snapshotProvider
         )
         var emittedCounts: [Int] = []
         controller.onSelectionCountChanged = { emittedCounts.append($0) }
@@ -176,9 +190,10 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         XCTAssertEqual(reverseGeocoder.coordinates, [
             AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246)
         ])
-        XCTAssertEqual(emittedCounts, [1])
+        XCTAssertEqual(emittedCounts, [1, 1])
         XCTAssertEqual(location.displayAddress, "Current Address")
         XCTAssertEqual(location.accuracy, 8.25)
+        XCTAssertEqual(location.localSnapshotURL, URL(fileURLWithPath: "/tmp/current-map.png"))
 
         controller.selectResolvedLocation(
             ChatAttachmentResolvedLocation(
@@ -190,9 +205,41 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
 
         XCTAssertEqual(controller.selectedAttachmentDrafts.count, 1)
         location = try XCTUnwrap(controller.selectedAttachmentDrafts.first?.preparedLocation)
-        XCTAssertEqual(emittedCounts, [1, 1])
+        XCTAssertEqual(emittedCounts, [1, 1, 1, 1])
         XCTAssertEqual(location.coordinate, AttachmentLocationCoordinate(latitude: 40.7128, longitude: -74.006))
         XCTAssertEqual(location.displayAddress, "Replacement")
+        XCTAssertEqual(location.localSnapshotURL, URL(fileURLWithPath: "/tmp/replacement-map.png"))
+        XCTAssertTrue(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: controller.selectedAttachmentDrafts))
+    }
+
+    func testSnapshotFailureKeepsLocationDraftUnsendableAndShowsToast() throws {
+        let toastPresenter = FakeTask3GeolocationToastPresenter()
+        let snapshotProvider = FakeTask4LocationSnapshotProvider(result: .failure(FakeTask4SnapshotError.failed))
+        let controller = ChatAttachmentGeolocationSourceViewController(
+            authorizer: FakeTask16GeolocationAuthorizer(status: .authorized, requestResult: .authorized),
+            snapshotProvider: snapshotProvider,
+            toastPresenter: toastPresenter
+        )
+        var emittedDrafts: [[AttachmentDraft]] = []
+        controller.onSelectedAttachmentDraftsChanged = { emittedDrafts.append($0) }
+
+        controller.loadViewIfNeeded()
+        controller.selectResolvedLocation(
+            ChatAttachmentResolvedLocation(
+                coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
+                displayAddress: "Westminster",
+                accuracy: nil
+            )
+        )
+
+        let draft = try XCTUnwrap(controller.selectedAttachmentDrafts.first)
+        let location = try XCTUnwrap(draft.preparedLocation)
+        XCTAssertNil(location.localSnapshotURL)
+        XCTAssertFalse(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: controller.selectedAttachmentDrafts))
+        XCTAssertEqual(emittedDrafts.count, 1)
+        XCTAssertEqual(toastPresenter.messages, [
+            ChatAttachmentLocalization.string(.geolocationSnapshotFailedMessage)
+        ])
     }
 }
 
@@ -261,6 +308,34 @@ private final class FakeTask3GeolocationToastPresenter: ChatAttachmentGeolocatio
 
     func showToast(message: String, in view: UIView) {
         messages.append(message)
+    }
+}
+
+private enum FakeTask4SnapshotError: Error {
+    case failed
+}
+
+private final class FakeTask4LocationSnapshotProvider: ChatLocationSnapshotProviding {
+    private var results: [Result<URL, Error>]
+    private(set) var locations: [ChatAttachmentResolvedLocation] = []
+    private(set) var sizes: [CGSize] = []
+
+    init(result: Result<URL, Error>) {
+        self.results = [result]
+    }
+
+    init(results: [Result<URL, Error>]) {
+        self.results = results
+    }
+
+    func makeSnapshot(
+        for location: ChatAttachmentResolvedLocation,
+        size: CGSize,
+        completion: @escaping (Result<URL, Error>) -> Void
+    ) {
+        locations.append(location)
+        sizes.append(size)
+        completion(results.removeFirst())
     }
 }
 
