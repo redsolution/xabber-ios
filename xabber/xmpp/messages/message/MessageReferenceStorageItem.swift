@@ -208,6 +208,7 @@ class MessageReferenceStorageItem: Object {
         case groupchat = "groupchat"
         case call = "call"
         case systemMessage = "system-message"
+        case geoloc = "geoloc"
         case none = ""
     }
     

@@ -1337,6 +1337,29 @@ class MessageStorageItem: Object {
                     
                     fileSharing.addChild(file)
                     referenceElement.addChild(fileSharing)
+                case .geoloc:
+                    let geoloc = DDXMLElement(
+                        name: "geoloc",
+                        xmlns: "http://jabber.org/protocol/geoloc"
+                    )
+                    func metadataString(for key: String) -> String? {
+                        guard let value = reference.metadata?[key] else { return nil }
+                        if let value = value as? String, value.isNotEmpty {
+                            return value
+                        }
+                        if let value = value as? Int {
+                            return "\(value)"
+                        }
+                        if let value = value as? Double, value.isFinite {
+                            return "\(value)"
+                        }
+                        return nil
+                    }
+                    ["lat", "lon", "accuracy", "text", "timestamp", "uri"].forEach { key in
+                        guard let value = metadataString(for: key) else { return }
+                        geoloc.addChild(DDXMLElement(name: key, stringValue: value))
+                    }
+                    referenceElement.addChild(geoloc)
                 case .systemMessage:
                     let systemMessage = DDXMLElement(
                         name: "system-message",

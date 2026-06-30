@@ -24,11 +24,52 @@ import RealmSwift
 
 private let groupchatXMLNS = "https://xabber.com/protocol/groups"
 private let referencesXMLNS = "https://xabber.com/protocol/references"
+private let geolocXMLNS = "http://jabber.org/protocol/geoloc"
 
 private func isAnonymousMutableReference(_ reference: DDXMLElement) -> Bool {
     reference.xmlns() == referencesXMLNS &&
     reference.attributeStringValue(forName: "type") == "mutable" &&
     getReferenceType(reference) == nil
+}
+
+private func geolocElement(from reference: DDXMLElement) -> DDXMLElement? {
+    guard reference.xmlns() == referencesXMLNS,
+          reference.attributeStringValue(forName: "type") == "mutable" else {
+        return nil
+    }
+    let geolocElements = reference
+        .elements(forName: "geoloc")
+        .filter { $0.xmlns() == geolocXMLNS }
+    guard geolocElements.count == 1 else { return nil }
+    return geolocElements[0]
+}
+
+private func childText(_ element: DDXMLElement, name: String) -> String? {
+    guard let value = element.element(forName: name)?
+        .stringValue?
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+          value.isNotEmpty else {
+        return nil
+    }
+    return value
+}
+
+private func validGeolocCoordinate(_ value: String?, range: ClosedRange<Double>) -> String? {
+    guard let value,
+          let coordinate = Double(value),
+          coordinate.isFinite,
+          range.contains(coordinate) else {
+        return nil
+    }
+    return value
+}
+
+private func validGeolocAccuracy(_ value: String?) -> String? {
+    guard let value else { return nil }
+    guard let accuracy = Double(value), accuracy.isFinite, accuracy >= 0 else {
+        return nil
+    }
+    return value
 }
 
 func groupchatReferenceElement(from message: XMPPMessage) -> DDXMLElement? {
@@ -211,6 +252,8 @@ func getReferenceType(_ ref: DDXMLElement) -> String? {
     } else if ref.element(forName: "file-sharing",
                           xmlns: "https://xabber.com/protocol/files") != nil {
         return "media"
+    } else if geolocElement(from: ref) != nil {
+        return "geoloc"
     } else if ref.attributeStringValue(forName: "type") == "decoration" {
         if ref.element(forName: "quote", xmlns: "https://xabber.com/protocol/markup") != nil {
             return "quote"
@@ -374,6 +417,34 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 } catch {
                     DDLogDebug("MessageReferencePArser: \(#function). \(error.localizedDescription)")
                 }
+            case .geoloc:
+                guard let geoloc = geolocElement(from: ref),
+                      let latitude = validGeolocCoordinate(
+                        childText(geoloc, name: "lat"),
+                        range: -90.0...90.0
+                      ),
+                      let longitude = validGeolocCoordinate(
+                        childText(geoloc, name: "lon"),
+                        range: -180.0...180.0
+                      ) else {
+                    return nil
+                }
+                let geoURI = "geo:\(latitude),\(longitude)"
+                metadata["lat"] = latitude
+                metadata["lon"] = longitude
+                metadata["uri"] = childText(geoloc, name: "uri") ?? geoURI
+                if let accuracy = validGeolocAccuracy(childText(geoloc, name: "accuracy")) {
+                    metadata["accuracy"] = accuracy
+                }
+                if let text = childText(geoloc, name: "text") {
+                    metadata["text"] = text
+                }
+                if let timestamp = childText(geoloc, name: "timestamp") {
+                    metadata["timestamp"] = timestamp
+                }
+                reference.mimeType = "location"
+                reference.url = geoURI
+                reference.isUploaded = true
             case .markup:
                 var styles: [String] = []
                 if ref.element(forName: "bold") != nil { styles.append("bold") }
@@ -516,7 +587,7 @@ extension String {
             ref.begin = begin
             ref.end = end
             switch ref.kind {
-            case .media, .voice, .forward, .groupchat:
+            case .media, .voice, .forward, .groupchat, .geoloc:
                 if let range = Range<String.Index>(ref.range, in: out) {
                     out.removeSubrange(range)
                 }

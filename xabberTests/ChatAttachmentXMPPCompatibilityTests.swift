@@ -89,6 +89,106 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
         XCTAssertEqual(parsed.metadata?["uri"] as? String, "https://example.com/captioned.jpg")
     }
 
+    func testGeolocReferenceRoundTripsXEPGEO() throws {
+        let body = "geo:51.5007,-0.1246"
+        let reference = geolocReference(
+            latitude: "51.5007",
+            longitude: "-0.1246",
+            body: body,
+            metadata: [
+                "accuracy": "12",
+                "text": "Westminster",
+                "timestamp": "2026-06-30T06:00:00Z"
+            ]
+        )
+
+        let message = try makeMessage(body: body, references: [reference])
+        let referenceElement = try XCTUnwrap(message.elements(forName: "reference").first)
+        let geolocElement = try XCTUnwrap(referenceElement.element(
+            forName: "geoloc",
+            xmlns: "http://jabber.org/protocol/geoloc"
+        ))
+        XCTAssertEqual(referenceElement.attributeStringValue(forName: "type"), "mutable")
+        XCTAssertEqual(geolocElement.element(forName: "lat")?.stringValue, "51.5007")
+        XCTAssertEqual(geolocElement.element(forName: "lon")?.stringValue, "-0.1246")
+
+        let parsed = try XCTUnwrap(parseReferences(
+            message,
+            primary: "geoloc-primary",
+            jid: jid,
+            owner: owner
+        ).first)
+
+        XCTAssertEqual(parsed.kind, .geoloc)
+        XCTAssertEqual(parsed.url, body)
+        XCTAssertEqual(parsed.mimeType, "location")
+        XCTAssertTrue(parsed.isUploaded)
+        XCTAssertNil(parsed.localFileUrl)
+        XCTAssertEqual(parsed.metadata?["lat"] as? String, "51.5007")
+        XCTAssertEqual(parsed.metadata?["lon"] as? String, "-0.1246")
+        XCTAssertEqual(parsed.metadata?["accuracy"] as? String, "12")
+        XCTAssertEqual(parsed.metadata?["text"] as? String, "Westminster")
+        XCTAssertEqual(parsed.metadata?["timestamp"] as? String, "2026-06-30T06:00:00Z")
+        XCTAssertEqual(parsed.metadata?["uri"] as? String, body)
+    }
+
+    func testGeolocParserSkipsMalformedMultipleAndWrongNamespacePayloads() throws {
+        let cases = [
+            """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='8'>
+              <geoloc xmlns='http://jabber.org/protocol/geoloc'>
+                <lat>91</lat>
+                <lon>2</lon>
+              </geoloc>
+            </reference>
+            """,
+            """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='8'>
+              <geoloc xmlns='http://jabber.org/protocol/geoloc'>
+                <lat>1</lat>
+                <lon>2</lon>
+              </geoloc>
+              <geoloc xmlns='http://jabber.org/protocol/geoloc'>
+                <lat>3</lat>
+                <lon>4</lon>
+              </geoloc>
+            </reference>
+            """,
+            """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='8'>
+              <geoloc xmlns='urn:example:wrong'>
+                <lat>1</lat>
+                <lon>2</lon>
+              </geoloc>
+            </reference>
+            """
+        ]
+
+        for referenceXML in cases {
+            let message = try makeMessage(referenceXML: referenceXML, body: "geo:1,2")
+            XCTAssertTrue(parseReferences(
+                message,
+                primary: UUID().uuidString,
+                jid: jid,
+                owner: owner
+            ).isEmpty)
+        }
+    }
+
+    func testGeolocReferenceDoesNotCreateMediaAttachmentStorage() throws {
+        let realm = try WRealm.safe()
+        let mediaAttachmentCount = realm.objects(MessageMediaAttachmentStorageItem.self).count
+        let body = "geo:51.5007,-0.1246"
+        let message = try makeMessage(body: body, references: [
+            geolocReference(latitude: "51.5007", longitude: "-0.1246", body: body)
+        ])
+
+        let parsed = parseReferences(message, primary: "geoloc-media-primary", jid: jid, owner: owner)
+
+        XCTAssertEqual(parsed.count, 1)
+        XCTAssertEqual(realm.objects(MessageMediaAttachmentStorageItem.self).count, mediaAttachmentCount)
+    }
+
     func testPushPreviewKeepsCaptionedMediaBodyAndItemsStable() throws {
         let archiveXML = """
         <message from='juliet@example.com/mobile' to='romeo@example.com'>
@@ -144,6 +244,17 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
         return XMPPMessage(from: try XCTUnwrap(document.rootElement()))
     }
 
+    private func makeMessage(referenceXML: String, body: String) throws -> XMPPMessage {
+        let xml = """
+        <message from='\(jid)/mobile' to='\(owner)'>
+          <body>\(body)</body>
+          \(referenceXML)
+        </message>
+        """
+        let document = try DDXMLDocument(xmlString: xml, options: 0)
+        return XMPPMessage(from: try XCTUnwrap(document.rootElement()))
+    }
+
     private func mediaReference(
         mediaType: String,
         name: String,
@@ -163,6 +274,32 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
             "name": name,
             "filename": name,
             "size": 1024
+        ]
+        extraMetadata.forEach { metadata[$0.key] = $0.value }
+        reference.metadata = metadata
+        return reference
+    }
+
+    private func geolocReference(
+        latitude: String,
+        longitude: String,
+        body: String,
+        metadata extraMetadata: [String: Any] = [:]
+    ) -> MessageReferenceStorageItem {
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .geoloc
+        reference.mimeType = "location"
+        reference.owner = owner
+        reference.jid = jid
+        reference.conversationType = .regular
+        reference.begin = 0
+        reference.end = body.count
+        reference.url = body
+        reference.isUploaded = true
+        var metadata: [String: Any] = [
+            "lat": latitude,
+            "lon": longitude,
+            "uri": body
         ]
         extraMetadata.forEach { metadata[$0.key] = $0.value }
         reference.metadata = metadata
