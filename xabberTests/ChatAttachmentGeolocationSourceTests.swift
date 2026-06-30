@@ -163,6 +163,35 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         XCTAssertEqual(controller.selectedAttachmentDrafts.first?.preparedLocation?.displayAddress, "Current Address")
     }
 
+    func testNotDeterminedAuthorizationCallbackKeepsWaitingWithoutToastOrLocationRequest() {
+        let authorizer = FakeTask16GeolocationAuthorizer(
+            status: .notDetermined,
+            requestResult: .notDetermined,
+            completesImmediately: false
+        )
+        let locationProvider = FakeTask3CurrentLocationProvider(
+            currentLocation: ChatAttachmentCurrentLocation(
+                coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
+                accuracy: 8.25
+            )
+        )
+        let toastPresenter = FakeTask3GeolocationToastPresenter()
+        let controller = ChatAttachmentGeolocationSourceViewController(
+            authorizer: authorizer,
+            currentLocationProvider: locationProvider,
+            toastPresenter: toastPresenter
+        )
+
+        controller.loadViewIfNeeded()
+        controller.currentLocationButton.sendActions(for: .touchUpInside)
+        authorizer.completeAuthorization()
+
+        XCTAssertEqual(authorizer.requestCount, 1)
+        XCTAssertEqual(locationProvider.requestCount, 0)
+        XCTAssertEqual(controller.selectedAttachmentDrafts.count, 0)
+        XCTAssertEqual(toastPresenter.messages, [])
+    }
+
     func testNotDeterminedCurrentLocationDeniedCallbackShowsAccessToastAndDoesNotRequestLocation() {
         let authorizer = FakeTask16GeolocationAuthorizer(
             status: .notDetermined,
@@ -263,7 +292,10 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
 
     func testCoreLocationCurrentProviderMapsDeniedErrorToDeniedFailure() {
         let locationManager = NoopTask16LocationManager()
-        let provider = CoreLocationChatAttachmentCurrentLocationProvider(locationManager: locationManager)
+        let provider = CoreLocationChatAttachmentCurrentLocationProvider(
+            locationManager: locationManager,
+            authorizationStatusProvider: { .denied }
+        )
         var completionResult: Result<ChatAttachmentCurrentLocation, ChatAttachmentGeolocationBlockReason>?
 
         provider.requestCurrentLocation { result in
@@ -277,6 +309,28 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
             break
         default:
             XCTFail("Expected denied location failure, got \(String(describing: completionResult))")
+        }
+    }
+
+    func testCoreLocationCurrentProviderMapsDeniedErrorWithAuthorizedPermissionToUnavailableFailure() {
+        let locationManager = NoopTask16LocationManager()
+        let provider = CoreLocationChatAttachmentCurrentLocationProvider(
+            locationManager: locationManager,
+            authorizationStatusProvider: { .authorizedWhenInUse }
+        )
+        var completionResult: Result<ChatAttachmentCurrentLocation, ChatAttachmentGeolocationBlockReason>?
+
+        provider.requestCurrentLocation { result in
+            completionResult = result
+        }
+        provider.locationManager(locationManager, didFailWithError: CLError(.denied))
+
+        XCTAssertEqual(locationManager.requestLocationCount, 1)
+        switch completionResult {
+        case .failure(.unavailable):
+            break
+        default:
+            XCTFail("Expected unavailable location failure, got \(String(describing: completionResult))")
         }
     }
 

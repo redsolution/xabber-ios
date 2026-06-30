@@ -168,8 +168,13 @@ final class CoreLocationChatAttachmentGeolocationAuthorizer: NSObject,
             return
         }
 
+        let status = Self.mapAuthorizationStatus(manager.authorizationStatus)
+        guard status != .notDetermined else {
+            return
+        }
+
         self.pendingCompletion = nil
-        pendingCompletion(Self.mapAuthorizationStatus(manager.authorizationStatus))
+        pendingCompletion(status)
     }
 
     private static func mapAuthorizationStatus(
@@ -277,10 +282,15 @@ final class CoreLocationChatAttachmentCurrentLocationProvider: NSObject,
     ChatAttachmentCurrentLocationProviding,
     CLLocationManagerDelegate {
     private let locationManager: CLLocationManager
+    private let authorizationStatusProvider: () -> CLAuthorizationStatus
     private var pendingCompletion: ((Result<ChatAttachmentCurrentLocation, ChatAttachmentGeolocationBlockReason>) -> Void)?
 
-    init(locationManager: CLLocationManager = CLLocationManager()) {
+    init(
+        locationManager: CLLocationManager = CLLocationManager(),
+        authorizationStatusProvider: (() -> CLAuthorizationStatus)? = nil
+    ) {
         self.locationManager = locationManager
+        self.authorizationStatusProvider = authorizationStatusProvider ?? { locationManager.authorizationStatus }
         super.init()
         self.locationManager.delegate = self
         self.locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
@@ -311,9 +321,22 @@ final class CoreLocationChatAttachmentCurrentLocationProvider: NSObject,
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         let nsError = error as NSError
         if nsError.domain == kCLErrorDomain, nsError.code == CLError.Code.denied.rawValue {
-            complete(.failure(.denied))
+            complete(.failure(blockReasonForLocationDeniedError()))
         } else {
             complete(.failure(.unavailable))
+        }
+    }
+
+    private func blockReasonForLocationDeniedError() -> ChatAttachmentGeolocationBlockReason {
+        switch authorizationStatusProvider() {
+        case .denied:
+            return .denied
+        case .restricted:
+            return .restricted
+        case .notDetermined, .authorizedAlways, .authorizedWhenInUse:
+            return .unavailable
+        @unknown default:
+            return .unavailable
         }
     }
 
@@ -710,9 +733,12 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
                     for: status,
                     isLocationServicesEnabled: true
                 )
-                if status == .authorized {
+                switch status {
+                case .authorized:
                     self.requestCurrentLocation()
-                } else {
+                case .notDetermined:
+                    break
+                case .denied, .restricted, .unavailable:
                     self.showToast(for: self.blockReason(for: status))
                 }
             }
