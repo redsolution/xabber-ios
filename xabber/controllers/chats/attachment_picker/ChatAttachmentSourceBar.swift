@@ -88,6 +88,7 @@ enum ChatAttachmentLocalizationKey: String, CaseIterable {
     case fileChooseFilesAction = "chat_attachment_file_choose_files_action"
     case fileNoFilesSelected = "chat_attachment_file_no_files_selected"
     case fileLoadingFiles = "chat_attachment_file_loading_files"
+    case geolocationSearchPlaceholder = "chat_attachment_geolocation_search_placeholder"
     case geolocationAllowAccessAction = "chat_attachment_geolocation_allow_access_action"
     case geolocationDeniedMessage = "chat_attachment_geolocation_denied_message"
     case geolocationRestrictedMessage = "chat_attachment_geolocation_restricted_message"
@@ -182,6 +183,7 @@ enum ChatAttachmentLocalizationKey: String, CaseIterable {
         case .fileChooseFilesAction: return "Choose Files"
         case .fileNoFilesSelected: return "No files selected"
         case .fileLoadingFiles: return "Loading files..."
+        case .geolocationSearchPlaceholder: return "Search address"
         case .geolocationAllowAccessAction: return "Allow Location Access"
         case .geolocationDeniedMessage: return "Location access is denied."
         case .geolocationRestrictedMessage: return "Location access is restricted."
@@ -214,7 +216,7 @@ struct ChatAttachmentSourceBarConfiguration: Equatable {
         sourceAvailability: [ChatAttachmentSource: ChatAttachmentSourceAvailability] = [
             .gallery: .available,
             .file: .available,
-            .geolocation: .disabled,
+            .geolocation: .available,
             .contact: .disabled
         ],
         orderedSources: [ChatAttachmentSource] = [.gallery, .file, .geolocation, .contact]

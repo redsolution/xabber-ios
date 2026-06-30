@@ -4,7 +4,7 @@ import UIKit
 
 @MainActor
 final class ChatAttachmentSourceBarTests: XCTestCase {
-    func testDefaultSourceBarSelectsGalleryAndShowsDisabledFutureSources() throws {
+    func testDefaultSourceBarSelectsGalleryAndShowsLocationAvailable() throws {
         let sheet = ChatAttachmentSheetViewController(
             context: Self.makeContext(),
             sourceControllerFactory: Task6FakeSourceControllerFactory()
@@ -22,7 +22,7 @@ final class ChatAttachmentSourceBarTests: XCTestCase {
         XCTAssertTrue(galleryButton.isEnabled)
         XCTAssertFalse(fileButton.isSelected)
         XCTAssertTrue(fileButton.isEnabled)
-        XCTAssertFalse(locationButton.isEnabled)
+        XCTAssertTrue(locationButton.isEnabled)
         XCTAssertFalse(contactButton.isEnabled)
     }
 
@@ -139,7 +139,7 @@ final class ChatAttachmentSourceBarTests: XCTestCase {
         XCTAssertEqual(sheet.selectedItemCount, 4)
     }
 
-    func testDisabledFutureSourcesAreVisibleButDoNotRoute() throws {
+    func testLocationSourceIsAvailableAndRoutesWhileContactStaysDisabled() throws {
         let factory = Task6FakeSourceControllerFactory()
         let sheet = ChatAttachmentSheetViewController(
             context: Self.makeContext(),
@@ -149,16 +149,16 @@ final class ChatAttachmentSourceBarTests: XCTestCase {
 
         let locationButton = try XCTUnwrap(sheet.sourceBarView.button(for: .geolocation))
         let contactButton = try XCTUnwrap(sheet.sourceBarView.button(for: .contact))
-        XCTAssertFalse(locationButton.isEnabled)
+        XCTAssertTrue(locationButton.isEnabled)
         XCTAssertFalse(contactButton.isEnabled)
 
         locationButton.sendActions(for: .touchUpInside)
         contactButton.sendActions(for: .touchUpInside)
 
-        XCTAssertEqual(sheet.activeSource, .gallery)
-        XCTAssertEqual(factory.createdSources, [.gallery])
-        XCTAssertTrue(try XCTUnwrap(sheet.sourceBarView.button(for: .gallery)).isSelected)
-        XCTAssertFalse(locationButton.isSelected)
+        XCTAssertEqual(sheet.activeSource, .geolocation)
+        XCTAssertEqual(factory.createdSources, [.gallery, .geolocation])
+        XCTAssertFalse(try XCTUnwrap(sheet.sourceBarView.button(for: .gallery)).isSelected)
+        XCTAssertTrue(locationButton.isSelected)
         XCTAssertFalse(contactButton.isSelected)
     }
 

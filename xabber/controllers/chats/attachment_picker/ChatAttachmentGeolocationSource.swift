@@ -10,7 +10,7 @@ enum ChatAttachmentGeolocationAuthorizationStatus: Equatable {
     case unavailable
 }
 
-enum ChatAttachmentGeolocationBlockReason: Equatable {
+enum ChatAttachmentGeolocationBlockReason: Error, Equatable {
     case denied
     case restricted
     case unavailable
@@ -21,6 +21,22 @@ enum ChatAttachmentGeolocationPermissionState: Equatable {
     case requestAccess
     case ready
     case blocked(reason: ChatAttachmentGeolocationBlockReason)
+}
+
+struct ChatAttachmentGeolocationSearchCompletion: Equatable {
+    let title: String
+    let subtitle: String
+}
+
+struct ChatAttachmentResolvedLocation: Equatable {
+    let coordinate: AttachmentLocationCoordinate
+    let displayAddress: String?
+    let accuracy: Double?
+}
+
+struct ChatAttachmentCurrentLocation: Equatable {
+    let coordinate: AttachmentLocationCoordinate
+    let accuracy: Double?
 }
 
 enum ChatAttachmentGeolocationPermissionPolicy {
@@ -52,11 +68,7 @@ enum ChatAttachmentGeolocationSourceAvailabilityPolicy {
         isWireContractEnabled: Bool,
         isLocationServicesEnabled: Bool
     ) -> ChatAttachmentSourceAvailability {
-        guard isWireContractEnabled else {
-            return .disabled
-        }
-
-        return isLocationServicesEnabled ? .available : .disabled
+        .available
     }
 
     static func sourceBarConfiguration(
@@ -67,10 +79,7 @@ enum ChatAttachmentGeolocationSourceAvailabilityPolicy {
             sourceAvailability: [
                 .gallery: .available,
                 .file: .available,
-                .geolocation: availability(
-                    isWireContractEnabled: isWireContractEnabled,
-                    isLocationServicesEnabled: isLocationServicesEnabled
-                ),
+                .geolocation: .available,
                 .contact: .disabled
             ],
             orderedSources: [.gallery, .file, .geolocation, .contact]
@@ -85,6 +94,33 @@ protocol ChatAttachmentGeolocationAuthorizing: AnyObject {
     func requestWhenInUseAuthorization(
         completion: @escaping (ChatAttachmentGeolocationAuthorizationStatus) -> Void
     )
+}
+
+protocol ChatAttachmentGeolocationSearchProviding: AnyObject {
+    var onResultsChanged: (([ChatAttachmentGeolocationSearchCompletion]) -> Void)? { get set }
+
+    func updateQuery(_ query: String)
+    func resolve(
+        _ completion: ChatAttachmentGeolocationSearchCompletion,
+        completionHandler: @escaping (Result<ChatAttachmentResolvedLocation, Error>) -> Void
+    )
+}
+
+protocol ChatAttachmentCurrentLocationProviding: AnyObject {
+    func requestCurrentLocation(
+        completion: @escaping (Result<ChatAttachmentCurrentLocation, ChatAttachmentGeolocationBlockReason>) -> Void
+    )
+}
+
+protocol ChatAttachmentGeolocationReverseGeocoding: AnyObject {
+    func reverseGeocode(
+        coordinate: AttachmentLocationCoordinate,
+        completion: @escaping (String?) -> Void
+    )
+}
+
+protocol ChatAttachmentGeolocationToastPresenting: AnyObject {
+    func showToast(message: String, in view: UIView)
 }
 
 final class CoreLocationChatAttachmentGeolocationAuthorizer: NSObject,
@@ -146,33 +182,232 @@ final class CoreLocationChatAttachmentGeolocationAuthorizer: NSObject,
     }
 }
 
-final class ChatAttachmentGeolocationSourceViewController: UIViewController, ChatAttachmentSourceControlling {
+final class MapKitChatAttachmentGeolocationSearchProvider: NSObject,
+    ChatAttachmentGeolocationSearchProviding,
+    MKLocalSearchCompleterDelegate {
+    var onResultsChanged: (([ChatAttachmentGeolocationSearchCompletion]) -> Void)?
+
+    private let completer: MKLocalSearchCompleter
+
+    init(completer: MKLocalSearchCompleter = MKLocalSearchCompleter()) {
+        self.completer = completer
+        super.init()
+        self.completer.delegate = self
+        self.completer.resultTypes = [.address, .pointOfInterest]
+    }
+
+    func updateQuery(_ query: String) {
+        completer.queryFragment = query
+    }
+
+    func resolve(
+        _ completion: ChatAttachmentGeolocationSearchCompletion,
+        completionHandler: @escaping (Result<ChatAttachmentResolvedLocation, Error>) -> Void
+    ) {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = [completion.title, completion.subtitle]
+            .filter { $0.isNotEmpty }
+            .joined(separator: ", ")
+        let search = MKLocalSearch(request: request)
+        search.start { response, error in
+            if let error {
+                completionHandler(.failure(error))
+                return
+            }
+            guard let item = response?.mapItems.first else {
+                completionHandler(.failure(ChatAttachmentGeolocationSearchError.noResult))
+                return
+            }
+            let coordinate = item.placemark.coordinate.attachmentCoordinate
+            completionHandler(
+                .success(
+                    ChatAttachmentResolvedLocation(
+                        coordinate: coordinate,
+                        displayAddress: Self.address(from: item.placemark) ?? completion.title,
+                        accuracy: nil
+                    )
+                )
+            )
+        }
+    }
+
+    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        onResultsChanged?(
+            completer.results.map {
+                ChatAttachmentGeolocationSearchCompletion(
+                    title: $0.title,
+                    subtitle: $0.subtitle
+                )
+            }
+        )
+    }
+
+    func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+        onResultsChanged?([])
+    }
+
+    private static func address(from placemark: MKPlacemark) -> String? {
+        if let title = placemark.title, title.isNotEmpty {
+            return title
+        }
+        let parts = [
+            placemark.name,
+            placemark.locality,
+            placemark.administrativeArea,
+            placemark.country
+        ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.isNotEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+}
+
+private enum ChatAttachmentGeolocationSearchError: Error {
+    case noResult
+}
+
+final class CoreLocationChatAttachmentCurrentLocationProvider: NSObject,
+    ChatAttachmentCurrentLocationProviding,
+    CLLocationManagerDelegate {
+    private let locationManager: CLLocationManager
+    private var pendingCompletion: ((Result<ChatAttachmentCurrentLocation, ChatAttachmentGeolocationBlockReason>) -> Void)?
+
+    init(locationManager: CLLocationManager = CLLocationManager()) {
+        self.locationManager = locationManager
+        super.init()
+        self.locationManager.delegate = self
+        self.locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+    }
+
+    func requestCurrentLocation(
+        completion: @escaping (Result<ChatAttachmentCurrentLocation, ChatAttachmentGeolocationBlockReason>) -> Void
+    ) {
+        pendingCompletion = completion
+        locationManager.requestLocation()
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else {
+            complete(.failure(.unavailable))
+            return
+        }
+        complete(
+            .success(
+                ChatAttachmentCurrentLocation(
+                    coordinate: location.coordinate.attachmentCoordinate,
+                    accuracy: location.horizontalAccuracy.isFinite ? location.horizontalAccuracy : nil
+                )
+            )
+        )
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        complete(.failure(.unavailable))
+    }
+
+    private func complete(_ result: Result<ChatAttachmentCurrentLocation, ChatAttachmentGeolocationBlockReason>) {
+        guard let pendingCompletion else { return }
+        self.pendingCompletion = nil
+        pendingCompletion(result)
+    }
+}
+
+final class CoreLocationChatAttachmentReverseGeocoder: ChatAttachmentGeolocationReverseGeocoding {
+    private let geocoder: CLGeocoder
+
+    init(geocoder: CLGeocoder = CLGeocoder()) {
+        self.geocoder = geocoder
+    }
+
+    func reverseGeocode(
+        coordinate: AttachmentLocationCoordinate,
+        completion: @escaping (String?) -> Void
+    ) {
+        let location = CLLocation(
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude
+        )
+        geocoder.reverseGeocodeLocation(location) { placemarks, _ in
+            completion(Self.address(from: placemarks?.first))
+        }
+    }
+
+    private static func address(from placemark: CLPlacemark?) -> String? {
+        guard let placemark else { return nil }
+        let parts = [
+            placemark.name,
+            placemark.locality,
+            placemark.administrativeArea,
+            placemark.country
+        ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.isNotEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+}
+
+final class ToastSwiftChatAttachmentGeolocationToastPresenter: ChatAttachmentGeolocationToastPresenting {
+    func showToast(message: String, in view: UIView) {
+        view.makeToast(message)
+    }
+}
+
+final class ChatAttachmentGeolocationSourceViewController: UIViewController,
+    ChatAttachmentSourceControlling,
+    ChatAttachmentDraftSelectionProviding,
+    ChatAttachmentDraftSelectionMutating,
+    ChatAttachmentDraftSelectionSyncing,
+    UITableViewDataSource,
+    UITableViewDelegate {
     let source: ChatAttachmentSource = .geolocation
     var onSelectionCountChanged: ((Int) -> Void)?
+    var onSelectedAttachmentDraftsChanged: (([AttachmentDraft]) -> Void)?
 
-    let requestAccessButton = UIButton(type: .system)
     let mapView = MKMapView()
+    let searchTextField = UITextField()
+    let searchResultsTableView = UITableView(frame: .zero, style: .plain)
+    let currentLocationButton = UIButton(type: .system)
+    let requestAccessButton = UIButton(type: .system)
     let statusLabel = UILabel()
 
     private let authorizer: ChatAttachmentGeolocationAuthorizing
-    private let isWireContractEnabled: Bool
+    private let currentLocationProvider: ChatAttachmentCurrentLocationProviding
+    private let searchProvider: ChatAttachmentGeolocationSearchProviding
+    private let reverseGeocoder: ChatAttachmentGeolocationReverseGeocoding
+    private let toastPresenter: ChatAttachmentGeolocationToastPresenting
+    private var searchResults: [ChatAttachmentGeolocationSearchCompletion] = []
+    private var selectedDrafts: [AttachmentDraft] = []
+    private var selectedAnnotation: MKPointAnnotation?
 
-    private(set) var permissionState: ChatAttachmentGeolocationPermissionState = .blocked(
-        reason: .wireContractUnavailable
-    )
+    private(set) var permissionState: ChatAttachmentGeolocationPermissionState
 
     var viewController: UIViewController {
         self
     }
 
+    var selectedAttachmentDrafts: [AttachmentDraft] {
+        selectedDrafts
+    }
+
     init(
         authorizer: ChatAttachmentGeolocationAuthorizing = CoreLocationChatAttachmentGeolocationAuthorizer(),
-        isWireContractEnabled: Bool = false
+        currentLocationProvider: ChatAttachmentCurrentLocationProviding = CoreLocationChatAttachmentCurrentLocationProvider(),
+        searchProvider: ChatAttachmentGeolocationSearchProviding = MapKitChatAttachmentGeolocationSearchProvider(),
+        reverseGeocoder: ChatAttachmentGeolocationReverseGeocoding = CoreLocationChatAttachmentReverseGeocoder(),
+        toastPresenter: ChatAttachmentGeolocationToastPresenting = ToastSwiftChatAttachmentGeolocationToastPresenter(),
+        isWireContractEnabled: Bool = true
     ) {
         self.authorizer = authorizer
-        self.isWireContractEnabled = isWireContractEnabled
+        self.currentLocationProvider = currentLocationProvider
+        self.searchProvider = searchProvider
+        self.reverseGeocoder = reverseGeocoder
+        self.toastPresenter = toastPresenter
+        self.permissionState = ChatAttachmentGeolocationPermissionPolicy.state(
+            for: authorizer.authorizationStatus,
+            isLocationServicesEnabled: authorizer.isLocationServicesEnabled
+        )
         super.init(nibName: nil, bundle: nil)
-        refreshPermissionState()
+        self.searchProvider.onResultsChanged = { [weak self] results in
+            self?.updateSearchResults(results)
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -183,32 +418,42 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController, Cha
         let rootView = UIView()
         rootView.backgroundColor = .systemBackground
 
-        requestAccessButton.translatesAutoresizingMaskIntoConstraints = false
-        requestAccessButton.accessibilityIdentifier = "chatAttachmentGeolocation.requestAccessButton"
-        var buttonConfiguration = UIButton.Configuration.filled()
-        buttonConfiguration.title = ChatAttachmentLocalization.string(.geolocationAllowAccessAction)
-        buttonConfiguration.image = UIImage(systemName: "location")
-        buttonConfiguration.imagePadding = 8
-        buttonConfiguration.cornerStyle = .capsule
-        requestAccessButton.configuration = buttonConfiguration
-        requestAccessButton.addTarget(self, action: #selector(requestLocationAccess), for: .touchUpInside)
-
         mapView.translatesAutoresizingMaskIntoConstraints = false
         mapView.accessibilityIdentifier = "chatAttachmentGeolocation.map"
-        mapView.isHidden = true
         mapView.showsUserLocation = false
 
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.accessibilityIdentifier = "chatAttachmentGeolocation.status"
-        statusLabel.font = UIFont.preferredFont(forTextStyle: .subheadline)
-        statusLabel.textColor = .secondaryLabel
-        statusLabel.textAlignment = .center
-        statusLabel.numberOfLines = 0
-        statusLabel.adjustsFontForContentSizeCategory = true
+        searchTextField.translatesAutoresizingMaskIntoConstraints = false
+        searchTextField.accessibilityIdentifier = "chatAttachmentGeolocation.searchField"
+        searchTextField.placeholder = ChatAttachmentLocalization.string(.geolocationSearchPlaceholder)
+        searchTextField.borderStyle = .roundedRect
+        searchTextField.returnKeyType = .search
+        searchTextField.clearButtonMode = .whileEditing
+        searchTextField.backgroundColor = .secondarySystemBackground
+        searchTextField.addTarget(self, action: #selector(searchTextChanged), for: .editingChanged)
+
+        searchResultsTableView.translatesAutoresizingMaskIntoConstraints = false
+        searchResultsTableView.accessibilityIdentifier = "chatAttachmentGeolocation.searchResults"
+        searchResultsTableView.dataSource = self
+        searchResultsTableView.delegate = self
+        searchResultsTableView.isHidden = true
+        searchResultsTableView.keyboardDismissMode = .onDrag
+        searchResultsTableView.register(UITableViewCell.self, forCellReuseIdentifier: "locationSearchCell")
+
+        var currentConfiguration = UIButton.Configuration.filled()
+        currentConfiguration.image = UIImage(systemName: "location.fill")
+        currentConfiguration.cornerStyle = .capsule
+        currentLocationButton.translatesAutoresizingMaskIntoConstraints = false
+        currentLocationButton.accessibilityIdentifier = "chatAttachmentGeolocation.currentLocationButton"
+        currentLocationButton.configuration = currentConfiguration
+        currentLocationButton.addTarget(self, action: #selector(currentLocationTapped), for: .touchUpInside)
+
+        requestAccessButton.isHidden = true
+        statusLabel.isHidden = true
 
         rootView.addSubview(mapView)
-        rootView.addSubview(requestAccessButton)
-        rootView.addSubview(statusLabel)
+        rootView.addSubview(searchTextField)
+        rootView.addSubview(searchResultsTableView)
+        rootView.addSubview(currentLocationButton)
 
         NSLayoutConstraint.activate([
             mapView.topAnchor.constraint(equalTo: rootView.topAnchor),
@@ -216,89 +461,272 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController, Cha
             mapView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
             mapView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
 
-            requestAccessButton.centerXAnchor.constraint(equalTo: rootView.centerXAnchor),
-            requestAccessButton.centerYAnchor.constraint(equalTo: rootView.centerYAnchor),
-            requestAccessButton.leadingAnchor.constraint(greaterThanOrEqualTo: rootView.leadingAnchor, constant: 24),
-            requestAccessButton.trailingAnchor.constraint(lessThanOrEqualTo: rootView.trailingAnchor, constant: -24),
-            requestAccessButton.heightAnchor.constraint(equalToConstant: 44),
+            searchTextField.topAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.topAnchor, constant: 12),
+            searchTextField.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 16),
+            searchTextField.trailingAnchor.constraint(equalTo: currentLocationButton.leadingAnchor, constant: -12),
+            searchTextField.heightAnchor.constraint(equalToConstant: 44),
 
-            statusLabel.centerXAnchor.constraint(equalTo: rootView.centerXAnchor),
-            statusLabel.centerYAnchor.constraint(equalTo: rootView.centerYAnchor),
-            statusLabel.leadingAnchor.constraint(greaterThanOrEqualTo: rootView.leadingAnchor, constant: 24),
-            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: rootView.trailingAnchor, constant: -24)
+            currentLocationButton.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -16),
+            currentLocationButton.centerYAnchor.constraint(equalTo: searchTextField.centerYAnchor),
+            currentLocationButton.widthAnchor.constraint(equalToConstant: 44),
+            currentLocationButton.heightAnchor.constraint(equalToConstant: 44),
+
+            searchResultsTableView.topAnchor.constraint(equalTo: searchTextField.bottomAnchor, constant: 8),
+            searchResultsTableView.leadingAnchor.constraint(equalTo: searchTextField.leadingAnchor),
+            searchResultsTableView.trailingAnchor.constraint(equalTo: currentLocationButton.trailingAnchor),
+            searchResultsTableView.heightAnchor.constraint(lessThanOrEqualToConstant: 220)
         ])
+
+        let tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(mapTapped(_:)))
+        mapView.addGestureRecognizer(tapRecognizer)
+        let longPressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(mapLongPressed(_:)))
+        mapView.addGestureRecognizer(longPressRecognizer)
 
         view = rootView
     }
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        renderPermissionState()
+    func syncSelectedAttachmentDrafts(_ drafts: [AttachmentDraft]) {
+        selectedDrafts = drafts
+    }
+
+    @discardableResult
+    func removeSelectedAttachmentDraft(withID draftID: String) -> [AttachmentDraft] {
+        let previousDrafts = selectedDrafts
+        selectedDrafts.removeAll { $0.id == draftID }
+        if selectedDrafts != previousDrafts {
+            notifySelectionChanged()
+        }
+        return selectedDrafts
+    }
+
+    @discardableResult
+    func replaceSelectedAttachmentDraft(withID draftID: String, updatedDraft: AttachmentDraft) -> [AttachmentDraft] {
+        guard let index = selectedDrafts.firstIndex(where: { $0.id == draftID }) else {
+            return selectedDrafts
+        }
+        selectedDrafts[index] = updatedDraft
+        notifySelectionChanged()
+        return selectedDrafts
     }
 
     func cancelLocationSelection() {
-        // Selection drafts are intentionally not mutated until the geolocation wire/send contract lands.
+        selectedDrafts.removeAll { $0.source == .geolocation }
+        notifySelectionChanged()
+    }
+
+    func selectResolvedLocation(_ location: ChatAttachmentResolvedLocation) {
+        let draft = makeLocationDraft(from: location)
+        selectedDrafts = [draft]
+        updateMapSelection(location)
+        notifySelectionChanged()
+    }
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        searchResults.count
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "locationSearchCell", for: indexPath)
+        let result = searchResults[indexPath.row]
+        var configuration = cell.defaultContentConfiguration()
+        configuration.text = result.title
+        configuration.secondaryText = result.subtitle
+        cell.contentConfiguration = configuration
+        cell.accessibilityIdentifier = "chatAttachmentGeolocation.searchResult.\(indexPath.row)"
+        return cell
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        guard searchResults.indices.contains(indexPath.row) else { return }
+        let result = searchResults[indexPath.row]
+        searchProvider.resolve(result) { [weak self] resolution in
+            guard let self else { return }
+            switch resolution {
+            case .success(let location):
+                self.searchResults = []
+                self.searchResultsTableView.reloadData()
+                self.searchResultsTableView.isHidden = true
+                self.searchTextField.text = location.displayAddress ?? result.title
+                self.selectResolvedLocation(location)
+            case .failure:
+                self.showToast(for: .unavailable)
+            }
+        }
     }
 
     @objc
-    private func requestLocationAccess() {
-        guard isWireContractEnabled,
-              permissionState == .requestAccess else {
+    private func searchTextChanged() {
+        searchProvider.updateQuery(searchTextField.text ?? "")
+    }
+
+    @objc
+    private func currentLocationTapped() {
+        guard authorizer.isLocationServicesEnabled else {
+            showToast(for: .unavailable)
             return
         }
 
-        authorizer.requestWhenInUseAuthorization { [weak self] _ in
-            self?.refreshPermissionState()
-        }
-    }
-
-    private func refreshPermissionState() {
-        guard isWireContractEnabled else {
-            permissionState = .blocked(reason: .wireContractUnavailable)
-            renderPermissionState()
-            return
-        }
-
-        permissionState = ChatAttachmentGeolocationPermissionPolicy.state(
-            for: authorizer.authorizationStatus,
-            isLocationServicesEnabled: authorizer.isLocationServicesEnabled
-        )
-        renderPermissionState()
-    }
-
-    private func renderPermissionState() {
-        guard isViewLoaded else {
-            return
-        }
-
-        requestAccessButton.isHidden = true
-        mapView.isHidden = true
-        statusLabel.isHidden = true
-        statusLabel.text = nil
-
-        switch permissionState {
-        case .requestAccess:
-            requestAccessButton.isHidden = false
-        case .ready:
-            mapView.isHidden = false
-        case .blocked(let reason):
-            renderBlockedState(reason)
-        }
-    }
-
-    private func renderBlockedState(_ reason: ChatAttachmentGeolocationBlockReason) {
-        switch reason {
-        case .wireContractUnavailable:
-            statusLabel.isHidden = true
+        switch authorizer.authorizationStatus {
+        case .authorized:
+            requestCurrentLocation()
+        case .notDetermined:
+            authorizer.requestWhenInUseAuthorization { [weak self] status in
+                guard let self else { return }
+                self.permissionState = ChatAttachmentGeolocationPermissionPolicy.state(
+                    for: status,
+                    isLocationServicesEnabled: self.authorizer.isLocationServicesEnabled
+                )
+                if status == .authorized {
+                    self.requestCurrentLocation()
+                } else {
+                    self.showToast(for: self.blockReason(for: status))
+                }
+            }
         case .denied:
-            statusLabel.text = ChatAttachmentLocalization.string(.geolocationDeniedMessage)
-            statusLabel.isHidden = false
+            showToast(for: .denied)
         case .restricted:
-            statusLabel.text = ChatAttachmentLocalization.string(.geolocationRestrictedMessage)
-            statusLabel.isHidden = false
+            showToast(for: .restricted)
         case .unavailable:
-            statusLabel.text = ChatAttachmentLocalization.string(.geolocationUnavailableMessage)
-            statusLabel.isHidden = false
+            showToast(for: .unavailable)
         }
+    }
+
+    @objc
+    private func mapTapped(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        selectMapCoordinate(at: recognizer.location(in: mapView))
+    }
+
+    @objc
+    private func mapLongPressed(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began else { return }
+        selectMapCoordinate(at: recognizer.location(in: mapView))
+    }
+
+    private func requestCurrentLocation() {
+        currentLocationProvider.requestCurrentLocation { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let currentLocation):
+                self.reverseGeocoder.reverseGeocode(coordinate: currentLocation.coordinate) { [weak self] address in
+                    self?.selectResolvedLocation(
+                        ChatAttachmentResolvedLocation(
+                            coordinate: currentLocation.coordinate,
+                            displayAddress: address,
+                            accuracy: currentLocation.accuracy
+                        )
+                    )
+                }
+            case .failure(let reason):
+                self.showToast(for: reason)
+            }
+        }
+    }
+
+    private func selectMapCoordinate(at point: CGPoint) {
+        let coordinate = mapView.convert(point, toCoordinateFrom: mapView).attachmentCoordinate
+        reverseGeocoder.reverseGeocode(coordinate: coordinate) { [weak self] address in
+            self?.selectResolvedLocation(
+                ChatAttachmentResolvedLocation(
+                    coordinate: coordinate,
+                    displayAddress: address,
+                    accuracy: nil
+                )
+            )
+        }
+    }
+
+    private func updateSearchResults(_ results: [ChatAttachmentGeolocationSearchCompletion]) {
+        searchResults = results
+        searchResultsTableView.reloadData()
+        searchResultsTableView.isHidden = results.isEmpty
+    }
+
+    private func makeLocationDraft(from location: ChatAttachmentResolvedLocation) -> AttachmentDraft {
+        let preparedLocation = AttachmentPreparedLocation(
+            coordinate: location.coordinate,
+            displayAddress: location.displayAddress,
+            accuracy: location.accuracy,
+            geoURI: Self.geoURI(for: location.coordinate),
+            createdAt: Date(),
+            localSnapshotURL: nil
+        )
+        return AttachmentDraft(
+            id: "location:\(preparedLocation.geoURI)",
+            source: .geolocation,
+            mediaKind: .location,
+            thumbnailState: .none,
+            filename: location.displayAddress ?? ChatAttachmentLocalization.string(.sourceLocationTitle),
+            byteSize: 0,
+            duration: nil,
+            dimensions: nil,
+            preparationState: .preparedLocation(preparedLocation)
+        )
+    }
+
+    private func updateMapSelection(_ location: ChatAttachmentResolvedLocation) {
+        if let selectedAnnotation {
+            mapView.removeAnnotation(selectedAnnotation)
+        }
+        let annotation = MKPointAnnotation()
+        annotation.coordinate = location.coordinate.clLocationCoordinate
+        annotation.title = location.displayAddress
+        selectedAnnotation = annotation
+        mapView.addAnnotation(annotation)
+        mapView.setRegion(
+            MKCoordinateRegion(
+                center: annotation.coordinate,
+                latitudinalMeters: 1_000,
+                longitudinalMeters: 1_000
+            ),
+            animated: false
+        )
+    }
+
+    private func notifySelectionChanged() {
+        onSelectionCountChanged?(selectedDrafts.count)
+        onSelectedAttachmentDraftsChanged?(selectedDrafts)
+    }
+
+    private func showToast(for reason: ChatAttachmentGeolocationBlockReason) {
+        toastPresenter.showToast(message: toastMessage(for: reason), in: view)
+    }
+
+    private func toastMessage(for reason: ChatAttachmentGeolocationBlockReason) -> String {
+        switch reason {
+        case .denied:
+            return ChatAttachmentLocalization.string(.geolocationDeniedMessage)
+        case .restricted:
+            return ChatAttachmentLocalization.string(.geolocationRestrictedMessage)
+        case .unavailable, .wireContractUnavailable:
+            return ChatAttachmentLocalization.string(.geolocationUnavailableMessage)
+        }
+    }
+
+    private func blockReason(for status: ChatAttachmentGeolocationAuthorizationStatus) -> ChatAttachmentGeolocationBlockReason {
+        switch status {
+        case .denied:
+            return .denied
+        case .restricted:
+            return .restricted
+        case .notDetermined, .authorized, .unavailable:
+            return .unavailable
+        }
+    }
+
+    private static func geoURI(for coordinate: AttachmentLocationCoordinate) -> String {
+        "geo:\(coordinate.latitude),\(coordinate.longitude)"
+    }
+}
+
+private extension CLLocationCoordinate2D {
+    var attachmentCoordinate: AttachmentLocationCoordinate {
+        AttachmentLocationCoordinate(latitude: latitude, longitude: longitude)
+    }
+}
+
+private extension AttachmentLocationCoordinate {
+    var clLocationCoordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 }
