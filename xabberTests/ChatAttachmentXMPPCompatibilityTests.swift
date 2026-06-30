@@ -200,6 +200,202 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
         XCTAssertEqual(parsed.metadata?["avatar_height"] as? String, "96")
     }
 
+    func testIncomingContactSharingMessageRendersCardWithoutFallbackBody() throws {
+        let body = "Ally (alice@example.com)"
+        let message = try makeMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <contact xmlns='https://xabber.com/protocol/contact-sharing'
+                       jid='alice@example.com'>
+                <nickname>Ally</nickname>
+                <name>
+                  <given>Alice</given>
+                  <family>Capulet</family>
+                </name>
+                <avatar>
+                  <info xmlns='urn:xmpp:avatar:metadata'
+                        id='hash-1'
+                        url='https://example.com/avatars/alice.png'/>
+                </avatar>
+              </contact>
+            </reference>
+            """,
+            body: body
+        )
+        let item = MessageStorageItem()
+
+        item.configureIncomingMessage(
+            message,
+            owner: owner,
+            opponent: jid,
+            outgoing: false,
+            isRead: false,
+            date: Date(timeIntervalSince1970: 10)
+        )
+
+        XCTAssertEqual(item.body, "")
+        XCTAssertEqual(item.legacyBody, body)
+        XCTAssertEqual(item.bodyForAttachmentRendering, "")
+        XCTAssertEqual(item.displayedBody(), "Ally")
+        let reference = try XCTUnwrap(item.references.first)
+        XCTAssertEqual(reference.kind, .contact)
+        let mapped = ChatViewController.mapReferenceAttachments(item.references.toArray())
+        XCTAssertEqual(mapped.contacts.first?.title, "Ally")
+        XCTAssertEqual(mapped.contacts.first?.jid, "alice@example.com")
+        XCTAssertEqual(mapped.contacts.first?.avatarURL, "https://example.com/avatars/alice.png")
+    }
+
+    func testMalformedContactSharingMessageKeepsFallbackBodyVisible() throws {
+        let body = "Ally (alice@example.com)"
+        let message = try makeMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <contact xmlns='https://xabber.com/protocol/contact-sharing'>
+                <nickname>Ally</nickname>
+              </contact>
+            </reference>
+            """,
+            body: body
+        )
+        let item = MessageStorageItem()
+
+        item.configureIncomingMessage(
+            message,
+            owner: owner,
+            opponent: jid,
+            outgoing: false,
+            isRead: false,
+            date: Date(timeIntervalSince1970: 10)
+        )
+
+        XCTAssertTrue(item.references.isEmpty)
+        XCTAssertEqual(item.body, body)
+        XCTAssertEqual(item.bodyForAttachmentRendering, body)
+        XCTAssertEqual(item.displayedBody(), body)
+        XCTAssertTrue(ChatViewController.mapReferenceAttachments(item.references.toArray()).contacts.isEmpty)
+    }
+
+    func testOutgoingContactSharingFallbackIsHiddenFromAttachmentRendering() {
+        let body = "Alice Capulet (alice@example.com)"
+        let reference = contactReference(
+            body: body,
+            contactJid: "alice@example.com",
+            nickname: "Alice",
+            given: "Alice",
+            family: "Capulet"
+        )
+        let item = MessageStorageItem()
+
+        item.configureOutgoingMessage(
+            body,
+            legacy: body,
+            messageId: "outgoing-contact",
+            owner: owner,
+            opponent: jid,
+            references: [reference],
+            inlineForwards: []
+        )
+
+        XCTAssertEqual(item.body, body)
+        XCTAssertEqual(item.bodyForAttachmentRendering, "")
+        XCTAssertEqual(item.displayedBody(), body)
+        XCTAssertEqual(ChatViewController.mapReferenceAttachments(item.references.toArray()).contacts.first?.title, "Alice")
+    }
+
+    func testForwardedInlineContactSharingMessageHidesFallbackBody() throws {
+        let body = "Ally (alice@example.com)"
+        let message = try makeMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <contact xmlns='https://xabber.com/protocol/contact-sharing'
+                       jid='alice@example.com'>
+                <nickname>Ally</nickname>
+              </contact>
+            </reference>
+            """,
+            body: body
+        )
+        let inline = MessageForwardsInlineStorageItem()
+
+        inline.configureInline(
+            message,
+            parentId: "parent-message",
+            owner: owner,
+            jid: jid,
+            opponent: jid,
+            outgoing: false,
+            date: Date(timeIntervalSince1970: 20),
+            forwardJid: jid
+        )
+
+        XCTAssertEqual(inline.body, "")
+        XCTAssertEqual(inline.references.first?.kind, .contact)
+        let mapped = ChatViewController.mapReferenceAttachments(inline.references.toArray())
+        XCTAssertEqual(mapped.contacts.first?.title, "Ally")
+    }
+
+    func testArchivedContactSharingMessageUsesSameParsingAndPreviewBehavior() throws {
+        let body = "Ally (alice@example.com)"
+        let message = try makeArchivedMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <contact xmlns='https://xabber.com/protocol/contact-sharing'
+                       jid='alice@example.com'>
+                <nickname>Ally</nickname>
+              </contact>
+            </reference>
+            """,
+            body: body,
+            archiveId: "archive-contact-1"
+        )
+        let item = MessageStorageItem()
+
+        item.configureIncomingMessage(
+            message,
+            owner: owner,
+            opponent: jid,
+            outgoing: false,
+            isRead: true,
+            date: Date(timeIntervalSince1970: 30)
+        )
+
+        XCTAssertEqual(item.archivedId, "archive-contact-1")
+        XCTAssertEqual(item.body, "")
+        XCTAssertEqual(item.displayedBody(), "Ally")
+        XCTAssertEqual(ChatViewController.mapReferenceAttachments(item.references.toArray()).contacts.first?.jid, "alice@example.com")
+    }
+
+    func testEncryptedIncomingContactSharingUsesSameParsedReferenceBehavior() throws {
+        let body = "Ally (alice@example.com)"
+        let message = try makeMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <contact xmlns='https://xabber.com/protocol/contact-sharing'
+                       jid='alice@example.com'>
+                <nickname>Ally</nickname>
+              </contact>
+            </reference>
+            """,
+            body: body
+        )
+        let item = MessageStorageItem()
+
+        item.configureIncomingMessage(
+            message,
+            owner: owner,
+            opponent: jid,
+            outgoing: false,
+            isRead: false,
+            date: Date(timeIntervalSince1970: 40),
+            isEncrypted: true
+        )
+
+        XCTAssertEqual(item.body, "")
+        XCTAssertEqual(item.displayedBody(), "Ally")
+        XCTAssertEqual(item.references.first?.kind, .contact)
+        XCTAssertEqual(ChatViewController.mapReferenceAttachments(item.references.toArray()).contacts.first?.jid, "alice@example.com")
+    }
+
     func testContactSharingMinimalReferenceParsesWithJIDOnly() throws {
         let body = "alice@example.com"
         let message = try makeMessage(
@@ -539,6 +735,19 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
         let xml = """
         <message from='\(jid)/mobile' to='\(owner)'>
           <body>\(body)</body>
+          \(referenceXML)
+        </message>
+        """
+        let document = try DDXMLDocument(xmlString: xml, options: 0)
+        return XMPPMessage(from: try XCTUnwrap(document.rootElement()))
+    }
+
+    private func makeArchivedMessage(referenceXML: String, body: String, archiveId: String) throws -> XMPPMessage {
+        let xml = """
+        <message from='\(jid)/mobile' to='\(owner)'>
+          <body>\(body)</body>
+          <archived xmlns='urn:xmpp:mam:tmp' by='\(owner)' id='\(archiveId)'/>
+          <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='\(archiveId)'/>
           \(referenceXML)
         </message>
         """

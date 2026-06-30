@@ -378,8 +378,87 @@ class MessageStorageItem: Object {
         }
     }
 
+    private var visibleContactReferences: [MessageReferenceStorageItem] {
+        references.toArray().filter {
+            !$0.isLocallyHiddenByReport && $0.kind == .contact
+        }
+    }
+
     static var locationDisplayText: String {
         "Location".localizeString(id: "plurals.recent_chat__last_message__locations.item_0", arguments: [])
+    }
+
+    private static func nonEmptyContactText(_ value: Any?) -> String? {
+        guard let string = value as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func contactDisplayTitle(for reference: MessageReferenceStorageItem) -> String? {
+        guard let metadata = reference.metadata,
+              let jid = nonEmptyContactText(metadata["contact_jid"]) else {
+            return nil
+        }
+
+        if let nickname = nonEmptyContactText(metadata["nickname"]) {
+            return nickname
+        }
+
+        let fullName = [
+            nonEmptyContactText(metadata["given"]),
+            nonEmptyContactText(metadata["family"])
+        ]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if fullName.isNotEmpty {
+            return fullName
+        }
+
+        return jid
+    }
+
+    private static func contactFallbackBody(for reference: MessageReferenceStorageItem) -> String? {
+        guard let metadata = reference.metadata,
+              let jid = nonEmptyContactText(metadata["contact_jid"]) else {
+            return nil
+        }
+
+        let fullName = [
+            nonEmptyContactText(metadata["given"]),
+            nonEmptyContactText(metadata["family"])
+        ]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let display = fullName.isNotEmpty
+            ? fullName
+            : (nonEmptyContactText(metadata["nickname"]) ?? jid)
+
+        return display == jid ? jid : "\(display) (\(jid))"
+    }
+
+    private func bodyExcludingContactFallback(_ rawBody: String) -> String {
+        var result = rawBody
+        let sortedReferences = visibleContactReferences.sorted { $0.begin > $1.begin }
+        for reference in sortedReferences {
+            guard let fallback = Self.contactFallbackBody(for: reference),
+                  reference.begin >= 0,
+                  reference.end >= reference.begin,
+                  reference.end <= result.count else {
+                continue
+            }
+
+            let start = result.index(result.startIndex, offsetBy: reference.begin)
+            let end = result.index(result.startIndex, offsetBy: reference.end)
+            let segment = String(result[start..<end])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard segment == fallback else {
+                continue
+            }
+            result.removeSubrange(start..<end)
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     final var bodyForAttachmentRendering: String {
@@ -392,7 +471,10 @@ class MessageStorageItem: Object {
             ]
             return candidates.compactMap { $0 }.contains(trimmedBody)
         }
-        return bodyMatchesLocationFallback ? "" : body
+        if bodyMatchesLocationFallback {
+            return ""
+        }
+        return bodyExcludingContactFallback(body)
     }
 
     final func copyableBodyText() -> String {
@@ -440,6 +522,7 @@ class MessageStorageItem: Object {
                     item in
                     return AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels ?? [])
                 }
+                let contacts = visibleContactReferences
                 
 	                let files: [FileAttachment] = self.references.toArray().filter {
 	                    return !$0.isLocallyHiddenByReport && $0.kind == .media && SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: $0.kind, mimeType: $0.mimeType, mediaType: $0.metadata?["media-type"] as? String) == .unsupported && MimeIcon($0.mimeType).value != .audio
@@ -468,6 +551,9 @@ class MessageStorageItem: Object {
                     }
                     
                     if files.count > 0 {
+                        return true
+                    }
+                    if contacts.count > 0 {
                         return true
                     }
                     if inlineForwards.count > 0 {
@@ -518,6 +604,7 @@ class MessageStorageItem: Object {
                     item in
                     return AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels ?? [])
                 }
+                let contacts = visibleContactReferences
                 
 	                let files: [FileAttachment] = self.references.toArray().filter {
 	                    return !$0.isLocallyHiddenByReport && $0.kind == .media && SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: $0.kind, mimeType: $0.mimeType, mediaType: $0.metadata?["media-type"] as? String) == .unsupported && MimeIcon($0.mimeType).value != .audio
@@ -561,6 +648,13 @@ class MessageStorageItem: Object {
 
                     if locations.isNotEmpty {
                         resultBody += Self.locationDisplayText
+                    }
+
+                    if contacts.count == 1,
+                       let title = Self.contactDisplayTitle(for: contacts[0]) {
+                        resultBody += title
+                    } else if contacts.count > 1 {
+                        resultBody += "Contact".localizeString(id: "chat_message_contact_count", arguments: ["\(contacts.count)"])
                     }
                     
                     if inlineForwards.count == 1 {
