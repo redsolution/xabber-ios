@@ -6770,6 +6770,56 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         }
     }
 
+    func testRegularContactDatasourceRendersContactCardInsteadOfFallbackText() throws {
+        let body = "Alexey Boldin (aleksey.boldin@redsolution.com)"
+        let message = makeRegularContactMessage(
+            primary: "contact-message",
+            body: body,
+            contactRange: 0..<body.count
+        )
+
+        let controller = makeRegularChatController(owner: message.owner, opponent: message.opponent)
+        let rows = controller.mapDataset(dataset: [message])
+        let row = try XCTUnwrap(rows.first { $0.primary == message.primary })
+        let contact = try XCTUnwrap(row.contacts.first)
+
+        XCTAssertEqual(row.contacts.count, 1)
+        XCTAssertEqual(contact.title, "Alexey Boldin")
+        XCTAssertEqual(contact.jid, "aleksey.boldin@redsolution.com")
+        XCTAssertEqual(contact.avatarURL, "https://cdn.example.com/alexey.png")
+        XCTAssertEqual(contact.avatarMetadata["avatar_id"], "avatar-hash")
+        XCTAssertTrue(row.files.isEmpty)
+        if case .attributedText(let text) = row.kind {
+            XCTAssertEqual(text.string, "")
+        } else {
+            XCTFail("Expected contact message to render as attributed text")
+        }
+    }
+
+    func testRegularCaptionedContactDatasourceKeepsCaptionAndRendersContactCard() throws {
+        let caption = "Meet Alexey"
+        let fallback = "Alexey Boldin (aleksey.boldin@redsolution.com)"
+        let body = "\(caption)\n\(fallback)"
+        let message = makeRegularContactMessage(
+            primary: "captioned-contact-message",
+            body: body,
+            contactRange: caption.count..<body.count
+        )
+
+        let controller = makeRegularChatController(owner: message.owner, opponent: message.opponent)
+        let rows = controller.mapDataset(dataset: [message])
+        let row = try XCTUnwrap(rows.first { $0.primary == message.primary })
+
+        XCTAssertEqual(row.contacts.count, 1)
+        XCTAssertEqual(row.contacts.first?.title, "Alexey Boldin")
+        XCTAssertTrue(row.files.isEmpty)
+        if case .attributedText(let text) = row.kind {
+            XCTAssertEqual(text.string, caption)
+        } else {
+            XCTFail("Expected contact message to render as attributed text")
+        }
+    }
+
     func testMapReferenceAttachmentsMapsContactReferenceIntoContactAttachment() throws {
         let reference = MessageReferenceStorageItem()
         reference.primary = "contact-reference"
@@ -6845,6 +6895,55 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         XCTAssertEqual(contactView.jidLabel.lineBreakMode, .byTruncatingTail)
         XCTAssertTrue(contactView.avatarImageView.layer.cornerRadius > 0)
         XCTAssertFalse(contactView.subviews.contains { $0 is UIButton })
+    }
+
+    private func makeRegularContactMessage(
+        primary: String,
+        body: String,
+        contactRange: Range<Int>
+    ) -> MessageStorageItem {
+        let reference = MessageReferenceStorageItem()
+        reference.primary = "\(primary)-contact-reference"
+        reference.kind = .contact
+        reference.owner = "owner@example.com"
+        reference.jid = "juliet@example.com"
+        reference.url = "xmpp:aleksey.boldin@redsolution.com"
+        reference.mimeType = "contact"
+        reference.isUploaded = true
+        reference.begin = contactRange.lowerBound
+        reference.end = contactRange.upperBound
+        reference.metadata = [
+            "contact_jid": "aleksey.boldin@redsolution.com",
+            "given": "Alexey",
+            "family": "Boldin",
+            "avatar_url": "https://cdn.example.com/alexey.png",
+            "avatar_id": "avatar-hash"
+        ]
+
+        let message = MessageStorageItem()
+        message.primary = primary
+        message.messageId = primary
+        message.owner = "owner@example.com"
+        message.opponent = "juliet@example.com"
+        message.conversationType = .regular
+        message.outgoing = true
+        message.body = body
+        message.legacyBody = body
+        message.date = Date(timeIntervalSince1970: 1_724_000_000)
+        message.sentDate = message.date
+        message.references.append(reference)
+        return message
+    }
+
+    private func makeRegularChatController(owner: String, opponent: String) -> ChatViewController {
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = opponent
+        controller.conversationType = .regular
+        controller.ownerSender = Sender(id: owner, displayName: "Owner")
+        controller.opponentSender = Sender(id: opponent, displayName: "Juliet")
+        controller.showSkeletonObserver.accept(false)
+        return controller
     }
 
     func testLocationAttachmentLayoutPolicyReturnsSquareInlineSize() {
