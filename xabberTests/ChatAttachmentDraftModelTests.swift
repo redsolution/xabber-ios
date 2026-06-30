@@ -180,6 +180,15 @@ final class ChatAttachmentDraftModelTests: XCTestCase {
         XCTAssertFalse(draft.requiresUpload)
     }
 
+    func testPreparedContactDraftDoesNotRequireUploadAndIsSendable() {
+        let contact = preparedContact()
+        let draft = contactDraft(contact: contact)
+
+        XCTAssertEqual(draft.preparedContact, contact)
+        XCTAssertTrue(draft.isPreparedForSend)
+        XCTAssertFalse(draft.requiresUpload)
+    }
+
     func testReferenceBuilderEmitsUploadedGeolocReferenceForPreparedLocation() throws {
         let location = preparedLocation()
         let draft = locationDraft(location: location)
@@ -202,6 +211,30 @@ final class ChatAttachmentDraftModelTests: XCTestCase {
         XCTAssertEqual(reference.metadata?["timestamp"] as? String, "2026-06-30T06:00:00Z")
         XCTAssertEqual(reference.metadata?["uri"] as? String, "geo:51.5007,-0.1246")
         XCTAssertEqual(reference.metadata?["local-snapshot-url"] as? String, "file:///tmp/location-snapshot.png")
+    }
+
+    func testReferenceBuilderEmitsUploadedContactReferenceForPreparedContact() throws {
+        let contact = preparedContact()
+        let draft = contactDraft(contact: contact)
+
+        let reference = try XCTUnwrap(ChatAttachmentReferenceBuilder().makeReferences(from: [draft], context: Self.context).first)
+
+        XCTAssertEqual(reference.kind, .contact)
+        XCTAssertEqual(reference.owner, Self.context.owner)
+        XCTAssertEqual(reference.jid, Self.context.jid)
+        XCTAssertEqual(reference.conversationType, Self.context.conversationType)
+        XCTAssertEqual(reference.mimeType, "contact")
+        XCTAssertEqual(reference.url, "xmpp:alice@example.com")
+        XCTAssertTrue(reference.isUploaded)
+        XCTAssertNil(reference.localFileUrl)
+        XCTAssertNil(reference.downloadUrl)
+        XCTAssertEqual(reference.metadata?["contact_jid"] as? String, "alice@example.com")
+        XCTAssertEqual(reference.metadata?["nickname"] as? String, "Alice")
+        XCTAssertEqual(reference.metadata?["given"] as? String, "Alice")
+        XCTAssertEqual(reference.metadata?["family"] as? String, "Capulet")
+        XCTAssertEqual(reference.metadata?["display_title"] as? String, "Alice Capulet")
+        XCTAssertEqual(reference.metadata?["avatar_url"] as? String, "https://example.com/avatars/alice.png")
+        XCTAssertEqual(reference.metadata?["avatar_id"] as? String, "avatar-hash")
     }
 
     func testReferenceBuilderRejectsPreparedLocationWithoutSnapshot() {
@@ -232,6 +265,42 @@ final class ChatAttachmentDraftModelTests: XCTestCase {
 
         XCTAssertEqual(outgoingBody.body, "geo:51.5007,-0.1246")
         XCTAssertEqual(outgoingBody.legacyBody, "geo:51.5007,-0.1246")
+    }
+
+    func testContactOutgoingBodyUsesContactFallbackAndReferenceOffsets() throws {
+        let reference = try XCTUnwrap(ChatAttachmentReferenceBuilder().makeReferences(
+            from: [contactDraft(contact: preparedContact())],
+            context: Self.context
+        ).first)
+
+        let outgoingBody = ChatAttachmentCaptionOutgoingBodyPolicy.makeOutgoingBody(
+            captionState: ChatAttachmentCaptionState(),
+            conversationType: Self.context.conversationType,
+            references: [reference]
+        )
+
+        XCTAssertEqual(outgoingBody.body, "Alice Capulet (alice@example.com)")
+        XCTAssertEqual(outgoingBody.legacyBody, "Alice Capulet (alice@example.com)")
+        XCTAssertEqual(reference.begin, 0)
+        XCTAssertEqual(reference.end, outgoingBody.body.xmlEscaping(reverse: false).count)
+    }
+
+    func testContactOutgoingBodyWithCaptionPlacesFallbackAfterCaption() throws {
+        let reference = try XCTUnwrap(ChatAttachmentReferenceBuilder().makeReferences(
+            from: [contactDraft(contact: preparedContact())],
+            context: Self.context
+        ).first)
+
+        let outgoingBody = ChatAttachmentCaptionOutgoingBodyPolicy.makeOutgoingBody(
+            captionState: ChatAttachmentCaptionState(rawText: "Meet this contact"),
+            conversationType: Self.context.conversationType,
+            references: [reference]
+        )
+
+        XCTAssertEqual(outgoingBody.body, "Meet this contact\nAlice Capulet (alice@example.com)")
+        XCTAssertEqual(outgoingBody.legacyBody, outgoingBody.body)
+        XCTAssertEqual(reference.begin, "Meet this contact".xmlEscaping(reverse: false).count)
+        XCTAssertEqual(reference.end, outgoingBody.body.xmlEscaping(reverse: false).count)
     }
 
     func testEditedImageBuildsFromPreparedOutputFile() throws {
@@ -316,6 +385,22 @@ final class ChatAttachmentDraftModelTests: XCTestCase {
         )
     }
 
+    private func preparedContact() -> AttachmentPreparedContact {
+        AttachmentPreparedContact(
+            jid: "alice@example.com",
+            nickname: "Alice",
+            given: "Alice",
+            family: "Capulet",
+            displayTitle: "Alice Capulet",
+            avatarURL: "https://example.com/avatars/alice.png",
+            avatarMetadata: [
+                "avatar_id": "avatar-hash",
+                "avatar_type": "image/png",
+                "avatar_bytes": "6459"
+            ]
+        )
+    }
+
     private func locationDraft(location: AttachmentPreparedLocation) -> AttachmentDraft {
         AttachmentDraft(
             id: "location:\(location.geoURI)",
@@ -327,6 +412,20 @@ final class ChatAttachmentDraftModelTests: XCTestCase {
             duration: nil,
             dimensions: nil,
             preparationState: .preparedLocation(location)
+        )
+    }
+
+    private func contactDraft(contact: AttachmentPreparedContact) -> AttachmentDraft {
+        AttachmentDraft(
+            id: "contact:\(contact.jid)",
+            source: .contact,
+            mediaKind: .contact,
+            thumbnailState: .none,
+            filename: contact.displayTitle,
+            byteSize: 0,
+            duration: nil,
+            dimensions: nil,
+            preparationState: .preparedContact(contact)
         )
     }
 }

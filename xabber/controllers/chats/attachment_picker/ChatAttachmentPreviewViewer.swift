@@ -127,9 +127,27 @@ enum ChatAttachmentCaptionOutgoingBodyPolicy {
            references.first?.kind == .geoloc,
            let geoURI = references.first?.url ?? references.first?.metadata?["uri"] as? String,
            geoURI.isNotEmpty {
+            references.first?.begin = 0
+            references.first?.end = geoURI.xmlEscaping(reverse: false).count
             return ChatAttachmentCaptionOutgoingBody(
                 body: geoURI,
                 legacyBody: geoURI
+            )
+        }
+        let contactReferences = references.filter { $0.kind == .contact }
+        if contactReferences.isNotEmpty {
+            var body = normalizedCaption
+            contactReferences.forEach { reference in
+                let fallback = contactFallbackBody(for: reference)
+                guard fallback.isNotEmpty else { return }
+                let separator = body.isEmpty ? "" : "\n"
+                reference.begin = body.xmlEscaping(reverse: false).count
+                body += separator + fallback
+                reference.end = body.xmlEscaping(reverse: false).count
+            }
+            return ChatAttachmentCaptionOutgoingBody(
+                body: body,
+                legacyBody: body
             )
         }
         return ChatAttachmentCaptionOutgoingBody(
@@ -148,6 +166,30 @@ enum ChatAttachmentCaptionOutgoingBodyPolicy {
             conversationType: conversationType,
             references: references
         )
+    }
+
+    private static func contactFallbackBody(for reference: MessageReferenceStorageItem) -> String {
+        let metadata = reference.metadata
+        let urlJID: String?
+        if let url = reference.url, url.hasPrefix("xmpp:") {
+            urlJID = String(url.dropFirst("xmpp:".count))
+        } else {
+            urlJID = reference.url
+        }
+        let contactJID = (metadata?["contact_jid"] as? String ?? urlJID ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard contactJID.isNotEmpty else { return "" }
+
+        let given = (metadata?["given"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let family = (metadata?["family"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let structuredName = [given, family]
+            .filter { $0.isNotEmpty }
+            .joined(separator: " ")
+        let nickname = (metadata?["nickname"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let display = [structuredName, nickname, contactJID]
+            .first(where: { $0.isNotEmpty }) ?? contactJID
+
+        return display == contactJID ? contactJID : "\(display) (\(contactJID))"
     }
 }
 
@@ -1274,7 +1316,7 @@ final class PhotoKitChatAttachmentPreviewMediaProvider: ChatAttachmentPreviewMed
         case .video:
             let thumbnail = draft.thumbnailFileURL.flatMap { UIImage(contentsOfFile: $0.path) }
             return .video(thumbnail: thumbnail, playerItem: AVPlayerItem(url: localFileURL))
-        case .audio, .file, .location:
+        case .audio, .file, .location, .contact:
             return .filePlaceholder(filename: draft.filename, byteSize: draft.byteSize)
         }
     }
@@ -1291,7 +1333,7 @@ final class PhotoKitChatAttachmentPreviewMediaProvider: ChatAttachmentPreviewMed
             return .image(image)
         case .video:
             return .video(thumbnail: draft.thumbnailFileURL.flatMap { UIImage(contentsOfFile: $0.path) }, playerItem: AVPlayerItem(url: localFileURL))
-        case .animatedImage, .audio, .file, .location:
+        case .animatedImage, .audio, .file, .location, .contact:
             return .filePlaceholder(filename: draft.filename, byteSize: draft.byteSize)
         }
     }
@@ -1343,7 +1385,7 @@ final class PhotoKitChatAttachmentPreviewMediaProvider: ChatAttachmentPreviewMed
                     completion(.video(thumbnail: nil, playerItem: playerItem))
                 }
             )
-        case .audio, .file, .location:
+        case .audio, .file, .location, .contact:
             completion(.filePlaceholder(filename: draft.filename, byteSize: draft.byteSize))
             return Int(PHInvalidImageRequestID)
         }

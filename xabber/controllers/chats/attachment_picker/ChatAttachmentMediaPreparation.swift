@@ -382,7 +382,7 @@ final class ChatAttachmentMediaPreparationCoordinator: ChatAttachmentMediaPrepar
                 return .available(key: previewURL.absoluteString)
             }
             return draft.thumbnailState
-        case .audio, .file, .location:
+        case .audio, .file, .location, .contact:
             return draft.thumbnailState
         }
     }
@@ -499,7 +499,7 @@ final class PhotoKitChatAttachmentMediaPreparationLoader: ChatAttachmentMediaPre
             return requestImage(for: asset, draft: draft, completion: completion)
         case .video:
             return requestVideo(for: asset, draft: draft, completion: completion)
-        case .audio, .file, .location:
+        case .audio, .file, .location, .contact:
             completion(.failure(.unsupportedMetadata))
             return ChatAttachmentMediaPreparationNoopCancellable()
         }

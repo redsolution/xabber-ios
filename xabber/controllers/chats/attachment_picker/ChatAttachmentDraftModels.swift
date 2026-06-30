@@ -28,6 +28,7 @@ enum AttachmentMediaKind: Equatable {
     case audio
     case file
     case location
+    case contact
 }
 
 enum AttachmentThumbnailState: Equatable {
@@ -85,11 +86,22 @@ struct AttachmentPreparedLocation: Equatable {
     let localSnapshotURL: URL?
 }
 
+struct AttachmentPreparedContact: Equatable {
+    let jid: String
+    let nickname: String?
+    let given: String?
+    let family: String?
+    let displayTitle: String
+    let avatarURL: String?
+    let avatarMetadata: [String: String]
+}
+
 enum AttachmentPreparationState: Equatable {
     case pending
     case preparing
     case prepared(AttachmentPreparedFile)
     case preparedLocation(AttachmentPreparedLocation)
+    case preparedContact(AttachmentPreparedContact)
     case unavailable(AttachmentDraftUnavailableReason)
 }
 
@@ -123,19 +135,29 @@ extension AttachmentDraft {
         return location
     }
 
+    var preparedContact: AttachmentPreparedContact? {
+        guard case .preparedContact(let contact) = preparationState else {
+            return nil
+        }
+
+        return contact
+    }
+
     var isPreparedForSend: Bool {
         switch preparationState {
         case .prepared:
             return true
         case .preparedLocation(let location):
             return location.localSnapshotURL != nil
+        case .preparedContact:
+            return true
         case .pending, .preparing, .unavailable:
             return false
         }
     }
 
     var requiresUpload: Bool {
-        if preparedLocation != nil {
+        if preparedLocation != nil || preparedContact != nil {
             return false
         }
 
@@ -170,6 +192,8 @@ struct ChatAttachmentReferenceBuilder {
                 throw ChatAttachmentReferenceBuilderError.draftNotPrepared(draft.id)
             }
             return makeLocationReference(from: draft, location: location, context: context)
+        case .preparedContact(let contact):
+            return makeContactReference(from: draft, contact: contact, context: context)
         case .unavailable(let reason):
             throw ChatAttachmentReferenceBuilderError.draftUnavailable(draft.id, reason)
         case .pending, .preparing:
@@ -235,7 +259,7 @@ struct ChatAttachmentReferenceBuilder {
             if preparedFile.videoPreviewKey != nil || preparedFile.videoPreviewLocalURL != nil {
                 reference.isDownloaded = true
             }
-        case .image, .animatedImage, .file, .location:
+        case .image, .animatedImage, .file, .location, .contact:
             break
         }
 
@@ -286,6 +310,46 @@ struct ChatAttachmentReferenceBuilder {
         return reference
     }
 
+    private func makeContactReference(
+        from draft: AttachmentDraft,
+        contact: AttachmentPreparedContact,
+        context: ChatAttachmentFlowContext
+    ) -> MessageReferenceStorageItem {
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .contact
+        reference.owner = context.owner
+        reference.jid = context.jid
+        reference.conversationType = context.conversationType
+        reference.mimeType = "contact"
+        reference.url = "xmpp:\(contact.jid)"
+        reference.isUploaded = true
+        reference.primary = UUID().uuidString
+
+        var metadata: [String: Any] = [
+            "contact_jid": contact.jid,
+            "display_title": contact.displayTitle
+        ]
+        if let nickname = contact.nickname, nickname.isNotEmpty {
+            metadata["nickname"] = nickname
+        }
+        if let given = contact.given, given.isNotEmpty {
+            metadata["given"] = given
+        }
+        if let family = contact.family, family.isNotEmpty {
+            metadata["family"] = family
+        }
+        if let avatarURL = contact.avatarURL, avatarURL.isNotEmpty {
+            metadata["avatar_url"] = avatarURL
+        }
+        contact.avatarMetadata.forEach { key, value in
+            guard value.isNotEmpty else { return }
+            metadata[key] = value
+        }
+        reference.metadata = metadata
+
+        return reference
+    }
+
     private func displayName(for mediaKind: AttachmentMediaKind, filename: String) -> String {
         switch mediaKind {
         case .image, .animatedImage:
@@ -296,6 +360,8 @@ struct ChatAttachmentReferenceBuilder {
             return filename
         case .location:
             return "Location"
+        case .contact:
+            return filename
         }
     }
 

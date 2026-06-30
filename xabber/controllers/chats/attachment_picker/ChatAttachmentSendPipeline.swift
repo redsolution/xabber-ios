@@ -66,6 +66,7 @@ protocol ChatAttachmentMediaMessageSending: AnyObject {
         references: [MessageReferenceStorageItem],
         body: String,
         legacyBody: String,
+        requiresUpload: Bool,
         context: ChatAttachmentFlowContext,
         completion: @escaping (Bool) -> Void
     )
@@ -147,6 +148,7 @@ final class ChatAttachmentSendPipeline: ChatAttachmentSendCoordinating {
                 references: references,
                 body: outgoingBody.body,
                 legacyBody: outgoingBody.legacyBody,
+                requiresUpload: requiresUpload,
                 context: context
             ) { [quotaRefresher] didSend in
                 completion(didSend ? .sent(referenceCount: references.count) : .blocked(.sendFailed))
@@ -199,6 +201,7 @@ final class AccountChatAttachmentMediaMessageSender: ChatAttachmentMediaMessageS
         references: [MessageReferenceStorageItem],
         body: String,
         legacyBody: String,
+        requiresUpload: Bool,
         context: ChatAttachmentFlowContext,
         completion: @escaping (Bool) -> Void
     ) {
@@ -208,6 +211,20 @@ final class AccountChatAttachmentMediaMessageSender: ChatAttachmentMediaMessageS
         }
 
         DispatchQueue.global(qos: .userInitiated).async {
+            guard requiresUpload else {
+                _ = account.messages.sendSimpleMessage(
+                    body,
+                    to: context.jid,
+                    forwarded: context.forwardedMessageIds,
+                    conversationType: context.conversationType,
+                    references: references
+                )
+                DispatchQueue.main.async {
+                    completion(true)
+                }
+                return
+            }
+
             let primary = account.messages.willSendMediaMessage(
                 references,
                 to: context.jid,

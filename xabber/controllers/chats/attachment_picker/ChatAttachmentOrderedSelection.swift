@@ -87,6 +87,8 @@ struct ChatAttachmentGalleryDraftBuilder {
             return "dat"
         case .location:
             return "geo"
+        case .contact:
+            return "vcf"
         }
     }
 }

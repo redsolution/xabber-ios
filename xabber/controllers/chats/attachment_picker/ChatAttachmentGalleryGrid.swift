@@ -40,6 +40,8 @@ struct ChatAttachmentGalleryAsset: Hashable {
             return 4
         case .location:
             return 5
+        case .contact:
+            return 6
         }
     }
 }
@@ -106,6 +108,8 @@ struct ChatAttachmentGalleryCapturedMedia: Hashable {
             return 4
         case .location:
             return 5
+        case .contact:
+            return 6
         }
     }
 }

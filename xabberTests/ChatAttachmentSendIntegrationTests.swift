@@ -137,6 +137,61 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         XCTAssertEqual(request.legacyBody, "geo:51.5007,-0.1246")
     }
 
+    func testContactDraftsSkipAvailabilityQuotaAndPostSendRefresh() throws {
+        let refresher = FakeTask18QuotaRefresher()
+        let sender = FakeTask18MediaMessageSender()
+        let pipeline = makePipeline(
+            isCloudStorageAvailable: false,
+            quotaRefresher: refresher,
+            quotaAccessProvider: FakeTask18QuotaAccessProvider(accesses: [.premiumRequired]),
+            sender: sender
+        )
+
+        let result = sendSynchronously(
+            pipeline: pipeline,
+            drafts: [contactDraft()]
+        )
+
+        XCTAssertEqual(result, .sent(referenceCount: 1))
+        XCTAssertEqual(refresher.refreshCallCount, 0)
+        let request = try XCTUnwrap(sender.requests.first)
+        let reference = try XCTUnwrap(request.references.first)
+        XCTAssertEqual(sender.requests.count, 1)
+        XCTAssertFalse(request.requiresUpload)
+        XCTAssertEqual(reference.kind, .contact)
+        XCTAssertTrue(reference.isUploaded)
+        XCTAssertNil(reference.localFileUrl)
+        XCTAssertNil(reference.downloadUrl)
+        XCTAssertEqual(request.body, "Alice Capulet (alice@example.com)")
+        XCTAssertEqual(request.legacyBody, "Alice Capulet (alice@example.com)")
+        XCTAssertEqual(reference.begin, 0)
+        XCTAssertEqual(reference.end, request.body.xmlEscaping(reverse: false).count)
+    }
+
+    func testContactDraftWithCaptionSendsCaptionAndFallbackWithoutUpload() throws {
+        let sender = FakeTask18MediaMessageSender()
+        let pipeline = makePipeline(
+            isCloudStorageAvailable: false,
+            quotaAccessProvider: FakeTask18QuotaAccessProvider(accesses: [.premiumRequired]),
+            sender: sender
+        )
+
+        let result = sendSynchronously(
+            pipeline: pipeline,
+            drafts: [contactDraft()],
+            captionState: ChatAttachmentCaptionState(rawText: "Meet this contact")
+        )
+
+        XCTAssertEqual(result, .sent(referenceCount: 1))
+        let request = try XCTUnwrap(sender.requests.first)
+        let reference = try XCTUnwrap(request.references.first)
+        XCTAssertFalse(request.requiresUpload)
+        XCTAssertEqual(request.body, "Meet this contact\nAlice Capulet (alice@example.com)")
+        XCTAssertEqual(request.legacyBody, request.body)
+        XCTAssertEqual(reference.begin, "Meet this contact".xmlEscaping(reverse: false).count)
+        XCTAssertEqual(reference.end, request.body.xmlEscaping(reverse: false).count)
+    }
+
     func testMixedLocalAndCloudDraftsKeepCloudStorageAvailabilityGate() {
         let sender = FakeTask18MediaMessageSender()
         let pipeline = makePipeline(
@@ -246,6 +301,7 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         XCTAssertEqual(result, .sent(referenceCount: 2))
         let request = try XCTUnwrap(sender.requests.first)
         XCTAssertEqual(sender.requests.count, 1)
+        XCTAssertTrue(request.requiresUpload)
         XCTAssertEqual(request.references.compactMap(\.filename), ["first.jpg", "second.pdf"])
         XCTAssertEqual(request.body, "Caption")
         XCTAssertEqual(request.legacyBody, "Caption")
@@ -481,6 +537,32 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         )
     }
 
+    private func contactDraft() -> AttachmentDraft {
+        let contact = AttachmentPreparedContact(
+            jid: "alice@example.com",
+            nickname: "Alice",
+            given: "Alice",
+            family: "Capulet",
+            displayTitle: "Alice Capulet",
+            avatarURL: "https://example.com/avatars/alice.png",
+            avatarMetadata: [
+                "avatar_id": "avatar-hash",
+                "avatar_type": "image/png"
+            ]
+        )
+        return AttachmentDraft(
+            id: "contact:\(contact.jid)",
+            source: .contact,
+            mediaKind: .contact,
+            thumbnailState: .none,
+            filename: contact.displayTitle,
+            byteSize: 0,
+            duration: nil,
+            dimensions: nil,
+            preparationState: .preparedContact(contact)
+        )
+    }
+
     private func draft(
         id: String,
         filename: String = "draft.jpg",
@@ -581,6 +663,7 @@ private final class FakeTask18MediaMessageSender: ChatAttachmentMediaMessageSend
         let references: [MessageReferenceStorageItem]
         let body: String
         let legacyBody: String
+        let requiresUpload: Bool
         let context: ChatAttachmentFlowContext
     }
 
@@ -590,6 +673,7 @@ private final class FakeTask18MediaMessageSender: ChatAttachmentMediaMessageSend
         references: [MessageReferenceStorageItem],
         body: String,
         legacyBody: String,
+        requiresUpload: Bool,
         context: ChatAttachmentFlowContext,
         completion: @escaping (Bool) -> Void
     ) {
@@ -598,6 +682,7 @@ private final class FakeTask18MediaMessageSender: ChatAttachmentMediaMessageSend
                 references: references,
                 body: body,
                 legacyBody: legacyBody,
+                requiresUpload: requiresUpload,
                 context: context
             )
         )

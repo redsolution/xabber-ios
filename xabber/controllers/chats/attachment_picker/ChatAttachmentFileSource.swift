@@ -265,7 +265,7 @@ final class ChatAttachmentFileDraftBuilder: ChatAttachmentFileDraftBuilding {
             }
             let size = track.naturalSize.applying(track.preferredTransform)
             return CGSize(width: abs(size.width), height: abs(size.height))
-        case .audio, .file, .location:
+        case .audio, .file, .location, .contact:
             return nil
         }
     }
@@ -1162,6 +1162,8 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
             return "doc"
         case .location:
             return "location"
+        case .contact:
+            return "person.crop.circle"
         }
     }
 
@@ -1177,6 +1179,8 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
             return "doc"
         case .location:
             return "location"
+        case .contact:
+            return "person.crop.circle"
         }
     }
 }
