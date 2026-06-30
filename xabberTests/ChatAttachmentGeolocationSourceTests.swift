@@ -1,4 +1,5 @@
 import XCTest
+import CoreLocation
 import UIKit
 @testable import xabber
 
@@ -81,6 +82,202 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         XCTAssertEqual(configuration.visibleSources, [.gallery, .file, .geolocation, .contact])
         XCTAssertEqual(configuration.availability(for: .geolocation), .available)
         XCTAssertEqual(configuration.availability(for: .contact), .disabled)
+    }
+
+    func testInitializationDoesNotQueryLocationServicesEnabled() {
+        let authorizer = FakeTask16GeolocationAuthorizer(
+            status: .authorized,
+            requestResult: .authorized
+        )
+
+        _ = ChatAttachmentGeolocationSourceViewController(authorizer: authorizer)
+
+        XCTAssertEqual(authorizer.locationServicesEnabledReadCount, 0)
+    }
+
+    func testAuthorizedCurrentLocationDoesNotPreflightLocationServicesAndRequestsLocation() {
+        let authorizer = FakeTask16GeolocationAuthorizer(
+            status: .authorized,
+            requestResult: .authorized
+        )
+        authorizer.isLocationServicesEnabled = false
+        let locationProvider = FakeTask3CurrentLocationProvider(
+            currentLocation: ChatAttachmentCurrentLocation(
+                coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
+                accuracy: 8.25
+            )
+        )
+        let toastPresenter = FakeTask3GeolocationToastPresenter()
+        let controller = ChatAttachmentGeolocationSourceViewController(
+            authorizer: authorizer,
+            currentLocationProvider: locationProvider,
+            reverseGeocoder: FakeTask3ReverseGeocoder(address: "Current Address"),
+            snapshotProvider: FakeTask4LocationSnapshotProvider(result: .success(URL(fileURLWithPath: "/tmp/current-map.png"))),
+            toastPresenter: toastPresenter
+        )
+
+        controller.loadViewIfNeeded()
+        controller.currentLocationButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(authorizer.locationServicesEnabledReadCount, 0)
+        XCTAssertEqual(locationProvider.requestCount, 1)
+        XCTAssertEqual(toastPresenter.messages, [])
+        XCTAssertEqual(controller.selectedAttachmentDrafts.first?.preparedLocation?.displayAddress, "Current Address")
+    }
+
+    func testNotDeterminedCurrentLocationWaitsForAuthorizationCallbackBeforeRequestingLocation() {
+        let authorizer = FakeTask16GeolocationAuthorizer(
+            status: .notDetermined,
+            requestResult: .authorized,
+            completesImmediately: false
+        )
+        authorizer.isLocationServicesEnabled = false
+        let locationProvider = FakeTask3CurrentLocationProvider(
+            currentLocation: ChatAttachmentCurrentLocation(
+                coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
+                accuracy: 8.25
+            )
+        )
+        let toastPresenter = FakeTask3GeolocationToastPresenter()
+        let controller = ChatAttachmentGeolocationSourceViewController(
+            authorizer: authorizer,
+            currentLocationProvider: locationProvider,
+            reverseGeocoder: FakeTask3ReverseGeocoder(address: "Current Address"),
+            snapshotProvider: FakeTask4LocationSnapshotProvider(result: .success(URL(fileURLWithPath: "/tmp/current-map.png"))),
+            toastPresenter: toastPresenter
+        )
+
+        controller.loadViewIfNeeded()
+        controller.currentLocationButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(authorizer.requestCount, 1)
+        XCTAssertEqual(authorizer.locationServicesEnabledReadCount, 0)
+        XCTAssertEqual(locationProvider.requestCount, 0)
+        XCTAssertEqual(controller.selectedAttachmentDrafts.count, 0)
+
+        authorizer.completeAuthorization()
+
+        XCTAssertEqual(authorizer.locationServicesEnabledReadCount, 0)
+        XCTAssertEqual(locationProvider.requestCount, 1)
+        XCTAssertEqual(toastPresenter.messages, [])
+        XCTAssertEqual(controller.selectedAttachmentDrafts.first?.preparedLocation?.displayAddress, "Current Address")
+    }
+
+    func testNotDeterminedCurrentLocationDeniedCallbackShowsAccessToastAndDoesNotRequestLocation() {
+        let authorizer = FakeTask16GeolocationAuthorizer(
+            status: .notDetermined,
+            requestResult: .denied,
+            completesImmediately: false
+        )
+        let locationProvider = FakeTask3CurrentLocationProvider(
+            currentLocation: ChatAttachmentCurrentLocation(
+                coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
+                accuracy: 8.25
+            )
+        )
+        let toastPresenter = FakeTask3GeolocationToastPresenter()
+        let controller = ChatAttachmentGeolocationSourceViewController(
+            authorizer: authorizer,
+            currentLocationProvider: locationProvider,
+            toastPresenter: toastPresenter
+        )
+
+        controller.loadViewIfNeeded()
+        controller.currentLocationButton.sendActions(for: .touchUpInside)
+        authorizer.completeAuthorization()
+
+        XCTAssertEqual(authorizer.locationServicesEnabledReadCount, 0)
+        XCTAssertEqual(locationProvider.requestCount, 0)
+        XCTAssertEqual(controller.selectedAttachmentDrafts.count, 0)
+        XCTAssertEqual(toastPresenter.messages, [
+            ChatAttachmentLocalization.string(.geolocationDeniedMessage)
+        ])
+    }
+
+    func testNotDeterminedCurrentLocationRestrictedCallbackShowsAccessToastAndDoesNotRequestLocation() {
+        let authorizer = FakeTask16GeolocationAuthorizer(
+            status: .notDetermined,
+            requestResult: .restricted,
+            completesImmediately: false
+        )
+        let locationProvider = FakeTask3CurrentLocationProvider(
+            currentLocation: ChatAttachmentCurrentLocation(
+                coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
+                accuracy: 8.25
+            )
+        )
+        let toastPresenter = FakeTask3GeolocationToastPresenter()
+        let controller = ChatAttachmentGeolocationSourceViewController(
+            authorizer: authorizer,
+            currentLocationProvider: locationProvider,
+            toastPresenter: toastPresenter
+        )
+
+        controller.loadViewIfNeeded()
+        controller.currentLocationButton.sendActions(for: .touchUpInside)
+        authorizer.completeAuthorization()
+
+        XCTAssertEqual(authorizer.locationServicesEnabledReadCount, 0)
+        XCTAssertEqual(locationProvider.requestCount, 0)
+        XCTAssertEqual(controller.selectedAttachmentDrafts.count, 0)
+        XCTAssertEqual(toastPresenter.messages, [
+            ChatAttachmentLocalization.string(.geolocationRestrictedMessage)
+        ])
+    }
+
+    func testCurrentLocationProviderDeniedFailureShowsDeniedToast() {
+        let locationProvider = FakeTask3CurrentLocationProvider(result: .failure(.denied))
+        let toastPresenter = FakeTask3GeolocationToastPresenter()
+        let controller = ChatAttachmentGeolocationSourceViewController(
+            authorizer: FakeTask16GeolocationAuthorizer(status: .authorized, requestResult: .authorized),
+            currentLocationProvider: locationProvider,
+            toastPresenter: toastPresenter
+        )
+
+        controller.loadViewIfNeeded()
+        controller.currentLocationButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(locationProvider.requestCount, 1)
+        XCTAssertEqual(toastPresenter.messages, [
+            ChatAttachmentLocalization.string(.geolocationDeniedMessage)
+        ])
+    }
+
+    func testCurrentLocationProviderUnavailableFailureStillShowsUnavailableToast() {
+        let locationProvider = FakeTask3CurrentLocationProvider(result: .failure(.unavailable))
+        let toastPresenter = FakeTask3GeolocationToastPresenter()
+        let controller = ChatAttachmentGeolocationSourceViewController(
+            authorizer: FakeTask16GeolocationAuthorizer(status: .authorized, requestResult: .authorized),
+            currentLocationProvider: locationProvider,
+            toastPresenter: toastPresenter
+        )
+
+        controller.loadViewIfNeeded()
+        controller.currentLocationButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(locationProvider.requestCount, 1)
+        XCTAssertEqual(toastPresenter.messages, [
+            ChatAttachmentLocalization.string(.geolocationUnavailableMessage)
+        ])
+    }
+
+    func testCoreLocationCurrentProviderMapsDeniedErrorToDeniedFailure() {
+        let locationManager = NoopTask16LocationManager()
+        let provider = CoreLocationChatAttachmentCurrentLocationProvider(locationManager: locationManager)
+        var completionResult: Result<ChatAttachmentCurrentLocation, ChatAttachmentGeolocationBlockReason>?
+
+        provider.requestCurrentLocation { result in
+            completionResult = result
+        }
+        provider.locationManager(locationManager, didFailWithError: CLError(.denied))
+
+        XCTAssertEqual(locationManager.requestLocationCount, 1)
+        switch completionResult {
+        case .failure(.denied):
+            break
+        default:
+            XCTFail("Expected denied location failure, got \(String(describing: completionResult))")
+        }
     }
 
     func testSearchResultSelectionProducesPreparedLocationDraftMetadata() throws {
@@ -272,17 +469,21 @@ private final class FakeTask3GeolocationSearchProvider: ChatAttachmentGeolocatio
 
 private final class FakeTask3CurrentLocationProvider: ChatAttachmentCurrentLocationProviding {
     private(set) var requestCount = 0
-    let currentLocation: ChatAttachmentCurrentLocation
+    private let result: Result<ChatAttachmentCurrentLocation, ChatAttachmentGeolocationBlockReason>
 
     init(currentLocation: ChatAttachmentCurrentLocation) {
-        self.currentLocation = currentLocation
+        self.result = .success(currentLocation)
+    }
+
+    init(result: Result<ChatAttachmentCurrentLocation, ChatAttachmentGeolocationBlockReason>) {
+        self.result = result
     }
 
     func requestCurrentLocation(
         completion: @escaping (Result<ChatAttachmentCurrentLocation, ChatAttachmentGeolocationBlockReason>) -> Void
     ) {
         requestCount += 1
-        completion(.success(currentLocation))
+        completion(result)
     }
 }
 
@@ -342,22 +543,55 @@ private final class FakeTask4LocationSnapshotProvider: ChatLocationSnapshotProvi
 private final class FakeTask16GeolocationAuthorizer: ChatAttachmentGeolocationAuthorizing {
     private(set) var requestCount = 0
     private let requestResult: ChatAttachmentGeolocationAuthorizationStatus
+    private let completesImmediately: Bool
+    private var pendingCompletion: ((ChatAttachmentGeolocationAuthorizationStatus) -> Void)?
+    private var locationServicesEnabledStorage = true
+    private(set) var locationServicesEnabledReadCount = 0
     var authorizationStatus: ChatAttachmentGeolocationAuthorizationStatus
-    var isLocationServicesEnabled = true
+    var isLocationServicesEnabled: Bool {
+        get {
+            locationServicesEnabledReadCount += 1
+            return locationServicesEnabledStorage
+        }
+        set {
+            locationServicesEnabledStorage = newValue
+        }
+    }
 
     init(
         status: ChatAttachmentGeolocationAuthorizationStatus,
-        requestResult: ChatAttachmentGeolocationAuthorizationStatus
+        requestResult: ChatAttachmentGeolocationAuthorizationStatus,
+        completesImmediately: Bool = true
     ) {
         self.authorizationStatus = status
         self.requestResult = requestResult
+        self.completesImmediately = completesImmediately
     }
 
     func requestWhenInUseAuthorization(
         completion: @escaping (ChatAttachmentGeolocationAuthorizationStatus) -> Void
     ) {
         requestCount += 1
+        if completesImmediately {
+            authorizationStatus = requestResult
+            completion(requestResult)
+        } else {
+            pendingCompletion = completion
+        }
+    }
+
+    func completeAuthorization() {
+        guard let pendingCompletion else { return }
+        self.pendingCompletion = nil
         authorizationStatus = requestResult
-        completion(requestResult)
+        pendingCompletion(requestResult)
+    }
+}
+
+private final class NoopTask16LocationManager: CLLocationManager {
+    private(set) var requestLocationCount = 0
+
+    override func requestLocation() {
+        requestLocationCount += 1
     }
 }

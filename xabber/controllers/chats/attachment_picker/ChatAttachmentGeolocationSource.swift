@@ -309,7 +309,12 @@ final class CoreLocationChatAttachmentCurrentLocationProvider: NSObject,
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        complete(.failure(.unavailable))
+        let nsError = error as NSError
+        if nsError.domain == kCLErrorDomain, nsError.code == CLError.Code.denied.rawValue {
+            complete(.failure(.denied))
+        } else {
+            complete(.failure(.unavailable))
+        }
     }
 
     private func complete(_ result: Result<ChatAttachmentCurrentLocation, ChatAttachmentGeolocationBlockReason>) {
@@ -517,7 +522,7 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
         self.toastPresenter = toastPresenter
         self.permissionState = ChatAttachmentGeolocationPermissionPolicy.state(
             for: authorizer.authorizationStatus,
-            isLocationServicesEnabled: authorizer.isLocationServicesEnabled
+            isLocationServicesEnabled: true
         )
         super.init(nibName: nil, bundle: nil)
         self.searchProvider.onResultsChanged = { [weak self] results in
@@ -695,11 +700,6 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
 
     @objc
     private func currentLocationTapped() {
-        guard authorizer.isLocationServicesEnabled else {
-            showToast(for: .unavailable)
-            return
-        }
-
         switch authorizer.authorizationStatus {
         case .authorized:
             requestCurrentLocation()
@@ -708,7 +708,7 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
                 guard let self else { return }
                 self.permissionState = ChatAttachmentGeolocationPermissionPolicy.state(
                     for: status,
-                    isLocationServicesEnabled: self.authorizer.isLocationServicesEnabled
+                    isLocationServicesEnabled: true
                 )
                 if status == .authorized {
                     self.requestCurrentLocation()
