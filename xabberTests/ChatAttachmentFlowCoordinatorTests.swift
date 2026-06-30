@@ -99,6 +99,32 @@ final class ChatAttachmentFlowCoordinatorTests: XCTestCase {
         XCTAssertTrue(controller.viewController is ChatAttachmentContactSourceViewController)
     }
 
+    func testContactSourceRowUsesGeneratedDefaultAvatarWhenAvatarURLIsMissing() throws {
+        let item = Self.contactItem(
+            owner: "alice@example.com",
+            jid: "bob@example.com",
+            displayTitle: "Bob"
+        )
+        let controller = ChatAttachmentContactSourceViewController(
+            owner: item.owner,
+            dataSource: FakeContactSourceDataSource(items: [item])
+        )
+        controller.loadViewIfNeeded()
+
+        let cell = controller.tableView(
+            controller.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        )
+        let configuration = try XCTUnwrap(cell.contentConfiguration as? UIListContentConfiguration)
+        let image = try XCTUnwrap(configuration.image)
+
+        XCTAssertEqual(configuration.text, item.displayTitle)
+        XCTAssertEqual(configuration.secondaryText, item.jid)
+        XCTAssertFalse(image.isSymbolImage)
+        XCTAssertEqual(image.size.width, 40, accuracy: 0.001)
+        XCTAssertEqual(image.size.height, 40, accuracy: 0.001)
+    }
+
     func testSourceSelectionCountFlowsThroughSheetAndCoordinator() throws {
         let factory = FakeSourceControllerFactory()
         let coordinator = makeCoordinator(factory: factory)
@@ -386,6 +412,37 @@ final class ChatAttachmentFlowCoordinatorTests: XCTestCase {
             dimensions: CGSize(width: 10, height: 10),
             preparationState: .prepared(preparedFile)
         )
+    }
+
+    private static func contactItem(
+        owner: String,
+        jid: String,
+        displayTitle: String,
+        avatarURL: String? = nil
+    ) -> ChatAttachmentContactListItem {
+        ChatAttachmentContactListItem(
+            owner: owner,
+            jid: jid,
+            displayTitle: displayTitle,
+            nickname: displayTitle,
+            given: nil,
+            family: nil,
+            avatarURL: avatarURL,
+            avatarMetadata: [:]
+        )
+    }
+
+}
+
+private final class FakeContactSourceDataSource: ChatAttachmentContactSourceDataProviding {
+    private let items: [ChatAttachmentContactListItem]
+
+    init(items: [ChatAttachmentContactListItem]) {
+        self.items = items
+    }
+
+    func loadItems(owner: String, searchQuery: String) -> [ChatAttachmentContactListItem] {
+        items.filter { $0.owner == owner }
     }
 }
 

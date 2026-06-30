@@ -751,16 +751,23 @@ final class ChatAttachmentContactSourceViewController: UIViewController,
 
 private final class ChatAttachmentContactSourceCell: UITableViewCell {
     static let reuseIdentifier = "chatAttachmentContactCell"
+    private static let avatarSize: CGFloat = 40
 
-    private var representedJID: String?
+    private var representedAvatarRequestKey: String?
 
     func configure(
         with item: ChatAttachmentContactListItem,
         isSelected: Bool
     ) {
-        representedJID = item.jid
+        let requestKey = Self.avatarRequestKey(for: item)
+        let defaultAvatar = UIImageView.getDefaultAvatar(
+            for: item.displayTitle,
+            owner: item.owner,
+            size: Self.avatarSize
+        )
+        representedAvatarRequestKey = requestKey
         let cachedAvatar = DefaultAvatarManager.shared.cachedAvatarImage(url: item.avatarURL)
-        apply(item: item, image: cachedAvatar)
+        apply(item: item, image: cachedAvatar ?? defaultAvatar)
         accessoryType = isSelected ? .checkmark : .none
 
         guard cachedAvatar == nil else { return }
@@ -768,15 +775,21 @@ private final class ChatAttachmentContactSourceCell: UITableViewCell {
             url: item.avatarURL,
             jid: item.jid,
             owner: item.owner,
-            size: 40
+            size: Self.avatarSize
         ) { [weak self] image in
             guard let self,
-                  self.representedJID == item.jid,
-                  let image else {
+                  self.representedAvatarRequestKey == requestKey else {
                 return
             }
-            self.apply(item: item, image: image)
+            self.apply(item: item, image: image ?? defaultAvatar)
         }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        representedAvatarRequestKey = nil
+        contentConfiguration = nil
+        accessoryType = .none
     }
 
     private func apply(item: ChatAttachmentContactListItem, image: UIImage?) {
@@ -787,10 +800,14 @@ private final class ChatAttachmentContactSourceCell: UITableViewCell {
         configuration.textProperties.lineBreakMode = .byTruncatingTail
         configuration.secondaryTextProperties.numberOfLines = 1
         configuration.secondaryTextProperties.lineBreakMode = .byTruncatingTail
-        configuration.image = image ?? UIImage(systemName: "person.crop.circle.fill")
-        configuration.imageProperties.maximumSize = CGSize(width: 40, height: 40)
-        configuration.imageProperties.cornerRadius = 20
+        configuration.image = image
+        configuration.imageProperties.maximumSize = CGSize(width: Self.avatarSize, height: Self.avatarSize)
+        configuration.imageProperties.cornerRadius = Self.avatarSize / 2
         contentConfiguration = configuration
+    }
+
+    private static func avatarRequestKey(for item: ChatAttachmentContactListItem) -> String {
+        "\(item.owner)|\(item.jid)|\(item.avatarURL ?? "")|\(Int(avatarSize))"
     }
 }
 
