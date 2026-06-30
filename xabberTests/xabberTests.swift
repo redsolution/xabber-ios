@@ -6873,7 +6873,7 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         XCTAssertEqual(result.files.count, 0)
     }
 
-    func testInlineContactViewUsesAvatarTitleAndJIDWithoutFileSizeText() throws {
+    func testInlineContactViewUsesAvatarTitleAndContactSubtitleWithoutFileSizeText() throws {
         let contact = ContactAttachment(
             primary: "contact-reference",
             jid: "avery.long.contact.jid@example.com",
@@ -6890,9 +6890,9 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
 
         let contactView = try XCTUnwrap(contactsView.views.first)
         XCTAssertEqual(contactView.titleLabel.text, "A Very Long Contact Name That Must Truncate")
-        XCTAssertEqual(contactView.jidLabel.text, "avery.long.contact.jid@example.com")
+        XCTAssertEqual(contactView.subtitleLabel.text, "Contact")
         XCTAssertEqual(contactView.titleLabel.lineBreakMode, .byTruncatingTail)
-        XCTAssertEqual(contactView.jidLabel.lineBreakMode, .byTruncatingTail)
+        XCTAssertEqual(contactView.subtitleLabel.lineBreakMode, .byTruncatingTail)
         XCTAssertTrue(contactView.avatarImageView.layer.cornerRadius > 0)
         XCTAssertFalse(contactView.subviews.contains { $0 is UIButton })
     }

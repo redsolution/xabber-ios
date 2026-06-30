@@ -279,7 +279,7 @@ class InlineContactsGridView: InlineAttachmentView {
             return label
         }()
 
-        let jidLabel: UILabel = {
+        let subtitleLabel: UILabel = {
             let label = UILabel()
             label.font = UIFont.systemFont(ofSize: 13, weight: .regular)
             label.textColor = MDCPalette.grey.tint500
@@ -314,7 +314,7 @@ class InlineContactsGridView: InlineAttachmentView {
             stack.addArrangedSubview(avatarImageView)
             stack.addArrangedSubview(contentStack)
             contentStack.addArrangedSubview(titleLabel)
-            contentStack.addArrangedSubview(jidLabel)
+            contentStack.addArrangedSubview(subtitleLabel)
             NSLayoutConstraint.activate([
                 stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
                 stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
@@ -323,7 +323,7 @@ class InlineContactsGridView: InlineAttachmentView {
                 avatarImageView.widthAnchor.constraint(equalToConstant: 36),
                 avatarImageView.heightAnchor.constraint(equalToConstant: 36),
                 titleLabel.heightAnchor.constraint(equalToConstant: 20),
-                jidLabel.heightAnchor.constraint(equalToConstant: 20)
+                subtitleLabel.heightAnchor.constraint(equalToConstant: 20)
             ])
         }
 
@@ -334,7 +334,7 @@ class InlineContactsGridView: InlineAttachmentView {
             self.avatarURL = contact.avatarURL
             self.palette = palette
             titleLabel.text = contact.title
-            jidLabel.text = contact.jid
+            subtitleLabel.text = "Contact"
             configureAvatar(for: contact)
         }
 
