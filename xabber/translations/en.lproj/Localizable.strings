@@ -3293,6 +3293,9 @@ I don\'t need luck. I have ammo.";
 "plurals.recent_chat__last_message__locations.item_1" = "%d Locations";
 
 
+"recent_chat__last_message__contact" = "Contact: %@";
+
+
 
 "contact_viewer" = "Contact info";
 

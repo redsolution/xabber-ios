@@ -555,6 +555,70 @@ enum SavedMessagesChatListPresentationPolicy {
     }
 }
 
+enum LastChatMessagePreviewPolicy {
+    struct Preview: Equatable {
+        let text: String
+        let isItalic: Bool
+    }
+
+    static func preview(
+        for message: MessageStorageItem,
+        blankMessageText: String
+    ) -> Preview {
+        if let placeholder = message.localReportPlaceholderText {
+            return Preview(text: placeholder, isItalic: false)
+        }
+
+        let visibleReferences = message.references.toArray().filter { !$0.isLocallyHiddenByReport }
+
+        if visibleReferences.contains(where: { $0.kind == .geoloc }) {
+            return Preview(text: MessageStorageItem.locationDisplayText, isItalic: true)
+        }
+
+        if let contactReference = visibleReferences.first(where: { $0.kind == .contact }),
+           let contactTitle = contactDisplayTitle(for: contactReference) {
+            return Preview(text: contactDisplayText(contactTitle), isItalic: true)
+        }
+
+        let text = message.displayedBody()
+        return Preview(
+            text: text.isEmpty ? blankMessageText : text,
+            isItalic: false
+        )
+    }
+
+    private static func contactDisplayText(_ title: String) -> String {
+        "Contact: %@".localizeString(id: "recent_chat__last_message__contact", arguments: [title])
+    }
+
+    private static func contactDisplayTitle(for reference: MessageReferenceStorageItem) -> String? {
+        guard let metadata = reference.metadata else { return nil }
+
+        if let nickname = nonEmptyContactText(metadata["nickname"]) {
+            return nickname
+        }
+
+        let fullName = [
+            nonEmptyContactText(metadata["given"]),
+            nonEmptyContactText(metadata["family"])
+        ]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if fullName.isNotEmpty {
+            return fullName
+        }
+
+        return nonEmptyContactText(metadata["contact_jid"])
+    }
+
+    private static func nonEmptyContactText(_ value: Any?) -> String? {
+        guard let string = value as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 enum SavedMessagesAvailabilityPolicy {
     static func favoritesNodesByOwner(in realm: Realm, enabledOwners: [String]) -> [String: String] {
         Dictionary(
@@ -2009,14 +2073,18 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 let date = item.messageDate == Date(timeIntervalSince1970: 0) ? nil : item.messageDate
                 
                 var message: String
+                var isAttachmentPreviewItalic: Bool = false
                 
                 if let lastMessage = item.lastMessage {
-                    message = lastMessage.displayedBody()
-                    if message.isEmpty {
-                        message = blankMessageText
-                    }
+                    let preview = LastChatMessagePreviewPolicy.preview(
+                        for: lastMessage,
+                        blankMessageText: blankMessageText
+                    )
+                    message = preview.text
+                    isAttachmentPreviewItalic = preview.isItalic
                     if lastMessage.isDeleted {
                         message = blankMessageText
+                        isAttachmentPreviewItalic = false
                     }
                 } else if isSavedConversation {
                     message = SavedMessagesChatListPresentationPolicy.previewText(
@@ -2032,10 +2100,12 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 if let draft = item.draftMessage {
                     message = draft
                     isDraft = true
+                    isAttachmentPreviewItalic = false
                 }
                 if item.conversationType != .group && !isSavedConversation {
                     if let action = CommonChatStatesManager.shared.actionText(for: item.jid, owner: item.owner) {
                         message = action
+                        isAttachmentPreviewItalic = false
                     }
                 }
                 var isAttachment: Bool = [
@@ -2061,6 +2131,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 var isSystemMessage: Bool = [.system].contains(item.lastMessage?.displayAs ?? .text)
                 if isSystemMessage == false {
                     isSystemMessage = item.lastMessage?.shouldShowAsSystemMessage() ?? false
+                }
+                if isAttachmentPreviewItalic {
+                    isSystemMessage = true
                 }
                 if item.isFreshNotEmptyEncryptedChat {
                     message = "Write your encrypted messages here"

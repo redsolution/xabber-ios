@@ -517,6 +517,80 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         assertImage(cell.avatarView.image, matches: cachedImage)
     }
 
+    func testLastChatPreviewUsesItalicLocationLabelInsteadOfGeoFallback() {
+        let message = MessageStorageItem()
+        message.body = "geo:51.5007,-0.1246"
+        message.legacyBody = message.body
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .geoloc
+        reference.url = message.body
+        reference.metadata = [
+            "lat": 51.5007,
+            "lon": -0.1246,
+            "uri": message.body
+        ]
+        message.references.append(reference)
+
+        let preview = LastChatMessagePreviewPolicy.preview(
+            for: message,
+            blankMessageText: "Start messaging here"
+        )
+
+        XCTAssertEqual(preview.text, MessageStorageItem.locationDisplayText)
+        XCTAssertTrue(preview.isItalic)
+    }
+
+    func testLastChatPreviewUsesItalicContactLabelWithNicknameBeforeFallbackBody() {
+        let message = MessageStorageItem()
+        message.body = "Alice Capulet (alice@example.com)"
+        message.legacyBody = message.body
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .contact
+        reference.metadata = [
+            "contact_jid": "alice@example.com",
+            "nickname": "Ally",
+            "given": "Alice",
+            "family": "Capulet"
+        ]
+        message.references.append(reference)
+
+        let preview = LastChatMessagePreviewPolicy.preview(
+            for: message,
+            blankMessageText: "Start messaging here"
+        )
+
+        XCTAssertEqual(
+            preview.text,
+            "Contact: %@".localizeString(id: "recent_chat__last_message__contact", arguments: ["Ally"])
+        )
+        XCTAssertTrue(preview.isItalic)
+    }
+
+    func testLastChatPreviewUsesContactFullNameWhenNicknameIsMissing() {
+        let message = MessageStorageItem()
+        message.body = "Alice Capulet (alice@example.com)"
+        message.legacyBody = message.body
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .contact
+        reference.metadata = [
+            "contact_jid": "alice@example.com",
+            "given": "Alice",
+            "family": "Capulet"
+        ]
+        message.references.append(reference)
+
+        let preview = LastChatMessagePreviewPolicy.preview(
+            for: message,
+            blankMessageText: "Start messaging here"
+        )
+
+        XCTAssertEqual(
+            preview.text,
+            "Contact: %@".localizeString(id: "recent_chat__last_message__contact", arguments: ["Alice Capulet"])
+        )
+        XCTAssertTrue(preview.isItalic)
+    }
+
     func testBootstrapDatasetUpdatePolicySuppressesExpensiveAnimatedWorkOnlyDuringBootstrap() {
         XCTAssertFalse(LastChatsBootstrapDatasetUpdatePolicy.shouldAnimateDatasetMutation(requestedAnimated: true, isBootstrapActive: true))
         XCTAssertTrue(LastChatsBootstrapDatasetUpdatePolicy.shouldAnimateDatasetMutation(requestedAnimated: true, isBootstrapActive: false))

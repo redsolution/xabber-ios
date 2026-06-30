@@ -2607,6 +2607,9 @@
 "plurals.recent_chat__last_message__locations.item_3" = "%d локаций";
 
 
+"recent_chat__last_message__contact" = "Contact: %@";
+
+
 
 "contact_viewer" = "Информация о контакте";
 
