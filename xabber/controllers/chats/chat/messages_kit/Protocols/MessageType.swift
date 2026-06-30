@@ -50,6 +50,7 @@ protocol MessageType {
     var images: [ImageAttachment] { get }
     var videos: [VideoAttachment] { get }
     var locations: [LocationAttachment] { get }
+    var contacts: [ContactAttachment] { get }
     var files: [FileAttachment] { get }
     var audios: [AudioAttachment] { get }
     var messageWarningText: String? { get }
@@ -134,6 +135,40 @@ class LocationAttachment {
     }
 }
 
+class ContactAttachment {
+    var primary: String
+    var owner: String
+    var jid: String
+    var title: String
+    var nickname: String?
+    var given: String?
+    var family: String?
+    var avatarURL: String?
+    var avatarMetadata: [String: String]
+
+    init(
+        primary: String,
+        owner: String = "",
+        jid: String,
+        title: String,
+        nickname: String?,
+        given: String?,
+        family: String?,
+        avatarURL: String?,
+        avatarMetadata: [String: String]
+    ) {
+        self.primary = primary
+        self.owner = owner
+        self.jid = jid
+        self.title = title
+        self.nickname = nickname
+        self.given = given
+        self.family = family
+        self.avatarURL = avatarURL
+        self.avatarMetadata = avatarMetadata
+    }
+}
+
 class FileAttachment {
     var primary: String
     var url: URL?
@@ -196,12 +231,13 @@ class MessageAttachment {
     var images: [ImageAttachment]
     var videos: [VideoAttachment]
     var locations: [LocationAttachment]
+    var contacts: [ContactAttachment]
     var files: [FileAttachment]
     var audios: [AudioAttachment]
     var timeMarker: NSAttributedString
     var subforwards: [MessageAttachment]
     
-    init(primary: String, author: String, jid: String, outgoing: Bool, textMessage: NSAttributedString?, images: [ImageAttachment], videos: [VideoAttachment], locations: [LocationAttachment] = [], files: [FileAttachment], audios: [AudioAttachment], timeMarker: NSAttributedString, subforwards: [MessageAttachment]) {
+    init(primary: String, author: String, jid: String, outgoing: Bool, textMessage: NSAttributedString?, images: [ImageAttachment], videos: [VideoAttachment], locations: [LocationAttachment] = [], contacts: [ContactAttachment] = [], files: [FileAttachment], audios: [AudioAttachment], timeMarker: NSAttributedString, subforwards: [MessageAttachment]) {
         self.primary = primary
         self.author = author
         self.jid = jid
@@ -210,6 +246,7 @@ class MessageAttachment {
         self.images = images
         self.videos = videos
         self.locations = locations
+        self.contacts = contacts
         self.files = files
         self.audios = audios
         self.timeMarker = timeMarker

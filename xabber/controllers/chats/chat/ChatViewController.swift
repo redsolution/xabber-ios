@@ -1154,6 +1154,7 @@ class ChatViewController: MessagesViewController {
         var images: [ImageAttachment]
         var videos: [VideoAttachment]
         var locations: [LocationAttachment] = []
+        var contacts: [ContactAttachment] = []
         var files:  [FileAttachment]
         var audios: [AudioAttachment]
         

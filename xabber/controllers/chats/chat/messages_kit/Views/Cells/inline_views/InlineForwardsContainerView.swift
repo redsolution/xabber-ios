@@ -61,6 +61,12 @@ class InlineMessageAttachmentView: ModernContainerView {
 
         return view
     }()
+
+    let contactsView: InlineContactsGridView = {
+        let view = InlineContactsGridView()
+
+        return view
+    }()
     
     let imagesView: InlineImagesGridView = {
         let view = InlineImagesGridView()
@@ -190,7 +196,8 @@ class InlineMessageAttachmentView: ModernContainerView {
             size.authorSize,
             size.imagesContainerSize,
             size.videosContainerSize,
-            size.locationsContainerSize
+            size.locationsContainerSize,
+            size.contactsContainerSize
         ]
         let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
         self.audiosView.frame = CGRect(
@@ -227,6 +234,26 @@ class InlineMessageAttachmentView: ModernContainerView {
             radiusLB: radius.leftBottom
         )
     }
+
+    func layoutContactsView(with size: MessageAttachmentSizes, attributes: MessagesCollectionViewLayoutAttributes) {
+        let offsetItems = [
+            size.authorSize,
+            size.imagesContainerSize,
+            size.videosContainerSize,
+            size.locationsContainerSize
+        ]
+        let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
+        self.contactsView.frame = CGRect(
+            origin: CGPoint(x: 0, y: offset).padding(
+                x: CommonMessageSizeCalculator.attachmentPadding.left,
+                y: CommonMessageSizeCalculator.attachmentPadding.top
+            ),
+            size: size.contactsContainerSize.padding(
+                width: CommonMessageSizeCalculator.attachmentPadding.horizontal,
+                height: CommonMessageSizeCalculator.attachmentPadding.vertical
+            )
+        )
+    }
     
     func layoutFilesView(with size: MessageAttachmentSizes, attributes: MessagesCollectionViewLayoutAttributes) {
         let offsetItems = [
@@ -234,6 +261,7 @@ class InlineMessageAttachmentView: ModernContainerView {
             size.imagesContainerSize,
             size.videosContainerSize,
             size.locationsContainerSize,
+            size.contactsContainerSize,
             size.audiosContainerSize
         ]
         let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
@@ -256,6 +284,7 @@ class InlineMessageAttachmentView: ModernContainerView {
             size.videosContainerSize,
             size.audiosContainerSize,
             size.locationsContainerSize,
+            size.contactsContainerSize,
             size.filesContainerSize
         ]
         let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
@@ -287,6 +316,7 @@ class InlineMessageAttachmentView: ModernContainerView {
         containerView.addSubview(imagesView)
         containerView.addSubview(videosView)
         containerView.addSubview(locationsView)
+        containerView.addSubview(contactsView)
         containerView.addSubview(audiosView)
         containerView.addSubview(filesView)
         containerView.addSubview(labelContainer)
@@ -306,6 +336,7 @@ class InlineMessageAttachmentView: ModernContainerView {
         imagesView.updateContent(message.images)
         videosView.updateContent(message.videos)
         locationsView.updateContent(message.locations)
+        contactsView.updateContent(message.contacts, palette: palette)
         audiosView.delegate = self.delegate
         audiosView.updateContent(message.audios, palette: palette)
         filesView.updateContent(message.files, palette: palette)
@@ -428,6 +459,7 @@ class InlineForwardsContainerView: InlineAttachmentView {
             view.layoutImagesView(with: sizeItem, attributes: attributes)
             view.layoutVideosView(with: sizeItem, attributes: attributes)
             view.layoutLocationsView(with: sizeItem, attributes: attributes)
+            view.layoutContactsView(with: sizeItem, attributes: attributes)
             view.layoutAudiosView(with: sizeItem, attributes: attributes)
             view.layoutFilesView(with: sizeItem, attributes: attributes)
             view.layoutLabelView(with: sizeItem, attributes: attributes)
@@ -541,6 +573,7 @@ class InlineForwardsContainerView: InlineAttachmentView {
             view.imagesView.views.removeAll()
             view.filesView.views.removeAll()
             view.locationsView.views.removeAll()
+            view.contactsView.views.removeAll()
             view.audiosView.views.removeAll()
         }
     }

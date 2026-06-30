@@ -6725,6 +6725,83 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         XCTAssertEqual(location.geoURI, "geo:51.5007,-0.1246")
     }
 
+    func testMapReferenceAttachmentsMapsContactReferenceIntoContactAttachment() throws {
+        let reference = MessageReferenceStorageItem()
+        reference.primary = "contact-reference"
+        reference.kind = .contact
+        reference.metadata = [
+            "contact_jid": "alice@example.com",
+            "nickname": "Ally",
+            "given": "Alice",
+            "family": "Capulet",
+            "avatar_url": "https://cdn.example.com/alice.png",
+            "avatar_id": "hash-1"
+        ]
+
+        let result = ChatViewController.mapReferenceAttachments([reference])
+        let contact = try XCTUnwrap(result.contacts.first)
+
+        XCTAssertEqual(result.images.count, 0)
+        XCTAssertEqual(result.videos.count, 0)
+        XCTAssertEqual(result.locations.count, 0)
+        XCTAssertEqual(result.files.count, 0)
+        XCTAssertEqual(result.audio.count, 0)
+        XCTAssertEqual(contact.primary, "contact-reference")
+        XCTAssertEqual(contact.jid, "alice@example.com")
+        XCTAssertEqual(contact.title, "Ally")
+        XCTAssertEqual(contact.nickname, "Ally")
+        XCTAssertEqual(contact.given, "Alice")
+        XCTAssertEqual(contact.family, "Capulet")
+        XCTAssertEqual(contact.avatarURL, "https://cdn.example.com/alice.png")
+        XCTAssertEqual(contact.avatarMetadata["avatar_id"], "hash-1")
+    }
+
+    func testContactAttachmentTitleFallsBackToGivenFamilyThenJID() throws {
+        let namedReference = MessageReferenceStorageItem()
+        namedReference.primary = "named-contact"
+        namedReference.kind = .contact
+        namedReference.metadata = [
+            "contact_jid": "alice@example.com",
+            "given": "Alice",
+            "family": "Capulet"
+        ]
+        let minimalReference = MessageReferenceStorageItem()
+        minimalReference.primary = "minimal-contact"
+        minimalReference.kind = .contact
+        minimalReference.metadata = [
+            "contact_jid": "bob@example.com"
+        ]
+
+        let result = ChatViewController.mapReferenceAttachments([namedReference, minimalReference])
+
+        XCTAssertEqual(result.contacts.map(\.title), ["Alice Capulet", "bob@example.com"])
+        XCTAssertEqual(result.files.count, 0)
+    }
+
+    func testInlineContactViewUsesAvatarTitleAndJIDWithoutFileSizeText() throws {
+        let contact = ContactAttachment(
+            primary: "contact-reference",
+            jid: "avery.long.contact.jid@example.com",
+            title: "A Very Long Contact Name That Must Truncate",
+            nickname: nil,
+            given: "A Very Long Contact Name",
+            family: nil,
+            avatarURL: nil,
+            avatarMetadata: [:]
+        )
+        let contactsView = InlineContactsGridView(frame: CGRect(x: 0, y: 0, width: 180, height: 44))
+
+        contactsView.configure([contact], palette: .blue)
+
+        let contactView = try XCTUnwrap(contactsView.views.first)
+        XCTAssertEqual(contactView.titleLabel.text, "A Very Long Contact Name That Must Truncate")
+        XCTAssertEqual(contactView.jidLabel.text, "avery.long.contact.jid@example.com")
+        XCTAssertEqual(contactView.titleLabel.lineBreakMode, .byTruncatingTail)
+        XCTAssertEqual(contactView.jidLabel.lineBreakMode, .byTruncatingTail)
+        XCTAssertTrue(contactView.avatarImageView.layer.cornerRadius > 0)
+        XCTAssertFalse(contactView.subviews.contains { $0 is UIButton })
+    }
+
     func testLocationAttachmentLayoutPolicyReturnsSquareInlineSize() {
         let location = LocationAttachment(
             primary: "location",

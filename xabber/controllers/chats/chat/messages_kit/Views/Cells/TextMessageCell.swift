@@ -266,6 +266,12 @@ public class TextMessageCell: MessageContentCell {
 
         return view
     }()
+
+    var contactsView: InlineContactsGridView = {
+        let view = InlineContactsGridView()
+
+        return view
+    }()
     
     var imagesView: InlineImagesGridView = {
         let view = InlineImagesGridView()
@@ -314,6 +320,7 @@ public class TextMessageCell: MessageContentCell {
             layoutImagesView(with: attributes)
             layoutVideosView(with: attributes)
             layoutLocationsView(with: attributes)
+            layoutContactsView(with: attributes)
             layoutAudiosView(with: attributes)
             layoutFilesView(with: attributes)
             layoutLabelView(with: attributes)
@@ -555,7 +562,8 @@ public class TextMessageCell: MessageContentCell {
             attributes.forwardsContainerViewSize,
             attributes.imagesInlineViewSize,
             attributes.videosInlineViewSize,
-            attributes.locationsInlineViewSize
+            attributes.locationsInlineViewSize,
+            attributes.contactsInlineViewSize
         ]
         let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
         self.audiosView.frame = CGRect(
@@ -605,6 +613,21 @@ public class TextMessageCell: MessageContentCell {
             radiusLB: radius.leftBottom
         )
     }
+
+    func layoutContactsView(with attributes: MessagesCollectionViewLayoutAttributes) {
+        let offsetItems = [
+            attributes.authorInlineSize,
+            attributes.forwardsContainerViewSize,
+            attributes.imagesInlineViewSize,
+            attributes.videosInlineViewSize,
+            attributes.locationsInlineViewSize
+        ]
+        let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
+        self.contactsView.frame = CGRect(
+            origin: CGPoint(x: 0, y: offset),
+            size: attributes.contactsInlineViewSize
+        )
+    }
     
     func layoutFilesView(with attributes: MessagesCollectionViewLayoutAttributes) {
         let offsetItems = [
@@ -613,6 +636,7 @@ public class TextMessageCell: MessageContentCell {
             attributes.imagesInlineViewSize,
             attributes.videosInlineViewSize,
             attributes.locationsInlineViewSize,
+            attributes.contactsInlineViewSize,
             attributes.audioInlineViewSize
         ]
         let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
@@ -629,6 +653,7 @@ public class TextMessageCell: MessageContentCell {
             attributes.imagesInlineViewSize,
             attributes.videosInlineViewSize,
             attributes.locationsInlineViewSize,
+            attributes.contactsInlineViewSize,
             attributes.audioInlineViewSize,
             attributes.filesInlineViewSize
         ]
@@ -660,6 +685,7 @@ public class TextMessageCell: MessageContentCell {
             attributes.imagesInlineViewSize,
             attributes.videosInlineViewSize,
             attributes.locationsInlineViewSize,
+            attributes.contactsInlineViewSize,
             attributes.audioInlineViewSize,
             attributes.filesInlineViewSize,
             labelContainerSize
@@ -690,6 +716,8 @@ public class TextMessageCell: MessageContentCell {
         videosView.views.removeAll()
         locationsView.subviews.forEach { $0.removeFromSuperview() }
         locationsView.views.removeAll()
+        contactsView.subviews.forEach { $0.removeFromSuperview() }
+        contactsView.views.removeAll()
         authorView.text = nil
         warningLabel.text = nil
         warningLabel.isHidden = true
@@ -703,6 +731,7 @@ public class TextMessageCell: MessageContentCell {
         containerView.addSubview(imagesView)
         containerView.addSubview(videosView)
         containerView.addSubview(locationsView)
+        containerView.addSubview(contactsView)
         containerView.addSubview(audiosView)
         containerView.addSubview(filesView)
         
@@ -745,6 +774,7 @@ public class TextMessageCell: MessageContentCell {
         var timeMarkerWithBackplate: Bool = false
         if message.images.isNotEmpty || message.videos.isNotEmpty || message.locations.isNotEmpty,
            message.files.isEmpty,
+           message.contacts.isEmpty,
            message.audios.isEmpty {
             switch message.kind {
                 case .attributedText(let text):
@@ -760,10 +790,12 @@ public class TextMessageCell: MessageContentCell {
         if reuseInlineViews {
             self.imagesView.updateContent(message.images)
             self.locationsView.updateContent(message.locations)
+            self.contactsView.updateContent(message.contacts, palette: palette)
             self.filesView.updateContent(message.files, palette: palette)
         } else {
             self.imagesView.configure(message.images)
             self.locationsView.configure(message.locations)
+            self.contactsView.configure(message.contacts, palette: palette)
             self.filesView.configure(message.files, palette: palette)
         }
         self.audiosView.delegate = delegate

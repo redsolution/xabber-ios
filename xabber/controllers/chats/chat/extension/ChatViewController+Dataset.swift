@@ -3293,6 +3293,7 @@ struct ChatMessageLayoutSignature: Equatable {
     let messageWarningText: String?
     let images: [String]
     let videos: [String]
+    let contacts: [String]
     let files: [String]
     let audios: [String]
     let forwards: [ForwardSignature]
@@ -3302,6 +3303,7 @@ struct ChatMessageLayoutSignature: Equatable {
         let isOutgoing: Bool
         let images: [String]
         let videos: [String]
+        let contacts: [String]
         let files: [String]
         let audios: [String]
         let subforwards: [ForwardSignature]
@@ -3311,6 +3313,7 @@ struct ChatMessageLayoutSignature: Equatable {
             self.isOutgoing = attachment.outgoing
             self.images = attachment.images.map(\.primary)
             self.videos = attachment.videos.map(\.primary)
+            self.contacts = attachment.contacts.map(\.primary)
             self.files = attachment.files.map(\.primary)
             self.audios = attachment.audios.map(\.primary)
             self.subforwards = attachment.subforwards.map(ForwardSignature.init)
@@ -3328,6 +3331,7 @@ struct ChatMessageLayoutSignature: Equatable {
         self.messageWarningText = message.messageWarningText
         self.images = message.images.map(\.primary)
         self.videos = message.videos.map(\.primary)
+        self.contacts = message.contacts.map(\.primary)
         self.files = message.files.map(\.primary)
         self.audios = message.audios.map(\.primary)
         self.forwards = message.forwards.map(ForwardSignature.init)
@@ -3442,6 +3446,7 @@ enum ChatMessageUpdatePolicy {
         [
             message.images.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.size):\($0.isSensitive):\($0.isSensitiveRevealed)" }.joined(separator: "|"),
             message.videos.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.previewUrl?.absoluteString ?? ""):\($0.size):\($0.duration):\($0.downloaded):\($0.isSensitive):\($0.isSensitiveRevealed)" }.joined(separator: "|"),
+            message.contacts.map { "\($0.primary):\($0.jid):\($0.title):\($0.avatarURL ?? "")" }.joined(separator: "|"),
             message.files.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.name):\($0.size):\($0.downloaded)" }.joined(separator: "|"),
             message.audios.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.duration):\($0.downloaded):\(pcmKey($0.pcm))" }.joined(separator: "|"),
             message.forwards.map(forwardContentKey(_:)).joined(separator: "|")
@@ -3457,6 +3462,7 @@ enum ChatMessageUpdatePolicy {
             attributedTextKey(attachment.timeMarker),
             attachment.images.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.size):\($0.isSensitive):\($0.isSensitiveRevealed)" }.joined(separator: "|"),
             attachment.videos.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.previewUrl?.absoluteString ?? ""):\($0.size):\($0.duration):\($0.downloaded):\($0.isSensitive):\($0.isSensitiveRevealed)" }.joined(separator: "|"),
+            attachment.contacts.map { "\($0.primary):\($0.jid):\($0.title):\($0.avatarURL ?? "")" }.joined(separator: "|"),
             attachment.files.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.name):\($0.size):\($0.downloaded)" }.joined(separator: "|"),
             attachment.audios.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.duration):\($0.downloaded):\(pcmKey($0.pcm))" }.joined(separator: "|"),
             attachment.subforwards.map(forwardContentKey(_:)).joined(separator: "|")
@@ -3638,10 +3644,11 @@ extension ChatViewController {
     internal static func mapReferenceAttachments(
         _ references: [MessageReferenceStorageItem],
         revealedSensitiveMediaPrimaries: Set<String> = Set<String>()
-    ) -> (images: [ImageAttachment], videos: [VideoAttachment], locations: [LocationAttachment], audio: [AudioAttachment], files: [FileAttachment]) {
+    ) -> (images: [ImageAttachment], videos: [VideoAttachment], locations: [LocationAttachment], contacts: [ContactAttachment], audio: [AudioAttachment], files: [FileAttachment]) {
         var images: [ImageAttachment] = []
         var videos: [VideoAttachment] = []
         var locations: [LocationAttachment] = []
+        var contacts: [ContactAttachment] = []
         var audio: [AudioAttachment] = []
         var files: [FileAttachment] = []
 
@@ -3649,6 +3656,12 @@ extension ChatViewController {
             if item.kind == .geoloc {
                 if let location = Self.locationAttachment(for: item) {
                     locations.append(location)
+                }
+                return
+            }
+            if item.kind == .contact {
+                if let contact = Self.contactAttachment(for: item) {
+                    contacts.append(contact)
                 }
                 return
             }
@@ -3687,7 +3700,7 @@ extension ChatViewController {
             }
         }
 
-        return (images, videos, locations, audio, files)
+        return (images, videos, locations, contacts, audio, files)
     }
 
     private static func imageDisplayURL(for reference: MessageReferenceStorageItem) -> URL? {
@@ -3723,6 +3736,68 @@ extension ChatViewController {
             geoURI: geoURI,
             snapshotURL: snapshotURL
         )
+    }
+
+    private static func contactAttachment(for reference: MessageReferenceStorageItem) -> ContactAttachment? {
+        guard let metadata = reference.metadata else {
+            return nil
+        }
+
+        let jid = Self.contactNonEmpty(metadata["contact_jid"] as? String)
+            ?? Self.contactNonEmpty(reference.url?.replacingOccurrences(of: "xmpp:", with: ""))
+        guard let jid else {
+            return nil
+        }
+
+        let nickname = Self.contactNonEmpty(metadata["nickname"] as? String)
+        let given = Self.contactNonEmpty(metadata["given"] as? String)
+        let family = Self.contactNonEmpty(metadata["family"] as? String)
+        let title = contactDisplayTitle(
+            nickname: nickname,
+            given: given,
+            family: family,
+            jid: jid
+        )
+        let avatarMetadata = metadata.compactMapValues { $0 as? String }
+            .filter { $0.key.hasPrefix("avatar_") }
+
+        return ContactAttachment(
+            primary: reference.primary,
+            owner: reference.owner,
+            jid: jid,
+            title: title,
+            nickname: nickname,
+            given: given,
+            family: family,
+            avatarURL: Self.contactNonEmpty(metadata["avatar_url"] as? String),
+            avatarMetadata: avatarMetadata
+        )
+    }
+
+    private static func contactDisplayTitle(
+        nickname: String?,
+        given: String?,
+        family: String?,
+        jid: String
+    ) -> String {
+        if let nickname = Self.contactNonEmpty(nickname) {
+            return nickname
+        }
+        let fullName = [Self.contactNonEmpty(given), Self.contactNonEmpty(family)]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        if let fullName = Self.contactNonEmpty(fullName) {
+            return fullName
+        }
+        return jid
+    }
+
+    private static func contactNonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              value.isNotEmpty else {
+            return nil
+        }
+        return value
     }
 
     private static func geolocCoordinateValue(_ value: Any?) -> Double? {
@@ -3811,6 +3886,7 @@ extension ChatViewController {
             images: mappedReferences.images,
             videos: mappedReferences.videos,
             locations: mappedReferences.locations,
+            contacts: mappedReferences.contacts,
             files: mappedReferences.files,
             audios: mappedReferences.audio,
             timeMarker: timeMarkerString,

@@ -233,3 +233,206 @@ class InlineFilesGridView: InlineAttachmentView {
     }
     
 }
+
+class InlineContactsGridView: InlineAttachmentView {
+
+    class ContactView: UIView {
+        let stack: UIStackView = {
+            let stack = UIStackView()
+            stack.axis = .horizontal
+            stack.alignment = .center
+            stack.distribution = .fill
+            stack.spacing = 8
+            stack.isLayoutMarginsRelativeArrangement = false
+            stack.preservesSuperviewLayoutMargins = false
+            stack.insetsLayoutMarginsFromSafeArea = false
+            return stack
+        }()
+
+        let avatarImageView: UIImageView = {
+            let view = UIImageView(frame: CGRect(square: 36))
+            view.contentMode = .scaleAspectFill
+            view.layer.cornerRadius = 18
+            view.layer.masksToBounds = true
+            view.backgroundColor = MDCPalette.grey.tint200
+            return view
+        }()
+
+        let contentStack: UIStackView = {
+            let stack = UIStackView()
+            stack.axis = .vertical
+            stack.alignment = .fill
+            stack.distribution = .fill
+            stack.spacing = 0
+            stack.isLayoutMarginsRelativeArrangement = false
+            stack.preservesSuperviewLayoutMargins = false
+            stack.insetsLayoutMarginsFromSafeArea = false
+            return stack
+        }()
+
+        let titleLabel: UILabel = {
+            let label = UILabel()
+            label.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+            label.textColor = UIColor.label
+            label.numberOfLines = 1
+            label.lineBreakMode = .byTruncatingTail
+            return label
+        }()
+
+        let jidLabel: UILabel = {
+            let label = UILabel()
+            label.font = UIFont.systemFont(ofSize: 13, weight: .regular)
+            label.textColor = MDCPalette.grey.tint500
+            label.numberOfLines = 1
+            label.lineBreakMode = .byTruncatingTail
+            return label
+        }()
+
+        var primary: String
+        var jid: String
+        var owner: String
+        var avatarURL: String?
+        var palette: MDCPalette = .amber
+
+        init(frame: CGRect, contact: ContactAttachment) {
+            self.primary = contact.primary
+            self.jid = contact.jid
+            self.owner = contact.owner
+            self.avatarURL = contact.avatarURL
+            super.init(frame: frame)
+            setup()
+            configure(contact: contact, palette: palette)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        internal func setup() {
+            addSubview(stack)
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(avatarImageView)
+            stack.addArrangedSubview(contentStack)
+            contentStack.addArrangedSubview(titleLabel)
+            contentStack.addArrangedSubview(jidLabel)
+            NSLayoutConstraint.activate([
+                stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+                stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+                stack.topAnchor.constraint(equalTo: topAnchor),
+                stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+                avatarImageView.widthAnchor.constraint(equalToConstant: 36),
+                avatarImageView.heightAnchor.constraint(equalToConstant: 36),
+                titleLabel.heightAnchor.constraint(equalToConstant: 20),
+                jidLabel.heightAnchor.constraint(equalToConstant: 20)
+            ])
+        }
+
+        public func configure(contact: ContactAttachment, palette: MDCPalette) {
+            self.primary = contact.primary
+            self.jid = contact.jid
+            self.owner = contact.owner
+            self.avatarURL = contact.avatarURL
+            self.palette = palette
+            titleLabel.text = contact.title
+            jidLabel.text = contact.jid
+            configureAvatar(for: contact)
+        }
+
+        private func configureAvatar(for contact: ContactAttachment) {
+            let avatarURL = contact.avatarURL ?? rosterAvatarURL(owner: contact.owner, jid: contact.jid)
+            self.avatarURL = avatarURL
+            if let cachedAvatar = DefaultAvatarManager.shared.cachedAvatarImage(url: avatarURL) {
+                avatarImageView.image = cachedAvatar
+                return
+            }
+            avatarImageView.image = UIImageView.getDefaultAvatar(
+                for: contact.title,
+                owner: contact.owner,
+                size: 36
+            )
+            DefaultAvatarManager.shared.getAvatar(
+                url: avatarURL,
+                jid: contact.jid,
+                owner: contact.owner,
+                size: 36
+            ) { [weak self] image in
+                guard let self,
+                      self.primary == contact.primary,
+                      let image else {
+                    return
+                }
+                self.avatarImageView.image = image
+            }
+        }
+
+        private func rosterAvatarURL(owner: String, jid: String) -> String? {
+            guard owner.isNotEmpty, jid.isNotEmpty else {
+                return nil
+            }
+            do {
+                let realm = try WRealm.safe()
+                return realm
+                    .object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner))?
+                    .avatarUrl
+            } catch {
+                return nil
+            }
+        }
+    }
+
+    var views: [ContactView] = []
+    var palette: MDCPalette = .amber
+
+    func prepareGrid(_ attachments: [ContactAttachment]) -> [CGRect] {
+        let frame = self.frame
+        let height: CGFloat = CommonMessageSizeCalculator.inlineFileViewHeight
+        var offset: CGFloat = 0
+        return attachments.compactMap { _ in
+            let rect = CGRect(x: 0, y: offset, width: frame.width, height: height)
+            offset += height
+            return rect
+        }
+    }
+
+    func configure(_ attachments: [ContactAttachment], palette: MDCPalette) {
+        self.palette = palette
+        if attachments.isEmpty { return }
+        grid.removeAll()
+        self.views.forEach { $0.removeFromSuperview() }
+        self.views = []
+        prepareGrid(attachments).enumerated().forEach { index, rect in
+            let item = attachments[index]
+            let view = ContactView(frame: rect, contact: item)
+            view.configure(contact: item, palette: palette)
+            self.addSubview(view)
+            self.views.append(view)
+        }
+    }
+
+    func updateContent(_ attachments: [ContactAttachment], palette: MDCPalette) {
+        self.palette = palette
+        if attachments.isEmpty {
+            self.views.forEach { $0.removeFromSuperview() }
+            self.views = []
+            grid.removeAll()
+            return
+        }
+
+        guard self.views.count == attachments.count else {
+            configure(attachments, palette: palette)
+            return
+        }
+
+        guard self.views.map(\.primary) == attachments.map(\.primary) else {
+            configure(attachments, palette: palette)
+            return
+        }
+
+        prepareGrid(attachments).enumerated().forEach { index, rect in
+            let item = attachments[index]
+            let view = self.views[index]
+            view.frame = rect
+            view.configure(contact: item, palette: palette)
+        }
+    }
+}
