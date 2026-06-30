@@ -201,7 +201,7 @@ final class ChatAttachmentDraftModelTests: XCTestCase {
         XCTAssertEqual(reference.metadata?["text"] as? String, "Westminster")
         XCTAssertEqual(reference.metadata?["timestamp"] as? String, "2026-06-30T06:00:00Z")
         XCTAssertEqual(reference.metadata?["uri"] as? String, "geo:51.5007,-0.1246")
-        XCTAssertNil(reference.metadata?["local-snapshot-url"])
+        XCTAssertEqual(reference.metadata?["local-snapshot-url"] as? String, "file:///tmp/location-snapshot.png")
     }
 
     func testReferenceBuilderRejectsPreparedLocationWithoutSnapshot() {

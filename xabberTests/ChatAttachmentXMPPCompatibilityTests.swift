@@ -98,7 +98,8 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
             metadata: [
                 "accuracy": "12",
                 "text": "Westminster",
-                "timestamp": "2026-06-30T06:00:00Z"
+                "timestamp": "2026-06-30T06:00:00Z",
+                "local-snapshot-url": "file:///tmp/location-snapshot.png"
             ]
         )
 
@@ -111,6 +112,7 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
         XCTAssertEqual(referenceElement.attributeStringValue(forName: "type"), "mutable")
         XCTAssertEqual(geolocElement.element(forName: "lat")?.stringValue, "51.5007")
         XCTAssertEqual(geolocElement.element(forName: "lon")?.stringValue, "-0.1246")
+        XCTAssertNil(geolocElement.element(forName: "local-snapshot-url"))
 
         let parsed = try XCTUnwrap(parseReferences(
             message,

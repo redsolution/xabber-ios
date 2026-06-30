@@ -278,6 +278,9 @@ struct ChatAttachmentReferenceBuilder {
         if let accuracy = location.accuracy, accuracy.isFinite {
             metadata["accuracy"] = Self.geolocNumberString(accuracy)
         }
+        if let localSnapshotURL = location.localSnapshotURL {
+            metadata["local-snapshot-url"] = localSnapshotURL.absoluteString
+        }
         reference.metadata = metadata
 
         return reference

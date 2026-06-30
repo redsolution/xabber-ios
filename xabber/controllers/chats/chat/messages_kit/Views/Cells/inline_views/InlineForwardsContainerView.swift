@@ -55,6 +55,12 @@ class InlineMessageAttachmentView: ModernContainerView {
         
         return view
     }()
+
+    let locationsView: InlineLocationsGridView = {
+        let view = InlineLocationsGridView()
+
+        return view
+    }()
     
     let imagesView: InlineImagesGridView = {
         let view = InlineImagesGridView()
@@ -183,7 +189,8 @@ class InlineMessageAttachmentView: ModernContainerView {
         let offsetItems = [
             size.authorSize,
             size.imagesContainerSize,
-            size.videosContainerSize
+            size.videosContainerSize,
+            size.locationsContainerSize
         ]
         let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
         self.audiosView.frame = CGRect(
@@ -199,12 +206,34 @@ class InlineMessageAttachmentView: ModernContainerView {
 //            )
         )
     }
+
+    func layoutLocationsView(with size: MessageAttachmentSizes, attributes: MessagesCollectionViewLayoutAttributes) {
+        let offsetItems = [
+            size.authorSize,
+            size.imagesContainerSize,
+            size.videosContainerSize
+        ]
+        let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
+        self.locationsView.frame = CGRect(
+            origin: CGPoint(x: 0, y: offset),
+            size: size.locationsContainerSize
+        )
+        let radius = CommonConfigManager.shared.messageStyleConfig.containers.level_1.border.getRadiusFor(index: attributes.cornerRadius)
+        self.locationsView.configure(
+            side: .left,
+            radiusLU: radius.leftUpper,
+            radiusRU: radius.rightUpper,
+            radiusRB: radius.rightBottom,
+            radiusLB: radius.leftBottom
+        )
+    }
     
     func layoutFilesView(with size: MessageAttachmentSizes, attributes: MessagesCollectionViewLayoutAttributes) {
         let offsetItems = [
             size.authorSize,
             size.imagesContainerSize,
             size.videosContainerSize,
+            size.locationsContainerSize,
             size.audiosContainerSize
         ]
         let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
@@ -226,6 +255,7 @@ class InlineMessageAttachmentView: ModernContainerView {
             size.imagesContainerSize,
             size.videosContainerSize,
             size.audiosContainerSize,
+            size.locationsContainerSize,
             size.filesContainerSize
         ]
         let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
@@ -256,6 +286,7 @@ class InlineMessageAttachmentView: ModernContainerView {
         containerView.addSubview(authorLabel)
         containerView.addSubview(imagesView)
         containerView.addSubview(videosView)
+        containerView.addSubview(locationsView)
         containerView.addSubview(audiosView)
         containerView.addSubview(filesView)
         containerView.addSubview(labelContainer)
@@ -274,6 +305,7 @@ class InlineMessageAttachmentView: ModernContainerView {
         self.messagePrimary = message.primary
         imagesView.updateContent(message.images)
         videosView.updateContent(message.videos)
+        locationsView.updateContent(message.locations)
         audiosView.delegate = self.delegate
         audiosView.updateContent(message.audios, palette: palette)
         filesView.updateContent(message.files, palette: palette)
@@ -330,6 +362,19 @@ class InlineMessageAttachmentView: ModernContainerView {
             }) {
                 return true
             }
+        } else if self.locationsView.frame.contains(touchPoint) {
+            let translatedPoint = touchPoint.translate(x: -self.locationsView.frame.minX, y: -self.locationsView.frame.minY)
+            if self.locationsView.handleTouch(at: translatedPoint, callback: { location in
+                self.delegate?.didTapOnLocation(
+                    message: self.messagePrimary,
+                    referencePrimary: location.primary,
+                    coordinate: location.coordinate,
+                    address: location.address,
+                    geoURI: location.geoURI
+                )
+            }) {
+                return true
+            }
         } else {
             let translatedPoint = touchPoint.translate(x: -self.messageLabel.frame.minX, y: -self.messageLabel.frame.minY)
             return messageLabel.handleGesture(translatedPoint)
@@ -382,6 +427,7 @@ class InlineForwardsContainerView: InlineAttachmentView {
             view.layoutAuthorLabel(with: sizeItem, attributes: attributes)
             view.layoutImagesView(with: sizeItem, attributes: attributes)
             view.layoutVideosView(with: sizeItem, attributes: attributes)
+            view.layoutLocationsView(with: sizeItem, attributes: attributes)
             view.layoutAudiosView(with: sizeItem, attributes: attributes)
             view.layoutFilesView(with: sizeItem, attributes: attributes)
             view.layoutLabelView(with: sizeItem, attributes: attributes)
@@ -494,6 +540,7 @@ class InlineForwardsContainerView: InlineAttachmentView {
             
             view.imagesView.views.removeAll()
             view.filesView.views.removeAll()
+            view.locationsView.views.removeAll()
             view.audiosView.views.removeAll()
         }
     }

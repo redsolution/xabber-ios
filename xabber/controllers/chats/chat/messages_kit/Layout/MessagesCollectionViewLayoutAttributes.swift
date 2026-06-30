@@ -38,6 +38,7 @@ open class MessagesCollectionViewLayoutAttributes: UICollectionViewLayoutAttribu
     public var audioInlineViewSize: CGSize = .zero
     public var imagesInlineViewSize: CGSize = .zero
     public var videosInlineViewSize: CGSize = .zero
+    public var locationsInlineViewSize: CGSize = .zero
     public var filesInlineViewSize: CGSize = .zero
     public var textInlineViewSize: CGSize = .zero
     public var warningInlineViewSize: CGSize = .zero
@@ -74,6 +75,7 @@ open class MessagesCollectionViewLayoutAttributes: UICollectionViewLayoutAttribu
         copy.audioInlineViewSize = audioInlineViewSize
         copy.imagesInlineViewSize = imagesInlineViewSize
         copy.videosInlineViewSize = videosInlineViewSize
+        copy.locationsInlineViewSize = locationsInlineViewSize
         copy.filesInlineViewSize = filesInlineViewSize
         copy.textInlineViewSize = textInlineViewSize
         copy.warningInlineViewSize = warningInlineViewSize
@@ -108,6 +110,7 @@ open class MessagesCollectionViewLayoutAttributes: UICollectionViewLayoutAttribu
             && attributes.audioInlineViewSize == audioInlineViewSize
             && attributes.imagesInlineViewSize == imagesInlineViewSize
             && attributes.videosInlineViewSize == videosInlineViewSize
+            && attributes.locationsInlineViewSize == locationsInlineViewSize
             && attributes.filesInlineViewSize == filesInlineViewSize
             && attributes.textInlineViewSize == textInlineViewSize
             && attributes.warningInlineViewSize == warningInlineViewSize

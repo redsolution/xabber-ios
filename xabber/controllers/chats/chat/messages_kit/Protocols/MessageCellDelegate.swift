@@ -19,6 +19,7 @@
 //
 
 import Foundation
+import CoreLocation
 
 /// A protocol used by `MessageContentCell` subclasses to detect taps in the cell's subviews.
 public protocol MessageCellDelegate: MessageLabelDelegate {
@@ -55,6 +56,13 @@ public protocol MessageCellDelegate: MessageLabelDelegate {
     
     func didTapOnPhoto(message messagePrimary: String, urls: [URL], url: URL, referencePrimary: String, isSensitive: Bool)
     func didTapOnVideo(message messagePrimary: String, url: URL?, referencePrimary: String, isSensitive: Bool)
+    func didTapOnLocation(
+        message messagePrimary: String,
+        referencePrimary: String,
+        coordinate: CLLocationCoordinate2D,
+        address: String?,
+        geoURI: String
+    )
     
     func didTapOnAudio(_ audioView: InlineAudiosGridView.AudioView?, url: URL?)
     

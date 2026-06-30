@@ -19,6 +19,7 @@
 //
 
 import Foundation
+import CoreLocation
 import MaterialComponents.MDCPalettes
 
 protocol MessageType {
@@ -48,6 +49,7 @@ protocol MessageType {
     var tailed: Bool { get }
     var images: [ImageAttachment] { get }
     var videos: [VideoAttachment] { get }
+    var locations: [LocationAttachment] { get }
     var files: [FileAttachment] { get }
     var audios: [AudioAttachment] { get }
     var messageWarningText: String? { get }
@@ -107,6 +109,28 @@ class VideoAttachment {
         self.downloaded = downloaded
         self.isSensitive = isSensitive
         self.isSensitiveRevealed = isSensitiveRevealed
+    }
+}
+
+class LocationAttachment {
+    var primary: String
+    var coordinate: CLLocationCoordinate2D
+    var address: String?
+    var geoURI: String
+    var snapshotURL: URL?
+
+    init(
+        primary: String,
+        coordinate: CLLocationCoordinate2D,
+        address: String?,
+        geoURI: String,
+        snapshotURL: URL?
+    ) {
+        self.primary = primary
+        self.coordinate = coordinate
+        self.address = address
+        self.geoURI = geoURI
+        self.snapshotURL = snapshotURL
     }
 }
 
@@ -171,12 +195,13 @@ class MessageAttachment {
     var textMessage: NSAttributedString?
     var images: [ImageAttachment]
     var videos: [VideoAttachment]
+    var locations: [LocationAttachment]
     var files: [FileAttachment]
     var audios: [AudioAttachment]
     var timeMarker: NSAttributedString
     var subforwards: [MessageAttachment]
     
-    init(primary: String, author: String, jid: String, outgoing: Bool, textMessage: NSAttributedString?, images: [ImageAttachment], videos: [VideoAttachment], files: [FileAttachment], audios: [AudioAttachment], timeMarker: NSAttributedString, subforwards: [MessageAttachment]) {
+    init(primary: String, author: String, jid: String, outgoing: Bool, textMessage: NSAttributedString?, images: [ImageAttachment], videos: [VideoAttachment], locations: [LocationAttachment] = [], files: [FileAttachment], audios: [AudioAttachment], timeMarker: NSAttributedString, subforwards: [MessageAttachment]) {
         self.primary = primary
         self.author = author
         self.jid = jid
@@ -184,6 +209,7 @@ class MessageAttachment {
         self.textMessage = textMessage
         self.images = images
         self.videos = videos
+        self.locations = locations
         self.files = files
         self.audios = audios
         self.timeMarker = timeMarker

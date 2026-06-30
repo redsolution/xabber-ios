@@ -26,6 +26,7 @@ import CocoaLumberjack
 import AVKit
 import AVFoundation
 import Alamofire
+import MapKit
 
 extension ChatViewController: ContextMenuDelegate {
     func contextMenuDidSelect(_ contextMenu: ContextMenu, cell: ContextMenuCell, targetedView: UIView, didSelect value: String, primary: String?) -> Bool {
@@ -187,6 +188,26 @@ extension ChatViewController: MessageCellDelegate {
         } else {
             self.playVideo(withURL: url)
         }
+    }
+
+    func didTapOnLocation(
+        message messagePrimary: String,
+        referencePrimary: String,
+        coordinate: CLLocationCoordinate2D,
+        address: String?,
+        geoURI: String
+    ) {
+        let location = LocationAttachment(
+            primary: referencePrimary,
+            coordinate: coordinate,
+            address: address,
+            geoURI: geoURI,
+            snapshotURL: nil
+        )
+        let controller = ChatLocationMapViewController(location: location)
+        let navigationController = UINavigationController(rootViewController: controller)
+        navigationController.modalPresentationStyle = .fullScreen
+        present(navigationController, animated: true)
     }
     
     func didStopPlayingAudioCell() {
@@ -1129,4 +1150,102 @@ extension ChatViewController: AudioPlayerBarViewDelegate {
     }
     
     
+}
+
+final class ChatLocationMapViewController: UIViewController {
+    let displayedLocation: LocationAttachment
+
+    private let mapView = MKMapView()
+    private let addressLabel: UILabel = {
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = .preferredFont(forTextStyle: .body)
+        label.textColor = .label
+        label.numberOfLines = 0
+        label.backgroundColor = .systemBackground
+        label.layer.cornerRadius = 12
+        label.layer.masksToBounds = true
+        return label
+    }()
+
+    init(location: LocationAttachment) {
+        self.displayedLocation = location
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "Location".localizeString(id: "location_fragment__address_error__title", arguments: [])
+        view.backgroundColor = .systemBackground
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .close,
+            target: self,
+            action: #selector(close)
+        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: "Open".localizeString(id: "open", arguments: []),
+            style: .plain,
+            target: self,
+            action: #selector(openInMaps)
+        )
+        setupMap()
+        setupAddressLabel()
+    }
+
+    private func setupMap() {
+        mapView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(mapView)
+        NSLayoutConstraint.activate([
+            mapView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            mapView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            mapView.topAnchor.constraint(equalTo: view.topAnchor),
+            mapView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+
+        let annotation = MKPointAnnotation()
+        annotation.coordinate = displayedLocation.coordinate
+        annotation.title = displayedLocation.address
+        mapView.addAnnotation(annotation)
+        mapView.setRegion(
+            MKCoordinateRegion(
+                center: displayedLocation.coordinate,
+                latitudinalMeters: 1_000,
+                longitudinalMeters: 1_000
+            ),
+            animated: false
+        )
+    }
+
+    private func setupAddressLabel() {
+        let text = displayedLocation.address?.isNotEmpty == true ? displayedLocation.address : displayedLocation.geoURI
+        addressLabel.text = "  \(text ?? displayedLocation.geoURI)  "
+        view.addSubview(addressLabel)
+        NSLayoutConstraint.activate([
+            addressLabel.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
+            addressLabel.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
+            addressLabel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16)
+        ])
+    }
+
+    @objc
+    private func close() {
+        dismiss(animated: true)
+    }
+
+    @objc
+    private func openInMaps() {
+        let placemark = MKPlacemark(coordinate: displayedLocation.coordinate)
+        let item = MKMapItem(placemark: placemark)
+        item.name = displayedLocation.address ?? displayedLocation.geoURI
+        item.openInMaps(launchOptions: [
+            MKLaunchOptionsMapCenterKey: NSValue(mkCoordinate: displayedLocation.coordinate),
+            MKLaunchOptionsMapSpanKey: NSValue(
+                mkCoordinateSpan: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+            )
+        ])
+    }
 }

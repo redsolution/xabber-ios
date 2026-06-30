@@ -19,6 +19,7 @@
 
 import XCTest
 import UIKit
+import MapKit
 import CallKit
 import RealmSwift
 import XMPPFramework
@@ -6698,6 +6699,92 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         XCTAssertTrue(result.videos.first?.isSensitiveRevealed == true)
     }
 
+    func testMapReferenceAttachmentsMapsGeolocReferenceIntoLocationAttachment() throws {
+        let reference = MessageReferenceStorageItem()
+        reference.primary = "geoloc-reference"
+        reference.kind = .geoloc
+        reference.url = "geo:51.5007,-0.1246"
+        reference.metadata = [
+            "lat": "51.5007",
+            "lon": "-0.1246",
+            "text": "Westminster",
+            "uri": "geo:51.5007,-0.1246"
+        ]
+
+        let result = ChatViewController.mapReferenceAttachments([reference])
+        let location = try XCTUnwrap(result.locations.first)
+
+        XCTAssertEqual(result.images.count, 0)
+        XCTAssertEqual(result.videos.count, 0)
+        XCTAssertEqual(result.files.count, 0)
+        XCTAssertEqual(result.audio.count, 0)
+        XCTAssertEqual(location.primary, "geoloc-reference")
+        XCTAssertEqual(location.coordinate.latitude, 51.5007, accuracy: 0.0001)
+        XCTAssertEqual(location.coordinate.longitude, -0.1246, accuracy: 0.0001)
+        XCTAssertEqual(location.address, "Westminster")
+        XCTAssertEqual(location.geoURI, "geo:51.5007,-0.1246")
+    }
+
+    func testLocationAttachmentLayoutPolicyReturnsSquareInlineSize() {
+        let location = LocationAttachment(
+            primary: "location",
+            coordinate: CLLocationCoordinate2D(latitude: 51.5007, longitude: -0.1246),
+            address: nil,
+            geoURI: "geo:51.5007,-0.1246",
+            snapshotURL: nil
+        )
+
+        let size = ChatLocationAttachmentLayoutPolicy.inlineSize(
+            for: [location],
+            max: CGSize(width: 220, height: 480)
+        )
+
+        XCTAssertEqual(size.width, 220)
+        XCTAssertEqual(size.height, 220)
+        XCTAssertEqual(
+            ChatLocationAttachmentLayoutPolicy.inlineSize(for: [], max: CGSize(width: 220, height: 480)),
+            .zero
+        )
+    }
+
+    func testTextMessageCellRoutesLocationTapToDelegate() throws {
+        let location = LocationAttachment(
+            primary: "location",
+            coordinate: CLLocationCoordinate2D(latitude: 51.5007, longitude: -0.1246),
+            address: "Westminster",
+            geoURI: "geo:51.5007,-0.1246",
+            snapshotURL: nil
+        )
+        let cell = TextMessageCell(frame: CGRect(x: 0, y: 0, width: 320, height: 320))
+        let delegate = LocationTapDelegate()
+        cell.delegate = delegate
+        cell.messagePrimary = "message-primary"
+        cell.locationsView.frame = CGRect(x: 0, y: 0, width: 220, height: 220)
+        cell.locationsView.configure([location])
+
+        XCTAssertTrue(cell.cellContentView(canHandle: CGPoint(x: 12, y: 12)))
+        XCTAssertEqual(delegate.tappedMessagePrimary, "message-primary")
+        XCTAssertEqual(delegate.tappedReferencePrimary, "location")
+        XCTAssertEqual(try XCTUnwrap(delegate.tappedCoordinate).latitude, 51.5007, accuracy: 0.0001)
+    }
+
+    func testFullLocationMapControllerReceivesCoordinateAndAddress() {
+        let location = LocationAttachment(
+            primary: "location",
+            coordinate: CLLocationCoordinate2D(latitude: 51.5007, longitude: -0.1246),
+            address: "Westminster",
+            geoURI: "geo:51.5007,-0.1246",
+            snapshotURL: nil
+        )
+        let controller = ChatLocationMapViewController(location: location)
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.displayedLocation.coordinate.latitude, 51.5007, accuracy: 0.0001)
+        XCTAssertEqual(controller.displayedLocation.coordinate.longitude, -0.1246, accuracy: 0.0001)
+        XCTAssertEqual(controller.displayedLocation.address, "Westminster")
+    }
+
     func testChatDatasourceSnapshotBuildsLookupMaps() {
         let first = ChatViewController.Datasource(
             primary: "first",
@@ -6866,6 +6953,46 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
                 new: snapshot
             )
         )
+    }
+}
+
+private final class LocationTapDelegate: MessageCellDelegate {
+    var tappedMessagePrimary: String?
+    var tappedReferencePrimary: String?
+    var tappedCoordinate: CLLocationCoordinate2D?
+
+    func didTap(in cell: MessageCollectionViewCell) {}
+    func didTapMessage(in cell: MessageCollectionViewCell) {}
+    func didTapAvatar(in cell: MessageCollectionViewCell) {}
+    func didTapCellTopLabel(in cell: MessageCollectionViewCell) {}
+    func didTapMessageTopLabel(in cell: MessageCollectionViewCell) {}
+    func didTapMessageBottomLabel(in cell: MessageCollectionViewCell) {}
+    func onTapAttachment(cell: MessageCollectionViewCell, inlineItem: Bool, messageId: String?, index: Int, isSubforward: Bool) {}
+    func onTapVoiceCall(cell: MessageCollectionViewCell) {}
+    func onLongTap(cell: MessageCollectionViewCell) {}
+    func onLongTapMessage(cell: MessageCollectionViewCell) {}
+    func onSwipe(cell: MessageCollectionViewCell) {}
+    func didTapErrorButton(cell: MessageCollectionViewCell) {}
+    func didTapOnInitialFooterLabel(in cell: MessageCollectionViewCell) {}
+    func isInSelection() -> Bool { false }
+    func didTapOnFile(url: URL) {}
+    func didTapOnPhoto(message messagePrimary: String, urls: [URL], url: URL, referencePrimary: String, isSensitive: Bool) {}
+    func didTapOnVideo(message messagePrimary: String, url: URL?, referencePrimary: String, isSensitive: Bool) {}
+    func didTapOnAudio(_ audioView: InlineAudiosGridView.AudioView?, url: URL?) {}
+    func didStopPlayingAudioCell() {}
+    func canChangeAudioPosition(for referencePrimary: String) -> Bool { false }
+    func didSetAudioPosition(_ audioView: InlineAudiosGridView.AudioView?, percentage: Float) -> TimeInterval { 0 }
+    func isSelected(primary: String) -> Bool { false }
+    func didTapOnLocation(
+        message messagePrimary: String,
+        referencePrimary: String,
+        coordinate: CLLocationCoordinate2D,
+        address: String?,
+        geoURI: String
+    ) {
+        tappedMessagePrimary = messagePrimary
+        tappedReferencePrimary = referencePrimary
+        tappedCoordinate = coordinate
     }
 }
 

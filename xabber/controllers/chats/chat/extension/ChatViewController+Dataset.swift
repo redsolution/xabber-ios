@@ -19,6 +19,7 @@
 //
 
 import Foundation
+import CoreLocation
 import UIKit
 import RealmSwift
 import RxSwift
@@ -3637,13 +3638,21 @@ extension ChatViewController {
     internal static func mapReferenceAttachments(
         _ references: [MessageReferenceStorageItem],
         revealedSensitiveMediaPrimaries: Set<String> = Set<String>()
-    ) -> (images: [ImageAttachment], videos: [VideoAttachment], audio: [AudioAttachment], files: [FileAttachment]) {
+    ) -> (images: [ImageAttachment], videos: [VideoAttachment], locations: [LocationAttachment], audio: [AudioAttachment], files: [FileAttachment]) {
         var images: [ImageAttachment] = []
         var videos: [VideoAttachment] = []
+        var locations: [LocationAttachment] = []
         var audio: [AudioAttachment] = []
         var files: [FileAttachment] = []
 
         references.filter { !$0.isLocallyHiddenByReport }.forEach { item in
+            if item.kind == .geoloc {
+                if let location = Self.locationAttachment(for: item) {
+                    locations.append(location)
+                }
+                return
+            }
+
             let mediaType = SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(
                 kind: item.kind,
                 mimeType: item.mimeType,
@@ -3678,7 +3687,7 @@ extension ChatViewController {
             }
         }
 
-        return (images, videos, audio, files)
+        return (images, videos, locations, audio, files)
     }
 
     private static func imageDisplayURL(for reference: MessageReferenceStorageItem) -> URL? {
@@ -3690,6 +3699,46 @@ extension ChatViewController {
             return localFileUrl
         }
         return reference.videoPreviewUrl
+    }
+
+    private static func locationAttachment(for reference: MessageReferenceStorageItem) -> LocationAttachment? {
+        guard let metadata = reference.metadata,
+              let latitude = geolocCoordinateValue(metadata["lat"]),
+              let longitude = geolocCoordinateValue(metadata["lon"]),
+              (-90...90).contains(latitude),
+              (-180...180).contains(longitude),
+              latitude.isFinite,
+              longitude.isFinite else {
+            return nil
+        }
+
+        let snapshotURL = (metadata["local-snapshot-url"] as? String)
+            .flatMap(URL.init(string:))
+        let geoURI = metadata["uri"] as? String ?? reference.url ?? "geo:\(latitude),\(longitude)"
+
+        return LocationAttachment(
+            primary: reference.primary,
+            coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+            address: metadata["text"] as? String,
+            geoURI: geoURI,
+            snapshotURL: snapshotURL
+        )
+    }
+
+    private static func geolocCoordinateValue(_ value: Any?) -> Double? {
+        if let value = value as? Double {
+            return value
+        }
+        if let value = value as? Float {
+            return Double(value)
+        }
+        if let value = value as? Int {
+            return Double(value)
+        }
+        if let value = value as? String {
+            return Double(value)
+        }
+        return nil
     }
     
     internal func willUpdateFloatingDate() {
@@ -3761,6 +3810,7 @@ extension ChatViewController {
             ),
             images: mappedReferences.images,
             videos: mappedReferences.videos,
+            locations: mappedReferences.locations,
             files: mappedReferences.files,
             audios: mappedReferences.audio,
             timeMarker: timeMarkerString,
@@ -6569,6 +6619,7 @@ extension ChatViewController {
                 tailed: tailed,
                     images: mappedReferences.images,
                     videos: mappedReferences.videos,
+                    locations: mappedReferences.locations,
                     files: mappedReferences.files,
                     audios: mappedReferences.audio,
                 timeMarkerText: timeMarkerString,
