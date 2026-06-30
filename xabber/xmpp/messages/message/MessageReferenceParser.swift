@@ -27,8 +27,10 @@ private let referencesXMLNS = "https://xabber.com/protocol/references"
 private let geolocXMLNS = "http://jabber.org/protocol/geoloc"
 
 private func isAnonymousMutableReference(_ reference: DDXMLElement) -> Bool {
-    reference.xmlns() == referencesXMLNS &&
+    let elementChildren = reference.children?.compactMap { $0 as? DDXMLElement } ?? []
+    return reference.xmlns() == referencesXMLNS &&
     reference.attributeStringValue(forName: "type") == "mutable" &&
+    elementChildren.isEmpty &&
     getReferenceType(reference) == nil
 }
 
@@ -42,6 +44,15 @@ private func geolocElement(from reference: DDXMLElement) -> DDXMLElement? {
         .filter { $0.xmlns() == geolocXMLNS }
     guard geolocElements.count == 1 else { return nil }
     return geolocElements[0]
+}
+
+private func validGeolocElement(from reference: DDXMLElement) -> DDXMLElement? {
+    guard let geoloc = geolocElement(from: reference),
+          validGeolocCoordinate(childText(geoloc, name: "lat"), range: -90.0...90.0) != nil,
+          validGeolocCoordinate(childText(geoloc, name: "lon"), range: -180.0...180.0) != nil else {
+        return nil
+    }
+    return geoloc
 }
 
 private func childText(_ element: DDXMLElement, name: String) -> String? {
@@ -252,7 +263,7 @@ func getReferenceType(_ ref: DDXMLElement) -> String? {
     } else if ref.element(forName: "file-sharing",
                           xmlns: "https://xabber.com/protocol/files") != nil {
         return "media"
-    } else if geolocElement(from: ref) != nil {
+    } else if validGeolocElement(from: ref) != nil {
         return "geoloc"
     } else if ref.attributeStringValue(forName: "type") == "decoration" {
         if ref.element(forName: "quote", xmlns: "https://xabber.com/protocol/markup") != nil {

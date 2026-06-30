@@ -191,6 +191,73 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
         XCTAssertEqual(realm.objects(MessageMediaAttachmentStorageItem.self).count, mediaAttachmentCount)
     }
 
+    func testWebCompatibleGeolocConfiguresIncomingMessageAndRendersLocationAttachment() throws {
+        let body = "geo:56.838011,60.597465"
+        let message = try makeMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <geoloc xmlns='http://jabber.org/protocol/geoloc'>
+                <lat>56.838011</lat>
+                <lon>60.597465</lon>
+                <text>Yekaterinburg</text>
+                <timestamp>2026-06-30T07:00:00Z</timestamp>
+              </geoloc>
+            </reference>
+            """,
+            body: body
+        )
+        let item = MessageStorageItem()
+
+        item.configureIncomingMessage(
+            message,
+            owner: owner,
+            opponent: jid,
+            outgoing: false,
+            isRead: false,
+            date: Date(timeIntervalSince1970: 10)
+        )
+
+        XCTAssertEqual(item.body, "")
+        XCTAssertEqual(item.legacyBody, body)
+        XCTAssertEqual(item.displayedBody(), "Location".localizeString(id: "chat_message_location", arguments: []))
+        let reference = try XCTUnwrap(item.references.first)
+        XCTAssertEqual(reference.kind, .geoloc)
+        XCTAssertEqual(reference.metadata?["lat"] as? String, "56.838011")
+        XCTAssertEqual(reference.metadata?["lon"] as? String, "60.597465")
+        let mapped = ChatViewController.mapReferenceAttachments(item.references.toArray())
+        XCTAssertEqual(mapped.locations.first?.geoURI, body)
+    }
+
+    func testMalformedGeolocFallsBackToBodyText() throws {
+        let body = "geo:999,60.597465"
+        let message = try makeMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <geoloc xmlns='http://jabber.org/protocol/geoloc'>
+                <lat>999</lat>
+                <lon>60.597465</lon>
+              </geoloc>
+            </reference>
+            """,
+            body: body
+        )
+        let item = MessageStorageItem()
+
+        item.configureIncomingMessage(
+            message,
+            owner: owner,
+            opponent: jid,
+            outgoing: false,
+            isRead: false,
+            date: Date(timeIntervalSince1970: 10)
+        )
+
+        XCTAssertTrue(item.references.isEmpty)
+        XCTAssertEqual(item.body, body)
+        XCTAssertEqual(item.displayedBody(), body)
+        XCTAssertTrue(ChatViewController.mapReferenceAttachments(item.references.toArray()).locations.isEmpty)
+    }
+
     func testPushPreviewKeepsCaptionedMediaBodyAndItemsStable() throws {
         let archiveXML = """
         <message from='juliet@example.com/mobile' to='romeo@example.com'>

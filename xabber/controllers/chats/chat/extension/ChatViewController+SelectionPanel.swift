@@ -125,12 +125,7 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
                 .sorted(byKeyPath: "date", ascending: true)
             return collection.compactMap {
                 (item) -> String? in
-                var body: String = ""
-                if item.legacyBody.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty {
-                    body = item.legacyBody
-                } else {
-                    body = item.body
-                }
+                let body = item.copyableBodyText()
                 let timeString = timeFormatter.string(from: item.date)
                 var nickname: String = ""
                 if self.conversationType == .group {

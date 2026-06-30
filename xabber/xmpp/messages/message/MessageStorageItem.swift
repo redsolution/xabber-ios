@@ -371,6 +371,39 @@ class MessageStorageItem: Object {
         self.legacyBody = ""
         self.deleteState = .autoDeleted
     }
+
+    private var visibleGeolocReferences: [MessageReferenceStorageItem] {
+        references.toArray().filter {
+            !$0.isLocallyHiddenByReport && $0.kind == .geoloc
+        }
+    }
+
+    static var locationDisplayText: String {
+        "Location".localizeString(id: "plurals.recent_chat__last_message__locations.item_0", arguments: [])
+    }
+
+    final var bodyForAttachmentRendering: String {
+        let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedBody.isNotEmpty else { return body }
+        let bodyMatchesLocationFallback = visibleGeolocReferences.contains { reference in
+            let candidates = [
+                reference.url,
+                reference.metadata?["uri"] as? String
+            ]
+            return candidates.compactMap { $0 }.contains(trimmedBody)
+        }
+        return bodyMatchesLocationFallback ? "" : body
+    }
+
+    final func copyableBodyText() -> String {
+        let rawBody = legacyBody.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty ? legacyBody : body
+        if rawBody.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty {
+            return rawBody
+        }
+        return visibleGeolocReferences
+            .compactMap { $0.url ?? $0.metadata?["uri"] as? String }
+            .first ?? ""
+    }
     
     public final func shouldShowAsSystemMessage() -> Bool {
         if localReportPlaceholderText != nil {
@@ -498,6 +531,7 @@ class MessageStorageItem: Object {
                     }
                     return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded)
                 }
+                let locations = visibleGeolocReferences
                 resultBody += body.trimmingCharacters(in: .whitespacesAndNewlines)
                 if resultBody.isEmpty {
                     
@@ -523,6 +557,10 @@ class MessageStorageItem: Object {
                         resultBody += "File".localizeString(id: "chat_message_file", arguments: [])
                     } else if files.count > 1 {
                         resultBody += "File, %@".localizeString(id: "chat_message_file_count", arguments: ["\(files.count)"])
+                    }
+
+                    if locations.isNotEmpty {
+                        resultBody += Self.locationDisplayText
                     }
                     
                     if inlineForwards.count == 1 {

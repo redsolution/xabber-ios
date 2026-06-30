@@ -6956,6 +6956,74 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
     }
 }
 
+final class GeolocationMessageCompatibilityTests: XCTestCase {
+    private let owner = "romeo@example.com"
+    private let jid = "juliet@example.com"
+
+    override func setUp() {
+        super.setUp()
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "GeolocationMessageCompatibilityTests-\(name)")
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    func testGeolocDisplayedBodyUsesLocationFallback() {
+        let message = makeLocationMessage(primary: "location-display")
+
+        XCTAssertEqual(
+            message.displayedBody(),
+            "Location".localizeString(id: "chat_message_location", arguments: [])
+        )
+    }
+
+    func testSelectionCopyUsesGeoURIFallbackForLocationOnlyMessage() throws {
+        let message = makeLocationMessage(primary: "location-copy")
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add(message, update: .modified)
+        }
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = .regular
+        controller.ownerSender = Sender(id: owner, displayName: "Romeo")
+        controller.opponentSender = Sender(id: jid, displayName: "Juliet")
+
+        let copiedText = try XCTUnwrap(controller.formatSelectedMessagesBodyForCopy(forwardedIdsManual: [message.primary]))
+
+        XCTAssertTrue(copiedText.contains("geo:51.5007,-0.1246"))
+    }
+
+    private func makeLocationMessage(primary: String) -> MessageStorageItem {
+        let reference = MessageReferenceStorageItem()
+        reference.primary = "\(primary)-reference"
+        reference.kind = .geoloc
+        reference.mimeType = "location"
+        reference.url = "geo:51.5007,-0.1246"
+        reference.owner = owner
+        reference.jid = jid
+        reference.metadata = [
+            "lat": "51.5007",
+            "lon": "-0.1246",
+            "uri": "geo:51.5007,-0.1246"
+        ]
+
+        let message = MessageStorageItem()
+        message.primary = primary
+        message.messageId = primary
+        message.owner = owner
+        message.opponent = jid
+        message.conversationType = .regular
+        message.body = ""
+        message.legacyBody = ""
+        message.date = Date(timeIntervalSince1970: 1_711_283_200)
+        message.references.append(reference)
+        return message
+    }
+}
+
 private final class LocationTapDelegate: MessageCellDelegate {
     var tappedMessagePrimary: String?
     var tappedReferencePrimary: String?
@@ -22803,6 +22871,18 @@ final class FavoritesFeatureTests: XCTestCase {
         )
     }
 
+    private func geolocReferenceXML(body: String, text: String = "Yekaterinburg") -> String {
+        """
+        <reference xmlns='https://xabber.com/protocol/references' begin='0' end='\(body.count)' type='mutable'>
+          <geoloc xmlns='http://jabber.org/protocol/geoloc'>
+            <lat>56.838011</lat>
+            <lon>60.597465</lon>
+            <text>\(text)</text>
+          </geoloc>
+        </reference>
+        """
+    }
+
     private func makeMamResult(message: XMPPMessage, archiveId: String, queryId: String) throws -> DDXMLElement {
         try makeElement(xml: """
         <message from='xmppdev01.xabber.com' to='\(ownerResource)' type='chat' id='mam-wrapper-\(archiveId)'>
@@ -24343,6 +24423,27 @@ final class FavoritesFeatureTests: XCTestCase {
         XCTAssertEqual(mapped.audio.first?.duration, 7)
     }
 
+    func testSavedForwardedXEPGEOLocationRendersInSavedChat() throws {
+        let body = "geo:56.838011,60.597465"
+        let stored = try receiveSaved(try makeForwardedSavedMessage(
+            body: body,
+            id: "saved-display-xep-geo-location-1",
+            innerId: "inner-display-xep-geo-location-1",
+            innerChildren: geolocReferenceXML(body: body)
+        ))
+
+        let presentation = SavedMessageDisplayPolicy.presentation(
+            for: stored,
+            currentUserJid: owner,
+            currentUserName: "Igor Boldin"
+        )
+        let mapped = ChatViewController.mapReferenceAttachments(presentation.visibleReferences)
+
+        XCTAssertEqual(presentation.visibleBody, "")
+        XCTAssertEqual(presentation.visibleReferences.first?.kind, .geoloc)
+        XCTAssertEqual(mapped.locations.first?.geoURI, body)
+    }
+
     func testSavedForwardedLocationRendersInSavedChat() throws {
         let stored = try receiveSaved(try makeForwardedSavedMessage(
             body: "Pinned location",
@@ -24603,6 +24704,33 @@ final class FavoritesFeatureTests: XCTestCase {
 
         assertStoredAsSavedServiceConversation(stored)
         XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).filter("opponent != %@", favoritesJid).count, 0)
+    }
+
+    func testSavedMamAndCarbonGeolocPayloadsParseSameReference() throws {
+        let body = "geo:56.838011,60.597465"
+        let live = try makeDirectSavedMessage(
+            body: body,
+            id: "saved-geoloc-live-1",
+            children: geolocReferenceXML(body: body)
+        )
+        let mam = try extractMamForwardedMessage(
+            from: try makeMamResult(message: live, archiveId: "archive-geoloc-1", queryId: "saved-geoloc")
+        )
+        let carbon = try extractForwardedMessage(
+            from: try makeCarbonReceived(message: live),
+            childName: "received"
+        )
+
+        let liveReference = try XCTUnwrap(parseReferences(live, primary: "live", jid: favoritesJid, owner: owner).first)
+        let mamReference = try XCTUnwrap(parseReferences(mam, primary: "mam", jid: favoritesJid, owner: owner).first)
+        let carbonReference = try XCTUnwrap(parseReferences(carbon, primary: "carbon", jid: favoritesJid, owner: owner).first)
+
+        XCTAssertEqual(liveReference.kind, .geoloc)
+        XCTAssertEqual(mamReference.kind, .geoloc)
+        XCTAssertEqual(carbonReference.kind, .geoloc)
+        XCTAssertEqual(liveReference.url, body)
+        XCTAssertEqual(mamReference.url, body)
+        XCTAssertEqual(carbonReference.url, body)
     }
 
     func testSavedSyncLastMessageUsesFavoritesServiceJidAndSavedType() throws {
