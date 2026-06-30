@@ -265,7 +265,7 @@ final class ChatAttachmentFileDraftBuilder: ChatAttachmentFileDraftBuilding {
             }
             let size = track.naturalSize.applying(track.preferredTransform)
             return CGSize(width: abs(size.width), height: abs(size.height))
-        case .audio, .file:
+        case .audio, .file, .location:
             return nil
         }
     }
@@ -1160,6 +1160,8 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
             return "waveform"
         case .file:
             return "doc"
+        case .location:
+            return "location"
         }
     }
 
@@ -1173,6 +1175,8 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
             return "waveform"
         case .file:
             return "doc"
+        case .location:
+            return "location"
         }
     }
 }

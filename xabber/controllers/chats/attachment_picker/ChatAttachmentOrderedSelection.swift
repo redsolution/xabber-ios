@@ -85,6 +85,8 @@ struct ChatAttachmentGalleryDraftBuilder {
             return "m4a"
         case .file:
             return "dat"
+        case .location:
+            return "geo"
         }
     }
 }

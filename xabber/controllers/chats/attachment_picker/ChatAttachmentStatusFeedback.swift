@@ -59,7 +59,7 @@ enum ChatAttachmentDraftStatusPolicy {
                 showsRemoveAction: false,
                 blocksSend: true
             )
-        case .prepared:
+        case .prepared, .preparedLocation:
             return ChatAttachmentStatusBannerViewModel(
                 kind: .ready,
                 title: "",

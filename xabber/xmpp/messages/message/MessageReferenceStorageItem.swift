@@ -306,6 +306,7 @@ class MessageReferenceStorageItem: Object {
     
     var downloadUrl: URL? {
         get {
+            guard kind != .geoloc else { return nil }
             guard let uri = self.url else { return nil }
             return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
         }

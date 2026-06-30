@@ -27,6 +27,7 @@ enum AttachmentMediaKind: Equatable {
     case video
     case audio
     case file
+    case location
 }
 
 enum AttachmentThumbnailState: Equatable {
@@ -70,10 +71,25 @@ struct AttachmentUploadedRemoteFile: Equatable {
     let metadata: [String: String]?
 }
 
+struct AttachmentLocationCoordinate: Equatable {
+    let latitude: Double
+    let longitude: Double
+}
+
+struct AttachmentPreparedLocation: Equatable {
+    let coordinate: AttachmentLocationCoordinate
+    let displayAddress: String?
+    let accuracy: Double?
+    let geoURI: String
+    let createdAt: Date
+    let localSnapshotURL: URL?
+}
+
 enum AttachmentPreparationState: Equatable {
     case pending
     case preparing
     case prepared(AttachmentPreparedFile)
+    case preparedLocation(AttachmentPreparedLocation)
     case unavailable(AttachmentDraftUnavailableReason)
 }
 
@@ -99,8 +115,20 @@ extension AttachmentDraft {
         return file.uploadedRemoteFile
     }
 
+    var preparedLocation: AttachmentPreparedLocation? {
+        guard case .preparedLocation(let location) = preparationState else {
+            return nil
+        }
+
+        return location
+    }
+
     var requiresUpload: Bool {
-        uploadedRemoteFile == nil
+        if preparedLocation != nil {
+            return false
+        }
+
+        return uploadedRemoteFile == nil
     }
 }
 
@@ -123,17 +151,23 @@ struct ChatAttachmentReferenceBuilder {
         from draft: AttachmentDraft,
         context: ChatAttachmentFlowContext
     ) throws -> MessageReferenceStorageItem {
-        let preparedFile: AttachmentPreparedFile
-
         switch draft.preparationState {
         case .prepared(let file):
-            preparedFile = file
+            return makeFileReference(from: draft, preparedFile: file, context: context)
+        case .preparedLocation(let location):
+            return makeLocationReference(from: draft, location: location, context: context)
         case .unavailable(let reason):
             throw ChatAttachmentReferenceBuilderError.draftUnavailable(draft.id, reason)
         case .pending, .preparing:
             throw ChatAttachmentReferenceBuilderError.draftNotPrepared(draft.id)
         }
+    }
 
+    private func makeFileReference(
+        from draft: AttachmentDraft,
+        preparedFile: AttachmentPreparedFile,
+        context: ChatAttachmentFlowContext
+    ) -> MessageReferenceStorageItem {
         let reference = MessageReferenceStorageItem()
         reference.kind = .media
         reference.owner = context.owner
@@ -187,7 +221,7 @@ struct ChatAttachmentReferenceBuilder {
             if preparedFile.videoPreviewKey != nil || preparedFile.videoPreviewLocalURL != nil {
                 reference.isDownloaded = true
             }
-        case .image, .animatedImage, .file:
+        case .image, .animatedImage, .file, .location:
             break
         }
 
@@ -203,6 +237,41 @@ struct ChatAttachmentReferenceBuilder {
         return reference
     }
 
+    private func makeLocationReference(
+        from draft: AttachmentDraft,
+        location: AttachmentPreparedLocation,
+        context: ChatAttachmentFlowContext
+    ) -> MessageReferenceStorageItem {
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .geoloc
+        reference.owner = context.owner
+        reference.jid = context.jid
+        reference.conversationType = context.conversationType
+        reference.mimeType = "location"
+        reference.url = location.geoURI
+        reference.isUploaded = true
+        reference.primary = UUID().uuidString
+
+        var metadata: [String: Any] = [
+            "lat": Self.geolocNumberString(location.coordinate.latitude),
+            "lon": Self.geolocNumberString(location.coordinate.longitude),
+            "uri": location.geoURI,
+            "timestamp": Self.geolocTimestampString(from: location.createdAt)
+        ]
+        if let displayAddress = location.displayAddress, displayAddress.isNotEmpty {
+            metadata["text"] = displayAddress
+        }
+        if let accuracy = location.accuracy, accuracy.isFinite {
+            metadata["accuracy"] = Self.geolocNumberString(accuracy)
+        }
+        if let localSnapshotURL = location.localSnapshotURL {
+            metadata["local-snapshot-url"] = localSnapshotURL.absoluteString
+        }
+        reference.metadata = metadata
+
+        return reference
+    }
+
     private func displayName(for mediaKind: AttachmentMediaKind, filename: String) -> String {
         switch mediaKind {
         case .image, .animatedImage:
@@ -211,10 +280,22 @@ struct ChatAttachmentReferenceBuilder {
             return "Video"
         case .audio, .file:
             return filename
+        case .location:
+            return "Location"
         }
     }
 
     private static func roundedPixelValue(_ value: CGFloat) -> Int {
         Int(value.rounded())
+    }
+
+    private static func geolocNumberString(_ value: Double) -> String {
+        String(value)
+    }
+
+    private static func geolocTimestampString(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: date)
     }
 }

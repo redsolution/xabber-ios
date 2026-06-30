@@ -107,6 +107,34 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         XCTAssertEqual(request.references.first?.downloadUrl?.absoluteString, "https://gallery.example/files/report.pdf")
     }
 
+    func testLocationDraftsSkipAvailabilityQuotaAndPostSendRefresh() throws {
+        let refresher = FakeTask18QuotaRefresher()
+        let sender = FakeTask18MediaMessageSender()
+        let pipeline = makePipeline(
+            isCloudStorageAvailable: false,
+            quotaRefresher: refresher,
+            quotaAccessProvider: FakeTask18QuotaAccessProvider(accesses: [.premiumRequired]),
+            sender: sender
+        )
+
+        let result = sendSynchronously(
+            pipeline: pipeline,
+            drafts: [locationDraft()]
+        )
+
+        XCTAssertEqual(result, .sent(referenceCount: 1))
+        XCTAssertEqual(refresher.refreshCallCount, 0)
+        let request = try XCTUnwrap(sender.requests.first)
+        let reference = try XCTUnwrap(request.references.first)
+        XCTAssertEqual(sender.requests.count, 1)
+        XCTAssertEqual(reference.kind, .geoloc)
+        XCTAssertTrue(reference.isUploaded)
+        XCTAssertNil(reference.localFileUrl)
+        XCTAssertNil(reference.downloadUrl)
+        XCTAssertEqual(request.body, "geo:51.5007,-0.1246")
+        XCTAssertEqual(request.legacyBody, "geo:51.5007,-0.1246")
+    }
+
     func testMixedLocalAndCloudDraftsKeepCloudStorageAvailabilityGate() {
         let sender = FakeTask18MediaMessageSender()
         let pipeline = makePipeline(
@@ -118,6 +146,25 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
             pipeline: pipeline,
             drafts: [
                 cloudFileDraft(id: 7, filename: "report.pdf"),
+                preparedDraft(id: "file:local", filename: "local.pdf", mediaKind: .file, mediaType: "application/pdf")
+            ]
+        )
+
+        XCTAssertEqual(result, .blocked(.cloudStorageUnavailable))
+        XCTAssertTrue(sender.requests.isEmpty)
+    }
+
+    func testMixedLocalAndLocationDraftsKeepCloudStorageAvailabilityGate() {
+        let sender = FakeTask18MediaMessageSender()
+        let pipeline = makePipeline(
+            isCloudStorageAvailable: false,
+            sender: sender
+        )
+
+        let result = sendSynchronously(
+            pipeline: pipeline,
+            drafts: [
+                locationDraft(),
                 preparedDraft(id: "file:local", filename: "local.pdf", mediaKind: .file, mediaType: "application/pdf")
             ]
         )
@@ -406,6 +453,28 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
             createdAt: nil,
             metadata: nil
         ).makeAttachmentDraft()
+    }
+
+    private func locationDraft() -> AttachmentDraft {
+        let location = AttachmentPreparedLocation(
+            coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
+            displayAddress: "Westminster",
+            accuracy: 12.5,
+            geoURI: "geo:51.5007,-0.1246",
+            createdAt: Date(timeIntervalSince1970: 1_782_799_200),
+            localSnapshotURL: nil
+        )
+        return AttachmentDraft(
+            id: "location:\(location.geoURI)",
+            source: .geolocation,
+            mediaKind: .location,
+            thumbnailState: .none,
+            filename: "Location",
+            byteSize: 0,
+            duration: nil,
+            dimensions: nil,
+            preparationState: .preparedLocation(location)
+        )
     }
 
     private func draft(

@@ -172,6 +172,53 @@ final class ChatAttachmentDraftModelTests: XCTestCase {
         XCTAssertEqual(reference.metadata?["uri"] as? String, "file:///tmp/document.pdf")
     }
 
+    func testPreparedLocationDraftDoesNotRequireUpload() {
+        let location = preparedLocation()
+        let draft = locationDraft(location: location)
+
+        XCTAssertEqual(draft.preparedLocation, location)
+        XCTAssertFalse(draft.requiresUpload)
+    }
+
+    func testReferenceBuilderEmitsUploadedGeolocReferenceForPreparedLocation() throws {
+        let location = preparedLocation()
+        let draft = locationDraft(location: location)
+
+        let reference = try XCTUnwrap(ChatAttachmentReferenceBuilder().makeReferences(from: [draft], context: Self.context).first)
+
+        XCTAssertEqual(reference.kind, .geoloc)
+        XCTAssertEqual(reference.owner, Self.context.owner)
+        XCTAssertEqual(reference.jid, Self.context.jid)
+        XCTAssertEqual(reference.conversationType, Self.context.conversationType)
+        XCTAssertEqual(reference.mimeType, "location")
+        XCTAssertEqual(reference.url, "geo:51.5007,-0.1246")
+        XCTAssertTrue(reference.isUploaded)
+        XCTAssertNil(reference.localFileUrl)
+        XCTAssertNil(reference.downloadUrl)
+        XCTAssertEqual(reference.metadata?["lat"] as? String, "51.5007")
+        XCTAssertEqual(reference.metadata?["lon"] as? String, "-0.1246")
+        XCTAssertEqual(reference.metadata?["accuracy"] as? String, "12.5")
+        XCTAssertEqual(reference.metadata?["text"] as? String, "Westminster")
+        XCTAssertEqual(reference.metadata?["timestamp"] as? String, "2026-06-30T06:00:00Z")
+        XCTAssertEqual(reference.metadata?["uri"] as? String, "geo:51.5007,-0.1246")
+    }
+
+    func testGeolocOutgoingBodyUsesGeoURIFallback() throws {
+        let reference = try XCTUnwrap(ChatAttachmentReferenceBuilder().makeReferences(
+            from: [locationDraft(location: preparedLocation())],
+            context: Self.context
+        ).first)
+
+        let outgoingBody = ChatAttachmentCaptionOutgoingBodyPolicy.makeOutgoingBody(
+            captionState: ChatAttachmentCaptionState(),
+            conversationType: Self.context.conversationType,
+            references: [reference]
+        )
+
+        XCTAssertEqual(outgoingBody.body, "geo:51.5007,-0.1246")
+        XCTAssertEqual(outgoingBody.legacyBody, "geo:51.5007,-0.1246")
+    }
+
     func testEditedImageBuildsFromPreparedOutputFile() throws {
         let localURL = try XCTUnwrap(URL(string: "file:///tmp/edited/output.jpg"))
         let draft = preparedDraft(
@@ -238,6 +285,31 @@ final class ChatAttachmentDraftModelTests: XCTestCase {
             duration: duration,
             dimensions: dimensions,
             preparationState: .prepared(preparedFile)
+        )
+    }
+
+    private func preparedLocation() -> AttachmentPreparedLocation {
+        AttachmentPreparedLocation(
+            coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
+            displayAddress: "Westminster",
+            accuracy: 12.5,
+            geoURI: "geo:51.5007,-0.1246",
+            createdAt: Date(timeIntervalSince1970: 1_782_799_200),
+            localSnapshotURL: nil
+        )
+    }
+
+    private func locationDraft(location: AttachmentPreparedLocation) -> AttachmentDraft {
+        AttachmentDraft(
+            id: "location:\(location.geoURI)",
+            source: .geolocation,
+            mediaKind: .location,
+            thumbnailState: .none,
+            filename: "Location",
+            byteSize: 0,
+            duration: nil,
+            dimensions: nil,
+            preparationState: .preparedLocation(location)
         )
     }
 }

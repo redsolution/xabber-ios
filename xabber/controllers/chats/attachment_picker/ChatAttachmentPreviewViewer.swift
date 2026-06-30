@@ -122,6 +122,16 @@ enum ChatAttachmentCaptionOutgoingBodyPolicy {
         let normalizedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? ""
             : caption
+        if normalizedCaption.isEmpty,
+           references.count == 1,
+           references.first?.kind == .geoloc,
+           let geoURI = references.first?.url ?? references.first?.metadata?["uri"] as? String,
+           geoURI.isNotEmpty {
+            return ChatAttachmentCaptionOutgoingBody(
+                body: geoURI,
+                legacyBody: geoURI
+            )
+        }
         return ChatAttachmentCaptionOutgoingBody(
             body: normalizedCaption,
             legacyBody: normalizedCaption
@@ -1246,7 +1256,7 @@ final class PhotoKitChatAttachmentPreviewMediaProvider: ChatAttachmentPreviewMed
         case .video:
             let thumbnail = draft.thumbnailFileURL.flatMap { UIImage(contentsOfFile: $0.path) }
             return .video(thumbnail: thumbnail, playerItem: AVPlayerItem(url: localFileURL))
-        case .audio, .file:
+        case .audio, .file, .location:
             return .filePlaceholder(filename: draft.filename, byteSize: draft.byteSize)
         }
     }
@@ -1263,7 +1273,7 @@ final class PhotoKitChatAttachmentPreviewMediaProvider: ChatAttachmentPreviewMed
             return .image(image)
         case .video:
             return .video(thumbnail: draft.thumbnailFileURL.flatMap { UIImage(contentsOfFile: $0.path) }, playerItem: AVPlayerItem(url: localFileURL))
-        case .animatedImage, .audio, .file:
+        case .animatedImage, .audio, .file, .location:
             return .filePlaceholder(filename: draft.filename, byteSize: draft.byteSize)
         }
     }
@@ -1315,7 +1325,7 @@ final class PhotoKitChatAttachmentPreviewMediaProvider: ChatAttachmentPreviewMed
                     completion(.video(thumbnail: nil, playerItem: playerItem))
                 }
             )
-        case .audio, .file:
+        case .audio, .file, .location:
             completion(.filePlaceholder(filename: draft.filename, byteSize: draft.byteSize))
             return Int(PHInvalidImageRequestID)
         }

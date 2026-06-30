@@ -28891,6 +28891,27 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(fakeClient.uploadCallCount, 0)
     }
 
+    func testGeolocReferencesSkipGalleryUpload() throws {
+        let primary = try seedUploadingGeolocMessage()
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "geoloc reference completes")
+        var successCount = 0
+        var failureCount = 0
+
+        manager.getFileData(message: primary, successCallback: {
+            successCount += 1
+            expectation.fulfill()
+        }, failCallback: {
+            failureCount += 1
+        })
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(successCount, 1)
+        XCTAssertEqual(failureCount, 0)
+        XCTAssertEqual(fakeClient.slotCallCount, 0)
+        XCTAssertEqual(fakeClient.uploadCallCount, 0)
+    }
+
     func testQuotaRefreshUsesOnlyStatsEndpointForSelectedPremiumGallery() throws {
         let configuration = AccountGalleryConfiguration(owner: owner)
         configuration.reconcilePremiumGalleryAvailability(
@@ -29329,6 +29350,32 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
                 conversationType: .regular,
                 body: "Caption",
                 legacyBody: "Caption"
+            )
+        )
+    }
+
+    private func seedUploadingGeolocMessage() throws -> String {
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .geoloc
+        reference.mimeType = "location"
+        reference.metadata = [
+            "lat": "51.5007",
+            "lon": "-0.1246",
+            "text": "Westminster",
+            "uri": "geo:51.5007,-0.1246"
+        ]
+        reference.url = "geo:51.5007,-0.1246"
+        reference.isUploaded = true
+        reference.conversationType = .regular
+        return try XCTUnwrap(
+            manager.willSendMediaMessage(
+                [reference],
+                to: "quota-bob@xabber.com",
+                forwarded: [],
+                conversationType: .regular,
+                body: "geo:51.5007,-0.1246",
+                legacyBody: "geo:51.5007,-0.1246"
             )
         )
     }

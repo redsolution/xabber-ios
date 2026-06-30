@@ -310,6 +310,11 @@ final class ChatAttachmentMediaPreparationCoordinator: ChatAttachmentMediaPrepar
                 continue
             }
 
+            if case .preparedLocation = draft.preparationState {
+                finish(index: index, draft: draft)
+                continue
+            }
+
             var preparingDraft = draft
             preparingDraft.preparationState = .preparing
 
@@ -377,7 +382,7 @@ final class ChatAttachmentMediaPreparationCoordinator: ChatAttachmentMediaPrepar
                 return .available(key: previewURL.absoluteString)
             }
             return draft.thumbnailState
-        case .audio, .file:
+        case .audio, .file, .location:
             return draft.thumbnailState
         }
     }
@@ -494,7 +499,7 @@ final class PhotoKitChatAttachmentMediaPreparationLoader: ChatAttachmentMediaPre
             return requestImage(for: asset, draft: draft, completion: completion)
         case .video:
             return requestVideo(for: asset, draft: draft, completion: completion)
-        case .audio, .file:
+        case .audio, .file, .location:
             completion(.failure(.unsupportedMetadata))
             return ChatAttachmentMediaPreparationNoopCancellable()
         }
