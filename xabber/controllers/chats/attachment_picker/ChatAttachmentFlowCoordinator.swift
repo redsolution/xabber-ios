@@ -1,3 +1,4 @@
+import RealmSwift
 import UIKit
 
 struct ChatAttachmentFlowContext {
@@ -391,7 +392,7 @@ final class DefaultChatAttachmentSourceControllerFactory: ChatAttachmentSourceCo
         case .geolocation:
             return ChatAttachmentGeolocationSourceViewController()
         case .contact:
-            return ChatAttachmentPlaceholderSourceViewController(source: .contact)
+            return ChatAttachmentContactSourceViewController(owner: context.owner)
         }
     }
 }
@@ -417,5 +418,417 @@ final class ChatAttachmentPlaceholderSourceViewController: UIViewController, Cha
         let rootView = UIView()
         rootView.backgroundColor = .clear
         view = rootView
+    }
+}
+
+struct ChatAttachmentContactRosterRecord: Equatable {
+    let owner: String
+    let jid: String
+    let displayTitle: String
+    let nickname: String?
+    let given: String?
+    let family: String?
+    let avatarURL: String?
+    let isHidden: Bool
+    let removed: Bool
+    let isContact: Bool
+    let subscription: RosterStorageItem.Subsccribtion
+    let isContactEntity: Bool
+}
+
+struct ChatAttachmentContactListItem: Equatable {
+    let owner: String
+    let jid: String
+    let displayTitle: String
+    let nickname: String?
+    let given: String?
+    let family: String?
+    let avatarURL: String?
+    let avatarMetadata: [String: String]
+
+    func makeDraft() -> AttachmentDraft {
+        let title = ChatAttachmentContactText.nonEmpty(displayTitle) ?? jid
+        let contact = AttachmentPreparedContact(
+            jid: jid,
+            nickname: ChatAttachmentContactText.nonEmpty(nickname),
+            given: ChatAttachmentContactText.nonEmpty(given),
+            family: ChatAttachmentContactText.nonEmpty(family),
+            displayTitle: title,
+            avatarURL: ChatAttachmentContactText.nonEmpty(avatarURL),
+            avatarMetadata: avatarMetadata.filter { ChatAttachmentContactText.nonEmpty($0.value) != nil }
+        )
+        return AttachmentDraft(
+            id: "contact:\(owner)|\(jid)",
+            source: .contact,
+            mediaKind: .contact,
+            thumbnailState: .none,
+            filename: title,
+            byteSize: 0,
+            duration: nil,
+            dimensions: nil,
+            preparationState: .preparedContact(contact)
+        )
+    }
+}
+
+protocol ChatAttachmentContactSourceDataProviding: AnyObject {
+    func loadItems(owner: String, searchQuery: String) -> [ChatAttachmentContactListItem]
+}
+
+final class ChatAttachmentContactSourceDataSource: ChatAttachmentContactSourceDataProviding {
+    func loadItems(owner: String, searchQuery: String) -> [ChatAttachmentContactListItem] {
+        do {
+            let realm = try WRealm.safe()
+            let records = realm
+                .objects(RosterStorageItem.self)
+                .filter("owner == %@", owner)
+                .map { rosterItem -> ChatAttachmentContactRosterRecord in
+                    let vCardItem = realm.object(ofType: vCardStorageItem.self, forPrimaryKey: rosterItem.jid)
+                    let vCardNickname = ChatAttachmentContactText.nonEmpty(vCardItem?.nickname)
+                    let rosterNickname = ChatAttachmentContactText.nickname(
+                        fromDisplayTitle: rosterItem.displayName,
+                        jid: rosterItem.jid
+                    )
+                    let primaryResource = rosterItem.getPrimaryResource()
+                    return ChatAttachmentContactRosterRecord(
+                        owner: rosterItem.owner,
+                        jid: rosterItem.jid,
+                        displayTitle: rosterItem.displayName,
+                        nickname: vCardNickname ?? rosterNickname,
+                        given: ChatAttachmentContactText.nonEmpty(vCardItem?.given),
+                        family: ChatAttachmentContactText.nonEmpty(vCardItem?.family),
+                        avatarURL: ChatAttachmentContactText.nonEmpty(rosterItem.avatarUrl),
+                        isHidden: rosterItem.isHidden,
+                        removed: rosterItem.removed,
+                        isContact: rosterItem.isContact,
+                        subscription: rosterItem.subscribtion,
+                        isContactEntity: primaryResource?.entity == .contact || primaryResource == nil
+                    )
+                }
+            return Self.items(
+                from: Array(records),
+                owner: owner,
+                searchQuery: searchQuery
+            )
+        } catch {
+            return []
+        }
+    }
+
+    static func items(
+        from records: [ChatAttachmentContactRosterRecord],
+        owner: String,
+        searchQuery: String
+    ) -> [ChatAttachmentContactListItem] {
+        let items = records.compactMap { record -> ChatAttachmentContactListItem? in
+            guard record.owner == owner,
+                  record.removed == false,
+                  record.isHidden == false,
+                  record.isContact,
+                  record.isContactEntity,
+                  record.subscription == .both,
+                  let jid = ChatAttachmentContactText.nonEmpty(record.jid),
+                  jid != owner else {
+                return nil
+            }
+
+            let nickname = ChatAttachmentContactText.nonEmpty(record.nickname)
+            let given = ChatAttachmentContactText.nonEmpty(record.given)
+            let family = ChatAttachmentContactText.nonEmpty(record.family)
+            let displayTitle = ChatAttachmentContactText.displayTitle(
+                explicitTitle: record.displayTitle,
+                nickname: nickname,
+                given: given,
+                family: family,
+                jid: jid
+            )
+            let avatarURL = ChatAttachmentContactText.nonEmpty(record.avatarURL)
+            var avatarMetadata: [String: String] = [:]
+            if let avatarURL {
+                avatarMetadata["avatar_url"] = avatarURL
+            }
+
+            return ChatAttachmentContactListItem(
+                owner: record.owner,
+                jid: jid,
+                displayTitle: displayTitle,
+                nickname: nickname,
+                given: given,
+                family: family,
+                avatarURL: avatarURL,
+                avatarMetadata: avatarMetadata
+            )
+        }
+        .sorted { left, right in
+            let titleOrder = left.displayTitle.localizedCaseInsensitiveCompare(right.displayTitle)
+            if titleOrder == .orderedSame {
+                return left.jid.localizedCaseInsensitiveCompare(right.jid) == .orderedAscending
+            }
+            return titleOrder == .orderedAscending
+        }
+
+        return filteredItems(items, searchQuery: searchQuery)
+    }
+
+    static func filteredItems(
+        _ items: [ChatAttachmentContactListItem],
+        searchQuery: String
+    ) -> [ChatAttachmentContactListItem] {
+        guard let query = ChatAttachmentContactText.nonEmpty(searchQuery)?.lowercased() else {
+            return items
+        }
+
+        return items.filter { item in
+            item.displayTitle.lowercased().contains(query)
+                || item.jid.lowercased().contains(query)
+        }
+    }
+}
+
+final class ChatAttachmentContactSourceViewController: UIViewController,
+    ChatAttachmentSourceControlling,
+    ChatAttachmentDraftSelectionProviding,
+    ChatAttachmentDraftSelectionMutating,
+    ChatAttachmentDraftSelectionSyncing,
+    UISearchBarDelegate,
+    UITableViewDataSource,
+    UITableViewDelegate {
+    let source: ChatAttachmentSource = .contact
+    var onSelectionCountChanged: ((Int) -> Void)?
+    var onSelectedAttachmentDraftsChanged: (([AttachmentDraft]) -> Void)?
+
+    let searchBar = UISearchBar(frame: .zero)
+    let tableView = UITableView(frame: .zero, style: .plain)
+
+    private let owner: String
+    private let dataSource: ChatAttachmentContactSourceDataProviding
+    private var items: [ChatAttachmentContactListItem] = []
+    private var selectedDrafts: [AttachmentDraft] = []
+
+    var viewController: UIViewController {
+        self
+    }
+
+    var selectedAttachmentDrafts: [AttachmentDraft] {
+        selectedDrafts
+    }
+
+    init(
+        owner: String,
+        dataSource: ChatAttachmentContactSourceDataProviding = ChatAttachmentContactSourceDataSource()
+    ) {
+        self.owner = owner
+        self.dataSource = dataSource
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let rootView = UIView()
+        rootView.backgroundColor = .systemBackground
+
+        searchBar.translatesAutoresizingMaskIntoConstraints = false
+        searchBar.accessibilityIdentifier = "chatAttachmentContact.searchBar"
+        searchBar.placeholder = ChatAttachmentLocalization.string(.sourceContactTitle)
+        searchBar.searchBarStyle = .minimal
+        searchBar.delegate = self
+
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.accessibilityIdentifier = "chatAttachmentContact.tableView"
+        tableView.keyboardDismissMode = .onDrag
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.register(
+            ChatAttachmentContactSourceCell.self,
+            forCellReuseIdentifier: ChatAttachmentContactSourceCell.reuseIdentifier
+        )
+
+        rootView.addSubview(searchBar)
+        rootView.addSubview(tableView)
+
+        NSLayoutConstraint.activate([
+            searchBar.topAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.topAnchor, constant: 8),
+            searchBar.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 8),
+            searchBar.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -8),
+
+            tableView.topAnchor.constraint(equalTo: searchBar.bottomAnchor, constant: 4),
+            tableView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor)
+        ])
+
+        view = rootView
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        reloadItems()
+    }
+
+    func syncSelectedAttachmentDrafts(_ drafts: [AttachmentDraft]) {
+        selectedDrafts = drafts.filter { $0.source == .contact }
+        tableView.reloadData()
+    }
+
+    @discardableResult
+    func removeSelectedAttachmentDraft(withID draftID: String) -> [AttachmentDraft] {
+        let previousDrafts = selectedDrafts
+        selectedDrafts.removeAll { $0.id == draftID }
+        if selectedDrafts != previousDrafts {
+            notifySelectionChanged()
+        }
+        return selectedDrafts
+    }
+
+    @discardableResult
+    func replaceSelectedAttachmentDraft(withID draftID: String, updatedDraft: AttachmentDraft) -> [AttachmentDraft] {
+        guard let index = selectedDrafts.firstIndex(where: { $0.id == draftID }) else {
+            return selectedDrafts
+        }
+        selectedDrafts[index] = updatedDraft
+        notifySelectionChanged()
+        return selectedDrafts
+    }
+
+    func selectContact(_ item: ChatAttachmentContactListItem) {
+        selectedDrafts = [item.makeDraft()]
+        notifySelectionChanged()
+    }
+
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        reloadItems()
+    }
+
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+        searchBar.resignFirstResponder()
+    }
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        items.count
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(
+            withIdentifier: ChatAttachmentContactSourceCell.reuseIdentifier,
+            for: indexPath
+        )
+        guard let contactCell = cell as? ChatAttachmentContactSourceCell,
+              items.indices.contains(indexPath.row) else {
+            return cell
+        }
+        let item = items[indexPath.row]
+        contactCell.configure(
+            with: item,
+            isSelected: selectedDrafts.contains { $0.preparedContact?.jid == item.jid }
+        )
+        cell.accessibilityIdentifier = "chatAttachmentContact.contact.\(indexPath.row)"
+        return contactCell
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        guard items.indices.contains(indexPath.row) else { return }
+        selectContact(items[indexPath.row])
+        tableView.deselectRow(at: indexPath, animated: true)
+    }
+
+    private func reloadItems() {
+        items = dataSource.loadItems(
+            owner: owner,
+            searchQuery: searchBar.text ?? ""
+        )
+        tableView.reloadData()
+    }
+
+    private func notifySelectionChanged() {
+        onSelectionCountChanged?(selectedDrafts.count)
+        onSelectedAttachmentDraftsChanged?(selectedDrafts)
+        tableView.reloadData()
+    }
+}
+
+private final class ChatAttachmentContactSourceCell: UITableViewCell {
+    static let reuseIdentifier = "chatAttachmentContactCell"
+
+    private var representedJID: String?
+
+    func configure(
+        with item: ChatAttachmentContactListItem,
+        isSelected: Bool
+    ) {
+        representedJID = item.jid
+        let cachedAvatar = DefaultAvatarManager.shared.cachedAvatarImage(url: item.avatarURL)
+        apply(item: item, image: cachedAvatar)
+        accessoryType = isSelected ? .checkmark : .none
+
+        guard cachedAvatar == nil else { return }
+        DefaultAvatarManager.shared.getAvatar(
+            url: item.avatarURL,
+            jid: item.jid,
+            owner: item.owner,
+            size: 40
+        ) { [weak self] image in
+            guard let self,
+                  self.representedJID == item.jid,
+                  let image else {
+                return
+            }
+            self.apply(item: item, image: image)
+        }
+    }
+
+    private func apply(item: ChatAttachmentContactListItem, image: UIImage?) {
+        var configuration = defaultContentConfiguration()
+        configuration.text = item.displayTitle
+        configuration.secondaryText = item.jid
+        configuration.textProperties.numberOfLines = 1
+        configuration.textProperties.lineBreakMode = .byTruncatingTail
+        configuration.secondaryTextProperties.numberOfLines = 1
+        configuration.secondaryTextProperties.lineBreakMode = .byTruncatingTail
+        configuration.image = image ?? UIImage(systemName: "person.crop.circle.fill")
+        configuration.imageProperties.maximumSize = CGSize(width: 40, height: 40)
+        configuration.imageProperties.cornerRadius = 20
+        contentConfiguration = configuration
+    }
+}
+
+private enum ChatAttachmentContactText {
+    static func nonEmpty(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func nickname(fromDisplayTitle displayTitle: String, jid: String) -> String? {
+        guard let title = nonEmpty(displayTitle),
+              title != JidManager.shared.prepareJid(jid: jid),
+              title != jid else {
+            return nil
+        }
+        return title
+    }
+
+    static func displayTitle(
+        explicitTitle: String?,
+        nickname: String?,
+        given: String?,
+        family: String?,
+        jid: String
+    ) -> String {
+        if let explicitTitle = nonEmpty(explicitTitle) {
+            return explicitTitle
+        }
+        if let nickname = nonEmpty(nickname) {
+            return nickname
+        }
+        let fullName = [nonEmpty(given), nonEmpty(family)]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        if let fullName = nonEmpty(fullName) {
+            return fullName
+        }
+        return jid
     }
 }

@@ -219,7 +219,7 @@ struct ChatAttachmentSourceBarConfiguration: Equatable {
             .gallery: .available,
             .file: .available,
             .geolocation: .available,
-            .contact: .disabled
+            .contact: .available
         ],
         orderedSources: [ChatAttachmentSource] = [.gallery, .file, .geolocation, .contact]
     ) {

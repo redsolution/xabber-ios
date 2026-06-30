@@ -4,7 +4,7 @@ import UIKit
 
 @MainActor
 final class ChatAttachmentSourceBarTests: XCTestCase {
-    func testDefaultSourceBarSelectsGalleryAndShowsLocationAvailable() throws {
+    func testDefaultSourceBarSelectsGalleryAndShowsContactAvailable() throws {
         let sheet = ChatAttachmentSheetViewController(
             context: Self.makeContext(),
             sourceControllerFactory: Task6FakeSourceControllerFactory()
@@ -23,7 +23,7 @@ final class ChatAttachmentSourceBarTests: XCTestCase {
         XCTAssertFalse(fileButton.isSelected)
         XCTAssertTrue(fileButton.isEnabled)
         XCTAssertTrue(locationButton.isEnabled)
-        XCTAssertFalse(contactButton.isEnabled)
+        XCTAssertTrue(contactButton.isEnabled)
     }
 
     func testTappingFileRoutesSheetToFileAndUpdatesSelectedState() throws {
@@ -139,7 +139,7 @@ final class ChatAttachmentSourceBarTests: XCTestCase {
         XCTAssertEqual(sheet.selectedItemCount, 4)
     }
 
-    func testLocationSourceIsAvailableAndRoutesWhileContactStaysDisabled() throws {
+    func testLocationAndContactSourcesAreAvailableAndRoute() throws {
         let factory = Task6FakeSourceControllerFactory()
         let sheet = ChatAttachmentSheetViewController(
             context: Self.makeContext(),
@@ -150,16 +150,16 @@ final class ChatAttachmentSourceBarTests: XCTestCase {
         let locationButton = try XCTUnwrap(sheet.sourceBarView.button(for: .geolocation))
         let contactButton = try XCTUnwrap(sheet.sourceBarView.button(for: .contact))
         XCTAssertTrue(locationButton.isEnabled)
-        XCTAssertFalse(contactButton.isEnabled)
+        XCTAssertTrue(contactButton.isEnabled)
 
         locationButton.sendActions(for: .touchUpInside)
         contactButton.sendActions(for: .touchUpInside)
 
-        XCTAssertEqual(sheet.activeSource, .geolocation)
-        XCTAssertEqual(factory.createdSources, [.gallery, .geolocation])
+        XCTAssertEqual(sheet.activeSource, .contact)
+        XCTAssertEqual(factory.createdSources, [.gallery, .geolocation, .contact])
         XCTAssertFalse(try XCTUnwrap(sheet.sourceBarView.button(for: .gallery)).isSelected)
-        XCTAssertTrue(locationButton.isSelected)
-        XCTAssertFalse(contactButton.isSelected)
+        XCTAssertFalse(locationButton.isSelected)
+        XCTAssertTrue(contactButton.isSelected)
     }
 
     private static func makeContext(composerTintColor: UIColor = .systemBlue) -> ChatAttachmentFlowContext {
@@ -232,5 +232,135 @@ private final class Task6FakeSourceController: UIViewController, ChatAttachmentS
 
     func emitSelectionCount(_ count: Int) {
         onSelectionCountChanged?(count)
+    }
+}
+
+final class ChatAttachmentContactSourceTests: XCTestCase {
+    func testContactSourceDataSourceFiltersCurrentOwnerMutualRosterContacts() {
+        let records = [
+            makeRecord(jid: "alice@example.com", title: "Alice"),
+            makeRecord(owner: "other@example.com", jid: "other-contact@example.com", title: "Other Owner"),
+            makeRecord(jid: "hidden@example.com", title: "Hidden", isHidden: true),
+            makeRecord(jid: "removed@example.com", title: "Removed", removed: true),
+            makeRecord(jid: "not-contact@example.com", title: "Room", isContact: false),
+            makeRecord(jid: "resource-room@example.com", title: "Room Resource", isContactEntity: false),
+            makeRecord(jid: "pending@example.com", title: "Pending", subscription: .to),
+            makeRecord(jid: "owner@example.com", title: "Self")
+        ]
+
+        let items = ChatAttachmentContactSourceDataSource.items(
+            from: records,
+            owner: "owner@example.com",
+            searchQuery: ""
+        )
+
+        XCTAssertEqual(items.map(\.jid), ["alice@example.com"])
+        XCTAssertEqual(items.first?.displayTitle, "Alice")
+    }
+
+    func testContactSourceDataSourceSearchesDisplayTitleAndJID() {
+        let records = [
+            makeRecord(jid: "alice@example.com", title: "Alice Capulet"),
+            makeRecord(jid: "bob@example.com", title: "Robert")
+        ]
+
+        let titleMatches = ChatAttachmentContactSourceDataSource.items(
+            from: records,
+            owner: "owner@example.com",
+            searchQuery: "cap"
+        )
+        let jidMatches = ChatAttachmentContactSourceDataSource.items(
+            from: records,
+            owner: "owner@example.com",
+            searchQuery: "bob@"
+        )
+
+        XCTAssertEqual(titleMatches.map(\.jid), ["alice@example.com"])
+        XCTAssertEqual(jidMatches.map(\.jid), ["bob@example.com"])
+    }
+
+    @MainActor
+    func testSelectingContactEmitsPreparedContactDraft() throws {
+        let item = ChatAttachmentContactListItem(
+            owner: "owner@example.com",
+            jid: "alice@example.com",
+            displayTitle: "Alice Capulet",
+            nickname: "Ally",
+            given: "Alice",
+            family: "Capulet",
+            avatarURL: "https://cdn.example.com/alice.png",
+            avatarMetadata: ["avatar_id": "hash-1"]
+        )
+        let dataSource = StaticContactSourceDataSource(items: [item])
+        let controller = ChatAttachmentContactSourceViewController(
+            owner: "owner@example.com",
+            dataSource: dataSource
+        )
+        var selectionCounts: [Int] = []
+        var selectedDrafts: [[AttachmentDraft]] = []
+        controller.onSelectionCountChanged = { selectionCounts.append($0) }
+        controller.onSelectedAttachmentDraftsChanged = { selectedDrafts.append($0) }
+
+        controller.loadViewIfNeeded()
+        controller.selectContact(item)
+
+        XCTAssertEqual(selectionCounts, [1])
+        let draft = try XCTUnwrap(selectedDrafts.last?.first)
+        XCTAssertEqual(draft.source, .contact)
+        XCTAssertEqual(draft.mediaKind, .contact)
+        XCTAssertFalse(draft.requiresUpload)
+        let contact = try XCTUnwrap(draft.preparedContact)
+        XCTAssertEqual(contact.jid, "alice@example.com")
+        XCTAssertEqual(contact.nickname, "Ally")
+        XCTAssertEqual(contact.given, "Alice")
+        XCTAssertEqual(contact.family, "Capulet")
+        XCTAssertEqual(contact.displayTitle, "Alice Capulet")
+        XCTAssertEqual(contact.avatarURL, "https://cdn.example.com/alice.png")
+        XCTAssertEqual(contact.avatarMetadata["avatar_id"], "hash-1")
+    }
+
+    private func makeRecord(
+        owner: String = "owner@example.com",
+        jid: String,
+        title: String,
+        nickname: String? = nil,
+        given: String? = nil,
+        family: String? = nil,
+        avatarURL: String? = nil,
+        isHidden: Bool = false,
+        removed: Bool = false,
+        isContact: Bool = true,
+        subscription: RosterStorageItem.Subsccribtion = .both,
+        isContactEntity: Bool = true
+    ) -> ChatAttachmentContactRosterRecord {
+        ChatAttachmentContactRosterRecord(
+            owner: owner,
+            jid: jid,
+            displayTitle: title,
+            nickname: nickname,
+            given: given,
+            family: family,
+            avatarURL: avatarURL,
+            isHidden: isHidden,
+            removed: removed,
+            isContact: isContact,
+            subscription: subscription,
+            isContactEntity: isContactEntity
+        )
+    }
+}
+
+private final class StaticContactSourceDataSource: ChatAttachmentContactSourceDataProviding {
+    private let items: [ChatAttachmentContactListItem]
+
+    init(items: [ChatAttachmentContactListItem]) {
+        self.items = items
+    }
+
+    func loadItems(owner: String, searchQuery: String) -> [ChatAttachmentContactListItem] {
+        ChatAttachmentContactSourceDataSource.filteredItems(
+            items,
+            searchQuery: searchQuery
+        )
     }
 }

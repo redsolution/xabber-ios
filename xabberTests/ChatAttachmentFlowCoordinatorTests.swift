@@ -89,14 +89,14 @@ final class ChatAttachmentFlowCoordinatorTests: XCTestCase {
         XCTAssertEqual(factory.createdSources, [.gallery, .file])
     }
 
-    func testDefaultFactoryReturnsPlaceholderForContactSourceFallback() {
+    func testDefaultFactoryReturnsContactSourceController() {
         let controller = DefaultChatAttachmentSourceControllerFactory().makeController(
             for: .contact,
             context: Self.makeContext()
         )
 
         XCTAssertEqual(controller.source, .contact)
-        XCTAssertTrue(controller.viewController is ChatAttachmentPlaceholderSourceViewController)
+        XCTAssertTrue(controller.viewController is ChatAttachmentContactSourceViewController)
     }
 
     func testSourceSelectionCountFlowsThroughSheetAndCoordinator() throws {
