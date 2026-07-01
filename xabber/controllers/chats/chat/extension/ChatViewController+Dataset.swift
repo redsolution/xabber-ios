@@ -3967,9 +3967,8 @@ extension ChatViewController {
             let outgoingAutoScrollDecision = self.consumePendingOutgoingAutoScrollDecision()
             switch outgoingAutoScrollDecision {
             case .scroll(let indexPath):
-                self.messagesCollectionView.scrollToItem(
-                    at: indexPath,
-                    at: .bottom,
+                self.scrollToBottomAligned(
+                    targetIndexPath: indexPath,
                     animated: shouldAnimateApply
                 )
             case .handledNoScroll:

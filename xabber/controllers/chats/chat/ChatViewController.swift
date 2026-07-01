@@ -398,6 +398,39 @@ struct ChatFloatingHeaderLayoutPolicy {
     }
 }
 
+struct ChatBottomScrollAlignmentPolicy {
+    static let contentOffsetTolerance: CGFloat = 0.5
+
+    static func targetContentOffsetY(
+        targetMaxY: CGFloat,
+        contentHeight: CGFloat,
+        viewportHeight: CGFloat,
+        adjustedInsets: UIEdgeInsets
+    ) -> CGFloat {
+        guard viewportHeight > 0 else {
+            return -adjustedInsets.top
+        }
+
+        let normalizedContentHeight = max(0, contentHeight)
+        let normalizedTargetMaxY = min(max(0, targetMaxY), normalizedContentHeight)
+        let minOffsetY = -adjustedInsets.top
+        let maxOffsetY = max(
+            minOffsetY,
+            normalizedContentHeight - viewportHeight + adjustedInsets.bottom
+        )
+        let requestedOffsetY = normalizedTargetMaxY - viewportHeight + adjustedInsets.bottom
+        return min(max(requestedOffsetY, minOffsetY), maxOffsetY)
+    }
+
+    static func isAligned(
+        currentOffsetY: CGFloat,
+        targetOffsetY: CGFloat,
+        tolerance: CGFloat = contentOffsetTolerance
+    ) -> Bool {
+        abs(currentOffsetY - targetOffsetY) <= tolerance
+    }
+}
+
 enum ChatSubscriptionStatusText: Equatable {
     case notInContacts
     case incomingSubscriptionRequest
@@ -2947,12 +2980,51 @@ class ChatViewController: MessagesViewController {
         guard self.datasource.isNotEmpty else {
             return
         }
-        let lastSection = self.datasource.count - 1
-        self.messagesCollectionView.scrollToItem(
-            at: IndexPath(item: 0, section: lastSection),
-            at: .bottom,
+        self.scrollToBottomAligned(targetIndexPath: nil, animated: animated)
+    }
+
+    internal func scrollToBottomAligned(targetIndexPath: IndexPath?, animated: Bool) {
+        guard self.datasource.isNotEmpty else {
+            return
+        }
+
+        self.messagesCollectionView.layoutIfNeeded()
+        self.updateChatCollectionInsets()
+        self.messagesCollectionView.layoutIfNeeded()
+
+        let targetMaxY = self.bottomAlignmentTargetMaxY(for: targetIndexPath)
+            ?? self.messagesCollectionView.contentSize.height
+        let targetOffsetY = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+            targetMaxY: targetMaxY,
+            contentHeight: self.messagesCollectionView.contentSize.height,
+            viewportHeight: self.messagesCollectionView.bounds.height,
+            adjustedInsets: self.messagesCollectionView.adjustedContentInset
+        )
+
+        guard !ChatBottomScrollAlignmentPolicy.isAligned(
+            currentOffsetY: self.messagesCollectionView.contentOffset.y,
+            targetOffsetY: targetOffsetY
+        ) else {
+            return
+        }
+
+        self.messagesCollectionView.setContentOffset(
+            CGPoint(x: self.messagesCollectionView.contentOffset.x, y: targetOffsetY),
             animated: animated
         )
+    }
+
+    private func bottomAlignmentTargetMaxY(for indexPath: IndexPath?) -> CGFloat? {
+        guard let indexPath,
+              indexPath.section >= 0,
+              indexPath.section < self.messagesCollectionView.numberOfSections,
+              indexPath.item >= 0,
+              indexPath.item < self.messagesCollectionView.numberOfItems(inSection: indexPath.section) else {
+            return nil
+        }
+
+        return self.messagesCollectionView.layoutAttributesForItem(at: indexPath)?.frame.maxY
+            ?? self.messagesCollectionView.cellForItem(at: indexPath)?.frame.maxY
     }
         
     @objc

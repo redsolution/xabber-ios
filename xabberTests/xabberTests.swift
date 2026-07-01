@@ -119,6 +119,47 @@ final class ChatFloatingHeaderLayoutPolicyTests: XCTestCase {
     }
 }
 
+final class ChatBottomScrollAlignmentPolicyTests: XCTestCase {
+    func testTargetOffsetIncludesBottomInsetForComposerClearance() {
+        let insets = UIEdgeInsets(top: 88, left: 0, bottom: 64, right: 0)
+
+        let offsetY = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+            targetMaxY: 720,
+            contentHeight: 720,
+            viewportHeight: 500,
+            adjustedInsets: insets
+        )
+
+        XCTAssertEqual(offsetY, 284)
+    }
+
+    func testShortContentClampsToMinimumTopInsetOffset() {
+        let insets = UIEdgeInsets(top: 316, left: 0, bottom: 64, right: 0)
+
+        let offsetY = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+            targetMaxY: 120,
+            contentHeight: 120,
+            viewportHeight: 500,
+            adjustedInsets: insets
+        )
+
+        XCTAssertEqual(offsetY, -316)
+    }
+
+    func testTargetCellCanAlignAboveComposerWhenFakeRowsFollowIt() {
+        let insets = UIEdgeInsets(top: 44, left: 0, bottom: 64, right: 0)
+
+        let offsetY = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+            targetMaxY: 720,
+            contentHeight: 780,
+            viewportHeight: 500,
+            adjustedInsets: insets
+        )
+
+        XCTAssertEqual(offsetY, 284)
+    }
+}
+
 final class ContinuousSplitBackgroundExperimentTests: XCTestCase {
     func testSplitCompactUsesStockCompactBackgroundMode() {
         XCTAssertEqual(
