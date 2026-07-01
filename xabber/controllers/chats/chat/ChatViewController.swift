@@ -405,20 +405,20 @@ struct ChatBottomScrollAlignmentPolicy {
         targetMaxY: CGFloat,
         contentHeight: CGFloat,
         viewportHeight: CGFloat,
-        adjustedInsets: UIEdgeInsets
+        contentInsets: UIEdgeInsets
     ) -> CGFloat {
         guard viewportHeight > 0 else {
-            return -adjustedInsets.top
+            return -contentInsets.top
         }
 
         let normalizedContentHeight = max(0, contentHeight)
         let normalizedTargetMaxY = min(max(0, targetMaxY), normalizedContentHeight)
-        let minOffsetY = -adjustedInsets.top
+        let minOffsetY = -contentInsets.top
         let maxOffsetY = max(
             minOffsetY,
-            normalizedContentHeight - viewportHeight + adjustedInsets.bottom
+            normalizedContentHeight - viewportHeight + contentInsets.bottom
         )
-        let requestedOffsetY = normalizedTargetMaxY - viewportHeight + adjustedInsets.bottom
+        let requestedOffsetY = normalizedTargetMaxY - viewportHeight + contentInsets.bottom
         return min(max(requestedOffsetY, minOffsetY), maxOffsetY)
     }
 
@@ -2998,7 +2998,7 @@ class ChatViewController: MessagesViewController {
             targetMaxY: targetMaxY,
             contentHeight: self.messagesCollectionView.contentSize.height,
             viewportHeight: self.messagesCollectionView.bounds.height,
-            adjustedInsets: self.messagesCollectionView.adjustedContentInset
+            contentInsets: self.messagesCollectionView.contentInset
         )
 
         guard !ChatBottomScrollAlignmentPolicy.isAligned(
@@ -3025,6 +3025,15 @@ class ChatViewController: MessagesViewController {
 
         return self.messagesCollectionView.layoutAttributesForItem(at: indexPath)?.frame.maxY
             ?? self.messagesCollectionView.cellForItem(at: indexPath)?.frame.maxY
+    }
+
+    internal func scheduleOutgoingBottomRealignment(targetIndexPath: IndexPath) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isViewLoaded else {
+                return
+            }
+            self.scrollToBottomAligned(targetIndexPath: targetIndexPath, animated: false)
+        }
     }
         
     @objc

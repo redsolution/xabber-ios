@@ -3247,6 +3247,24 @@ enum ChatOutgoingAutoScrollPolicy {
     }
 }
 
+enum ChatOutgoingAutoScrollApplyPolicy {
+    static func shouldAnimateStructuralApply(
+        requestedAnimated: Bool,
+        outgoingAutoScrollDecision: ChatOutgoingAutoScrollDecision
+    ) -> Bool {
+        guard requestedAnimated else {
+            return false
+        }
+
+        switch outgoingAutoScrollDecision {
+        case .scroll:
+            return false
+        case .notHandled, .useDefaultAndClear, .handledNoScroll:
+            return true
+        }
+    }
+}
+
 struct ChatDatasetApplyPlan {
     let window: ChatDatasetWindow
     let mode: ChatDatasourceApplyMode
@@ -3625,14 +3643,16 @@ extension ChatViewController {
         )
     }
 
-    private func consumePendingOutgoingAutoScrollDecision() -> ChatOutgoingAutoScrollDecision {
+    private func consumePendingOutgoingAutoScrollDecision(
+        items: [Datasource]
+    ) -> ChatOutgoingAutoScrollDecision {
         let isAnchorNavigationActive = ChatInitialScrollPolicy.shouldDeferDefaultScroll(
             hasPendingAnchorRequest: self.pendingOpenMessageRequest != nil,
             isAnchorNavigationInFlight: self.isMessageAnchorNavigationInFlight
         )
         let decision = ChatOutgoingAutoScrollPolicy.decision(
             request: self.pendingOutgoingAutoScrollRequest,
-            items: self.datasource,
+            items: items,
             isAnchorNavigationActive: isAnchorNavigationActive
         )
         if decision.consumesPendingRequest {
@@ -3946,10 +3966,15 @@ extension ChatViewController {
             oldItemCount: previousSnapshot.items.count,
             newItemCount: newSnapshot.items.count
         )
-        let shouldAnimateApply = ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+        let requestedStructuralAnimation = ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
             requestedAnimated: requestedAnimatedApply,
             isTransitionActive: self.isNavigationTransitionActive,
             isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
+        )
+        let outgoingAutoScrollDecision = self.consumePendingOutgoingAutoScrollDecision(items: items)
+        let shouldAnimateApply = ChatOutgoingAutoScrollApplyPolicy.shouldAnimateStructuralApply(
+            requestedAnimated: requestedStructuralAnimation,
+            outgoingAutoScrollDecision: outgoingAutoScrollDecision
         )
 
         let finish: () -> Void = {
@@ -3964,13 +3989,15 @@ extension ChatViewController {
             let insetsStartedAt = Date()
             self.updateChatCollectionInsets()
             let insetsMs = ChatArchiveDebugTrace.milliseconds(since: insetsStartedAt)
-            let outgoingAutoScrollDecision = self.consumePendingOutgoingAutoScrollDecision()
             switch outgoingAutoScrollDecision {
             case .scroll(let indexPath):
-                self.scrollToBottomAligned(
-                    targetIndexPath: indexPath,
-                    animated: shouldAnimateApply
-                )
+                UIView.performWithoutAnimation {
+                    self.scrollToBottomAligned(
+                        targetIndexPath: indexPath,
+                        animated: false
+                    )
+                }
+                self.scheduleOutgoingBottomRealignment(targetIndexPath: indexPath)
             case .handledNoScroll:
                 break
             case .notHandled, .useDefaultAndClear:
