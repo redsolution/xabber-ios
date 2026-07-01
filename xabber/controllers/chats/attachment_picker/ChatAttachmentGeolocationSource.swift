@@ -574,7 +574,7 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
 
         mapView.translatesAutoresizingMaskIntoConstraints = false
         mapView.accessibilityIdentifier = "chatAttachmentGeolocation.map"
-        mapView.showsUserLocation = false
+        mapView.showsUserLocation = authorizer.authorizationStatus == .authorized
 
         searchSurfaceView.translatesAutoresizingMaskIntoConstraints = false
         searchSurfaceView.isUserInteractionEnabled = true
@@ -776,6 +776,7 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
                 )
                 switch status {
                 case .authorized:
+                    self.mapView.showsUserLocation = true
                     self.requestCurrentLocation()
                 case .notDetermined:
                     break
@@ -809,15 +810,8 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
             guard let self else { return }
             switch result {
             case .success(let currentLocation):
-                self.reverseGeocoder.reverseGeocode(coordinate: currentLocation.coordinate) { [weak self] address in
-                    self?.selectResolvedLocation(
-                        ChatAttachmentResolvedLocation(
-                            coordinate: currentLocation.coordinate,
-                            displayAddress: address,
-                            accuracy: currentLocation.accuracy
-                        )
-                    )
-                }
+                self.mapView.showsUserLocation = true
+                self.centerMap(on: currentLocation.coordinate)
             case .failure(let reason):
                 self.showToast(for: reason)
             }
@@ -895,9 +889,13 @@ final class ChatAttachmentGeolocationSourceViewController: UIViewController,
         annotation.title = location.displayAddress
         selectedAnnotation = annotation
         mapView.addAnnotation(annotation)
+        centerMap(on: location.coordinate)
+    }
+
+    private func centerMap(on coordinate: AttachmentLocationCoordinate) {
         mapView.setRegion(
             MKCoordinateRegion(
-                center: annotation.coordinate,
+                center: coordinate.clLocationCoordinate,
                 latitudinalMeters: 1_000,
                 longitudinalMeters: 1_000
             ),

@@ -1,5 +1,6 @@
 import XCTest
 import CoreLocation
+import MapKit
 import UIKit
 @testable import xabber
 
@@ -132,59 +133,82 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         XCTAssertEqual(authorizer.locationServicesEnabledReadCount, 0)
     }
 
-    func testAuthorizedCurrentLocationDoesNotPreflightLocationServicesAndRequestsLocation() {
+    func testAuthorizedSourceShowsUserLocationAndCurrentLocationRecentersWithoutSelection() {
         let authorizer = FakeTask16GeolocationAuthorizer(
             status: .authorized,
             requestResult: .authorized
         )
         authorizer.isLocationServicesEnabled = false
+        let currentCoordinate = AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246)
         let locationProvider = FakeTask3CurrentLocationProvider(
             currentLocation: ChatAttachmentCurrentLocation(
-                coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
+                coordinate: currentCoordinate,
                 accuracy: 8.25
             )
         )
+        let reverseGeocoder = FakeTask3ReverseGeocoder(address: "Current Address")
+        let snapshotProvider = FakeTask4LocationSnapshotProvider(result: .success(URL(fileURLWithPath: "/tmp/current-map.png")))
         let toastPresenter = FakeTask3GeolocationToastPresenter()
         let controller = ChatAttachmentGeolocationSourceViewController(
             authorizer: authorizer,
             currentLocationProvider: locationProvider,
-            reverseGeocoder: FakeTask3ReverseGeocoder(address: "Current Address"),
-            snapshotProvider: FakeTask4LocationSnapshotProvider(result: .success(URL(fileURLWithPath: "/tmp/current-map.png"))),
+            reverseGeocoder: reverseGeocoder,
+            snapshotProvider: snapshotProvider,
             toastPresenter: toastPresenter
         )
+        var emittedCounts: [Int] = []
+        var emittedDrafts: [[AttachmentDraft]] = []
+        controller.onSelectionCountChanged = { emittedCounts.append($0) }
+        controller.onSelectedAttachmentDraftsChanged = { emittedDrafts.append($0) }
 
         controller.loadViewIfNeeded()
+        layoutMapController(controller)
+
+        XCTAssertTrue(controller.mapView.showsUserLocation)
+
         controller.currentLocationButton.sendActions(for: .touchUpInside)
 
         XCTAssertEqual(authorizer.locationServicesEnabledReadCount, 0)
         XCTAssertEqual(locationProvider.requestCount, 1)
         XCTAssertEqual(toastPresenter.messages, [])
-        XCTAssertEqual(controller.selectedAttachmentDrafts.first?.preparedLocation?.displayAddress, "Current Address")
+        XCTAssertEqual(controller.selectedAttachmentDrafts.count, 0)
+        XCTAssertEqual(emittedCounts, [])
+        XCTAssertEqual(emittedDrafts, [])
+        XCTAssertEqual(reverseGeocoder.coordinates, [])
+        XCTAssertEqual(snapshotProvider.locations, [])
+        assertMapCenter(controller, equals: currentCoordinate)
     }
 
-    func testNotDeterminedCurrentLocationWaitsForAuthorizationCallbackBeforeRequestingLocation() {
+    func testNotDeterminedCurrentLocationWaitsForAuthorizationCallbackBeforeRecentering() {
         let authorizer = FakeTask16GeolocationAuthorizer(
             status: .notDetermined,
             requestResult: .authorized,
             completesImmediately: false
         )
         authorizer.isLocationServicesEnabled = false
+        let currentCoordinate = AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246)
         let locationProvider = FakeTask3CurrentLocationProvider(
             currentLocation: ChatAttachmentCurrentLocation(
-                coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
+                coordinate: currentCoordinate,
                 accuracy: 8.25
             )
         )
+        let reverseGeocoder = FakeTask3ReverseGeocoder(address: "Current Address")
+        let snapshotProvider = FakeTask4LocationSnapshotProvider(result: .success(URL(fileURLWithPath: "/tmp/current-map.png")))
         let toastPresenter = FakeTask3GeolocationToastPresenter()
         let controller = ChatAttachmentGeolocationSourceViewController(
             authorizer: authorizer,
             currentLocationProvider: locationProvider,
-            reverseGeocoder: FakeTask3ReverseGeocoder(address: "Current Address"),
-            snapshotProvider: FakeTask4LocationSnapshotProvider(result: .success(URL(fileURLWithPath: "/tmp/current-map.png"))),
+            reverseGeocoder: reverseGeocoder,
+            snapshotProvider: snapshotProvider,
             toastPresenter: toastPresenter
         )
 
         controller.loadViewIfNeeded()
+        layoutMapController(controller)
+
+        XCTAssertFalse(controller.mapView.showsUserLocation)
+
         controller.currentLocationButton.sendActions(for: .touchUpInside)
 
         XCTAssertEqual(authorizer.requestCount, 1)
@@ -197,7 +221,11 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         XCTAssertEqual(authorizer.locationServicesEnabledReadCount, 0)
         XCTAssertEqual(locationProvider.requestCount, 1)
         XCTAssertEqual(toastPresenter.messages, [])
-        XCTAssertEqual(controller.selectedAttachmentDrafts.first?.preparedLocation?.displayAddress, "Current Address")
+        XCTAssertTrue(controller.mapView.showsUserLocation)
+        XCTAssertEqual(controller.selectedAttachmentDrafts.count, 0)
+        XCTAssertEqual(reverseGeocoder.coordinates, [])
+        XCTAssertEqual(snapshotProvider.locations, [])
+        assertMapCenter(controller, equals: currentCoordinate)
     }
 
     func testNotDeterminedAuthorizationCallbackKeepsWaitingWithoutToastOrLocationRequest() {
@@ -304,6 +332,7 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         controller.currentLocationButton.sendActions(for: .touchUpInside)
 
         XCTAssertEqual(locationProvider.requestCount, 1)
+        XCTAssertEqual(controller.selectedAttachmentDrafts.count, 0)
         XCTAssertEqual(toastPresenter.messages, [
             ChatAttachmentLocalization.string(.geolocationDeniedMessage)
         ])
@@ -322,6 +351,7 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         controller.currentLocationButton.sendActions(for: .touchUpInside)
 
         XCTAssertEqual(locationProvider.requestCount, 1)
+        XCTAssertEqual(controller.selectedAttachmentDrafts.count, 0)
         XCTAssertEqual(toastPresenter.messages, [
             ChatAttachmentLocalization.string(.geolocationUnavailableMessage)
         ])
@@ -445,18 +475,19 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         ])
     }
 
-    func testAuthorizedCurrentLocationSelectsAndReplacesSingleDraft() throws {
+    func testAuthorizedCurrentLocationPreservesSelectedDraftAndDoesNotEmitSelectionCallbacks() throws {
+        let selectedCoordinate = AttachmentLocationCoordinate(latitude: 40.7128, longitude: -74.006)
+        let currentCoordinate = AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246)
         let locationProvider = FakeTask3CurrentLocationProvider(
             currentLocation: ChatAttachmentCurrentLocation(
-                coordinate: AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246),
+                coordinate: currentCoordinate,
                 accuracy: 8.25
             )
         )
         let reverseGeocoder = FakeTask3ReverseGeocoder(address: "Current Address")
         let snapshotProvider = FakeTask4LocationSnapshotProvider(
             results: [
-                .success(URL(fileURLWithPath: "/tmp/current-map.png")),
-                .success(URL(fileURLWithPath: "/tmp/replacement-map.png"))
+                .success(URL(fileURLWithPath: "/tmp/selected-map.png"))
             ]
         )
         let controller = ChatAttachmentGeolocationSourceViewController(
@@ -469,35 +500,38 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         controller.onSelectionCountChanged = { emittedCounts.append($0) }
 
         controller.loadViewIfNeeded()
+        layoutMapController(controller)
         XCTAssertEqual(controller.selectedAttachmentDrafts.count, 0)
-
-        controller.currentLocationButton.sendActions(for: .touchUpInside)
-
-        var location = try XCTUnwrap(controller.selectedAttachmentDrafts.first?.preparedLocation)
-        XCTAssertEqual(locationProvider.requestCount, 1)
-        XCTAssertEqual(reverseGeocoder.coordinates, [
-            AttachmentLocationCoordinate(latitude: 51.5007, longitude: -0.1246)
-        ])
-        XCTAssertEqual(emittedCounts, [1, 1])
-        XCTAssertEqual(location.displayAddress, "Current Address")
-        XCTAssertEqual(location.accuracy, 8.25)
-        XCTAssertEqual(location.localSnapshotURL, URL(fileURLWithPath: "/tmp/current-map.png"))
 
         controller.selectResolvedLocation(
             ChatAttachmentResolvedLocation(
-                coordinate: AttachmentLocationCoordinate(latitude: 40.7128, longitude: -74.006),
-                displayAddress: "Replacement",
+                coordinate: selectedCoordinate,
+                displayAddress: "Selected Pin",
                 accuracy: nil
             )
         )
 
         XCTAssertEqual(controller.selectedAttachmentDrafts.count, 1)
-        location = try XCTUnwrap(controller.selectedAttachmentDrafts.first?.preparedLocation)
-        XCTAssertEqual(emittedCounts, [1, 1, 1, 1])
-        XCTAssertEqual(location.coordinate, AttachmentLocationCoordinate(latitude: 40.7128, longitude: -74.006))
-        XCTAssertEqual(location.displayAddress, "Replacement")
-        XCTAssertEqual(location.localSnapshotURL, URL(fileURLWithPath: "/tmp/replacement-map.png"))
+        let originalDraft = try XCTUnwrap(controller.selectedAttachmentDrafts.first)
+        let originalLocation = try XCTUnwrap(originalDraft.preparedLocation)
+        XCTAssertEqual(emittedCounts, [1, 1])
+        XCTAssertEqual(originalLocation.coordinate, selectedCoordinate)
+        XCTAssertEqual(originalLocation.displayAddress, "Selected Pin")
+        XCTAssertEqual(originalLocation.localSnapshotURL, URL(fileURLWithPath: "/tmp/selected-map.png"))
         XCTAssertTrue(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: controller.selectedAttachmentDrafts))
+
+        emittedCounts.removeAll()
+        controller.currentLocationButton.sendActions(for: .touchUpInside)
+
+        let location = try XCTUnwrap(controller.selectedAttachmentDrafts.first?.preparedLocation)
+        XCTAssertEqual(locationProvider.requestCount, 1)
+        XCTAssertEqual(reverseGeocoder.coordinates, [])
+        XCTAssertEqual(snapshotProvider.locations.map(\.coordinate), [selectedCoordinate])
+        XCTAssertEqual(emittedCounts, [])
+        XCTAssertEqual(location.coordinate, selectedCoordinate)
+        XCTAssertEqual(location.displayAddress, "Selected Pin")
+        XCTAssertEqual(location.localSnapshotURL, URL(fileURLWithPath: "/tmp/selected-map.png"))
+        assertMapCenter(controller, equals: currentCoordinate)
     }
 
     func testSnapshotFailureKeepsLocationDraftUnsendableAndShowsToast() throws {
@@ -528,6 +562,22 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         XCTAssertEqual(toastPresenter.messages, [
             ChatAttachmentLocalization.string(.geolocationSnapshotFailedMessage)
         ])
+    }
+
+    private func assertMapCenter(
+        _ controller: ChatAttachmentGeolocationSourceViewController,
+        equals coordinate: AttachmentLocationCoordinate,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let center = controller.mapView.region.center
+        XCTAssertEqual(center.latitude, coordinate.latitude, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(center.longitude, coordinate.longitude, accuracy: 0.001, file: file, line: line)
+    }
+
+    private func layoutMapController(_ controller: ChatAttachmentGeolocationSourceViewController) {
+        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 700)
+        controller.view.layoutIfNeeded()
     }
 }
 
@@ -627,6 +677,10 @@ private final class FakeTask4LocationSnapshotProvider: ChatLocationSnapshotProvi
     ) {
         locations.append(location)
         sizes.append(size)
+        guard !results.isEmpty else {
+            completion(.failure(FakeTask4SnapshotError.failed))
+            return
+        }
         completion(results.removeFirst())
     }
 }
