@@ -328,12 +328,12 @@ class ImagePickerViewController: UIViewController {
         let recipient = jid
         let forwarded = forwardedMessages
         let type = conversationType
+        delegate?.onSendMessage()
         account.action { user, _ in
             DispatchQueue.global(qos: .userInitiated).async {
                 user.messages.sendMediaMessage(attachments, to: recipient, forwarded: forwarded, conversationType: type)
                 DispatchQueue.main.async {
                     self.media.removeAll()
-                    self.delegate?.onSendMessage()
                     self.dismissModal()
                 }
             }

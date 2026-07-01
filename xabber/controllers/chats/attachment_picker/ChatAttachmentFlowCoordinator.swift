@@ -30,6 +30,7 @@ protocol ChatAttachmentFlowCoordinating: AnyObject {
 }
 
 protocol ChatAttachmentFlowCoordinatorDelegate: AnyObject {
+    func chatAttachmentFlowCoordinatorWillSend(_ coordinator: ChatAttachmentFlowCoordinator)
     func chatAttachmentFlowCoordinatorDidSend(_ coordinator: ChatAttachmentFlowCoordinator)
     func chatAttachmentFlowCoordinatorDidDismiss(_ coordinator: ChatAttachmentFlowCoordinator)
     func chatAttachmentFlowCoordinator(
@@ -40,6 +41,10 @@ protocol ChatAttachmentFlowCoordinatorDelegate: AnyObject {
         _ coordinator: ChatAttachmentFlowCoordinator,
         didFailWith error: ChatAttachmentFlowError
     )
+}
+
+extension ChatAttachmentFlowCoordinatorDelegate {
+    func chatAttachmentFlowCoordinatorWillSend(_ coordinator: ChatAttachmentFlowCoordinator) {}
 }
 
 protocol ChatAttachmentSourceControlling: AnyObject {
@@ -317,6 +322,7 @@ extension ChatAttachmentFlowCoordinator: ChatAttachmentPickerViewControllerDeleg
         didRequestSend drafts: [AttachmentDraft],
         captionState: ChatAttachmentCaptionState
     ) {
+        delegate?.chatAttachmentFlowCoordinatorWillSend(self)
         sendCoordinator.send(
             drafts: drafts,
             captionState: captionState,

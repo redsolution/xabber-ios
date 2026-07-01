@@ -207,6 +207,15 @@ final class ChatBottomScrollAlignmentPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testMediaSendCallbackRequestsOutgoingScrollSynchronouslyOnMainThread() {
+        XCTAssertTrue(Thread.isMainThread)
+        let chat = ChatViewController()
+
+        chat.onSendMessage()
+
+        XCTAssertNotNil(chat.pendingOutgoingAutoScrollRequest)
+    }
 }
 
 final class ContinuousSplitBackgroundExperimentTests: XCTestCase {

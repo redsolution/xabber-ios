@@ -340,6 +340,29 @@ final class ChatAttachmentFlowCoordinatorTests: XCTestCase {
         XCTAssertNil(chat.chatAttachmentFlowCoordinator)
     }
 
+    func testCoordinatorNotifiesWillSendBeforeSendCoordinatorRuns() throws {
+        let delegate = FakeFlowDelegate()
+        var willSendCountWhenSendStarted = 0
+        let sendCoordinator = ObservingFlowSendCoordinator {
+            willSendCountWhenSendStarted = delegate.willSendCount
+        }
+        let coordinator = makeCoordinator(
+            delegate: delegate,
+            sendCoordinator: sendCoordinator
+        )
+        coordinator.start()
+        let picker = try XCTUnwrap(coordinator.pickerViewController)
+
+        coordinator.chatAttachmentSheetViewController(
+            picker,
+            didRequestSend: [Self.preparedDraft(id: "asset:ready")],
+            captionState: ChatAttachmentCaptionState()
+        )
+
+        XCTAssertEqual(willSendCountWhenSendStarted, 1)
+        XCTAssertEqual(delegate.sendCount, 1)
+    }
+
     private func makeCoordinator(
         factory: ChatAttachmentSourceControllerFactory = FakeSourceControllerFactory(),
         delegate: ChatAttachmentFlowCoordinatorDelegate? = nil,
@@ -504,10 +527,15 @@ private final class FakeFlowQuotaAlertPresenter: ChatAttachmentCloudStorageQuota
 }
 
 private final class FakeFlowDelegate: ChatAttachmentFlowCoordinatorDelegate {
+    var willSendCount = 0
     var sendCount = 0
     var dismissCount = 0
     var premiumOwners: [String] = []
     var failures: [ChatAttachmentFlowError] = []
+
+    func chatAttachmentFlowCoordinatorWillSend(_ coordinator: ChatAttachmentFlowCoordinator) {
+        willSendCount += 1
+    }
 
     func chatAttachmentFlowCoordinatorDidSend(_ coordinator: ChatAttachmentFlowCoordinator) {
         sendCount += 1
@@ -529,6 +557,24 @@ private final class FakeFlowDelegate: ChatAttachmentFlowCoordinatorDelegate {
         didFailWith error: ChatAttachmentFlowError
     ) {
         failures.append(error)
+    }
+}
+
+private final class ObservingFlowSendCoordinator: ChatAttachmentSendCoordinating {
+    private let onSend: () -> Void
+
+    init(onSend: @escaping () -> Void) {
+        self.onSend = onSend
+    }
+
+    func send(
+        drafts: [AttachmentDraft],
+        captionState: ChatAttachmentCaptionState,
+        context: ChatAttachmentFlowContext,
+        completion: @escaping (ChatAttachmentSendResult) -> Void
+    ) {
+        onSend()
+        completion(.sent(referenceCount: drafts.count))
     }
 }
 

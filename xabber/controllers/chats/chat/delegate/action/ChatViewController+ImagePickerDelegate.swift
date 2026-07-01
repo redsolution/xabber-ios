@@ -34,12 +34,23 @@ extension ChatViewController: ImagePickerViewDelegate {
     }
     
     func onSendMessage() {
-        print("Call empty", #function)
-        DispatchQueue.main.async {
-            self.requestOutgoingAutoScrollAfterDatasourceUpdate()
+        finishOutgoingAttachmentSend(requestScroll: true)
+    }
+
+    internal func finishOutgoingAttachmentSend(requestScroll: Bool) {
+        let updates = {
+            if requestScroll {
+                self.requestOutgoingAutoScrollAfterDatasourceUpdate()
+            }
             self.forwardedIds.accept(Set<String>())
             self.attachedMessagesIds.accept([])
             self.unreadMessagePositionId = nil
+        }
+
+        if Thread.isMainThread {
+            updates()
+        } else {
+            DispatchQueue.main.async(execute: updates)
         }
     }
     

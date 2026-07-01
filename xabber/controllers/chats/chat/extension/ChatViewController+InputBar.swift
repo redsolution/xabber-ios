@@ -208,9 +208,13 @@ extension ChatViewController {
 }
 
 extension ChatViewController: ChatAttachmentFlowCoordinatorDelegate {
+    func chatAttachmentFlowCoordinatorWillSend(_ coordinator: ChatAttachmentFlowCoordinator) {
+        requestOutgoingAutoScrollAfterDatasourceUpdate()
+    }
+
     func chatAttachmentFlowCoordinatorDidSend(_ coordinator: ChatAttachmentFlowCoordinator) {
         clearChatAttachmentFlowCoordinatorIfNeeded(coordinator)
-        onSendMessage()
+        finishOutgoingAttachmentSend(requestScroll: false)
     }
 
     func chatAttachmentFlowCoordinatorDidDismiss(_ coordinator: ChatAttachmentFlowCoordinator) {
