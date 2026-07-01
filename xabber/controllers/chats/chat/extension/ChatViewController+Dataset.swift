@@ -3248,6 +3248,17 @@ enum ChatOutgoingAutoScrollPolicy {
 }
 
 enum ChatOutgoingAutoScrollApplyPolicy {
+    static func shouldUseImmediateReload(
+        outgoingAutoScrollDecision: ChatOutgoingAutoScrollDecision
+    ) -> Bool {
+        switch outgoingAutoScrollDecision {
+        case .scroll:
+            return true
+        case .notHandled, .useDefaultAndClear, .handledNoScroll:
+            return false
+        }
+    }
+
     static func shouldAnimateStructuralApply(
         requestedAnimated: Bool,
         outgoingAutoScrollDecision: ChatOutgoingAutoScrollDecision
@@ -4212,6 +4223,28 @@ extension ChatViewController {
             )
             self.datasource = items
             self.datasourceSnapshot = newSnapshot
+
+            if ChatOutgoingAutoScrollApplyPolicy.shouldUseImmediateReload(outgoingAutoScrollDecision: outgoingAutoScrollDecision) {
+                runWithoutAnimation {
+                    let reloadStartedAt = Date()
+                    self.messagesCollectionView.reloadData()
+                    self.messagesCollectionView.layoutIfNeeded()
+                    self.updateChatCollectionInsets()
+                    if case .scroll(let indexPath) = outgoingAutoScrollDecision {
+                        self.scrollToBottomAligned(targetIndexPath: indexPath, animated: false)
+                    }
+                    ChatArchiveDebugTrace.log("chatDatasourceOutgoingImmediateReload", [
+                        ("owner", self.owner),
+                        ("jid", self.jid),
+                        ("conversationType", self.conversationType.rawValue),
+                        ("mode", modeDescription),
+                        ("durationMs", ChatArchiveDebugTrace.milliseconds(since: reloadStartedAt)),
+                        ("count", items.count)
+                    ])
+                }
+                finish()
+                return
+            }
 
             guard !diff.isEmpty else {
                 ChatArchiveDebugTrace.log("chatDatasourceTargetedDiffEmpty", [

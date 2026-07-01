@@ -187,6 +187,26 @@ final class ChatBottomScrollAlignmentPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testOutgoingScrollUsesImmediateReloadPath() {
+        XCTAssertTrue(
+            ChatOutgoingAutoScrollApplyPolicy.shouldUseImmediateReload(
+                outgoingAutoScrollDecision: .scroll(IndexPath(item: 0, section: 10))
+            )
+        )
+
+        XCTAssertFalse(
+            ChatOutgoingAutoScrollApplyPolicy.shouldUseImmediateReload(
+                outgoingAutoScrollDecision: .useDefaultAndClear
+            )
+        )
+
+        XCTAssertFalse(
+            ChatOutgoingAutoScrollApplyPolicy.shouldUseImmediateReload(
+                outgoingAutoScrollDecision: .notHandled
+            )
+        )
+    }
 }
 
 final class ContinuousSplitBackgroundExperimentTests: XCTestCase {
