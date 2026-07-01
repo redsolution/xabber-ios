@@ -335,6 +335,57 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         )
     }
 
+    func testReceiptTimeoutAfterDeliveredStateDeletesQueueWithoutRetryAndDrainsNextMessage() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let logger = AccountPrimaryStreamSendCoordinatorLogger()
+        let coordinator = makeSendCoordinator(
+            isReady: { true },
+            recorder: recorder,
+            scheduler: scheduler,
+            logger: logger
+        )
+        try storeSendingMessage(originId: "message-1", includeReference: true)
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1", createdAt: Date(timeIntervalSince1970: 1)))
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-2", createdAt: Date(timeIntervalSince1970: 2)))
+        try updateStoredMessage(originId: "message-1", state: .deliver)
+
+        scheduler.advance(by: 5)
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1", "message-2"])
+        XCTAssertNil(recorder.sentMessages.last?.element(forName: "retry", xmlns: "https://xabber.com/protocol/delivery"))
+
+        let realm = try WRealm.safe()
+        XCTAssertEqual(realm.objects(OutgoingMessageQueueItem.self).filter("originId == %@", "message-1").count, 0)
+        let nextQueueItem = try XCTUnwrap(realm.objects(OutgoingMessageQueueItem.self).filter("originId == %@", "message-2").first)
+        XCTAssertEqual(nextQueueItem.state, .awaitingReceipt)
+
+        let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: "message-1", owner: "owner@example.com")))
+        XCTAssertEqual(message.state, .deliver)
+        XCTAssertNil(message.messageError)
+        XCTAssertNil(message.messageErrorCode)
+        XCTAssertFalse(message.references.first?.hasError == true)
+        XCTAssertTrue(logger.events.contains { $0.event == "account_send_coordinator_receipt_timeout_resolved" })
+    }
+
+    func testReceiptTimeoutAfterArchivedSentStateDeletesQueueWithoutRetry() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
+        let coordinator = makeSendCoordinator(isReady: { true }, recorder: recorder, scheduler: scheduler)
+        try storeSendingMessage(originId: "message-1")
+
+        try coordinator.enqueueRegularMessage(makeRequest(originId: "message-1"))
+        try updateStoredMessage(originId: "message-1", state: .sended, archivedId: "archive-1")
+        scheduler.advance(by: 5)
+
+        XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1"])
+        XCTAssertEqual(
+            try WRealm.safe().objects(OutgoingMessageQueueItem.self).filter("originId == %@", "message-1").count,
+            0
+        )
+    }
+
     func testSecondDeliveryReceiptTimeoutMarksErrorAndDoesNotSendThirdAutomaticAttempt() throws {
         let scheduler = AccountPrimaryStreamTestScheduler()
         let recorder = AccountPrimaryStreamSendCoordinatorRecorder()
@@ -1057,6 +1108,25 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
                 )
                 realm.add(stanza, update: .modified)
             }
+        }
+    }
+
+    private func updateStoredMessage(
+        owner: String = "owner@example.com",
+        originId: String,
+        state: MessageStorageItem.MessageSendingState,
+        archivedId: String = ""
+    ) throws {
+        let realm = try WRealm.safe()
+        let message = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: MessageStorageItem.genPrimary(messageId: originId, owner: owner)
+            )
+        )
+        try realm.write {
+            message.state = state
+            message.archivedId = archivedId
         }
     }
 

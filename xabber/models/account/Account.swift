@@ -2118,6 +2118,26 @@ final class AccountSendCoordinator {
                 return
             }
             let chatKey = QueueChatKey(jid: item.conversationJid, type: item.conversationType)
+            if let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: item.messagePrimary),
+               isResolvedForReceiptTimeout(message) {
+                let diagnostics: [String: Any?] = [
+                    "originId": originId,
+                    "queuePrimary": item.primary,
+                    "attemptCount": item.attemptCount,
+                    "messageState": message.state.rawValue,
+                    "hasArchivedId": message.archivedId.isNotEmpty
+                ]
+                try realm.write {
+                    realm.delete(item)
+                }
+                notifyPendingOutgoingCount()
+                environment.log(
+                    "account_send_coordinator_receipt_timeout_resolved",
+                    queueDiagnostics(diagnostics)
+                )
+                drainNextReadyMessage(conversationJid: chatKey.jid, conversationType: chatKey.type)
+                return
+            }
             if item.attemptCount <= 1 {
                 try realm.write {
                     item.state = .queued
@@ -2169,6 +2189,10 @@ final class AccountSendCoordinator {
         } catch {
             DDLogDebug("AccountSendCoordinator: handleReceiptTimeout failed: \(error.localizedDescription)")
         }
+    }
+
+    private func isResolvedForReceiptTimeout(_ message: MessageStorageItem) -> Bool {
+        message.archivedId.isNotEmpty || [.sended, .deliver, .read].contains(message.state)
     }
 
     private func queueDiagnostics(_ details: [String: Any?]) -> [String: Any?] {
