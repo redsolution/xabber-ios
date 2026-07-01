@@ -147,8 +147,8 @@ extension AttachmentDraft {
         switch preparationState {
         case .prepared:
             return true
-        case .preparedLocation(let location):
-            return location.localSnapshotURL != nil
+        case .preparedLocation:
+            return true
         case .preparedContact:
             return true
         case .pending, .preparing, .unavailable:
@@ -188,9 +188,6 @@ struct ChatAttachmentReferenceBuilder {
         case .prepared(let file):
             return makeFileReference(from: draft, preparedFile: file, context: context)
         case .preparedLocation(let location):
-            guard location.localSnapshotURL != nil else {
-                throw ChatAttachmentReferenceBuilderError.draftNotPrepared(draft.id)
-            }
             return makeLocationReference(from: draft, location: location, context: context)
         case .preparedContact(let contact):
             return makeContactReference(from: draft, contact: contact, context: context)

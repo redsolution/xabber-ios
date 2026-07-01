@@ -31,7 +31,7 @@ final class ChatAttachmentErrorProgressStateTests: XCTestCase {
         XCTAssertEqual(ChatAttachmentBatchStatusPolicy.viewModel(for: []).kind, .hidden)
         XCTAssertEqual(ChatAttachmentBatchStatusPolicy.viewModel(for: [prepared]).kind, .ready)
         XCTAssertEqual(ChatAttachmentBatchStatusPolicy.viewModel(for: [locationDraft(snapshotURL: URL(fileURLWithPath: "/tmp/map.png"))]).kind, .ready)
-        XCTAssertEqual(ChatAttachmentBatchStatusPolicy.viewModel(for: [locationDraft(snapshotURL: nil)]).kind, .preparing)
+        XCTAssertEqual(ChatAttachmentBatchStatusPolicy.viewModel(for: [locationDraft(snapshotURL: nil)]).kind, .ready)
 
         let preparingViewModel = ChatAttachmentBatchStatusPolicy.viewModel(for: [prepared, pending, preparing])
         XCTAssertEqual(preparingViewModel.kind, .preparing)
@@ -94,7 +94,7 @@ final class ChatAttachmentErrorProgressStateTests: XCTestCase {
         XCTAssertEqual(delegate.removedDraftIDs, [unavailable.id])
     }
 
-    func testRetryUnavailableDraftFromPreviewResetsDraftToPendingWithoutChangingOrder() {
+    func testRetryUnavailableDraftFromPreviewStartsPreparingWithoutChangingOrder() {
         let source = Task20SelectionSourceController(source: .gallery)
         let sheet = makeSheet(source: source)
         let first = preparedDraft(id: "asset:first")
@@ -109,7 +109,7 @@ final class ChatAttachmentErrorProgressStateTests: XCTestCase {
         preview.statusBannerView.retryButton.sendActions(for: .touchUpInside)
 
         XCTAssertEqual(sheet.selectedAttachmentDrafts.map(\.id), [first.id, unavailable.id])
-        XCTAssertEqual(sheet.selectedAttachmentDrafts[1].preparationState, .pending)
+        XCTAssertEqual(sheet.selectedAttachmentDrafts[1].preparationState, .preparing)
         XCTAssertEqual(sheet.selectedItemCount, 2)
         XCTAssertEqual(preview.currentDraft?.preparationState, .pending)
     }

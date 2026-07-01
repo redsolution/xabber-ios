@@ -237,18 +237,15 @@ final class ChatAttachmentDraftModelTests: XCTestCase {
         XCTAssertEqual(reference.metadata?["avatar_id"] as? String, "avatar-hash")
     }
 
-    func testReferenceBuilderRejectsPreparedLocationWithoutSnapshot() {
+    func testReferenceBuilderAcceptsPreparedLocationWithoutSnapshot() throws {
         let location = preparedLocation(localSnapshotURL: nil)
         let draft = locationDraft(location: location)
 
-        XCTAssertThrowsError(
-            try ChatAttachmentReferenceBuilder().makeReferences(from: [draft], context: Self.context)
-        ) { error in
-            XCTAssertEqual(
-                error as? ChatAttachmentReferenceBuilderError,
-                .draftNotPrepared(draft.id)
-            )
-        }
+        let reference = try XCTUnwrap(ChatAttachmentReferenceBuilder().makeReferences(from: [draft], context: Self.context).first)
+
+        XCTAssertEqual(reference.kind, .geoloc)
+        XCTAssertEqual(reference.url, location.geoURI)
+        XCTAssertNil(reference.metadata?["local-snapshot-url"])
     }
 
     func testGeolocOutgoingBodyUsesGeoURIFallback() throws {

@@ -59,30 +59,7 @@ enum ChatAttachmentDraftStatusPolicy {
                 showsRemoveAction: false,
                 blocksSend: true
             )
-        case .prepared, .preparedContact:
-            return ChatAttachmentStatusBannerViewModel(
-                kind: .ready,
-                title: "",
-                message: "",
-                progress: nil,
-                blockedItemCount: 0,
-                showsRetryAction: false,
-                showsRemoveAction: false,
-                blocksSend: false
-            )
-        case .preparedLocation(let location):
-            guard location.localSnapshotURL != nil else {
-                return ChatAttachmentStatusBannerViewModel(
-                    kind: .preparing,
-                    title: ChatAttachmentLocalization.string(.statusPreparingAttachmentTitle),
-                    message: ChatAttachmentLocalization.string(.statusPreparingAttachmentMessage),
-                    progress: nil,
-                    blockedItemCount: 0,
-                    showsRetryAction: false,
-                    showsRemoveAction: false,
-                    blocksSend: true
-                )
-            }
+        case .prepared, .preparedLocation, .preparedContact:
             return ChatAttachmentStatusBannerViewModel(
                 kind: .ready,
                 title: "",

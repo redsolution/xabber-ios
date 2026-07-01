@@ -23,7 +23,7 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         XCTAssertFalse(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: []))
         XCTAssertFalse(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: [pending, prepared]))
         XCTAssertTrue(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: [prepared]))
-        XCTAssertFalse(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: [locationDraft(snapshotURL: nil)]))
+        XCTAssertTrue(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: [locationDraft(snapshotURL: nil)]))
         XCTAssertTrue(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: [locationDraft()]))
 
         let preview = ChatAttachmentPreviewViewController(drafts: [prepared])

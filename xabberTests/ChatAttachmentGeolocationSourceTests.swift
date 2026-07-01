@@ -450,7 +450,7 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         XCTAssertEqual(location.geoURI, "geo:51.5007,-0.1246")
         XCTAssertEqual(location.localSnapshotURL, snapshotURL)
         XCTAssertEqual(snapshotProvider.locations.map(\.coordinate), [location.coordinate])
-        XCTAssertFalse(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: [try XCTUnwrap(emittedDrafts.first?.first)]))
+        XCTAssertTrue(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: [try XCTUnwrap(emittedDrafts.first?.first)]))
         XCTAssertTrue(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: [draft]))
     }
 
@@ -534,7 +534,7 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         assertMapCenter(controller, equals: currentCoordinate)
     }
 
-    func testSnapshotFailureKeepsLocationDraftUnsendableAndShowsToast() throws {
+    func testSnapshotFailureKeepsLocationDraftSendableAndShowsToast() throws {
         let toastPresenter = FakeTask3GeolocationToastPresenter()
         let snapshotProvider = FakeTask4LocationSnapshotProvider(result: .failure(FakeTask4SnapshotError.failed))
         let controller = ChatAttachmentGeolocationSourceViewController(
@@ -557,7 +557,7 @@ final class ChatAttachmentGeolocationSourceTests: XCTestCase {
         let draft = try XCTUnwrap(controller.selectedAttachmentDrafts.first)
         let location = try XCTUnwrap(draft.preparedLocation)
         XCTAssertNil(location.localSnapshotURL)
-        XCTAssertFalse(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: controller.selectedAttachmentDrafts))
+        XCTAssertTrue(ChatAttachmentSendabilityPolicy.canRequestSend(drafts: controller.selectedAttachmentDrafts))
         XCTAssertEqual(emittedDrafts.count, 1)
         XCTAssertEqual(toastPresenter.messages, [
             ChatAttachmentLocalization.string(.geolocationSnapshotFailedMessage)

@@ -390,6 +390,91 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
         XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "")
     }
 
+    func testLocationSelectionAutofillsCaptionAndKeepsSendEnabledBeforeSnapshot() {
+        let source = FakeTask13SelectableSourceController(source: .geolocation)
+        let sheet = makeSheet(source: source)
+        let locationDraft = makeTask13LocationDraft(
+            address: "Westminster",
+            snapshotURL: nil
+        )
+
+        sheet.loadViewIfNeeded()
+        sheet.switchSource(to: .geolocation)
+        source.replaceSelectedDrafts([locationDraft])
+
+        XCTAssertEqual(sheet.captionState.rawText, "Westminster")
+        XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "Westminster")
+        XCTAssertFalse(sheet.selectionComposerBarView.isHidden)
+        XCTAssertTrue(sheet.selectionComposerBarView.sendButton.isEnabled)
+    }
+
+    func testLocationReplacementUpdatesAutoFilledCaptionWithoutDisablingSend() {
+        let source = FakeTask13SelectableSourceController(source: .geolocation)
+        let sheet = makeSheet(source: source)
+        let first = makeTask13LocationDraft(
+            latitude: 51.5007,
+            longitude: -0.1246,
+            address: "Westminster",
+            snapshotURL: nil
+        )
+        let second = makeTask13LocationDraft(
+            latitude: 40.7128,
+            longitude: -74.006,
+            address: "New York City",
+            snapshotURL: nil
+        )
+
+        sheet.loadViewIfNeeded()
+        sheet.switchSource(to: .geolocation)
+        source.replaceSelectedDrafts([first])
+        XCTAssertTrue(sheet.selectionComposerBarView.sendButton.isEnabled)
+
+        source.replaceSelectedDrafts([second])
+
+        XCTAssertEqual(sheet.captionState.rawText, "New York City")
+        XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "New York City")
+        XCTAssertTrue(sheet.selectionComposerBarView.sendButton.isEnabled)
+        XCTAssertEqual(sheet.selectedAttachmentDrafts.map(\.id), [second.id])
+    }
+
+    func testManualCaptionIsNotReplacedByLaterLocationSnapshotOrPointChange() {
+        let source = FakeTask13SelectableSourceController(source: .geolocation)
+        let sheet = makeSheet(source: source)
+        let first = makeTask13LocationDraft(
+            latitude: 51.5007,
+            longitude: -0.1246,
+            address: "Westminster",
+            snapshotURL: nil
+        )
+        let firstWithSnapshot = makeTask13LocationDraft(
+            latitude: 51.5007,
+            longitude: -0.1246,
+            address: "Westminster",
+            snapshotURL: URL(fileURLWithPath: "/tmp/westminster.png")
+        )
+        let second = makeTask13LocationDraft(
+            latitude: 40.7128,
+            longitude: -74.006,
+            address: "New York City",
+            snapshotURL: nil
+        )
+
+        sheet.loadViewIfNeeded()
+        sheet.switchSource(to: .geolocation)
+        source.replaceSelectedDrafts([first])
+        sheet.selectionComposerBarView.captionInputView.textView.text = "Meet here"
+        sheet.selectionComposerBarView.captionInputView.textViewDidChange(
+            sheet.selectionComposerBarView.captionInputView.textView
+        )
+
+        source.replaceSelectedDrafts([firstWithSnapshot])
+        source.replaceSelectedDrafts([second])
+
+        XCTAssertEqual(sheet.captionState.rawText, "Meet here")
+        XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "Meet here")
+        XCTAssertTrue(sheet.selectionComposerBarView.sendButton.isEnabled)
+    }
+
     func testSheetResetButtonClearsSelectedBatchCaptionAndRestoresSourceBar() throws {
         let source = FakeTask13SelectableSourceController(source: .gallery)
         let sheet = makeSheet(source: source)
@@ -733,4 +818,33 @@ private func makeTask13AssetDraft(localIdentifier: String, prepared: Bool = true
         )
     )
     return draft
+}
+
+private func makeTask13LocationDraft(
+    latitude: Double = 51.5007,
+    longitude: Double = -0.1246,
+    address: String?,
+    snapshotURL: URL?
+) -> AttachmentDraft {
+    let coordinate = AttachmentLocationCoordinate(latitude: latitude, longitude: longitude)
+    let geoURI = "geo:\(latitude),\(longitude)"
+    let location = AttachmentPreparedLocation(
+        coordinate: coordinate,
+        displayAddress: address,
+        accuracy: nil,
+        geoURI: geoURI,
+        createdAt: Date(timeIntervalSince1970: 0),
+        localSnapshotURL: snapshotURL
+    )
+    return AttachmentDraft(
+        id: "location:\(geoURI)",
+        source: .geolocation,
+        mediaKind: .location,
+        thumbnailState: .none,
+        filename: address ?? "Location",
+        byteSize: 0,
+        duration: nil,
+        dimensions: nil,
+        preparationState: .preparedLocation(location)
+    )
 }

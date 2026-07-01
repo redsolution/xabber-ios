@@ -353,6 +353,7 @@ final class ChatAttachmentPickerViewController: UIViewController {
     private var sendFeedbackViewModel: ChatAttachmentStatusBannerViewModel?
     private var shouldShowPreparationStatus = false
     private var isPreparingSend = false
+    private var autoFilledLocationCaption: String?
 
     private(set) var activeSource: ChatAttachmentSource = .gallery
     private(set) var selectedItemCount: Int = 0
@@ -416,7 +417,12 @@ final class ChatAttachmentPickerViewController: UIViewController {
         )
         selectionComposerBarView.isHidden = true
         selectionComposerBarView.onCaptionChanged = { [weak self] text in
-            self?.captionState = ChatAttachmentCaptionState(rawText: text)
+            guard let self else { return }
+            self.captionState = ChatAttachmentCaptionState(rawText: text)
+            if let autoFilledLocationCaption,
+               text != autoFilledLocationCaption {
+                self.autoFilledLocationCaption = nil
+            }
         }
         selectionComposerBarView.onPreferredHeightChanged = { [weak self] _ in
             self?.updateBottomControls()
@@ -569,6 +575,7 @@ final class ChatAttachmentPickerViewController: UIViewController {
         selectedItemCount = 0
         selectedAttachmentDrafts = []
         captionState.reset()
+        autoFilledLocationCaption = nil
         sendFeedbackViewModel = nil
         shouldShowPreparationStatus = false
         currentPreparationTask?.cancel()
@@ -686,11 +693,13 @@ final class ChatAttachmentPickerViewController: UIViewController {
 
         if drafts.isEmpty {
             captionState.reset()
+            autoFilledLocationCaption = nil
             selectionComposerBarView.updateCaptionText("")
             currentPreparationTask?.cancel()
             currentPreparationTask = nil
             isPreparingSend = false
         } else {
+            updateAutoFilledLocationCaption(for: drafts)
             selectionComposerBarView.updateCaptionText(captionState.rawText)
             prepareSelectedDraftsIfNeeded(showStatus: false)
         }
@@ -718,6 +727,36 @@ final class ChatAttachmentPickerViewController: UIViewController {
             (sourceController as? ChatAttachmentDraftSelectionSyncing)?
                 .syncSelectedAttachmentDrafts(drafts)
         }
+    }
+
+    private func updateAutoFilledLocationCaption(for drafts: [AttachmentDraft]) {
+        guard drafts.count == 1,
+              let location = drafts.first?.preparedLocation,
+              let caption = autoCaptionText(for: location) else {
+            clearAutoFilledLocationCaptionIfStillApplied()
+            return
+        }
+
+        if captionState.isEmpty || captionState.rawText == autoFilledLocationCaption {
+            captionState = ChatAttachmentCaptionState(rawText: caption)
+            autoFilledLocationCaption = caption
+        }
+    }
+
+    private func clearAutoFilledLocationCaptionIfStillApplied() {
+        if let autoFilledLocationCaption,
+           captionState.rawText == autoFilledLocationCaption {
+            captionState.reset()
+        }
+        autoFilledLocationCaption = nil
+    }
+
+    private func autoCaptionText(for location: AttachmentPreparedLocation) -> String? {
+        let displayAddress = location.displayAddress?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if displayAddress.isNotEmpty {
+            return displayAddress
+        }
+        return location.geoURI
     }
 
     private func updateSelectionPreviewBar() {
@@ -752,7 +791,12 @@ final class ChatAttachmentPickerViewController: UIViewController {
             captionState: captionState,
             composerTintColor: context.composerTintColor,
             onCaptionChanged: { [weak self] captionState in
-                self?.captionState = captionState
+                guard let self else { return }
+                self.captionState = captionState
+                if let autoFilledLocationCaption,
+                   captionState.rawText != autoFilledLocationCaption {
+                    self.autoFilledLocationCaption = nil
+                }
             }
         )
         preview.delegate = self
