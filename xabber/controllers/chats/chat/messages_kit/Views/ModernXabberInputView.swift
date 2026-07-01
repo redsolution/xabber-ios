@@ -145,6 +145,8 @@ class ModernXabberInputView: UIView {
             ?? UIImage(systemName: "clock", withConfiguration: configuration)
     }
 
+    private static let composerActionIconSize: CGFloat = 17
+
     final class ComposerContextPreviewView: UIView {
         enum Mode: Equatable {
             case forward
@@ -1866,7 +1868,7 @@ class ModernXabberInputView: UIView {
     let sendButton: SendButton = {
         let button = SendButton(frame: CGRect(square: ModernXabberInputView.LiquidGlassMetrics.buttonSize))
 
-        button.setImage(imageLiteral("mic", dimension: NativeGlassBarStyle.iconSize), for: .normal)
+        button.setImage(imageLiteral("mic", dimension: ModernXabberInputView.composerActionIconSize), for: .normal)
         button.tintColor = .secondaryLabel
         ModernXabberInputView.applyDetachedGlassButtonStyle(to: button)
 
@@ -1876,7 +1878,7 @@ class ModernXabberInputView: UIView {
     let attachButton: UIButton = {
         let button = UIButton(frame: CGRect(square: ModernXabberInputView.LiquidGlassMetrics.buttonSize))
 
-        button.setImage(imageLiteral("paperclip", dimension: NativeGlassBarStyle.iconSize), for: .normal)
+        button.setImage(imageLiteral("paperclip", dimension: ModernXabberInputView.composerActionIconSize), for: .normal)
         button.tintColor = .secondaryLabel
         ModernXabberInputView.applyDetachedGlassButtonStyle(to: button)
         
@@ -3036,12 +3038,12 @@ class ModernXabberInputView: UIView {
         switch state {
             case .record:
 //                self.sendButton.setImage(imageLiteral( "microphone").withRenderingMode(.alwaysTemplate), for: .normal)
-                self.sendButton.setImage(imageLiteral("mic.fill", dimension: NativeGlassBarStyle.iconSize), for: .normal)
+                self.sendButton.setImage(imageLiteral("mic.fill", dimension: Self.composerActionIconSize), for: .normal)
                 self.sendButton.tintColor = .secondaryLabel
                 self.attachButton.isEnabled = true
                 self.sendButton.isEnabled = self.isSendButtonEnabled
             case .send:
-                self.sendButton.setImage(imageLiteral("xabber.paperplane.fill", dimension: NativeGlassBarStyle.iconSize), for: .normal)
+                self.sendButton.setImage(imageLiteral("xabber.paperplane.fill", dimension: Self.composerActionIconSize), for: .normal)
                 self.sendButton.tintColor = self.isSendButtonEnabled ? self.accountPalette.tint600 : .secondaryLabel
                 self.sendButton.isEnabled = self.isSendButtonEnabled
                 self.attachButton.isEnabled = true
@@ -3604,7 +3606,7 @@ class ModernXabberInputView: UIView {
         self.recordPanel.cancelButton.isHidden = false
         self.recordPanel.changeIndicatorToStop()
         self.showRecordingLockOverlay(isLocked: true, allowsStop: true, animated: true)
-        self.sendButton.setImage(imageLiteral("xabber.paperplane.fill", dimension: NativeGlassBarStyle.iconSize), for: .normal)
+        self.sendButton.setImage(imageLiteral("xabber.paperplane.fill", dimension: Self.composerActionIconSize), for: .normal)
         self.sendButton.tintColor = self.accountPalette.tint600
         ModernXabberInputView.applyDetachedGlassButtonStyle(to: self.sendButton)
         self.applySendButtonDetachedChromeVisibility()
