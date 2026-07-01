@@ -67,6 +67,25 @@ final class ChatAttachmentSourceBarTests: XCTestCase {
         XCTAssertNotNil(sourceBar.dismissButton.image(for: .normal) ?? sourceBar.dismissButton.configuration?.image)
     }
 
+    func testDismissIconUsesCategoryIconVisualScale() throws {
+        let sourceBar = ChatAttachmentSourceBarView()
+        sourceBar.configure(
+            configuration: .default,
+            selectedSource: .gallery
+        )
+
+        let dismissImage = try XCTUnwrap(sourceBar.dismissButton.image(for: .normal) ?? sourceBar.dismissButton.configuration?.image)
+        let categoryImages = ChatAttachmentSourceBarConfiguration.default.visibleSources.compactMap {
+            sourceBar.button(for: $0)?.configuration?.image
+        }
+        let largestCategoryDimension = try XCTUnwrap(categoryImages.map { max($0.size.width, $0.size.height) }.max())
+
+        XCTAssertLessThanOrEqual(
+            max(dismissImage.size.width, dismissImage.size.height),
+            largestCategoryDimension + 0.001
+        )
+    }
+
     func testDismissButtonIsLaidOutBeforeSourceCapsule() {
         let container = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: NativeGlassBarStyle.buttonSize))
         let sourceBar = ChatAttachmentSourceBarView()

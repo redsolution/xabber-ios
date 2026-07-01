@@ -327,9 +327,7 @@ final class ChatAttachmentSourceBarView: UIView {
         NativeGlassBarStyle.applyDetachedIconButtonStyle(
             to: dismissButton,
             tintColor: .label,
-            image: UIImage(systemName: "chevron.down")?
-                .upscale(dimension: NativeGlassBarStyle.iconSize)
-                .withRenderingMode(.alwaysTemplate)
+            image: imageLiteral("chevron.down", dimension: NativeGlassBarStyle.iconSize)
         )
 
         addSubview(sourceSurfaceView)
