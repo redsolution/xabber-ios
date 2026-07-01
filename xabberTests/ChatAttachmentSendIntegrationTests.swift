@@ -1,5 +1,6 @@
 import XCTest
 import RealmSwift
+import XMPPFramework
 @testable import xabber
 
 @MainActor
@@ -407,6 +408,55 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         XCTAssertEqual(stored.references.first?.owner, Self.context.owner)
         XCTAssertEqual(stored.references.first?.jid, Self.context.jid)
         XCTAssertEqual(stored.references.first?.filename, "image.jpg")
+    }
+
+    func testSendSimpleMessageWithUploadedCloudFileBuildsDeliveryFallbackBody() throws {
+        let manager = MessageManager(withOwner: Self.context.owner, activeStream: false)
+        let remoteURL = "https://gallery.example/files/0KDMUitNQAVC/xabber-logs-20260610-104152-anomaly-warn.zip"
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .media
+        reference.mimeType = "file"
+        reference.isUploaded = true
+        reference.url = remoteURL
+        reference.metadata = [
+            "filename": "xabber-logs-20260610-104152-anomaly-warn.zip",
+            "size": 152922,
+            "media-type": "application/zip",
+            "uri": remoteURL,
+            "name": "xabber-logs-20260610-104152-anomaly-warn.zip",
+            "hash": "ef0e8bbe0777e7d431c72baddc5d0e6046401b95"
+        ]
+
+        let originId = manager.sendSimpleMessage(
+            "",
+            to: Self.context.jid,
+            forwarded: [],
+            conversationType: Self.context.conversationType,
+            references: [reference]
+        )
+
+        let realm = try WRealm.safe()
+        let stored = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: MessageStorageItem.genPrimary(messageId: originId, owner: Self.context.owner)
+            )
+        )
+        let stanzaRow = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStanzaStorageItem.self,
+                forPrimaryKey: "\(stored.primary)_stanza"
+            )
+        )
+        let document = try DDXMLDocument(xmlString: stanzaRow.stanza, options: 0)
+        let stanzaElement = try XCTUnwrap(document.rootElement())
+        let stanza = XMPPMessage(from: stanzaElement)
+
+        XCTAssertEqual(stored.body, "")
+        XCTAssertEqual(stored.legacyBody, "\(remoteURL)\n")
+        XCTAssertEqual(stored.references.first?.begin, 0)
+        XCTAssertGreaterThan(stored.references.first?.end ?? 0, remoteURL.count)
+        XCTAssertEqual(stanza.body, "\(remoteURL)\n")
     }
 
     func testWillSendMediaMessageWithCaptionReturnsNilForEmptyAttachmentsAndCreatesNoRow() throws {

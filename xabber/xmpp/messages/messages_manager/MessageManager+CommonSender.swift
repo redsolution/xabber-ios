@@ -629,6 +629,9 @@ extension MessageManager {
                                                                               isReport: isReport,
                                                                               owner: owner,
                                                                               jid: jid))
+            if references.contains(where: { [.media, .voice].contains($0.kind) }) {
+                instance.createLegacyBody()
+            }
             if instance.conversationType == .regular && instance.displayAs == .text {
                 instance.state = .sending
             }
