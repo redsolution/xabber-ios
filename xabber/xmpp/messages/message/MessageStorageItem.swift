@@ -400,6 +400,10 @@ class MessageStorageItem: Object {
             return nil
         }
 
+        if let displayTitle = nonEmptyContactText(metadata["display_title"]) {
+            return displayTitle
+        }
+
         if let nickname = nonEmptyContactText(metadata["nickname"]) {
             return nickname
         }
@@ -433,7 +437,7 @@ class MessageStorageItem: Object {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let display = fullName.isNotEmpty
             ? fullName
-            : (nonEmptyContactText(metadata["nickname"]) ?? jid)
+            : (nonEmptyContactText(metadata["display_title"]) ?? nonEmptyContactText(metadata["nickname"]) ?? jid)
 
         return display == jid ? jid : "\(display) (\(jid))"
     }
@@ -1519,6 +1523,12 @@ class MessageStorageItem: Object {
                         xmlns: "https://xabber.com/protocol/contact-sharing"
                     )
                     contact.addAttribute(withName: "jid", stringValue: contactJID)
+                    if let entityRaw = metadataString(for: "entity") {
+                        guard let entity = MessageContactEntityKind(rawValue: entityRaw) else {
+                            return
+                        }
+                        contact.addAttribute(withName: "entity", stringValue: entity.rawValue)
+                    }
                     if let nickname = metadataString(for: "nickname") {
                         contact.addChild(DDXMLElement(name: "nickname", stringValue: nickname))
                     }

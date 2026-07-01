@@ -291,6 +291,7 @@ class InlineContactsGridView: InlineAttachmentView {
         var primary: String
         var jid: String
         var owner: String
+        var contact: ContactAttachment
         var avatarURL: String?
         var palette: MDCPalette = .amber
 
@@ -298,6 +299,7 @@ class InlineContactsGridView: InlineAttachmentView {
             self.primary = contact.primary
             self.jid = contact.jid
             self.owner = contact.owner
+            self.contact = contact
             self.avatarURL = contact.avatarURL
             super.init(frame: frame)
             setup()
@@ -331,10 +333,11 @@ class InlineContactsGridView: InlineAttachmentView {
             self.primary = contact.primary
             self.jid = contact.jid
             self.owner = contact.owner
+            self.contact = contact
             self.avatarURL = contact.avatarURL
             self.palette = palette
             titleLabel.text = contact.title
-            subtitleLabel.text = "Contact"
+            subtitleLabel.text = contact.subtitle
             configureAvatar(for: contact)
         }
 
@@ -434,5 +437,13 @@ class InlineContactsGridView: InlineAttachmentView {
             view.frame = rect
             view.configure(contact: item, palette: palette)
         }
+    }
+
+    func handleTouch(at point: CGPoint, callback: ((ContactAttachment) -> Void)?) -> Bool {
+        for item in views where item.frame.contains(point) {
+            callback?(item.contact)
+            return true
+        }
+        return false
     }
 }

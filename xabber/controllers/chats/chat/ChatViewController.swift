@@ -2469,6 +2469,8 @@ class ChatViewController: MessagesViewController {
         }
         vc.owner = self.owner
         vc.jid = self.jid
+        (vc as? ContactInfoViewController)?.leftMenuDelegate = self.leftMenuDelegate
+        (vc as? GroupchatInfoViewController)?.leftMenuDelegate = self.leftMenuDelegate
         showModal(vc, parent: self)
         self.removeObservers()
     }

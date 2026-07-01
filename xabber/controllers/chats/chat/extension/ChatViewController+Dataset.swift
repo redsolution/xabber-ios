@@ -3772,7 +3772,13 @@ extension ChatViewController {
         let nickname = Self.contactNonEmpty(metadata["nickname"] as? String)
         let given = Self.contactNonEmpty(metadata["given"] as? String)
         let family = Self.contactNonEmpty(metadata["family"] as? String)
+        let entity = MessageContactEntityKind.resolved(
+            metadata: metadata,
+            owner: reference.owner,
+            jid: jid
+        )
         let title = contactDisplayTitle(
+            displayTitle: Self.contactNonEmpty(metadata["display_title"] as? String),
             nickname: nickname,
             given: given,
             family: family,
@@ -3785,6 +3791,7 @@ extension ChatViewController {
             primary: reference.primary,
             owner: reference.owner,
             jid: jid,
+            entity: entity,
             title: title,
             nickname: nickname,
             given: given,
@@ -3795,11 +3802,15 @@ extension ChatViewController {
     }
 
     private static func contactDisplayTitle(
+        displayTitle: String?,
         nickname: String?,
         given: String?,
         family: String?,
         jid: String
     ) -> String {
+        if let displayTitle = Self.contactNonEmpty(displayTitle) {
+            return displayTitle
+        }
         if let nickname = Self.contactNonEmpty(nickname) {
             return nickname
         }

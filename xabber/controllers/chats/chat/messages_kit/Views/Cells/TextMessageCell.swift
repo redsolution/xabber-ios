@@ -883,6 +883,14 @@ public class TextMessageCell: MessageContentCell {
                 return true
             }
         }
+        if self.contactsView.frame.contains(touchPoint) {
+            let translatedPoint = touchPoint.translate(x: -self.contactsView.frame.minX, y: -self.contactsView.frame.minY)
+            if self.contactsView.handleTouch(at: translatedPoint, callback: { contact in
+                self.delegate?.didTapOnContact(message: self.messagePrimary, contact: contact)
+            }) {
+                return true
+            }
+        }
         if self.forwardsContainer.frame.contains(touchPoint) {
             let translatedPoint = touchPoint.translate(x: -self.forwardsContainer.frame.minX, y: -self.forwardsContainer.frame.minY)
             self.forwardsContainer.handleTouch(at: translatedPoint)

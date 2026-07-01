@@ -298,11 +298,47 @@ final class ChatAttachmentContactSourceTests: XCTestCase {
         XCTAssertEqual(jidMatches.map(\.jid), ["bob@example.com"])
     }
 
+    func testContactSourceDataSourceIncludesPublicAndIncognitoGroupsWithEntityMetadata() {
+        let records = [
+            makeRecord(jid: "alice@example.com", title: "Alice"),
+            makeRecord(
+                jid: "public-room@conference.example.com",
+                title: "Public Room",
+                isContact: false,
+                isContactEntity: false,
+                entity: .groupchat
+            ),
+            makeRecord(
+                jid: "secret-room@conference.example.com",
+                title: "Secret Room",
+                isContact: false,
+                isContactEntity: false,
+                entity: .incognito
+            )
+        ]
+
+        let items = ChatAttachmentContactSourceDataSource.items(
+            from: records,
+            owner: "owner@example.com",
+            searchQuery: ""
+        )
+
+        XCTAssertEqual(items.map(\.jid), [
+            "alice@example.com",
+            "public-room@conference.example.com",
+            "secret-room@conference.example.com"
+        ])
+        XCTAssertEqual(items.map(\.entity), [.contact, .groupchat, .incognito])
+        XCTAssertEqual(items.first { $0.entity == .groupchat }?.makeDraft().preparedContact?.entity, .groupchat)
+        XCTAssertEqual(items.first { $0.entity == .incognito }?.makeDraft().preparedContact?.entity, .incognito)
+    }
+
     @MainActor
     func testSelectingContactEmitsPreparedContactDraft() throws {
         let item = ChatAttachmentContactListItem(
             owner: "owner@example.com",
             jid: "alice@example.com",
+            entity: .contact,
             displayTitle: "Alice Capulet",
             nickname: "Ally",
             given: "Alice",
@@ -330,6 +366,7 @@ final class ChatAttachmentContactSourceTests: XCTestCase {
         XCTAssertFalse(draft.requiresUpload)
         let contact = try XCTUnwrap(draft.preparedContact)
         XCTAssertEqual(contact.jid, "alice@example.com")
+        XCTAssertEqual(contact.entity, .contact)
         XCTAssertEqual(contact.nickname, "Ally")
         XCTAssertEqual(contact.given, "Alice")
         XCTAssertEqual(contact.family, "Capulet")
@@ -350,11 +387,13 @@ final class ChatAttachmentContactSourceTests: XCTestCase {
         removed: Bool = false,
         isContact: Bool = true,
         subscription: RosterStorageItem.Subsccribtion = .both,
-        isContactEntity: Bool = true
+        isContactEntity: Bool = true,
+        entity: MessageContactEntityKind = .contact
     ) -> ChatAttachmentContactRosterRecord {
         ChatAttachmentContactRosterRecord(
             owner: owner,
             jid: jid,
+            entity: entity,
             displayTitle: title,
             nickname: nickname,
             given: given,

@@ -6913,12 +6913,71 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         XCTAssertEqual(result.audio.count, 0)
         XCTAssertEqual(contact.primary, "contact-reference")
         XCTAssertEqual(contact.jid, "alice@example.com")
+        XCTAssertEqual(contact.entity, .contact)
+        XCTAssertEqual(contact.subtitle, "Contact")
         XCTAssertEqual(contact.title, "Ally")
         XCTAssertEqual(contact.nickname, "Ally")
         XCTAssertEqual(contact.given, "Alice")
         XCTAssertEqual(contact.family, "Capulet")
         XCTAssertEqual(contact.avatarURL, "https://cdn.example.com/alice.png")
         XCTAssertEqual(contact.avatarMetadata["avatar_id"], "hash-1")
+    }
+
+    func testMapReferenceAttachmentsMapsGroupContactEntityIntoGroupCard() throws {
+        let reference = MessageReferenceStorageItem()
+        reference.primary = "group-reference"
+        reference.owner = "owner@example.com"
+        reference.kind = .contact
+        reference.metadata = [
+            "contact_jid": "public-room@conference.example.com",
+            "entity": MessageContactEntityKind.groupchat.rawValue,
+            "nickname": "Public Room"
+        ]
+
+        let result = ChatViewController.mapReferenceAttachments([reference])
+        let contact = try XCTUnwrap(result.contacts.first)
+
+        XCTAssertEqual(contact.primary, "group-reference")
+        XCTAssertEqual(contact.jid, "public-room@conference.example.com")
+        XCTAssertEqual(contact.entity, .groupchat)
+        XCTAssertEqual(contact.subtitle, "Group")
+        XCTAssertEqual(contact.title, "Public Room")
+    }
+
+    func testMapReferenceAttachmentsInfersMissingEntityFromLocalIncognitoGroup() throws {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "ContactEntityInference-\(UUID().uuidString)")
+        defer { Realm.Configuration.defaultConfiguration = previousConfiguration }
+
+        let owner = "owner@example.com"
+        let groupJid = "secret-room@conference.example.com"
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.deleteAll()
+            let group = GroupChatStorageItem()
+            group.primary = GroupChatStorageItem.genPrimary(jid: groupJid, owner: owner)
+            group.owner = owner
+            group.jid = groupJid
+            group.name = "Secret Room"
+            group.privacy_ = GroupChatStorageItem.Privacy.incognito.rawValue
+            group.peerToPeer = false
+            realm.add(group)
+        }
+
+        let reference = MessageReferenceStorageItem()
+        reference.primary = "legacy-group-reference"
+        reference.owner = owner
+        reference.kind = .contact
+        reference.metadata = [
+            "contact_jid": groupJid,
+            "nickname": "Secret Room"
+        ]
+
+        let result = ChatViewController.mapReferenceAttachments([reference])
+        let contact = try XCTUnwrap(result.contacts.first)
+
+        XCTAssertEqual(contact.entity, .incognito)
+        XCTAssertEqual(contact.subtitle, "Incognito group")
     }
 
     func testContactAttachmentTitleFallsBackToGivenFamilyThenJID() throws {
@@ -6965,6 +7024,25 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         XCTAssertEqual(contactView.subtitleLabel.lineBreakMode, .byTruncatingTail)
         XCTAssertTrue(contactView.avatarImageView.layer.cornerRadius > 0)
         XCTAssertFalse(contactView.subviews.contains { $0 is UIButton })
+    }
+
+    func testInlineContactViewUsesGroupSubtitleForGroupEntity() throws {
+        let contact = ContactAttachment(
+            primary: "group-reference",
+            jid: "public-room@conference.example.com",
+            entity: .groupchat,
+            title: "Public Room",
+            nickname: "Public Room",
+            given: nil,
+            family: nil,
+            avatarURL: nil,
+            avatarMetadata: [:]
+        )
+        let contactsView = InlineContactsGridView(frame: CGRect(x: 0, y: 0, width: 180, height: 44))
+
+        contactsView.configure([contact], palette: .blue)
+
+        XCTAssertEqual(try XCTUnwrap(contactsView.views.first).subtitleLabel.text, "Group")
     }
 
     private func makeRegularContactMessage(
@@ -7057,6 +7135,111 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         XCTAssertEqual(delegate.tappedMessagePrimary, "message-primary")
         XCTAssertEqual(delegate.tappedReferencePrimary, "location")
         XCTAssertEqual(try XCTUnwrap(delegate.tappedCoordinate).latitude, 51.5007, accuracy: 0.0001)
+    }
+
+    func testTextMessageCellRoutesContactTapToDelegate() throws {
+        let contact = ContactAttachment(
+            primary: "contact-reference",
+            jid: "alice@example.com",
+            title: "Alice",
+            nickname: "Alice",
+            given: nil,
+            family: nil,
+            avatarURL: nil,
+            avatarMetadata: [:]
+        )
+        let cell = TextMessageCell(frame: CGRect(x: 0, y: 0, width: 320, height: 320))
+        let delegate = LocationTapDelegate()
+        cell.delegate = delegate
+        cell.messagePrimary = "message-primary"
+        cell.contactsView.frame = CGRect(x: 0, y: 0, width: 220, height: 44)
+        cell.contactsView.configure([contact], palette: .blue)
+
+        XCTAssertTrue(cell.cellContentView(canHandle: CGPoint(x: 12, y: 12)))
+        XCTAssertEqual(delegate.tappedMessagePrimary, "message-primary")
+        XCTAssertEqual(delegate.tappedContact?.primary, "contact-reference")
+        XCTAssertEqual(delegate.tappedContact?.jid, "alice@example.com")
+    }
+
+    func testForwardedInlineMessageRoutesContactTapToDelegate() throws {
+        let contact = ContactAttachment(
+            primary: "forward-contact-reference",
+            jid: "public-room@conference.example.com",
+            entity: .groupchat,
+            title: "Public Room",
+            nickname: "Public Room",
+            given: nil,
+            family: nil,
+            avatarURL: nil,
+            avatarMetadata: [:]
+        )
+        let view = InlineMessageAttachmentView(frame: CGRect(x: 0, y: 0, width: 320, height: 120))
+        let delegate = LocationTapDelegate()
+        view.setupSubviews()
+        view.delegate = delegate
+        view.messagePrimary = "forward-message-primary"
+        view.contactsView.frame = CGRect(x: 0, y: 0, width: 220, height: 44)
+        view.contactsView.configure([contact], palette: .blue)
+
+        XCTAssertTrue(view.handleTouch(at: CGPoint(x: 12, y: 12)))
+        XCTAssertEqual(delegate.tappedMessagePrimary, "forward-message-primary")
+        XCTAssertEqual(delegate.tappedContact?.primary, "forward-contact-reference")
+        XCTAssertEqual(delegate.tappedContact?.entity, .groupchat)
+    }
+
+    func testSharedContactInfoControllerRoutesContactAndGroupEntities() throws {
+        let controller = makeRegularChatController(owner: "owner@example.com", opponent: "juliet@example.com")
+        let contact = ContactAttachment(
+            primary: "contact-reference",
+            jid: "alice@example.com",
+            entity: .contact,
+            title: "Alice",
+            nickname: "Alice",
+            given: nil,
+            family: nil,
+            avatarURL: nil,
+            avatarMetadata: [:]
+        )
+        let group = ContactAttachment(
+            primary: "group-reference",
+            jid: "public-room@conference.example.com",
+            entity: .groupchat,
+            title: "Public Room",
+            nickname: "Public Room",
+            given: nil,
+            family: nil,
+            avatarURL: nil,
+            avatarMetadata: [:]
+        )
+        let incognito = ContactAttachment(
+            primary: "incognito-reference",
+            jid: "secret-room@conference.example.com",
+            entity: .incognito,
+            title: "Secret Room",
+            nickname: "Secret Room",
+            given: nil,
+            family: nil,
+            avatarURL: nil,
+            avatarMetadata: [:]
+        )
+
+        let contactController = try XCTUnwrap(controller.makeSharedContactInfoController(for: contact) as? ContactInfoViewController)
+        let groupController = try XCTUnwrap(controller.makeSharedContactInfoController(for: group) as? GroupchatInfoViewController)
+        let incognitoController = try XCTUnwrap(controller.makeSharedContactInfoController(for: incognito) as? GroupchatInfoViewController)
+
+        XCTAssertEqual(contactController.owner, "owner@example.com")
+        XCTAssertEqual(contactController.jid, "alice@example.com")
+        XCTAssertEqual(contactController.conversationType, .regular)
+        XCTAssertNotNil(contactController.footerView.chatsDelegate)
+        XCTAssertNotNil(contactController.chatStateDelegate)
+
+        XCTAssertEqual(groupController.owner, "owner@example.com")
+        XCTAssertEqual(groupController.jid, "public-room@conference.example.com")
+        XCTAssertNotNil(groupController.footerView.chatsDelegate)
+        XCTAssertNotNil(groupController.chatStateDelegate)
+
+        XCTAssertEqual(incognitoController.owner, "owner@example.com")
+        XCTAssertEqual(incognitoController.jid, "secret-room@conference.example.com")
     }
 
     func testFullLocationMapControllerReceivesCoordinateAndAddress() {
@@ -7349,6 +7532,7 @@ private final class LocationTapDelegate: MessageCellDelegate {
     var tappedMessagePrimary: String?
     var tappedReferencePrimary: String?
     var tappedCoordinate: CLLocationCoordinate2D?
+    var tappedContact: ContactAttachment?
 
     func didTap(in cell: MessageCollectionViewCell) {}
     func didTapMessage(in cell: MessageCollectionViewCell) {}
@@ -7367,6 +7551,10 @@ private final class LocationTapDelegate: MessageCellDelegate {
     func didTapOnFile(url: URL) {}
     func didTapOnPhoto(message messagePrimary: String, urls: [URL], url: URL, referencePrimary: String, isSensitive: Bool) {}
     func didTapOnVideo(message messagePrimary: String, url: URL?, referencePrimary: String, isSensitive: Bool) {}
+    func didTapOnContact(message messagePrimary: String, contact: ContactAttachment) {
+        tappedMessagePrimary = messagePrimary
+        tappedContact = contact
+    }
     func didTapOnAudio(_ audioView: InlineAudiosGridView.AudioView?, url: URL?) {}
     func didStopPlayingAudioCell() {}
     func canChangeAudioPosition(for referencePrimary: String) -> Bool { false }

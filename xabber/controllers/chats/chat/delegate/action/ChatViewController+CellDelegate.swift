@@ -209,6 +209,48 @@ extension ChatViewController: MessageCellDelegate {
         navigationController.modalPresentationStyle = .fullScreen
         present(navigationController, animated: true)
     }
+
+    func didTapOnContact(message messagePrimary: String, contact: ContactAttachment) {
+        guard showSkeletonObserver.value == false,
+              isInSelectionMode.value == false else {
+            return
+        }
+        showSharedContactInfo(for: contact)
+    }
+
+    internal func makeSharedContactInfoController(for contact: ContactAttachment) -> BaseViewController? {
+        guard contact.jid.isNotEmpty else {
+            return nil
+        }
+        let targetOwner = contact.owner.isNotEmpty ? contact.owner : self.owner
+        switch contact.entity {
+        case .contact:
+            let controller = ContactInfoViewController()
+            controller.owner = targetOwner
+            controller.jid = contact.jid
+            controller.conversationType = self.conversationType
+            controller.footerView.chatsDelegate = self
+            controller.chatStateDelegate = self
+            controller.leftMenuDelegate = self.leftMenuDelegate
+            return controller
+        case .groupchat, .incognito:
+            let controller = GroupchatInfoViewController()
+            controller.owner = targetOwner
+            controller.jid = contact.jid
+            controller.footerView.chatsDelegate = self
+            controller.chatStateDelegate = self
+            controller.leftMenuDelegate = self.leftMenuDelegate
+            return controller
+        }
+    }
+
+    internal func showSharedContactInfo(for contact: ContactAttachment) {
+        guard let controller = makeSharedContactInfoController(for: contact) else {
+            return
+        }
+        showModal(controller, parent: self)
+        removeObservers()
+    }
     
     func didStopPlayingAudioCell() {
         VoiceMessagePlaybackCoordinator.shared.stopPlayback()

@@ -424,6 +424,7 @@ final class ChatAttachmentPlaceholderSourceViewController: UIViewController, Cha
 struct ChatAttachmentContactRosterRecord: Equatable {
     let owner: String
     let jid: String
+    let entity: MessageContactEntityKind
     let displayTitle: String
     let nickname: String?
     let given: String?
@@ -439,6 +440,7 @@ struct ChatAttachmentContactRosterRecord: Equatable {
 struct ChatAttachmentContactListItem: Equatable {
     let owner: String
     let jid: String
+    let entity: MessageContactEntityKind
     let displayTitle: String
     let nickname: String?
     let given: String?
@@ -446,10 +448,33 @@ struct ChatAttachmentContactListItem: Equatable {
     let avatarURL: String?
     let avatarMetadata: [String: String]
 
+    init(
+        owner: String,
+        jid: String,
+        entity: MessageContactEntityKind = .contact,
+        displayTitle: String,
+        nickname: String?,
+        given: String?,
+        family: String?,
+        avatarURL: String?,
+        avatarMetadata: [String: String]
+    ) {
+        self.owner = owner
+        self.jid = jid
+        self.entity = entity
+        self.displayTitle = displayTitle
+        self.nickname = nickname
+        self.given = given
+        self.family = family
+        self.avatarURL = avatarURL
+        self.avatarMetadata = avatarMetadata
+    }
+
     func makeDraft() -> AttachmentDraft {
         let title = ChatAttachmentContactText.nonEmpty(displayTitle) ?? jid
         let contact = AttachmentPreparedContact(
             jid: jid,
+            entity: entity,
             nickname: ChatAttachmentContactText.nonEmpty(nickname),
             given: ChatAttachmentContactText.nonEmpty(given),
             family: ChatAttachmentContactText.nonEmpty(family),
@@ -458,7 +483,7 @@ struct ChatAttachmentContactListItem: Equatable {
             avatarMetadata: avatarMetadata.filter { ChatAttachmentContactText.nonEmpty($0.value) != nil }
         )
         return AttachmentDraft(
-            id: "contact:\(owner)|\(jid)",
+            id: "contact:\(entity.rawValue):\(owner)|\(jid)",
             source: .contact,
             mediaKind: .contact,
             thumbnailState: .none,
@@ -490,10 +515,19 @@ final class ChatAttachmentContactSourceDataSource: ChatAttachmentContactSourceDa
                         jid: rosterItem.jid
                     )
                     let primaryResource = rosterItem.getPrimaryResource()
+                    let groupItem = realm.object(
+                        ofType: GroupChatStorageItem.self,
+                        forPrimaryKey: GroupChatStorageItem.genPrimary(jid: rosterItem.jid, owner: owner)
+                    )
+                    let entity = Self.entity(primaryResource: primaryResource, groupItem: groupItem)
+                    let displayTitle = entity == .contact
+                        ? rosterItem.displayName
+                        : (ChatAttachmentContactText.nonEmpty(groupItem?.name) ?? rosterItem.displayName)
                     return ChatAttachmentContactRosterRecord(
                         owner: rosterItem.owner,
                         jid: rosterItem.jid,
-                        displayTitle: rosterItem.displayName,
+                        entity: entity,
+                        displayTitle: displayTitle,
                         nickname: vCardNickname ?? rosterNickname,
                         given: ChatAttachmentContactText.nonEmpty(vCardItem?.given),
                         family: ChatAttachmentContactText.nonEmpty(vCardItem?.family),
@@ -515,6 +549,27 @@ final class ChatAttachmentContactSourceDataSource: ChatAttachmentContactSourceDa
         }
     }
 
+    private static func entity(
+        primaryResource: ResourceStorageItem?,
+        groupItem: GroupChatStorageItem?
+    ) -> MessageContactEntityKind {
+        if let groupItem {
+            guard groupItem.isDeleted == false,
+                  groupItem.peerToPeer == false else {
+                return .contact
+            }
+            return groupItem.privacy == .incognito ? .incognito : .groupchat
+        }
+        switch primaryResource?.entity {
+        case .groupchat:
+            return .groupchat
+        case .incognitoChat:
+            return .incognito
+        default:
+            return .contact
+        }
+    }
+
     static func items(
         from records: [ChatAttachmentContactRosterRecord],
         owner: String,
@@ -524,12 +579,19 @@ final class ChatAttachmentContactSourceDataSource: ChatAttachmentContactSourceDa
             guard record.owner == owner,
                   record.removed == false,
                   record.isHidden == false,
-                  record.isContact,
-                  record.isContactEntity,
-                  record.subscription == .both,
                   let jid = ChatAttachmentContactText.nonEmpty(record.jid),
                   jid != owner else {
                 return nil
+            }
+            switch record.entity {
+            case .contact:
+                guard record.isContact,
+                      record.isContactEntity,
+                      record.subscription == .both else {
+                    return nil
+                }
+            case .groupchat, .incognito:
+                break
             }
 
             let nickname = ChatAttachmentContactText.nonEmpty(record.nickname)
@@ -551,6 +613,7 @@ final class ChatAttachmentContactSourceDataSource: ChatAttachmentContactSourceDa
             return ChatAttachmentContactListItem(
                 owner: record.owner,
                 jid: jid,
+                entity: record.entity,
                 displayTitle: displayTitle,
                 nickname: nickname,
                 given: given,
@@ -795,7 +858,7 @@ private final class ChatAttachmentContactSourceCell: UITableViewCell {
     private func apply(item: ChatAttachmentContactListItem, image: UIImage?) {
         var configuration = defaultContentConfiguration()
         configuration.text = item.displayTitle
-        configuration.secondaryText = item.jid
+        configuration.secondaryText = Self.secondaryText(for: item)
         configuration.textProperties.numberOfLines = 1
         configuration.textProperties.lineBreakMode = .byTruncatingTail
         configuration.secondaryTextProperties.numberOfLines = 1
@@ -804,6 +867,17 @@ private final class ChatAttachmentContactSourceCell: UITableViewCell {
         configuration.imageProperties.maximumSize = CGSize(width: Self.avatarSize, height: Self.avatarSize)
         configuration.imageProperties.cornerRadius = Self.avatarSize / 2
         contentConfiguration = configuration
+    }
+
+    private static func secondaryText(for item: ChatAttachmentContactListItem) -> String {
+        switch item.entity {
+        case .contact:
+            return item.jid
+        case .groupchat:
+            return "Group - \(item.jid)"
+        case .incognito:
+            return "Incognito group - \(item.jid)"
+        }
     }
 
     private static func avatarRequestKey(for item: ChatAttachmentContactListItem) -> String {

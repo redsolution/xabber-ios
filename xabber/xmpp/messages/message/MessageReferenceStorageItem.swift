@@ -29,6 +29,8 @@ protocol MessageReferenceVideoPreviewScheduling: AnyObject {
     func schedule(referencePrimary: String)
 }
 
+typealias MessageContactEntityKind = MessageReferenceStorageItem.ContactEntityKind
+
 final class MessageReferenceVideoPreviewWorker: MessageReferenceVideoPreviewScheduling {
     static let shared = MessageReferenceVideoPreviewWorker()
 
@@ -211,6 +213,52 @@ class MessageReferenceStorageItem: Object {
         case geoloc = "geoloc"
         case contact = "contact"
         case none = ""
+    }
+
+    enum ContactEntityKind: String {
+        case contact
+        case groupchat
+        case incognito
+
+        static func rawString(from value: Any?) -> String? {
+            guard let string = value as? String else { return nil }
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        static func metadataEntity(_ metadata: [String: Any]?) -> ContactEntityKind? {
+            guard let raw = rawString(from: metadata?["entity"]) else {
+                return nil
+            }
+            return ContactEntityKind(rawValue: raw)
+        }
+
+        static func inferred(owner: String, jid: String) -> ContactEntityKind? {
+            guard owner.isNotEmpty, jid.isNotEmpty else {
+                return nil
+            }
+            do {
+                let realm = try WRealm.safe()
+                guard let group = realm.object(
+                    ofType: GroupChatStorageItem.self,
+                    forPrimaryKey: GroupChatStorageItem.genPrimary(jid: jid, owner: owner)
+                ),
+                      group.isDeleted == false,
+                      group.peerToPeer == false else {
+                    return nil
+                }
+                return group.privacy == .incognito ? .incognito : .groupchat
+            } catch {
+                return nil
+            }
+        }
+
+        static func resolved(metadata: [String: Any]?, owner: String, jid: String) -> ContactEntityKind {
+            if let entity = metadataEntity(metadata) {
+                return entity
+            }
+            return inferred(owner: owner, jid: jid) ?? .contact
+        }
     }
     
     override static func primaryKey() -> String? {

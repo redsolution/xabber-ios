@@ -80,9 +80,18 @@ private func validContactJID(_ value: String?) -> String? {
     return value
 }
 
+private func validContactEntity(_ value: String?) -> MessageContactEntityKind? {
+    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          value.isNotEmpty else {
+        return .contact
+    }
+    return MessageContactEntityKind(rawValue: value)
+}
+
 private func validContactElement(from reference: DDXMLElement) -> DDXMLElement? {
     guard let contact = contactElement(from: reference),
-          validContactJID(contact.attributeStringValue(forName: "jid")) != nil else {
+          validContactJID(contact.attributeStringValue(forName: "jid")) != nil,
+          validContactEntity(contact.attributeStringValue(forName: "entity")) != nil else {
         return nil
     }
     return contact
@@ -493,10 +502,16 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 reference.isUploaded = true
             case .contact:
                 guard let contact = contactElement(from: ref),
-                      let contactJID = validContactJID(contact.attributeStringValue(forName: "jid")) else {
+                      let contactJID = validContactJID(contact.attributeStringValue(forName: "jid")),
+                      let entity = validContactEntity(contact.attributeStringValue(forName: "entity")) else {
                     return nil
                 }
                 metadata["contact_jid"] = contactJID
+                if let rawEntity = contact.attributeStringValue(forName: "entity")?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                   rawEntity.isNotEmpty {
+                    metadata["entity"] = entity.rawValue
+                }
                 if let nickname = childText(contact, name: "nickname") {
                     metadata["nickname"] = nickname
                 }

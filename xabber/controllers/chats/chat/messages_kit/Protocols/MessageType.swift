@@ -139,6 +139,7 @@ class ContactAttachment {
     var primary: String
     var owner: String
     var jid: String
+    var entity: MessageContactEntityKind
     var title: String
     var nickname: String?
     var given: String?
@@ -150,6 +151,7 @@ class ContactAttachment {
         primary: String,
         owner: String = "",
         jid: String,
+        entity: MessageContactEntityKind = .contact,
         title: String,
         nickname: String?,
         given: String?,
@@ -160,12 +162,24 @@ class ContactAttachment {
         self.primary = primary
         self.owner = owner
         self.jid = jid
+        self.entity = entity
         self.title = title
         self.nickname = nickname
         self.given = given
         self.family = family
         self.avatarURL = avatarURL
         self.avatarMetadata = avatarMetadata
+    }
+
+    var subtitle: String {
+        switch entity {
+        case .contact:
+            return "Contact"
+        case .groupchat:
+            return "Group"
+        case .incognito:
+            return "Incognito group"
+        }
     }
 }
 

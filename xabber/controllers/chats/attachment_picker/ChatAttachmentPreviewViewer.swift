@@ -185,8 +185,9 @@ enum ChatAttachmentCaptionOutgoingBodyPolicy {
         let structuredName = [given, family]
             .filter { $0.isNotEmpty }
             .joined(separator: " ")
+        let displayTitle = (metadata?["display_title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let nickname = (metadata?["nickname"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let display = [structuredName, nickname, contactJID]
+        let display = [structuredName, displayTitle, nickname, contactJID]
             .first(where: { $0.isNotEmpty }) ?? contactJID
 
         return display == contactJID ? contactJID : "\(display) (\(contactJID))"

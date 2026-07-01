@@ -198,6 +198,7 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
 
         XCTAssertEqual(referenceElement.attributeStringValue(forName: "type"), "mutable")
         XCTAssertEqual(contactElement.attributeStringValue(forName: "jid"), "alice@example.com")
+        XCTAssertEqual(contactElement.attributeStringValue(forName: "entity"), MessageContactEntityKind.contact.rawValue)
         XCTAssertEqual(contactElement.element(forName: "nickname")?.stringValue, "Alice")
         XCTAssertEqual(nameElement.element(forName: "given")?.stringValue, "Alice")
         XCTAssertEqual(nameElement.element(forName: "family")?.stringValue, "Capulet")
@@ -221,6 +222,7 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
         XCTAssertTrue(parsed.isUploaded)
         XCTAssertNil(parsed.localFileUrl)
         XCTAssertEqual(parsed.metadata?["contact_jid"] as? String, "alice@example.com")
+        XCTAssertEqual(parsed.metadata?["entity"] as? String, MessageContactEntityKind.contact.rawValue)
         XCTAssertEqual(parsed.metadata?["nickname"] as? String, "Alice")
         XCTAssertEqual(parsed.metadata?["given"] as? String, "Alice")
         XCTAssertEqual(parsed.metadata?["family"] as? String, "Capulet")
@@ -449,11 +451,52 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
 
         XCTAssertEqual(parsed.kind, .contact)
         XCTAssertEqual(parsed.metadata?["contact_jid"] as? String, "alice@example.com")
+        XCTAssertNil(parsed.metadata?["entity"])
         XCTAssertNil(parsed.metadata?["nickname"])
         XCTAssertEqual(parsed.url, "xmpp:alice@example.com")
     }
 
-    func testContactSharingParserSkipsMissingJIDAndWrongNamespacePayloads() throws {
+    func testContactSharingReferenceRoundTripsGroupAndIncognitoEntities() throws {
+        let cases: [(MessageContactEntityKind, String, String)] = [
+            (.groupchat, "Public Room", "public-room@conference.example.com"),
+            (.incognito, "Incognito Room", "secret-room@conference.example.com")
+        ]
+
+        for (entity, nickname, contactJid) in cases {
+            let body = "\(nickname) (\(contactJid))"
+            let reference = contactReference(
+                body: body,
+                contactJid: contactJid,
+                entity: entity,
+                nickname: nickname
+            )
+
+            let message = try makeMessage(body: body, references: [reference])
+            let referenceElement = try XCTUnwrap(message.elements(forName: "reference").first)
+            let contactElement = try XCTUnwrap(referenceElement.element(
+                forName: "contact",
+                xmlns: "https://xabber.com/protocol/contact-sharing"
+            ))
+
+            XCTAssertEqual(contactElement.attributeStringValue(forName: "jid"), contactJid)
+            XCTAssertEqual(contactElement.attributeStringValue(forName: "entity"), entity.rawValue)
+
+            let parsed = try XCTUnwrap(parseReferences(
+                message,
+                primary: "contact-\(entity.rawValue)-primary",
+                jid: jid,
+                owner: owner
+            ).first)
+
+            XCTAssertEqual(parsed.kind, .contact)
+            XCTAssertEqual(parsed.metadata?["contact_jid"] as? String, contactJid)
+            XCTAssertEqual(parsed.metadata?["entity"] as? String, entity.rawValue)
+            XCTAssertEqual(parsed.metadata?["nickname"] as? String, nickname)
+            XCTAssertEqual(parsed.url, "xmpp:\(contactJid)")
+        }
+    }
+
+    func testContactSharingParserSkipsMissingJIDWrongNamespaceInvalidEntityAndFullJIDPayloads() throws {
         let body = "Alice (alice@example.com)"
         let cases = [
             """
@@ -467,6 +510,24 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
             <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
               <contact xmlns='urn:example:wrong'
                        jid='alice@example.com'>
+                <nickname>Alice</nickname>
+              </contact>
+            </reference>
+            """,
+            """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <contact xmlns='https://xabber.com/protocol/contact-sharing'
+                       jid='alice@example.com'
+                       entity='channel'>
+                <nickname>Alice</nickname>
+              </contact>
+            </reference>
+            """,
+            """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(body.count)'>
+              <contact xmlns='https://xabber.com/protocol/contact-sharing'
+                       jid='alice@example.com/mobile'
+                       entity='contact'>
                 <nickname>Alice</nickname>
               </contact>
             </reference>
@@ -521,6 +582,7 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
 
         XCTAssertEqual(parsed.kind, .contact)
         XCTAssertEqual(parsed.metadata?["contact_jid"] as? String, "alice@example.com")
+        XCTAssertNil(parsed.metadata?["entity"])
         XCTAssertEqual(parsed.metadata?["nickname"] as? String, "Alice")
     }
 
@@ -841,6 +903,7 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
     private func contactReference(
         body: String,
         contactJid: String,
+        entity: MessageContactEntityKind = .contact,
         nickname: String? = nil,
         given: String? = nil,
         family: String? = nil,
@@ -857,7 +920,8 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
         reference.url = "xmpp:\(contactJid)"
         reference.isUploaded = true
         var metadata: [String: Any] = [
-            "contact_jid": contactJid
+            "contact_jid": contactJid,
+            "entity": entity.rawValue
         ]
         if let nickname {
             metadata["nickname"] = nickname

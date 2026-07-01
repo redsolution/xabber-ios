@@ -229,12 +229,40 @@ final class ChatAttachmentDraftModelTests: XCTestCase {
         XCTAssertNil(reference.localFileUrl)
         XCTAssertNil(reference.downloadUrl)
         XCTAssertEqual(reference.metadata?["contact_jid"] as? String, "alice@example.com")
+        XCTAssertEqual(reference.metadata?["entity"] as? String, MessageContactEntityKind.contact.rawValue)
         XCTAssertEqual(reference.metadata?["nickname"] as? String, "Alice")
         XCTAssertEqual(reference.metadata?["given"] as? String, "Alice")
         XCTAssertEqual(reference.metadata?["family"] as? String, "Capulet")
         XCTAssertEqual(reference.metadata?["display_title"] as? String, "Alice Capulet")
         XCTAssertEqual(reference.metadata?["avatar_url"] as? String, "https://example.com/avatars/alice.png")
         XCTAssertEqual(reference.metadata?["avatar_id"] as? String, "avatar-hash")
+    }
+
+    func testReferenceBuilderPreservesGroupAndIncognitoEntityMetadata() throws {
+        let cases: [(MessageContactEntityKind, String)] = [
+            (.groupchat, "public-room@conference.example.com"),
+            (.incognito, "secret-room@conference.example.com")
+        ]
+
+        for (entity, jid) in cases {
+            let contact = preparedContact(
+                jid: jid,
+                entity: entity,
+                displayTitle: entity == .groupchat ? "Public Room" : "Incognito Room"
+            )
+            let draft = contactDraft(contact: contact)
+
+            let reference = try XCTUnwrap(ChatAttachmentReferenceBuilder().makeReferences(from: [draft], context: Self.context).first)
+
+            XCTAssertEqual(reference.kind, .contact)
+            XCTAssertEqual(reference.mimeType, "contact")
+            XCTAssertEqual(reference.url, "xmpp:\(jid)")
+            XCTAssertTrue(reference.isUploaded)
+            XCTAssertFalse(draft.requiresUpload)
+            XCTAssertEqual(reference.metadata?["contact_jid"] as? String, jid)
+            XCTAssertEqual(reference.metadata?["entity"] as? String, entity.rawValue)
+            XCTAssertEqual(reference.metadata?["display_title"] as? String, contact.displayTitle)
+        }
     }
 
     func testReferenceBuilderAcceptsPreparedLocationWithoutSnapshot() throws {
@@ -382,13 +410,18 @@ final class ChatAttachmentDraftModelTests: XCTestCase {
         )
     }
 
-    private func preparedContact() -> AttachmentPreparedContact {
+    private func preparedContact(
+        jid: String = "alice@example.com",
+        entity: MessageContactEntityKind = .contact,
+        displayTitle: String = "Alice Capulet"
+    ) -> AttachmentPreparedContact {
         AttachmentPreparedContact(
-            jid: "alice@example.com",
+            jid: jid,
+            entity: entity,
             nickname: "Alice",
             given: "Alice",
             family: "Capulet",
-            displayTitle: "Alice Capulet",
+            displayTitle: displayTitle,
             avatarURL: "https://example.com/avatars/alice.png",
             avatarMetadata: [
                 "avatar_id": "avatar-hash",

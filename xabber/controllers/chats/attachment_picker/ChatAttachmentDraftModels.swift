@@ -88,12 +88,33 @@ struct AttachmentPreparedLocation: Equatable {
 
 struct AttachmentPreparedContact: Equatable {
     let jid: String
+    let entity: MessageContactEntityKind
     let nickname: String?
     let given: String?
     let family: String?
     let displayTitle: String
     let avatarURL: String?
     let avatarMetadata: [String: String]
+
+    init(
+        jid: String,
+        entity: MessageContactEntityKind = .contact,
+        nickname: String?,
+        given: String?,
+        family: String?,
+        displayTitle: String,
+        avatarURL: String?,
+        avatarMetadata: [String: String]
+    ) {
+        self.jid = jid
+        self.entity = entity
+        self.nickname = nickname
+        self.given = given
+        self.family = family
+        self.displayTitle = displayTitle
+        self.avatarURL = avatarURL
+        self.avatarMetadata = avatarMetadata
+    }
 }
 
 enum AttachmentPreparationState: Equatable {
@@ -324,6 +345,7 @@ struct ChatAttachmentReferenceBuilder {
 
         var metadata: [String: Any] = [
             "contact_jid": contact.jid,
+            "entity": contact.entity.rawValue,
             "display_title": contact.displayTitle
         ]
         if let nickname = contact.nickname, nickname.isNotEmpty {

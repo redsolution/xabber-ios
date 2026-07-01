@@ -406,6 +406,13 @@ class InlineMessageAttachmentView: ModernContainerView {
             }) {
                 return true
             }
+        } else if self.contactsView.frame.contains(touchPoint) {
+            let translatedPoint = touchPoint.translate(x: -self.contactsView.frame.minX, y: -self.contactsView.frame.minY)
+            if self.contactsView.handleTouch(at: translatedPoint, callback: { contact in
+                self.delegate?.didTapOnContact(message: self.messagePrimary, contact: contact)
+            }) {
+                return true
+            }
         } else {
             let translatedPoint = touchPoint.translate(x: -self.messageLabel.frame.minX, y: -self.messageLabel.frame.minY)
             return messageLabel.handleGesture(translatedPoint)
