@@ -318,6 +318,18 @@ class MessageReferenceStorageItem: Object {
             }
         }
     }
+
+    var fileSharingURI: String? {
+        if let uri = metadata?["uri"] as? String,
+           uri.isNotEmpty {
+            return uri
+        }
+        if let uri = url,
+           uri.isNotEmpty {
+            return uri
+        }
+        return nil
+    }
     
     var decodedUrl: URL? {
         get {

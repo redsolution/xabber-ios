@@ -1428,7 +1428,7 @@ class MessageStorageItem: Object {
                 case .media:
                     let fileSharing = DDXMLElement(name: "file-sharing",
                                                    xmlns: "https://xabber.com/protocol/files")
-                    if let uri = reference.metadata?["uri"] as? String {
+                    if let uri = reference.fileSharingURI {
                         let sources = DDXMLElement(name: "sources")
                         sources.addChild(DDXMLElement(name: "uri", stringValue: uri))
                         fileSharing.addChild(sources)
@@ -1570,7 +1570,7 @@ class MessageStorageItem: Object {
                     let fileSharing = DDXMLElement(name: "file-sharing",
                                                    xmlns: "https://xabber.com/protocol/files")
                     
-                    if let uri = reference.metadata?["uri"] as? String {
+                    if let uri = reference.fileSharingURI {
                         let sources = DDXMLElement(name: "sources")
                         sources.addChild(DDXMLElement(name: "uri", stringValue: uri))
                         fileSharing.addChild(sources)
@@ -1828,10 +1828,12 @@ class MessageStorageItem: Object {
             reference.begin = out.xmlEscaping(reverse: false).count
             switch reference.kind {
             case .media:
-                out += "\(reference.metadata?["uri"] as? String ?? "")\n"
+                if let uri = reference.fileSharingURI {
+                    out += "\(uri)\n"
+                }
 //                print("OUT: \(out)")
             case .voice:
-                out += "Voice message (duration \(TimeInterval(reference.metadata?["duration"] as? Double ?? 0).minuteFormatedString) sec)\n\(reference.metadata?["uri"] as? String ?? "")\n"
+                out += "Voice message (duration \(TimeInterval(reference.metadata?["duration"] as? Double ?? 0).minuteFormatedString) sec)\n\(reference.fileSharingURI ?? "")\n"
             default: break
             }
             

@@ -58,6 +58,38 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
         XCTAssertEqual(file.metadata?["name"] as? String, "report.pdf")
     }
 
+    func testUploadedRemoteMediaReferenceBuildsNonEmptyFallbackBodyForDelivery() throws {
+        let remoteURL = "https://gallery.example/files/xabber-logs-20260610-104307-anomaly-warn.zip"
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .media
+        reference.mimeType = "file"
+        reference.url = remoteURL
+        reference.isUploaded = true
+        reference.metadata = [
+            "media-type": "application/zip",
+            "name": "xabber-logs-20260610-104307-anomaly-warn.zip",
+            "size": 136951,
+            "hash": "remote-hash"
+        ]
+        let item = MessageStorageItem()
+        item.owner = owner
+        item.opponent = jid
+        item.conversationType = .regular
+        item.references.append(reference)
+
+        item.createLegacyBody()
+        let referenceElement = try XCTUnwrap(item.createReferences().first)
+        let uriElement = try XCTUnwrap(referenceElement
+            .element(forName: "file-sharing", xmlns: "https://xabber.com/protocol/files")?
+            .element(forName: "sources")?
+            .element(forName: "uri"))
+
+        XCTAssertEqual(item.legacyBody, "\(remoteURL)\n")
+        XCTAssertEqual(item.references.first?.begin, 0)
+        XCTAssertGreaterThan(item.references.first?.end ?? 0, remoteURL.count)
+        XCTAssertEqual(uriElement.stringValue, remoteURL)
+    }
+
     func testEncryptedMediaReferenceRoundTripsEncryptionMetadata() throws {
         let reference = mediaReference(
             mediaType: "image/jpeg",
