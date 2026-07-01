@@ -7055,6 +7055,15 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         XCTAssertFalse(contactView.subviews.contains { $0 is UIButton })
     }
 
+    func testInlineContactCardLayoutIsFiftyPointsWiderThanFileCard() {
+        XCTAssertEqual(CommonMessageSizeCalculator.inlineFileViewWidth, 180)
+        XCTAssertEqual(CommonMessageSizeCalculator.inlineContactViewWidth, 230)
+        XCTAssertEqual(
+            CommonMessageSizeCalculator.inlineContactViewWidth - CommonMessageSizeCalculator.inlineFileViewWidth,
+            50
+        )
+    }
+
     func testInlineContactViewUsesGroupSubtitleForGroupEntity() throws {
         let contact = ContactAttachment(
             primary: "group-reference",

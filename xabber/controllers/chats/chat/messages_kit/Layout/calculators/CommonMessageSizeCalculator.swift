@@ -57,6 +57,8 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
     public var commentAdditionalInset: CGFloat = 0
     
     static let inlineFileViewHeight: CGFloat = 44
+    static let inlineFileViewWidth: CGFloat = 180
+    static let inlineContactViewWidth: CGFloat = 230
     static let inlineAudioViewHeight: CGFloat = 44
     static let inlineSubviewPadding: CGFloat = 0
     static let tailWidth: CGFloat = 8
@@ -220,10 +222,17 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
             let maxSizeForVideos = CGSize(width: maxWidth, height: maxWidth)
             let maxSizeForLocations = CGSize(width: maxWidth, height: maxWidth)
             let maxSizeForAudio = CGSize(width: 320, height: CGFloat.greatestFiniteMagnitude)
-            let maxSizeForFiles = CGSize(width: 180, height: CGFloat.greatestFiniteMagnitude)
+            let maxSizeForFiles = CGSize(
+                width: CommonMessageSizeCalculator.inlineFileViewWidth,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            let maxSizeForContacts = CGSize(
+                width: CommonMessageSizeCalculator.inlineContactViewWidth,
+                height: CGFloat.greatestFiniteMagnitude
+            )
             
             let sizeAudios = calcInlineAudioSize(for: attachment.audios, max: maxSizeForAudio).margin(width: 0, height: CommonMessageSizeCalculator.attachmentPadding.vertical)
-            let sizeContacts = calcInlineContactsSize(for: attachment.contacts, max: maxSizeForFiles).margin(width: 0, height: CommonMessageSizeCalculator.attachmentPadding.vertical)
+            let sizeContacts = calcInlineContactsSize(for: attachment.contacts, max: maxSizeForContacts).margin(width: 0, height: CommonMessageSizeCalculator.attachmentPadding.vertical)
             let sizeFiles = calcInlineFilesSize(for: attachment.files, max: maxSizeForFiles).margin(width: 0, height: CommonMessageSizeCalculator.attachmentPadding.vertical)
             let sizeVideos = calcInlineVideosSize(for: attachment.videos, max: maxSizeForVideos).margin(width: 0, height: CommonMessageSizeCalculator.attachmentPadding.vertical)
             let sizeImages = calcInlineImagesSize(for: attachment.images, min: textMessageSize, max: maxSizeForImages).margin(width: 0, height: CommonMessageSizeCalculator.attachmentPadding.vertical)
@@ -294,10 +303,23 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
         
         let inlineMessagesSizes = messageAttachmentsContainerSize(for: message.forwards)
         let sizeLabel = calcInlineLabelSize(for: message, max: maxSizeForLabel)
-        let maxSizeForFiles = CGSize(width: [sizeLabel.width, 180.0].max() ?? 180.0, height: CGFloat.greatestFiniteMagnitude)
+        let maxSizeForFiles = CGSize(
+            width: [
+                sizeLabel.width,
+                CommonMessageSizeCalculator.inlineFileViewWidth
+            ].max() ?? CommonMessageSizeCalculator.inlineFileViewWidth,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        let maxSizeForContacts = CGSize(
+            width: [
+                sizeLabel.width,
+                CommonMessageSizeCalculator.inlineContactViewWidth
+            ].max() ?? CommonMessageSizeCalculator.inlineContactViewWidth,
+            height: CGFloat.greatestFiniteMagnitude
+        )
         let maxSizeForAudio = CGSize(width: [sizeLabel.width, 320.0].max() ?? 320.0, height: CGFloat.greatestFiniteMagnitude)
         let sizeAudios = calcInlineAudioSize(for: message.audios, max: maxSizeForAudio)//.margin(width: 0, height: 2)
-        let sizeContacts = calcInlineContactsSize(for: message.contacts, max: maxSizeForFiles)
+        let sizeContacts = calcInlineContactsSize(for: message.contacts, max: maxSizeForContacts)
         let sizeFiles = calcInlineFilesSize(for: message.files, max: maxSizeForFiles)//.margin(width: 0, height: 2)
         let sizeVideos = calcInlineVideosSize(for: message.videos, max: maxSizeForVideos)//.margin(width: 0, height: 2)
         let sizeImages = calcInlineImagesSize(for: message.images, min: sizeLabel, max: maxSizeForImages)//.margin(width: 0, height: 2)
@@ -365,10 +387,23 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
         
         let inlineMessagesSizes = messageAttachmentsContainerSize(for: message.forwards)
         let sizeLabel = calcInlineLabelSize(for: message, max: maxSizeForLabel)
-        let maxSizeForFiles = CGSize(width: [sizeLabel.width, 180.0].max() ?? 180.0, height: CGFloat.greatestFiniteMagnitude)
+        let maxSizeForFiles = CGSize(
+            width: [
+                sizeLabel.width,
+                CommonMessageSizeCalculator.inlineFileViewWidth
+            ].max() ?? CommonMessageSizeCalculator.inlineFileViewWidth,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        let maxSizeForContacts = CGSize(
+            width: [
+                sizeLabel.width,
+                CommonMessageSizeCalculator.inlineContactViewWidth
+            ].max() ?? CommonMessageSizeCalculator.inlineContactViewWidth,
+            height: CGFloat.greatestFiniteMagnitude
+        )
         let maxSizeForAudio = CGSize(width: [sizeLabel.width, 320.0].max() ?? 320.0, height: CGFloat.greatestFiniteMagnitude)
         let sizeAudios = calcInlineAudioSize(for: message.audios, max: maxSizeForAudio)//.margin(width: 0, height: 2)
-        let sizeContacts = calcInlineContactsSize(for: message.contacts, max: maxSizeForFiles)
+        let sizeContacts = calcInlineContactsSize(for: message.contacts, max: maxSizeForContacts)
         let sizeFiles = calcInlineFilesSize(for: message.files, max: maxSizeForFiles)//.margin(width: 0, height: 2)
         let sizeVideos = calcInlineVideosSize(for: message.videos, max: maxSizeForVideos)//.margin(width: 0, height: 2)
         let sizeImages = calcInlineImagesSize(for: message.images, min: sizeLabel, max: maxSizeForImages)//.margin(width: 0, height: 2)
