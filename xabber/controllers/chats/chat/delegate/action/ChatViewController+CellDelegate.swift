@@ -1156,8 +1156,8 @@ final class ChatLocationMapViewController: UIViewController {
     let displayedLocation: LocationAttachment
 
     private let mapView = MKMapView()
-    private let addressLabel: UILabel = {
-        let label = UILabel()
+    private let addressLabel: ChatLocationMapCaptionLabel = {
+        let label = ChatLocationMapCaptionLabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = .preferredFont(forTextStyle: .body)
         label.textColor = .label
@@ -1222,7 +1222,7 @@ final class ChatLocationMapViewController: UIViewController {
 
     private func setupAddressLabel() {
         let text = displayedLocation.address?.isNotEmpty == true ? displayedLocation.address : displayedLocation.geoURI
-        addressLabel.text = "  \(text ?? displayedLocation.geoURI)  "
+        addressLabel.text = text ?? displayedLocation.geoURI
         view.addSubview(addressLabel)
         NSLayoutConstraint.activate([
             addressLabel.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
@@ -1247,5 +1247,34 @@ final class ChatLocationMapViewController: UIViewController {
                 mkCoordinateSpan: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
             )
         ])
+    }
+}
+
+final class ChatLocationMapCaptionLabel: UILabel {
+    let contentInsets = UIEdgeInsets(top: 4, left: 6, bottom: 4, right: 6)
+
+    override var intrinsicContentSize: CGSize {
+        let size = super.intrinsicContentSize
+        return CGSize(
+            width: size.width + contentInsets.left + contentInsets.right,
+            height: size.height + contentInsets.top + contentInsets.bottom
+        )
+    }
+
+    override func textRect(forBounds bounds: CGRect, limitedToNumberOfLines numberOfLines: Int) -> CGRect {
+        let insetBounds = bounds.inset(by: contentInsets)
+        let textRect = super.textRect(forBounds: insetBounds, limitedToNumberOfLines: numberOfLines)
+        return textRect.inset(
+            by: UIEdgeInsets(
+                top: -contentInsets.top,
+                left: -contentInsets.left,
+                bottom: -contentInsets.bottom,
+                right: -contentInsets.right
+            )
+        )
+    }
+
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: rect.inset(by: contentInsets))
     }
 }

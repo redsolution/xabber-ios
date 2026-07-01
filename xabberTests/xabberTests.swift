@@ -7006,6 +7006,36 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         XCTAssertEqual(controller.displayedLocation.address, "Westminster")
     }
 
+    func testFullLocationMapCaptionUsesRealContentPaddingWithoutTextSpaces() throws {
+        let address = "Engel'sa street, 40A, Chelyabinsk, Chelyabinsk Oblast, Russia"
+        let location = LocationAttachment(
+            primary: "location",
+            coordinate: CLLocationCoordinate2D(latitude: 55.1512, longitude: 61.4013),
+            address: address,
+            geoURI: "geo:55.1512,61.4013",
+            snapshotURL: nil
+        )
+        let controller = ChatLocationMapViewController(location: location)
+
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        controller.view.layoutIfNeeded()
+
+        let captionLabel = try XCTUnwrap(controller.view.firstLabel(containing: address))
+        let captionInsetLabel = try XCTUnwrap(captionLabel as? ChatLocationMapCaptionLabel)
+        let textHeight = address.boundingHeight(
+            font: captionLabel.font,
+            width: captionLabel.bounds.width - 12
+        )
+
+        XCTAssertEqual(captionLabel.text, address)
+        XCTAssertGreaterThanOrEqual(captionInsetLabel.contentInsets.top, 4)
+        XCTAssertGreaterThanOrEqual(captionInsetLabel.contentInsets.left, 6)
+        XCTAssertGreaterThanOrEqual(captionInsetLabel.contentInsets.bottom, 4)
+        XCTAssertGreaterThanOrEqual(captionInsetLabel.contentInsets.right, 6)
+        XCTAssertGreaterThanOrEqual(captionLabel.bounds.height, ceil(textHeight) + 8)
+    }
+
     func testChatDatasourceSnapshotBuildsLookupMaps() {
         let first = ChatViewController.Datasource(
             primary: "first",
@@ -26608,6 +26638,20 @@ final class ComposerMentionsTests: XCTestCase {
 }
 
 private extension UIView {
+    func firstLabel(containing text: String) -> UILabel? {
+        if let label = self as? UILabel,
+           label.text?.contains(text) == true {
+            return label
+        }
+
+        for subview in subviews {
+            if let label = subview.firstLabel(containing: text) {
+                return label
+            }
+        }
+        return nil
+    }
+
     func containsDescendant<T: UIView>(ofType type: T.Type) -> Bool {
         for subview in subviews {
             if subview is T || subview.containsDescendant(ofType: type) {
@@ -26626,6 +26670,19 @@ private extension UIView {
             currentSuperview = current.superview
         }
         return false
+    }
+}
+
+private extension String {
+    func boundingHeight(font: UIFont, width: CGFloat) -> CGFloat {
+        let constrainedWidth = max(1, width)
+        let rect = (self as NSString).boundingRect(
+            with: CGSize(width: constrainedWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font],
+            context: nil
+        )
+        return rect.height
     }
 }
 
