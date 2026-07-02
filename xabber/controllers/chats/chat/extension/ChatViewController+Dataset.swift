@@ -378,6 +378,303 @@ struct SavedMessageDisplayPolicy {
     }
 }
 
+struct ChatDisplayModelCacheContext: Hashable {
+    let searchText: String?
+    let localeIdentifier: String
+    let contentSizeCategory: String
+    let bodyFontName: String
+    let bodyFontPointSize: CGFloat
+    let interfaceStyleRawValue: Int
+
+    static func current(searchText: String?, traitCollection: UITraitCollection) -> ChatDisplayModelCacheContext {
+        let bodyFont = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
+        return ChatDisplayModelCacheContext(
+            searchText: searchText?.isEmpty == true ? nil : searchText,
+            localeIdentifier: Locale.current.identifier,
+            contentSizeCategory: traitCollection.preferredContentSizeCategory.rawValue,
+            bodyFontName: bodyFont.fontName,
+            bodyFontPointSize: bodyFont.pointSize,
+            interfaceStyleRawValue: traitCollection.userInterfaceStyle.rawValue
+        )
+    }
+}
+
+struct ChatDisplayModelCacheKey: Hashable {
+    let messagePrimary: String
+    let displayRevision: String
+    let context: ChatDisplayModelCacheContext
+}
+
+struct ChatMappedReferenceAttachments {
+    static let empty = ChatMappedReferenceAttachments(
+        images: [],
+        videos: [],
+        locations: [],
+        contacts: [],
+        audio: [],
+        files: []
+    )
+
+    let images: [ImageAttachment]
+    let videos: [VideoAttachment]
+    let locations: [LocationAttachment]
+    let contacts: [ContactAttachment]
+    let audio: [AudioAttachment]
+    let files: [FileAttachment]
+}
+
+final class ChatLazyForwardDisplayModel {
+    let signature: String
+    private let lock = NSLock()
+    private var resolvedAttachments: [MessageAttachment]?
+    private var builder: (() -> [MessageAttachment])?
+
+    var isResolved: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return resolvedAttachments != nil
+    }
+
+    var attachments: [MessageAttachment] {
+        lock.lock()
+        if let resolvedAttachments {
+            lock.unlock()
+            return resolvedAttachments
+        }
+        guard let builder else {
+            lock.unlock()
+            return []
+        }
+        lock.unlock()
+
+        let builtAttachments = builder()
+
+        lock.lock()
+        if let resolvedAttachments {
+            lock.unlock()
+            return resolvedAttachments
+        }
+        resolvedAttachments = builtAttachments
+        self.builder = nil
+        lock.unlock()
+        return builtAttachments
+    }
+
+    init(signature: String, builder: @escaping () -> [MessageAttachment]) {
+        self.signature = signature
+        self.builder = builder
+    }
+
+    static func eager(_ attachments: [MessageAttachment], signature: String = "eager") -> ChatLazyForwardDisplayModel {
+        let model = ChatLazyForwardDisplayModel(signature: signature) { attachments }
+        model.resolvedAttachments = attachments
+        model.builder = nil
+        return model
+    }
+}
+
+final class ChatCachedDisplayModel {
+    let kind: MessageKind
+    let mappedReferences: ChatMappedReferenceAttachments
+    let lazyForwards: ChatLazyForwardDisplayModel
+    let isDownloaded: Bool
+    let timeMarkerText: NSAttributedString
+
+    var forwards: [MessageAttachment] {
+        lazyForwards.attachments
+    }
+
+    var bodyText: String {
+        switch kind {
+        case .attributedText(let text),
+                .system(let text),
+                .initial(let text),
+                .skeleton(let text),
+                .date(let text),
+                .unread(let text):
+            return text.string
+        case .emoji(let text):
+            return text
+        case .sticker(let attachment):
+            return attachment.primary
+        case .call(let attachment):
+            return attachment.primary
+        }
+    }
+
+    var bodyFontPointSize: CGFloat? {
+        switch kind {
+        case .attributedText(let text),
+                .system(let text),
+                .initial(let text),
+                .skeleton(let text),
+                .date(let text),
+                .unread(let text):
+            guard text.length > 0 else { return nil }
+            return (text.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)?.pointSize
+        case .emoji, .sticker, .call:
+            return nil
+        }
+    }
+
+    init(
+        kind: MessageKind,
+        mappedReferences: ChatMappedReferenceAttachments,
+        lazyForwards: ChatLazyForwardDisplayModel,
+        isDownloaded: Bool,
+        timeMarkerText: NSAttributedString
+    ) {
+        self.kind = kind
+        self.mappedReferences = mappedReferences
+        self.lazyForwards = lazyForwards
+        self.isDownloaded = isDownloaded
+        self.timeMarkerText = timeMarkerText
+    }
+}
+
+final class ChatDisplayModelCache {
+    struct Statistics: Equatable {
+        let hits: Int
+        let misses: Int
+        let stores: Int
+        let evictions: Int
+    }
+
+    private let capacity: Int
+    private let lock = NSLock()
+    private var models: [ChatDisplayModelCacheKey: ChatCachedDisplayModel] = [:]
+    private var keysByRecency: [ChatDisplayModelCacheKey] = []
+    private var hitCount: Int = 0
+    private var missCount: Int = 0
+    private var storeCount: Int = 0
+    private var evictionCount: Int = 0
+
+    var statistics: Statistics {
+        lock.lock()
+        defer { lock.unlock() }
+        return Statistics(
+            hits: hitCount,
+            misses: missCount,
+            stores: storeCount,
+            evictions: evictionCount
+        )
+    }
+
+    init(capacity: Int) {
+        self.capacity = max(0, capacity)
+    }
+
+    func model(
+        for key: ChatDisplayModelCacheKey,
+        build: () -> ChatCachedDisplayModel
+    ) -> ChatCachedDisplayModel {
+        lock.lock()
+        if let cached = models[key] {
+            hitCount += 1
+            markRecentlyUsed(key)
+            lock.unlock()
+            return cached
+        }
+        missCount += 1
+        lock.unlock()
+
+        let built = build()
+        guard capacity > 0 else {
+            return built
+        }
+
+        lock.lock()
+        if let cached = models[key] {
+            hitCount += 1
+            markRecentlyUsed(key)
+            lock.unlock()
+            return cached
+        }
+        models[key] = built
+        keysByRecency.append(key)
+        storeCount += 1
+        evictIfNeeded()
+        lock.unlock()
+        return built
+    }
+
+    func removeAll() {
+        lock.lock()
+        models.removeAll()
+        keysByRecency.removeAll()
+        lock.unlock()
+    }
+
+    private func markRecentlyUsed(_ key: ChatDisplayModelCacheKey) {
+        keysByRecency.removeAll { $0 == key }
+        keysByRecency.append(key)
+    }
+
+    private func evictIfNeeded() {
+        while models.count > capacity,
+              let oldest = keysByRecency.first {
+            keysByRecency.removeFirst()
+            if models.removeValue(forKey: oldest) != nil {
+                evictionCount += 1
+            }
+        }
+    }
+}
+
+private struct ChatDisplayModelRevisionHasher {
+    private static let offsetBasis: UInt64 = 14_695_981_039_346_656_037
+    private static let prime: UInt64 = 1_099_511_628_211
+
+    private(set) var value: UInt64 = ChatDisplayModelRevisionHasher.offsetBasis
+
+    var revision: String {
+        String(value, radix: 16)
+    }
+
+    mutating func combine(_ value: String?) {
+        guard let value else {
+            combineByte(0xff)
+            return
+        }
+        for byte in value.utf8 {
+            combineByte(byte)
+        }
+        combineByte(0xfe)
+    }
+
+    mutating func combine(_ value: Bool) {
+        combineByte(value ? 1 : 0)
+    }
+
+    mutating func combine(_ value: Int) {
+        combine(UInt64(bitPattern: Int64(value)))
+    }
+
+    mutating func combine(_ value: Double?) {
+        guard let value else {
+            combineByte(0xfd)
+            return
+        }
+        combine(value.bitPattern)
+    }
+
+    mutating func combine(_ value: UInt64) {
+        combineByte(UInt8(truncatingIfNeeded: value))
+        combineByte(UInt8(truncatingIfNeeded: value >> 8))
+        combineByte(UInt8(truncatingIfNeeded: value >> 16))
+        combineByte(UInt8(truncatingIfNeeded: value >> 24))
+        combineByte(UInt8(truncatingIfNeeded: value >> 32))
+        combineByte(UInt8(truncatingIfNeeded: value >> 40))
+        combineByte(UInt8(truncatingIfNeeded: value >> 48))
+        combineByte(UInt8(truncatingIfNeeded: value >> 56))
+    }
+
+    private mutating func combineByte(_ byte: UInt8) {
+        value ^= UInt64(byte)
+        value = value &* ChatDisplayModelRevisionHasher.prime
+    }
+}
+
 struct ChatDatasetWindow: Equatable {
     static let empty = ChatDatasetWindow(minIndex: 0, maxIndex: 0)
 
@@ -4307,6 +4604,210 @@ extension ChatViewController {
         }
         return nil
     }
+
+    private static func mappedReferenceAttachments(
+        _ references: [MessageReferenceStorageItem],
+        revealedSensitiveMediaPrimaries: Set<String>
+    ) -> ChatMappedReferenceAttachments {
+        let mapped = Self.mapReferenceAttachments(
+            references,
+            revealedSensitiveMediaPrimaries: revealedSensitiveMediaPrimaries
+        )
+        return ChatMappedReferenceAttachments(
+            images: mapped.images,
+            videos: mapped.videos,
+            locations: mapped.locations,
+            contacts: mapped.contacts,
+            audio: mapped.audio,
+            files: mapped.files
+        )
+    }
+
+    private static func displayModelCacheKey(
+        for item: MessageStorageItem,
+        presentation: SavedMessageDisplayPolicy.Presentation,
+        revealedSensitiveMediaPrimaries: Set<String>,
+        context: ChatDisplayModelCacheContext
+    ) -> ChatDisplayModelCacheKey {
+        var hasher = ChatDisplayModelRevisionHasher()
+        hasher.combine(item.messageId)
+        hasher.combine(item.archivedId)
+        hasher.combine(item.queryIds)
+        hasher.combine(item.displayAs.rawValue)
+        hasher.combine(item.state.rawValue)
+        hasher.combine(item.body)
+        hasher.combine(item.legacyBody)
+        hasher.combine(item.bodyForAttachmentRendering)
+        hasher.combine(item.localReportPlaceholderText)
+        hasher.combine(item.date.timeIntervalSinceReferenceDate)
+        hasher.combine(item.sentDate.timeIntervalSinceReferenceDate)
+        hasher.combine(item.editDate?.timeIntervalSinceReferenceDate)
+        hasher.combine(item.afterburnInterval)
+        hasher.combine(item.burnDate)
+        hasher.combine(item.deleteState.rawValue)
+        hasher.combine(item.isDeleted)
+        hasher.combine(item.isLocallyHiddenByReport)
+        hasher.combine(item.messageWarningText)
+        hasher.combine(item.messageError)
+        hasher.combine(item.groupchatAuthorId)
+        hasher.combine(item.groupchatAuthorNickname)
+        hasher.combine(item.groupchatAuthorBadge)
+        combineMetadata(item.groupchatMetadata, into: &hasher)
+        combineMetadata(item.errorMetadata, into: &hasher)
+
+        hasher.combine(presentation.isSavedMessage)
+        hasher.combine(presentation.isSavedForward)
+        hasher.combine(presentation.isDirectSavedNote)
+        hasher.combine(presentation.displayAuthorJid)
+        hasher.combine(presentation.displayAuthorName)
+        hasher.combine(presentation.displayAvatarSource)
+        hasher.combine(presentation.displayOutgoing)
+        hasher.combine(presentation.visibleBody)
+        hasher.combine(presentation.visibleDate.timeIntervalSinceReferenceDate)
+        hasher.combine(presentation.groupchatAuthorRole)
+        hasher.combine(presentation.groupchatAuthorId)
+        hasher.combine(presentation.groupchatAuthorNickname)
+        hasher.combine(presentation.groupchatAuthorBadge)
+        hasher.combine(presentation.isDeleted)
+        hasher.combine(presentation.deleteState.rawValue)
+        hasher.combine(presentation.authorColorKey)
+
+        hasher.combine(presentation.visibleReferences.count)
+        presentation.visibleReferences.forEach { combineReference($0, into: &hasher) }
+        hasher.combine(presentation.visibleForwards.count)
+        presentation.visibleForwards.forEach { combineForward($0, into: &hasher) }
+        revealedSensitiveMediaPrimaries.sorted().forEach { hasher.combine($0) }
+
+        return ChatDisplayModelCacheKey(
+            messagePrimary: item.primary,
+            displayRevision: hasher.revision,
+            context: context
+        )
+    }
+
+    private static func forwardDisplayRevision(
+        _ forwards: [MessageForwardsInlineStorageItem],
+        revealedSensitiveMediaPrimaries: Set<String>,
+        context: ChatDisplayModelCacheContext
+    ) -> String {
+        var hasher = ChatDisplayModelRevisionHasher()
+        hasher.combine(forwards.count)
+        forwards.forEach { combineForward($0, into: &hasher) }
+        revealedSensitiveMediaPrimaries.sorted().forEach { hasher.combine($0) }
+        hasher.combine(context.searchText)
+        hasher.combine(context.localeIdentifier)
+        hasher.combine(context.contentSizeCategory)
+        hasher.combine(context.bodyFontName)
+        hasher.combine(Double(context.bodyFontPointSize))
+        hasher.combine(context.interfaceStyleRawValue)
+        return hasher.revision
+    }
+
+    private static func combineReference(
+        _ reference: MessageReferenceStorageItem,
+        into hasher: inout ChatDisplayModelRevisionHasher
+    ) {
+        hasher.combine(reference.primary)
+        hasher.combine(reference.owner)
+        hasher.combine(reference.jid)
+        hasher.combine(reference.kind_)
+        hasher.combine(reference.mimeType)
+        hasher.combine(reference.begin)
+        hasher.combine(reference.end)
+        hasher.combine(reference.url)
+        hasher.combine(reference.downloadUrl?.absoluteString)
+        hasher.combine(reference.localFileUrl?.absoluteString)
+        hasher.combine(reference.decodedUrl?.absoluteString)
+        hasher.combine(reference.videoPreviewUrl?.absoluteString)
+        hasher.combine(reference.sizeInPx.map { Double($0.width) })
+        hasher.combine(reference.sizeInPx.map { Double($0.height) })
+        hasher.combine(reference.sizeInBytesRaw)
+        hasher.combine(reference.filename)
+        hasher.combine(reference.name)
+        hasher.combine(String(describing: reference.duration))
+        hasher.combine(reference.isDownloaded)
+        hasher.combine(reference.isSensitive)
+        hasher.combine(reference.isSensitiveChecked)
+        hasher.combine(reference.isLocallyHiddenByReport)
+        combineMetadata(reference.metadata, into: &hasher)
+        let levels = reference.meteringLevels ?? []
+        hasher.combine(levels.count)
+        levels.forEach { hasher.combine(Double($0)) }
+    }
+
+    private static func combineForward(
+        _ forward: MessageForwardsInlineStorageItem,
+        into hasher: inout ChatDisplayModelRevisionHasher
+    ) {
+        hasher.combine(forward.primary)
+        hasher.combine(forward.messageId)
+        hasher.combine(forward.owner)
+        hasher.combine(forward.opponent)
+        hasher.combine(forward.jid)
+        hasher.combine(forward.parentId)
+        hasher.combine(forward.body)
+        hasher.combine(forward.forwardJid)
+        hasher.combine(forward.forwardNickname)
+        hasher.combine(forward.isOutgoing)
+        hasher.combine(forward.originalDate?.timeIntervalSinceReferenceDate)
+        hasher.combine(forward.references.count)
+        forward.references.forEach { combineReference($0, into: &hasher) }
+        hasher.combine(forward.subforwards.count)
+        forward.subforwards.forEach { combineForward($0, into: &hasher) }
+    }
+
+    private static func combineMetadata(
+        _ metadata: [String: Any]?,
+        into hasher: inout ChatDisplayModelRevisionHasher
+    ) {
+        guard let metadata else {
+            hasher.combine("metadata:nil")
+            return
+        }
+        hasher.combine(metadata.count)
+        for key in metadata.keys.sorted() {
+            hasher.combine(key)
+            combineMetadataValue(metadata[key], into: &hasher)
+        }
+    }
+
+    private static func combineMetadataValue(
+        _ value: Any?,
+        into hasher: inout ChatDisplayModelRevisionHasher
+    ) {
+        switch value {
+        case let value as String:
+            hasher.combine(value)
+        case let value as Bool:
+            hasher.combine(value)
+        case let value as Int:
+            hasher.combine(value)
+        case let value as Int64:
+            hasher.combine(UInt64(bitPattern: value))
+        case let value as Double:
+            hasher.combine(value)
+        case let value as Float:
+            hasher.combine(Double(value))
+        case let value as [String]:
+            hasher.combine(value.count)
+            value.forEach { hasher.combine($0) }
+        case let value as [String: String]:
+            hasher.combine(value.count)
+            for key in value.keys.sorted() {
+                hasher.combine(key)
+                hasher.combine(value[key])
+            }
+        case let value as [String: Any]:
+            combineMetadata(value, into: &hasher)
+        case let value as [Any]:
+            hasher.combine(value.count)
+            value.forEach { combineMetadataValue($0, into: &hasher) }
+        case .none:
+            hasher.combine("nil")
+        default:
+            hasher.combine(String(describing: value))
+        }
+    }
     
     internal func willUpdateFloatingDate() {
         self.updateFloatingDateObserverSignal.accept(true)
@@ -4387,6 +4888,114 @@ extension ChatViewController {
             audios: mappedReferences.audio,
             timeMarker: timeMarkerString,
             subforwards: attachment.subforwards.toArray().compactMap({ return mapAttachment($0) })
+        )
+    }
+
+    private func cachedDisplayModel(
+        for item: MessageStorageItem,
+        presentation: SavedMessageDisplayPolicy.Presentation,
+        textAttributes: [NSAttributedString.Key: Any],
+        context: ChatDisplayModelCacheContext
+    ) -> ChatCachedDisplayModel {
+        let key = Self.displayModelCacheKey(
+            for: item,
+            presentation: presentation,
+            revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries,
+            context: context
+        )
+        return displayModelCache.model(for: key) {
+            let kind = self.displayKind(
+                for: item,
+                presentation: presentation,
+                textAttributes: textAttributes
+            )
+            let mappedReferences = Self.mappedReferenceAttachments(
+                presentation.visibleReferences,
+                revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries
+            )
+            let forwardSignature = Self.forwardDisplayRevision(
+                presentation.visibleForwards,
+                revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries,
+                context: context
+            )
+            let lazyForwards = ChatLazyForwardDisplayModel(signature: forwardSignature) { [weak self] in
+                guard let self else { return [] }
+                return presentation.visibleForwards.compactMap { self.mapAttachment($0) }
+            }
+            let timeMarkerString = self.timeMarkerText(for: item, presentation: presentation)
+            return ChatCachedDisplayModel(
+                kind: kind,
+                mappedReferences: mappedReferences,
+                lazyForwards: lazyForwards,
+                isDownloaded: presentation.visibleReferences.contains(where: \.isDownloaded),
+                timeMarkerText: timeMarkerString
+            )
+        }
+    }
+
+    private func displayKind(
+        for item: MessageStorageItem,
+        presentation: SavedMessageDisplayPolicy.Presentation,
+        textAttributes: [NSAttributedString.Key: Any]
+    ) -> MessageKind {
+        switch item.displayAs {
+        case .text:
+            if presentation.isSavedMessage || presentation.visibleBody != item.body {
+                return .attributedText(
+                    SavedMessageDisplayPolicy.attributedBody(
+                        for: presentation,
+                        attributes: textAttributes,
+                        searchedText: self.searchTextObserver.value,
+                        searchedTextColor: .systemGreen
+                    )
+                )
+            } else {
+                return .attributedText(
+                    item.createRefBody(
+                        textAttributes,
+                        searchedText: self.searchTextObserver.value,
+                        searchedTextColor: .systemGreen
+                    )
+                )
+            }
+        case .call:
+            return .call(CallAttachment(
+                primary: item.primary,
+                incoming: !presentation.displayOutgoing,
+                missed: presentation.visibleReferences.first?.metadata?["callState"] as? String == "missed"
+            ))
+        case .system:
+            return .system(
+                NSAttributedString(
+                    string: presentation.visibleBody,
+                    attributes: [
+                        .font: UIFont.preferredFont(forTextStyle: .caption1).italic(),
+                        .foregroundColor: UIColor.white,
+                    ]
+                )
+            )
+        case .sticker:
+            return .attributedText(NSAttributedString())
+        }
+    }
+
+    private func timeMarkerText(
+        for item: MessageStorageItem,
+        presentation: SavedMessageDisplayPolicy.Presentation
+    ) -> NSAttributedString {
+        var timeString = Self.attachmentTimeFormatter.string(from: presentation.visibleDate)
+        if item.afterburnInterval > 0 {
+            timeString = "\(timeString) ⦁ \(item.afterburnInterval.prettyMinuteFormatedString)"
+        }
+        if item.editDate != nil {
+            timeString = "\(timeString) (edited)"
+        }
+        return NSAttributedString(
+            string: timeString,
+            attributes: [
+                NSAttributedString.Key.foregroundColor: UIColor(red: 158.0 / 255.0, green: 158.0 / 255.0, blue: 158.0 / 255.0, alpha: 1),
+                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 10, weight: .regular)
+            ]
         )
     }
 
@@ -6954,13 +7563,27 @@ extension ChatViewController {
             ))
         }
 
+        var displayPresentationCache: [String: SavedMessageDisplayPolicy.Presentation] = [:]
         func displayPresentation(for item: MessageStorageItem) -> SavedMessageDisplayPolicy.Presentation {
-            SavedMessageDisplayPolicy.presentation(
+            if let cached = displayPresentationCache[item.primary] {
+                return cached
+            }
+            let presentation = SavedMessageDisplayPolicy.presentation(
                 for: item,
                 currentUserJid: self.owner,
                 currentUserName: self.ownerSender.displayName
             )
+            displayPresentationCache[item.primary] = presentation
+            return presentation
         }
+        let displayContext = ChatDisplayModelCacheContext.current(
+            searchText: self.searchTextObserver.value,
+            traitCollection: self.traitCollection
+        )
+        let textAttributes: [NSAttributedString.Key: Any] = [
+            .foregroundColor: UIColor.label,
+            .font: UIFont.preferredFont(forTextStyle: .body, compatibleWith: self.traitCollection)
+        ]
                 
         dataset.enumerated().forEach {
             (offset, item) in
@@ -6972,52 +7595,14 @@ extension ChatViewController {
             let displaySender = presentation.isSavedMessage
                 ? Sender(id: presentation.displayAuthorJid, displayName: presentation.displayAuthorName)
                 : (item.outgoing ? self.ownerSender : self.opponentSender)
-            let isDownloaded = !presentation.visibleReferences.filter { $0.isDownloaded }.isEmpty
-            let kind: MessageKind
-            let textAttributes: [NSAttributedString.Key: Any] = [
-                .foregroundColor: UIColor.label,
-                .font: UIFont.preferredFont(forTextStyle: .body)
-            ]
-            switch item.displayAs {
-                case .text:
-                    if presentation.isSavedMessage || presentation.visibleBody != item.body {
-                        kind = .attributedText(
-                            SavedMessageDisplayPolicy.attributedBody(
-                                for: presentation,
-                                attributes: textAttributes,
-                                searchedText: self.searchTextObserver.value,
-                                searchedTextColor: .systemGreen
-                            )
-                        )
-                    } else {
-                        kind = .attributedText(
-                            item.createRefBody(
-                                textAttributes,
-                                searchedText: self.searchTextObserver.value,
-                                searchedTextColor: .systemGreen
-                            )
-                        )
-                    }
-                case .call:
-                    kind = .call(CallAttachment(primary: item.primary, incoming: !presentation.displayOutgoing, missed: presentation.visibleReferences.first?.metadata?["callState"] as? String == "missed"))
-//                    kind = .attributedText(NSAttributedString())
-                case .system:
-                    kind = .system(
-                        NSAttributedString(
-                            string: presentation.visibleBody,
-                            attributes: [
-                                .font: UIFont.preferredFont(forTextStyle: .caption1).italic(),
-                                .foregroundColor: UIColor.white,
-                            ]
-                        )
-                    )
-                case .sticker:
-//                    if let reference = references.filter({ $0.kind == .media }).first {
-//                        kind = .sticker(reference)
-//                    } else {
-                        kind = .attributedText(NSAttributedString())
-//                    }
-            }
+            let cachedDisplayModel = self.cachedDisplayModel(
+                for: item,
+                presentation: presentation,
+                textAttributes: textAttributes,
+                context: displayContext
+            )
+            let kind = cachedDisplayModel.kind
+            let isDownloaded = cachedDisplayModel.isDownloaded
             
             var withAuthor: Bool = false
             var withAvatar: Bool = false
@@ -7104,9 +7689,8 @@ extension ChatViewController {
             }
             
             
-            let references = presentation.visibleReferences
-            let mappedReferences = Self.mapReferenceAttachments(references, revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries)
-            let forwards: [MessageAttachment] = presentation.visibleForwards.compactMap({ return mapAttachment($0) })
+            let mappedReferences = cachedDisplayModel.mappedReferences
+            let forwards = cachedDisplayModel.forwards
             let statePresentation = SavedMessageStatePolicy.presentation(
                 for: item,
                 displayAuthorJid: presentation.displayAuthorJid,
@@ -7119,21 +7703,7 @@ extension ChatViewController {
                 for: effectiveState,
                 showsDeliveryIndicator: statePresentation.showsDeliveryIndicator
             )
-            
-            var timeString = Self.attachmentTimeFormatter.string(from: presentation.visibleDate)
-            if item.afterburnInterval > 0 {
-                timeString = "\(timeString) ⦁ \(item.afterburnInterval.prettyMinuteFormatedString)"
-            }
-            if item.editDate != nil {
-                timeString = "\(timeString) (edited)"
-            }
-            let timeMarkerString = NSAttributedString(
-                string: timeString,
-                attributes: [
-                    NSAttributedString.Key.foregroundColor: UIColor(red: 158.0 / 255.0, green: 158.0 / 255.0, blue: 158.0 / 255.0, alpha: 1),
-                    NSAttributedString.Key.font: UIFont.systemFont(ofSize: 10, weight: .regular)
-                ]
-            )
+            let timeMarkerString = cachedDisplayModel.timeMarkerText
             if presentation.displayOutgoing {
                 withAuthor = false
                 if presentation.isSavedMessage {

@@ -1380,6 +1380,7 @@ class ChatViewController: MessagesViewController {
     var virtualTimelineState: ChatVirtualTimelineState = .empty
     var boundedTimelineWindowState: ChatBoundedTimelineWindowState = .empty
     var scrollBoundaryAvailabilityCache: ChatScrollBoundaryAvailabilityCache = .empty
+    var displayModelCache: ChatDisplayModelCache = ChatDisplayModelCache(capacity: 512)
     
     
     var sharedPlayerPaneldelegae: SharedAudioPlayerPanelDelegate? = nil
