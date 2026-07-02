@@ -181,6 +181,16 @@ final class ChatAttachmentLocationInfoView: UIView {
     let addressLabel = UILabel()
     let coordinatesLabel = UILabel()
 
+    var onPreferredHeightChanged: ((CGFloat) -> Void)?
+    private(set) var preferredHeight: CGFloat = NativeGlassBarStyle.minimumHeight
+
+    private let minHeight: CGFloat = NativeGlassBarStyle.minimumHeight
+    private let maxHeight: CGFloat = ChatAttachmentPickerComposerStyle.maxTextViewHeight
+        + ChatAttachmentPickerComposerStyle.textVerticalInset * 2
+    private let contentVerticalInset: CGFloat = 4
+    private let stackSpacing: CGFloat = 1
+    private var heightConstraint: NSLayoutConstraint?
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupView()
@@ -201,6 +211,13 @@ final class ChatAttachmentLocationInfoView: UIView {
             .compactMap { $0 }
             .filter { $0.isNotEmpty }
             .joined(separator: ", ")
+        setNeedsLayout()
+        updateHeight()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateHeight()
     }
 
     private func setupView() {
@@ -217,8 +234,9 @@ final class ChatAttachmentLocationInfoView: UIView {
         addressLabel.font = UIFont.preferredFont(forTextStyle: .subheadline)
         addressLabel.adjustsFontForContentSizeCategory = true
         addressLabel.textColor = .label
-        addressLabel.numberOfLines = 1
+        addressLabel.numberOfLines = 0
         addressLabel.lineBreakMode = .byTruncatingTail
+        addressLabel.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
 
         coordinatesLabel.translatesAutoresizingMaskIntoConstraints = false
         coordinatesLabel.accessibilityIdentifier = "chatAttachmentSheet.selectionComposerBar.locationCoordinates"
@@ -227,18 +245,22 @@ final class ChatAttachmentLocationInfoView: UIView {
         coordinatesLabel.textColor = .secondaryLabel
         coordinatesLabel.numberOfLines = 1
         coordinatesLabel.lineBreakMode = .byTruncatingTail
+        coordinatesLabel.setContentCompressionResistancePriority(.required, for: .vertical)
 
         let stackView = UIStackView(arrangedSubviews: [addressLabel, coordinatesLabel])
         stackView.axis = .vertical
         stackView.alignment = .fill
-        stackView.spacing = 1
+        stackView.spacing = stackSpacing
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(backgroundEffectView)
         backgroundEffectView.contentView.addSubview(stackView)
 
+        let heightConstraint = heightAnchor.constraint(equalToConstant: minHeight)
+        self.heightConstraint = heightConstraint
+
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.minimumHeight),
+            heightConstraint,
 
             backgroundEffectView.leadingAnchor.constraint(equalTo: leadingAnchor),
             backgroundEffectView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -256,11 +278,11 @@ final class ChatAttachmentLocationInfoView: UIView {
             stackView.centerYAnchor.constraint(equalTo: backgroundEffectView.contentView.centerYAnchor),
             stackView.topAnchor.constraint(
                 greaterThanOrEqualTo: backgroundEffectView.contentView.topAnchor,
-                constant: 4
+                constant: contentVerticalInset
             ),
             stackView.bottomAnchor.constraint(
                 lessThanOrEqualTo: backgroundEffectView.contentView.bottomAnchor,
-                constant: -4
+                constant: -contentVerticalInset
             )
         ])
     }
@@ -269,14 +291,87 @@ final class ChatAttachmentLocationInfoView: UIView {
         let trimmedURI = location.geoURI.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedURI.hasPrefix("geo:") {
             let coordinates = String(trimmedURI.dropFirst("geo:".count))
-            if let commaIndex = coordinates.firstIndex(of: ",") {
-                let latitude = coordinates[..<commaIndex]
-                let longitude = coordinates[coordinates.index(after: commaIndex)...]
+            let components = coordinates.split(separator: ",", omittingEmptySubsequences: false)
+            if components.count >= 2 {
+                let latitude = displayCoordinateComponent(String(components[0]))
+                let longitude = displayCoordinateComponent(String(components[1]))
                 return "\(latitude):\(longitude)"
             }
         }
 
-        return "\(location.coordinate.latitude):\(location.coordinate.longitude)"
+        return "\(displayCoordinateComponent(String(location.coordinate.latitude))):\(displayCoordinateComponent(String(location.coordinate.longitude)))"
+    }
+
+    private static func displayCoordinateComponent(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let withoutParameters = trimmed
+            .split(whereSeparator: { $0 == ";" || $0 == "?" })
+            .first
+            .map(String.init) ?? trimmed
+        guard let separatorIndex = withoutParameters.firstIndex(of: ".") else {
+            return withoutParameters
+        }
+
+        let fractionStartIndex = withoutParameters.index(after: separatorIndex)
+        let fraction = withoutParameters[fractionStartIndex...].prefix(6)
+        guard !fraction.isEmpty else {
+            return String(withoutParameters[..<separatorIndex])
+        }
+
+        return "\(withoutParameters[...separatorIndex])\(fraction)"
+    }
+
+    private func updateHeight() {
+        let fittingWidth = contentFittingWidth()
+        guard fittingWidth > 0 else {
+            return
+        }
+
+        addressLabel.numberOfLines = 0
+        let fittingSize = CGSize(width: fittingWidth, height: .greatestFiniteMagnitude)
+        let addressHeight = addressLabel.sizeThatFits(fittingSize).height.rounded(.up)
+        let coordinatesHeight = coordinatesLabel.sizeThatFits(fittingSize).height.rounded(.up)
+        let maxAddressHeight = max(
+            0,
+            maxHeight - contentVerticalInset * 2 - stackSpacing - coordinatesHeight
+        )
+        if addressHeight > maxAddressHeight + 0.5 {
+            let lineHeight = max(1, addressLabel.font.lineHeight.rounded(.up))
+            addressLabel.numberOfLines = max(1, Int(floor(maxAddressHeight / lineHeight)))
+        }
+
+        let rawHeight = contentVerticalInset * 2
+            + min(addressHeight, maxAddressHeight)
+            + stackSpacing
+            + coordinatesHeight
+        let nextHeight = min(maxHeight, max(minHeight, rawHeight.rounded(.up)))
+
+        guard abs(nextHeight - preferredHeight) > 0.5 else {
+            return
+        }
+
+        preferredHeight = nextHeight
+        heightConstraint?.constant = nextHeight
+        invalidateIntrinsicContentSize()
+        onPreferredHeightChanged?(nextHeight)
+    }
+
+    private func contentFittingWidth() -> CGFloat {
+        if backgroundEffectView.contentView.bounds.width > 0 {
+            return max(0, backgroundEffectView.contentView.bounds.width - NativeGlassBarStyle.contentInset * 2)
+        }
+        if bounds.width > 0 {
+            return max(0, bounds.width - NativeGlassBarStyle.contentInset * 2)
+        }
+
+        return max(
+            0,
+            UIScreen.main.bounds.width
+                - NativeGlassBarStyle.horizontalInset * 2
+                - NativeGlassBarStyle.buttonSize * 2
+                - NativeGlassBarStyle.interItemSpacing * 2
+                - NativeGlassBarStyle.contentInset * 2
+        )
     }
 }
 
@@ -301,7 +396,7 @@ final class ChatAttachmentSelectionComposerBarView: UIView {
     private var isSendEnabled = false
 
     var preferredBarHeight: CGFloat {
-        captionInputView.preferredHeight
+        activeContentPreferredHeight
             + Self.topReserve
             + NativeGlassBarStyle.bottomOffset
     }
@@ -339,11 +434,12 @@ final class ChatAttachmentSelectionComposerBarView: UIView {
             captionInputView.isUserInteractionEnabled = true
             locationInfoView.isHidden = true
         case .locationInfo(let location):
-            locationInfoView.apply(location: location)
-            locationInfoView.isHidden = false
             captionInputView.isHidden = true
             captionInputView.isUserInteractionEnabled = false
+            locationInfoView.isHidden = false
+            locationInfoView.apply(location: location)
         }
+        notifyPreferredHeightChanged()
     }
 
     func updateCaptionText(_ text: String) {
@@ -374,9 +470,14 @@ final class ChatAttachmentSelectionComposerBarView: UIView {
                 return
             }
 
-            self.invalidateIntrinsicContentSize()
-            self.onPreferredHeightChanged?(self.preferredBarHeight)
-            self.setNeedsLayout()
+            self.notifyPreferredHeightChanged()
+        }
+        locationInfoView.onPreferredHeightChanged = { [weak self] _ in
+            guard let self else {
+                return
+            }
+
+            self.notifyPreferredHeightChanged()
         }
 
         sendButton.translatesAutoresizingMaskIntoConstraints = false
@@ -413,7 +514,7 @@ final class ChatAttachmentSelectionComposerBarView: UIView {
 
             locationInfoView.leadingAnchor.constraint(equalTo: captionInputView.leadingAnchor),
             locationInfoView.trailingAnchor.constraint(equalTo: captionInputView.trailingAnchor),
-            locationInfoView.topAnchor.constraint(greaterThanOrEqualTo: captionInputView.topAnchor),
+            locationInfoView.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: Self.topReserve),
             locationInfoView.bottomAnchor.constraint(equalTo: captionInputView.bottomAnchor),
 
             sendButton.trailingAnchor.constraint(
@@ -448,6 +549,18 @@ final class ChatAttachmentSelectionComposerBarView: UIView {
             isEnabled: isSendEnabled,
             tintColor: composerTintColor
         )
+    }
+
+    private var activeContentPreferredHeight: CGFloat {
+        locationInfoView.isHidden
+            ? captionInputView.preferredHeight
+            : locationInfoView.preferredHeight
+    }
+
+    private func notifyPreferredHeightChanged() {
+        invalidateIntrinsicContentSize()
+        onPreferredHeightChanged?(preferredBarHeight)
+        setNeedsLayout()
     }
 
     private static let topReserve: CGFloat = 8

@@ -414,6 +414,109 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
         XCTAssertTrue(sheet.selectionComposerBarView.sendButton.isEnabled)
     }
 
+    func testLocationInfoGrowsUpwardForLongAddressAndKeepsControlsBottomAligned() {
+        let source = FakeTask13SelectableSourceController(source: .geolocation)
+        let sheet = makeSheet(source: source)
+        let longAddress = "Westminster Bridge Road, London Borough of Lambeth, London, United Kingdom"
+        let collapsedBarHeight = NativeGlassBarStyle.minimumHeight
+            + 8
+            + NativeGlassBarStyle.bottomOffset
+
+        sheet.loadViewIfNeeded()
+        sheet.view.frame = CGRect(x: 0, y: 0, width: 390, height: 700)
+        sheet.view.layoutIfNeeded()
+        sheet.switchSource(to: .geolocation)
+        source.replaceSelectedDrafts([
+            makeTask13LocationDraft(address: longAddress, snapshotURL: nil)
+        ])
+        sheet.view.layoutIfNeeded()
+
+        let composer = sheet.selectionComposerBarView
+        let locationInfoView = composer.locationInfoView
+        XCTAssertGreaterThan(locationInfoView.frame.height, NativeGlassBarStyle.minimumHeight)
+        XCTAssertLessThan(
+            locationInfoView.frame.height,
+            ChatAttachmentPickerComposerStyle.maxTextViewHeight
+                + ChatAttachmentPickerComposerStyle.textVerticalInset * 2
+        )
+        XCTAssertGreaterThan(sheet.bottomControlsContainerView.frame.height, collapsedBarHeight)
+        XCTAssertEqual(
+            sheet.bottomControlsContainerView.frame.height,
+            locationInfoView.frame.height + 8 + NativeGlassBarStyle.bottomOffset,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(composer.resetButton.frame.maxY, locationInfoView.frame.maxY, accuracy: 0.001)
+        XCTAssertEqual(composer.sendButton.frame.maxY, locationInfoView.frame.maxY, accuracy: 0.001)
+        assertLocationInfo(
+            composer,
+            address: longAddress,
+            coordinates: "51.5007:-0.1246"
+        )
+    }
+
+    func testLocationInfoCapsVeryLongAddressAtComposerMaximumAndKeepsCoordinatesVisible() {
+        let source = FakeTask13SelectableSourceController(source: .geolocation)
+        let sheet = makeSheet(source: source)
+        let veryLongAddress = Array(
+            repeating: "Long selected address segment near the city center",
+            count: 40
+        ).joined(separator: ", ")
+        let maxLocationInfoHeight = ChatAttachmentPickerComposerStyle.maxTextViewHeight
+            + ChatAttachmentPickerComposerStyle.textVerticalInset * 2
+
+        sheet.loadViewIfNeeded()
+        sheet.view.frame = CGRect(x: 0, y: 0, width: 390, height: 700)
+        sheet.view.layoutIfNeeded()
+        sheet.switchSource(to: .geolocation)
+        source.replaceSelectedDrafts([
+            makeTask13LocationDraft(address: veryLongAddress, snapshotURL: nil)
+        ])
+        sheet.view.layoutIfNeeded()
+
+        let composer = sheet.selectionComposerBarView
+        let locationInfoView = composer.locationInfoView
+        let coordinatesFrame = locationInfoView.convert(
+            composer.locationCoordinatesLabel.bounds,
+            from: composer.locationCoordinatesLabel
+        )
+
+        XCTAssertEqual(locationInfoView.frame.height, maxLocationInfoHeight, accuracy: 0.001)
+        XCTAssertFalse(composer.locationCoordinatesLabel.isHidden)
+        XCTAssertGreaterThan(coordinatesFrame.height, 0)
+        XCTAssertLessThanOrEqual(coordinatesFrame.maxY, locationInfoView.bounds.maxY - 2)
+        XCTAssertEqual(
+            sheet.bottomControlsContainerView.frame.height,
+            maxLocationInfoHeight + 8 + NativeGlassBarStyle.bottomOffset,
+            accuracy: 0.001
+        )
+    }
+
+    func testLocationInfoCoordinatesTruncateToSixFractionalDigitsWithoutChangingGeoURI() {
+        let source = FakeTask13SelectableSourceController(source: .geolocation)
+        let sheet = makeSheet(source: source)
+
+        sheet.loadViewIfNeeded()
+        sheet.switchSource(to: .geolocation)
+        source.replaceSelectedDrafts([
+            makeTask13LocationDraft(
+                latitude: 56.5029827,
+                longitude: 27.4127259,
+                address: "Rezekne",
+                snapshotURL: nil
+            )
+        ])
+
+        assertLocationInfo(
+            sheet.selectionComposerBarView,
+            address: "Rezekne",
+            coordinates: "56.502982:27.412725"
+        )
+        XCTAssertEqual(
+            sheet.selectedAttachmentDrafts.first?.preparedLocation?.geoURI,
+            "geo:56.5029827,27.4127259"
+        )
+    }
+
     func testLocationReplacementUpdatesReadOnlyInfoWithoutDisablingSend() {
         let source = FakeTask13SelectableSourceController(source: .geolocation)
         let sheet = makeSheet(source: source)
