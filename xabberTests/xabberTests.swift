@@ -15207,7 +15207,7 @@ final class ChatVirtualTimelineEngineTests: XCTestCase {
         XCTAssertEqual(newer.map(\.primary), ["uuid-c", "0000", "zzzz"])
     }
 
-    func testOpenAroundIncludesWholeAnchorDateBucketWithoutPrimaryOrdering() {
+    func testOpenAroundIncludesWholeAnchorDateBucketWithStableCursorOrdering() {
         let provider = FakeProvider(items: makeEqualDateBucketMessages())
         var engine = makeEngine(provider: provider)
 
@@ -15220,7 +15220,7 @@ final class ChatVirtualTimelineEngineTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(snapshot.items.map(\.primary), ["uuid-z", "uuid-c", "0000", "zzzz", "uuid-a"])
+        XCTAssertEqual(snapshot.items.map(\.primary), ["uuid-z", "zzzz", "0000", "uuid-c", "uuid-a"])
         XCTAssertEqual(snapshot.anchorRestore?.primary, "0000")
     }
 }

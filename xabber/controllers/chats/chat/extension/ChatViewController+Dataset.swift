@@ -440,6 +440,103 @@ struct ChatTimelineAnchor: Equatable {
     }
 }
 
+struct ChatTimelinePositionKey: Comparable, Equatable {
+    let date: Date
+    let cursorId: String
+    let messageId: String
+    let primary: String
+
+    init(primary: String, archivedId: String?, messageId: String?, date: Date) {
+        self.date = date
+        self.cursorId = Self.normalized(archivedId) ?? Self.normalized(messageId) ?? primary
+        self.messageId = Self.normalized(messageId) ?? ""
+        self.primary = primary
+    }
+
+    init(message: MessageStorageItem) {
+        self.init(
+            primary: message.primary,
+            archivedId: message.archivedId,
+            messageId: message.messageId,
+            date: message.date
+        )
+    }
+
+    init(boundary: ChatTimelineBoundary) {
+        self.init(
+            primary: boundary.primary,
+            archivedId: boundary.archivedId,
+            messageId: boundary.messageId,
+            date: boundary.date
+        )
+    }
+
+    static func < (lhs: ChatTimelinePositionKey, rhs: ChatTimelinePositionKey) -> Bool {
+        if lhs.date != rhs.date {
+            return lhs.date < rhs.date
+        }
+
+        let cursorComparison = compareIdentifier(lhs.cursorId, rhs.cursorId)
+        if cursorComparison != .orderedSame {
+            return cursorComparison == .orderedAscending
+        }
+
+        let messageComparison = compareIdentifier(lhs.messageId, rhs.messageId)
+        if messageComparison != .orderedSame {
+            return messageComparison == .orderedAscending
+        }
+
+        return compareIdentifier(lhs.primary, rhs.primary) == .orderedAscending
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value, value.isNotEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private static func compareIdentifier(_ lhs: String, _ rhs: String) -> ComparisonResult {
+        lhs.compare(rhs, options: [.numeric, .caseInsensitive])
+    }
+}
+
+enum ChatTimelineMessageIdentity {
+    static func keys(for item: MessageStorageItem) -> [String] {
+        var keys: [String] = []
+        if let archivedId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(item.archivedId) {
+            keys.append("archive:\(archivedId)")
+        }
+        if item.messageId.isNotEmpty {
+            keys.append("message:\(item.messageId)")
+        }
+        if item.primary.isNotEmpty {
+            keys.append("primary:\(item.primary)")
+        }
+        return keys
+    }
+}
+
+enum ChatTimelineOrdering {
+    static func chronological(_ items: [MessageStorageItem]) -> [MessageStorageItem] {
+        items.sorted {
+            ChatTimelinePositionKey(message: $0) < ChatTimelinePositionKey(message: $1)
+        }
+    }
+
+    static func deduplicatedChronological(_ items: [MessageStorageItem]) -> [MessageStorageItem] {
+        var seen = Set<String>()
+        return chronological(items).filter { item in
+            let keys = ChatTimelineMessageIdentity.keys(for: item)
+            guard keys.contains(where: { seen.contains($0) }) == false else {
+                return false
+            }
+            seen.formUnion(keys)
+            return true
+        }
+    }
+}
+
 struct ChatBoundedTimelineWindowState: Equatable {
     static let empty = ChatBoundedTimelineWindowState(
         oldest: nil,
@@ -583,65 +680,42 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
 
     func latest(limit: Int) -> [MessageStorageItem] {
         guard limit > 0 else { return [] }
-        let seedItems = Array(
-            baseQuery()
-                .sorted(byKeyPath: "date", ascending: false)
-                .prefix(limit)
-        )
-        guard let cutoffDate = seedItems.last?.date else { return [] }
-        return Array(
-            baseQuery()
-                .filter("date >= %@", cutoffDate)
-                .sorted(byKeyPath: "date", ascending: true)
-        )
+        return Array(scopedChronologicalItems().suffix(limit))
     }
 
     func older(before boundary: ChatTimelineBoundary, limit: Int) -> [MessageStorageItem] {
         guard limit > 0 else { return [] }
-        let seedItems = Array(
-            baseQuery()
-                .filter("date < %@", boundary.date)
-                .sorted(byKeyPath: "date", ascending: false)
-                .prefix(limit)
-        )
-        guard let cutoffDate = seedItems.last?.date else { return [] }
+        let boundaryKey = ChatTimelinePositionKey(boundary: boundary)
         return Array(
-            baseQuery()
-                .filter("date >= %@ AND date < %@", cutoffDate, boundary.date)
-                .sorted(byKeyPath: "date", ascending: true)
+            scopedChronologicalItems()
+                .filter { ChatTimelinePositionKey(message: $0) < boundaryKey }
+                .suffix(limit)
         )
     }
 
     func newer(after boundary: ChatTimelineBoundary, limit: Int) -> [MessageStorageItem] {
         guard limit > 0 else { return [] }
-        let seedItems = Array(
-            baseQuery()
-                .filter("date > %@", boundary.date)
-                .sorted(byKeyPath: "date", ascending: true)
-                .prefix(limit)
-        )
-        guard let cutoffDate = seedItems.last?.date else { return [] }
+        let boundaryKey = ChatTimelinePositionKey(boundary: boundary)
         return Array(
-            baseQuery()
-                .filter("date > %@ AND date <= %@", boundary.date, cutoffDate)
-                .sorted(byKeyPath: "date", ascending: true)
+            scopedChronologicalItems()
+                .filter { ChatTimelinePositionKey(message: $0) > boundaryKey }
+                .prefix(limit)
         )
     }
 
     func around(anchor: MessageStorageItem, before: Int, after: Int) -> [MessageStorageItem] {
-        let boundary = ChatTimelineBoundary(message: anchor)
-        let olderItems = older(before: boundary, limit: before)
-        let anchorBucket = Array(
-            baseQuery()
-                .filter("date == %@", anchor.date)
-                .sorted(byKeyPath: "date", ascending: true)
-        )
-        let newerItems = newer(after: boundary, limit: after)
-        return Self.deduplicatedChronologicalItems(olderItems + anchorBucket + newerItems)
+        let items = scopedChronologicalItems()
+        guard let anchorIndex = items.firstIndex(where: { $0.primary == anchor.primary }) else {
+            return []
+        }
+
+        let lowerBound = max(0, anchorIndex - max(0, before))
+        let upperBound = min(items.count, anchorIndex + max(0, after) + 1)
+        return Array(items[lowerBound..<upperBound])
     }
 
     func item(at index: Int) -> MessageStorageItem? {
-        let results = baseQuery().sorted(byKeyPath: "date", ascending: true)
+        let results = scopedChronologicalItems()
         guard index >= 0, index < results.count else {
             return nil
         }
@@ -653,8 +727,9 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
     }
 
     func index(of boundary: ChatTimelineBoundary) -> Int {
-        baseQuery()
-            .filter("date < %@", boundary.date)
+        let boundaryKey = ChatTimelinePositionKey(boundary: boundary)
+        return scopedChronologicalItems()
+            .filter { ChatTimelinePositionKey(message: $0) < boundaryKey }
             .count
     }
 
@@ -693,10 +768,18 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
             return nil
         }
 
-        return baseQuery()
-            .filter("outgoing == false AND date > %@", boundaryDate)
-            .sorted(byKeyPath: "date", ascending: true)
-            .first
+        let boundary = ChatTimelineBoundary(
+            primary: boundaryArchivedId,
+            archivedId: boundaryArchivedId,
+            messageId: nil,
+            date: boundaryDate
+        )
+        let boundaryKey = ChatTimelinePositionKey(boundary: boundary)
+        return scopedChronologicalItems()
+            .first {
+                $0.outgoing == false &&
+                    ChatTimelinePositionKey(message: $0) > boundaryKey
+            }
     }
 
     func items(primaryKeys: [String]) -> [MessageStorageItem] {
@@ -717,27 +800,12 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
             )
     }
 
-    private static func chronological(_ items: [MessageStorageItem]) -> [MessageStorageItem] {
-        stableDateSorted(items)
+    private func scopedChronologicalItems() -> [MessageStorageItem] {
+        Self.deduplicatedChronologicalItems(Array(baseQuery()))
     }
 
     private static func deduplicatedChronologicalItems(_ items: [MessageStorageItem]) -> [MessageStorageItem] {
-        var seen = Set<String>()
-        return stableDateSorted(items).filter { item in
-            seen.insert(item.primary).inserted
-        }
-    }
-
-    private static func stableDateSorted(_ items: [MessageStorageItem]) -> [MessageStorageItem] {
-        items
-            .enumerated()
-            .sorted { lhs, rhs in
-                if lhs.element.date == rhs.element.date {
-                    return lhs.offset < rhs.offset
-                }
-                return lhs.element.date < rhs.element.date
-            }
-            .map { $0.element }
+        ChatTimelineOrdering.deduplicatedChronological(items)
     }
 }
 
@@ -1445,19 +1513,7 @@ struct ChatVirtualTimelineEngine {
     }
 
     private static func deduplicatedChronologicalItems(_ items: [MessageStorageItem]) -> [MessageStorageItem] {
-        var seen = Set<String>()
-        return items
-            .enumerated()
-            .sorted {
-                if $0.element.date == $1.element.date {
-                    return $0.offset < $1.offset
-                }
-                return $0.element.date < $1.element.date
-            }
-            .map { $0.element }
-            .filter { item in
-                seen.insert(item.primary).inserted
-            }
+        ChatTimelineOrdering.deduplicatedChronological(items)
     }
 }
 
