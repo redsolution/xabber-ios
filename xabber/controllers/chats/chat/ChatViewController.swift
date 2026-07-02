@@ -216,6 +216,27 @@ enum ChatScrollDownTargetPolicy {
     }
 }
 
+enum ChatPendingVisibleReadTargetPolicy {
+    struct Candidate: Equatable {
+        let primary: String
+        let sentDate: Date
+    }
+
+    static func newestPendingVisiblePrimary(
+        pendingPrimaries: Set<String>,
+        visibleCandidates: [Candidate]
+    ) -> String? {
+        guard pendingPrimaries.isNotEmpty else {
+            return nil
+        }
+        return visibleCandidates
+            .filter { pendingPrimaries.contains($0.primary) }
+            .sorted { $0.sentDate.timeIntervalSince1970 > $1.sentDate.timeIntervalSince1970 }
+            .first?
+            .primary
+    }
+}
+
 struct ChatSavedVisiblePosition: Equatable {
     let messagePrimary: String?
     let archivedId: String?
@@ -4075,6 +4096,28 @@ class ChatViewController: MessagesViewController {
         self.voiceMessageStateObserverToken = nil
     }
 
+    @discardableResult
+    internal func flushPendingVisibleReadTarget() -> Bool {
+        let visibleCandidates = self.datasource.map {
+            ChatPendingVisibleReadTargetPolicy.Candidate(
+                primary: $0.primary,
+                sentDate: $0.sentDate
+            )
+        }
+        guard let lastReadPrimary = ChatPendingVisibleReadTargetPolicy.newestPendingVisiblePrimary(
+            pendingPrimaries: self.messagesToReadObserver.value,
+            visibleCandidates: visibleCandidates
+        ) else {
+            return false
+        }
+
+        self.messagesToReadObserver.accept(Set<String>())
+        AccountManager.shared.find(for: self.owner)?.messages.readMessage(lastReadPrimary, last: false)
+        self.rebuildUnreadMentionItems()
+        self.refreshUnreadMentionsNavigatorState(animated: true)
+        return true
+    }
+
     internal func runNavigationDisappearanceCleanupIfNeeded() {
         guard !self.didRunNavigationDisappearanceCleanup else {
             return
@@ -4086,6 +4129,7 @@ class ChatViewController: MessagesViewController {
             user.mam.allowHistoryFixTask = false
         })
         LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
+        self.flushPendingVisibleReadTarget()
         self.saveCurrentVisibleMessagePositionIfNeeded(reason: .viewWillDisappear)
 
         unsubscribe()
@@ -4174,6 +4218,7 @@ class ChatViewController: MessagesViewController {
     internal func handleApplicationDidEnterBackground() {
         NotifyManager.shared.currentDialog = nil
         self.cancelActiveAudioRecordingForLifecycle()
+        self.flushPendingVisibleReadTarget()
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(

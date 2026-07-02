@@ -436,15 +436,8 @@ extension ChatViewController {
             .asObservable()
             .debounce(.milliseconds(500), scheduler: MainScheduler.asyncInstance)
             .observe(on: MainScheduler.asyncInstance)
-            .subscribe { messages in
-            guard let lastReadPrimary = self.datasource
-                .filter({ messages.contains($0.primary) })
-                .sorted(by: { $0.sentDate.timeIntervalSince1970 > $1.sentDate.timeIntervalSince1970 })
-                .first?
-                .primary else { return }
-            AccountManager.shared.find(for: self.owner)?.messages.readMessage(lastReadPrimary, last: false)
-            self.rebuildUnreadMentionItems()
-            self.refreshUnreadMentionsNavigatorState(animated: true)
+            .subscribe { [weak self] _ in
+                self?.flushPendingVisibleReadTarget()
         } onError: { _ in
             
         } onCompleted: {
