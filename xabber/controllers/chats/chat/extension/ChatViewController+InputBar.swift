@@ -181,16 +181,12 @@ extension ChatViewController {
         let updates = {
             inputView.update(screenHeight: self.view.bounds.height, keyboardHeight: keyboardVisibleHeight)
             let inputHeight = inputView.bounds.height
-            self.updateChatCollectionInsets(inputHeight: inputHeight)
-
-            self.updateInitialMessageOverlayFrame()
-            self.view.layoutIfNeeded()
-            self.updateChatCollectionInsets(inputHeight: inputHeight)
-            if wasNearBottom {
-                self.scrollToBottom(animated: false)
-            } else if let visibleAnchor {
-                self.restorePagingAnchor(visibleAnchor)
-            }
+            self.applyChatComposerFrameUpdate(
+                inputHeight: inputHeight,
+                source: .keyboardFrame,
+                wasNearBottom: wasNearBottom,
+                visibleAnchor: visibleAnchor
+            )
         }
 
         if duration > 0 {

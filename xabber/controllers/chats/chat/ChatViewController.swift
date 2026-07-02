@@ -4135,10 +4135,6 @@ class ChatViewController: MessagesViewController {
         if previousFrame == self.view.bounds {
             return
         }
-        var layoutSignpost = ChatPerformanceSignposts.begin(.layoutApply)
-        defer {
-            layoutSignpost.end()
-        }
         let wasNearBottom = self.isNearBottom()
         let visibleAnchor = wasNearBottom ? nil : self.capturePagingAnchorIfNeeded(direction: .older)
 
@@ -4190,32 +4186,88 @@ class ChatViewController: MessagesViewController {
             size: CGSize(width: max(0, self.view.bounds.width - leadingInset - trailingInset), height: inputHeight)
         )
         self.xabberInputView.setupFrames(frame)
-        self.updateChatCollectionInsets(inputHeight: inputHeight)
-
+        self.applyChatComposerFrameUpdate(
+            inputHeight: inputHeight,
+            source: .containerBounds,
+            wasNearBottom: wasNearBottom,
+            visibleAnchor: visibleAnchor
+        )
         self.updateUnreadMentionsNavigatorFrame(animated: false)
         self.updateScrollDownButtonFrame(animated: false)
-        self.updateInitialMessageOverlayFrame()
-        guard !self.datasource.isEmpty else {
-            return
-        }
-        
+    }
+
+    internal func applyChatComposerFrameUpdate(
+        inputHeight: CGFloat,
+        source: ChatComposerFrameUpdateSource,
+        wasNearBottom: Bool,
+        visibleAnchor: ChatHistoryPageAnchor?
+    ) {
         let collectionUpdates = {
-            (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
-                .cache.invalidate()
-            self.messagesCollectionView.reloadData()
-            self.messagesCollectionView.layoutIfNeeded()
-            self.updateChatCollectionInsets(inputHeight: inputHeight)
+            var layoutSignpost = ChatPerformanceSignposts.begin(.layoutApply)
+            defer {
+                layoutSignpost.end()
+            }
+            let anchorRestoration: ChatComposerFrameAnchorRestoration
             if wasNearBottom {
-                self.scrollToBottom(animated: false)
-            } else if let visibleAnchor {
-                self.restorePagingAnchor(visibleAnchor)
+                anchorRestoration = .bottom
+            } else if visibleAnchor != nil {
+                anchorRestoration = .visibleAnchor
+            } else {
+                anchorRestoration = .none
+            }
+            let actions = ChatComposerFrameUpdatePlanner.actions(
+                for: ChatComposerFrameUpdateRequest(
+                    source: source,
+                    hasMessages: !self.datasource.isEmpty,
+                    previousInputHeight: self.messagesCollectionView.contentInset.bottom,
+                    inputHeight: inputHeight,
+                    anchorRestoration: anchorRestoration
+                )
+            )
+            for action in actions {
+                self.performChatComposerFrameUpdateAction(
+                    action,
+                    source: source,
+                    visibleAnchor: visibleAnchor
+                )
             }
         }
-
         if self.isNavigationTransitionActive || self.isPreparingStackedNavigationPresentation {
             UIView.performWithoutAnimation(collectionUpdates)
         } else {
             collectionUpdates()
+        }
+    }
+
+    private func performChatComposerFrameUpdateAction(
+        _ action: ChatComposerFrameUpdateAction,
+        source: ChatComposerFrameUpdateSource,
+        visibleAnchor: ChatHistoryPageAnchor?
+    ) {
+        switch action {
+        case .updateInsets(let inputHeight):
+            self.updateChatCollectionInsets(inputHeight: inputHeight)
+        case .updateInitialMessageOverlayFrame:
+            self.updateInitialMessageOverlayFrame()
+        case .invalidateLayoutCache:
+            (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
+                .cache.invalidate()
+        case .invalidateLayout:
+            self.messagesCollectionView.collectionViewLayout.invalidateLayout()
+        case .reloadData:
+            assertionFailure("Composer frame changes must not reload chat data")
+        case .layoutIfNeeded:
+            if source == .keyboardFrame {
+                self.view.layoutIfNeeded()
+            } else {
+                self.messagesCollectionView.layoutIfNeeded()
+            }
+        case .scrollToBottom:
+            self.scrollToBottom(animated: false)
+        case .restoreVisibleAnchor:
+            if let visibleAnchor {
+                self.restorePagingAnchor(visibleAnchor)
+            }
         }
     }
     

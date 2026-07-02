@@ -517,15 +517,12 @@ extension ChatViewController: XabberInputBarDelegate {
     func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat) {
         let wasNearBottom = self.isNearBottom()
         let visibleAnchor = wasNearBottom ? nil : self.capturePagingAnchorIfNeeded(direction: .older)
-        self.updateChatCollectionInsets(inputHeight: height)
-        self.updateInitialMessageOverlayFrame()
-        self.messagesCollectionView.layoutIfNeeded()
-        self.updateChatCollectionInsets(inputHeight: height)
-        if wasNearBottom {
-            self.scrollToBottom(animated: false)
-        } else if let visibleAnchor {
-            self.restorePagingAnchor(visibleAnchor)
-        }
+        self.applyChatComposerFrameUpdate(
+            inputHeight: height,
+            source: .composerHeight,
+            wasNearBottom: wasNearBottom,
+            visibleAnchor: visibleAnchor
+        )
 //        let offset = messagesCollectionView.contentOffset.y
 //        messageCollectionViewTopInset = height + 4 //offset - height + barHeight
 //        messagesCollectionView.setContentOffset(CGPoint(x: 0, y: -height), animated: true)
