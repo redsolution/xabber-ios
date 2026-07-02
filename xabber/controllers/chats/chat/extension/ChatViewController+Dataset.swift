@@ -3391,6 +3391,7 @@ struct ChatMessageLayoutSignature: Equatable {
     let messageWarningText: String?
     let images: [String]
     let videos: [String]
+    let locations: [String]
     let contacts: [String]
     let files: [String]
     let audios: [String]
@@ -3401,6 +3402,7 @@ struct ChatMessageLayoutSignature: Equatable {
         let isOutgoing: Bool
         let images: [String]
         let videos: [String]
+        let locations: [String]
         let contacts: [String]
         let files: [String]
         let audios: [String]
@@ -3411,6 +3413,7 @@ struct ChatMessageLayoutSignature: Equatable {
             self.isOutgoing = attachment.outgoing
             self.images = attachment.images.map(\.primary)
             self.videos = attachment.videos.map(\.primary)
+            self.locations = attachment.locations.map(\.primary)
             self.contacts = attachment.contacts.map(\.primary)
             self.files = attachment.files.map(\.primary)
             self.audios = attachment.audios.map(\.primary)
@@ -3429,6 +3432,7 @@ struct ChatMessageLayoutSignature: Equatable {
         self.messageWarningText = message.messageWarningText
         self.images = message.images.map(\.primary)
         self.videos = message.videos.map(\.primary)
+        self.locations = message.locations.map(\.primary)
         self.contacts = message.contacts.map(\.primary)
         self.files = message.files.map(\.primary)
         self.audios = message.audios.map(\.primary)
@@ -3472,6 +3476,437 @@ struct ChatMessageLayoutSignature: Equatable {
     }
 }
 
+struct ChatDiffContentSignature: Equatable, CustomStringConvertible {
+    let kind: ChatMessageKindContentSignature
+    let timeMarkerText: String
+    let attachments: ChatAttachmentContentSignature
+
+    var description: String {
+        "ChatDiffContentSignature(kind:\(kind),timeLength:\(timeMarkerText.count),attachments:\(attachments))"
+    }
+}
+
+enum ChatMessageKindContentSignature: Equatable, CustomStringConvertible {
+    case attributedText(String)
+    case emoji(String)
+    case sticker(ChatImageAttachmentSignature)
+    case call(primary: String, incoming: Bool, missed: Bool)
+    case system(String)
+    case initial(String)
+    case skeleton(String)
+    case date(String)
+    case unread(String)
+
+    var description: String {
+        switch self {
+        case .attributedText(let text):
+            return "attributedText(length:\(text.count))"
+        case .emoji(let text):
+            return "emoji(length:\(text.count))"
+        case .sticker(let signature):
+            return "sticker(\(signature))"
+        case .call(let primary, let incoming, let missed):
+            return "call(primary:\(primary),incoming:\(incoming),missed:\(missed))"
+        case .system(let text):
+            return "system(length:\(text.count))"
+        case .initial(let text):
+            return "initial(length:\(text.count))"
+        case .skeleton(let text):
+            return "skeleton(length:\(text.count))"
+        case .date(let text):
+            return "date(length:\(text.count))"
+        case .unread(let text):
+            return "unread(length:\(text.count))"
+        }
+    }
+}
+
+struct ChatAttachmentContentSignature: Equatable, CustomStringConvertible {
+    let images: [ChatImageAttachmentSignature]
+    let videos: [ChatVideoAttachmentSignature]
+    let locations: [ChatLocationAttachmentSignature]
+    let contacts: [ChatContactAttachmentSignature]
+    let files: [ChatFileAttachmentSignature]
+    let audios: [ChatAudioAttachmentSignature]
+    let forwards: [ChatForwardAttachmentSignature]
+
+    var description: String {
+        [
+            "images:\(images.count)",
+            "videos:\(videos.count)",
+            "locations:\(locations.count)",
+            "contacts:\(contacts.count)",
+            "files:\(files.count)",
+            "audios:\(audios)",
+            "forwards:\(forwards.count)"
+        ].joined(separator: ",")
+    }
+}
+
+struct ChatImageAttachmentSignature: Equatable, CustomStringConvertible {
+    let primary: String
+    let url: URL?
+    let size: CGSize
+    let isSensitive: Bool
+    let isSensitiveRevealed: Bool
+
+    init(_ attachment: ImageAttachment) {
+        self.primary = attachment.primary
+        self.url = attachment.url
+        self.size = attachment.size
+        self.isSensitive = attachment.isSensitive
+        self.isSensitiveRevealed = attachment.isSensitiveRevealed
+    }
+
+    var description: String {
+        "image(primary:\(primary),url:\(url?.absoluteString ?? ""),size:\(size),sensitive:\(isSensitive),revealed:\(isSensitiveRevealed))"
+    }
+}
+
+struct ChatVideoAttachmentSignature: Equatable, CustomStringConvertible {
+    let primary: String
+    let url: URL?
+    let size: CGSize
+    let previewUrl: URL?
+    let duration: Double
+    let downloaded: Bool
+    let isSensitive: Bool
+    let isSensitiveRevealed: Bool
+
+    init(_ attachment: VideoAttachment) {
+        self.primary = attachment.primary
+        self.url = attachment.url
+        self.size = attachment.size
+        self.previewUrl = attachment.previewUrl
+        self.duration = attachment.duration
+        self.downloaded = attachment.downloaded
+        self.isSensitive = attachment.isSensitive
+        self.isSensitiveRevealed = attachment.isSensitiveRevealed
+    }
+
+    var description: String {
+        "video(primary:\(primary),duration:\(duration),downloaded:\(downloaded))"
+    }
+}
+
+struct ChatLocationAttachmentSignature: Equatable, CustomStringConvertible {
+    let primary: String
+    let latitude: CLLocationDegrees
+    let longitude: CLLocationDegrees
+    let address: String?
+    let geoURI: String
+    let snapshotURL: URL?
+
+    init(_ attachment: LocationAttachment) {
+        self.primary = attachment.primary
+        self.latitude = attachment.coordinate.latitude
+        self.longitude = attachment.coordinate.longitude
+        self.address = attachment.address
+        self.geoURI = attachment.geoURI
+        self.snapshotURL = attachment.snapshotURL
+    }
+
+    var description: String {
+        "location(primary:\(primary),lat:\(latitude),lon:\(longitude))"
+    }
+}
+
+struct ChatContactAttachmentSignature: Equatable, CustomStringConvertible {
+    let primary: String
+    let owner: String
+    let jid: String
+    let entity: MessageContactEntityKind
+    let title: String
+    let nickname: String?
+    let given: String?
+    let family: String?
+    let avatarURL: String?
+    let avatarMetadata: [String: String]
+
+    init(_ attachment: ContactAttachment) {
+        self.primary = attachment.primary
+        self.owner = attachment.owner
+        self.jid = attachment.jid
+        self.entity = attachment.entity
+        self.title = attachment.title
+        self.nickname = attachment.nickname
+        self.given = attachment.given
+        self.family = attachment.family
+        self.avatarURL = attachment.avatarURL
+        self.avatarMetadata = attachment.avatarMetadata
+    }
+
+    var description: String {
+        "contact(primary:\(primary),jid:\(jid),entity:\(entity.rawValue),metadata:\(avatarMetadata.count))"
+    }
+}
+
+struct ChatFileAttachmentSignature: Equatable, CustomStringConvertible {
+    let primary: String
+    let url: URL?
+    let size: Double
+    let name: String
+    let downloaded: Bool
+
+    init(_ attachment: FileAttachment) {
+        self.primary = attachment.primary
+        self.url = attachment.url
+        self.size = attachment.size
+        self.name = attachment.name
+        self.downloaded = attachment.downloaded
+    }
+
+    var description: String {
+        "file(primary:\(primary),name:\(name),size:\(size),downloaded:\(downloaded))"
+    }
+}
+
+struct ChatAudioAttachmentSignature: Equatable, CustomStringConvertible {
+    let primary: String
+    let url: URL?
+    let size: Double
+    let name: String
+    let duration: Double
+    let downloaded: Bool
+    let pcm: ChatVoicePCMSignature
+
+    init(_ attachment: AudioAttachment) {
+        self.primary = attachment.primary
+        self.url = attachment.url
+        self.size = attachment.size
+        self.name = attachment.name
+        self.duration = attachment.duration
+        self.downloaded = attachment.downloaded
+        self.pcm = ChatVoicePCMSignature(attachment.pcm)
+    }
+
+    var description: String {
+        "audio(primary:\(primary),duration:\(duration),downloaded:\(downloaded),pcm:\(pcm))"
+    }
+}
+
+struct ChatForwardAttachmentSignature: Equatable, CustomStringConvertible {
+    let primary: String
+    let author: String
+    let jid: String
+    let outgoing: Bool
+    let textMessage: String
+    let timeMarker: String
+    let attachments: ChatAttachmentContentSignature
+
+    var description: String {
+        "forward(primary:\(primary),outgoing:\(outgoing),textLength:\(textMessage.count),attachments:\(attachments))"
+    }
+}
+
+struct ChatVoicePCMSignature: Equatable, CustomStringConvertible {
+    let count: Int
+    let hash: UInt64
+
+    init(_ pcm: [Float]) {
+        var hasher = ChatStableSignatureHasher()
+        for value in pcm {
+            hasher.combine(value.bitPattern)
+        }
+        self.count = pcm.count
+        self.hash = hasher.value
+    }
+
+    var description: String {
+        "count:\(count),hash:\(String(hash, radix: 16))"
+    }
+}
+
+private struct ChatStableSignatureHasher {
+    private static let offsetBasis: UInt64 = 14_695_981_039_346_656_037
+    private static let prime: UInt64 = 1_099_511_628_211
+
+    private(set) var value: UInt64 = ChatStableSignatureHasher.offsetBasis
+
+    mutating func combine(_ value: UInt32) {
+        combine(UInt8(truncatingIfNeeded: value))
+        combine(UInt8(truncatingIfNeeded: value >> 8))
+        combine(UInt8(truncatingIfNeeded: value >> 16))
+        combine(UInt8(truncatingIfNeeded: value >> 24))
+    }
+
+    private mutating func combine(_ byte: UInt8) {
+        value ^= UInt64(byte)
+        value = value &* ChatStableSignatureHasher.prime
+    }
+}
+
+private final class ChatDiffSignatureBuilder {
+    private var textCache: [ObjectIdentifier: String] = [:]
+    private var imageCache: [ObjectIdentifier: ChatImageAttachmentSignature] = [:]
+    private var videoCache: [ObjectIdentifier: ChatVideoAttachmentSignature] = [:]
+    private var locationCache: [ObjectIdentifier: ChatLocationAttachmentSignature] = [:]
+    private var contactCache: [ObjectIdentifier: ChatContactAttachmentSignature] = [:]
+    private var fileCache: [ObjectIdentifier: ChatFileAttachmentSignature] = [:]
+    private var audioCache: [ObjectIdentifier: ChatAudioAttachmentSignature] = [:]
+    private var forwardCache: [ObjectIdentifier: ChatForwardAttachmentSignature] = [:]
+
+    func contentSignature(for message: ChatViewController.Datasource) -> ChatDiffContentSignature {
+        ChatDiffContentSignature(
+            kind: kindSignature(message.kind),
+            timeMarkerText: textString(message.timeMarkerText),
+            attachments: attachmentSignature(
+                images: message.images,
+                videos: message.videos,
+                locations: message.locations,
+                contacts: message.contacts,
+                files: message.files,
+                audios: message.audios,
+                forwards: message.forwards
+            )
+        )
+    }
+
+    private func kindSignature(_ kind: MessageKind) -> ChatMessageKindContentSignature {
+        switch kind {
+        case .attributedText(let text):
+            return .attributedText(textString(text))
+        case .emoji(let text):
+            return .emoji(text)
+        case .sticker(let attachment):
+            return .sticker(imageSignature(attachment))
+        case .call(let attachment):
+            return .call(
+                primary: attachment.primary,
+                incoming: attachment.incoming,
+                missed: attachment.missed
+            )
+        case .system(let text):
+            return .system(textString(text))
+        case .initial(let text):
+            return .initial(textString(text))
+        case .skeleton(let text):
+            return .skeleton(textString(text))
+        case .date(let text):
+            return .date(textString(text))
+        case .unread(let text):
+            return .unread(textString(text))
+        }
+    }
+
+    private func attachmentSignature(
+        images: [ImageAttachment],
+        videos: [VideoAttachment],
+        locations: [LocationAttachment],
+        contacts: [ContactAttachment],
+        files: [FileAttachment],
+        audios: [AudioAttachment],
+        forwards: [MessageAttachment]
+    ) -> ChatAttachmentContentSignature {
+        ChatAttachmentContentSignature(
+            images: images.map(imageSignature(_:)),
+            videos: videos.map(videoSignature(_:)),
+            locations: locations.map(locationSignature(_:)),
+            contacts: contacts.map(contactSignature(_:)),
+            files: files.map(fileSignature(_:)),
+            audios: audios.map(audioSignature(_:)),
+            forwards: forwards.map(forwardSignature(_:))
+        )
+    }
+
+    private func textString(_ text: NSAttributedString?) -> String {
+        guard let text else { return "" }
+        let key = ObjectIdentifier(text)
+        if let cached = textCache[key] {
+            return cached
+        }
+        let value = text.string
+        textCache[key] = value
+        return value
+    }
+
+    private func imageSignature(_ attachment: ImageAttachment) -> ChatImageAttachmentSignature {
+        let key = ObjectIdentifier(attachment)
+        if let cached = imageCache[key] {
+            return cached
+        }
+        let signature = ChatImageAttachmentSignature(attachment)
+        imageCache[key] = signature
+        return signature
+    }
+
+    private func videoSignature(_ attachment: VideoAttachment) -> ChatVideoAttachmentSignature {
+        let key = ObjectIdentifier(attachment)
+        if let cached = videoCache[key] {
+            return cached
+        }
+        let signature = ChatVideoAttachmentSignature(attachment)
+        videoCache[key] = signature
+        return signature
+    }
+
+    private func locationSignature(_ attachment: LocationAttachment) -> ChatLocationAttachmentSignature {
+        let key = ObjectIdentifier(attachment)
+        if let cached = locationCache[key] {
+            return cached
+        }
+        let signature = ChatLocationAttachmentSignature(attachment)
+        locationCache[key] = signature
+        return signature
+    }
+
+    private func contactSignature(_ attachment: ContactAttachment) -> ChatContactAttachmentSignature {
+        let key = ObjectIdentifier(attachment)
+        if let cached = contactCache[key] {
+            return cached
+        }
+        let signature = ChatContactAttachmentSignature(attachment)
+        contactCache[key] = signature
+        return signature
+    }
+
+    private func fileSignature(_ attachment: FileAttachment) -> ChatFileAttachmentSignature {
+        let key = ObjectIdentifier(attachment)
+        if let cached = fileCache[key] {
+            return cached
+        }
+        let signature = ChatFileAttachmentSignature(attachment)
+        fileCache[key] = signature
+        return signature
+    }
+
+    private func audioSignature(_ attachment: AudioAttachment) -> ChatAudioAttachmentSignature {
+        let key = ObjectIdentifier(attachment)
+        if let cached = audioCache[key] {
+            return cached
+        }
+        let signature = ChatAudioAttachmentSignature(attachment)
+        audioCache[key] = signature
+        return signature
+    }
+
+    private func forwardSignature(_ attachment: MessageAttachment) -> ChatForwardAttachmentSignature {
+        let key = ObjectIdentifier(attachment)
+        if let cached = forwardCache[key] {
+            return cached
+        }
+        let signature = ChatForwardAttachmentSignature(
+            primary: attachment.primary,
+            author: attachment.author,
+            jid: attachment.jid,
+            outgoing: attachment.outgoing,
+            textMessage: textString(attachment.textMessage),
+            timeMarker: textString(attachment.timeMarker),
+            attachments: attachmentSignature(
+                images: attachment.images,
+                videos: attachment.videos,
+                locations: attachment.locations,
+                contacts: attachment.contacts,
+                files: attachment.files,
+                audios: attachment.audios,
+                forwards: attachment.subforwards
+            )
+        )
+        forwardCache[key] = signature
+        return signature
+    }
+}
+
 enum ChatMessageUpdatePolicy {
     private static let sizeTolerance: CGFloat = 0.5
 
@@ -3501,74 +3936,18 @@ enum ChatMessageUpdatePolicy {
         old oldMessage: ChatViewController.Datasource,
         new newMessage: ChatViewController.Datasource
     ) -> Bool {
-        !ChatViewController.Datasource.compareContent(oldMessage, newMessage) ||
-        messageKindContentKey(oldMessage.kind) != messageKindContentKey(newMessage.kind) ||
-        attributedTextKey(oldMessage.timeMarkerText) != attributedTextKey(newMessage.timeMarkerText) ||
-        attachmentContentKey(oldMessage) != attachmentContentKey(newMessage)
+        let signatureBuilder = ChatDiffSignatureBuilder()
+        return !ChatViewController.Datasource.compareContent(oldMessage, newMessage) ||
+        signatureBuilder.contentSignature(for: oldMessage) != signatureBuilder.contentSignature(for: newMessage)
+    }
+
+    static func contentSignature(for message: ChatViewController.Datasource) -> ChatDiffContentSignature {
+        ChatDiffSignatureBuilder().contentSignature(for: message)
     }
 
     private static func sizesAreEqual(_ lhs: CGSize, _ rhs: CGSize) -> Bool {
         abs(lhs.width - rhs.width) <= sizeTolerance &&
         abs(lhs.height - rhs.height) <= sizeTolerance
-    }
-
-    private static func messageKindContentKey(_ kind: MessageKind) -> String {
-        switch kind {
-        case .attributedText(let text):
-            return "attributedText:\(attributedTextKey(text))"
-        case .emoji(let text):
-            return "emoji:\(text)"
-        case .sticker(let attachment):
-            return "sticker:\(attachment.primary):\(attachment.url?.absoluteString ?? ""):\(attachment.size)"
-        case .call(let attachment):
-            return "call:\(attachment.primary):\(attachment.incoming):\(attachment.missed)"
-        case .system(let text):
-            return "system:\(attributedTextKey(text))"
-        case .initial(let text):
-            return "initial:\(attributedTextKey(text))"
-        case .skeleton(let text):
-            return "skeleton:\(attributedTextKey(text))"
-        case .date(let text):
-            return "date:\(attributedTextKey(text))"
-        case .unread(let text):
-            return "unread:\(attributedTextKey(text))"
-        }
-    }
-
-    private static func attributedTextKey(_ text: NSAttributedString?) -> String {
-        guard let text else { return "" }
-        return text.string
-    }
-
-    private static func attachmentContentKey(_ message: ChatViewController.Datasource) -> String {
-        [
-            message.images.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.size):\($0.isSensitive):\($0.isSensitiveRevealed)" }.joined(separator: "|"),
-            message.videos.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.previewUrl?.absoluteString ?? ""):\($0.size):\($0.duration):\($0.downloaded):\($0.isSensitive):\($0.isSensitiveRevealed)" }.joined(separator: "|"),
-            message.contacts.map { "\($0.primary):\($0.jid):\($0.title):\($0.avatarURL ?? "")" }.joined(separator: "|"),
-            message.files.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.name):\($0.size):\($0.downloaded)" }.joined(separator: "|"),
-            message.audios.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.duration):\($0.downloaded):\(pcmKey($0.pcm))" }.joined(separator: "|"),
-            message.forwards.map(forwardContentKey(_:)).joined(separator: "|")
-        ].joined(separator: "#")
-    }
-
-    private static func forwardContentKey(_ attachment: MessageAttachment) -> String {
-        [
-            attachment.primary,
-            attachment.author,
-            attachment.outgoing.description,
-            attributedTextKey(attachment.textMessage),
-            attributedTextKey(attachment.timeMarker),
-            attachment.images.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.size):\($0.isSensitive):\($0.isSensitiveRevealed)" }.joined(separator: "|"),
-            attachment.videos.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.previewUrl?.absoluteString ?? ""):\($0.size):\($0.duration):\($0.downloaded):\($0.isSensitive):\($0.isSensitiveRevealed)" }.joined(separator: "|"),
-            attachment.contacts.map { "\($0.primary):\($0.jid):\($0.title):\($0.avatarURL ?? "")" }.joined(separator: "|"),
-            attachment.files.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.name):\($0.size):\($0.downloaded)" }.joined(separator: "|"),
-            attachment.audios.map { "\($0.primary):\($0.url?.absoluteString ?? ""):\($0.duration):\($0.downloaded):\(pcmKey($0.pcm))" }.joined(separator: "|"),
-            attachment.subforwards.map(forwardContentKey(_:)).joined(separator: "|")
-        ].joined(separator: "#")
-    }
-
-    private static func pcmKey(_ pcm: [Float]) -> String {
-        pcm.map { String(format: "%.3f", $0) }.joined(separator: ",")
     }
 }
 
