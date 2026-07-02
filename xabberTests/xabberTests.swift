@@ -28801,6 +28801,10 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     var avatarListResponses: [CloudStorageQuotaAPIResponse] = []
     var deleteResponses: [CloudStorageQuotaAPIResponse] = []
     var pendingStats: [(CloudStorageQuotaAPIResponse) -> Void] = []
+    var shouldHoldSlotResponses = false
+    var shouldHoldUploadResponses = false
+    var onSlotRequest: ((Int) -> Void)?
+    var onUploadRequest: ((Int) -> Void)?
     private(set) var statsBaseURLs: [URL] = []
     private(set) var slotBaseURLs: [URL] = []
     private(set) var uploadBaseURLs: [URL] = []
@@ -28815,6 +28819,9 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     private(set) var deleteTokens: [String] = []
     private(set) var uploadContexts: [String] = []
     private(set) var uploadData: [Data] = []
+    private(set) var slotTraceIDs: [String] = []
+    private(set) var uploadTraceIDs: [String] = []
+    private(set) var slotTimeoutIntervals: [TimeInterval] = []
     private(set) var listTypes: [MimeIconTypes] = []
     private(set) var listPages: [Int] = []
     private(set) var deleteFileIDs: [Int] = []
@@ -28825,7 +28832,17 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     private(set) var listCallCount = 0
     private(set) var avatarListCallCount = 0
     private(set) var deleteCallCount = 0
+    private var pendingSlots: [(CloudStorageQuotaAPIResponse) -> Void] = []
+    private var pendingUploads: [(CloudStorageQuotaAPIResponse) -> Void] = []
     private let lock = NSRecursiveLock()
+
+    var pendingSlotCount: Int {
+        withLock { pendingSlots.count }
+    }
+
+    var pendingUploadCount: Int {
+        withLock { pendingUploads.count }
+    }
 
     private func withLock<T>(_ body: () -> T) -> T {
         lock.lock()
@@ -28846,25 +28863,46 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
         }
     }
 
-    func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        withLock {
+    func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, traceID: String, timeoutInterval: TimeInterval, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        let callbackState: (Int, CloudStorageQuotaAPIResponse?)
+        callbackState = withLock {
             slotCallCount += 1
             slotBaseURLs.append(baseURL)
             slotTokens.append(token)
-            completion(slotResponses.isEmpty ? .failure(statusCode: nil, error: nil) : slotResponses.removeFirst())
+            slotTraceIDs.append(traceID)
+            slotTimeoutIntervals.append(timeoutInterval)
+            if shouldHoldSlotResponses {
+                pendingSlots.append(completion)
+                return (slotCallCount, nil)
+            }
+            return (slotCallCount, slotResponses.isEmpty ? .failure(statusCode: nil, error: nil) : slotResponses.removeFirst())
+        }
+        onSlotRequest?(callbackState.0)
+        if let response = callbackState.1 {
+            completion(response)
         }
     }
 
-    func uploadFile(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, metadata: [String : String]?, context: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        withLock {
+    func uploadFile(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, metadata: [String : String]?, context: String, traceID: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        let callbackState: (Int, CloudStorageQuotaAPIResponse?)
+        callbackState = withLock {
             uploadCallCount += 1
             uploadBaseURLs.append(baseURL)
             uploadTokens.append(token)
             uploadContexts.append(context)
             uploadData.append(data)
+            uploadTraceIDs.append(traceID)
+            if shouldHoldUploadResponses {
+                pendingUploads.append(completion)
+                return (uploadCallCount, nil)
+            }
             let response = uploadResponses.isEmpty
                 ? defaultUploadResponse(data: data, filename: filename, context: context)
                 : uploadResponses.removeFirst()
+            return (uploadCallCount, response)
+        }
+        onUploadRequest?(callbackState.0)
+        if let response = callbackState.1 {
             completion(response)
         }
     }
@@ -28965,6 +29003,26 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
         }
     }
 
+    func completeNextSlot(_ response: CloudStorageQuotaAPIResponse) {
+        let callback: ((CloudStorageQuotaAPIResponse) -> Void)? = withLock {
+            guard !pendingSlots.isEmpty else {
+                return nil
+            }
+            return pendingSlots.removeFirst()
+        }
+        callback?(response)
+    }
+
+    func completeNextUpload(_ response: CloudStorageQuotaAPIResponse) {
+        let callback: ((CloudStorageQuotaAPIResponse) -> Void)? = withLock {
+            guard !pendingUploads.isEmpty else {
+                return nil
+            }
+            return pendingUploads.removeFirst()
+        }
+        callback?(response)
+    }
+
     private func pagePayload() -> [String: Any] {
         return [
             "total_pages": 1,
@@ -28995,6 +29053,24 @@ private final class FakeCloudStorageTokenAPIClient: CloudStorageTokenAPIClient {
         exchangeOwners.append(owner)
         exchangeCodes.append(code)
         completion(exchangeResponses.isEmpty ? .response(statusCode: 200, value: ["token": "\(baseURL.host ?? "gallery")-\(code)"]) : exchangeResponses.removeFirst())
+    }
+}
+
+private final class FakeAccountNetworkPathMonitor: AccountNetworkPathMonitoring {
+    var pathUpdateHandler: ((AccountNetworkPathSnapshot) -> Void)?
+    private(set) var didStart = false
+    private(set) var didCancel = false
+
+    func start(queue: DispatchQueue) {
+        didStart = true
+    }
+
+    func cancel() {
+        didCancel = true
+    }
+
+    func emit(_ snapshot: AccountNetworkPathSnapshot) {
+        pathUpdateHandler?(snapshot)
     }
 }
 
@@ -29303,6 +29379,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XabberUploadManager.quotaAPIClient = fakeClient
         XabberUploadManager.tokenAPIClient = fakeTokenClient
         XabberUploadManager.tokenExpiredTestingHandler = nil
+        XabberUploadManager.networkPathMonitorFactory = { nil }
         AccountManager.shared.users.removeAll()
         AccountGalleryConfiguration(owner: owner).clearPersistedState()
         SettingManager.shared.saveItem(for: owner, scope: .xabberUploadManager, key: "node", value: basicGalleryURL.absoluteString)
@@ -29314,6 +29391,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XabberUploadManager.quotaAPIClient = AlamofireCloudStorageQuotaAPIClient()
         XabberUploadManager.tokenAPIClient = AlamofireCloudStorageTokenAPIClient()
         XabberUploadManager.tokenExpiredTestingHandler = nil
+        XabberUploadManager.networkPathMonitorFactory = { AccountNWPathMonitor() }
         AccountManager.shared.users.removeAll()
         AccountGalleryConfiguration(owner: owner).clearPersistedState()
         SettingManager.shared.removeItem(for: owner, scope: .xabberUploadManager, key: "node")
@@ -29738,11 +29816,39 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(fakeClient.statsCallCount, 1)
     }
 
-    func testSlotTimeoutRetriesBeforeMediaUploadContinues() {
+    func testConcurrentMediaReferencesRunOnlyOneSlotUntilFirstSlotCompletes() throws {
+        let firstURL = try makeTemporaryUploadFile(name: "first-sequential-slot.jpg", contents: Data("first".utf8))
+        let secondURL = try makeTemporaryUploadFile(name: "second-sequential-slot.jpg", contents: Data("second".utf8))
+        defer {
+            try? FileManager.default.removeItem(at: firstURL.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: secondURL.deletingLastPathComponent())
+        }
+        let primary = try seedUploadingMediaMessage(localFileURLs: [firstURL, secondURL])
+        fakeClient.shouldHoldSlotResponses = true
+        fakeClient.shouldHoldUploadResponses = true
+        let manager = XabberUploadManager(withOwner: owner)
+
+        manager.getFileData(message: primary, successCallback: {
+            XCTFail("Held uploads should not finish")
+        }, failCallback: {
+            XCTFail("Held uploads should not fail")
+        })
+
+        XCTAssertEqual(fakeClient.slotCallCount, 1)
+        XCTAssertEqual(fakeClient.pendingSlotCount, 1)
+        XCTAssertEqual(fakeClient.uploadCallCount, 0)
+
+        fakeClient.completeNextSlot(.response(statusCode: 200, value: [:]))
+
+        XCTAssertEqual(fakeClient.uploadCallCount, 1)
+        XCTAssertEqual(fakeClient.pendingUploadCount, 1)
+        XCTAssertEqual(fakeClient.slotCallCount, 2)
+        XCTAssertEqual(fakeClient.pendingSlotCount, 1)
+    }
+
+    func testSlotTimeoutFallbackStartsUploadWithoutSlotRetry() {
         fakeClient.slotResponses = [
-            .failure(statusCode: nil, error: timeoutError()),
-            .failure(statusCode: nil, error: timeoutError()),
-            .response(statusCode: 200, value: [:])
+            .failure(statusCode: nil, error: timeoutError())
         ]
         let manager = XabberUploadManager(withOwner: owner)
         let expectation = expectation(description: "media upload")
@@ -29757,44 +29863,76 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         }
         wait(for: [expectation], timeout: 1)
 
-        XCTAssertEqual(fakeClient.slotCallCount, 3)
+        XCTAssertEqual(fakeClient.slotCallCount, 1)
         XCTAssertEqual(fakeClient.uploadCallCount, 1)
+        XCTAssertEqual(fakeClient.slotTimeoutIntervals, [15])
+        XCTAssertEqual(fakeClient.slotTraceIDs.count, 1)
+        XCTAssertEqual(fakeClient.uploadTraceIDs.count, 1)
+        XCTAssertNotEqual(fakeClient.slotTraceIDs.first, fakeClient.uploadTraceIDs.first)
     }
 
-    func testPersistentSlotTimeoutLeavesRetryableFailedMessageWithoutUpload() throws {
-        let firstURL = try makeTemporaryUploadFile(name: "first-slot-timeout.jpg", contents: Data("first".utf8))
-        let secondURL = try makeTemporaryUploadFile(name: "second-slot-timeout.jpg", contents: Data("second".utf8))
+    func testSlotTimeoutFallbackUploadsMessageWithoutError() throws {
+        let firstURL = try makeTemporaryUploadFile(name: "first-slot-timeout-fallback.jpg", contents: Data("first".utf8))
+        let secondURL = try makeTemporaryUploadFile(name: "second-slot-timeout-fallback.jpg", contents: Data("second".utf8))
         defer {
-            try? FileManager.default.removeItem(at: firstURL)
-            try? FileManager.default.removeItem(at: secondURL)
+            try? FileManager.default.removeItem(at: firstURL.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: secondURL.deletingLastPathComponent())
         }
         let primary = try seedUploadingMediaMessage(localFileURLs: [firstURL, secondURL])
         fakeClient.slotResponses = [
             .failure(statusCode: nil, error: timeoutError()),
-            .failure(statusCode: nil, error: timeoutError()),
             .failure(statusCode: nil, error: timeoutError())
         ]
         let manager = XabberUploadManager(withOwner: owner)
-        let expectation = expectation(description: "slot timeout failure")
+        let expectation = expectation(description: "slot timeout fallback success")
         var successCount = 0
         var failureCount = 0
 
         manager.getFileData(message: primary, successCallback: {
             successCount += 1
+            expectation.fulfill()
         }, failCallback: {
             failureCount += 1
+        })
+        wait(for: [expectation], timeout: 1)
+
+        let realm = try WRealm.safe()
+        let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+        XCTAssertEqual(successCount, 1)
+        XCTAssertEqual(failureCount, 0)
+        XCTAssertEqual(fakeClient.slotCallCount, 2)
+        XCTAssertEqual(fakeClient.uploadCallCount, 2)
+        XCTAssertEqual(message.references.filter("isUploaded == true").count, 2)
+        XCTAssertNil(message.messageError)
+        XCTAssertNil(message.messageErrorCode)
+        XCTAssertFalse(message.references.contains(where: \.hasError))
+    }
+
+    func testSlotQuotaExceededMarksMessageFailedWithoutUpload() throws {
+        let localURL = try makeTemporaryUploadFile(name: "slot-quota-exceeded.jpg", contents: Data("image".utf8))
+        defer {
+            try? FileManager.default.removeItem(at: localURL.deletingLastPathComponent())
+        }
+        let primary = try seedUploadingMediaMessage(localFileURLs: [localURL])
+        fakeClient.slotResponses = [.response(statusCode: 403, value: ["status": 403])]
+        fakeClient.statsResponses = [.response(statusCode: 200, value: statsPayload(quota: 100, totalUsed: 100))]
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "slot quota failure")
+
+        manager.getFileData(message: primary, successCallback: {
+            XCTFail("Quota exceeded slot should not upload")
+        }, failCallback: {
             expectation.fulfill()
         })
         wait(for: [expectation], timeout: 1)
 
         let realm = try WRealm.safe()
         let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
-        XCTAssertEqual(successCount, 0)
-        XCTAssertEqual(failureCount, 1)
-        XCTAssertEqual(fakeClient.slotCallCount, 3)
+        XCTAssertEqual(fakeClient.slotCallCount, 1)
         XCTAssertEqual(fakeClient.uploadCallCount, 0)
+        XCTAssertEqual(fakeClient.statsCallCount, 1)
         XCTAssertEqual(message.state, .error)
-        XCTAssertEqual(message.messageErrorCode, "500")
+        XCTAssertEqual(message.messageErrorCode, "403")
         XCTAssertTrue(message.references.allSatisfy(\.hasError))
     }
 
@@ -29874,6 +30012,42 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
 
         XCTAssertEqual(fakeClient.slotCallCount, 1)
         XCTAssertEqual(fakeClient.uploadCallCount, 3)
+    }
+
+    func testUploadRetryAfterNetworkPathChangeGetsOneFreshTraceAttempt() {
+        let monitor = FakeAccountNetworkPathMonitor()
+        XabberUploadManager.networkPathMonitorFactory = { monitor }
+        fakeClient.slotResponses = [
+            .response(statusCode: 200, value: [:])
+        ]
+        fakeClient.uploadResponses = [
+            .failure(statusCode: nil, error: timeoutError()),
+            .failure(statusCode: nil, error: timeoutError()),
+            .failure(statusCode: nil, error: timeoutError()),
+            .response(statusCode: 200, value: uploadPayload(filename: "path-change.txt"))
+        ]
+        let manager = XabberUploadManager(withOwner: owner)
+        monitor.emit(AccountNetworkPathSnapshot(status: .satisfied, interfaces: [.wifi]))
+        fakeClient.onUploadRequest = { count in
+            if count == 1 {
+                monitor.emit(AccountNetworkPathSnapshot(status: .satisfied, interfaces: [.cellular], isExpensive: true))
+            }
+        }
+        let expectation = expectation(description: "path-change upload retry")
+
+        manager.uploadMedia(data: Data("hello".utf8), filename: "path-change.txt", mimeType: "text/plain") { response in
+            if case .response(let code, _, _) = response {
+                XCTAssertEqual(code, 200)
+            } else {
+                XCTFail("Expected upload to get one path-change retry")
+            }
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(fakeClient.uploadCallCount, 4)
+        XCTAssertEqual(Set(fakeClient.uploadTraceIDs).count, 4)
+        XCTAssertFalse(fakeClient.uploadTraceIDs.contains(""))
     }
 
     func testPersistentUploadTimeoutLeavesRetryableFailedMessageWithoutAggregateSuccess() throws {

@@ -426,7 +426,8 @@ class AvatarUploadManager: AbstractXMPPManager {
             filename: "\(NanoID.new(5)).png",
             mimeType: upload.mimeType,
             metadata: nil,
-            context: "avatar"
+            context: "avatar",
+            traceID: UUID().uuidString
         ) { [weak self] response in
             guard let self = self else { return }
             guard context.matchesCurrentSelection() else {

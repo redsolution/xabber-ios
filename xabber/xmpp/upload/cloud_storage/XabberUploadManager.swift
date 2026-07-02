@@ -829,8 +829,8 @@ enum CloudStorageQuotaAPIResponse {
 
 protocol CloudStorageQuotaAPIClient {
     func getStats(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
-    func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
-    func uploadFile(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, metadata: [String: String]?, context: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
+    func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, traceID: String, timeoutInterval: TimeInterval, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
+    func uploadFile(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, metadata: [String: String]?, context: String, traceID: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func deleteMedia(baseURL: URL, token: String, fileID: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func deleteAvatar(baseURL: URL, token: String, fileID: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func deleteGallery(baseURL: URL, token: String, jid: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
@@ -879,6 +879,8 @@ final class AlamofireCloudStorageTokenAPIClient: CloudStorageTokenAPIClient {
 }
 
 final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
+    private static let traceHeaderName = "X-Xabber-Trace-ID"
+
     func getStats(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
         guard let url = Self.apiURL(baseURL: baseURL, path: "v1/files/stats/") else {
             completion(.failure(statusCode: nil, error: nil))
@@ -894,26 +896,27 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
         ).responseJSON { Self.complete($0, completion: completion) }
     }
 
-    func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+    func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, traceID: String, timeoutInterval: TimeInterval, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
         guard let url = Self.apiURL(baseURL: baseURL, path: "v1/files/slot/") else {
             completion(.failure(statusCode: nil, error: nil))
             return
         }
 
-        AF.request(
-            url,
-            method: .get,
-            parameters: [
+        do {
+            var urlRequest = try URLRequest(url: url, method: .get, headers: Self.authHeaders(token, traceID: traceID))
+            urlRequest.timeoutInterval = timeoutInterval
+            let encodedRequest = try URLEncoding.default.encode(urlRequest, with: [
                 "size": request.size,
                 "name": request.name,
                 "hash": request.hash
-            ],
-            encoding: URLEncoding.default,
-            headers: Self.authHeaders(token)
-        ).responseJSON { Self.complete($0, completion: completion) }
+            ])
+            AF.request(encodedRequest).responseJSON { Self.complete($0, completion: completion) }
+        } catch {
+            completion(.failure(statusCode: nil, error: error))
+        }
     }
 
-    func uploadFile(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, metadata: [String: String]?, context: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+    func uploadFile(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, metadata: [String: String]?, context: String, traceID: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
         guard let url = Self.apiURL(baseURL: baseURL, path: "v1/files/upload/"),
               let mimeData = mimeType.data(using: .utf8),
               let contextData = context.data(using: .utf8) else {
@@ -933,7 +936,7 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
             },
             to: url,
             method: .post,
-            headers: Self.authHeaders(token)
+            headers: Self.authHeaders(token, traceID: traceID)
         ).validate().responseJSON { Self.complete($0, completion: completion) }
     }
 
@@ -1051,8 +1054,12 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
         }
     }
 
-    private static func authHeaders(_ token: String) -> HTTPHeaders {
-        return HTTPHeaders(["Authorization": "Bearer \(token)"])
+    private static func authHeaders(_ token: String, traceID: String? = nil) -> HTTPHeaders {
+        var headers = ["Authorization": "Bearer \(token)"]
+        if let traceID = traceID, traceID.isNotEmpty {
+            headers[traceHeaderName] = traceID
+        }
+        return HTTPHeaders(headers)
     }
 
     private func requestDelete(baseURL: URL, token: String, path: String, parameters: [String: Any], completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
@@ -1179,6 +1186,7 @@ class XabberUploadManager: AbstractXMPPManager {
     static var quotaAPIClient: CloudStorageQuotaAPIClient = AlamofireCloudStorageQuotaAPIClient()
     static var tokenAPIClient: CloudStorageTokenAPIClient = AlamofireCloudStorageTokenAPIClient()
     static var tokenExpiredTestingHandler: ((CloudStorageGalleryRequestContext) -> Void)?
+    static var networkPathMonitorFactory: () -> AccountNetworkPathMonitoring? = { AccountNWPathMonitor() }
 
     internal var node: String? = nil
 
@@ -1189,6 +1197,14 @@ class XabberUploadManager: AbstractXMPPManager {
     private var quotaRefreshInFlightContextIdentity: String?
     private var quotaRefreshGeneration = 0
     private var quotaRefreshCallbacks: [(CloudStorageQuotaRefreshResult) -> Void] = []
+    private let gallerySlotQueueLock = NSRecursiveLock()
+    private var gallerySlotQueue: [GallerySlotQueueItem] = []
+    private var isGallerySlotRequestRunning = false
+    private let galleryNetworkPathLock = NSLock()
+    private let galleryNetworkPathQueue = DispatchQueue(label: "com.xabber.gallery.network-path")
+    private var galleryNetworkPathMonitor: AccountNetworkPathMonitoring?
+    private var galleryNetworkPathSnapshot: AccountNetworkPathSnapshot?
+    private var galleryNetworkPathGeneration = 0
 
     var token: String {
         get {
@@ -1206,6 +1222,11 @@ class XabberUploadManager: AbstractXMPPManager {
 
     override init(withOwner owner: String) {
         super.init(withOwner: owner)
+        startGalleryNetworkPathMonitoring()
+    }
+
+    deinit {
+        galleryNetworkPathMonitor?.cancel()
     }
 
     open func isAvailable() -> Bool {
@@ -1275,19 +1296,50 @@ class XabberUploadManager: AbstractXMPPManager {
         let referencePrimary: String?
     }
 
+    private struct GalleryRequestAttemptContext {
+        let traceID: String
+        let attempt: Int
+        let maxAttempts: Int
+        let networkPathGeneration: Int
+        let isNetworkPathBonusAttempt: Bool
+    }
+
+    private struct GallerySlotQueueItem {
+        let id: String
+        let filename: String
+        let traceContext: MediaUploadDiagnosticContext?
+        let traceDetails: [(String, Any?)]
+        let start: (@escaping () -> Void) -> Void
+    }
+
     private var galleryUploadMaxRetryAttempts: Int {
         3
+    }
+
+    private var gallerySlotRequestTimeout: TimeInterval {
+        15
     }
 
     private func performGalleryRequestWithRetry(
         endpoint: GalleryUploadEndpoint,
         filename: String,
         attempt: Int = 1,
+        initialNetworkPathGeneration: Int? = nil,
+        usedNetworkPathBonusAttempt: Bool = false,
         traceContext: MediaUploadDiagnosticContext? = nil,
         traceDetails: [(String, Any?)] = [],
-        operation: @escaping (@escaping (CloudStorageQuotaAPIResponse) -> Void) -> Void,
+        operation: @escaping (GalleryRequestAttemptContext, @escaping (CloudStorageQuotaAPIResponse) -> Void) -> Void,
         completion: @escaping (CloudStorageQuotaAPIResponse) -> Void
     ) {
+        let networkPathGeneration = currentGalleryNetworkPathGeneration()
+        let initialNetworkPathGeneration = initialNetworkPathGeneration ?? networkPathGeneration
+        let attemptContext = GalleryRequestAttemptContext(
+            traceID: UUID().uuidString,
+            attempt: attempt,
+            maxAttempts: galleryUploadMaxRetryAttempts,
+            networkPathGeneration: networkPathGeneration,
+            isNetworkPathBonusAttempt: usedNetworkPathBonusAttempt && attempt > galleryUploadMaxRetryAttempts
+        )
         logMediaUploadTrace(
             "gallery_\(endpoint.rawValue)_request_started",
             details: mediaUploadTraceDetails(
@@ -1295,58 +1347,237 @@ class XabberUploadManager: AbstractXMPPManager {
                 extra: traceDetails + [
                     ("endpoint", endpoint.rawValue),
                     ("filename", filename),
-                    ("attempt", attempt),
-                    ("maxAttempts", galleryUploadMaxRetryAttempts)
-                ]
+                    ("attempt", attemptContext.attempt),
+                    ("maxAttempts", attemptContext.maxAttempts),
+                    ("traceID", attemptContext.traceID),
+                    ("networkPathGeneration", attemptContext.networkPathGeneration),
+                    ("networkPathBonusAttempt", attemptContext.isNetworkPathBonusAttempt),
+                    ("timeout", endpoint == .slot ? gallerySlotRequestTimeout : nil)
+                ] + currentGalleryNetworkPathTraceDetails()
             )
         )
-        operation { [weak self] response in
+        operation(attemptContext) { [weak self] response in
             guard let self else {
                 completion(response)
                 return
             }
 
-            guard attempt < self.galleryUploadMaxRetryAttempts,
-                  self.isRetryableGalleryResponse(response) else {
+            let isRetryable = self.isRetryableGalleryResponse(response)
+            let isSlotTimeoutFallback = endpoint == .slot && self.isGalleryTimeoutResponse(response)
+            if isRetryable, !isSlotTimeoutFallback, attempt < self.galleryUploadMaxRetryAttempts {
                 self.logMediaUploadTrace(
-                    self.isGalleryFailureResponse(response) ? "gallery_\(endpoint.rawValue)_request_final_failure" : "gallery_\(endpoint.rawValue)_request_completed",
+                    "gallery_\(endpoint.rawValue)_request_retry",
                     details: self.mediaUploadTraceDetails(
                         context: traceContext,
                         extra: traceDetails + [
                             ("endpoint", endpoint.rawValue),
                             ("filename", filename),
-                            ("attempt", attempt),
-                            ("maxAttempts", self.galleryUploadMaxRetryAttempts)
+                            ("attempt", attemptContext.attempt),
+                            ("nextAttempt", attempt + 1),
+                            ("maxAttempts", self.galleryUploadMaxRetryAttempts),
+                            ("traceID", attemptContext.traceID),
+                            ("networkPathGeneration", attemptContext.networkPathGeneration),
+                            ("retryReason", "retryableResponse")
                         ] + self.mediaUploadResponseTraceDetails(response)
                     )
                 )
-                completion(response)
+                self.performGalleryRequestWithRetry(
+                    endpoint: endpoint,
+                    filename: filename,
+                    attempt: attempt + 1,
+                    initialNetworkPathGeneration: initialNetworkPathGeneration,
+                    usedNetworkPathBonusAttempt: usedNetworkPathBonusAttempt,
+                    traceContext: traceContext,
+                    traceDetails: traceDetails,
+                    operation: operation,
+                    completion: completion
+                )
                 return
             }
 
+            let currentNetworkPathGeneration = self.currentGalleryNetworkPathGeneration()
+            if isRetryable,
+               !isSlotTimeoutFallback,
+               !usedNetworkPathBonusAttempt,
+               currentNetworkPathGeneration != initialNetworkPathGeneration {
+                self.logMediaUploadTrace(
+                    "gallery_\(endpoint.rawValue)_request_retry",
+                    details: self.mediaUploadTraceDetails(
+                        context: traceContext,
+                        extra: traceDetails + [
+                            ("endpoint", endpoint.rawValue),
+                            ("filename", filename),
+                            ("attempt", attemptContext.attempt),
+                            ("nextAttempt", attempt + 1),
+                            ("maxAttempts", self.galleryUploadMaxRetryAttempts),
+                            ("traceID", attemptContext.traceID),
+                            ("networkPathGeneration", attemptContext.networkPathGeneration),
+                            ("networkPathGenerationNow", currentNetworkPathGeneration),
+                            ("retryReason", "networkPathChanged")
+                        ] + self.mediaUploadResponseTraceDetails(response)
+                    )
+                )
+                self.performGalleryRequestWithRetry(
+                    endpoint: endpoint,
+                    filename: filename,
+                    attempt: attempt + 1,
+                    initialNetworkPathGeneration: initialNetworkPathGeneration,
+                    usedNetworkPathBonusAttempt: true,
+                    traceContext: traceContext,
+                    traceDetails: traceDetails,
+                    operation: operation,
+                    completion: completion
+                )
+                return
+            }
+
+            let finalEvent = isSlotTimeoutFallback || !self.isGalleryFailureResponse(response)
+                ? "gallery_\(endpoint.rawValue)_request_completed"
+                : "gallery_\(endpoint.rawValue)_request_final_failure"
             self.logMediaUploadTrace(
-                "gallery_\(endpoint.rawValue)_request_retry",
+                finalEvent,
                 details: self.mediaUploadTraceDetails(
                     context: traceContext,
                     extra: traceDetails + [
                         ("endpoint", endpoint.rawValue),
                         ("filename", filename),
-                        ("attempt", attempt),
-                        ("nextAttempt", attempt + 1),
-                        ("maxAttempts", self.galleryUploadMaxRetryAttempts)
+                        ("attempt", attemptContext.attempt),
+                        ("maxAttempts", self.galleryUploadMaxRetryAttempts),
+                        ("traceID", attemptContext.traceID),
+                        ("networkPathGeneration", attemptContext.networkPathGeneration),
+                        ("networkPathBonusAttempt", attemptContext.isNetworkPathBonusAttempt)
                     ] + self.mediaUploadResponseTraceDetails(response)
                 )
             )
-            self.performGalleryRequestWithRetry(
-                endpoint: endpoint,
-                filename: filename,
-                attempt: attempt + 1,
-                traceContext: traceContext,
-                traceDetails: traceDetails,
-                operation: operation,
-                completion: completion
-            )
+            completion(response)
         }
+    }
+
+    private func enqueueGallerySlotRequest(
+        filename: String,
+        traceContext: MediaUploadDiagnosticContext?,
+        traceDetails: [(String, Any?)],
+        start: @escaping (@escaping () -> Void) -> Void
+    ) {
+        let item = GallerySlotQueueItem(
+            id: UUID().uuidString,
+            filename: filename,
+            traceContext: traceContext,
+            traceDetails: traceDetails,
+            start: start
+        )
+        let queueDepth: Int
+        gallerySlotQueueLock.lock()
+        gallerySlotQueue.append(item)
+        queueDepth = gallerySlotQueue.count
+        gallerySlotQueueLock.unlock()
+
+        logMediaUploadTrace("gallery_slot_queue_enqueued", details: mediaUploadTraceDetails(context: traceContext, extra: traceDetails + [
+            ("filename", filename),
+            ("slotQueueID", item.id),
+            ("queueDepth", queueDepth)
+        ]))
+        startNextGallerySlotRequestIfNeeded()
+    }
+
+    private func startNextGallerySlotRequestIfNeeded() {
+        let item: GallerySlotQueueItem?
+        let queueDepth: Int
+        gallerySlotQueueLock.lock()
+        if isGallerySlotRequestRunning || gallerySlotQueue.isEmpty {
+            gallerySlotQueueLock.unlock()
+            return
+        }
+        isGallerySlotRequestRunning = true
+        item = gallerySlotQueue.removeFirst()
+        queueDepth = gallerySlotQueue.count
+        gallerySlotQueueLock.unlock()
+
+        guard let item = item else { return }
+        logMediaUploadTrace("gallery_slot_queue_started", details: mediaUploadTraceDetails(context: item.traceContext, extra: item.traceDetails + [
+            ("filename", item.filename),
+            ("slotQueueID", item.id),
+            ("queueDepth", queueDepth)
+        ]))
+        item.start { [weak self] in
+            self?.releaseGallerySlotRequest(item)
+        }
+    }
+
+    private func releaseGallerySlotRequest(_ item: GallerySlotQueueItem) {
+        let queueDepth: Int
+        gallerySlotQueueLock.lock()
+        isGallerySlotRequestRunning = false
+        queueDepth = gallerySlotQueue.count
+        gallerySlotQueueLock.unlock()
+
+        logMediaUploadTrace("gallery_slot_queue_released", details: mediaUploadTraceDetails(context: item.traceContext, extra: item.traceDetails + [
+            ("filename", item.filename),
+            ("slotQueueID", item.id),
+            ("queueDepth", queueDepth)
+        ]))
+        startNextGallerySlotRequestIfNeeded()
+    }
+
+    private func startGalleryNetworkPathMonitoring() {
+        guard let monitor = Self.networkPathMonitorFactory() else {
+            return
+        }
+        galleryNetworkPathMonitor = monitor
+        monitor.pathUpdateHandler = { [weak self] snapshot in
+            self?.handleGalleryNetworkPathSnapshot(snapshot)
+        }
+        monitor.start(queue: galleryNetworkPathQueue)
+    }
+
+    private func handleGalleryNetworkPathSnapshot(_ snapshot: AccountNetworkPathSnapshot) {
+        let generation: Int
+        let isInitial: Bool
+        galleryNetworkPathLock.lock()
+        if let currentSnapshot = galleryNetworkPathSnapshot {
+            guard currentSnapshot != snapshot else {
+                galleryNetworkPathLock.unlock()
+                return
+            }
+            galleryNetworkPathGeneration += 1
+            isInitial = false
+        } else {
+            isInitial = true
+        }
+        galleryNetworkPathSnapshot = snapshot
+        generation = galleryNetworkPathGeneration
+        galleryNetworkPathLock.unlock()
+
+        logMediaUploadTrace("gallery_network_path_changed", details: [
+            ("owner", owner),
+            ("networkPathGeneration", generation),
+            ("initial", isInitial)
+        ] + galleryNetworkPathTraceDetails(snapshot))
+    }
+
+    private func currentGalleryNetworkPathGeneration() -> Int {
+        galleryNetworkPathLock.lock()
+        defer { galleryNetworkPathLock.unlock() }
+        return galleryNetworkPathGeneration
+    }
+
+    private func currentGalleryNetworkPathTraceDetails() -> [(String, Any?)] {
+        galleryNetworkPathLock.lock()
+        let snapshot = galleryNetworkPathSnapshot
+        galleryNetworkPathLock.unlock()
+        return galleryNetworkPathTraceDetails(snapshot)
+    }
+
+    private func galleryNetworkPathTraceDetails(_ snapshot: AccountNetworkPathSnapshot?) -> [(String, Any?)] {
+        guard let snapshot = snapshot else {
+            return []
+        }
+        return [
+            ("networkPathStatus", snapshot.status.rawValue),
+            ("networkPathInterfaces", snapshot.interfaces.map { $0.rawValue }.sorted().joined(separator: ",")),
+            ("networkPathExpensive", snapshot.isExpensive),
+            ("networkPathConstrained", snapshot.isConstrained)
+        ]
     }
 
     private func logMediaUploadTrace(_ event: String, details: [(String, Any?)] = []) {
@@ -1412,6 +1643,20 @@ class XabberUploadManager: AbstractXMPPManager {
             return mediaUploadNSError(underlyingError)
         }
         return error as NSError
+    }
+
+    private func isGalleryTimeoutResponse(_ response: CloudStorageQuotaAPIResponse) -> Bool {
+        guard case .failure(_, let error, _) = response else {
+            return false
+        }
+        return isGalleryTimeoutError(error)
+    }
+
+    private func isGalleryTimeoutError(_ error: Error?) -> Bool {
+        guard let nsError = mediaUploadNSError(error) else {
+            return false
+        }
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorTimedOut
     }
 
     private func isGalleryFailureResponse(_ response: CloudStorageQuotaAPIResponse) -> Bool {
@@ -1569,7 +1814,7 @@ class XabberUploadManager: AbstractXMPPManager {
                     ("uploadMimeType", uploadMimeType),
                     ("uploadContext", uploadContext)
                 ],
-                operation: { responseCompletion in
+                operation: { attemptContext, responseCompletion in
                     Self.quotaAPIClient.uploadFile(
                         baseURL: context.baseURL,
                         token: context.token,
@@ -1578,6 +1823,7 @@ class XabberUploadManager: AbstractXMPPManager {
                         mimeType: uploadMimeType,
                         metadata: metadata,
                         context: uploadContext,
+                        traceID: attemptContext.traceID,
                         completion: responseCompletion
                     )
                 },
@@ -1644,7 +1890,7 @@ class XabberUploadManager: AbstractXMPPManager {
                     ("uploadMimeType", uploadMimeType),
                     ("uploadContext", uploadContext)
                 ],
-                operation: { responseCompletion in
+                operation: { attemptContext, responseCompletion in
                     Self.quotaAPIClient.uploadFile(
                         baseURL: context.baseURL,
                         token: context.token,
@@ -1653,6 +1899,7 @@ class XabberUploadManager: AbstractXMPPManager {
                         mimeType: uploadMimeType,
                         metadata: metadata,
                         context: uploadContext,
+                        traceID: attemptContext.traceID,
                         completion: responseCompletion
                     )
                 }
@@ -2332,6 +2579,11 @@ class XabberUploadManager: AbstractXMPPManager {
                 ("fileSize", data.count),
                 ("reason", "missingGalleryContext")
             ]))
+            logMediaUploadTrace("gallery_slot_queue_skipped", details: mediaUploadTraceDetails(context: traceContext, extra: traceDetails + [
+                ("filename", filename),
+                ("fileSize", data.count),
+                ("reason", "missingGalleryContext")
+            ]))
             completion(true)
             return
         }
@@ -2349,60 +2601,80 @@ class XabberUploadManager: AbstractXMPPManager {
             ("galleryHost", context.baseURL.host)
         ]
 
-        performGalleryRequestWithRetry(
-            endpoint: .slot,
+        enqueueGallerySlotRequest(
             filename: filename,
             traceContext: traceContext,
-            traceDetails: slotTraceDetails,
-            operation: { responseCompletion in
-                Self.quotaAPIClient.requestSlot(
-                    baseURL: context.baseURL,
-                    token: context.token,
-                    request: request,
-                    completion: responseCompletion
-                )
-            }
-        ) { [weak self] response in
-            guard let self = self else { return }
-            guard self.isCurrent(context) else {
-                self.logMediaUploadTrace("gallery_slot_preflight_rejected", details: self.mediaUploadTraceDetails(context: traceContext, extra: slotTraceDetails + [
-                    ("reason", "staleContext")
-                ]))
+            traceDetails: slotTraceDetails
+        ) { [weak self] releaseSlot in
+            guard let self = self else {
+                releaseSlot()
                 completion(false)
                 return
             }
-
-            let code: Int?
-            switch response {
-            case .response(let statusCode, _, _):
-                code = statusCode
-            case .failure(let statusCode, _, _):
-                code = statusCode
-            }
-
-            if code == 403 {
-                self.logMediaUploadTrace("gallery_slot_preflight_rejected", details: self.mediaUploadTraceDetails(context: traceContext, extra: slotTraceDetails + [
-                    ("reason", "quotaExceeded"),
-                    ("statusCode", code)
-                ]))
-                errorCallback(403)
-                self.refreshQuotaIfCurrent(context, reason: .uploadQuotaExceeded, force: true)
-                completion(false)
-            } else if self.isRetryableGalleryResponse(response) {
-                self.logMediaUploadTrace("gallery_slot_preflight_rejected", details: self.mediaUploadTraceDetails(context: traceContext, extra: slotTraceDetails + [
-                    ("reason", "retryExhausted"),
-                    ("statusCode", code)
-                ] + self.mediaUploadResponseTraceDetails(response)))
-                errorCallback(code)
-                completion(false)
-            } else {
-                if code == 401 {
-                    self.tokenWasExpired(context)
+            self.performGalleryRequestWithRetry(
+                endpoint: .slot,
+                filename: filename,
+                traceContext: traceContext,
+                traceDetails: slotTraceDetails,
+                operation: { attemptContext, responseCompletion in
+                    Self.quotaAPIClient.requestSlot(
+                        baseURL: context.baseURL,
+                        token: context.token,
+                        request: request,
+                        traceID: attemptContext.traceID,
+                        timeoutInterval: self.gallerySlotRequestTimeout,
+                        completion: responseCompletion
+                    )
                 }
-                self.logMediaUploadTrace("gallery_slot_preflight_passed", details: self.mediaUploadTraceDetails(context: traceContext, extra: slotTraceDetails + [
-                    ("statusCode", code)
-                ]))
-                completion(true)
+            ) { [weak self] response in
+                releaseSlot()
+                guard let self = self else { return }
+                guard self.isCurrent(context) else {
+                    self.logMediaUploadTrace("gallery_slot_preflight_rejected", details: self.mediaUploadTraceDetails(context: traceContext, extra: slotTraceDetails + [
+                        ("reason", "staleContext")
+                    ]))
+                    completion(false)
+                    return
+                }
+
+                let code: Int?
+                switch response {
+                case .response(let statusCode, _, _):
+                    code = statusCode
+                case .failure(let statusCode, _, _):
+                    code = statusCode
+                }
+
+                if self.isGalleryTimeoutResponse(response) {
+                    self.logMediaUploadTrace("gallery_slot_timeout_upload_fallback", details: self.mediaUploadTraceDetails(context: traceContext, extra: slotTraceDetails + [
+                        ("timeout", self.gallerySlotRequestTimeout),
+                        ("statusCode", code)
+                    ] + self.mediaUploadResponseTraceDetails(response)))
+                    completion(true)
+                } else if code == 403 {
+                    self.logMediaUploadTrace("gallery_slot_preflight_rejected", details: self.mediaUploadTraceDetails(context: traceContext, extra: slotTraceDetails + [
+                        ("reason", "quotaExceeded"),
+                        ("statusCode", code)
+                    ]))
+                    errorCallback(403)
+                    self.refreshQuotaIfCurrent(context, reason: .uploadQuotaExceeded, force: true)
+                    completion(false)
+                } else if self.isRetryableGalleryResponse(response) {
+                    self.logMediaUploadTrace("gallery_slot_preflight_rejected", details: self.mediaUploadTraceDetails(context: traceContext, extra: slotTraceDetails + [
+                        ("reason", "retryExhausted"),
+                        ("statusCode", code)
+                    ] + self.mediaUploadResponseTraceDetails(response)))
+                    errorCallback(code)
+                    completion(false)
+                } else {
+                    if code == 401 {
+                        self.tokenWasExpired(context)
+                    }
+                    self.logMediaUploadTrace("gallery_slot_preflight_passed", details: self.mediaUploadTraceDetails(context: traceContext, extra: slotTraceDetails + [
+                        ("statusCode", code)
+                    ]))
+                    completion(true)
+                }
             }
         }
     }
