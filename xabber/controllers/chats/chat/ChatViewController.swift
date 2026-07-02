@@ -2881,7 +2881,7 @@ class ChatViewController: MessagesViewController {
         }
 
         let shouldSkipScroll = isStabilizing &&
-            self.initialLatestOpenStabilizationState == .bottomAligned &&
+            self.ini  tialLatestOpenStabilizationState == .bottomAligned &&
             self.isNearBottom(threshold: 1)
         if !shouldSkipScroll {
             self.scrollToBottom(animated: isStabilizing ? false : animated)
