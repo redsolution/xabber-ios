@@ -142,7 +142,7 @@ For any bug fix, feature, refactor, or investigation that is more than a trivial
 9. Implement the code change.
 10. Run the narrowest relevant verification.
 11. At the end of the task, run a build for the affected target or scheme on a connected device when available, falling back to simulator only when device execution is blocked, and check the build output for errors before closing the work.
-12. After each build, remove DerivedData and disposable build artifacts that are not needed by subsequent builds, while preserving logs, result bundles, archives, or caches that are still required for diagnosis, handoff, or the next verification step.
+12. After each build, remove disposable logs, result bundles, archives, or temporary artifacts that are not needed for diagnosis or handoff, but preserve the Codex Xcode cache directories unless an explicit cache reset is requested.
 13. Update `decisions.md`, `shared/`, or `docs/` when the result is durable.
 14. Move the task note to the correct final state and record verification.
 15. Commit the completed task as a focused git commit, staging only the files changed for that task.
@@ -199,11 +199,14 @@ Rules for imported markdown:
 - For code changes, follow TDD by default: add or update the focused XCTest first, then make the implementation pass.
 - Prefer one dedicated XCTest file per task when practical, especially for new behavior or regressions; reuse an existing file only when that keeps the scenario clearer.
 - If a package-based module exists, prefer `swift test` for package-local logic.
+- For local Codex app builds, prefer `tools/xcodebuild_cached.sh` so Xcode reuses a stable DerivedData directory, cloned Swift packages, and package repository cache.
+- Routine local verification must use `build` or `test` without a preceding `clean`. Use `tools/xcodebuild_cached.sh clean-cache` only when an explicit cache reset is requested or cache corruption is being diagnosed.
+- If invoking `xcodebuild` directly for local verification, use the same cache flags as the wrapper: `-derivedDataPath`, `-clonedSourcePackagesDirPath`, `-packageCachePath`, `-skipPackageUpdates`, and `-onlyUsePackageVersionsFromResolvedFile`.
 - For app targets, prefer `xcodebuild` with a concrete scheme and a connected physical device destination.
 - Use a simulator destination only when no suitable device is connected, signing blocks device builds, the target cannot run on device, or the user explicitly asks for simulator verification.
 - For any completed implementation task, run at least one build for the affected target before finishing, even if narrower tests were already run.
 - Always inspect the build output for actual compiler or linker errors and report the first meaningful failure if the build does not pass.
-- After each build, clean up DerivedData and disposable build products, logs, result bundles, archives, and temporary artifacts that are not needed for later builds or troubleshooting.
+- After each build, clean up disposable build products, logs, result bundles, archives, and temporary artifacts that are not needed for later builds or troubleshooting. Do not remove Codex cached `DerivedData`, `SourcePackages`, or `PackageCache` unless the task explicitly calls for a cache reset.
 - If a build cannot be run because of environment, signing, dependency, device, or simulator limitations, state that explicitly and record the blocker in the task note or vault notes.
 - When a test fails, diagnose the first meaningful failure before making broad refactors.
 - Report what was run, what passed, and what remains unverified.
