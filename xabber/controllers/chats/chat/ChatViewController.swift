@@ -216,24 +216,87 @@ enum ChatScrollDownTargetPolicy {
     }
 }
 
-enum ChatPendingVisibleReadTargetPolicy {
-    struct Candidate: Equatable {
+enum ChatViewportReadBoundaryPolicy {
+    struct OrderedMessage {
         let primary: String
-        let sentDate: Date
+        let orderIndex: Int
+        let isOutgoing: Bool
+        let isRead: Bool
+        let rowKind: ChatVisiblePositionPolicy.RowKind
+        let isFakeMessage: Bool
     }
 
-    static func newestPendingVisiblePrimary(
+    static func nextVisibleIncomingTarget(
+        visiblePrimaries: Set<String>,
+        orderedMessages: [OrderedMessage],
+        currentBoundaryIndex: Int?
+    ) -> OrderedMessage? {
+        newestEligibleTarget(
+            orderedMessages.filter {
+                visiblePrimaries.contains($0.primary) &&
+                isViewportReadCandidate($0)
+            },
+            currentBoundaryIndex: currentBoundaryIndex,
+            allowsCurrentBoundary: false
+        )
+    }
+
+    static func newestPendingTarget(
         pendingPrimaries: Set<String>,
-        visibleCandidates: [Candidate]
-    ) -> String? {
-        guard pendingPrimaries.isNotEmpty else {
+        orderedMessages: [OrderedMessage],
+        currentBoundaryIndex: Int?
+    ) -> OrderedMessage? {
+        newestEligibleTarget(
+            orderedMessages.filter {
+                pendingPrimaries.contains($0.primary) &&
+                isViewportReadCandidate($0)
+            },
+            currentBoundaryIndex: currentBoundaryIndex,
+            allowsCurrentBoundary: true
+        )
+    }
+
+    static func resolvedDisplayedMarkerTarget(
+        primary: String,
+        orderedMessages: [OrderedMessage],
+        currentBoundaryIndex: Int?
+    ) -> OrderedMessage? {
+        guard let candidate = orderedMessages.first(where: { $0.primary == primary }),
+              isIncomingRealMessage(candidate) else {
             return nil
         }
-        return visibleCandidates
-            .filter { pendingPrimaries.contains($0.primary) }
-            .sorted { $0.sentDate.timeIntervalSince1970 > $1.sentDate.timeIntervalSince1970 }
-            .first?
-            .primary
+        return newestEligibleTarget(
+            [candidate],
+            currentBoundaryIndex: currentBoundaryIndex,
+            allowsCurrentBoundary: false
+        )
+    }
+
+    private static func newestEligibleTarget(
+        _ candidates: [OrderedMessage],
+        currentBoundaryIndex: Int?,
+        allowsCurrentBoundary: Bool
+    ) -> OrderedMessage? {
+        candidates
+            .filter { candidate in
+                guard let currentBoundaryIndex else {
+                    return true
+                }
+                return allowsCurrentBoundary
+                    ? candidate.orderIndex >= currentBoundaryIndex
+                    : candidate.orderIndex > currentBoundaryIndex
+            }
+            .max { $0.orderIndex < $1.orderIndex }
+    }
+
+    private static func isViewportReadCandidate(_ message: OrderedMessage) -> Bool {
+        isIncomingRealMessage(message) && !message.isRead
+    }
+
+    private static func isIncomingRealMessage(_ message: OrderedMessage) -> Bool {
+        message.rowKind == .message &&
+        !message.isFakeMessage &&
+        !message.isOutgoing
     }
 }
 
@@ -1447,6 +1510,8 @@ class ChatViewController: MessagesViewController {
     internal var historyLoadingGeneration: Int = 0
     
     internal var messagesToReadObserver: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set())
+    internal var viewportReadBoundaryPrimary: String?
+    internal var viewportReadBoundaryIndex: Int?
     
     internal let pinnedDateView: FloatDateView = {
         let view = FloatDateView(frame: .zero)
@@ -4096,23 +4161,80 @@ class ChatViewController: MessagesViewController {
         self.voiceMessageStateObserverToken = nil
     }
 
-    @discardableResult
-    internal func flushPendingVisibleReadTarget() -> Bool {
-        let visibleCandidates = self.datasource.map {
-            ChatPendingVisibleReadTargetPolicy.Candidate(
-                primary: $0.primary,
-                sentDate: $0.sentDate
+    internal func orderedViewportReadMessages() -> [ChatViewportReadBoundaryPolicy.OrderedMessage] {
+        self.ensureObserverLookupMaps()
+        return self.datasource.enumerated().map { offset, item in
+            ChatViewportReadBoundaryPolicy.OrderedMessage(
+                primary: item.primary,
+                orderIndex: self.observerPrimaryIndexMap[item.primary] ?? offset,
+                isOutgoing: item.isOutgoing,
+                isRead: item.isRead,
+                rowKind: ChatVisiblePositionPolicy.rowKind(for: item.kind),
+                isFakeMessage: item.isFakeMessage
             )
         }
-        guard let lastReadPrimary = ChatPendingVisibleReadTargetPolicy.newestPendingVisiblePrimary(
-            pendingPrimaries: self.messagesToReadObserver.value,
-            visibleCandidates: visibleCandidates
+    }
+
+    internal func currentViewportReadBoundaryIndex(
+        in orderedMessages: [ChatViewportReadBoundaryPolicy.OrderedMessage]
+    ) -> Int? {
+        if let primary = self.viewportReadBoundaryPrimary {
+            if let observerIndex = self.observerPrimaryIndexMap[primary] {
+                return observerIndex
+            }
+            if let orderedIndex = orderedMessages.first(where: { $0.primary == primary })?.orderIndex {
+                return orderedIndex
+            }
+        }
+        return self.viewportReadBoundaryIndex
+    }
+
+    internal func setViewportReadBoundaryTarget(_ target: ChatViewportReadBoundaryPolicy.OrderedMessage) {
+        self.viewportReadBoundaryPrimary = target.primary
+        self.viewportReadBoundaryIndex = target.orderIndex
+    }
+
+    @discardableResult
+    internal func advanceReadBoundaryFromVisibleMessages(indexPaths: [IndexPath]) -> Bool {
+        let visiblePrimaries = Set(
+            indexPaths.compactMap { indexPath in
+                self.datasourceItem(at: indexPath)?.primary
+            }
+        )
+        guard visiblePrimaries.isNotEmpty else {
+            return false
+        }
+
+        let orderedMessages = self.orderedViewportReadMessages()
+        let currentBoundaryIndex = self.currentViewportReadBoundaryIndex(in: orderedMessages)
+        guard let target = ChatViewportReadBoundaryPolicy.nextVisibleIncomingTarget(
+            visiblePrimaries: visiblePrimaries,
+            orderedMessages: orderedMessages,
+            currentBoundaryIndex: currentBoundaryIndex
         ) else {
             return false
         }
 
+        self.setViewportReadBoundaryTarget(target)
+        self.messagesToReadObserver.accept([target.primary])
+        return true
+    }
+
+    @discardableResult
+    internal func flushPendingVisibleReadTarget() -> Bool {
+        let orderedMessages = self.orderedViewportReadMessages()
+        let currentBoundaryIndex = self.currentViewportReadBoundaryIndex(in: orderedMessages)
+        guard let target = ChatViewportReadBoundaryPolicy.newestPendingTarget(
+            pendingPrimaries: self.messagesToReadObserver.value,
+            orderedMessages: orderedMessages,
+            currentBoundaryIndex: currentBoundaryIndex
+        ) else {
+            return false
+        }
+
+        self.setViewportReadBoundaryTarget(target)
         self.messagesToReadObserver.accept(Set<String>())
-        AccountManager.shared.find(for: self.owner)?.messages.readMessage(lastReadPrimary, last: false)
+        AccountManager.shared.find(for: self.owner)?.messages.readMessage(target.primary, last: false)
         self.rebuildUnreadMentionItems()
         self.refreshUnreadMentionsNavigatorState(animated: true)
         return true

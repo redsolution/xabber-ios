@@ -289,6 +289,15 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
 
         self.triggerPaging(pageDirection)
     }
+
+    private func currentVisibleIndexPaths(including indexPath: IndexPath? = nil) -> [IndexPath] {
+        var indexPaths = self.messagesCollectionView.indexPathsForVisibleItems
+        if let indexPath,
+           !indexPaths.contains(indexPath) {
+            indexPaths.append(indexPath)
+        }
+        return indexPaths
+    }
     
     func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
         
@@ -324,21 +333,17 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
 //        }
         
         self.willUpdateFloatingDate()
-        if let item = self.datasourceItem(at: indexPath), !item.isRead {
-            var value = self.messagesToReadObserver.value
-            value.insert(item.primary)
-            self.messagesToReadObserver.accept(value)
-        }
+        self.advanceReadBoundaryFromVisibleMessages(
+            indexPaths: self.currentVisibleIndexPaths(including: indexPath)
+        )
         self.updateVisibleVoiceMessageQueue()
     }
     
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         self.willUpdateFloatingDate()
-        if let item = self.datasourceItem(at: indexPath), !item.isRead {
-            var value = self.messagesToReadObserver.value
-            value.insert(item.primary)
-            self.messagesToReadObserver.accept(value)
-        }
+        self.advanceReadBoundaryFromVisibleMessages(
+            indexPaths: self.currentVisibleIndexPaths()
+        )
         self.updateVisibleVoiceMessageQueue()
     }
     
@@ -361,14 +366,9 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         self.previousContentOffsetY = contentOffsetY
         self.setFloatingDateVisible(true)
         
-        self.messagesCollectionView.indexPathsForVisibleItems.forEach {
-            indexPath in
-            if let item = self.datasourceItem(at: indexPath), !item.isRead {
-                var value = self.messagesToReadObserver.value
-                value.insert(item.primary)
-                self.messagesToReadObserver.accept(value)
-            }
-        }
+        self.advanceReadBoundaryFromVisibleMessages(
+            indexPaths: self.currentVisibleIndexPaths()
+        )
         self.updateVisibleVoiceMessageQueue()
     }
     
