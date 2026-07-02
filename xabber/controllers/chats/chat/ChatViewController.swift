@@ -300,6 +300,20 @@ enum ChatViewportReadBoundaryPolicy {
     }
 }
 
+enum ChatBackgroundLastChatsKeyPolicy {
+    static func primaryKey(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> String {
+        LastChatsStorageItem.genPrimary(
+            jid: jid,
+            owner: owner,
+            conversationType: conversationType
+        )
+    }
+}
+
 struct ChatSavedVisiblePosition: Equatable {
     let messagePrimary: String?
     let archivedId: String?
@@ -4346,9 +4360,9 @@ class ChatViewController: MessagesViewController {
             let realm = try WRealm.safe()
             if let instance = realm.object(
                 ofType: LastChatsStorageItem.self,
-                forPrimaryKey: LastChatsStorageItem.genPrimary(
-                    jid: self.jid,
+                forPrimaryKey: ChatBackgroundLastChatsKeyPolicy.primaryKey(
                     owner: self.owner,
+                    jid: self.jid,
                     conversationType: self.conversationType
                 )
             ) {
