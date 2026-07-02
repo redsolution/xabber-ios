@@ -1495,6 +1495,28 @@ class ChatViewController: MessagesViewController {
     internal lazy var scrollWorkScheduler = ChatScrollWorkScheduler { [weak self] request in
         self?.performCoalescedScrollWork(request)
     }
+    internal lazy var collectionPrefetchCoordinator: ChatCollectionPrefetchCoordinator = {
+        ChatCollectionPrefetchCoordinator(
+            itemProvider: { [weak self] indexPath in
+                self?.chatCollectionPrefetchItem(at: indexPath)
+            },
+            contextProvider: { [weak self] in
+                guard let self else {
+                    return .empty(
+                        conversationKey: ChatCollectionPrefetchConversationKey(
+                            owner: "",
+                            jid: "",
+                            conversationType: ClientSynchronizationManager.ConversationType.regular.rawValue
+                        )
+                    )
+                }
+                return self.chatCollectionPrefetchContext()
+            },
+            prefetcher: ChatCollectionContentPrefetcher(
+                pageWarmupLimit: self.datasourcePageSize
+            )
+        )
+    }()
     var initialBootstrapQueryId: String? = nil
     var isInitialBootstrapInFlight: Bool = false
     var didReceiveInitialBootstrapEndPage: Bool = false
@@ -4675,6 +4697,7 @@ class ChatViewController: MessagesViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         self.flushPendingScrollWork()
+        self.collectionPrefetchCoordinator.cancelAll()
         self.beginNavigationTransitionDeferralIfNeeded()
         if self.isMovingFromParent || self.isBeingDismissed || self.navigationController?.isBeingDismissed == true {
             self.invalidateNavigationAvatarItem()
