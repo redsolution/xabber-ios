@@ -1489,6 +1489,8 @@ class ChatViewController: MessagesViewController {
     internal var chatArchiveMainStallProbeQueryId: String?
     internal var chatArchiveMainStallProbeOperation: String?
     internal var chatOpenTimingSession: ChatOpenTimingSession?
+    private var chatOpenFirstFrameSignpost: ChatPerformanceSignposts.Interval?
+    private var pendingSendToLocalRowSignpost: ChatPerformanceSignposts.Interval?
     var initialBootstrapQueryId: String? = nil
     var isInitialBootstrapInFlight: Bool = false
     var didReceiveInitialBootstrapEndPage: Bool = false
@@ -1665,6 +1667,7 @@ class ChatViewController: MessagesViewController {
             startedAt: now
         )
         self.chatOpenTimingSession = session
+        self.chatOpenFirstFrameSignpost = ChatPerformanceSignposts.begin(.chatOpenToFirstFrame)
         var fields = self.chatOpenTimingBaseFields(session: session, now: now)
         if let targetBounds {
             fields.append(("targetWidth", Int(targetBounds.width)))
@@ -1887,6 +1890,8 @@ class ChatViewController: MessagesViewController {
         session.didLogFirstMessagesVisible = true
         session.firstMessagesVisibleAt = now
         self.chatOpenTimingSession = session
+        self.chatOpenFirstFrameSignpost?.end()
+        self.chatOpenFirstFrameSignpost = nil
 
         var fields = self.chatOpenTimingBaseFields(session: session, now: now)
         fields.append(("reason", reason))
@@ -1907,7 +1912,26 @@ class ChatViewController: MessagesViewController {
         fields.append(("didLogFirstMessagesPrepared", session.didLogFirstMessagesPrepared))
         fields.append(("didLogFirstMessagesVisible", session.didLogFirstMessagesVisible))
         ChatArchiveDebugTrace.log("chatOpenTimingEnd", fields)
+        self.chatOpenFirstFrameSignpost?.end()
+        self.chatOpenFirstFrameSignpost = nil
         self.chatOpenTimingSession = nil
+    }
+
+    internal func beginSendToLocalRowSignpost() {
+        self.pendingSendToLocalRowSignpost?.end()
+        self.pendingSendToLocalRowSignpost = ChatPerformanceSignposts.begin(.sendToLocalRow)
+    }
+
+    internal func finishSendToLocalRowSignpostIfNeeded(
+        request: ChatOutgoingAutoScrollRequest?,
+        items: [Datasource]
+    ) {
+        guard ChatOutgoingAutoScrollPolicy.didInsertLocalOutgoingRow(request: request, items: items) else {
+            return
+        }
+
+        self.pendingSendToLocalRowSignpost?.end()
+        self.pendingSendToLocalRowSignpost = nil
     }
 
     internal func chatOpenTimingRealMessageCount(in items: [Datasource]) -> Int {
@@ -4084,6 +4108,10 @@ class ChatViewController: MessagesViewController {
         super.shouldChangeFrame()
         if previousFrame == self.view.bounds {
             return
+        }
+        var layoutSignpost = ChatPerformanceSignposts.begin(.layoutApply)
+        defer {
+            layoutSignpost.end()
         }
         let wasNearBottom = self.isNearBottom()
         let visibleAnchor = wasNearBottom ? nil : self.capturePagingAnchorIfNeeded(direction: .older)

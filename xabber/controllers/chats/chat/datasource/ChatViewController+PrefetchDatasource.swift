@@ -348,6 +348,10 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     }
     
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        var scrollSignpost = ChatPerformanceSignposts.begin(.scrollProcessing)
+        defer {
+            scrollSignpost.end()
+        }
         let contentOffsetY = scrollView.contentOffset.y
 
         if self.currentPage.isUnlocked {

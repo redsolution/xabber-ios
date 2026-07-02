@@ -3277,6 +3277,19 @@ enum ChatOutgoingAutoScrollPolicy {
             .map { (index: $0.offset, item: $0.element) }
     }
 
+    static func didInsertLocalOutgoingRow(
+        request: ChatOutgoingAutoScrollRequest?,
+        items: [ChatViewController.Datasource]
+    ) -> Bool {
+        guard let request,
+              let newest = newestRealMessage(in: items),
+              newest.item.primary != request.previousNewestPrimary else {
+            return false
+        }
+
+        return newest.item.isOutgoing
+    }
+
     static func decision(
         request: ChatOutgoingAutoScrollRequest?,
         items: [ChatViewController.Datasource],
@@ -3713,15 +3726,17 @@ extension ChatViewController {
     private func consumePendingOutgoingAutoScrollDecision(
         items: [Datasource]
     ) -> ChatOutgoingAutoScrollDecision {
+        let request = self.pendingOutgoingAutoScrollRequest
         let isAnchorNavigationActive = ChatInitialScrollPolicy.shouldDeferDefaultScroll(
             hasPendingAnchorRequest: self.pendingOpenMessageRequest != nil,
             isAnchorNavigationInFlight: self.isMessageAnchorNavigationInFlight
         )
         let decision = ChatOutgoingAutoScrollPolicy.decision(
-            request: self.pendingOutgoingAutoScrollRequest,
+            request: request,
             items: items,
             isAnchorNavigationActive: isAnchorNavigationActive
         )
+        self.finishSendToLocalRowSignpostIfNeeded(request: request, items: items)
         if decision.consumesPendingRequest {
             self.pendingOutgoingAutoScrollRequest = nil
         }
@@ -4004,6 +4019,7 @@ extension ChatViewController {
         suppressDefaultBottomScroll: Bool = false,
         completion: (() -> Void)? = nil
     ) {
+        var datasourceApplySignpost = ChatPerformanceSignposts.begin(.datasourceApply)
         let applyStartedAt = Date()
         let modeDescription: String
         switch mode {
@@ -4062,11 +4078,13 @@ extension ChatViewController {
         let finish: () -> Void = {
             let finishStartedAt = Date()
             let layoutStartedAt = Date()
-            if invalidateLayout {
-                self.messagesCollectionView.collectionViewLayout.invalidateLayout()
+            ChatPerformanceSignposts.measure(.layoutApply) {
+                if invalidateLayout {
+                    self.messagesCollectionView.collectionViewLayout.invalidateLayout()
+                    self.messagesCollectionView.layoutIfNeeded()
+                }
                 self.messagesCollectionView.layoutIfNeeded()
             }
-            self.messagesCollectionView.layoutIfNeeded()
             let layoutMs = ChatArchiveDebugTrace.milliseconds(since: layoutStartedAt)
             let insetsStartedAt = Date()
             self.updateChatCollectionInsets()
@@ -4146,6 +4164,7 @@ extension ChatViewController {
                 ("suppressDefaultBottomScroll", suppressDefaultBottomScroll),
                 ("outgoingAutoScroll", "\(outgoingAutoScrollDecision)")
             ])
+            datasourceApplySignpost.end()
         }
 
         let runWithoutAnimation: (@escaping () -> Void) -> Void = { updates in
@@ -4275,12 +4294,14 @@ extension ChatViewController {
             }
 
             let flowLayout = self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout
-            let diff = ChatDatasourceCoordinator.diff(
-                old: previousSnapshot,
-                new: newSnapshot,
-                oldSizeProvider: { flowLayout?.sizeForMessage($0) },
-                newSizeProvider: { flowLayout?.sizeForMessage($0) }
-            )
+            let diff = ChatPerformanceSignposts.measure(.datasourceDiff) {
+                ChatDatasourceCoordinator.diff(
+                    old: previousSnapshot,
+                    new: newSnapshot,
+                    oldSizeProvider: { flowLayout?.sizeForMessage($0) },
+                    newSizeProvider: { flowLayout?.sizeForMessage($0) }
+                )
+            }
             self.datasource = items
             self.datasourceSnapshot = newSnapshot
 
@@ -6428,6 +6449,10 @@ extension ChatViewController {
     }
 
     internal final func mapDataset(dataset: Array<MessageStorageItem>) -> [Datasource] {
+        var mapSignpost = ChatPerformanceSignposts.begin(.mapDataset)
+        defer {
+            mapSignpost.end()
+        }
         if self.showSkeletonObserver.value {
             return skeletonMessages.enumerated().compactMap {
                 (offset, item) in

@@ -978,6 +978,7 @@ extension ChatViewController: XabberInputBarDelegate {
     //                    self.runDatasetUpdateTask()
                     })
                 } else {
+                    self.beginSendToLocalRowSignpost()
                     self.requestOutgoingAutoScrollAfterDatasourceUpdate()
                     FeedbackManager.shared.generate(feedback: .success)
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
