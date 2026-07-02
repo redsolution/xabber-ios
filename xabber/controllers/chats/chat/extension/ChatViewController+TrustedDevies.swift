@@ -147,6 +147,18 @@ extension ChatViewController {
             hideTrustedDevicesBlockingPanel()
         }
 
+        do {
+            let realm = try WRealm.safe()
+            self.applyBaseSendButtonReadiness(
+                isSkeletonVisible: self.showSkeletonObserver.value,
+                isAccountConnecting: AccountManager.shared.connectingUsers.value.contains(self.owner),
+                hasPendingOrFailedMessage: self.pendingOrFailedMessageBlocksSend(in: realm),
+                omemoAvailability: availability
+            )
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+
         self.titleLabel.attributedText = self.updateTitle()
         self.titleLabel.sizeToFit()
         self.titleLabel.layoutIfNeeded()

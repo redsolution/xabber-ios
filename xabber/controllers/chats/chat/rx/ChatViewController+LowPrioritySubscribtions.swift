@@ -25,7 +25,75 @@ import RealmSwift
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 
+enum ChatSendButtonReadinessPolicy {
+    static func shouldBlockForPendingOrFailedMessages(
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> Bool {
+        conversationType.isEncrypted
+    }
+
+    static func isEnabled(
+        conversationType: ClientSynchronizationManager.ConversationType,
+        isSkeletonVisible: Bool,
+        isAccountConnecting: Bool,
+        hasPendingOrFailedMessage: Bool,
+        omemoAvailability: OmemoSendAvailabilityPolicy.Availability = .canSend,
+        hasMediaPreparationBlocker: Bool = false
+    ) -> Bool {
+        guard !isSkeletonVisible,
+              !isAccountConnecting,
+              !hasMediaPreparationBlocker,
+              omemoAvailability.canSend else {
+            return false
+        }
+
+        return !shouldBlockForPendingOrFailedMessages(conversationType: conversationType) ||
+            !hasPendingOrFailedMessage
+    }
+}
+
 extension ChatViewController {
+    internal func pendingOrFailedMessageBlocksSend(in realm: Realm) -> Bool {
+        guard ChatSendButtonReadinessPolicy.shouldBlockForPendingOrFailedMessages(
+            conversationType: self.conversationType
+        ) else {
+            return false
+        }
+
+        return !realm
+            .objects(MessageStorageItem.self)
+            .filter(
+                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
+                self.owner,
+                self.jid,
+                self.conversationType.rawValue,
+                MessageStorageItem.MessageDisplayType.system.rawValue,
+                MessageStorageItem.MessageSendingState.sending.rawValue,
+                MessageStorageItem.MessageSendingState.error.rawValue
+            )
+            .isEmpty
+    }
+
+    private func baseOmemoAvailabilityForSendButton() -> OmemoSendAvailabilityPolicy.Availability {
+        self.conversationType.isEncrypted ? self.currentOmemoSendAvailability() : .canSend
+    }
+
+    internal func applyBaseSendButtonReadiness(
+        isSkeletonVisible: Bool,
+        isAccountConnecting: Bool,
+        hasPendingOrFailedMessage: Bool,
+        omemoAvailability: OmemoSendAvailabilityPolicy.Availability? = nil
+    ) {
+        self.xabberInputView.isSendButtonEnabled = ChatSendButtonReadinessPolicy.isEnabled(
+            conversationType: self.conversationType,
+            isSkeletonVisible: isSkeletonVisible,
+            isAccountConnecting: isAccountConnecting,
+            hasPendingOrFailedMessage: hasPendingOrFailedMessage,
+            omemoAvailability: omemoAvailability ?? self.baseOmemoAvailabilityForSendButton()
+        )
+        self.xabberInputView.updateSendButtonState()
+    }
+
     internal func updateStatusText() {
         if let text = CommonChatStatesManager.shared.actionText(for: self.jid, owner: self.owner) {
             self.setStatusText(text)
@@ -379,25 +447,26 @@ extension ChatViewController {
                 var didReloadInitialWindow = false
 //                self.runDatasetUpdateTask(shouldScrollToLastMessage: true)
                 if value {
-                    self.xabberInputView.isSendButtonEnabled = false
+                    self.applyBaseSendButtonReadiness(
+                        isSkeletonVisible: true,
+                        isAccountConnecting: AccountManager.shared.connectingUsers.value.contains(self.owner),
+                        hasPendingOrFailedMessage: false
+                    )
                     self.setShouldShowInitialMessage(false)
                 } else if AccountManager.shared.connectingUsers.value.contains(self.owner) {
-                    self.xabberInputView.isSendButtonEnabled = false
+                    self.applyBaseSendButtonReadiness(
+                        isSkeletonVisible: false,
+                        isAccountConnecting: true,
+                        hasPendingOrFailedMessage: false
+                    )
                 } else {
                     do {
                         let realm = try WRealm.safe()
-                        let badMessageCollection = realm
-                            .objects(MessageStorageItem.self)
-                            .filter(
-                                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
-                                self.owner,
-                                self.jid,
-                                self.conversationType.rawValue,
-                                MessageStorageItem.MessageDisplayType.system.rawValue,
-                                MessageStorageItem.MessageSendingState.sending.rawValue,
-                                MessageStorageItem.MessageSendingState.error.rawValue
+                        self.applyBaseSendButtonReadiness(
+                            isSkeletonVisible: false,
+                            isAccountConnecting: false,
+                            hasPendingOrFailedMessage: self.pendingOrFailedMessageBlocksSend(in: realm)
                             )
-                        self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
                         let chatInstance = realm.object(
                             ofType: LastChatsStorageItem.self,
                             forPrimaryKey: LastChatsStorageItem.genPrimary(
@@ -423,8 +492,7 @@ extension ChatViewController {
 	                ) {
 	                    self.didReceiveChangeset()
 	                }
-	                self.xabberInputView.updateSendButtonState()
-	            } onError: { _ in
+            } onError: { _ in
                 
             } onCompleted: {
                 
@@ -489,8 +557,11 @@ extension ChatViewController {
             .subscribe { result in
             if result.contains(self.owner) {
                 if !self.shouldRequestChatInfo {
-                    self.xabberInputView.isSendButtonEnabled = false
-                    self.xabberInputView.updateSendButtonState()
+                    self.applyBaseSendButtonReadiness(
+                        isSkeletonVisible: self.showSkeletonObserver.value,
+                        isAccountConnecting: true,
+                        hasPendingOrFailedMessage: false
+                    )
                     self.shouldRequestChatInfo = true
                 }
             } else {
@@ -500,24 +571,11 @@ extension ChatViewController {
                 }
                 do {
                     let realm = try WRealm.safe()
-                    let badMessageCollection = realm
-                        .objects(MessageStorageItem.self)
-                        .filter(
-                            "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
-                            self.owner,
-                            self.jid,
-                            self.conversationType.rawValue,
-                            MessageStorageItem.MessageDisplayType.system.rawValue,
-                            MessageStorageItem.MessageSendingState.sending.rawValue,
-                            MessageStorageItem.MessageSendingState.error.rawValue
+                    self.applyBaseSendButtonReadiness(
+                        isSkeletonVisible: self.showSkeletonObserver.value,
+                        isAccountConnecting: false,
+                        hasPendingOrFailedMessage: self.pendingOrFailedMessageBlocksSend(in: realm)
                         )
-                    if self.showSkeletonObserver.value {
-                        self.xabberInputView.isSendButtonEnabled = false
-                    } else {
-//                        print(badMessageCollection.toArray())
-                        self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
-                    }
-                    self.xabberInputView.updateSendButtonState()
                 } catch {
                     DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
                 }
@@ -575,19 +633,13 @@ extension ChatViewController {
             .collection(from: badMessageCollection)
             .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
             .observe(on: MainScheduler.asyncInstance)
-            .subscribe { results in
-                if !self.showSkeletonObserver.value {
-                    if AccountManager.shared.connectingUsers.value.contains(self.owner) {
-                        self.xabberInputView.isSendButtonEnabled = false
-                    } else {
-                        self.xabberInputView.isSendButtonEnabled = results.isEmpty
-                    }
-                    self.xabberInputView.updateSendButtonState()
-                } else {
-                    self.xabberInputView.isSendButtonEnabled = false
-                    self.xabberInputView.updateSendButtonState()
-                }
-            }.disposed(by: bag)
+            .subscribe(onNext: { results in
+                self.applyBaseSendButtonReadiness(
+                    isSkeletonVisible: self.showSkeletonObserver.value,
+                    isAccountConnecting: AccountManager.shared.connectingUsers.value.contains(self.owner),
+                    hasPendingOrFailedMessage: !results.isEmpty
+                )
+            }).disposed(by: bag)
         
         let ownDevicesCollection = realm
             .objects(SignalDeviceStorageItem.self)
