@@ -78,6 +78,18 @@ extension MessageManager {
         }
     }
 
+    internal static func canonicalOutgoingConversationJID(
+        for jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> String {
+        guard conversationType == .regular,
+              let bareJID = XMPPJID(string: jid)?.bare,
+              bareJID.isNotEmpty else {
+            return jid
+        }
+        return bareJID
+    }
+
     internal static func retryRequiresMediaUpload(_ instance: MessageStorageItem) -> Bool {
         instance.references.contains { retryReferenceRequiresMediaUpload($0) }
     }
@@ -209,15 +221,19 @@ extension MessageManager {
                 return
             }
             let conversationType = item.conversationType
+            let conversationJID = Self.canonicalOutgoingConversationJID(
+                for: item.opponent,
+                conversationType: conversationType
+            )
             let resource = realm
                 .object(ofType: RosterStorageItem.self,
                         forPrimaryKey: RosterStorageItem
-                            .genPrimary(jid: item.opponent,
+                            .genPrimary(jid: conversationJID,
                                         owner: item.owner))?
                 .getPrimaryResource()?
                 .resource
             let destinationJID = MessageManager.outboundDestinationJID(
-                for: item.opponent,
+                for: conversationJID,
                 conversationType: conversationType,
                 resource: resource
             )
@@ -346,7 +362,7 @@ extension MessageManager {
             let shouldUseDurableRegularQueue = item.conversationType == .regular && item.displayAs == .text
             let durableQueueRequest = AccountQueuedMessageSendRequest(
                 owner: item.owner,
-                conversationJid: item.opponent,
+                conversationJid: conversationJID,
                 conversationType: item.conversationType,
                 messagePrimary: item.primary,
                 originId: item.messageId,
@@ -357,7 +373,7 @@ extension MessageManager {
             try realm.write {
                 if item.displayAs != .system {
                     if item.conversationType.isEncrypted {
-                        if let conversation = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: item.opponent, owner: item.owner, conversationType: item.conversationType)) {
+                        if let conversation = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: conversationJID, owner: item.owner, conversationType: item.conversationType)) {
                             if conversation.isAfterburnEnabled {
                                 let ephemeralElement = DDXMLElement(name: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")
                                 ephemeralElement.addAttribute(withName: "timer", doubleValue: conversation.afterburnInterval)
@@ -390,7 +406,7 @@ extension MessageManager {
                 item.trustedSource = realm.object(
                     ofType: LastChatsStorageItem.self,
                     forPrimaryKey: LastChatsStorageItem.genPrimary(
-                        jid: item.opponent,
+                        jid: conversationJID,
                         owner: item.owner,
                         conversationType: item.conversationType
                     )
@@ -414,7 +430,7 @@ extension MessageManager {
                     if let instance = realm.object(
                         ofType: LastChatsStorageItem.self,
                         forPrimaryKey: LastChatsStorageItem.genPrimary(
-                            jid: item.opponent,
+                            jid: conversationJID,
                             owner: item.owner,
                             conversationType: item.conversationType
                         )
@@ -442,7 +458,7 @@ extension MessageManager {
                         ]
                     )
                 }
-                LastChats.updateErrorState(for: item.opponent, owner: self.owner, conversationType: item.conversationType)
+                LastChats.updateErrorState(for: conversationJID, owner: self.owner, conversationType: item.conversationType)
                 return
             }
             let deferredMessageId = item.messageId
@@ -468,7 +484,7 @@ extension MessageManager {
                     }
                 }
             })
-            LastChats.updateErrorState(for: item.opponent, owner: self.owner, conversationType: item.conversationType)
+            LastChats.updateErrorState(for: conversationJID, owner: self.owner, conversationType: item.conversationType)
         } catch {
             DDLogDebug("cant send message \(primary)")
         }
@@ -695,6 +711,7 @@ extension MessageManager {
         let originalId = NanoID.new(8)
         do {
             let realm = try  WRealm.safe()
+            let conversationJID = Self.canonicalOutgoingConversationJID(for: jid, conversationType: conversationType)
             let instance = MessageStorageItem()
             var legacyBody: String = ""
             let toForward: [ForwardedMessageItem] =   formForwardedMessages(forwarded)
@@ -706,7 +723,7 @@ extension MessageManager {
             legacyBody += body
             references.forEach {
                 $0.owner = owner
-                $0.jid = jid
+                $0.jid = conversationJID
                 $0.conversationType = conversationType
                 $0.sentDate = Date()
             }
@@ -715,13 +732,13 @@ extension MessageManager {
                                               legacy: legacyBody,
                                               messageId: originalId,
                                               owner: owner,
-                                              opponent: jid,
+                                              opponent: conversationJID,
                                               references: references,
                                               inlineForwards: prepareForwards(forwarded,
                                                                               primary: instance.primary,
                                                                               isReport: isReport,
                                                                               owner: owner,
-                                                                              jid: jid))
+                                                                              jid: conversationJID))
             if references.contains(where: { [.media, .voice].contains($0.kind) }) {
                 instance.createLegacyBody()
             }
@@ -734,7 +751,7 @@ extension MessageManager {
                 instance.messageId = UUID().uuidString
             }
             instance.updatePrimary()
-            let prevMessageInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType))?.lastMessage
+            let prevMessageInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: conversationJID, owner: self.owner, conversationType: conversationType))?.lastMessage
             let prevMessageId = prevMessageInstance?.messageId
             if let prevMessageId = prevMessageId, isReport == false {
                 if !(prevMessageInstance?.outgoing ?? true) {
@@ -749,7 +766,7 @@ extension MessageManager {
                 if isReport {
                     instance.isDeleted = true
                 }
-                let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType))
+                let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: conversationJID, owner: self.owner, conversationType: conversationType))
                 chat?.draftMessage = nil
             }
             
@@ -763,13 +780,14 @@ extension MessageManager {
     public func sendSystemMessage(_ body: String, attachments: [MessageReferenceStorageItem], to jid: String, childs: [DDXMLElement] = [], conversationType: ClientSynchronizationManager.ConversationType) {
         do {
             let realm = try  WRealm.safe()
+            let conversationJID = Self.canonicalOutgoingConversationJID(for: jid, conversationType: conversationType)
             let instance = MessageStorageItem()
             instance.conversationType = conversationType
             instance.configureOutgoingMessage(body,
                                               legacy: body,
                                               messageId: UUID().uuidString,
                                               owner: owner,
-                                              opponent: jid,
+                                              opponent: conversationJID,
                                               references: attachments,
                                               inlineForwards: [])
 
@@ -807,6 +825,7 @@ extension MessageManager {
         if attachments.isEmpty { return nil }
         do {
             let realm = try  WRealm.safe()
+            let conversationJID = Self.canonicalOutgoingConversationJID(for: jid, conversationType: conversationType)
             let instance = MessageStorageItem()
             var legacyBody: String = ""
             let toForward = formForwardedMessages(forwarded)
@@ -819,19 +838,19 @@ extension MessageManager {
                                               legacy: legacyBody,
                                               messageId: UUID().uuidString,
                                               owner: owner,
-                                              opponent: jid,
+                                              opponent: conversationJID,
                                               references: attachments,
                                               inlineForwards: prepareForwards(forwarded,
                                                                               primary: instance.primary,
                                                                               isReport: false,
                                                                               owner: owner,
-                                                                              jid: jid))
+                                                                              jid: conversationJID))
             instance.conversationType = conversationType
             instance.state = .uploading
             instance.updatePrimary()
             instance.references.forEach {
                 $0.owner = owner
-                $0.jid = jid
+                $0.jid = conversationJID
                 $0.messageId = instance.primary
                 $0.conversationType = conversationType
             }
