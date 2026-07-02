@@ -122,8 +122,7 @@ enum ChatAttachmentCaptionOutgoingBodyPolicy {
         let normalizedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? ""
             : caption
-        if normalizedCaption.isEmpty,
-           references.count == 1,
+        if references.count == 1,
            references.first?.kind == .geoloc,
            let geoURI = references.first?.url ?? references.first?.metadata?["uri"] as? String,
            geoURI.isNotEmpty {

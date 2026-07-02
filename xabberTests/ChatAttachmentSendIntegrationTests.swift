@@ -138,6 +138,28 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         XCTAssertEqual(request.legacyBody, "geo:51.5007,-0.1246")
     }
 
+    func testLocationDraftIgnoresStaleCaptionAndSendsOnlyGeoFallback() throws {
+        let sender = FakeTask18MediaMessageSender()
+        let pipeline = makePipeline(
+            isCloudStorageAvailable: false,
+            quotaAccessProvider: FakeTask18QuotaAccessProvider(accesses: [.premiumRequired]),
+            sender: sender
+        )
+
+        let result = sendSynchronously(
+            pipeline: pipeline,
+            drafts: [locationDraft()],
+            captionState: ChatAttachmentCaptionState(rawText: "Westminster")
+        )
+
+        XCTAssertEqual(result, .sent(referenceCount: 1))
+        let request = try XCTUnwrap(sender.requests.first)
+        XCTAssertEqual(request.body, "geo:51.5007,-0.1246")
+        XCTAssertEqual(request.legacyBody, "geo:51.5007,-0.1246")
+        XCTAssertEqual(request.references.first?.begin, 0)
+        XCTAssertEqual(request.references.first?.end, request.body.xmlEscaping(reverse: false).count)
+    }
+
     func testContactDraftsSkipAvailabilityQuotaAndPostSendRefresh() throws {
         let refresher = FakeTask18QuotaRefresher()
         let sender = FakeTask18MediaMessageSender()

@@ -292,6 +292,24 @@ final class ChatAttachmentDraftModelTests: XCTestCase {
         XCTAssertEqual(outgoingBody.legacyBody, "geo:51.5007,-0.1246")
     }
 
+    func testGeolocOutgoingBodyIgnoresCaptionAndUsesGeoURIFallback() throws {
+        let reference = try XCTUnwrap(ChatAttachmentReferenceBuilder().makeReferences(
+            from: [locationDraft(location: preparedLocation())],
+            context: Self.context
+        ).first)
+
+        let outgoingBody = ChatAttachmentCaptionOutgoingBodyPolicy.makeOutgoingBody(
+            captionState: ChatAttachmentCaptionState(rawText: "Westminster"),
+            conversationType: Self.context.conversationType,
+            references: [reference]
+        )
+
+        XCTAssertEqual(outgoingBody.body, "geo:51.5007,-0.1246")
+        XCTAssertEqual(outgoingBody.legacyBody, "geo:51.5007,-0.1246")
+        XCTAssertEqual(reference.begin, 0)
+        XCTAssertEqual(reference.end, outgoingBody.body.xmlEscaping(reverse: false).count)
+    }
+
     func testContactOutgoingBodyUsesContactFallbackAndReferenceOffsets() throws {
         let reference = try XCTUnwrap(ChatAttachmentReferenceBuilder().makeReferences(
             from: [contactDraft(contact: preparedContact())],

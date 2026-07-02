@@ -171,10 +171,128 @@ enum ChatAttachmentPickerComposerStyle {
     }
 }
 
+enum ChatAttachmentSelectionComposerBarMode {
+    case caption
+    case locationInfo(AttachmentPreparedLocation)
+}
+
+final class ChatAttachmentLocationInfoView: UIView {
+    let backgroundEffectView = ChatAttachmentSheetGlassStyle.makeEffectView()
+    let addressLabel = UILabel()
+    let coordinatesLabel = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupView()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupView()
+    }
+
+    func apply(location: AttachmentPreparedLocation) {
+        let address = location.displayAddress?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        addressLabel.text = address.isNotEmpty
+            ? address
+            : ChatAttachmentLocalization.string(.sourceLocationTitle)
+        coordinatesLabel.text = Self.coordinateText(for: location)
+        accessibilityLabel = [addressLabel.text, coordinatesLabel.text]
+            .compactMap { $0 }
+            .filter { $0.isNotEmpty }
+            .joined(separator: ", ")
+    }
+
+    private func setupView() {
+        backgroundColor = .clear
+        isOpaque = false
+        translatesAutoresizingMaskIntoConstraints = false
+        accessibilityIdentifier = "chatAttachmentSheet.selectionComposerBar.locationInfo"
+        isAccessibilityElement = true
+
+        ChatAttachmentPickerComposerStyle.applyCaptionSurface(to: backgroundEffectView)
+
+        addressLabel.translatesAutoresizingMaskIntoConstraints = false
+        addressLabel.accessibilityIdentifier = "chatAttachmentSheet.selectionComposerBar.locationAddress"
+        addressLabel.font = UIFont.preferredFont(forTextStyle: .subheadline)
+        addressLabel.adjustsFontForContentSizeCategory = true
+        addressLabel.textColor = .label
+        addressLabel.numberOfLines = 1
+        addressLabel.lineBreakMode = .byTruncatingTail
+
+        coordinatesLabel.translatesAutoresizingMaskIntoConstraints = false
+        coordinatesLabel.accessibilityIdentifier = "chatAttachmentSheet.selectionComposerBar.locationCoordinates"
+        coordinatesLabel.font = UIFont.preferredFont(forTextStyle: .footnote)
+        coordinatesLabel.adjustsFontForContentSizeCategory = true
+        coordinatesLabel.textColor = .secondaryLabel
+        coordinatesLabel.numberOfLines = 1
+        coordinatesLabel.lineBreakMode = .byTruncatingTail
+
+        let stackView = UIStackView(arrangedSubviews: [addressLabel, coordinatesLabel])
+        stackView.axis = .vertical
+        stackView.alignment = .fill
+        stackView.spacing = 1
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(backgroundEffectView)
+        backgroundEffectView.contentView.addSubview(stackView)
+
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.minimumHeight),
+
+            backgroundEffectView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backgroundEffectView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backgroundEffectView.topAnchor.constraint(equalTo: topAnchor),
+            backgroundEffectView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            stackView.leadingAnchor.constraint(
+                equalTo: backgroundEffectView.contentView.leadingAnchor,
+                constant: NativeGlassBarStyle.contentInset
+            ),
+            stackView.trailingAnchor.constraint(
+                equalTo: backgroundEffectView.contentView.trailingAnchor,
+                constant: -NativeGlassBarStyle.contentInset
+            ),
+            stackView.centerYAnchor.constraint(equalTo: backgroundEffectView.contentView.centerYAnchor),
+            stackView.topAnchor.constraint(
+                greaterThanOrEqualTo: backgroundEffectView.contentView.topAnchor,
+                constant: 4
+            ),
+            stackView.bottomAnchor.constraint(
+                lessThanOrEqualTo: backgroundEffectView.contentView.bottomAnchor,
+                constant: -4
+            )
+        ])
+    }
+
+    private static func coordinateText(for location: AttachmentPreparedLocation) -> String {
+        let trimmedURI = location.geoURI.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedURI.hasPrefix("geo:") {
+            let coordinates = String(trimmedURI.dropFirst("geo:".count))
+            if let commaIndex = coordinates.firstIndex(of: ",") {
+                let latitude = coordinates[..<commaIndex]
+                let longitude = coordinates[coordinates.index(after: commaIndex)...]
+                return "\(latitude):\(longitude)"
+            }
+        }
+
+        return "\(location.coordinate.latitude):\(location.coordinate.longitude)"
+    }
+}
+
 final class ChatAttachmentSelectionComposerBarView: UIView {
     let resetButton = UIButton(type: .system)
     let captionInputView = ChatAttachmentCaptionInputView()
+    let locationInfoView = ChatAttachmentLocationInfoView()
     let sendButton = UIButton(type: .system)
+
+    var locationAddressLabel: UILabel {
+        locationInfoView.addressLabel
+    }
+
+    var locationCoordinatesLabel: UILabel {
+        locationInfoView.coordinatesLabel
+    }
 
     var onResetRequested: (() -> Void)?
     var onCaptionChanged: ((String) -> Void)?
@@ -214,6 +332,20 @@ final class ChatAttachmentSelectionComposerBarView: UIView {
         applySendButtonStyle()
     }
 
+    func updateMode(_ mode: ChatAttachmentSelectionComposerBarMode) {
+        switch mode {
+        case .caption:
+            captionInputView.isHidden = false
+            captionInputView.isUserInteractionEnabled = true
+            locationInfoView.isHidden = true
+        case .locationInfo(let location):
+            locationInfoView.apply(location: location)
+            locationInfoView.isHidden = false
+            captionInputView.isHidden = true
+            captionInputView.isUserInteractionEnabled = false
+        }
+    }
+
     func updateCaptionText(_ text: String) {
         guard captionInputView.text != text else {
             return
@@ -249,9 +381,11 @@ final class ChatAttachmentSelectionComposerBarView: UIView {
 
         sendButton.translatesAutoresizingMaskIntoConstraints = false
         sendButton.accessibilityIdentifier = "chatAttachmentSheet.selectionComposerBar.sendButton"
+        locationInfoView.isHidden = true
 
         addSubview(resetButton)
         addSubview(captionInputView)
+        addSubview(locationInfoView)
         addSubview(sendButton)
 
         NSLayoutConstraint.activate([
@@ -277,6 +411,11 @@ final class ChatAttachmentSelectionComposerBarView: UIView {
                 constant: -NativeGlassBarStyle.interItemSpacing
             ),
 
+            locationInfoView.leadingAnchor.constraint(equalTo: captionInputView.leadingAnchor),
+            locationInfoView.trailingAnchor.constraint(equalTo: captionInputView.trailingAnchor),
+            locationInfoView.topAnchor.constraint(greaterThanOrEqualTo: captionInputView.topAnchor),
+            locationInfoView.bottomAnchor.constraint(equalTo: captionInputView.bottomAnchor),
+
             sendButton.trailingAnchor.constraint(
                 equalTo: trailingAnchor,
                 constant: -NativeGlassBarStyle.horizontalInset
@@ -287,6 +426,7 @@ final class ChatAttachmentSelectionComposerBarView: UIView {
         ])
 
         applyResetButtonStyle()
+        updateMode(.caption)
         update(selectedCount: 0, isSendEnabled: false)
     }
 
@@ -353,7 +493,6 @@ final class ChatAttachmentPickerViewController: UIViewController {
     private var sendFeedbackViewModel: ChatAttachmentStatusBannerViewModel?
     private var shouldShowPreparationStatus = false
     private var isPreparingSend = false
-    private var autoFilledLocationCaption: String?
 
     private(set) var activeSource: ChatAttachmentSource = .gallery
     private(set) var selectedItemCount: Int = 0
@@ -419,10 +558,6 @@ final class ChatAttachmentPickerViewController: UIViewController {
         selectionComposerBarView.onCaptionChanged = { [weak self] text in
             guard let self else { return }
             self.captionState = ChatAttachmentCaptionState(rawText: text)
-            if let autoFilledLocationCaption,
-               text != autoFilledLocationCaption {
-                self.autoFilledLocationCaption = nil
-            }
         }
         selectionComposerBarView.onPreferredHeightChanged = { [weak self] _ in
             self?.updateBottomControls()
@@ -575,7 +710,8 @@ final class ChatAttachmentPickerViewController: UIViewController {
         selectedItemCount = 0
         selectedAttachmentDrafts = []
         captionState.reset()
-        autoFilledLocationCaption = nil
+        selectionComposerBarView.updateMode(.caption)
+        selectionComposerBarView.updateCaptionText("")
         sendFeedbackViewModel = nil
         shouldShowPreparationStatus = false
         currentPreparationTask?.cancel()
@@ -693,14 +829,13 @@ final class ChatAttachmentPickerViewController: UIViewController {
 
         if drafts.isEmpty {
             captionState.reset()
-            autoFilledLocationCaption = nil
+            selectionComposerBarView.updateMode(.caption)
             selectionComposerBarView.updateCaptionText("")
             currentPreparationTask?.cancel()
             currentPreparationTask = nil
             isPreparingSend = false
         } else {
-            updateAutoFilledLocationCaption(for: drafts)
-            selectionComposerBarView.updateCaptionText(captionState.rawText)
+            updateSelectionComposerMode(for: drafts)
             prepareSelectedDraftsIfNeeded(showStatus: false)
         }
 
@@ -729,34 +864,16 @@ final class ChatAttachmentPickerViewController: UIViewController {
         }
     }
 
-    private func updateAutoFilledLocationCaption(for drafts: [AttachmentDraft]) {
-        guard drafts.count == 1,
-              let location = drafts.first?.preparedLocation,
-              let caption = autoCaptionText(for: location) else {
-            clearAutoFilledLocationCaptionIfStillApplied()
-            return
-        }
-
-        if captionState.isEmpty || captionState.rawText == autoFilledLocationCaption {
-            captionState = ChatAttachmentCaptionState(rawText: caption)
-            autoFilledLocationCaption = caption
-        }
-    }
-
-    private func clearAutoFilledLocationCaptionIfStillApplied() {
-        if let autoFilledLocationCaption,
-           captionState.rawText == autoFilledLocationCaption {
+    private func updateSelectionComposerMode(for drafts: [AttachmentDraft]) {
+        if drafts.count == 1,
+           let location = drafts.first?.preparedLocation {
             captionState.reset()
+            selectionComposerBarView.updateCaptionText("")
+            selectionComposerBarView.updateMode(.locationInfo(location))
+        } else {
+            selectionComposerBarView.updateMode(.caption)
+            selectionComposerBarView.updateCaptionText(captionState.rawText)
         }
-        autoFilledLocationCaption = nil
-    }
-
-    private func autoCaptionText(for location: AttachmentPreparedLocation) -> String? {
-        let displayAddress = location.displayAddress?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if displayAddress.isNotEmpty {
-            return displayAddress
-        }
-        return location.geoURI
     }
 
     private func updateSelectionPreviewBar() {
@@ -793,10 +910,6 @@ final class ChatAttachmentPickerViewController: UIViewController {
             onCaptionChanged: { [weak self] captionState in
                 guard let self else { return }
                 self.captionState = captionState
-                if let autoFilledLocationCaption,
-                   captionState.rawText != autoFilledLocationCaption {
-                    self.autoFilledLocationCaption = nil
-                }
             }
         )
         preview.delegate = self

@@ -390,11 +390,11 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
         XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "")
     }
 
-    func testLocationSelectionAutofillsCaptionAndKeepsSendEnabledBeforeSnapshot() {
+    func testLocationSelectionShowsReadOnlyInfoAndKeepsSendEnabledBeforeSnapshot() {
         let source = FakeTask13SelectableSourceController(source: .geolocation)
         let sheet = makeSheet(source: source)
         let locationDraft = makeTask13LocationDraft(
-            address: "Westminster",
+            address: "  Westminster  ",
             snapshotURL: nil
         )
 
@@ -402,13 +402,19 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
         sheet.switchSource(to: .geolocation)
         source.replaceSelectedDrafts([locationDraft])
 
-        XCTAssertEqual(sheet.captionState.rawText, "Westminster")
-        XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "Westminster")
+        XCTAssertTrue(sheet.captionState.isEmpty)
+        XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "")
+        XCTAssertTrue(sheet.selectionComposerBarView.captionInputView.isHidden)
+        assertLocationInfo(
+            sheet.selectionComposerBarView,
+            address: "Westminster",
+            coordinates: "51.5007:-0.1246"
+        )
         XCTAssertFalse(sheet.selectionComposerBarView.isHidden)
         XCTAssertTrue(sheet.selectionComposerBarView.sendButton.isEnabled)
     }
 
-    func testLocationReplacementUpdatesAutoFilledCaptionWithoutDisablingSend() {
+    func testLocationReplacementUpdatesReadOnlyInfoWithoutDisablingSend() {
         let source = FakeTask13SelectableSourceController(source: .geolocation)
         let sheet = makeSheet(source: source)
         let first = makeTask13LocationDraft(
@@ -431,13 +437,18 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
 
         source.replaceSelectedDrafts([second])
 
-        XCTAssertEqual(sheet.captionState.rawText, "New York City")
-        XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "New York City")
+        XCTAssertTrue(sheet.captionState.isEmpty)
+        XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "")
+        assertLocationInfo(
+            sheet.selectionComposerBarView,
+            address: "New York City",
+            coordinates: "40.7128:-74.006"
+        )
         XCTAssertTrue(sheet.selectionComposerBarView.sendButton.isEnabled)
         XCTAssertEqual(sheet.selectedAttachmentDrafts.map(\.id), [second.id])
     }
 
-    func testManualCaptionIsNotReplacedByLaterLocationSnapshotOrPointChange() {
+    func testLocationSnapshotAndPointChangeKeepCaptionEmptyAndUpdateReadOnlyInfo() {
         let source = FakeTask13SelectableSourceController(source: .geolocation)
         let sheet = makeSheet(source: source)
         let first = makeTask13LocationDraft(
@@ -462,17 +473,58 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
         sheet.loadViewIfNeeded()
         sheet.switchSource(to: .geolocation)
         source.replaceSelectedDrafts([first])
-        sheet.selectionComposerBarView.captionInputView.textView.text = "Meet here"
-        sheet.selectionComposerBarView.captionInputView.textViewDidChange(
-            sheet.selectionComposerBarView.captionInputView.textView
-        )
 
         source.replaceSelectedDrafts([firstWithSnapshot])
+        XCTAssertTrue(sheet.captionState.isEmpty)
+        assertLocationInfo(
+            sheet.selectionComposerBarView,
+            address: "Westminster",
+            coordinates: "51.5007:-0.1246"
+        )
+
         source.replaceSelectedDrafts([second])
 
-        XCTAssertEqual(sheet.captionState.rawText, "Meet here")
-        XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "Meet here")
+        XCTAssertTrue(sheet.captionState.isEmpty)
+        XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "")
+        assertLocationInfo(
+            sheet.selectionComposerBarView,
+            address: "New York City",
+            coordinates: "40.7128:-74.006"
+        )
         XCTAssertTrue(sheet.selectionComposerBarView.sendButton.isEnabled)
+    }
+
+    func testLocationResetClearsReadOnlyInfoAndRestoresSourceBar() throws {
+        let source = FakeTask13SelectableSourceController(source: .geolocation)
+        let sheet = makeSheet(source: source)
+
+        sheet.loadViewIfNeeded()
+        sheet.switchSource(to: .geolocation)
+        source.replaceSelectedDrafts([
+            makeTask13LocationDraft(address: "Westminster", snapshotURL: nil)
+        ])
+        assertLocationInfo(
+            sheet.selectionComposerBarView,
+            address: "Westminster",
+            coordinates: "51.5007:-0.1246"
+        )
+
+        let resetButton = try XCTUnwrap(
+            firstSubview(
+                in: sheet.selectionComposerBarView,
+                accessibilityIdentifier: "chatAttachmentSheet.selectionComposerBar.resetButton",
+                as: UIButton.self
+            )
+        )
+        resetButton.sendActions(for: .touchUpInside)
+
+        XCTAssertTrue(sheet.selectedAttachmentDrafts.isEmpty)
+        XCTAssertTrue(source.selectedAttachmentDrafts.isEmpty)
+        XCTAssertTrue(sheet.captionState.isEmpty)
+        XCTAssertTrue(sheet.selectionComposerBarView.locationInfoView.isHidden)
+        XCTAssertEqual(sheet.selectionComposerBarView.captionInputView.text, "")
+        XCTAssertTrue(sheet.selectionComposerBarView.isHidden)
+        XCTAssertFalse(sheet.sourceBarView.isHidden)
     }
 
     func testSheetResetButtonClearsSelectedBatchCaptionAndRestoresSourceBar() throws {
@@ -613,6 +665,36 @@ final class ChatAttachmentCaptionInputTests: XCTestCase {
         }
 
         return nil
+    }
+
+    private func assertLocationInfo(
+        _ composer: ChatAttachmentSelectionComposerBarView,
+        address: String,
+        coordinates: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertFalse(composer.locationInfoView.isHidden, file: file, line: line)
+        XCTAssertEqual(composer.locationAddressLabel.text, address, file: file, line: line)
+        XCTAssertEqual(composer.locationCoordinatesLabel.text, coordinates, file: file, line: line)
+        XCTAssertEqual(
+            composer.locationInfoView.accessibilityIdentifier,
+            "chatAttachmentSheet.selectionComposerBar.locationInfo",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            composer.locationAddressLabel.accessibilityIdentifier,
+            "chatAttachmentSheet.selectionComposerBar.locationAddress",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            composer.locationCoordinatesLabel.accessibilityIdentifier,
+            "chatAttachmentSheet.selectionComposerBar.locationCoordinates",
+            file: file,
+            line: line
+        )
     }
 }
 
