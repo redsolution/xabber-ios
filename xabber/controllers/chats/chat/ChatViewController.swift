@@ -1362,6 +1362,7 @@ class ChatViewController: MessagesViewController {
     var observerNewestArchivedId: String? = nil
     var observerLookupSignature: ObserverLookupSignature? = nil
     private(set) var chatObserversRegistered: Bool = false
+    internal var chatNotificationCenter: NotificationCenter = .default
     var virtualTimelineState: ChatVirtualTimelineState = .empty
     var boundedTimelineWindowState: ChatBoundedTimelineWindowState = .empty
     
@@ -4268,55 +4269,55 @@ class ChatViewController: MessagesViewController {
         }
         self.chatObserversRegistered = true
         super.addObservers()
-        NotificationCenter.default.addObserver(
+        chatNotificationCenter.addObserver(
             self,
             selector: #selector(willEnterForeground),
             name: UIApplication.willEnterForegroundNotification,
             object: UIApplication.shared
         )
-        NotificationCenter.default.addObserver(
+        chatNotificationCenter.addObserver(
             self,
             selector: #selector(self.didEnterBackground),
             name: UIApplication.didEnterBackgroundNotification,
             object: UIApplication.shared
         )
-        NotificationCenter.default.addObserver(
+        chatNotificationCenter.addObserver(
             self,
             selector: #selector(reloadDatasource),
             name: .newMaskSelected,
             object: nil
         )
-        NotificationCenter.default.addObserver(
+        chatNotificationCenter.addObserver(
             self,
             selector: #selector(reloadDatasource),
             name: .chatInterfaceChanged,
             object: nil
         )
-        NotificationCenter.default.addObserver(
+        chatNotificationCenter.addObserver(
             self,
             selector: #selector(updateBackground),
             name: .chatBackgroundChanged,
             object: nil
         )
-        NotificationCenter.default.addObserver(
+        chatNotificationCenter.addObserver(
             self,
             selector: #selector(self.keyboardWillShowNotification(_:)),
             name: UIWindow.keyboardWillShowNotification,
             object: nil
         )
-        NotificationCenter.default.addObserver(
+        chatNotificationCenter.addObserver(
             self,
             selector: #selector(self.keyboardWillHideNotification(_:)),
             name: UIWindow.keyboardWillHideNotification,
             object: nil
         )
-        NotificationCenter.default.addObserver(
+        chatNotificationCenter.addObserver(
             self,
             selector: #selector(self.keyboardWillChangeFrameNotification(_:)),
             name: UIWindow.keyboardWillChangeFrameNotification,
             object: nil
         )
-        NotificationCenter.default.addObserver(
+        chatNotificationCenter.addObserver(
             self,
             selector: #selector(self.onMeteringLevelDidUpdate(_:)),
             name: .recorderDidUpdateMeteringLevelNotification,
@@ -4369,47 +4370,47 @@ class ChatViewController: MessagesViewController {
 //        NotificationCenter.default.removeObserver(self)
         
         
-        NotificationCenter.default.removeObserver(
+        chatNotificationCenter.removeObserver(
             self,
             name: UIApplication.willEnterForegroundNotification,
             object: UIApplication.shared
         )
-        NotificationCenter.default.removeObserver(
+        chatNotificationCenter.removeObserver(
             self,
             name: UIApplication.didEnterBackgroundNotification,
             object: UIApplication.shared
         )
-        NotificationCenter.default.removeObserver(
+        chatNotificationCenter.removeObserver(
             self,
             name: .newMaskSelected,
             object: nil
         )
-        NotificationCenter.default.removeObserver(
+        chatNotificationCenter.removeObserver(
             self,
             name: .chatInterfaceChanged,
             object: nil
         )
-        NotificationCenter.default.removeObserver(
+        chatNotificationCenter.removeObserver(
             self,
             name: .chatBackgroundChanged,
             object: nil
         )
-        NotificationCenter.default.removeObserver(
+        chatNotificationCenter.removeObserver(
             self,
             name: UIWindow.keyboardWillShowNotification,
             object: nil
         )
-        NotificationCenter.default.removeObserver(
+        chatNotificationCenter.removeObserver(
             self,
             name: UIWindow.keyboardWillHideNotification,
             object: nil
         )
-        NotificationCenter.default.removeObserver(
+        chatNotificationCenter.removeObserver(
             self,
             name: UIWindow.keyboardWillChangeFrameNotification,
             object: nil
         )
-        NotificationCenter.default.removeObserver(
+        chatNotificationCenter.removeObserver(
             self,
             name: .recorderDidUpdateMeteringLevelNotification,
             object: nil
