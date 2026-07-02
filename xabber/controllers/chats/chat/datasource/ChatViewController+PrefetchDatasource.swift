@@ -172,13 +172,13 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         ])
     }
 
-    private func triggerInteractiveBoundaryPagingIfNeeded(_ scrollView: UIScrollView) {
+    private func triggerInteractiveBoundaryPagingIfNeeded(_ request: ChatScrollWorkRequest) {
         let boundaryContext = self.pagingBoundaryContext(
-            visibleSections: self.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
+            visibleSections: request.visibleIndexPaths.map(\.section)
         )
         let pageDirection = self.interactiveBoundaryPagingDirection(
-            isUserScrolling: scrollView.isDragging || scrollView.isDecelerating || scrollView.isTracking,
-            gestureTranslationY: scrollView.panGestureRecognizer.translation(in: scrollView).y,
+            isUserScrolling: request.isUserScrolling,
+            gestureTranslationY: request.gestureTranslationY,
             boundaryContext: boundaryContext
         )
         guard let pageDirection else {
@@ -211,16 +211,89 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         }
         return indexPaths
     }
+
+    private func scrollWorkRequest(
+        for scrollView: UIScrollView,
+        visibleIndexPaths: [IndexPath],
+        work: ChatScrollWorkOptions
+    ) -> ChatScrollWorkRequest {
+        ChatScrollWorkRequest(
+            contentOffsetY: scrollView.contentOffset.y,
+            gestureTranslationY: scrollView.panGestureRecognizer.translation(in: scrollView).y,
+            isUserScrolling: scrollView.isDragging || scrollView.isDecelerating || scrollView.isTracking,
+            visibleIndexPaths: visibleIndexPaths,
+            work: work
+        )
+    }
+
+    private func enqueueScrollWork(
+        visibleIndexPaths: [IndexPath],
+        work: ChatScrollWorkOptions
+    ) {
+        self.scrollWorkScheduler.enqueue(
+            scrollWorkRequest(
+                for: self.messagesCollectionView,
+                visibleIndexPaths: visibleIndexPaths,
+                work: work
+            )
+        )
+    }
+
+    internal func flushPendingScrollWork() {
+        self.scrollWorkScheduler.flush()
+    }
+
+    internal func performCoalescedScrollWork(_ request: ChatScrollWorkRequest) {
+        var scrollSignpost = ChatPerformanceSignposts.begin(.scrollProcessing)
+        defer {
+            scrollSignpost.end()
+        }
+
+        if request.work.contains(.updateScrollPosition) {
+            if self.currentPage.isUnlocked {
+                if request.contentOffsetY > self.previousContentOffsetY {
+                    self.chatScrollDirection = .down
+                } else {
+                    self.chatScrollDirection = .up
+                }
+                self.contentOffsetObserver.accept(request.contentOffsetY)
+            }
+            self.previousContentOffsetY = request.contentOffsetY
+        }
+
+        if request.work.contains(.evaluateBoundaryPaging),
+           self.currentPage.isUnlocked {
+            self.triggerInteractiveBoundaryPagingIfNeeded(request)
+        }
+
+        if request.work.contains(.updateFloatingDate) {
+            if !self.preventHidingDate {
+                self.pinnedDateView.hide()
+            }
+            self.setFloatingDateVisible(true)
+            self.willUpdateFloatingDate()
+        }
+
+        if request.work.contains(.advanceReadBoundary) {
+            self.advanceReadBoundaryFromVisibleMessages(indexPaths: request.visibleIndexPaths)
+        }
+
+        if request.work.contains(.updateVoiceQueue) {
+            self.updateVisibleVoiceMessageQueue()
+        }
+    }
     
     func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
         
     }
     
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        self.flushPendingScrollWork()
         self.triggerBoundaryPagingAfterDragIfNeeded(scrollView)
     }
     
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        self.flushPendingScrollWork()
         guard !decelerate else { return }
         self.triggerBoundaryPagingAfterDragIfNeeded(scrollView)
     }
@@ -245,48 +318,30 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
 //            }
 //        }
         
-        self.willUpdateFloatingDate()
-        self.advanceReadBoundaryFromVisibleMessages(
-            indexPaths: self.currentVisibleIndexPaths(including: indexPath)
+        self.enqueueScrollWork(
+            visibleIndexPaths: self.currentVisibleIndexPaths(including: indexPath),
+            work: [.updateFloatingDate, .advanceReadBoundary, .updateVoiceQueue]
         )
-        self.updateVisibleVoiceMessageQueue()
     }
     
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        self.willUpdateFloatingDate()
-        self.advanceReadBoundaryFromVisibleMessages(
-            indexPaths: self.currentVisibleIndexPaths()
+        self.enqueueScrollWork(
+            visibleIndexPaths: self.currentVisibleIndexPaths(),
+            work: [.updateFloatingDate, .advanceReadBoundary, .updateVoiceQueue]
         )
-        self.updateVisibleVoiceMessageQueue()
     }
     
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        var scrollSignpost = ChatPerformanceSignposts.begin(.scrollProcessing)
-        defer {
-            scrollSignpost.end()
-        }
-        let contentOffsetY = scrollView.contentOffset.y
-
-        if self.currentPage.isUnlocked {
-            let contentOffsetY = scrollView.contentOffset.y
-            if contentOffsetY > self.previousContentOffsetY {
-                self.chatScrollDirection = .down
-            } else {
-                self.chatScrollDirection = .up
-            }
-            self.contentOffsetObserver.accept(contentOffsetY)
-            self.triggerInteractiveBoundaryPagingIfNeeded(scrollView)
-        }
-        if !self.preventHidingDate {
-            self.pinnedDateView.hide()
-        }
-        self.previousContentOffsetY = contentOffsetY
-        self.setFloatingDateVisible(true)
-        
-        self.advanceReadBoundaryFromVisibleMessages(
-            indexPaths: self.currentVisibleIndexPaths()
+        self.enqueueScrollWork(
+            visibleIndexPaths: self.currentVisibleIndexPaths(),
+            work: [
+                .updateScrollPosition,
+                .updateFloatingDate,
+                .advanceReadBoundary,
+                .updateVoiceQueue,
+                .evaluateBoundaryPaging
+            ]
         )
-        self.updateVisibleVoiceMessageQueue()
     }
     
     

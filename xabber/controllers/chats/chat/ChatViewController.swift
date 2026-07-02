@@ -1492,6 +1492,9 @@ class ChatViewController: MessagesViewController {
     internal var chatOpenTimingSession: ChatOpenTimingSession?
     private var chatOpenFirstFrameSignpost: ChatPerformanceSignposts.Interval?
     private var pendingSendToLocalRowSignpost: ChatPerformanceSignposts.Interval?
+    internal lazy var scrollWorkScheduler = ChatScrollWorkScheduler { [weak self] request in
+        self?.performCoalescedScrollWork(request)
+    }
     var initialBootstrapQueryId: String? = nil
     var isInitialBootstrapInFlight: Bool = false
     var didReceiveInitialBootstrapEndPage: Bool = false
@@ -4671,6 +4674,7 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        self.flushPendingScrollWork()
         self.beginNavigationTransitionDeferralIfNeeded()
         if self.isMovingFromParent || self.isBeingDismissed || self.navigationController?.isBeingDismissed == true {
             self.invalidateNavigationAvatarItem()
