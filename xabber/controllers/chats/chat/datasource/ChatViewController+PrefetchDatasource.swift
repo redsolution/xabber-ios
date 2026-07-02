@@ -26,13 +26,6 @@ import RxRealm
 
 extension ChatViewController: UICollectionViewDataSourcePrefetching {
 
-    private struct BoundaryPagingAvailability {
-        let hasLocalOlderAvailable: Bool
-        let hasLocalNewerAvailable: Bool
-        let hasRemoteOlderAvailable: Bool
-        let hasRemoteNewerAvailable: Bool
-    }
-
     private struct BoundaryPagingSuppressionContext {
         let suppressRemoteBoundaryPaging: Bool
         let contentHeight: CGFloat
@@ -49,95 +42,12 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         }
     }
 
-    private func hasRemoteOlderHistoryAvailable(_ archiveState: ChatArchiveStateSnapshot) -> Bool {
-        let shouldProbePersistedArchiveEnd = ChatArchiveEndVerificationPolicy.shouldProbePersistedArchiveEnd(
-            persistedArchiveEnded: archiveState.fullArchiveLoaded,
-            hasConfirmedArchiveEndThisSession: self.hasConfirmedArchiveEndThisSession,
-            hasUsedVerificationProbe: self.hasUsedArchiveEndVerificationProbe
-        )
-        let effectiveArchiveEnded = ChatArchiveEndVerificationPolicy.effectiveArchiveEnded(
-            persistedArchiveEnded: archiveState.fullArchiveLoaded,
-            shouldProbePersistedArchiveEnd: shouldProbePersistedArchiveEnd
-        )
-        return !effectiveArchiveEnded
-    }
-
-    private func isOlderBoundaryVisible(_ boundaryContext: ChatHistoryPagingBoundaryContext) -> Bool {
-        guard let firstRealSection = boundaryContext.firstRealSection else {
-            return false
-        }
-        return boundaryContext.visibleRealSections.contains { $0 <= firstRealSection }
-    }
-
-    private func isNewerBoundaryVisible(_ boundaryContext: ChatHistoryPagingBoundaryContext) -> Bool {
-        guard let lastRealSection = boundaryContext.lastRealSection else {
-            return false
-        }
-        return boundaryContext.visibleRealSections.contains { $0 >= lastRealSection }
-    }
-
-    private func localBoundaryPagingAvailability(
-        boundaryContext: ChatHistoryPagingBoundaryContext
-    ) -> (older: Bool, newer: Bool) {
-        let shouldCheckOlder = self.isOlderBoundaryVisible(boundaryContext)
-        let shouldCheckNewer = self.isNewerBoundaryVisible(boundaryContext)
-        guard shouldCheckOlder || shouldCheckNewer else {
-            return (older: false, newer: false)
-        }
-
-        let normalizedState = self.virtualTimelineState.normalized(
-            owner: self.owner,
-            jid: self.jid,
-            conversationType: self.conversationType
-        )
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            let hasLocalOlder: Bool
-            if shouldCheckOlder, let oldest = normalizedState.oldest {
-                hasLocalOlder = provider.older(before: oldest, limit: 1).isNotEmpty
-            } else {
-                hasLocalOlder = false
-            }
-
-            let hasLocalNewer: Bool
-            if shouldCheckNewer, let newest = normalizedState.newest {
-                hasLocalNewer = provider.newer(after: newest, limit: 1).isNotEmpty
-            } else {
-                hasLocalNewer = false
-            }
-
-            return (older: hasLocalOlder, newer: hasLocalNewer)
-        } catch {
-            ChatArchiveDebugTrace.log("boundaryPagingAvailabilityError", [
-                ("owner", self.owner),
-                ("jid", self.jid),
-                ("conversationType", self.conversationType.rawValue),
-                ("error", error.localizedDescription)
-            ])
-            return (older: false, newer: false)
-        }
-    }
-
-    private func boundaryPagingAvailability(
-        boundaryContext: ChatHistoryPagingBoundaryContext
-    ) -> BoundaryPagingAvailability {
-        let archiveState = self.loadChatArchiveStateSnapshot()
-        let localAvailability = self.localBoundaryPagingAvailability(boundaryContext: boundaryContext)
-        return BoundaryPagingAvailability(
-            hasLocalOlderAvailable: localAvailability.older,
-            hasLocalNewerAvailable: localAvailability.newer,
-            hasRemoteOlderAvailable: self.hasRemoteOlderHistoryAvailable(archiveState),
-            hasRemoteNewerAvailable: archiveState.hasKnownNewerGap || !archiveState.newerLiveEdgeReached
-        )
+    private func boundaryPagingAvailability() -> ChatScrollBoundaryAvailability {
+        self.scrollBoundaryAvailabilityCache.availability(for: self.chatTimelineConversationKey) ?? .empty
     }
 
     private func shortContentRemotePagingSuppressionContext(
-        availability: BoundaryPagingAvailability
+        availability: ChatScrollBoundaryAvailability
     ) -> BoundaryPagingSuppressionContext {
         let contentHeight = self.messagesCollectionView.collectionViewLayout.collectionViewContentSize.height
         let visibleHeight = max(
@@ -149,8 +59,8 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         let hasRealMessages = self.datasource.contains { !$0.isFakeMessage }
         let shouldSuppress = ChatShortContentRemotePagingSuppressionPolicy.shouldSuppressRemoteBoundaryPaging(
             hasRealMessages: hasRealMessages,
-            hasLocalOlderAvailable: availability.hasLocalOlderAvailable,
-            hasLocalNewerAvailable: availability.hasLocalNewerAvailable,
+            hasLocalOlderAvailable: availability.hasLocalOlderPage,
+            hasLocalNewerAvailable: availability.hasLocalNewerPage,
             contentHeight: contentHeight,
             visibleHeight: visibleHeight
         )
@@ -166,7 +76,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         gestureTranslationY: CGFloat,
         boundaryContext: ChatHistoryPagingBoundaryContext
     ) -> ChatHistoryPageDirection? {
-        let availability = self.boundaryPagingAvailability(boundaryContext: boundaryContext)
+        let availability = self.boundaryPagingAvailability()
         let suppressionContext = self.shortContentRemotePagingSuppressionContext(availability: availability)
         let residentCount = self.virtualTimelineState.residentPrimaryKeys.count
         let pageDirection = ChatHistoryPagingPolicy.triggerDirection(
@@ -177,10 +87,10 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             currentPageMinIndex: 0,
             currentPageMaxIndex: residentCount,
             totalCount: residentCount,
-            hasLocalOlderAvailable: availability.hasLocalOlderAvailable,
-            hasLocalNewerAvailable: availability.hasLocalNewerAvailable,
-            hasRemoteOlderAvailable: availability.hasRemoteOlderAvailable,
-            hasRemoteNewerAvailable: availability.hasRemoteNewerAvailable,
+            hasLocalOlderAvailable: availability.hasLocalOlderPage,
+            hasLocalNewerAvailable: availability.hasLocalNewerPage,
+            hasRemoteOlderAvailable: availability.hasRemoteOlderPage,
+            hasRemoteNewerAvailable: availability.hasRemoteNewerPage,
             suppressRemoteBoundaryPaging: suppressionContext.suppressRemoteBoundaryPaging
         )
         self.logBoundaryPagingDecision(
@@ -199,7 +109,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         gestureTranslationY: CGFloat,
         boundaryContext: ChatHistoryPagingBoundaryContext
     ) -> ChatHistoryPageDirection? {
-        let availability = self.boundaryPagingAvailability(boundaryContext: boundaryContext)
+        let availability = self.boundaryPagingAvailability()
         let suppressionContext = self.shortContentRemotePagingSuppressionContext(availability: availability)
         let residentCount = self.virtualTimelineState.residentPrimaryKeys.count
         let pageDirection = ChatHistoryPagingPolicy.fallbackDirectionForShortContentDrag(
@@ -209,10 +119,10 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             currentPageMinIndex: 0,
             currentPageMaxIndex: residentCount,
             totalCount: residentCount,
-            hasLocalOlderAvailable: availability.hasLocalOlderAvailable,
-            hasLocalNewerAvailable: availability.hasLocalNewerAvailable,
-            hasRemoteOlderAvailable: availability.hasRemoteOlderAvailable,
-            hasRemoteNewerAvailable: availability.hasRemoteNewerAvailable,
+            hasLocalOlderAvailable: availability.hasLocalOlderPage,
+            hasLocalNewerAvailable: availability.hasLocalNewerPage,
+            hasRemoteOlderAvailable: availability.hasRemoteOlderPage,
+            hasRemoteNewerAvailable: availability.hasRemoteNewerPage,
             suppressRemoteBoundaryPaging: suppressionContext.suppressRemoteBoundaryPaging
         )
         self.logBoundaryPagingDecision(
@@ -230,7 +140,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     private func logBoundaryPagingDecision(
         trigger: String,
         boundaryContext: ChatHistoryPagingBoundaryContext,
-        availability: BoundaryPagingAvailability,
+        availability: ChatScrollBoundaryAvailability,
         suppressionContext: BoundaryPagingSuppressionContext,
         residentCount: Int,
         gestureTranslationY: CGFloat,
@@ -245,10 +155,13 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             ("firstRealSection", boundaryContext.firstRealSection ?? -1),
             ("lastRealSection", boundaryContext.lastRealSection ?? -1),
             ("visibleRealSections", boundaryContext.visibleRealSections.map(String.init).joined(separator: ",")),
-            ("localOlder", availability.hasLocalOlderAvailable),
-            ("localNewer", availability.hasLocalNewerAvailable),
-            ("remoteOlder", availability.hasRemoteOlderAvailable),
-            ("remoteNewer", availability.hasRemoteNewerAvailable),
+            ("localOlder", availability.hasLocalOlderPage),
+            ("localNewer", availability.hasLocalNewerPage),
+            ("gapAbove", availability.hasKnownArchiveGapAbove),
+            ("gapBelow", availability.hasKnownArchiveGapBelow),
+            ("remoteOlder", availability.hasRemoteOlderPage),
+            ("remoteNewer", availability.hasRemoteNewerPage),
+            ("remoteInFlight", availability.isRemotePageInFlight),
             ("suppressRemoteBoundaryPaging", suppressionContext.suppressRemoteBoundaryPaging),
             ("contentHeight", Int(suppressionContext.contentHeight)),
             ("visibleHeight", Int(suppressionContext.visibleHeight)),

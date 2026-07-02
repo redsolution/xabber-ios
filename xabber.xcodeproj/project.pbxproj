@@ -25,6 +25,8 @@
 		4E6800022FA700000ABC001 /* ChatTimelineCursorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6800012FA700000ABC001 /* ChatTimelineCursorTests.swift */; };
 		4E6900022FA800000ABC001 /* ChatPerformanceSignpostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6900012FA800000ABC001 /* ChatPerformanceSignpostTests.swift */; };
 		4E6900042FA800000ABC001 /* ChatPerformanceSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6900032FA800000ABC001 /* ChatPerformanceSignposts.swift */; };
+		4E6A00022FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6A00012FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift */; };
+		4E6A00042FA900000ABC001 /* ChatScrollBoundaryAvailabilityCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6A00032FA900000ABC001 /* ChatScrollBoundaryAvailabilityCache.swift */; };
 		4E5300082F71000000ABC001 /* GroupchatInviteV3Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5300072F71000000ABC001 /* GroupchatInviteV3Tests.swift */; };
 		4E5700042F75000000ABC001 /* XMPPMessageScheduleStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5700022F75000000ABC001 /* XMPPMessageScheduleStorageItem.swift */; };
 		4E5700052F75000000ABC001 /* XMPPMessageScheduleManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5700032F75000000ABC001 /* XMPPMessageScheduleManager.swift */; };
@@ -883,6 +885,8 @@
 		4E6800012FA700000ABC001 /* ChatTimelineCursorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTimelineCursorTests.swift; sourceTree = "<group>"; };
 		4E6900012FA800000ABC001 /* ChatPerformanceSignpostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPerformanceSignpostTests.swift; sourceTree = "<group>"; };
 		4E6900032FA800000ABC001 /* ChatPerformanceSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPerformanceSignposts.swift; sourceTree = "<group>"; };
+		4E6A00012FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScrollBoundaryCacheTests.swift; sourceTree = "<group>"; };
+		4E6A00032FA900000ABC001 /* ChatScrollBoundaryAvailabilityCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScrollBoundaryAvailabilityCache.swift; sourceTree = "<group>"; };
 		4E5300072F71000000ABC001 /* GroupchatInviteV3Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatInviteV3Tests.swift; sourceTree = "<group>"; };
 		4E5700022F75000000ABC001 /* XMPPMessageScheduleStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPMessageScheduleStorageItem.swift; sourceTree = "<group>"; };
 		4E5700032F75000000ABC001 /* XMPPMessageScheduleManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPMessageScheduleManager.swift; sourceTree = "<group>"; };
@@ -3857,6 +3861,7 @@
 					4E6700012FA600000ABC001 /* ChatSendButtonReadinessTests.swift */,
 					4E6800012FA700000ABC001 /* ChatTimelineCursorTests.swift */,
 					4E6900012FA800000ABC001 /* ChatPerformanceSignpostTests.swift */,
+					4E6A00012FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift */,
 					4E5300072F71000000ABC001 /* GroupchatInviteV3Tests.swift */,
 					4E5700062F75000000ABC001 /* XMPPMessageScheduleManagerTests.swift */,
 					4E58000A2F76000000ABC001 /* XEPMessageScheduleUITests.swift */,
@@ -4313,6 +4318,7 @@
 				666E1F462204201500172F55 /* delegate */,
 				66CB16C221F9C9D100CB03C2 /* ChatViewController.swift */,
 				4E6900032FA800000ABC001 /* ChatPerformanceSignposts.swift */,
+				4E6A00032FA900000ABC001 /* ChatScrollBoundaryAvailabilityCache.swift */,
 			);
 			path = chat;
 			sourceTree = "<group>";
@@ -5466,6 +5472,7 @@
 				66CDFFEE2C63942500BF5DCC /* NotificationsControllerFilterProtocol.swift in Sources */,
 				66CB16C321F9C9D100CB03C2 /* ChatViewController.swift in Sources */,
 				4E6900042FA800000ABC001 /* ChatPerformanceSignposts.swift in Sources */,
+				4E6A00042FA900000ABC001 /* ChatScrollBoundaryAvailabilityCache.swift in Sources */,
 				66B7992022E08167001589A5 /* SearchResultsViewController+UITableViewDatasource.swift in Sources */,
 				1A999D8627DF497A0093A011 /* CloudStorageViewController.swift in Sources */,
 				66605F732395207E00383EF1 /* GroupchatInvitesStorageItem.swift in Sources */,
@@ -5830,6 +5837,7 @@
 					4E6700022FA600000ABC001 /* ChatSendButtonReadinessTests.swift in Sources */,
 					4E6800022FA700000ABC001 /* ChatTimelineCursorTests.swift in Sources */,
 					4E6900022FA800000ABC001 /* ChatPerformanceSignpostTests.swift in Sources */,
+					4E6A00022FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift in Sources */,
 					4E5300082F71000000ABC001 /* GroupchatInviteV3Tests.swift in Sources */,
 					4E5700072F75000000ABC001 /* XMPPMessageScheduleManagerTests.swift in Sources */,
 					4E5800092F76000000ABC001 /* XEPMessageScheduleUITests.swift in Sources */,

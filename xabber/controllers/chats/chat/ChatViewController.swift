@@ -1379,6 +1379,7 @@ class ChatViewController: MessagesViewController {
     internal var chatNotificationCenter: NotificationCenter = .default
     var virtualTimelineState: ChatVirtualTimelineState = .empty
     var boundedTimelineWindowState: ChatBoundedTimelineWindowState = .empty
+    var scrollBoundaryAvailabilityCache: ChatScrollBoundaryAvailabilityCache = .empty
     
     
     var sharedPlayerPaneldelegae: SharedAudioPlayerPanelDelegate? = nil
@@ -4529,6 +4530,7 @@ class ChatViewController: MessagesViewController {
         super.viewWillAppear(animated)
         self.beginNavigationTransitionDeferralIfNeeded()
         self.recordChatOpenTimingViewWillAppear()
+        self.refreshScrollBoundaryAvailabilityCache(reason: "viewWillAppear")
         self.didRunNavigationDisappearanceCleanup = false
         self.didScheduleNavigationDisappearanceCleanup = false
         do {

@@ -4455,6 +4455,7 @@ extension ChatViewController {
     internal func syncCurrentPage(with window: ChatDatasetWindow) {
         self.currentPage.minIndex = window.minIndex
         self.currentPage.maxIndex = window.maxIndex
+        self.refreshScrollBoundaryAvailabilityCache(reason: "syncCurrentPage")
     }
 
     internal func visibleWindow() -> ChatDatasetWindow {
@@ -5027,6 +5028,7 @@ extension ChatViewController {
                     archiveState.updatedAt = Date()
                 }
             }
+            self.refreshScrollBoundaryAvailabilityCache(reason: "archiveStateChanged")
             return updatedSnapshot
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
@@ -5068,6 +5070,7 @@ extension ChatViewController {
                     chat.fullArchiveLoaded = archiveState.olderArchiveEndReached
                 }
             }
+            self.refreshScrollBoundaryAvailabilityCache(reason: "archiveCoverageChanged")
         } catch {
             DDLogDebug("ChatViewController.applyConversationArchiveLoadedRangeIfNeeded error=\(error.localizedDescription)")
         }
@@ -5103,6 +5106,7 @@ extension ChatViewController {
                         archiveState.updatedAt = Date()
                     }
                 }
+                self.refreshScrollBoundaryAvailabilityCache(reason: "fullArchiveLoadedChanged")
             }
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
@@ -5468,6 +5472,7 @@ extension ChatViewController {
             self.abortedRemoteHistoryQueryIds.insert(queryId)
             self.virtualTimelineState = self.virtualTimelineState.abortingRemoteLoad(queryId: queryId)
             self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: self.virtualTimelineState)
+            self.refreshScrollBoundaryAvailabilityCache(reason: "remoteLoadAbort")
         }
         self.cancelInteractiveHistoryCompletionRetry()
         self.interactiveHistoryPageLoadContext = nil
@@ -7336,6 +7341,7 @@ extension ChatViewController {
         self.activeHistoryBoundaryPlaceholder = nil
         self.virtualTimelineState = clearedState
         self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: clearedState)
+        self.refreshScrollBoundaryAvailabilityCache(reason: "remoteLoadCleared")
         DDLogDebug(
             "ChatViewController.remoteHistoryApplyCancelled queryId=\(queryId) reason=clearedRuntimeState oldest=\(clearedState.oldest?.archivedId ?? "-") newest=\(clearedState.newest?.archivedId ?? "-")"
         )
