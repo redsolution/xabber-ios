@@ -25,7 +25,10 @@ import MaterialComponents.MDCPalettes
 extension ChatViewController: MessagesDataSource {
 
     internal func datasourceItem(at indexPath: IndexPath) -> Datasource? {
-        datasourceItem(atSection: indexPath.section)
+        guard indexPath.item == 0 else {
+            return nil
+        }
+        return datasourceItem(atSection: indexPath.section)
     }
 
     internal func datasourceItem(atSection section: Int) -> Datasource? {

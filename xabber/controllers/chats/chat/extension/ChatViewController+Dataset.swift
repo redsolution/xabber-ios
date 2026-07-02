@@ -3882,15 +3882,19 @@ extension ChatViewController {
                 height: 34
             )
         )
-        let index = [topVisibleReasonableMessageIndex, self.datasource.count - 1].min() ?? 0
         if self.datasource.count < 5 {
             self.pinnedDateView.isHidden = true
 //            self.pinnedDateView.hide()
         } else {
+            let index = [topVisibleReasonableMessageIndex, self.datasource.count - 1].min() ?? 0
+            guard let item = self.datasourceItem(atSection: index) else {
+                self.pinnedDateView.isHidden = true
+                return
+            }
 //            self.pinnedDateView.show()
             self.pinnedDateView.isHidden = false
             let text = NSAttributedString(
-                string: sectionsDateFormatter.string(from: self.datasource[index].sentDate),
+                string: sectionsDateFormatter.string(from: item.sentDate),
                 attributes: [
                     .font: UIFont.preferredFont(forTextStyle: .caption1),
                     .foregroundColor: UIColor.white,
@@ -4266,7 +4270,7 @@ extension ChatViewController {
             let applyLayoutUpdates = {
                 guard !diff.reloads.isEmpty else { return }
                 diff.reloads.forEach { indexPath in
-                    guard indexPath.section < items.count else { return }
+                    guard items.indices.contains(indexPath.section) else { return }
                     flowLayout?.invalidateLastMessageCachedSize(primary: items[indexPath.section].primary)
                 }
                 self.messagesCollectionView.reconfigureItems(at: diff.reloads)
@@ -5029,10 +5033,12 @@ extension ChatViewController {
     }
 
     internal func pagingBoundaryContext(visibleSections: [Int]) -> ChatHistoryPagingBoundaryContext {
-        let visibleRealSections = Array(Set(visibleSections.filter {
-            $0 >= 0 &&
-            $0 < self.datasource.count &&
-            !self.datasource[$0].isFakeMessage
+        let visibleRealSections = Array(Set(visibleSections.compactMap { section -> Int? in
+            guard let item = self.datasourceItem(atSection: section),
+                  !item.isFakeMessage else {
+                return nil
+            }
+            return section
         })).sorted()
 
         return ChatHistoryPagingBoundaryContext(
@@ -5233,8 +5239,10 @@ extension ChatViewController {
             .compactMap(\.section)
             .sorted()
             .filter {
-                $0 < self.datasource.count &&
-                !self.datasource[$0].isFakeMessage
+                guard let item = self.datasourceItem(atSection: $0) else {
+                    return false
+                }
+                return !item.isFakeMessage
             }
 
         let anchorSection: Int?
@@ -8198,7 +8206,7 @@ extension ChatViewController {
             if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
                 self.scrollToBottom(animated: shouldAnimateScroll)
                 self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: shouldAnimateScroll)
-            } else if index < self.datasource.count {
+            } else if self.datasourceItem(atSection: index) != nil {
                 self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: shouldAnimateScroll)
             } else {
                 self.scrollToLatestTimeline(animated: shouldAnimateScroll)
