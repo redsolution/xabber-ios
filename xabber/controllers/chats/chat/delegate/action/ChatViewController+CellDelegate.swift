@@ -506,7 +506,9 @@ extension ChatViewController: MessageCellDelegate {
         guard let indexPath = indexPathFor(cell) else {
                 return
         }
-        let item = datasource[indexPath.section]
+        guard let item = datasourceItem(at: indexPath) else {
+            return
+        }
         let primary = item.primary
         let hasMedia = item.images.isNotEmpty || item.videos.isNotEmpty || item.files.isNotEmpty || item.audios.isNotEmpty
         let isLocallyDeletablePending = PendingOutgoingMessageDeletionPolicy.canDeleteLocally(
@@ -583,7 +585,9 @@ extension ChatViewController: MessageCellDelegate {
         guard let indexPath = indexPathFor(cell) else {
                 return
         }
-        let item = datasource[indexPath.section]
+        guard let item = datasourceItem(at: indexPath) else {
+            return
+        }
         let primary = item.primary
         self.inSearchMode.accept(false)
         self.forwardedIds.accept(Set<String>())
@@ -601,7 +605,7 @@ extension ChatViewController: MessageCellDelegate {
         if attachedMessagesIds.value.isNotEmpty || (editMessageId.value?.isNotEmpty ?? false) { return }
         if let contentCell = cell as? MessageContentCell {
             guard let indexPath = self.messagesCollectionView.indexPath(for: cell) else { return }
-            let datasourceItemPrimary = self.datasource[indexPath.section].primary
+            guard let datasourceItemPrimary = self.datasourceItem(at: indexPath)?.primary else { return }
             guard let item = self.messagesObserver?.first(where: {$0.primary == datasourceItemPrimary}) else { return }
             if item.displayAs == .system { return }
             if forwardedIds.value.contains(item.primary) {

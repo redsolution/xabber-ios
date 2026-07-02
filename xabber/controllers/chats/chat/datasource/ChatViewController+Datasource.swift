@@ -23,6 +23,65 @@ import UIKit
 import MaterialComponents.MDCPalettes
 
 extension ChatViewController: MessagesDataSource {
+
+    internal func datasourceItem(at indexPath: IndexPath) -> Datasource? {
+        datasourceItem(atSection: indexPath.section)
+    }
+
+    internal func datasourceItem(atSection section: Int) -> Datasource? {
+        guard self.datasource.indices.contains(section) else {
+            return nil
+        }
+        return self.datasource[section]
+    }
+
+    internal func staleDatasourceFallbackItem() -> Datasource {
+        Datasource(
+            primary: ChatViewController.staleDatasourceFallbackPrimary,
+            jid: self.jid,
+            owner: self.owner,
+            outgoing: false,
+            sender: self.opponentSender,
+            messageId: ChatViewController.staleDatasourceFallbackPrimary,
+            sentDate: Date(timeIntervalSince1970: 0),
+            editDate: nil,
+            kind: .initial(NSAttributedString()),
+            withAuthor: false,
+            withAvatar: false,
+            error: false,
+            errorType: "",
+            canPinMessage: false,
+            canEditMessage: false,
+            canDeleteMessage: false,
+            forwards: [],
+            isOutgoing: false,
+            isEdited: false,
+            groupchatAuthorRole: "",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isHasAttachedMessages: false,
+            isDownloaded: true,
+            state: .none,
+            searchString: nil,
+            errorMetadata: nil,
+            burnDate: -1,
+            afterburnInterval: -1,
+            archivedId: nil,
+            queryIds: nil,
+            isRead: true,
+            selectedSearchResultId: nil,
+            isHadHistoryGap: false,
+            isFakeMessage: true,
+            images: [],
+            videos: [],
+            files: [],
+            audios: [],
+            timeMarkerText: NSAttributedString(),
+            indicator: .none,
+            avatarUrl: nil
+        )
+    }
     
     func showTopLabel(for message: MessageType) -> Bool {
         return false
@@ -33,7 +92,7 @@ extension ChatViewController: MessagesDataSource {
     }
 
     func numberOfItems(inSection section: Int, in messagesCollectionView: MessagesCollectionView) -> Int {
-        return 1
+        return self.datasource.indices.contains(section) ? 1 : 0
     }
     
     
@@ -42,10 +101,7 @@ extension ChatViewController: MessagesDataSource {
     }
     
     func messageForItem(at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> MessageType {
-        if self.datasource.count < indexPath.section {
-            fatalError("Fatal error: ChatViewController:\(#function):l46. Count \(self.datasource.count)")
-        }
-        return self.datasource[indexPath.section]
+        return self.datasourceItem(at: indexPath) ?? self.staleDatasourceFallbackItem()
     }
     
     func numberOfSections(in messagesCollectionView: MessagesCollectionView) -> Int {
@@ -61,7 +117,9 @@ extension ChatViewController: MessagesDataSource {
     }
     
     func messageTopLabelAttributedText(for message: MessageType, at indexPath: IndexPath) -> NSAttributedString? {
-        let item = datasource[indexPath.section]
+        guard let item = self.datasourceItem(at: indexPath) else {
+            return nil
+        }
         return ContactChatMetadataManager
             .shared
             .get(item.groupchatAuthorNickname,
@@ -77,7 +135,9 @@ extension ChatViewController: MessagesDataSource {
         if self.showSkeletonObserver.value {
             return nil
         }
-        let item = datasource[indexPath.section]
+        guard let item = self.datasourceItem(at: indexPath) else {
+            return nil
+        }
         switch item.kind {
             case .initial(_):
                 return nil
@@ -131,7 +191,10 @@ extension ChatViewController: MessagesDataSource {
     }
     
     func messageBottomPadding(at indexPath: IndexPath) -> CGFloat {
-        return self.datasource[indexPath.section].isHasAttachedMessages ? -4 : 4
+        guard let item = self.datasourceItem(at: indexPath) else {
+            return 4
+        }
+        return item.isHasAttachedMessages ? -4 : 4
     }
     
     func showAvatar() -> Bool  {

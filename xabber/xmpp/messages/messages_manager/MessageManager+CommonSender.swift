@@ -44,10 +44,16 @@ extension MessageManager {
         conversationType: ClientSynchronizationManager.ConversationType,
         resource: String?
     ) -> XMPPJID? {
-        XMPPJID(
-            string: opponent,
-            resource: conversationType == .group ? nil : resource
-        )
+        guard let baseJID = XMPPJID(string: opponent) else {
+            return nil
+        }
+
+        switch conversationType {
+        case .regular, .group:
+            return XMPPJID(string: baseJID.bare)
+        default:
+            return XMPPJID(string: baseJID.bare, resource: resource)
+        }
     }
     
     internal func subscribeSender() {

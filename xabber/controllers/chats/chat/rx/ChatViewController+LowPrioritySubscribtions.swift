@@ -147,7 +147,10 @@ extension ChatViewController {
                     let layout = self.messagesCollectionView.collectionViewLayout as! MessagesCollectionViewFlowLayout
                     let visibleDateFrames: [CGRect] = visibleItems.compactMap {
                         path in
-                        switch self.datasource[path.section].kind {
+                        guard let item = self.datasourceItem(at: path) else {
+                            return nil
+                        }
+                        switch item.kind {
                             case .date, .unread:
                                 let attrib = layout.layoutAttributesForItem(at: path)
                                 guard let frame = attrib?.frame else { return nil }

@@ -961,6 +961,8 @@ final class ChatFloatingActionPanelView: UIView {
 }
 
 class ChatViewController: MessagesViewController {
+    static let staleDatasourceFallbackPrimary = "stale-datasource-fallback"
+
     struct ObserverLookupSignature: Equatable {
         let count: Int
         let firstPrimary: String?
@@ -1275,6 +1277,7 @@ class ChatViewController: MessagesViewController {
     var observerOldestArchivedId: String? = nil
     var observerNewestArchivedId: String? = nil
     var observerLookupSignature: ObserverLookupSignature? = nil
+    private(set) var chatObserversRegistered: Bool = false
     var virtualTimelineState: ChatVirtualTimelineState = .empty
     var boundedTimelineWindowState: ChatBoundedTimelineWindowState = .empty
     
@@ -1829,7 +1832,7 @@ class ChatViewController: MessagesViewController {
             return 0
         }
         return self.messagesCollectionView.indexPathsForVisibleItems.filter {
-            $0.section < self.datasource.count && !self.datasource[$0.section].isFakeMessage
+            self.datasourceItem(atSection: $0.section)?.isFakeMessage == false
         }.count
     }
 
@@ -2680,10 +2683,7 @@ class ChatViewController: MessagesViewController {
                 return $0.item < $1.item
             }
             .compactMap { indexPath in
-                guard self.datasource.indices.contains(indexPath.section) else {
-                    return nil
-                }
-                let item = self.datasource[indexPath.section]
+                guard let item = self.datasourceItem(at: indexPath) else { return nil }
                 return ChatScrollDownTargetPolicy.VisibleMessage(
                     archivedId: item.archivedId,
                     rowKind: ChatVisiblePositionPolicy.rowKind(for: item.kind),
@@ -2881,7 +2881,7 @@ class ChatViewController: MessagesViewController {
         }
 
         let shouldSkipScroll = isStabilizing &&
-            self.ini  tialLatestOpenStabilizationState == .bottomAligned &&
+            self.initialLatestOpenStabilizationState == .bottomAligned &&
             self.isNearBottom(threshold: 1)
         if !shouldSkipScroll {
             self.scrollToBottom(animated: isStabilizing ? false : animated)
@@ -4084,7 +4084,6 @@ class ChatViewController: MessagesViewController {
         AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             user.mam.allowHistoryFixTask = false
-            user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
         })
         LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
         self.saveCurrentVisibleMessagePositionIfNeeded(reason: .viewWillDisappear)
@@ -4098,6 +4097,11 @@ class ChatViewController: MessagesViewController {
     
     
     override public func addObservers() {
+        guard !self.chatObserversRegistered else {
+            return
+        }
+        self.chatObserversRegistered = true
+        super.addObservers()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(willEnterForeground),
@@ -4164,11 +4168,22 @@ class ChatViewController: MessagesViewController {
     
     @objc
     private func didEnterBackground() {
+        handleApplicationDidEnterBackground()
+    }
+
+    internal func handleApplicationDidEnterBackground() {
         NotifyManager.shared.currentDialog = nil
         self.cancelActiveAudioRecordingForLifecycle()
         do {
             let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.owner, owner: self.jid, conversationType: self.conversationType)) {
+            if let instance = realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: self.jid,
+                    owner: self.owner,
+                    conversationType: self.conversationType
+                )
+            ) {
                 try realm.write {
                     instance.isPrereaded = false
                 }
@@ -4179,6 +4194,10 @@ class ChatViewController: MessagesViewController {
     }
     
     override func removeObservers() {
+        guard self.chatObserversRegistered else {
+            return
+        }
+        self.chatObserversRegistered = false
         super.removeObservers()
 //        NotificationCenter.default.removeObserver(self)
         
@@ -4662,8 +4681,7 @@ extension ChatViewController {
                 return $0.item < $1.item
             }
             .compactMap { indexPath -> Datasource? in
-                guard datasource.indices.contains(indexPath.section) else { return nil }
-                return datasource[indexPath.section]
+                datasourceItem(at: indexPath)
             }
             .flatMap { voiceMessageDescriptors(in: $0) }
     }

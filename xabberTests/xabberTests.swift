@@ -3403,6 +3403,21 @@ final class AccountSendCoordinatorTests: XCTestCase {
         XCTAssertEqual(recorder.sentMessages.map(\.elementID), ["message-1"])
     }
 
+    func testQueuedRegularMessageCanonicalizesFullDestinationJidToBareWhenSent() throws {
+        let recorder = AccountSendCoordinatorRecorder()
+        let coordinator = makeCoordinator(isReady: { true }, recorder: recorder)
+
+        try coordinator.enqueueRegularMessage(makeRequest(
+            opponent: "romeo@example.com",
+            stanzaTo: "romeo@example.com/iPhone",
+            originId: "message-1"
+        ))
+
+        let message = try XCTUnwrap(recorder.sentMessages.first)
+        XCTAssertEqual(message.to?.bare, "romeo@example.com")
+        XCTAssertNil(message.to?.resource)
+    }
+
     func testPerChatOrderingWaitsForReceiptBeforeNextSend() throws {
         let isReady = true
         let recorder = AccountSendCoordinatorRecorder()
@@ -3557,17 +3572,19 @@ final class AccountSendCoordinatorTests: XCTestCase {
     private func makeRequest(
         owner: String = "owner@example.com",
         opponent: String = "romeo@example.com",
+        stanzaTo: String? = nil,
         originId: String,
         createdAt: Date = Date(timeIntervalSince1970: 1)
     ) -> AccountQueuedMessageSendRequest {
-        AccountQueuedMessageSendRequest(
+        let stanzaTo = stanzaTo ?? opponent
+        return AccountQueuedMessageSendRequest(
             owner: owner,
             conversationJid: opponent,
             conversationType: .regular,
             messagePrimary: MessageStorageItem.genPrimary(messageId: originId, owner: owner),
             originId: originId,
             stanzaXML: """
-            <message type='chat' to='\(opponent)' id='\(originId)' from='\(owner)'>
+            <message type='chat' to='\(stanzaTo)' id='\(originId)' from='\(owner)'>
               <body>Hello</body>
               <origin-id xmlns='urn:xmpp:sid:0' id='\(originId)'/>
             </message>
@@ -23055,7 +23072,7 @@ final class MessageRoutingRegressionTests: XCTestCase {
         XCTAssertNil(jid?.resource)
     }
 
-    func testRegularOutboundDestinationJIDKeepsResolvedResource() {
+    func testRegularOutboundDestinationJIDUsesBareJID() {
         let jid = MessageManager.outboundDestinationJID(
             for: "romeo@example.com",
             conversationType: .regular,
@@ -23063,7 +23080,172 @@ final class MessageRoutingRegressionTests: XCTestCase {
         )
 
         XCTAssertEqual(jid?.bare, "romeo@example.com")
-        XCTAssertEqual(jid?.resource, "iPhone")
+        XCTAssertNil(jid?.resource)
+    }
+}
+
+@MainActor
+final class ChatViewControllerCorrectnessTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+
+    override func setUp() {
+        super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ChatViewControllerCorrectnessTests-\(name)-\(UUID().uuidString)"
+        )
+        AccountManager.shared.users.removeAll()
+        AccountManager.shared.activeUsers.accept(Set<String>())
+        AccountManager.shared.connectingUsers.accept(Set<String>())
+        AccountManager.shared.authenticatedUsers.accept(Set<String>())
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    override func tearDown() {
+        AccountManager.shared.users.removeAll()
+        AccountManager.shared.activeUsers.accept(Set<String>())
+        AccountManager.shared.connectingUsers.accept(Set<String>())
+        AccountManager.shared.authenticatedUsers.accept(Set<String>())
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        super.tearDown()
+    }
+
+    func testAddAndRemoveObserversAreIdempotent() {
+        let controller = makeController()
+
+        XCTAssertFalse(controller.chatObserversRegistered)
+
+        controller.addObservers()
+        controller.addObservers()
+
+        XCTAssertTrue(controller.chatObserversRegistered)
+
+        controller.removeObservers()
+        controller.removeObservers()
+
+        XCTAssertFalse(controller.chatObserversRegistered)
+    }
+
+    func testBackgroundCleanupUsesCurrentLastChatsKey() throws {
+        let controller = makeController(owner: "owner@example.com", jid: "romeo@example.com")
+        try insertLastChat(owner: controller.owner, jid: controller.jid, isPrereaded: true)
+
+        controller.handleApplicationDidEnterBackground()
+
+        let realm = try WRealm.safe()
+        let chat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                jid: controller.jid,
+                owner: controller.owner,
+                conversationType: controller.conversationType
+            )
+        ))
+        XCTAssertFalse(chat.isPrereaded)
+        XCTAssertNil(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                jid: controller.owner,
+                owner: controller.jid,
+                conversationType: controller.conversationType
+            )
+        ))
+    }
+
+    func testMessageForStaleDatasourceIndexPathReturnsFakeMessage() {
+        let controller = makeController()
+
+        let message = controller.messageForItem(
+            at: IndexPath(item: 0, section: 0),
+            in: controller.messagesCollectionView
+        )
+
+        guard let item = message as? ChatViewController.Datasource else {
+            XCTFail("Expected datasource fallback")
+            return
+        }
+        XCTAssertEqual(item.primary, ChatViewController.staleDatasourceFallbackPrimary)
+        XCTAssertTrue(item.isFakeMessage)
+    }
+
+    func testNavigationDisappearanceDoesNotReadWholeDialog() throws {
+        let owner = "owner@example.com"
+        let jid = "romeo@example.com"
+        let accountQueue = DispatchQueue(label: "ChatViewControllerCorrectnessTests.account")
+        let account = Account(jid: owner, queue: accountQueue)
+        AccountManager.shared.users.append(account)
+        let controller = makeController(owner: owner, jid: jid)
+        try insertLastChat(
+            owner: owner,
+            jid: jid,
+            unread: 2,
+            syncUnreadCount: 2,
+            lastMessageId: "archive-2"
+        )
+
+        controller.runNavigationDisappearanceCleanupIfNeeded()
+        accountQueue.sync {}
+
+        let realm = try WRealm.safe()
+        let chat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                jid: jid,
+                owner: owner,
+                conversationType: .regular
+            )
+        ))
+        XCTAssertEqual(chat.unread, 2)
+        XCTAssertEqual(chat.syncUnreadCount, 2)
+        XCTAssertEqual(chat.syncUnreadAfterId, nil)
+    }
+
+    private func makeController(
+        owner: String = "owner@example.com",
+        jid: String = "romeo@example.com"
+    ) -> ChatViewController {
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = .regular
+        controller.ownerSender = Sender(id: owner, displayName: owner)
+        controller.opponentSender = Sender(id: jid, displayName: jid)
+        return controller
+    }
+
+    @discardableResult
+    private func insertLastChat(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType = .regular,
+        isPrereaded: Bool = false,
+        unread: Int = 0,
+        syncUnreadCount: Int = 0,
+        lastMessageId: String = ""
+    ) throws -> LastChatsStorageItem {
+        let realm = try WRealm.safe()
+        let chat = LastChatsStorageItem()
+        chat.owner = owner
+        chat.jid = jid
+        chat.conversationType = conversationType
+        chat.primary = LastChatsStorageItem.genPrimary(
+            jid: jid,
+            owner: owner,
+            conversationType: conversationType
+        )
+        chat.isPrereaded = isPrereaded
+        chat.unread = unread
+        chat.syncUnreadCount = syncUnreadCount
+        chat.runtimeUnreadCount = max(0, unread - syncUnreadCount)
+        chat.lastMessageId = lastMessageId
+        try realm.write {
+            realm.add(chat, update: .modified)
+        }
+        return chat
     }
 }
 

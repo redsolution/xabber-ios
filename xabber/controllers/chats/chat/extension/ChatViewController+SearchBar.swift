@@ -1029,7 +1029,9 @@ extension ChatViewController {
                 return nil
             }
 
-            let item = self.datasource[indexPath.section]
+            guard let item = self.datasourceItem(at: indexPath) else {
+                return nil
+            }
             let frame = layout.layoutAttributesForItem(at: indexPath)?.frame
                 ?? self.messagesCollectionView.cellForItem(at: indexPath)?.frame
 
@@ -1147,7 +1149,10 @@ extension ChatViewController {
             return true
         }
 
-        let item = self.datasource[indexPath.section]
+        guard let item = self.datasourceItem(at: indexPath) else {
+            completion?()
+            return false
+        }
         self.positionMessage(
             primary: item.primary,
             archivedId: item.archivedId,
@@ -1171,7 +1176,9 @@ extension ChatViewController {
             return false
         }
 
-        let target = self.datasource[indexPath.section]
+        guard let target = self.datasourceItem(at: indexPath) else {
+            return false
+        }
         let activeHooks = hooks ?? self.activeAnchorExecutionHooks
         let usesTransientHighlight = request.source.usesTransientHighlight && request.highlight
         let contextPrefetchMode = ChatAnchorContextPrefetchModePolicy.mode(

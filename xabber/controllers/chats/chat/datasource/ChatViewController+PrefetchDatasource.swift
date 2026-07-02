@@ -324,9 +324,9 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
 //        }
         
         self.willUpdateFloatingDate()
-        if !self.datasource[indexPath.section].isRead {
+        if let item = self.datasourceItem(at: indexPath), !item.isRead {
             var value = self.messagesToReadObserver.value
-            value.insert(self.datasource[indexPath.section].primary)
+            value.insert(item.primary)
             self.messagesToReadObserver.accept(value)
         }
         self.updateVisibleVoiceMessageQueue()
@@ -334,12 +334,10 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         self.willUpdateFloatingDate()
-        if self.datasource.count > indexPath.section {
-            if !self.datasource[indexPath.section].isRead {
-                var value = self.messagesToReadObserver.value
-                value.insert(self.datasource[indexPath.section].primary)
-                self.messagesToReadObserver.accept(value)
-            }
+        if let item = self.datasourceItem(at: indexPath), !item.isRead {
+            var value = self.messagesToReadObserver.value
+            value.insert(item.primary)
+            self.messagesToReadObserver.accept(value)
         }
         self.updateVisibleVoiceMessageQueue()
     }
@@ -365,9 +363,9 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         
         self.messagesCollectionView.indexPathsForVisibleItems.forEach {
             indexPath in
-            if !self.datasource[indexPath.section].isRead {
+            if let item = self.datasourceItem(at: indexPath), !item.isRead {
                 var value = self.messagesToReadObserver.value
-                value.insert(self.datasource[indexPath.section].primary)
+                value.insert(item.primary)
                 self.messagesToReadObserver.accept(value)
             }
         }

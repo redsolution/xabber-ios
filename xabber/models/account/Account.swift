@@ -1891,8 +1891,13 @@ final class AccountSendCoordinator {
             drainNextReadyMessage(conversationJid: conversationJid, conversationType: conversationType)
             return
         }
-        let decorated = environment.decorateMessage(
+        let messageToSend = canonicalizedDestinationMessage(
             message,
+            conversationJid: conversationJid,
+            conversationType: conversationType
+        )
+        let decorated = environment.decorateMessage(
+            messageToSend,
             candidate.replayRequired,
             candidate.missRetryElement
         )
@@ -1979,6 +1984,22 @@ final class AccountSendCoordinator {
             DDLogDebug("AccountSendCoordinator: invalid queued stanza XML: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    private func canonicalizedDestinationMessage(
+        _ message: XMPPMessage,
+        conversationJid: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> XMPPMessage {
+        guard conversationType == .regular else {
+            return message
+        }
+        guard let bareDestination = XMPPJID(string: conversationJid)?.bare ?? message.to?.bare else {
+            return message
+        }
+        message.removeAttribute(forName: "to")
+        message.addAttribute(withName: "to", stringValue: bareDestination)
+        return message
     }
 
     private func markCandidateTerminal(_ candidate: SendCandidate, error: String) {

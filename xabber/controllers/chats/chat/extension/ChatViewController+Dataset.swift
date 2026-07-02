@@ -4342,7 +4342,7 @@ extension ChatViewController {
     @discardableResult
     internal func updateVisibleMessageContent(primary: String) -> Bool {
         guard let section = datasourceSnapshot.primaryIndex[primary],
-              section < datasource.count else {
+              let item = self.datasourceItem(atSection: section) else {
             return false
         }
 
@@ -4356,7 +4356,7 @@ extension ChatViewController {
         let wereAnimationsEnabled = UIView.areAnimationsEnabled
         UIView.setAnimationsEnabled(false)
         UIView.performWithoutAnimation {
-            cell.reconfigureContent(with: datasource[section], at: indexPath, and: messagesCollectionView)
+            cell.reconfigureContent(with: item, at: indexPath, and: messagesCollectionView)
             cell.setNeedsLayout()
             cell.layoutIfNeeded()
             cell.layer.removeAllAnimations()
@@ -4667,11 +4667,9 @@ extension ChatViewController {
     internal func visibleRealMessagePrimaries() -> Set<String> {
         Set(
             self.messagesCollectionView.indexPathsForVisibleItems.compactMap {
-                guard $0.section >= 0,
-                      $0.section < self.datasource.count else {
+                guard let item = self.datasourceItem(at: $0) else {
                     return nil
                 }
-                let item = self.datasource[$0.section]
                 return item.isFakeMessage ? nil : item.primary
             }
         )
@@ -5259,8 +5257,12 @@ extension ChatViewController {
             return nil
         }
 
+        guard let item = self.datasourceItem(atSection: section) else {
+            return nil
+        }
+
         return ChatHistoryPageAnchor(
-            primary: self.datasource[section].primary,
+            primary: item.primary,
             offsetFromViewportTop: frame.minY - self.messagesCollectionView.contentOffset.y
         )
     }
