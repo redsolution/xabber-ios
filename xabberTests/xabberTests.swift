@@ -29322,6 +29322,59 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         super.tearDown()
     }
 
+    func testSlotTimeoutNetworkDiagnosticsCaptureSanitizedCauseContext() {
+        let slotURL = URL(string: "https://gallery.example/api/v1/files/slot/?size=5&name=private-photo.jpg&hash=abcdef123456")!
+        var request = URLRequest(url: slotURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 42
+
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 42
+        configuration.timeoutIntervalForResource = 90
+        configuration.waitsForConnectivity = true
+
+        let underlyingError = NSError(domain: "kCFErrorDomainCFNetwork", code: -2102)
+        let timeoutError = NSError(
+            domain: NSURLErrorDomain,
+            code: NSURLErrorTimedOut,
+            userInfo: [
+                NSUnderlyingErrorKey: underlyingError,
+                NSURLErrorFailingURLErrorKey: slotURL,
+                "_NSURLErrorFailingURLSessionTaskErrorKey": "LocalDataTask <123>.<1>",
+                "_NSURLErrorRelatedURLSessionTaskErrorKey": ["LocalDataTask <123>.<1>"],
+                NSLocalizedDescriptionKey: "The request timed out.",
+                NSLocalizedFailureReasonErrorKey: "GET \(slotURL.absoluteString) failed"
+            ]
+        )
+
+        let diagnostics = CloudStorageQuotaAPINetworkDiagnostics(
+            request: request,
+            response: nil,
+            metrics: nil,
+            error: timeoutError,
+            sessionConfiguration: configuration
+        )
+        let details = stringTraceDetails(diagnostics.traceDetails())
+
+        XCTAssertEqual(details["requestMethod"], "GET")
+        XCTAssertEqual(details["requestURL"], "https://gallery.example/api/v1/files/slot/?size=<redacted>&name=<redacted>&hash=<redacted>")
+        XCTAssertEqual(details["requestHost"], "gallery.example")
+        XCTAssertEqual(details["requestPath"], "/api/v1/files/slot/")
+        XCTAssertEqual(details["requestQueryKeys"], "hash,name,size")
+        XCTAssertEqual(details["requestTimeoutSeconds"], "42.0")
+        XCTAssertEqual(details["sessionRequestTimeoutSeconds"], "42.0")
+        XCTAssertEqual(details["sessionResourceTimeoutSeconds"], "90.0")
+        XCTAssertEqual(details["waitsForConnectivity"], "true")
+        XCTAssertEqual(details["failingURL"], "https://gallery.example/api/v1/files/slot/?size=<redacted>&name=<redacted>&hash=<redacted>")
+        XCTAssertEqual(details["networkErrorChain"], "NSURLErrorDomain:-1001>kCFErrorDomainCFNetwork:-2102")
+        XCTAssertEqual(details["urlSessionTask"], "LocalDataTask <123>.<1>")
+        XCTAssertEqual(details["relatedURLSessionTasks"], "LocalDataTask <123>.<1>")
+        XCTAssertEqual(details["errorDescription"], "The request timed out.")
+        XCTAssertEqual(details["errorFailureReason"], "GET https://gallery.example/api/v1/files/slot/?size=<redacted>&name=<redacted>&hash=<redacted> failed")
+        XCTAssertFalse(details.values.contains { $0.contains("private-photo.jpg") })
+        XCTAssertFalse(details.values.contains { $0.contains("abcdef123456") })
+    }
+
     func testSuccessfulStatsRefreshWritesQuotaStorage() throws {
         fakeClient.statsResponses = [.response(statusCode: 200, value: statsPayload(quota: 3000, totalUsed: 1200, imagesUsed: 400))]
         let manager = XabberUploadManager(withOwner: owner)
@@ -29695,7 +29748,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         let expectation = expectation(description: "media upload")
 
         manager.uploadMedia(data: Data("hello".utf8), filename: "hello.txt", mimeType: "text/plain") { response in
-            if case .response(let code, _) = response {
+            if case .response(let code, _, _) = response {
                 XCTAssertEqual(code, 200)
             } else {
                 XCTFail("Expected upload to continue after slot retry")
@@ -29745,6 +29798,56 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertTrue(message.references.allSatisfy(\.hasError))
     }
 
+    func testTextDisplayMediaFailureRequiresUploadRetry() throws {
+        let localURL = try makeTemporaryUploadFile(name: "text-display-media-retry.jpg", contents: Data("image".utf8))
+        defer {
+            try? FileManager.default.removeItem(at: localURL)
+        }
+        let primary = try seedUploadingMediaMessage(localFileURLs: [localURL])
+        let realm = try WRealm.safe()
+        let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+
+        try realm.write {
+            message.displayAs = .text
+            message.state = .error
+            message.messageErrorCode = "500"
+            message.references.forEach { reference in
+                reference.hasError = true
+                reference.isUploaded = false
+            }
+        }
+
+        XCTAssertTrue(MessageManager.retryRequiresMediaUpload(message))
+    }
+
+    func testUploadedMediaFailureCanRetryThroughSender() throws {
+        let primary = try seedUploadingMediaMessageWithAlreadyUploadedReference()
+        let realm = try WRealm.safe()
+        let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+
+        try realm.write {
+            message.displayAs = .text
+            message.state = .error
+            message.messageErrorCode = "500"
+        }
+
+        XCTAssertFalse(MessageManager.retryRequiresMediaUpload(message))
+    }
+
+    func testUploadedLocalOnlyMediaFailureRequiresUploadRetry() throws {
+        let primary = try seedUploadingMediaMessageWithAlreadyUploadedReference(uri: "asset://failed-photo.jpg")
+        let realm = try WRealm.safe()
+        let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+
+        try realm.write {
+            message.displayAs = .text
+            message.state = .error
+            message.messageErrorCode = "500"
+        }
+
+        XCTAssertTrue(MessageManager.retryRequiresMediaUpload(message))
+    }
+
     func testUploadTimeoutRetriesBeforeCompletion() {
         fakeClient.slotResponses = [
             .response(statusCode: 200, value: [:]),
@@ -29760,7 +29863,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         let expectation = expectation(description: "media upload")
 
         manager.uploadMedia(data: Data("hello".utf8), filename: "hello.txt", mimeType: "text/plain") { response in
-            if case .response(let code, _) = response {
+            if case .response(let code, _, _) = response {
                 XCTAssertEqual(code, 200)
             } else {
                 XCTFail("Expected upload to succeed after timeout retry")
@@ -30108,7 +30211,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         let expectation = expectation(description: "media upload")
 
         manager.uploadMedia(data: Data("hello".utf8), filename: "hello.txt", mimeType: "text/plain") { response in
-            if case .response(let code, _) = response {
+            if case .response(let code, _, _) = response {
                 XCTAssertEqual(code, 200)
             } else {
                 XCTFail("Expected upload response")
@@ -30428,7 +30531,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         )
     }
 
-    private func seedUploadingMediaMessageWithAlreadyUploadedReference() throws -> String {
+    private func seedUploadingMediaMessageWithAlreadyUploadedReference(uri: String = "https://gallery.example/files/remote.pdf") throws -> String {
         let manager = MessageManager(withOwner: owner, activeStream: false)
         let reference = MessageReferenceStorageItem()
         reference.kind = .media
@@ -30438,11 +30541,11 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
             "name": "remote.pdf",
             "size": 32,
             "media-type": "application/pdf",
-            "uri": "https://gallery.example/files/remote.pdf",
+            "uri": uri,
             "fileID": 42,
             "hash": "remote-hash"
         ]
-        reference.downloadUrl = URL(string: "https://gallery.example/files/remote.pdf")!
+        reference.downloadUrl = URL(string: uri) ?? URL(string: "https://gallery.example/files/remote.pdf")!
         reference.isUploaded = true
         reference.conversationType = .regular
         return try XCTUnwrap(
@@ -30468,6 +30571,14 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
 
     private func timeoutError() -> NSError {
         NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
+    }
+
+    private func stringTraceDetails(_ details: [(String, Any?)]) -> [String: String] {
+        details.reduce(into: [String: String]()) { result, detail in
+            if let value = detail.1 {
+                result[detail.0] = String(describing: value)
+            }
+        }
     }
 
     private func uploadPayload(filename: String) -> [String: Any] {

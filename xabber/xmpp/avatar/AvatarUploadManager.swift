@@ -435,7 +435,7 @@ class AvatarUploadManager: AbstractXMPPManager {
             }
 
             switch response {
-            case .response(let code, let value):
+            case .response(let code, let value, _):
                 guard let code = code else {
                     failCallback(400, "Unexpected error")
                     return
@@ -454,7 +454,7 @@ class AvatarUploadManager: AbstractXMPPManager {
                 } else {
                     failCallback(code, "Unexpected error")
                 }
-            case .failure(let code, let error):
+            case .failure(let code, let error, _):
                 DDLogDebug("AvatarUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
                 if code == 401 {
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, _ in

@@ -77,6 +77,50 @@ extension MessageManager {
             return XMPPJID(string: baseJID.bare, resource: resource)
         }
     }
+
+    internal static func retryRequiresMediaUpload(_ instance: MessageStorageItem) -> Bool {
+        instance.references.contains { retryReferenceRequiresMediaUpload($0) }
+    }
+
+    private static func retryReferenceRequiresMediaUpload(_ reference: MessageReferenceStorageItem) -> Bool {
+        guard [MessageReferenceStorageItem.Kind.media, .voice].contains(reference.kind) else {
+            return false
+        }
+        if !reference.isUploaded {
+            return true
+        }
+        return isLocalOnlyFileSharingURI(reference.fileSharingURI)
+    }
+
+    private static func isLocalOnlyFileSharingURI(_ uri: String?) -> Bool {
+        guard let uri = uri?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !uri.isEmpty else {
+            return false
+        }
+        if uri.hasPrefix("/") {
+            return true
+        }
+        guard let scheme = URL(string: uri)?.scheme?.lowercased() else {
+            return false
+        }
+        return ["asset", "assets-library", "file", "ph", "photos", "data"].contains(scheme)
+    }
+
+    private static func retryMediaUploadRouteDetails(for instance: MessageStorageItem) -> [(String, Any?)] {
+        let mediaReferences = instance.references.filter {
+            [MessageReferenceStorageItem.Kind.media, .voice].contains($0.kind)
+        }
+        let pendingMediaReferences = mediaReferences.filter { retryReferenceRequiresMediaUpload($0) }
+        return [
+            ("displayAs", instance.displayAs.rawValue),
+            ("state", instance.state.rawValue),
+            ("referenceCount", instance.references.count),
+            ("mediaReferenceCount", mediaReferences.count),
+            ("pendingMediaReferenceCount", pendingMediaReferences.count),
+            ("uploadedMediaReferenceCount", mediaReferences.filter(\.isUploaded).count),
+            ("failedMediaReferenceCount", mediaReferences.filter(\.hasError).count)
+        ]
+    }
     
     internal func subscribeSender() {
         senderBag = DisposeBag()
@@ -126,10 +170,31 @@ extension MessageManager {
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-                if instance.displayAs == .text {
-                    self.processSender(item: primary, retry: true)
-                } else {
+                let requiresMediaUpload = Self.retryRequiresMediaUpload(instance)
+                if requiresMediaUpload {
+                    let localOnlyUploadedReferences = instance.references.filter {
+                        [MessageReferenceStorageItem.Kind.media, .voice].contains($0.kind)
+                            && $0.isUploaded
+                            && Self.isLocalOnlyFileSharingURI($0.fileSharingURI)
+                    }
+                    if !localOnlyUploadedReferences.isEmpty {
+                        try realm.write {
+                            localOnlyUploadedReferences.forEach {
+                                $0.isUploaded = false
+                            }
+                        }
+                    }
+                }
+                let route = requiresMediaUpload ? "uploadMedia" : "processSender"
+                MessageMediaUploadTrace.log("message_retry_route", details: [
+                    ("owner", self.owner),
+                    ("messagePrimary", primary),
+                    ("route", route)
+                ] + Self.retryMediaUploadRouteDetails(for: instance))
+                if requiresMediaUpload {
                     self.uploadMedia(for: primary, retry: true)
+                } else {
+                    self.processSender(item: primary, retry: true)
                 }
             }
         } catch {

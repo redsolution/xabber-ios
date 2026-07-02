@@ -635,9 +635,196 @@ struct CloudStorageUploadSlotRequest {
     let hash: String
 }
 
+struct CloudStorageQuotaAPINetworkDiagnostics {
+    let request: URLRequest?
+    let response: HTTPURLResponse?
+    let metrics: URLSessionTaskMetrics?
+    let error: Error?
+    let sessionConfiguration: URLSessionConfiguration?
+
+    func traceDetails() -> [(String, Any?)] {
+        var details: [(String, Any?)] = []
+        if let request {
+            details.append(("requestMethod", request.httpMethod))
+            details.append(("requestURL", Self.sanitizedURLString(request.url)))
+            details.append(("requestHost", request.url?.host))
+            details.append(("requestPath", Self.pathString(request.url)))
+            details.append(("requestQueryKeys", Self.queryKeysString(request.url)))
+            details.append(("requestTimeoutSeconds", request.timeoutInterval))
+        }
+        if let response {
+            details.append(("responseStatusCode", response.statusCode))
+            details.append(("responseURL", Self.sanitizedURLString(response.url)))
+        }
+        if let metrics {
+            details.append(("metricsDurationMs", Self.milliseconds(from: metrics.taskInterval.duration)))
+            details.append(("metricsRedirectCount", metrics.redirectCount))
+            details.append(("metricsTransactionCount", metrics.transactionMetrics.count))
+            if let transaction = metrics.transactionMetrics.last {
+                details.append(("metricsFetchType", String(describing: transaction.resourceFetchType)))
+                details.append(("metricsNetworkProtocol", transaction.networkProtocolName))
+                details.append(("metricsReusedConnection", transaction.isReusedConnection))
+                details.append(("metricsProxyConnection", transaction.isProxyConnection))
+                details.append(("metricsDNSMs", Self.milliseconds(from: transaction.domainLookupStartDate, to: transaction.domainLookupEndDate)))
+                details.append(("metricsConnectMs", Self.milliseconds(from: transaction.connectStartDate, to: transaction.connectEndDate)))
+                details.append(("metricsTLSMs", Self.milliseconds(from: transaction.secureConnectionStartDate, to: transaction.secureConnectionEndDate)))
+                details.append(("metricsRequestMs", Self.milliseconds(from: transaction.requestStartDate, to: transaction.requestEndDate)))
+                details.append(("metricsResponseMs", Self.milliseconds(from: transaction.responseStartDate, to: transaction.responseEndDate)))
+            }
+        }
+        if let sessionConfiguration {
+            details.append(("sessionRequestTimeoutSeconds", sessionConfiguration.timeoutIntervalForRequest))
+            details.append(("sessionResourceTimeoutSeconds", sessionConfiguration.timeoutIntervalForResource))
+            details.append(("waitsForConnectivity", sessionConfiguration.waitsForConnectivity))
+            details.append(("allowsCellularAccess", sessionConfiguration.allowsCellularAccess))
+            details.append(("allowsExpensiveNetworkAccess", sessionConfiguration.allowsExpensiveNetworkAccess))
+            details.append(("allowsConstrainedNetworkAccess", sessionConfiguration.allowsConstrainedNetworkAccess))
+        }
+        if let error {
+            let errorChain = Self.errorChain(from: error)
+            let nsError = errorChain.first
+            details.append(("failingURL", Self.sanitizedURLString(Self.failingURL(from: errorChain))))
+            details.append(("networkErrorChain", Self.errorChainString(errorChain)))
+            details.append(("urlSessionTask", Self.userInfoStringValue(for: "_NSURLErrorFailingURLSessionTaskErrorKey", in: errorChain)))
+            details.append(("relatedURLSessionTasks", Self.userInfoStringValue(for: "_NSURLErrorRelatedURLSessionTaskErrorKey", in: errorChain)))
+            details.append(("errorDescription", nsError.map { Self.sanitizedDiagnosticText($0.localizedDescription) }))
+            details.append(("errorFailureReason", errorChain.compactMap(\.localizedFailureReason).first.map(Self.sanitizedDiagnosticText)))
+            details.append(("errorRecoverySuggestion", errorChain.compactMap(\.localizedRecoverySuggestion).first.map(Self.sanitizedDiagnosticText)))
+        }
+        return details
+    }
+
+    private static func sanitizedURLString(_ url: URL?) -> String? {
+        guard let url,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+
+        var base = ""
+        if let scheme = components.scheme {
+            base += "\(scheme)://"
+        }
+        if let host = components.host {
+            base += host
+        }
+        if let port = components.port {
+            base += ":\(port)"
+        }
+        base += components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
+
+        guard let queryItems = components.queryItems,
+              !queryItems.isEmpty else {
+            return base
+        }
+        let redactedQuery = queryItems
+            .map { "\($0.name)=<redacted>" }
+            .joined(separator: "&")
+        return "\(base)?\(redactedQuery)"
+    }
+
+    private static func pathString(_ url: URL?) -> String? {
+        guard let url,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        return components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
+    }
+
+    private static func queryKeysString(_ url: URL?) -> String? {
+        guard let url,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let queryItems = components.queryItems,
+              !queryItems.isEmpty else {
+            return nil
+        }
+        return queryItems
+            .map(\.name)
+            .sorted()
+            .joined(separator: ",")
+    }
+
+    private static func failingURL(from errorChain: [NSError]) -> URL? {
+        for error in errorChain {
+            if let url = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
+                return url
+            }
+            if let url = error.userInfo["NSErrorFailingURLKey"] as? URL {
+                return url
+            }
+            if let urlString = error.userInfo["NSErrorFailingURLStringKey"] as? String,
+               let url = URL(string: urlString) {
+                return url
+            }
+        }
+        return nil
+    }
+
+    private static func errorChain(from error: Error?) -> [NSError] {
+        var result: [NSError] = []
+
+        func append(_ error: Error?, depth: Int) {
+            guard let error, depth < 8 else { return }
+            let nsError = error as NSError
+            result.append(nsError)
+
+            if let afError = error as? AFError, let underlyingError = afError.underlyingError {
+                append(underlyingError, depth: depth + 1)
+                return
+            }
+
+            if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+                append(underlyingError, depth: depth + 1)
+            }
+        }
+
+        append(error, depth: 0)
+        return result
+    }
+
+    private static func errorChainString(_ errorChain: [NSError]) -> String? {
+        guard errorChain.isNotEmpty else { return nil }
+        return errorChain.map { "\($0.domain):\($0.code)" }.joined(separator: ">")
+    }
+
+    private static func userInfoStringValue(for key: String, in errorChain: [NSError]) -> String? {
+        for error in errorChain {
+            guard let value = error.userInfo[key] else { continue }
+            if let values = value as? [Any] {
+                return values.map { sanitizedDiagnosticText(String(describing: $0)) }.joined(separator: ",")
+            }
+            return sanitizedDiagnosticText(String(describing: value))
+        }
+        return nil
+    }
+
+    private static func sanitizedDiagnosticText(_ text: String) -> String {
+        text
+            .replacingOccurrences(
+                of: #"([?&][^=\s&#]+)=([^&\s#]+)"#,
+                with: "$1=<redacted>",
+                options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: #"Bearer\s+[A-Za-z0-9._~+/=-]+"#,
+                with: "Bearer <redacted>",
+                options: .regularExpression
+            )
+    }
+
+    private static func milliseconds(from interval: TimeInterval?) -> Int? {
+        guard let interval else { return nil }
+        return Int((interval * 1000).rounded())
+    }
+
+    private static func milliseconds(from start: Date?, to end: Date?) -> Int? {
+        guard let start, let end else { return nil }
+        return milliseconds(from: end.timeIntervalSince(start))
+    }
+}
+
 enum CloudStorageQuotaAPIResponse {
-    case response(statusCode: Int?, value: Any?)
-    case failure(statusCode: Int?, error: Error?)
+    case response(statusCode: Int?, value: Any?, diagnostics: CloudStorageQuotaAPINetworkDiagnostics? = nil)
+    case failure(statusCode: Int?, error: Error?, diagnostics: CloudStorageQuotaAPINetworkDiagnostics? = nil)
 }
 
 protocol CloudStorageQuotaAPIClient {
@@ -884,11 +1071,18 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     }
 
     static func complete(_ response: AFDataResponse<Any>, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        let diagnostics = CloudStorageQuotaAPINetworkDiagnostics(
+            request: response.request,
+            response: response.response,
+            metrics: response.metrics,
+            error: response.error,
+            sessionConfiguration: AF.sessionConfiguration
+        )
         switch response.result {
         case .success(let value):
-            completion(.response(statusCode: response.response?.statusCode, value: value))
+            completion(.response(statusCode: response.response?.statusCode, value: value, diagnostics: diagnostics))
         case .failure(let error):
-            completion(.failure(statusCode: response.response?.statusCode, error: error))
+            completion(.failure(statusCode: response.response?.statusCode, error: error, diagnostics: diagnostics))
         }
     }
 }
@@ -1168,11 +1362,16 @@ class XabberUploadManager: AbstractXMPPManager {
         context: MediaUploadDiagnosticContext?,
         extra: [(String, Any?)] = []
     ) -> [(String, Any?)] {
-        [
+        var seenKeys = Set<String>()
+        return ([
             ("owner", owner),
             ("messagePrimary", context?.messagePrimary),
             ("referencePrimary", context?.referencePrimary)
-        ] + extra
+        ] + extra).filter { key, _ in
+            guard !seenKeys.contains(key) else { return false }
+            seenKeys.insert(key)
+            return true
+        }
     }
 
     private func mediaUploadTraceValue(_ value: Any) -> String {
@@ -1188,18 +1387,20 @@ class XabberUploadManager: AbstractXMPPManager {
 
     private func mediaUploadResponseTraceDetails(_ response: CloudStorageQuotaAPIResponse) -> [(String, Any?)] {
         switch response {
-        case .response(let statusCode, let value):
-            return [
+        case .response(let statusCode, let value, let diagnostics):
+            let details: [(String, Any?)] = [
                 ("statusCode", statusCode),
                 ("serverStatus", int(from: (value as? NSDictionary)?["status"]) ?? int(from: (value as? [String: Any])?["status"]))
             ]
-        case .failure(let statusCode, let error):
+            return details + (diagnostics?.traceDetails() ?? [])
+        case .failure(let statusCode, let error, let diagnostics):
             let nsError = mediaUploadNSError(error)
-            return [
+            let details: [(String, Any?)] = [
                 ("statusCode", statusCode),
                 ("errorDomain", nsError?.domain),
                 ("errorCode", nsError?.code)
             ]
+            return details + (diagnostics?.traceDetails() ?? [])
         }
     }
 
@@ -1215,7 +1416,7 @@ class XabberUploadManager: AbstractXMPPManager {
 
     private func isGalleryFailureResponse(_ response: CloudStorageQuotaAPIResponse) -> Bool {
         switch response {
-        case .response(let statusCode, _):
+        case .response(let statusCode, _, _):
             guard let statusCode else { return true }
             return statusCode < 200 || statusCode >= 300
         case .failure:
@@ -1225,9 +1426,9 @@ class XabberUploadManager: AbstractXMPPManager {
 
     private func isRetryableGalleryResponse(_ response: CloudStorageQuotaAPIResponse) -> Bool {
         switch response {
-        case .response(let statusCode, _):
+        case .response(let statusCode, _, _):
             return isRetryableGalleryStatusCode(statusCode)
-        case .failure(let statusCode, let error):
+        case .failure(let statusCode, let error, _):
             return isRetryableGalleryStatusCode(statusCode) || isRetryableGalleryNetworkError(error)
         }
     }
@@ -1463,7 +1664,7 @@ class XabberUploadManager: AbstractXMPPManager {
                 }
 
                 switch response {
-                case .response(let code, let value):
+                case .response(let code, let value, _):
                     guard let code = code else {
                         self.logMediaUploadTrace("gallery_upload_response_missing_status", details: self.mediaUploadTraceDetails(context: traceContext, extra: traceDetails + [
                             ("filename", filename)
@@ -1517,7 +1718,7 @@ class XabberUploadManager: AbstractXMPPManager {
                         ]))
                         errorCallback(statusCode)
                     }
-                case .failure(let code, let error):
+                case .failure(let code, _, _):
                     self.logMediaUploadTrace("gallery_upload_network_failure", details: self.mediaUploadTraceDetails(context: traceContext, extra: traceDetails + [
                         ("filename", filename),
                         ("statusCode", code)
@@ -1952,7 +2153,7 @@ class XabberUploadManager: AbstractXMPPManager {
             guard self.isCurrentQuotaRefresh(generation: generation, context: context) else { return }
 
             switch response {
-            case .response(let code, let value):
+            case .response(let code, let value, _):
                 if code == 401 {
                     self.tokenWasExpired(context)
                     self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .unauthorized)
@@ -1963,7 +2164,7 @@ class XabberUploadManager: AbstractXMPPManager {
                     self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .failure)
                 }
 
-            case .failure(let code, let error):
+            case .failure(let code, let error, _):
                 if code == 401 {
                     self.tokenWasExpired(context)
                     self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .unauthorized)
@@ -2173,9 +2374,9 @@ class XabberUploadManager: AbstractXMPPManager {
 
             let code: Int?
             switch response {
-            case .response(let statusCode, _):
+            case .response(let statusCode, _, _):
                 code = statusCode
-            case .failure(let statusCode, _):
+            case .failure(let statusCode, _, _):
                 code = statusCode
             }
 
@@ -2216,13 +2417,13 @@ class XabberUploadManager: AbstractXMPPManager {
         Self.quotaAPIClient.deleteMedia(baseURL: context.baseURL, token: context.token, fileID: fileID) { [weak self] response in
             guard let self = self, self.isCurrent(context) else { return }
             switch response {
-            case .response(let code, _):
+            case .response(let code, _, _):
                 if let code = code, code >= 200 && code < 300 {
                     self.refreshQuotaIfCurrent(context, reason: .manual, force: true)
                 } else if code == 401 {
                     self.tokenWasExpired(context)
                 }
-            case .failure(let code, let error):
+            case .failure(let code, let error, _):
                 DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
                 if code == 401 { self.tokenWasExpired(context) }
             }
@@ -2276,13 +2477,13 @@ class XabberUploadManager: AbstractXMPPManager {
         Self.quotaAPIClient.deleteAvatar(baseURL: context.baseURL, token: context.token, fileID: fileID) { [weak self] response in
             guard let self = self, self.isCurrent(context) else { return }
             switch response {
-            case .response(let code, _):
+            case .response(let code, _, _):
                 if let code = code, code >= 200 && code < 300 {
                     self.refreshQuotaIfCurrent(context, reason: .manual, force: true)
                 } else if code == 401 {
                     self.tokenWasExpired(context)
                 }
-            case .failure(let code, let error):
+            case .failure(let code, let error, _):
                 DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
                 if code == 401 { self.tokenWasExpired(context) }
             }
@@ -2298,11 +2499,11 @@ class XabberUploadManager: AbstractXMPPManager {
         Self.quotaAPIClient.deleteGallery(baseURL: context.baseURL, token: context.token, jid: jid) { [weak self] response in
             guard let self = self, self.isCurrent(context) else { return }
             switch response {
-            case .response(let code, _):
+            case .response(let code, _, _):
                 if code == 401 {
                     self.tokenWasExpired(context)
                 }
-            case .failure(let code, let error):
+            case .failure(let code, let error, _):
                 DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
                 if code == 401 { self.tokenWasExpired(context) }
             }
@@ -2318,12 +2519,12 @@ class XabberUploadManager: AbstractXMPPManager {
         Self.quotaAPIClient.getFiles(baseURL: context.baseURL, token: context.token, type: type, page: page) { [weak self] response in
             guard let self = self, self.isCurrent(context) else { return }
             switch response {
-            case .response(let code, let value):
+            case .response(let code, let value, _):
                 if code == 401 { self.tokenWasExpired(context); return }
                 guard let json = value as? NSDictionary,
                       let page = self.pagePayload(from: json) else { return }
                 callback(page.items, page.totalObjects, page.objPerPage, page.totalPages)
-            case .failure(let code, let error):
+            case .failure(let code, let error, _):
                 DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
                 if code == 401 { self.tokenWasExpired(context) }
             }
@@ -2339,12 +2540,12 @@ class XabberUploadManager: AbstractXMPPManager {
         Self.quotaAPIClient.getAvatars(baseURL: context.baseURL, token: context.token, page: page) { [weak self] response in
             guard let self = self, self.isCurrent(context) else { return }
             switch response {
-            case .response(let code, let value):
+            case .response(let code, let value, _):
                 if code == 401 { self.tokenWasExpired(context); return }
                 guard let json = value as? NSDictionary,
                       let page = self.pagePayload(from: json) else { return }
                 callback(page.items, page.totalObjects, page.objPerPage, page.totalPages)
-            case .failure(let code, let error):
+            case .failure(let code, let error, _):
                 DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
                 if code == 401 { self.tokenWasExpired(context) }
             }
@@ -2360,13 +2561,13 @@ class XabberUploadManager: AbstractXMPPManager {
         Self.quotaAPIClient.getFilesToDelete(baseURL: context.baseURL, token: context.token, percent: percent, page: page) { [weak self] response in
             guard let self = self, self.isCurrent(context) else { return }
             switch response {
-            case .response(let code, let value):
+            case .response(let code, let value, _):
                 if code == 401 { self.tokenWasExpired(context); return }
                 guard let json = value as? NSDictionary,
                       let page = self.pagePayload(from: json),
                       page.totalObjects > 0 else { return }
                 callback(page.items, page.totalObjects, page.objPerPage, page.totalPages)
-            case .failure(let code, let error):
+            case .failure(let code, let error, _):
                 DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
                 if code == 401 { self.tokenWasExpired(context) }
             }
@@ -2383,13 +2584,13 @@ class XabberUploadManager: AbstractXMPPManager {
         Self.quotaAPIClient.deleteMediaFor(baseURL: context.baseURL, token: context.token, percent: percent) { [weak self] response in
             guard let self = self, self.isCurrent(context) else { return }
             switch response {
-            case .response(let code, _):
+            case .response(let code, _, _):
                 if code == 401 {
                     self.tokenWasExpired(context)
                 } else {
                     self.refreshQuotaIfCurrent(context, reason: .manual, force: true)
                 }
-            case .failure(let code, let error):
+            case .failure(let code, let error, _):
                 DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
                 if code == 401 { self.tokenWasExpired(context) }
             }
@@ -2412,13 +2613,13 @@ class XabberUploadManager: AbstractXMPPManager {
         Self.quotaAPIClient.deleteMediaForAll(baseURL: context.baseURL, token: context.token) { [weak self] response in
             guard let self = self, self.isCurrent(context) else { return }
             switch response {
-            case .response(let code, _):
+            case .response(let code, _, _):
                 if code == 401 {
                     self.tokenWasExpired(context)
                 } else {
                     self.refreshQuotaIfCurrent(context, reason: .manual, force: true)
                 }
-            case .failure(let code, let error):
+            case .failure(let code, let error, _):
                 DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
                 if code == 401 { self.tokenWasExpired(context) }
             }
@@ -2445,13 +2646,13 @@ class XabberUploadManager: AbstractXMPPManager {
     private func getCode(fullJID: String, target: GalleryTokenRequestTarget, failCallback: ((String?) -> Void)? = nil) {
         Self.tokenAPIClient.requestCode(baseURL: target.baseURL, fullJID: fullJID) { response in
             switch response {
-            case .response(let code, let value):
+            case .response(let code, let value, _):
                 if let code = code, code >= 200 && code < 300 {
                     DDLogDebug(value ?? [:])
                 } else {
                     failCallback?(nil)
                 }
-            case .failure(_, let error):
+            case .failure(_, let error, _):
                 DispatchQueue.main.async {
                     ToastPresenter().presentError(message: "Cloud storage is inactive")
                 }
@@ -2494,7 +2695,7 @@ class XabberUploadManager: AbstractXMPPManager {
         Self.tokenAPIClient.exchangeCode(baseURL: target.baseURL, owner: owner, code: code) { [weak self] response in
             guard let self = self else { return }
             switch response {
-            case .response(let statusCode, let value):
+            case .response(let statusCode, let value, _):
                 guard let statusCode = statusCode, statusCode >= 200 && statusCode < 300,
                       let data = value as? NSDictionary,
                       let token = data["token"] as? String,
@@ -2508,7 +2709,7 @@ class XabberUploadManager: AbstractXMPPManager {
                     self.refreshQuota(reason: .tokenReceived, force: true)
                 }
                 DDLogDebug("Received media gallery token for \(target.identity)")
-            case .failure(_, let error):
+            case .failure(_, let error, _):
                 failCallback?(error)
             }
         }
