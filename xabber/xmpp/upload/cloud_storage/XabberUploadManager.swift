@@ -1076,6 +1076,11 @@ class XabberUploadManager: AbstractXMPPManager {
         case upload
     }
 
+    struct MediaUploadDiagnosticContext {
+        let messagePrimary: String?
+        let referencePrimary: String?
+    }
+
     private var galleryUploadMaxRetryAttempts: Int {
         3
     }
@@ -1084,9 +1089,23 @@ class XabberUploadManager: AbstractXMPPManager {
         endpoint: GalleryUploadEndpoint,
         filename: String,
         attempt: Int = 1,
+        traceContext: MediaUploadDiagnosticContext? = nil,
+        traceDetails: [(String, Any?)] = [],
         operation: @escaping (@escaping (CloudStorageQuotaAPIResponse) -> Void) -> Void,
         completion: @escaping (CloudStorageQuotaAPIResponse) -> Void
     ) {
+        logMediaUploadTrace(
+            "gallery_\(endpoint.rawValue)_request_started",
+            details: mediaUploadTraceDetails(
+                context: traceContext,
+                extra: traceDetails + [
+                    ("endpoint", endpoint.rawValue),
+                    ("filename", filename),
+                    ("attempt", attempt),
+                    ("maxAttempts", galleryUploadMaxRetryAttempts)
+                ]
+            )
+        )
         operation { [weak self] response in
             guard let self else {
                 completion(response)
@@ -1095,18 +1114,112 @@ class XabberUploadManager: AbstractXMPPManager {
 
             guard attempt < self.galleryUploadMaxRetryAttempts,
                   self.isRetryableGalleryResponse(response) else {
+                self.logMediaUploadTrace(
+                    self.isGalleryFailureResponse(response) ? "gallery_\(endpoint.rawValue)_request_final_failure" : "gallery_\(endpoint.rawValue)_request_completed",
+                    details: self.mediaUploadTraceDetails(
+                        context: traceContext,
+                        extra: traceDetails + [
+                            ("endpoint", endpoint.rawValue),
+                            ("filename", filename),
+                            ("attempt", attempt),
+                            ("maxAttempts", self.galleryUploadMaxRetryAttempts)
+                        ] + self.mediaUploadResponseTraceDetails(response)
+                    )
+                )
                 completion(response)
                 return
             }
 
-            DDLogDebug("XabberUploadManager: retrying \(endpoint.rawValue) for \(filename), attempt \(attempt + 1)/\(self.galleryUploadMaxRetryAttempts)")
+            self.logMediaUploadTrace(
+                "gallery_\(endpoint.rawValue)_request_retry",
+                details: self.mediaUploadTraceDetails(
+                    context: traceContext,
+                    extra: traceDetails + [
+                        ("endpoint", endpoint.rawValue),
+                        ("filename", filename),
+                        ("attempt", attempt),
+                        ("nextAttempt", attempt + 1),
+                        ("maxAttempts", self.galleryUploadMaxRetryAttempts)
+                    ] + self.mediaUploadResponseTraceDetails(response)
+                )
+            )
             self.performGalleryRequestWithRetry(
                 endpoint: endpoint,
                 filename: filename,
                 attempt: attempt + 1,
+                traceContext: traceContext,
+                traceDetails: traceDetails,
                 operation: operation,
                 completion: completion
             )
+        }
+    }
+
+    private func logMediaUploadTrace(_ event: String, details: [(String, Any?)] = []) {
+        let renderedDetails = details.compactMap { key, value -> String? in
+            guard let value else { return nil }
+            return "\(key)=\(mediaUploadTraceValue(value))"
+        }.joined(separator: " ")
+        let suffix = renderedDetails.isEmpty ? "" : " \(renderedDetails)"
+        DDLogDebug("MEDIA_UPLOAD_TRACE event=\(event)\(suffix)")
+    }
+
+    private func mediaUploadTraceDetails(
+        context: MediaUploadDiagnosticContext?,
+        extra: [(String, Any?)] = []
+    ) -> [(String, Any?)] {
+        [
+            ("owner", owner),
+            ("messagePrimary", context?.messagePrimary),
+            ("referencePrimary", context?.referencePrimary)
+        ] + extra
+    }
+
+    private func mediaUploadTraceValue(_ value: Any) -> String {
+        let string = String(describing: value)
+            .replacingOccurrences(of: "\"", with: "'")
+            .replacingOccurrences(of: "\n", with: "\\n")
+        guard !string.isEmpty,
+              string.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+            return "\"\(string)\""
+        }
+        return string
+    }
+
+    private func mediaUploadResponseTraceDetails(_ response: CloudStorageQuotaAPIResponse) -> [(String, Any?)] {
+        switch response {
+        case .response(let statusCode, let value):
+            return [
+                ("statusCode", statusCode),
+                ("serverStatus", int(from: (value as? NSDictionary)?["status"]) ?? int(from: (value as? [String: Any])?["status"]))
+            ]
+        case .failure(let statusCode, let error):
+            let nsError = mediaUploadNSError(error)
+            return [
+                ("statusCode", statusCode),
+                ("errorDomain", nsError?.domain),
+                ("errorCode", nsError?.code)
+            ]
+        }
+    }
+
+    private func mediaUploadNSError(_ error: Error?) -> NSError? {
+        guard let error else {
+            return nil
+        }
+        if let underlyingError = (error as? AFError)?.underlyingError {
+            return mediaUploadNSError(underlyingError)
+        }
+        return error as NSError
+    }
+
+    private func isGalleryFailureResponse(_ response: CloudStorageQuotaAPIResponse) -> Bool {
+        switch response {
+        case .response(let statusCode, _):
+            guard let statusCode else { return true }
+            return statusCode < 200 || statusCode >= 300
+        case .failure:
+            return true
         }
     }
 
@@ -1217,12 +1330,32 @@ class XabberUploadManager: AbstractXMPPManager {
         completion: @escaping (CloudStorageQuotaAPIResponse) -> Void
     ) {
         guard let context = currentGalleryRequestContext() else {
+            logMediaUploadTrace("gallery_upload_context_missing", details: [
+                ("owner", owner),
+                ("filename", filename)
+            ])
             completion(.failure(statusCode: nil, error: UploadError.notAvailable))
             return
         }
-        preflightUploadSlot(data: data, filename: filename, context: context, errorCallback: { _ in }) { [weak self] shouldContinue in
+        let traceDetails: [(String, Any?)] = [
+            ("fileSize", data.count),
+            ("mimeType", mimeType),
+            ("galleryHost", context.baseURL.host)
+        ]
+        preflightUploadSlot(
+            data: data,
+            filename: filename,
+            context: context,
+            traceDetails: traceDetails,
+            errorCallback: { _ in }
+        ) { [weak self] shouldContinue in
             guard let self = self else { return }
             guard shouldContinue, self.isCurrent(context) else {
+                self.logMediaUploadTrace("gallery_upload_aborted_after_slot", details: traceDetails + [
+                    ("owner", self.owner),
+                    ("filename", filename),
+                    ("reason", shouldContinue ? "staleContext" : "slotRejected")
+                ])
                 completion(.failure(statusCode: 409, error: nil))
                 return
             }
@@ -1231,6 +1364,10 @@ class XabberUploadManager: AbstractXMPPManager {
             self.performGalleryRequestWithRetry(
                 endpoint: .upload,
                 filename: filename,
+                traceDetails: traceDetails + [
+                    ("uploadMimeType", uploadMimeType),
+                    ("uploadContext", uploadContext)
+                ],
                 operation: { responseCompletion in
                     Self.quotaAPIClient.uploadFile(
                         baseURL: context.baseURL,
@@ -1250,21 +1387,47 @@ class XabberUploadManager: AbstractXMPPManager {
 
     //MARK: - Uploads user's file on the server, receives file's and thumbnail's urls
     //MARK: - It is called in Account if the user doesn't have any token yet
-    private func uploadFile(message primary: String, data: Data, filename: String, mimeType: String? = nil, metadata: [String: String]? = nil, successCallback: @escaping ((String, String?, Int, String, String, URL, Int, Int) -> Void), failCallback: @escaping ((Error?) -> Void), errorCallback: @escaping ((Int?) -> Void)) {
+    private func uploadFile(message primary: String, referencePrimary: String? = nil, data: Data, filename: String, mimeType: String? = nil, metadata: [String: String]? = nil, successCallback: @escaping ((String, String?, Int, String, String, URL, Int, Int) -> Void), failCallback: @escaping ((Error?) -> Void), errorCallback: @escaping ((Int?) -> Void)) {
+        let traceContext = MediaUploadDiagnosticContext(messagePrimary: primary, referencePrimary: referencePrimary)
         guard let context = currentGalleryRequestContext() else {
+            logMediaUploadTrace("gallery_upload_context_missing", details: mediaUploadTraceDetails(context: traceContext, extra: [
+                ("filename", filename),
+                ("fileSize", data.count),
+                ("mimeType", mimeType)
+            ]))
             failCallback(UploadError.notAvailable)
             return
         }
 
         guard let uploadURL = AccountGalleryConfiguration.apiURL(baseURL: context.baseURL, path: "v1/files/upload/") else {
-            DDLogDebug("XabberUploadManager: \(#function). Url is incorrect")
+            logMediaUploadTrace("gallery_upload_url_invalid", details: mediaUploadTraceDetails(context: traceContext, extra: [
+                ("filename", filename),
+                ("fileSize", data.count),
+                ("mimeType", mimeType),
+                ("galleryHost", context.baseURL.host)
+            ]))
             errorCallback(nil)
             return
         }
 
-        preflightUploadSlot(data: data, filename: filename, context: context, errorCallback: errorCallback) { [weak self] shouldContinue in
+        let traceDetails: [(String, Any?)] = [
+            ("fileSize", data.count),
+            ("mimeType", mimeType),
+            ("galleryHost", context.baseURL.host)
+        ]
+        preflightUploadSlot(
+            data: data,
+            filename: filename,
+            context: context,
+            traceContext: traceContext,
+            traceDetails: traceDetails,
+            errorCallback: errorCallback
+        ) { [weak self] shouldContinue in
             guard let self = self, shouldContinue else { return }
             guard self.isCurrent(context) else {
+                self.logMediaUploadTrace("gallery_upload_context_stale", details: self.mediaUploadTraceDetails(context: traceContext, extra: traceDetails + [
+                    ("filename", filename)
+                ]))
                 errorCallback(409)
                 return
             }
@@ -1275,6 +1438,11 @@ class XabberUploadManager: AbstractXMPPManager {
             self.performGalleryRequestWithRetry(
                 endpoint: .upload,
                 filename: filename,
+                traceContext: traceContext,
+                traceDetails: traceDetails + [
+                    ("uploadMimeType", uploadMimeType),
+                    ("uploadContext", uploadContext)
+                ],
                 operation: { responseCompletion in
                     Self.quotaAPIClient.uploadFile(
                         baseURL: context.baseURL,
@@ -1297,6 +1465,9 @@ class XabberUploadManager: AbstractXMPPManager {
                 switch response {
                 case .response(let code, let value):
                     guard let code = code else {
+                        self.logMediaUploadTrace("gallery_upload_response_missing_status", details: self.mediaUploadTraceDetails(context: traceContext, extra: traceDetails + [
+                            ("filename", filename)
+                        ]))
                         errorCallback(nil)
                         return
                     }
@@ -1309,11 +1480,26 @@ class XabberUploadManager: AbstractXMPPManager {
                               let used = self.int(from: json["used"]),
                               let fileID = self.int(from: json["id"]) else {
                             let statusCode = self.int(from: (value as? NSDictionary)?["status"]) ?? code
+                            self.logMediaUploadTrace("gallery_upload_response_invalid", details: self.mediaUploadTraceDetails(context: traceContext, extra: traceDetails + [
+                                ("filename", filename),
+                                ("statusCode", code),
+                                ("serverStatus", statusCode)
+                            ]))
                             errorCallback(statusCode)
                             return
                         }
 
                         let thumbnailUrl = (json["thumbnail"] as? NSDictionary)?["url"] as? String
+                        self.logMediaUploadTrace("gallery_upload_response_parsed", details: self.mediaUploadTraceDetails(context: traceContext, extra: traceDetails + [
+                            ("filename", filename),
+                            ("statusCode", code),
+                            ("fileID", fileID),
+                            ("remoteFilename", name),
+                            ("hashPrefix", String(hash.prefix(12))),
+                            ("uploadHost", uploadURL.host),
+                            ("quota", quota),
+                            ("used", used)
+                        ]))
                         successCallback(fileUrl, thumbnailUrl, fileID, name, hash, uploadURL, quota, used)
                         self.refreshQuotaIfCurrent(context, reason: .uploadCompleted, force: true)
                     } else {
@@ -1324,10 +1510,18 @@ class XabberUploadManager: AbstractXMPPManager {
                         if statusCode == 403 || code == 403 {
                             self.refreshQuotaIfCurrent(context, reason: .uploadQuotaExceeded, force: true)
                         }
+                        self.logMediaUploadTrace("gallery_upload_status_rejected", details: self.mediaUploadTraceDetails(context: traceContext, extra: traceDetails + [
+                            ("filename", filename),
+                            ("statusCode", code),
+                            ("serverStatus", statusCode)
+                        ]))
                         errorCallback(statusCode)
                     }
                 case .failure(let code, let error):
-                    DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
+                    self.logMediaUploadTrace("gallery_upload_network_failure", details: self.mediaUploadTraceDetails(context: traceContext, extra: traceDetails + [
+                        ("filename", filename),
+                        ("statusCode", code)
+                    ] + self.mediaUploadResponseTraceDetails(response)))
                     if code == 401 {
                         self.tokenWasExpired(context)
                     }
@@ -1395,6 +1589,12 @@ class XabberUploadManager: AbstractXMPPManager {
         func failOnce(_ message: String, code: Int? = nil) {
             guard !didFail else { return }
             didFail = true
+            logMediaUploadTrace("message_upload_fail_once", details: [
+                ("owner", owner),
+                ("messagePrimary", primary),
+                ("errorCode", code),
+                ("reason", message)
+            ])
             writeErrorInRealm(messageId: primary, errorText: message, errorCode: code)
             failCallback()
         }
@@ -1408,6 +1608,10 @@ class XabberUploadManager: AbstractXMPPManager {
                             primary,
                             [MessageReferenceStorageItem.Kind.voice.rawValue, MessageReferenceStorageItem.Kind.media.rawValue])
                     .isEmpty {
+                    logMediaUploadTrace("message_upload_all_references_uploaded", details: [
+                        ("owner", owner),
+                        ("messagePrimary", primary)
+                    ])
                     clearUploadErrorInRealm(messageId: primary)
                     successCallback()
                 }
@@ -1424,11 +1628,20 @@ class XabberUploadManager: AbstractXMPPManager {
                         primary,
                             [MessageReferenceStorageItem.Kind.voice.rawValue, MessageReferenceStorageItem.Kind.media.rawValue])
             if references.isEmpty {
+                logMediaUploadTrace("message_upload_no_pending_references", details: [
+                    ("owner", owner),
+                    ("messagePrimary", primary)
+                ])
                 clearUploadErrorInRealm(messageId: primary)
                 successCallback()
                 return
             }
 
+            logMediaUploadTrace("message_upload_pending_references_found", details: [
+                ("owner", owner),
+                ("messagePrimary", primary),
+                ("pendingReferenceCount", references.count)
+            ])
             clearUploadErrorInRealm(messageId: primary)
 
             references.forEach { reference in
@@ -1436,11 +1649,25 @@ class XabberUploadManager: AbstractXMPPManager {
                 do {
                     var metadata: [String: String]? = nil
                     let referencePrimary = reference.primary
+                    let traceContext = MediaUploadDiagnosticContext(messagePrimary: primary, referencePrimary: referencePrimary)
+                    logMediaUploadTrace("media_reference_prepare_started", details: mediaUploadTraceDetails(context: traceContext, extra: [
+                        ("kind", reference.kind.rawValue),
+                        ("mimeType", reference.mimeType),
+                        ("isUploaded", reference.isUploaded),
+                        ("hasLocalFile", reference.localFileUrl != nil)
+                    ]))
                     guard let filename = reference.filename, filename.isNotEmpty else {
+                        logMediaUploadTrace("media_reference_prepare_failed", details: mediaUploadTraceDetails(context: traceContext, extra: [
+                            ("reason", "missingFilename")
+                        ]))
                         failOnce("Selected file could not be prepared. Please choose it again.".localizeString(id: "upload_error_prepare_failed", arguments: []), code: 400)
                         return
                     }
                     guard let mediaType = reference.metadata?["media-type"] as? String, mediaType.isNotEmpty else {
+                        logMediaUploadTrace("media_reference_prepare_failed", details: mediaUploadTraceDetails(context: traceContext, extra: [
+                            ("filename", filename),
+                            ("reason", "missingMediaType")
+                        ]))
                         failOnce("Selected file has unsupported media metadata. Please choose it again.".localizeString(id: "upload_error_media_metadata", arguments: []), code: 400)
                         return
                     }
@@ -1467,6 +1694,11 @@ class XabberUploadManager: AbstractXMPPManager {
                     }
 
                     guard let localFileUrl = reference.localFileUrl else {
+                        logMediaUploadTrace("media_reference_prepare_failed", details: mediaUploadTraceDetails(context: traceContext, extra: [
+                            ("filename", filename),
+                            ("mediaType", mediaType),
+                            ("reason", "missingLocalFile")
+                        ]))
                         failOnce("Selected file is unavailable. Please choose it again.".localizeString(id: "upload_error_local_file_unavailable", arguments: []), code: 400)
                         return
                     }
@@ -1479,12 +1711,24 @@ class XabberUploadManager: AbstractXMPPManager {
                        reference.conversationType.isEncrypted {
                         guard let encryptionKeyb64 = encryptionKeyb64,
                               let ivb64 = ivb64 else {
+                            logMediaUploadTrace("media_reference_prepare_failed", details: mediaUploadTraceDetails(context: traceContext, extra: [
+                                ("filename", filename),
+                                ("mediaType", mediaType),
+                                ("fileSize", data.count),
+                                ("reason", "missingEncryptionMetadata")
+                            ]))
                             failOnce("Selected file could not be encrypted. Please try again.".localizeString(id: "upload_error_encryption_failed", arguments: []), code: 400)
                             return
                         }
                         let encryptionKey = Array<UInt8>(base64: encryptionKeyb64)
                         let iv = Array<UInt8>(base64: ivb64)
                         guard let encrypted = try data.encrypt(key: encryptionKey, iv: iv) else {
+                            logMediaUploadTrace("media_reference_prepare_failed", details: mediaUploadTraceDetails(context: traceContext, extra: [
+                                ("filename", filename),
+                                ("mediaType", mediaType),
+                                ("fileSize", data.count),
+                                ("reason", "encryptionFailed")
+                            ]))
                             failOnce("Selected file could not be encrypted. Please try again.".localizeString(id: "upload_error_encryption_failed", arguments: []), code: 400)
                             return
                         }
@@ -1493,8 +1737,15 @@ class XabberUploadManager: AbstractXMPPManager {
                         encryptedFiles = true
                     }
 
+                    logMediaUploadTrace("media_reference_prepared", details: mediaUploadTraceDetails(context: traceContext, extra: [
+                        ("filename", filename),
+                        ("mediaType", mediaType),
+                        ("fileSize", data.count),
+                        ("encrypted", encryptedFiles)
+                    ]))
                     uploadFile(
                         message: primary,
+                        referencePrimary: referencePrimary,
                         data: data,
                         filename: filename,
                         mimeType: mediaType,
@@ -1514,6 +1765,13 @@ class XabberUploadManager: AbstractXMPPManager {
                                     }
                                 }
 
+                                self.logMediaUploadTrace("media_reference_uploaded", details: self.mediaUploadTraceDetails(context: traceContext, extra: [
+                                    ("filename", filename),
+                                    ("remoteFilename", name),
+                                    ("fileID", fileID),
+                                    ("hashPrefix", String(hash.prefix(12))),
+                                    ("uploadHost", uploadUrl.host)
+                                ]))
                                 if encryptedFiles,
                                    let encryptionKeyb64 = encryptionKeyb64,
                                    let ivb64 = ivb64 {
@@ -1534,17 +1792,30 @@ class XabberUploadManager: AbstractXMPPManager {
                             }
                         },
                         failCallback: { failError in
-                            DDLogDebug("XabberUploadManager: \(#function). \(String(describing: failError?.localizedDescription))")
+                            let nsError = self.mediaUploadNSError(failError)
+                            self.logMediaUploadTrace("media_reference_upload_failed", details: self.mediaUploadTraceDetails(context: traceContext, extra: [
+                                ("filename", filename),
+                                ("errorDomain", nsError?.domain),
+                                ("errorCode", nsError?.code)
+                            ]))
                             failOnce("File upload failed. Please try again.".localizeString(id: "upload_error_failed", arguments: []), code: 500)
                         },
                         errorCallback: { errorCode in
                             guard !didFail else { return }
                             didFail = true
+                            self.logMediaUploadTrace("media_reference_upload_error", details: self.mediaUploadTraceDetails(context: traceContext, extra: [
+                                ("filename", filename),
+                                ("errorCode", errorCode)
+                            ]))
                             self.writeErrorInRealm(messageId: primary, errorCode: errorCode)
                             failCallback()
                         })
                 } catch {
-                    DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
+                    logMediaUploadTrace("media_reference_prepare_failed", details: [
+                        ("owner", owner),
+                        ("messagePrimary", primary),
+                        ("errorType", String(describing: type(of: error)))
+                    ])
                     failOnce("Selected file is unavailable. Please choose it again.".localizeString(id: "upload_error_local_file_unavailable", arguments: []), code: 400)
                 }
             }
@@ -1616,6 +1887,9 @@ class XabberUploadManager: AbstractXMPPManager {
             if let message = realm
                 .object(ofType: MessageStorageItem.self,
                         forPrimaryKey: messageId) {
+                let owner = message.owner
+                let conversationType = message.conversationType
+                let referenceCount = message.references.count
                 try realm.write {
                     if message.isInvalidated { return }
                     message.messageError = errorText
@@ -1626,6 +1900,14 @@ class XabberUploadManager: AbstractXMPPManager {
                     })
                     realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: message.opponent, owner: message.owner, conversationType: message.conversationType))?.hasErrorInChat = true
                 }
+                logMediaUploadTrace("message_upload_error_written", details: [
+                    ("owner", owner),
+                    ("messagePrimary", messageId),
+                    ("conversationType", conversationType.rawValue),
+                    ("referenceCount", referenceCount),
+                    ("messageErrorCode", errorCode ?? 500),
+                    ("state", "error")
+                ])
             }
         } catch {
             DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
@@ -1838,23 +2120,39 @@ class XabberUploadManager: AbstractXMPPManager {
         data: Data,
         filename: String,
         context providedContext: CloudStorageGalleryRequestContext? = nil,
+        traceContext: MediaUploadDiagnosticContext? = nil,
+        traceDetails: [(String, Any?)] = [],
         errorCallback: @escaping ((Int?) -> Void),
         completion: @escaping (Bool) -> Void
     ) {
         guard let context = providedContext ?? currentGalleryRequestContext() else {
+            logMediaUploadTrace("gallery_slot_preflight_skipped", details: mediaUploadTraceDetails(context: traceContext, extra: traceDetails + [
+                ("filename", filename),
+                ("fileSize", data.count),
+                ("reason", "missingGalleryContext")
+            ]))
             completion(true)
             return
         }
 
+        let hash = data.sha256Data.hexEncodedString()
         let request = CloudStorageUploadSlotRequest(
             size: data.count,
             name: filename,
-            hash: data.sha256Data.hexEncodedString()
+            hash: hash
         )
+        let slotTraceDetails = traceDetails + [
+            ("filename", filename),
+            ("fileSize", data.count),
+            ("hashPrefix", String(hash.prefix(12))),
+            ("galleryHost", context.baseURL.host)
+        ]
 
         performGalleryRequestWithRetry(
             endpoint: .slot,
             filename: filename,
+            traceContext: traceContext,
+            traceDetails: slotTraceDetails,
             operation: { responseCompletion in
                 Self.quotaAPIClient.requestSlot(
                     baseURL: context.baseURL,
@@ -1866,6 +2164,9 @@ class XabberUploadManager: AbstractXMPPManager {
         ) { [weak self] response in
             guard let self = self else { return }
             guard self.isCurrent(context) else {
+                self.logMediaUploadTrace("gallery_slot_preflight_rejected", details: self.mediaUploadTraceDetails(context: traceContext, extra: slotTraceDetails + [
+                    ("reason", "staleContext")
+                ]))
                 completion(false)
                 return
             }
@@ -1879,16 +2180,27 @@ class XabberUploadManager: AbstractXMPPManager {
             }
 
             if code == 403 {
+                self.logMediaUploadTrace("gallery_slot_preflight_rejected", details: self.mediaUploadTraceDetails(context: traceContext, extra: slotTraceDetails + [
+                    ("reason", "quotaExceeded"),
+                    ("statusCode", code)
+                ]))
                 errorCallback(403)
                 self.refreshQuotaIfCurrent(context, reason: .uploadQuotaExceeded, force: true)
                 completion(false)
             } else if self.isRetryableGalleryResponse(response) {
+                self.logMediaUploadTrace("gallery_slot_preflight_rejected", details: self.mediaUploadTraceDetails(context: traceContext, extra: slotTraceDetails + [
+                    ("reason", "retryExhausted"),
+                    ("statusCode", code)
+                ] + self.mediaUploadResponseTraceDetails(response)))
                 errorCallback(code)
                 completion(false)
             } else {
                 if code == 401 {
                     self.tokenWasExpired(context)
                 }
+                self.logMediaUploadTrace("gallery_slot_preflight_passed", details: self.mediaUploadTraceDetails(context: traceContext, extra: slotTraceDetails + [
+                    ("statusCode", code)
+                ]))
                 completion(true)
             }
         }

@@ -29708,6 +29708,43 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(fakeClient.uploadCallCount, 1)
     }
 
+    func testPersistentSlotTimeoutLeavesRetryableFailedMessageWithoutUpload() throws {
+        let firstURL = try makeTemporaryUploadFile(name: "first-slot-timeout.jpg", contents: Data("first".utf8))
+        let secondURL = try makeTemporaryUploadFile(name: "second-slot-timeout.jpg", contents: Data("second".utf8))
+        defer {
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+        let primary = try seedUploadingMediaMessage(localFileURLs: [firstURL, secondURL])
+        fakeClient.slotResponses = [
+            .failure(statusCode: nil, error: timeoutError()),
+            .failure(statusCode: nil, error: timeoutError()),
+            .failure(statusCode: nil, error: timeoutError())
+        ]
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "slot timeout failure")
+        var successCount = 0
+        var failureCount = 0
+
+        manager.getFileData(message: primary, successCallback: {
+            successCount += 1
+        }, failCallback: {
+            failureCount += 1
+            expectation.fulfill()
+        })
+        wait(for: [expectation], timeout: 1)
+
+        let realm = try WRealm.safe()
+        let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+        XCTAssertEqual(successCount, 0)
+        XCTAssertEqual(failureCount, 1)
+        XCTAssertEqual(fakeClient.slotCallCount, 3)
+        XCTAssertEqual(fakeClient.uploadCallCount, 0)
+        XCTAssertEqual(message.state, .error)
+        XCTAssertEqual(message.messageErrorCode, "500")
+        XCTAssertTrue(message.references.allSatisfy(\.hasError))
+    }
+
     func testUploadTimeoutRetriesBeforeCompletion() {
         fakeClient.slotResponses = [
             .response(statusCode: 200, value: [:]),

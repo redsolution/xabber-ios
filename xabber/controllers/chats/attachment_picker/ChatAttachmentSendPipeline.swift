@@ -1,4 +1,27 @@
 import Foundation
+import CocoaLumberjack
+
+private enum ChatAttachmentMediaUploadTrace {
+    static func log(_ event: String, details: [(String, Any?)] = []) {
+        let renderedDetails = details.compactMap { key, value -> String? in
+            guard let value else { return nil }
+            return "\(key)=\(format(value))"
+        }.joined(separator: " ")
+        let suffix = renderedDetails.isEmpty ? "" : " \(renderedDetails)"
+        DDLogDebug("MEDIA_UPLOAD_TRACE event=\(event)\(suffix)")
+    }
+
+    private static func format(_ value: Any) -> String {
+        let string = String(describing: value)
+            .replacingOccurrences(of: "\"", with: "'")
+            .replacingOccurrences(of: "\n", with: "\\n")
+        guard !string.isEmpty,
+              string.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+            return "\"\(string)\""
+        }
+        return string
+    }
+}
 
 enum ChatAttachmentSendBlockReason: Equatable {
     case emptySelection
@@ -109,11 +132,24 @@ final class ChatAttachmentSendPipeline: ChatAttachmentSendCoordinating {
         completion: @escaping (ChatAttachmentSendResult) -> Void
     ) {
         guard !drafts.isEmpty else {
+            ChatAttachmentMediaUploadTrace.log("picker_send_blocked", details: [
+                ("reason", "emptySelection"),
+                ("owner", context.owner),
+                ("conversationType", context.conversationType.rawValue)
+            ])
             completion(.blocked(.emptySelection))
             return
         }
 
         guard ChatAttachmentSendabilityPolicy.canRequestSend(drafts: drafts) else {
+            ChatAttachmentMediaUploadTrace.log("picker_send_blocked", details: [
+                ("reason", "unpreparedDrafts"),
+                ("owner", context.owner),
+                ("conversationType", context.conversationType.rawValue),
+                ("draftCount", drafts.count),
+                ("preparedCount", drafts.filter { $0.isPreparedForSend }.count),
+                ("uploadDraftCount", drafts.filter { $0.requiresUpload }.count)
+            ])
             completion(.blocked(.unpreparedDrafts))
             return
         }
@@ -121,6 +157,13 @@ final class ChatAttachmentSendPipeline: ChatAttachmentSendCoordinating {
         let requiresUpload = ChatAttachmentDraftUploadRequirementPolicy.requiresUpload(drafts: drafts)
         if requiresUpload {
             guard cloudStorageAvailabilityProvider.isCloudStorageAvailable(owner: context.owner) else {
+                ChatAttachmentMediaUploadTrace.log("picker_send_blocked", details: [
+                    ("reason", "cloudStorageUnavailable"),
+                    ("owner", context.owner),
+                    ("conversationType", context.conversationType.rawValue),
+                    ("draftCount", drafts.count),
+                    ("uploadDraftCount", drafts.filter { $0.requiresUpload }.count)
+                ])
                 completion(.blocked(.cloudStorageUnavailable))
                 return
             }
@@ -129,6 +172,13 @@ final class ChatAttachmentSendPipeline: ChatAttachmentSendCoordinating {
             case .available:
                 break
             case .premiumRequired:
+                ChatAttachmentMediaUploadTrace.log("picker_send_blocked", details: [
+                    ("reason", "quotaExceeded"),
+                    ("owner", context.owner),
+                    ("conversationType", context.conversationType.rawValue),
+                    ("draftCount", drafts.count),
+                    ("uploadDraftCount", drafts.filter { $0.requiresUpload }.count)
+                ])
                 completion(.cloudStorageQuotaExceeded(owner: context.owner))
                 return
             }
@@ -151,6 +201,13 @@ final class ChatAttachmentSendPipeline: ChatAttachmentSendCoordinating {
                 requiresUpload: requiresUpload,
                 context: context
             ) { [quotaRefresher] didSend in
+                ChatAttachmentMediaUploadTrace.log("picker_send_result", details: [
+                    ("owner", context.owner),
+                    ("conversationType", context.conversationType.rawValue),
+                    ("referenceCount", references.count),
+                    ("requiresUpload", requiresUpload),
+                    ("didCreateLocalRow", didSend)
+                ])
                 completion(didSend ? .sent(referenceCount: references.count) : .blocked(.sendFailed))
                 guard didSend, requiresUpload else {
                     return
@@ -162,7 +219,23 @@ final class ChatAttachmentSendPipeline: ChatAttachmentSendCoordinating {
                     force: true
                 ) { _ in }
             }
+            ChatAttachmentMediaUploadTrace.log("picker_send_handoff", details: [
+                ("owner", context.owner),
+                ("conversationType", context.conversationType.rawValue),
+                ("draftCount", drafts.count),
+                ("referenceCount", references.count),
+                ("requiresUpload", requiresUpload),
+                ("uploadDraftCount", drafts.filter { $0.requiresUpload }.count),
+                ("forwardedCount", context.forwardedMessageIds.count)
+            ])
         } catch {
+            ChatAttachmentMediaUploadTrace.log("picker_send_blocked", details: [
+                ("reason", "referenceBuildFailed"),
+                ("owner", context.owner),
+                ("conversationType", context.conversationType.rawValue),
+                ("draftCount", drafts.count),
+                ("errorType", String(describing: type(of: error)))
+            ])
             completion(.blocked(.referenceBuildFailed))
         }
     }
@@ -206,12 +279,24 @@ final class AccountChatAttachmentMediaMessageSender: ChatAttachmentMediaMessageS
         completion: @escaping (Bool) -> Void
     ) {
         guard let account = AccountManager.shared.find(for: context.owner) else {
+            ChatAttachmentMediaUploadTrace.log("media_sender_account_missing", details: [
+                ("owner", context.owner),
+                ("conversationType", context.conversationType.rawValue),
+                ("referenceCount", references.count),
+                ("requiresUpload", requiresUpload)
+            ])
             completion(false)
             return
         }
 
         DispatchQueue.global(qos: .userInitiated).async {
             guard requiresUpload else {
+                ChatAttachmentMediaUploadTrace.log("media_sender_simple_handoff", details: [
+                    ("owner", context.owner),
+                    ("conversationType", context.conversationType.rawValue),
+                    ("referenceCount", references.count),
+                    ("forwardedCount", context.forwardedMessageIds.count)
+                ])
                 _ = account.messages.sendSimpleMessage(
                     body,
                     to: context.jid,
@@ -225,6 +310,12 @@ final class AccountChatAttachmentMediaMessageSender: ChatAttachmentMediaMessageS
                 return
             }
 
+            ChatAttachmentMediaUploadTrace.log("media_sender_upload_handoff", details: [
+                ("owner", context.owner),
+                ("conversationType", context.conversationType.rawValue),
+                ("referenceCount", references.count),
+                ("forwardedCount", context.forwardedMessageIds.count)
+            ])
             let primary = account.messages.willSendMediaMessage(
                 references,
                 to: context.jid,
@@ -234,15 +325,32 @@ final class AccountChatAttachmentMediaMessageSender: ChatAttachmentMediaMessageS
                 legacyBody: legacyBody
             )
             guard let primary else {
+                ChatAttachmentMediaUploadTrace.log("media_sender_local_row_failed", details: [
+                    ("owner", context.owner),
+                    ("conversationType", context.conversationType.rawValue),
+                    ("referenceCount", references.count)
+                ])
                 DispatchQueue.main.async {
                     completion(false)
                 }
                 return
             }
 
+            ChatAttachmentMediaUploadTrace.log("media_sender_local_row_created", details: [
+                ("owner", context.owner),
+                ("conversationType", context.conversationType.rawValue),
+                ("messagePrimary", primary),
+                ("referenceCount", references.count)
+            ])
             DispatchQueue.main.async {
                 completion(true)
                 DispatchQueue.global(qos: .utility).async {
+                    ChatAttachmentMediaUploadTrace.log("media_sender_continue_upload_scheduled", details: [
+                        ("owner", context.owner),
+                        ("conversationType", context.conversationType.rawValue),
+                        ("messagePrimary", primary),
+                        ("referenceCount", references.count)
+                    ])
                     account.messages.continueSendMediaMessage(primary)
                 }
             }

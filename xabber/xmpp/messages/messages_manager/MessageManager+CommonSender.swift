@@ -23,7 +23,29 @@ import XMPPFramework
 import RealmSwift
 import RxRealm
 import RxSwift
+import CocoaLumberjack
 
+private enum MessageMediaUploadTrace {
+    static func log(_ event: String, details: [(String, Any?)] = []) {
+        let renderedDetails = details.compactMap { key, value -> String? in
+            guard let value else { return nil }
+            return "\(key)=\(format(value))"
+        }.joined(separator: " ")
+        let suffix = renderedDetails.isEmpty ? "" : " \(renderedDetails)"
+        DDLogDebug("MEDIA_UPLOAD_TRACE event=\(event)\(suffix)")
+    }
+
+    private static func format(_ value: Any) -> String {
+        let string = String(describing: value)
+            .replacingOccurrences(of: "\"", with: "'")
+            .replacingOccurrences(of: "\n", with: "\\n")
+        guard !string.isEmpty,
+              string.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+            return "\"\(string)\""
+        }
+        return string
+    }
+}
 
 extension MessageManager {
     
@@ -796,11 +818,17 @@ extension MessageManager {
     }
 
     internal func uploadMedia(for primary: String, retry: Bool = false) {
+        MessageMediaUploadTrace.log("message_upload_requested", details: [
+            ("owner", self.owner),
+            ("messagePrimary", primary),
+            ("retry", retry)
+        ])
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
                 let opponent = instance.opponent
                 let conversationType = instance.conversationType
+                let referenceCount = instance.references.count
                 try realm.write {
                     instance.state = .uploading
                     instance.messageError = nil
@@ -810,16 +838,39 @@ extension MessageManager {
                     }
                 }
                 LastChats.updateErrorState(for: opponent, owner: self.owner, conversationType: conversationType)
+                MessageMediaUploadTrace.log("message_upload_state_set", details: [
+                    ("owner", self.owner),
+                    ("messagePrimary", primary),
+                    ("conversationType", conversationType.rawValue),
+                    ("referenceCount", referenceCount),
+                    ("state", "uploading")
+                ])
+            } else {
+                MessageMediaUploadTrace.log("message_upload_missing_message", details: [
+                    ("owner", self.owner),
+                    ("messagePrimary", primary)
+                ])
             }
         } catch {
             DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
         }
 
-        AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
+        guard let account = AccountManager.shared.find(for: self.owner) else {
+            MessageMediaUploadTrace.log("message_upload_account_missing", details: [
+                ("owner", self.owner),
+                ("messagePrimary", primary)
+            ])
+            return
+        }
+
+        account.unsafeAction({ user, stream in
             user.cloudStorage.getFileData(message: primary, successCallback: {
                 do {
                     let realm = try  WRealm.safe()
                     if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                        let conversationType = instance.conversationType
+                        let uploadedReferenceCount = instance.references.filter("isUploaded == true").count
+                        let referenceCount = instance.references.count
                         try realm.write {
                             instance.createLegacyBody()
                             instance.state = .sending
@@ -830,6 +881,14 @@ extension MessageManager {
                             }
                         }
                         LastChats.updateErrorState(for: instance.opponent, owner: instance.owner, conversationType: instance.conversationType)
+                        MessageMediaUploadTrace.log("message_upload_completed", details: [
+                            ("owner", instance.owner),
+                            ("messagePrimary", primary),
+                            ("conversationType", conversationType.rawValue),
+                            ("referenceCount", referenceCount),
+                            ("uploadedReferenceCount", uploadedReferenceCount),
+                            ("nextState", "sending")
+                        ])
                     }
                     self.processSender(item: primary, retry: retry)
                 } catch {
@@ -839,10 +898,23 @@ extension MessageManager {
                 do {
                     let realm = try  WRealm.safe()
                     if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                        let conversationType = instance.conversationType
+                        let referenceCount = instance.references.count
+                        let failedReferenceCount = instance.references.filter("hasError == true").count
+                        let errorCode = instance.messageErrorCode
                         try realm.write {
                             instance.state = .error
                             realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: instance.opponent, owner: instance.owner, conversationType: instance.conversationType))?.hasErrorInChat = true
                         }
+                        MessageMediaUploadTrace.log("message_upload_failed", details: [
+                            ("owner", instance.owner),
+                            ("messagePrimary", primary),
+                            ("conversationType", conversationType.rawValue),
+                            ("referenceCount", referenceCount),
+                            ("failedReferenceCount", failedReferenceCount),
+                            ("messageErrorCode", errorCode),
+                            ("state", "error")
+                        ])
                     }
                 } catch {
                     DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
