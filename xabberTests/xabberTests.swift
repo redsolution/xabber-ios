@@ -208,6 +208,88 @@ final class ChatBottomScrollAlignmentPolicyTests: XCTestCase {
         )
     }
 
+    func testPureTailAppendAtBottomUsesBottomPinnedApply() {
+        let oldItems = [
+            makeBottomPolicyDatasource(primary: "m1"),
+            makeBottomPolicyDatasource(primary: "m2")
+        ]
+        let newItems = oldItems + [makeBottomPolicyDatasource(primary: "m3")]
+
+        XCTAssertTrue(
+            ChatTailAppendBottomPinPolicy.shouldPinBottom(
+                old: ChatDatasourceCoordinator.makeSnapshot(items: oldItems),
+                new: ChatDatasourceCoordinator.makeSnapshot(items: newItems),
+                wasNearBottom: true,
+                isDefaultBottomScrollDeferred: false,
+                suppressDefaultBottomScroll: false,
+                containsOnlyFakeMessages: false,
+                outgoingAutoScrollDecision: .notHandled
+            )
+        )
+    }
+
+    func testTailAppendAwayFromBottomKeepsCurrentVisiblePosition() {
+        let oldItems = [
+            makeBottomPolicyDatasource(primary: "m1"),
+            makeBottomPolicyDatasource(primary: "m2")
+        ]
+        let newItems = oldItems + [makeBottomPolicyDatasource(primary: "m3")]
+
+        XCTAssertFalse(
+            ChatTailAppendBottomPinPolicy.shouldPinBottom(
+                old: ChatDatasourceCoordinator.makeSnapshot(items: oldItems),
+                new: ChatDatasourceCoordinator.makeSnapshot(items: newItems),
+                wasNearBottom: false,
+                isDefaultBottomScrollDeferred: false,
+                suppressDefaultBottomScroll: false,
+                containsOnlyFakeMessages: false,
+                outgoingAutoScrollDecision: .notHandled
+            )
+        )
+    }
+
+    func testNonTailDiffDoesNotUseBottomPinnedApply() {
+        let oldItems = [
+            makeBottomPolicyDatasource(primary: "m1"),
+            makeBottomPolicyDatasource(primary: "m2")
+        ]
+        let newItems = [
+            makeBottomPolicyDatasource(primary: "m0")
+        ] + oldItems
+
+        XCTAssertFalse(
+            ChatTailAppendBottomPinPolicy.shouldPinBottom(
+                old: ChatDatasourceCoordinator.makeSnapshot(items: oldItems),
+                new: ChatDatasourceCoordinator.makeSnapshot(items: newItems),
+                wasNearBottom: true,
+                isDefaultBottomScrollDeferred: false,
+                suppressDefaultBottomScroll: false,
+                containsOnlyFakeMessages: false,
+                outgoingAutoScrollDecision: .notHandled
+            )
+        )
+    }
+
+    func testAnchorNavigationSuppressesBottomPinnedTailAppend() {
+        let oldItems = [
+            makeBottomPolicyDatasource(primary: "m1"),
+            makeBottomPolicyDatasource(primary: "m2")
+        ]
+        let newItems = oldItems + [makeBottomPolicyDatasource(primary: "m3")]
+
+        XCTAssertFalse(
+            ChatTailAppendBottomPinPolicy.shouldPinBottom(
+                old: ChatDatasourceCoordinator.makeSnapshot(items: oldItems),
+                new: ChatDatasourceCoordinator.makeSnapshot(items: newItems),
+                wasNearBottom: true,
+                isDefaultBottomScrollDeferred: true,
+                suppressDefaultBottomScroll: false,
+                containsOnlyFakeMessages: false,
+                outgoingAutoScrollDecision: .notHandled
+            )
+        )
+    }
+
     func testMediaSendCallbackRequestsOutgoingScrollSynchronouslyOnMainThread() {
         XCTAssertTrue(Thread.isMainThread)
         let chat = ChatViewController()
@@ -215,6 +297,56 @@ final class ChatBottomScrollAlignmentPolicyTests: XCTestCase {
         chat.onSendMessage()
 
         XCTAssertNotNil(chat.pendingOutgoingAutoScrollRequest)
+    }
+
+    private func makeBottomPolicyDatasource(primary: String) -> ChatViewController.Datasource {
+        ChatViewController.Datasource(
+            primary: primary,
+            jid: "romeo@example.com",
+            owner: "owner@example.com",
+            outgoing: false,
+            sender: Sender(id: "romeo@example.com", displayName: "Romeo"),
+            messageId: "\(primary)-message-id",
+            sentDate: Date(timeIntervalSince1970: 1_700_000_000),
+            editDate: nil,
+            kind: .attributedText(NSAttributedString(string: primary)),
+            withAuthor: false,
+            withAvatar: false,
+            error: false,
+            errorType: "",
+            canPinMessage: false,
+            canEditMessage: false,
+            canDeleteMessage: false,
+            forwards: [],
+            isOutgoing: false,
+            isEdited: false,
+            groupchatAuthorRole: "",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isHasAttachedMessages: false,
+            isDownloaded: true,
+            state: .read,
+            searchString: nil,
+            errorMetadata: nil,
+            burnDate: -1,
+            afterburnInterval: -1,
+            archivedId: "archive-\(primary)",
+            queryIds: nil,
+            isRead: true,
+            selectedSearchResultId: nil,
+            isHadHistoryGap: false,
+            tailed: false,
+            isFakeMessage: false,
+            images: [],
+            videos: [],
+            files: [],
+            audios: [],
+            timeMarkerText: NSAttributedString(string: ""),
+            indicator: .none,
+            avatarUrl: nil,
+            attributedAuthor: nil
+        )
     }
 }
 
@@ -4546,6 +4678,83 @@ final class XMPPDeviceManagerRealmThreadingTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
         }
         return condition()
+    }
+}
+
+final class PresenceManagerRealmWriteTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+
+    override func setUp() {
+        super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "PresenceManagerRealmWriteTests-\(name)-\(UUID().uuidString)"
+        )
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    override func tearDown() {
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        super.tearDown()
+    }
+
+    func testContactPresenceParseCreatesResourceOutsideWriteTransaction() throws {
+        let owner = "owner@example.com"
+        let contact = "contact@example.com"
+        let resource = "xabber-ios"
+        let manager = PresenceManager(withOwner: owner, withoutSubscribtion: true)
+        let presence = try XCTUnwrap(XMPPPresence(xmlString: """
+        <presence from="\(contact)/\(resource)">
+            <show>chat</show>
+            <status>Ready</status>
+            <priority>42</priority>
+        </presence>
+        """))
+
+        manager.parse(contact: presence)
+
+        let realm = try WRealm.safe()
+        let item = try XCTUnwrap(realm.object(
+            ofType: ResourceStorageItem.self,
+            forPrimaryKey: ResourceStorageItem.genPrimary(jid: contact, owner: owner, resource: resource)
+        ))
+        XCTAssertEqual(item.jid, contact)
+        XCTAssertEqual(item.owner, owner)
+        XCTAssertEqual(item.resource, resource)
+        XCTAssertEqual(item.status, .chat)
+        XCTAssertEqual(item.statusMessage, "Ready")
+        XCTAssertEqual(item.priority, 42)
+    }
+
+    func testContactPresenceParseCanUseExistingWriteTransaction() throws {
+        let owner = "owner@example.com"
+        let contact = "contact@example.com"
+        let resource = "xabber-ios"
+        let manager = PresenceManager(withOwner: owner, withoutSubscribtion: true)
+        let presence = try XCTUnwrap(XMPPPresence(xmlString: """
+        <presence from="\(contact)/\(resource)">
+            <show>away</show>
+            <status>Away</status>
+            <priority>7</priority>
+        </presence>
+        """))
+        let realm = try WRealm.safe()
+
+        try realm.write {
+            manager.parse(contact: presence, realm: realm)
+        }
+
+        let item = try XCTUnwrap(realm.object(
+            ofType: ResourceStorageItem.self,
+            forPrimaryKey: ResourceStorageItem.genPrimary(jid: contact, owner: owner, resource: resource)
+        ))
+        XCTAssertEqual(item.status, .away)
+        XCTAssertEqual(item.statusMessage, "Away")
+        XCTAssertEqual(item.priority, 7)
     }
 }
 
@@ -9102,15 +9311,15 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
     func testSavedPositionLocalAnchorIsSuppressedToLatestFirstFrame() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
-        try seedMessages(count: 180)
+        try seedMessages(count: 320)
         let controller = makeController()
 
         controller.loadViewIfNeeded()
         controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
 
         let realMessages = controller.datasource.filter { !$0.isFakeMessage }
-        XCTAssertEqual(realMessages.count, controller.initialFirstFramePageSize)
-        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-179")
+        XCTAssertEqual(realMessages.count, 250)
+        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-319")
         XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-0" })
         XCTAssertNil(controller.pendingOpenMessageRequest)
 
@@ -9122,13 +9331,13 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
     func testLatestFirstFrameStartsAtLiveTailWithoutNewerPagingRequirement() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
-        try seedMessages(count: 180)
+        try seedMessages(count: 320)
         let controller = makeController()
 
         controller.loadViewIfNeeded()
         controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
 
-        XCTAssertTrue(controller.datasource.contains { $0.primary == "first-frame-message-179" })
+        XCTAssertTrue(controller.datasource.contains { $0.primary == "first-frame-message-319" })
         XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertNil(controller.pendingOpenMessageRequest)
@@ -9173,17 +9382,17 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertFalse(controller.datasource.contains { !$0.isFakeMessage })
     }
 
-    func testLatestFirstFrameUsesSmallLocalWindowBeforeFullTimelinePreload() throws {
+    func testLatestFirstFrameUsesConfiguredLocalWindowBeforeFullTimelinePreload() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
-        try seedMessages(count: 180)
+        try seedMessages(count: 320)
         let controller = makeController()
 
         controller.loadViewIfNeeded()
         controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
 
         let realMessages = controller.datasource.filter { !$0.isFakeMessage }
-        XCTAssertEqual(realMessages.count, controller.initialFirstFramePageSize)
-        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-179")
+        XCTAssertEqual(realMessages.count, 250)
+        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-319")
         XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-0" })
         controller.messagesCollectionView.layoutIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -9193,7 +9402,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
     func testRepeatedBootstrapContentRenderDoesNotMoveBottomAlignedLatestFirstFrame() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
-        try seedMessages(count: 180)
+        try seedMessages(count: 320)
         let controller = makeController()
 
         controller.loadViewIfNeeded()
@@ -9209,12 +9418,12 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.messagesCollectionView.layoutIfNeeded()
 
         XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, bottomOffset, accuracy: 0.5)
-        XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.last?.primary, "first-frame-message-179")
+        XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.last?.primary, "first-frame-message-319")
     }
 
     func testObserverRefreshWithSameNewestDoesNotMoveBottomAlignedLatestFirstFrame() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
-        try seedMessages(count: 180)
+        try seedMessages(count: 320)
         let controller = makeController()
 
         controller.loadViewIfNeeded()
@@ -9230,12 +9439,12 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.messagesCollectionView.layoutIfNeeded()
 
         XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, bottomOffset, accuracy: 0.5)
-        XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.last?.primary, "first-frame-message-179")
+        XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.last?.primary, "first-frame-message-319")
     }
 
     func testObserverRefreshWithNewNewestUpdatesLatestWindowWithoutLeavingBottom() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
-        try seedMessages(count: 180)
+        try seedMessages(count: 320)
         let controller = makeController()
 
         controller.loadViewIfNeeded()
@@ -9243,13 +9452,21 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         controller.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
-        try seedMessage(index: 180)
+        try seedMessage(index: 320)
 
         controller.didReceiveChangeset()
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         controller.messagesCollectionView.layoutIfNeeded()
 
-        XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.last?.primary, "first-frame-message-180")
+        let expectedOffset = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+            targetMaxY: controller.messagesCollectionView.contentSize.height,
+            contentHeight: controller.messagesCollectionView.contentSize.height,
+            viewportHeight: controller.messagesCollectionView.bounds.height,
+            contentInsets: controller.messagesCollectionView.contentInset
+        )
+
+        XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.last?.primary, "first-frame-message-320")
+        XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, expectedOffset, accuracy: 0.5)
         XCTAssertTrue(controller.isNearBottom(threshold: 1))
     }
 
@@ -10835,7 +11052,23 @@ final class MessageArchivePagingRequestTests: XCTestCase {
     }
 
     func testChatHistoryPagingUsesSharedPageSizeConstant() {
-        XCTAssertEqual(ChatHistoryPagingConfiguration.pageSize, 100)
+        XCTAssertEqual(ChatHistoryPagingConfiguration.pageSize, 250)
+    }
+
+    func testChatInitialFirstFrameUsesSharedPageSizeConstant() {
+        XCTAssertEqual(ChatInitialFirstFrameHistoryConfiguration.pageSize, 250)
+    }
+
+    func testRegularArchivePageSizeDefaultsToSharedHistoryPageSize() {
+        XCTAssertEqual(MessageArchiveManager.regularArchivePageSize(requested: nil), 250)
+    }
+
+    func testRegularArchivePageSizePassesThroughRequestedValuesBelowSharedMaximum() {
+        XCTAssertEqual(MessageArchiveManager.regularArchivePageSize(requested: 100), 100)
+    }
+
+    func testRegularArchivePageSizeClampsRequestedValuesAboveSharedMaximum() {
+        XCTAssertEqual(MessageArchiveManager.regularArchivePageSize(requested: 300), 250)
     }
 
     func testRegularBootstrapRequestPlanUsesNewestPageBeforePointer() {
@@ -17413,6 +17646,30 @@ final class ChatHistoryPageApplyPolicyTests: XCTestCase {
 
     func testNewerPagingDoesNotKeepOffsetForBottomAppends() {
         XCTAssertFalse(ChatHistoryPageApplyPolicy.keepOffset(direction: .newer))
+    }
+
+    func testOlderPagingWithCapturedAnchorUsesSingleAnchorRestoreWithoutKeepOffsetReload() {
+        let plan = ChatHistoryPageApplyPolicy.plan(direction: .older, hasCapturedAnchor: true)
+
+        XCTAssertFalse(plan.keepOffset)
+        XCTAssertTrue(plan.shouldRestoreAnchor)
+        XCTAssertEqual(plan.applyCategory, .olderAnchorReload)
+    }
+
+    func testOlderPagingWithoutCapturedAnchorUsesKeepOffsetFallback() {
+        let plan = ChatHistoryPageApplyPolicy.plan(direction: .older, hasCapturedAnchor: false)
+
+        XCTAssertTrue(plan.keepOffset)
+        XCTAssertFalse(plan.shouldRestoreAnchor)
+        XCTAssertEqual(plan.applyCategory, .default)
+    }
+
+    func testNewerPagingWithCapturedAnchorRestoresAnchorWithoutKeepOffsetReload() {
+        let plan = ChatHistoryPageApplyPolicy.plan(direction: .newer, hasCapturedAnchor: true)
+
+        XCTAssertFalse(plan.keepOffset)
+        XCTAssertTrue(plan.shouldRestoreAnchor)
+        XCTAssertEqual(plan.applyCategory, .default)
     }
 }
 

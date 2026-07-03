@@ -32,11 +32,11 @@ import AVFoundation
 import XMPPFramework.XMPPJID
 
 enum ChatHistoryPagingConfiguration {
-    static let pageSize: Int = 100
+    static let pageSize: Int = 250
 }
 
 enum ChatInitialFirstFrameHistoryConfiguration {
-    static let pageSize: Int = 60
+    static let pageSize: Int = 250
 }
 
 enum ChatOpenMessageRequestSource: String {

@@ -72,7 +72,7 @@ class PresenceManager: AbstractXMPPManager {
                         let presences = results.compactMap({ return $0 })
                     
                         realm.writeAsync {
-                            presences.forEach { self.parse(contact: $0) }
+                            presences.forEach { self.parse(contact: $0, realm: realm) }
                         }
                         AccountManager
                             .shared
@@ -335,53 +335,68 @@ class PresenceManager: AbstractXMPPManager {
     
     internal func parse(contact presence: XMPPPresence) {
         do {
-            guard let fromJid = presence.from,
-                fromJid.bare != owner,
-                let resource = fromJid.resource else {
-                    return
-            }
-            
             let realm = try  WRealm.safe()
-            if PresenceManager.parseStatusValue(from: presence) == .offline && presence.element(forName: "x", xmlns: GroupchatManager.staticGetNamespace()) == nil {
-                if let instance = realm.object(ofType: ResourceStorageItem.self,
-                                               forPrimaryKey: [fromJid.bare,
-                                                               resource,
-                                                               owner].prp()) {
-                    instance.status = .offline
-                    realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [fromJid.bare, owner].prp())?.notes = " "
-                }
+            if realm.isInWriteTransaction {
+                parse(contact: presence, realm: realm)
             } else {
-                realm.autorefresh = true
-                if let instance = realm.object(ofType: ResourceStorageItem.self,
-                                forPrimaryKey: [fromJid.bare,
-                                                fromJid.resource ?? "",
-                                                owner].prp()) {
-                    
-                    if instance.isInvalidated { return }
-                    
-                    instance.status = PresenceManager.parseStatusValue(from: presence)
-                    instance.statusMessage = PresenceManager.parseStatusMessage(from: presence)
-                    instance.priority = presence.priority
-                    instance.timestamp = presence.delayedDeliveryDate ?? Date()
-                } else {
-                    let instance = ResourceStorageItem()
-                    instance.jid = fromJid.bare
-                    instance.owner = owner
-                    instance.resource = fromJid.resource ?? ""
-                    instance.status = PresenceManager.parseStatusValue(from: presence)
-                    instance.statusMessage = PresenceManager.parseStatusMessage(from: presence)
-                    instance.priority = presence.priority
-                    instance.client = ""
-                    instance.isTemporary = false
-                    instance.timestamp = presence.delayedDeliveryDate ?? Date()
-                    instance.primary = ResourceStorageItem.genPrimary(jid: fromJid.bare, owner: owner, resource: fromJid.resource ?? "")
-                    realm.add(instance, update: .modified)
+                try realm.write {
+                    parse(contact: presence, realm: realm)
                 }
-                realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [fromJid.bare, owner].prp())?.notes = " "
-                realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [fromJid.bare, owner].prp())?.isContact = presence.element(forName: "x", xmlns: GroupchatManager.staticGetNamespace()) == nil
             }
         } catch {
             DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    internal func parse(contact presence: XMPPPresence, realm: Realm) {
+        guard let fromJid = presence.from,
+            fromJid.bare != owner,
+            let resource = fromJid.resource else {
+                return
+        }
+
+        guard realm.isInWriteTransaction else {
+            parse(contact: presence)
+            return
+        }
+
+        if PresenceManager.parseStatusValue(from: presence) == .offline && presence.element(forName: "x", xmlns: GroupchatManager.staticGetNamespace()) == nil {
+            if let instance = realm.object(ofType: ResourceStorageItem.self,
+                                           forPrimaryKey: [fromJid.bare,
+                                                           resource,
+                                                           owner].prp()) {
+                instance.status = .offline
+                realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [fromJid.bare, owner].prp())?.notes = " "
+            }
+        } else {
+            realm.autorefresh = true
+            if let instance = realm.object(ofType: ResourceStorageItem.self,
+                            forPrimaryKey: [fromJid.bare,
+                                            fromJid.resource ?? "",
+                                            owner].prp()) {
+
+                if instance.isInvalidated { return }
+
+                instance.status = PresenceManager.parseStatusValue(from: presence)
+                instance.statusMessage = PresenceManager.parseStatusMessage(from: presence)
+                instance.priority = presence.priority
+                instance.timestamp = presence.delayedDeliveryDate ?? Date()
+            } else {
+                let instance = ResourceStorageItem()
+                instance.jid = fromJid.bare
+                instance.owner = owner
+                instance.resource = fromJid.resource ?? ""
+                instance.status = PresenceManager.parseStatusValue(from: presence)
+                instance.statusMessage = PresenceManager.parseStatusMessage(from: presence)
+                instance.priority = presence.priority
+                instance.client = ""
+                instance.isTemporary = false
+                instance.timestamp = presence.delayedDeliveryDate ?? Date()
+                instance.primary = ResourceStorageItem.genPrimary(jid: fromJid.bare, owner: owner, resource: fromJid.resource ?? "")
+                realm.add(instance, update: .modified)
+            }
+            realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [fromJid.bare, owner].prp())?.notes = " "
+            realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [fromJid.bare, owner].prp())?.isContact = presence.element(forName: "x", xmlns: GroupchatManager.staticGetNamespace()) == nil
         }
     }
     

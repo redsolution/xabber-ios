@@ -2208,6 +2208,18 @@ enum ChatRemoteHistoryCompletionCoordinator {
     }
 }
 
+enum ChatDatasourceApplyCategory: String {
+    case `default`
+    case olderAnchorReload
+    case tailAppendBottomPinned
+}
+
+struct ChatHistoryPageApplyPlan: Equatable {
+    let keepOffset: Bool
+    let shouldRestoreAnchor: Bool
+    let applyCategory: ChatDatasourceApplyCategory
+}
+
 enum ChatHistoryPageApplyPolicy {
     static func keepOffset(direction: ChatHistoryPageDirection) -> Bool {
         switch direction {
@@ -2215,6 +2227,32 @@ enum ChatHistoryPageApplyPolicy {
             return true
         case .newer:
             return false
+        }
+    }
+
+    static func plan(
+        direction: ChatHistoryPageDirection,
+        hasCapturedAnchor: Bool
+    ) -> ChatHistoryPageApplyPlan {
+        switch direction {
+        case .older where hasCapturedAnchor:
+            return ChatHistoryPageApplyPlan(
+                keepOffset: false,
+                shouldRestoreAnchor: true,
+                applyCategory: .olderAnchorReload
+            )
+        case .older:
+            return ChatHistoryPageApplyPlan(
+                keepOffset: true,
+                shouldRestoreAnchor: false,
+                applyCategory: .default
+            )
+        case .newer:
+            return ChatHistoryPageApplyPlan(
+                keepOffset: false,
+                shouldRestoreAnchor: hasCapturedAnchor,
+                applyCategory: .default
+            )
         }
     }
 }
@@ -3801,6 +3839,64 @@ enum ChatOutgoingAutoScrollApplyPolicy {
     }
 }
 
+enum ChatTailAppendBottomPinPolicy {
+    static func isPureTailAppend(
+        old: ChatDatasourceSnapshot,
+        new: ChatDatasourceSnapshot
+    ) -> Bool {
+        guard !old.items.isEmpty,
+              new.items.count > old.items.count,
+              !old.hasDuplicateKeys,
+              !new.hasDuplicateKeys else {
+            return false
+        }
+
+        for index in old.items.indices {
+            let oldItem = old.items[index]
+            let newItem = new.items[index]
+            guard oldItem.primary == newItem.primary,
+                  ChatViewController.Datasource.compareContent(oldItem, newItem) else {
+                return false
+            }
+        }
+
+        return new.items.dropFirst(old.items.count).contains { !$0.isFakeMessage }
+    }
+
+    static func shouldPinBottom(
+        old: ChatDatasourceSnapshot,
+        new: ChatDatasourceSnapshot,
+        wasNearBottom: Bool,
+        isDefaultBottomScrollDeferred: Bool,
+        suppressDefaultBottomScroll: Bool,
+        containsOnlyFakeMessages: Bool,
+        outgoingAutoScrollDecision: ChatOutgoingAutoScrollDecision
+    ) -> Bool {
+        guard wasNearBottom,
+              !isDefaultBottomScrollDeferred,
+              !suppressDefaultBottomScroll,
+              !containsOnlyFakeMessages else {
+            return false
+        }
+
+        switch outgoingAutoScrollDecision {
+        case .notHandled, .useDefaultAndClear:
+            return isPureTailAppend(old: old, new: new)
+        case .scroll, .handledNoScroll:
+            return false
+        }
+    }
+
+    static func bottomDistance(
+        contentHeight: CGFloat,
+        viewportHeight: CGFloat,
+        contentInsets: UIEdgeInsets,
+        contentOffsetY: CGFloat
+    ) -> CGFloat {
+        max(0, contentHeight + contentInsets.bottom - viewportHeight - contentOffsetY)
+    }
+}
+
 struct ChatDatasetApplyPlan {
     let window: ChatDatasetWindow
     let mode: ChatDatasourceApplyMode
@@ -5164,6 +5260,8 @@ extension ChatViewController {
         animated: Bool = true,
         invalidateLayout: Bool = false,
         suppressDefaultBottomScroll: Bool = false,
+        applyCategory: ChatDatasourceApplyCategory = .default,
+        anchorPrimary: String? = nil,
         completion: (() -> Void)? = nil
     ) {
         var datasourceApplySignpost = ChatPerformanceSignposts.begin(.datasourceApply)
@@ -5179,33 +5277,26 @@ extension ChatViewController {
         }
         let oldContentOffset = self.messagesCollectionView.contentOffset
         let oldContentSize = self.messagesCollectionView.contentSize
+        let oldContentInsets = self.messagesCollectionView.contentInset
+        let oldBottomDistance = ChatTailAppendBottomPinPolicy.bottomDistance(
+            contentHeight: oldContentSize.height,
+            viewportHeight: self.messagesCollectionView.bounds.height,
+            contentInsets: oldContentInsets,
+            contentOffsetY: oldContentOffset.y
+        )
         let oldFirstArchivedId = self.datasource.first?.archivedId
         let oldLastArchivedId = self.datasource.last?.archivedId
-        ChatArchiveDebugTrace.log("chatDatasourceApplyStart", [
-            ("owner", self.owner),
-            ("jid", self.jid),
-            ("conversationType", self.conversationType.rawValue),
-            ("mode", modeDescription),
-            ("oldCount", self.datasource.count),
-            ("newCount", items.count),
-            ("oldFirstArchivedId", oldFirstArchivedId ?? "-"),
-            ("newFirstArchivedId", items.first?.archivedId ?? "-"),
-            ("oldLastArchivedId", oldLastArchivedId ?? "-"),
-            ("newLastArchivedId", items.last?.archivedId ?? "-"),
-            ("animated", animated),
-            ("invalidateLayout", invalidateLayout),
-            ("oldOffsetY", Int(oldContentOffset.y)),
-            ("oldContentHeight", Int(oldContentSize.height))
-        ])
         let newSnapshot = ChatDatasourceCoordinator.makeSnapshot(items: items)
         let previousSnapshot = datasourceSnapshot
         let containsOnlyFakeMessages = !items.isEmpty && items.allSatisfy(\.isFakeMessage)
+        let wasNearBottom = self.isNearBottom()
+        let isDefaultBottomScrollDeferred = ChatInitialScrollPolicy.shouldDeferDefaultScroll(
+            hasPendingAnchorRequest: self.pendingOpenMessageRequest != nil,
+            isAnchorNavigationInFlight: self.isMessageAnchorNavigationInFlight
+        )
         let shouldAutoScrollToBottom = !suppressDefaultBottomScroll
-            && self.isNearBottom()
-            && !ChatInitialScrollPolicy.shouldDeferDefaultScroll(
-                hasPendingAnchorRequest: self.pendingOpenMessageRequest != nil,
-                isAnchorNavigationInFlight: self.isMessageAnchorNavigationInFlight
-            )
+            && wasNearBottom
+            && !isDefaultBottomScrollDeferred
             && !containsOnlyFakeMessages
         let requestedAnimatedApply = animated && !ChatInitialHistoryAppearancePolicy.shouldForceNonAnimatedApplyForInitialPopulation(
             oldItemCount: previousSnapshot.items.count,
@@ -5217,10 +5308,42 @@ extension ChatViewController {
             isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
         )
         let outgoingAutoScrollDecision = self.consumePendingOutgoingAutoScrollDecision(items: items)
-        let shouldAnimateApply = ChatOutgoingAutoScrollApplyPolicy.shouldAnimateStructuralApply(
+        let shouldTailAppendBottomPin = ChatTailAppendBottomPinPolicy.shouldPinBottom(
+            old: previousSnapshot,
+            new: newSnapshot,
+            wasNearBottom: wasNearBottom,
+            isDefaultBottomScrollDeferred: isDefaultBottomScrollDeferred,
+            suppressDefaultBottomScroll: suppressDefaultBottomScroll,
+            containsOnlyFakeMessages: containsOnlyFakeMessages,
+            outgoingAutoScrollDecision: outgoingAutoScrollDecision
+        )
+        let effectiveApplyCategory: ChatDatasourceApplyCategory = shouldTailAppendBottomPin
+            ? .tailAppendBottomPinned
+            : applyCategory
+        let shouldAnimateApply = !shouldTailAppendBottomPin && ChatOutgoingAutoScrollApplyPolicy.shouldAnimateStructuralApply(
             requestedAnimated: requestedStructuralAnimation,
             outgoingAutoScrollDecision: outgoingAutoScrollDecision
         )
+        ChatArchiveDebugTrace.log("chatDatasourceApplyStart", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("mode", modeDescription),
+            ("applyCategory", effectiveApplyCategory.rawValue),
+            ("anchorPrimary", anchorPrimary ?? "-"),
+            ("oldCount", self.datasource.count),
+            ("newCount", items.count),
+            ("oldFirstArchivedId", oldFirstArchivedId ?? "-"),
+            ("newFirstArchivedId", items.first?.archivedId ?? "-"),
+            ("oldLastArchivedId", oldLastArchivedId ?? "-"),
+            ("newLastArchivedId", items.last?.archivedId ?? "-"),
+            ("animated", animated),
+            ("structuralAnimated", shouldAnimateApply),
+            ("invalidateLayout", invalidateLayout),
+            ("oldOffsetY", Int(oldContentOffset.y)),
+            ("oldContentHeight", Int(oldContentSize.height)),
+            ("oldBottomDistance", Int(oldBottomDistance))
+        ])
 
         let finish: () -> Void = {
             let finishStartedAt = Date()
@@ -5248,7 +5371,11 @@ extension ChatViewController {
             case .handledNoScroll:
                 break
             case .notHandled, .useDefaultAndClear:
-                if shouldAutoScrollToBottom {
+                if shouldTailAppendBottomPin {
+                    UIView.performWithoutAnimation {
+                        self.scrollToBottomAligned(targetIndexPath: nil, animated: false)
+                    }
+                } else if shouldAutoScrollToBottom {
                     self.scrollToBottom(animated: shouldAnimateApply)
                 }
             }
@@ -5292,11 +5419,22 @@ extension ChatViewController {
                 reason: "chatDatasourceApplyFinish",
                 modeDescription: modeDescription
             )
+            let newContentOffset = self.messagesCollectionView.contentOffset
+            let newContentSize = self.messagesCollectionView.contentSize
+            let newContentInsets = self.messagesCollectionView.contentInset
+            let newBottomDistance = ChatTailAppendBottomPinPolicy.bottomDistance(
+                contentHeight: newContentSize.height,
+                viewportHeight: self.messagesCollectionView.bounds.height,
+                contentInsets: newContentInsets,
+                contentOffsetY: newContentOffset.y
+            )
             ChatArchiveDebugTrace.log("chatDatasourceApplyFinish", [
                 ("owner", self.owner),
                 ("jid", self.jid),
                 ("conversationType", self.conversationType.rawValue),
                 ("mode", modeDescription),
+                ("applyCategory", effectiveApplyCategory.rawValue),
+                ("anchorPrimary", anchorPrimary ?? "-"),
                 ("count", self.datasource.count),
                 ("firstArchivedId", self.datasource.first?.archivedId ?? "-"),
                 ("lastArchivedId", self.datasource.last?.archivedId ?? "-"),
@@ -5305,9 +5443,14 @@ extension ChatViewController {
                 ("completionMs", completionMs),
                 ("finishMs", ChatArchiveDebugTrace.milliseconds(since: finishStartedAt)),
                 ("durationMs", applyDurationMs),
-                ("offsetY", Int(self.messagesCollectionView.contentOffset.y)),
-                ("contentHeight", Int(self.messagesCollectionView.contentSize.height)),
+                ("oldOffsetY", Int(oldContentOffset.y)),
+                ("newOffsetY", Int(newContentOffset.y)),
+                ("oldContentHeight", Int(oldContentSize.height)),
+                ("newContentHeight", Int(newContentSize.height)),
+                ("oldBottomDistance", Int(oldBottomDistance)),
+                ("newBottomDistance", Int(newBottomDistance)),
                 ("autoScrollToBottom", shouldAutoScrollToBottom),
+                ("tailAppendBottomPinned", shouldTailAppendBottomPin),
                 ("suppressDefaultBottomScroll", suppressDefaultBottomScroll),
                 ("outgoingAutoScroll", "\(outgoingAutoScrollDecision)")
             ])
@@ -6739,10 +6882,15 @@ extension ChatViewController {
         direction: ChatHistoryPageDirection,
         animated: Bool = true
     ) {
-        let applyMode: ChatDatasourceApplyMode = .windowReload(
-            keepOffset: ChatHistoryPageApplyPolicy.keepOffset(direction: direction)
-        )
         let anchor = self.capturePagingAnchorIfNeeded(direction: direction)
+        let applyPlan = ChatHistoryPageApplyPolicy.plan(
+            direction: direction,
+            hasCapturedAnchor: anchor != nil
+        )
+        let applyMode: ChatDatasourceApplyMode = .windowReload(
+            keepOffset: applyPlan.keepOffset
+        )
+        let applyAnimated = applyPlan.applyCategory == .olderAnchorReload ? false : animated
         let hadBoundaryPlaceholder = self.activeHistoryBoundaryPlaceholder != nil
         self.activeHistoryBoundaryPlaceholder = nil
 
@@ -6758,8 +6906,11 @@ extension ChatViewController {
                 animated: false,
                 invalidateLayout: false,
                 preserveBoundaryPlaceholder: false,
+                applyCategory: applyPlan.applyCategory,
+                anchorPrimary: anchor?.primary,
                 completion: {
-                    if let anchor {
+                    if applyPlan.shouldRestoreAnchor,
+                       let anchor {
                         self.restorePagingAnchor(anchor)
                     }
                     self.endHistoryLoadingUI(unlockPage: false)
@@ -6775,11 +6926,14 @@ extension ChatViewController {
 
         self.mapAndApplyTimelineCurrent(
             mode: applyMode,
-            animated: animated,
+            animated: applyAnimated,
             invalidateLayout: false,
             preserveBoundaryPlaceholder: false,
+            applyCategory: applyPlan.applyCategory,
+            anchorPrimary: anchor?.primary,
             completion: {
-                if let anchor {
+                if applyPlan.shouldRestoreAnchor,
+                   let anchor {
                     self.restorePagingAnchor(anchor)
                 }
                 self.endHistoryLoadingUI(unlockPage: false)
@@ -6901,10 +7055,14 @@ extension ChatViewController {
             )
         }
 
-        let applyMode: ChatDatasourceApplyMode = .windowReload(
-            keepOffset: ChatHistoryPageApplyPolicy.keepOffset(direction: context.direction)
-        )
         let anchor = self.capturePagingAnchorIfNeeded(direction: context.direction)
+        let applyPlan = ChatHistoryPageApplyPolicy.plan(
+            direction: context.direction,
+            hasCapturedAnchor: anchor != nil
+        )
+        let applyMode: ChatDatasourceApplyMode = .windowReload(
+            keepOffset: applyPlan.keepOffset
+        )
         let remoteApplyConversationKey = ChatTimelineConversationKey(
             owner: self.owner,
             jid: self.jid,
@@ -6925,6 +7083,8 @@ extension ChatViewController {
             queryExhausted: context.queryExhausted,
             mode: applyMode,
             animated: false,
+            applyCategory: applyPlan.applyCategory,
+            anchorPrimary: anchor?.primary,
             completion: { applyResult in
                 self.commitRemoteHistoryArchiveStateAfterApply(
                     context: context,
@@ -6939,7 +7099,8 @@ extension ChatViewController {
                     )
                 }
 
-                if let anchor {
+                if applyPlan.shouldRestoreAnchor,
+                   let anchor {
                     self.restorePagingAnchor(anchor)
                 }
                 self.endHistoryLoadingUI(unlockPage: false)
@@ -7166,6 +7327,8 @@ extension ChatViewController {
         invalidateLayout: Bool = false,
         preserveBoundaryPlaceholder: Bool = true,
         suppressDefaultBottomScroll: Bool = false,
+        applyCategory: ChatDatasourceApplyCategory = .default,
+        anchorPrimary: String? = nil,
         completion: (() -> Void)? = nil,
         cancelledCompletion: (() -> Void)? = nil
     ) {
@@ -7221,6 +7384,8 @@ extension ChatViewController {
                         animated: animated,
                         invalidateLayout: invalidateLayout,
                         suppressDefaultBottomScroll: suppressDefaultBottomScroll,
+                        applyCategory: applyCategory,
+                        anchorPrimary: anchorPrimary,
                         completion: completion
                     )
                 }
@@ -8657,6 +8822,8 @@ extension ChatViewController {
         queryExhausted: Bool,
         mode: ChatDatasourceApplyMode,
         animated: Bool,
+        applyCategory: ChatDatasourceApplyCategory = .default,
+        anchorPrimary: String? = nil,
         completion: ((ChatRemoteHistoryApplyResult) -> Void)? = nil,
         cancelledCompletion: (() -> Void)? = nil
     ) {
@@ -8810,6 +8977,8 @@ extension ChatViewController {
                         mode: mode,
                         animated: animated,
                         invalidateLayout: false,
+                        applyCategory: applyCategory,
+                        anchorPrimary: anchorPrimary,
                         completion: {
                             completion?(applyResult)
                         }
