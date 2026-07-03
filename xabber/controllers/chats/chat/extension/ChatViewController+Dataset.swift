@@ -2970,6 +2970,7 @@ enum ChatInteractiveOlderCursorSelectionSource: String {
     case virtualTimelineOldest
     case boundedTimelineOldest
     case observedOldest
+    case persistedArchiveCursor
     case persistedFallback
     case none
 }
@@ -2986,31 +2987,44 @@ enum ChatInteractiveOlderCursorSelectionPolicy {
         observedArchivedIds: [String],
         persistedCursorId: String?
     ) -> ChatInteractiveOlderCursorSelection {
+        let persistedCursorId = persistedCursorId?.isNotEmpty == true ? persistedCursorId : nil
+        let activeSelection: ChatInteractiveOlderCursorSelection?
+
         if let timelineOldestArchivedId,
            timelineOldestArchivedId.isNotEmpty {
-            return ChatInteractiveOlderCursorSelection(
+            activeSelection = ChatInteractiveOlderCursorSelection(
                 cursorId: timelineOldestArchivedId,
                 source: .virtualTimelineOldest
             )
-        }
-
-        if let boundedOldestArchivedId,
-           boundedOldestArchivedId.isNotEmpty {
-            return ChatInteractiveOlderCursorSelection(
+        } else if let boundedOldestArchivedId,
+                  boundedOldestArchivedId.isNotEmpty {
+            activeSelection = ChatInteractiveOlderCursorSelection(
                 cursorId: boundedOldestArchivedId,
                 source: .boundedTimelineOldest
             )
-        }
-
-        if let observedOldestArchivedId = observedArchivedIds.first(where: { $0.isNotEmpty }) {
-            return ChatInteractiveOlderCursorSelection(
+        } else if let observedOldestArchivedId = observedArchivedIds.first(where: { $0.isNotEmpty }) {
+            activeSelection = ChatInteractiveOlderCursorSelection(
                 cursorId: observedOldestArchivedId,
                 source: .observedOldest
             )
+        } else {
+            activeSelection = nil
         }
 
         if let persistedCursorId,
-           persistedCursorId.isNotEmpty {
+           let activeCursorId = activeSelection?.cursorId,
+           compareArchiveIds(persistedCursorId, activeCursorId) == .orderedAscending {
+            return ChatInteractiveOlderCursorSelection(
+                cursorId: persistedCursorId,
+                source: .persistedArchiveCursor
+            )
+        }
+
+        if let activeSelection {
+            return activeSelection
+        }
+
+        if let persistedCursorId {
             return ChatInteractiveOlderCursorSelection(
                 cursorId: persistedCursorId,
                 source: .persistedFallback

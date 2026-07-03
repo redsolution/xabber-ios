@@ -14234,12 +14234,24 @@ final class ChatHistoryCursorSelectionPolicyTests: XCTestCase {
     func testInteractiveOlderCursorUsesTimelineOldestBeforePersistedCursor() {
         XCTAssertEqual(
             ChatInteractiveOlderCursorSelectionPolicy.select(
-                timelineOldestArchivedId: "timeline-oldest",
-                boundedOldestArchivedId: "bounded-oldest",
-                observedArchivedIds: ["observed-oldest"],
-                persistedCursorId: "persisted-oldest"
+                timelineOldestArchivedId: "100",
+                boundedOldestArchivedId: "90",
+                observedArchivedIds: ["80"],
+                persistedCursorId: "120"
             ),
-            ChatInteractiveOlderCursorSelection(cursorId: "timeline-oldest", source: .virtualTimelineOldest)
+            ChatInteractiveOlderCursorSelection(cursorId: "100", source: .virtualTimelineOldest)
+        )
+    }
+
+    func testInteractiveOlderCursorPrefersPersistedOlderArchiveCursorAfterOffWindowPage() {
+        XCTAssertEqual(
+            ChatInteractiveOlderCursorSelectionPolicy.select(
+                timelineOldestArchivedId: "1708455120371253",
+                boundedOldestArchivedId: "1708455120371253",
+                observedArchivedIds: ["1708455120371253"],
+                persistedCursorId: "1708415086452920"
+            ),
+            ChatInteractiveOlderCursorSelection(cursorId: "1708415086452920", source: .persistedArchiveCursor)
         )
     }
 
