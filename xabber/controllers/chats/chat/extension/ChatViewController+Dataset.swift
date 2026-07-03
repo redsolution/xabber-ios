@@ -2294,10 +2294,20 @@ enum ChatDatasourceApplyCategory: String {
     case tailAppendBottomPinned
 }
 
+enum ChatHistoryPageAnchorRestorePhase: String {
+    case none
+    case applyTransaction
+    case completion
+}
+
 struct ChatHistoryPageApplyPlan: Equatable {
     let keepOffset: Bool
-    let shouldRestoreAnchor: Bool
+    let restorePhase: ChatHistoryPageAnchorRestorePhase
     let applyCategory: ChatDatasourceApplyCategory
+
+    var shouldRestoreAnchor: Bool {
+        restorePhase != .none
+    }
 }
 
 enum ChatHistoryPageApplyPolicy {
@@ -2318,19 +2328,19 @@ enum ChatHistoryPageApplyPolicy {
         case .older where hasCapturedAnchor:
             return ChatHistoryPageApplyPlan(
                 keepOffset: false,
-                shouldRestoreAnchor: true,
+                restorePhase: .applyTransaction,
                 applyCategory: .olderAnchorReload
             )
         case .older:
             return ChatHistoryPageApplyPlan(
                 keepOffset: true,
-                shouldRestoreAnchor: false,
+                restorePhase: .none,
                 applyCategory: .default
             )
         case .newer:
             return ChatHistoryPageApplyPlan(
                 keepOffset: false,
-                shouldRestoreAnchor: hasCapturedAnchor,
+                restorePhase: hasCapturedAnchor ? .completion : .none,
                 applyCategory: .default
             )
         }
@@ -2363,6 +2373,13 @@ enum ChatHistoryPageAnchorRestorePolicy {
     ) -> CGFloat {
         min(max(anchorMinY - offsetFromViewportTop, minContentOffsetY), maxContentOffsetY)
     }
+}
+
+private struct ChatHistoryPageAnchorRestoreDiagnostics {
+    var sectionFound = false
+    var attributesFound = false
+    var restored = false
+    var targetOffsetY: CGFloat?
 }
 
 enum ChatHistoryLoadingTimeoutPolicy {
@@ -5350,7 +5367,9 @@ extension ChatViewController {
         invalidateLayout: Bool = false,
         suppressDefaultBottomScroll: Bool = false,
         applyCategory: ChatDatasourceApplyCategory = .default,
+        anchorRestorePhase: ChatHistoryPageAnchorRestorePhase = .none,
         anchorPrimary: String? = nil,
+        restoreAnchor: ChatHistoryPageAnchor? = nil,
         completion: (() -> Void)? = nil
     ) {
         var datasourceApplySignpost = ChatPerformanceSignposts.begin(.datasourceApply)
@@ -5379,11 +5398,14 @@ extension ChatViewController {
         let previousSnapshot = datasourceSnapshot
         let containsOnlyFakeMessages = !items.isEmpty && items.allSatisfy(\.isFakeMessage)
         let wasNearBottom = self.isNearBottom()
+        let effectiveAnchorPrimary = anchorPrimary ?? restoreAnchor?.primary
+        let shouldRestoreAnchorInApplyTransaction = anchorRestorePhase == .applyTransaction && restoreAnchor != nil
         let isDefaultBottomScrollDeferred = ChatInitialScrollPolicy.shouldDeferDefaultScroll(
             hasPendingAnchorRequest: self.pendingOpenMessageRequest != nil,
             isAnchorNavigationInFlight: self.isMessageAnchorNavigationInFlight
         )
         let shouldAutoScrollToBottom = !suppressDefaultBottomScroll
+            && !shouldRestoreAnchorInApplyTransaction
             && wasNearBottom
             && !isDefaultBottomScrollDeferred
             && !containsOnlyFakeMessages
@@ -5397,15 +5419,16 @@ extension ChatViewController {
             isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
         )
         let outgoingAutoScrollDecision = self.consumePendingOutgoingAutoScrollDecision(items: items)
-        let shouldTailAppendBottomPin = ChatTailAppendBottomPinPolicy.shouldPinBottom(
-            old: previousSnapshot,
-            new: newSnapshot,
-            wasNearBottom: wasNearBottom,
-            isDefaultBottomScrollDeferred: isDefaultBottomScrollDeferred,
-            suppressDefaultBottomScroll: suppressDefaultBottomScroll,
-            containsOnlyFakeMessages: containsOnlyFakeMessages,
-            outgoingAutoScrollDecision: outgoingAutoScrollDecision
-        )
+        let shouldTailAppendBottomPin = !shouldRestoreAnchorInApplyTransaction
+            && ChatTailAppendBottomPinPolicy.shouldPinBottom(
+                old: previousSnapshot,
+                new: newSnapshot,
+                wasNearBottom: wasNearBottom,
+                isDefaultBottomScrollDeferred: isDefaultBottomScrollDeferred,
+                suppressDefaultBottomScroll: suppressDefaultBottomScroll,
+                containsOnlyFakeMessages: containsOnlyFakeMessages,
+                outgoingAutoScrollDecision: outgoingAutoScrollDecision
+            )
         let effectiveApplyCategory: ChatDatasourceApplyCategory = shouldTailAppendBottomPin
             ? .tailAppendBottomPinned
             : applyCategory
@@ -5419,7 +5442,8 @@ extension ChatViewController {
             ("conversationType", self.conversationType.rawValue),
             ("mode", modeDescription),
             ("applyCategory", effectiveApplyCategory.rawValue),
-            ("anchorPrimary", anchorPrimary ?? "-"),
+            ("anchorRestorePhase", anchorRestorePhase.rawValue),
+            ("anchorPrimary", effectiveAnchorPrimary ?? "-"),
             ("oldCount", self.datasource.count),
             ("newCount", items.count),
             ("oldFirstArchivedId", oldFirstArchivedId ?? "-"),
@@ -5434,6 +5458,45 @@ extension ChatViewController {
             ("oldBottomDistance", Int(oldBottomDistance))
         ])
 
+        var didUpdateInsetsInApplyTransaction = false
+        var anchorRestoreDiagnostics = ChatHistoryPageAnchorRestoreDiagnostics()
+        var reloadedOffsetY: CGFloat?
+        var reloadedContentHeight: CGFloat?
+
+        let restoreAnchorInApplyTransactionIfNeeded: () -> Void = {
+            guard shouldRestoreAnchorInApplyTransaction,
+                  let restoreAnchor else {
+                return
+            }
+
+            self.messagesCollectionView.layoutIfNeeded()
+            reloadedOffsetY = self.messagesCollectionView.contentOffset.y
+            reloadedContentHeight = self.messagesCollectionView.contentSize.height
+            self.updateChatCollectionInsets()
+            didUpdateInsetsInApplyTransaction = true
+            anchorRestoreDiagnostics = self.restorePagingAnchorAndCollectDiagnostics(restoreAnchor)
+            self.messagesCollectionView.layoutIfNeeded()
+            ChatArchiveDebugTrace.log("chatDatasourceAnchorRestore", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("phase", anchorRestorePhase.rawValue),
+                ("anchorPrimary", restoreAnchor.primary),
+                ("sectionFound", anchorRestoreDiagnostics.sectionFound),
+                ("attributesFound", anchorRestoreDiagnostics.attributesFound),
+                ("restored", anchorRestoreDiagnostics.restored),
+                ("oldOffsetY", Int(oldContentOffset.y)),
+                ("reloadedOffsetY", Int(reloadedOffsetY ?? self.messagesCollectionView.contentOffset.y)),
+                ("targetOffsetY", Int(anchorRestoreDiagnostics.targetOffsetY ?? self.messagesCollectionView.contentOffset.y)),
+                ("finalOffsetY", Int(self.messagesCollectionView.contentOffset.y)),
+                ("oldContentHeight", Int(oldContentSize.height)),
+                ("reloadedContentHeight", Int(reloadedContentHeight ?? self.messagesCollectionView.contentSize.height)),
+                ("finalContentHeight", Int(self.messagesCollectionView.contentSize.height)),
+                ("insetTop", Int(self.messagesCollectionView.adjustedContentInset.top)),
+                ("insetBottom", Int(self.messagesCollectionView.adjustedContentInset.bottom))
+            ])
+        }
+
         let finish: () -> Void = {
             let finishStartedAt = Date()
             let layoutStartedAt = Date()
@@ -5446,8 +5509,37 @@ extension ChatViewController {
             }
             let layoutMs = ChatArchiveDebugTrace.milliseconds(since: layoutStartedAt)
             let insetsStartedAt = Date()
-            self.updateChatCollectionInsets()
+            if !didUpdateInsetsInApplyTransaction {
+                self.updateChatCollectionInsets()
+            }
             let insetsMs = ChatArchiveDebugTrace.milliseconds(since: insetsStartedAt)
+            if shouldRestoreAnchorInApplyTransaction,
+               let restoreAnchor,
+               !anchorRestoreDiagnostics.restored {
+                UIView.performWithoutAnimation {
+                    anchorRestoreDiagnostics = self.restorePagingAnchorAndCollectDiagnostics(restoreAnchor)
+                    self.messagesCollectionView.layoutIfNeeded()
+                }
+                ChatArchiveDebugTrace.log("chatDatasourceAnchorRestore", [
+                    ("owner", self.owner),
+                    ("jid", self.jid),
+                    ("conversationType", self.conversationType.rawValue),
+                    ("phase", "\(anchorRestorePhase.rawValue)-fallback"),
+                    ("anchorPrimary", restoreAnchor.primary),
+                    ("sectionFound", anchorRestoreDiagnostics.sectionFound),
+                    ("attributesFound", anchorRestoreDiagnostics.attributesFound),
+                    ("restored", anchorRestoreDiagnostics.restored),
+                    ("oldOffsetY", Int(oldContentOffset.y)),
+                    ("reloadedOffsetY", Int(reloadedOffsetY ?? self.messagesCollectionView.contentOffset.y)),
+                    ("targetOffsetY", Int(anchorRestoreDiagnostics.targetOffsetY ?? self.messagesCollectionView.contentOffset.y)),
+                    ("finalOffsetY", Int(self.messagesCollectionView.contentOffset.y)),
+                    ("oldContentHeight", Int(oldContentSize.height)),
+                    ("reloadedContentHeight", Int(reloadedContentHeight ?? self.messagesCollectionView.contentSize.height)),
+                    ("finalContentHeight", Int(self.messagesCollectionView.contentSize.height)),
+                    ("insetTop", Int(self.messagesCollectionView.adjustedContentInset.top)),
+                    ("insetBottom", Int(self.messagesCollectionView.adjustedContentInset.bottom))
+                ])
+            }
             switch outgoingAutoScrollDecision {
             case .scroll(let indexPath):
                 UIView.performWithoutAnimation {
@@ -5523,7 +5615,12 @@ extension ChatViewController {
                 ("conversationType", self.conversationType.rawValue),
                 ("mode", modeDescription),
                 ("applyCategory", effectiveApplyCategory.rawValue),
-                ("anchorPrimary", anchorPrimary ?? "-"),
+                ("anchorRestorePhase", anchorRestorePhase.rawValue),
+                ("anchorPrimary", effectiveAnchorPrimary ?? "-"),
+                ("anchorRestoredInTransaction", anchorRestoreDiagnostics.restored),
+                ("anchorSectionFound", anchorRestoreDiagnostics.sectionFound),
+                ("anchorAttributesFound", anchorRestoreDiagnostics.attributesFound),
+                ("reloadedOffsetY", Int(reloadedOffsetY ?? newContentOffset.y)),
                 ("count", self.datasource.count),
                 ("firstArchivedId", self.datasource.first?.archivedId ?? "-"),
                 ("lastArchivedId", self.datasource.last?.archivedId ?? "-"),
@@ -5575,6 +5672,7 @@ extension ChatViewController {
                 } else {
                     self.messagesCollectionView.reloadData()
                 }
+                restoreAnchorInApplyTransactionIfNeeded()
                 ChatArchiveDebugTrace.log("chatDatasourceReload", [
                     ("owner", self.owner),
                     ("jid", self.jid),
@@ -5601,6 +5699,7 @@ extension ChatViewController {
                 } else {
                     self.messagesCollectionView.reloadData()
                 }
+                restoreAnchorInApplyTransactionIfNeeded()
                 ChatArchiveDebugTrace.log("chatDatasourceReload", [
                     ("owner", self.owner),
                     ("jid", self.jid),
@@ -6741,19 +6840,22 @@ extension ChatViewController {
         )
     }
 
-    internal func restorePagingAnchor(_ anchor: ChatHistoryPageAnchor) {
+    private func restorePagingAnchorAndCollectDiagnostics(_ anchor: ChatHistoryPageAnchor) -> ChatHistoryPageAnchorRestoreDiagnostics {
+        var diagnostics = ChatHistoryPageAnchorRestoreDiagnostics()
         guard let section = self.datasourceSnapshot.primaryIndex[anchor.primary] else {
-            return
+            return diagnostics
         }
+        diagnostics.sectionFound = true
 
         let indexPath = IndexPath(item: 0, section: section)
         self.messagesCollectionView.layoutIfNeeded()
 
         let attributes = self.messagesCollectionView.layoutAttributesForItem(at: indexPath)
         let frame = attributes?.frame ?? self.messagesCollectionView.cellForItem(at: indexPath)?.frame
+        diagnostics.attributesFound = frame != nil
 
         guard let frame else {
-            return
+            return diagnostics
         }
 
         let minOffsetY = -self.messagesCollectionView.adjustedContentInset.top
@@ -6769,6 +6871,7 @@ extension ChatViewController {
             minContentOffsetY: minOffsetY,
             maxContentOffsetY: maxOffsetY
         )
+        diagnostics.targetOffsetY = targetY
 
         self.messagesCollectionView.setContentOffset(
             CGPoint(
@@ -6777,6 +6880,27 @@ extension ChatViewController {
             ),
             animated: false
         )
+        diagnostics.restored = true
+        return diagnostics
+    }
+
+    internal func restorePagingAnchor(_ anchor: ChatHistoryPageAnchor) {
+        let diagnostics = self.restorePagingAnchorAndCollectDiagnostics(anchor)
+        ChatArchiveDebugTrace.log("chatDatasourceAnchorRestore", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("phase", ChatHistoryPageAnchorRestorePhase.completion.rawValue),
+            ("anchorPrimary", anchor.primary),
+            ("sectionFound", diagnostics.sectionFound),
+            ("attributesFound", diagnostics.attributesFound),
+            ("restored", diagnostics.restored),
+            ("targetOffsetY", Int(diagnostics.targetOffsetY ?? self.messagesCollectionView.contentOffset.y)),
+            ("finalOffsetY", Int(self.messagesCollectionView.contentOffset.y)),
+            ("contentHeight", Int(self.messagesCollectionView.contentSize.height)),
+            ("insetTop", Int(self.messagesCollectionView.adjustedContentInset.top)),
+            ("insetBottom", Int(self.messagesCollectionView.adjustedContentInset.bottom))
+        ])
     }
 
     internal func abortInteractiveHistoryPageLoad() {
@@ -6996,9 +7120,11 @@ extension ChatViewController {
                 invalidateLayout: false,
                 preserveBoundaryPlaceholder: false,
                 applyCategory: applyPlan.applyCategory,
+                anchorRestorePhase: applyPlan.restorePhase,
                 anchorPrimary: anchor?.primary,
+                restoreAnchor: anchor,
                 completion: {
-                    if applyPlan.shouldRestoreAnchor,
+                    if applyPlan.restorePhase == .completion,
                        let anchor {
                         self.restorePagingAnchor(anchor)
                     }
@@ -7019,9 +7145,51 @@ extension ChatViewController {
             invalidateLayout: false,
             preserveBoundaryPlaceholder: false,
             applyCategory: applyPlan.applyCategory,
+            anchorRestorePhase: applyPlan.restorePhase,
             anchorPrimary: anchor?.primary,
+            restoreAnchor: anchor,
             completion: {
-                if applyPlan.shouldRestoreAnchor,
+                if applyPlan.restorePhase == .completion,
+                   let anchor {
+                    self.restorePagingAnchor(anchor)
+                }
+                self.endHistoryLoadingUI(unlockPage: false)
+                self.currentPage.unlock()
+            },
+            cancelledCompletion: {
+                self.endHistoryLoadingUI(unlockPage: false)
+                self.currentPage.unlock()
+            }
+        )
+    }
+
+    internal func finishPagingInteraction(
+        snapshot: ChatTimelineSnapshot,
+        direction: ChatHistoryPageDirection,
+        animated: Bool = true
+    ) {
+        let anchor = self.capturePagingAnchorIfNeeded(direction: direction)
+        let applyPlan = ChatHistoryPageApplyPolicy.plan(
+            direction: direction,
+            hasCapturedAnchor: anchor != nil
+        )
+        let applyMode: ChatDatasourceApplyMode = .windowReload(
+            keepOffset: applyPlan.keepOffset
+        )
+        let applyAnimated = applyPlan.applyCategory == .olderAnchorReload ? false : animated
+        self.activeHistoryBoundaryPlaceholder = nil
+
+        self.mapAndApplyTimelineSnapshot(
+            snapshot,
+            mode: applyMode,
+            animated: applyAnimated,
+            invalidateLayout: false,
+            applyCategory: applyPlan.applyCategory,
+            anchorRestorePhase: applyPlan.restorePhase,
+            anchorPrimary: anchor?.primary,
+            restoreAnchor: anchor,
+            completion: {
+                if applyPlan.restorePhase == .completion,
                    let anchor {
                     self.restorePagingAnchor(anchor)
                 }
@@ -7173,7 +7341,9 @@ extension ChatViewController {
             mode: applyMode,
             animated: false,
             applyCategory: applyPlan.applyCategory,
+            anchorRestorePhase: applyPlan.restorePhase,
             anchorPrimary: anchor?.primary,
+            restoreAnchor: anchor,
             completion: { applyResult in
                 self.commitRemoteHistoryArchiveStateAfterApply(
                     context: context,
@@ -7188,7 +7358,7 @@ extension ChatViewController {
                     )
                 }
 
-                if applyPlan.shouldRestoreAnchor,
+                if applyPlan.restorePhase == .completion,
                    let anchor {
                     self.restorePagingAnchor(anchor)
                 }
@@ -7417,7 +7587,9 @@ extension ChatViewController {
         preserveBoundaryPlaceholder: Bool = true,
         suppressDefaultBottomScroll: Bool = false,
         applyCategory: ChatDatasourceApplyCategory = .default,
+        anchorRestorePhase: ChatHistoryPageAnchorRestorePhase = .none,
         anchorPrimary: String? = nil,
+        restoreAnchor: ChatHistoryPageAnchor? = nil,
         completion: (() -> Void)? = nil,
         cancelledCompletion: (() -> Void)? = nil
     ) {
@@ -7474,7 +7646,9 @@ extension ChatViewController {
                         invalidateLayout: invalidateLayout,
                         suppressDefaultBottomScroll: suppressDefaultBottomScroll,
                         applyCategory: applyCategory,
+                        anchorRestorePhase: anchorRestorePhase,
                         anchorPrimary: anchorPrimary,
+                        restoreAnchor: restoreAnchor,
                         completion: completion
                     )
                 }
@@ -7483,6 +7657,55 @@ extension ChatViewController {
                 DispatchQueue.main.async {
                     cancelledCompletion?()
                 }
+            }
+        }
+    }
+
+    internal func mapAndApplyTimelineSnapshot(
+        _ snapshot: ChatTimelineSnapshot,
+        mode: ChatDatasourceApplyMode,
+        animated: Bool = true,
+        invalidateLayout: Bool = false,
+        suppressDefaultBottomScroll: Bool = false,
+        applyCategory: ChatDatasourceApplyCategory = .default,
+        anchorRestorePhase: ChatHistoryPageAnchorRestorePhase = .none,
+        anchorPrimary: String? = nil,
+        restoreAnchor: ChatHistoryPageAnchor? = nil,
+        completion: (() -> Void)? = nil,
+        cancelledCompletion: (() -> Void)? = nil
+    ) {
+        self.datasetMappingGeneration += 1
+        let generation = self.datasetMappingGeneration
+        let frozenItems = snapshot.items.map { $0.freeze() }
+        let nextVirtualState = snapshot.state
+
+        self.datasetMappingQueue.async {
+            let mappedDatasource = self.mapDataset(dataset: frozenItems)
+
+            DispatchQueue.main.async {
+                guard ChatDatasourceApplyGenerationPolicy.shouldApply(
+                    requestGeneration: generation,
+                    currentGeneration: self.datasetMappingGeneration
+                ) else {
+                    cancelledCompletion?()
+                    return
+                }
+
+                self.virtualTimelineState = nextVirtualState
+                self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
+                self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
+                self.applyChatDatasource(
+                    mappedDatasource,
+                    mode: mode,
+                    animated: animated,
+                    invalidateLayout: invalidateLayout,
+                    suppressDefaultBottomScroll: suppressDefaultBottomScroll,
+                    applyCategory: applyCategory,
+                    anchorRestorePhase: anchorRestorePhase,
+                    anchorPrimary: anchorPrimary,
+                    restoreAnchor: restoreAnchor,
+                    completion: completion
+                )
             }
         }
     }
@@ -8329,14 +8552,22 @@ extension ChatViewController {
         FeedbackManager.shared.generate(feedback: .success)
         self.setDatasourceLoadingEnabled(false)
         self.currentPage.locked = true
-        self.loadDatasource(direction: direction) { addditional in
-            let window = self.visibleWindow()
-            self.finishPagingInteraction(
-                window: window,
-                shouldApplyWindow: addditional.isNotEmpty,
-                direction: direction,
-                animated: false
-            )
+        self.loadDatasource(direction: direction) { snapshot in
+            if let snapshot {
+                self.finishPagingInteraction(
+                    snapshot: snapshot,
+                    direction: direction,
+                    animated: false
+                )
+            } else {
+                let window = self.visibleWindow()
+                self.finishPagingInteraction(
+                    window: window,
+                    shouldApplyWindow: false,
+                    direction: direction,
+                    animated: false
+                )
+            }
         }
     }
 
@@ -8912,7 +9143,9 @@ extension ChatViewController {
         mode: ChatDatasourceApplyMode,
         animated: Bool,
         applyCategory: ChatDatasourceApplyCategory = .default,
+        anchorRestorePhase: ChatHistoryPageAnchorRestorePhase = .none,
         anchorPrimary: String? = nil,
+        restoreAnchor: ChatHistoryPageAnchor? = nil,
         completion: ((ChatRemoteHistoryApplyResult) -> Void)? = nil,
         cancelledCompletion: (() -> Void)? = nil
     ) {
@@ -9067,7 +9300,9 @@ extension ChatViewController {
                         animated: animated,
                         invalidateLayout: false,
                         applyCategory: applyCategory,
+                        anchorRestorePhase: anchorRestorePhase,
                         anchorPrimary: anchorPrimary,
+                        restoreAnchor: restoreAnchor,
                         completion: {
                             completion?(applyResult)
                         }
@@ -9159,7 +9394,7 @@ extension ChatViewController {
         self.showHistoryBoundaryPlaceholder(direction: direction, currentWindow: currentWindow)
     }
     
-    internal final func loadDatasource(direction: ChatHistoryPageDirection, first: Bool = false, ignoreGaps: Bool = false, samePage: Bool = false, callback: @escaping ((Array<MessageStorageItem>) -> Void)) {
+    internal final func loadDatasource(direction: ChatHistoryPageDirection, first: Bool = false, ignoreGaps: Bool = false, samePage: Bool = false, callback: @escaping ((ChatTimelineSnapshot?) -> Void)) {
         func getWindow() -> ChatDatasetWindow {
             let currentWindow = self.visibleWindow()
 
@@ -9176,7 +9411,7 @@ extension ChatViewController {
         guard self.messagesObserver != nil else {
             self.setDatasourceLoadingEnabled(true)
             self.currentPage.unlock()
-            callback([])
+            callback(nil)
             return
         }
         let currentWindow = self.visibleWindow()
@@ -9184,7 +9419,7 @@ extension ChatViewController {
         if requestedWindow.isEmpty && !first {
             self.setDatasourceLoadingEnabled(true)
             self.currentPage.unlock()
-            callback([])
+            callback(nil)
             return
         }
         let chatArchiveState = self.loadChatArchiveStateSnapshot()
@@ -9214,7 +9449,7 @@ extension ChatViewController {
         guard let virtualSnapshot else {
             self.setDatasourceLoadingEnabled(true)
             self.currentPage.unlock()
-            callback([])
+            callback(nil)
             return
         }
         let decision = virtualSnapshot.loadDecision
@@ -9255,8 +9490,7 @@ extension ChatViewController {
 
         switch pagingPlan {
         case .local:
-            self.applyVirtualTimelineSnapshotState(virtualSnapshot)
-            callback(virtualSnapshot.items)
+            callback(virtualSnapshot)
         case .remote(.remoteOlderPage):
             let cursorSelection = self.interactiveOlderPagingCursorSelection(
                 in: currentWindow,
@@ -9401,7 +9635,7 @@ extension ChatViewController {
                   archivedId.isNotEmpty else {
                 self.setDatasourceLoadingEnabled(true)
                 self.currentPage.unlock()
-                callback([])
+                callback(nil)
                 return
             }
             let queryId = "MAM prev history: \(NanoID.new(6))"
@@ -9743,7 +9977,7 @@ extension ChatViewController {
         case .endReached, .noOp, .remote(.localOnly), .remote(.endReached):
             self.setDatasourceLoadingEnabled(true)
             self.currentPage.unlock()
-            callback([])
+            callback(nil)
             return
         }
     }

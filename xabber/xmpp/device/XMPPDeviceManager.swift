@@ -249,12 +249,11 @@ class XMPPDeviceManager: AbstractXMPPManager {
     
     
     public final func read(withPresence presence: XMPPPresence, commitTransaction: Bool) -> Bool {
-        func transaction(_ block: (() -> Void)) throws {
-            if commitTransaction {
-                let realm = try WRealm.safe()
-                try realm.write(block)
-            } else {
+        func transaction(on realm: Realm, _ block: (() -> Void)) throws {
+            if realm.isInWriteTransaction || !commitTransaction {
                 block()
+            } else {
+                try realm.write(block)
             }
         }
         if presence.presenceType == .unavailable {
@@ -266,13 +265,13 @@ class XMPPDeviceManager: AbstractXMPPManager {
                 let realm = try WRealm.safe()
                 
                 if let instance =  realm.objects(DeviceStorageItem.self).filter("owner == %@ AND resource == %@", from.bare, resource).first {
-                    try transaction {
+                    try transaction(on: realm) {
                         instance.resource = nil
                     }
                 }
                 
                 if let instance = realm.object(ofType: ResourceStorageItem.self, forPrimaryKey: ResourceStorageItem.genPrimary(jid: from.bare, owner: owner, resource: resource)) {
-                    try transaction {
+                    try transaction(on: realm) {
                         instance.deviceId = nil
                     }
                 }
@@ -292,12 +291,12 @@ class XMPPDeviceManager: AbstractXMPPManager {
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: DeviceStorageItem.self, forPrimaryKey: [deviceId, from.bare].prp()) {
-                try transaction {
+                try transaction(on: realm) {
                     instance.resource = resource
                 }
             }
             if let instance = realm.object(ofType: ResourceStorageItem.self, forPrimaryKey: ResourceStorageItem.genPrimary(jid: from.bare, owner: owner, resource: resource)) {
-                try transaction {
+                try transaction(on: realm) {
                     instance.deviceId = deviceId
                 }
             }

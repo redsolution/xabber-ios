@@ -4665,6 +4665,49 @@ final class XMPPDeviceManagerRealmThreadingTests: XCTestCase {
         })
     }
 
+    func testPresenceReadUpdatesDeviceAndResourceInSameRealmWriteTransaction() throws {
+        let owner = "owner-\(UUID().uuidString.lowercased())@example.com"
+        let contact = "contact-\(UUID().uuidString.lowercased())@example.com"
+        let deviceId = "remote-device-\(UUID().uuidString)"
+        let resource = "xabber-ios-presence-resource"
+        let realm = try WRealm.safe()
+
+        try realm.write {
+            let device = DeviceStorageItem()
+            device.primary = DeviceStorageItem.genPrimary(uid: deviceId, owner: contact)
+            device.owner = contact
+            device.uid = deviceId
+            realm.add(device)
+
+            let resourceItem = ResourceStorageItem()
+            resourceItem.primary = ResourceStorageItem.genPrimary(jid: contact, owner: owner, resource: resource)
+            resourceItem.owner = owner
+            resourceItem.jid = contact
+            resourceItem.resource = resource
+            realm.add(resourceItem)
+        }
+
+        let manager = XMPPDeviceManager(withOwner: owner)
+        let presence = try XCTUnwrap(XMPPPresence(xmlString: """
+        <presence from="\(contact)/\(resource)">
+            <device xmlns="https://xabber.com/protocol/devices" id="\(deviceId)"/>
+        </presence>
+        """))
+
+        XCTAssertTrue(manager.read(withPresence: presence, commitTransaction: true))
+
+        let device = realm.object(
+            ofType: DeviceStorageItem.self,
+            forPrimaryKey: DeviceStorageItem.genPrimary(uid: deviceId, owner: contact)
+        )
+        let resourceItem = realm.object(
+            ofType: ResourceStorageItem.self,
+            forPrimaryKey: ResourceStorageItem.genPrimary(jid: contact, owner: owner, resource: resource)
+        )
+        XCTAssertEqual(device?.resource, resource)
+        XCTAssertEqual(resourceItem?.deviceId, deviceId)
+    }
+
     private func waitUntil(
         timeout: TimeInterval = 2,
         pollInterval: TimeInterval = 0.02,
@@ -9470,6 +9513,82 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertTrue(controller.isNearBottom(threshold: 1))
     }
 
+    func testLocalOlderPageKeepsCapturedAnchorViewportPositionAfterApply() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 620)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.messagesCollectionView.setContentOffset(
+            CGPoint(x: 0, y: -controller.messagesCollectionView.adjustedContentInset.top),
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let anchor = try XCTUnwrap(controller.capturePagingAnchorIfNeeded(direction: .older))
+        let beforeViewportY = try viewportY(for: anchor.primary, in: controller)
+        let previousFirstPrimary = try XCTUnwrap(controller.datasource.first(where: { !$0.isFakeMessage })?.primary)
+
+        controller.performInteractiveHistoryPaging(direction: .older)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let afterViewportY = try viewportY(for: anchor.primary, in: controller)
+        let newFirstPrimary = try XCTUnwrap(controller.datasource.first(where: { !$0.isFakeMessage })?.primary)
+
+        XCTAssertEqual(afterViewportY, beforeViewportY, accuracy: 1.0)
+        XCTAssertNotEqual(newFirstPrimary, previousFirstPrimary)
+        XCTAssertTrue(controller.datasource.contains { $0.primary == anchor.primary })
+    }
+
+    func testOlderAnchorReloadRestoresOffsetBeforeCompletionRuns() throws {
+        let controller = makeController()
+        controller.ownerSender = Sender(id: owner, displayName: owner)
+        controller.opponentSender = Sender(id: jid, displayName: jid)
+        controller.loadViewIfNeeded()
+        let initialItems = (300..<340).map { makeDatasource(index: $0) }
+        let expandedItems = (50..<340).map { makeDatasource(index: $0) }
+
+        controller.applyChatDatasource(
+            initialItems,
+            mode: .fullReload(keepOffset: false),
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.messagesCollectionView.scrollToItem(
+            at: IndexPath(item: 0, section: 12),
+            at: .top,
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let anchorPrimary = initialItems[12].primary
+        let offsetFromViewportTop = try viewportY(for: anchorPrimary, in: controller)
+        let anchor = ChatHistoryPageAnchor(
+            primary: anchorPrimary,
+            offsetFromViewportTop: offsetFromViewportTop
+        )
+        var completionViewportY: CGFloat?
+
+        controller.applyChatDatasource(
+            expandedItems,
+            mode: .windowReload(keepOffset: false),
+            animated: false,
+            applyCategory: .olderAnchorReload,
+            anchorRestorePhase: .applyTransaction,
+            anchorPrimary: anchor.primary,
+            restoreAnchor: anchor,
+            completion: {
+                completionViewportY = try? self.viewportY(for: anchorPrimary, in: controller)
+            }
+        )
+
+        XCTAssertEqual(try XCTUnwrap(completionViewportY), offsetFromViewportTop, accuracy: 1.0)
+    }
+
     private func makeController() -> ChatViewController {
         let controller = ChatViewController()
         controller.owner = owner
@@ -9477,6 +9596,67 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.conversationType = .regular
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         return controller
+    }
+
+    private func viewportY(for primary: String, in controller: ChatViewController) throws -> CGFloat {
+        let section = try XCTUnwrap(controller.datasourceSnapshot.primaryIndex[primary])
+        controller.messagesCollectionView.layoutIfNeeded()
+        let indexPath = IndexPath(item: 0, section: section)
+        let frame = try XCTUnwrap(
+            controller.messagesCollectionView.layoutAttributesForItem(at: indexPath)?.frame
+                ?? controller.messagesCollectionView.cellForItem(at: indexPath)?.frame
+        )
+        return frame.minY - controller.messagesCollectionView.contentOffset.y
+    }
+
+    private func makeDatasource(index: Int) -> ChatViewController.Datasource {
+        ChatViewController.Datasource(
+            primary: "atomic-message-\(index)",
+            jid: jid,
+            owner: owner,
+            outgoing: index % 2 == 0,
+            sender: Sender(id: index % 2 == 0 ? owner : jid, displayName: index % 2 == 0 ? owner : jid),
+            messageId: "atomic-message-id-\(index)",
+            sentDate: Date(timeIntervalSince1970: TimeInterval(1_700_100_000 + index)),
+            editDate: nil,
+            kind: .attributedText(NSAttributedString(string: "Atomic message \(index)")),
+            withAuthor: false,
+            withAvatar: false,
+            error: false,
+            errorType: "",
+            canPinMessage: true,
+            canEditMessage: index % 2 == 0,
+            canDeleteMessage: true,
+            forwards: [],
+            isOutgoing: index % 2 == 0,
+            isEdited: false,
+            groupchatAuthorRole: "",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isHasAttachedMessages: false,
+            isDownloaded: true,
+            state: .read,
+            searchString: nil,
+            errorMetadata: nil,
+            burnDate: -1,
+            afterburnInterval: -1,
+            archivedId: "atomic-archive-\(index)",
+            queryIds: nil,
+            isRead: true,
+            selectedSearchResultId: nil,
+            isHadHistoryGap: false,
+            tailed: false,
+            isFakeMessage: false,
+            images: [],
+            videos: [],
+            files: [],
+            audios: [],
+            timeMarkerText: NSAttributedString(string: "12:00"),
+            indicator: .read,
+            avatarUrl: nil,
+            attributedAuthor: nil
+        )
     }
 
     private func seedChat(isSynced: Bool, isInitialArchiveLoaded: Bool) throws {
@@ -17812,6 +17992,7 @@ final class ChatHistoryPageApplyPolicyTests: XCTestCase {
 
         XCTAssertFalse(plan.keepOffset)
         XCTAssertTrue(plan.shouldRestoreAnchor)
+        XCTAssertEqual(plan.restorePhase, .applyTransaction)
         XCTAssertEqual(plan.applyCategory, .olderAnchorReload)
     }
 
@@ -17820,6 +18001,7 @@ final class ChatHistoryPageApplyPolicyTests: XCTestCase {
 
         XCTAssertTrue(plan.keepOffset)
         XCTAssertFalse(plan.shouldRestoreAnchor)
+        XCTAssertEqual(plan.restorePhase, .none)
         XCTAssertEqual(plan.applyCategory, .default)
     }
 
@@ -17828,6 +18010,7 @@ final class ChatHistoryPageApplyPolicyTests: XCTestCase {
 
         XCTAssertFalse(plan.keepOffset)
         XCTAssertTrue(plan.shouldRestoreAnchor)
+        XCTAssertEqual(plan.restorePhase, .completion)
         XCTAssertEqual(plan.applyCategory, .default)
     }
 }
