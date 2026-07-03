@@ -1167,6 +1167,93 @@ enum ChatInteractiveHistoryPagingPlanPolicy {
     }
 }
 
+enum ChatScrollMotionState: String, Equatable {
+    case resting
+    case dragging
+    case decelerating
+    case tracking
+
+    var isMoving: Bool {
+        self != .resting
+    }
+}
+
+enum ChatBoundaryPagingExecutionAction: Equatable {
+    case applyNow(ChatHistoryPageDirection)
+    case prepareLocal(ChatHistoryPageDirection)
+    case deferRemote(ChatHistoryPageDirection)
+    case none
+
+    var diagnosticName: String {
+        switch self {
+        case .applyNow:
+            return "applyNow"
+        case .prepareLocal:
+            return "prepareLocal"
+        case .deferRemote:
+            return "deferRemote"
+        case .none:
+            return "none"
+        }
+    }
+}
+
+enum ChatBoundaryPagingExecutionPolicy {
+    static func action(
+        direction: ChatHistoryPageDirection,
+        pagingPlan: ChatInteractiveHistoryPagingPlan,
+        motionState: ChatScrollMotionState
+    ) -> ChatBoundaryPagingExecutionAction {
+        switch pagingPlan {
+        case .local:
+            return motionState.isMoving ? .prepareLocal(direction) : .applyNow(direction)
+        case .remote:
+            return motionState.isMoving ? .deferRemote(direction) : .applyNow(direction)
+        case .endReached, .noOp:
+            return .none
+        }
+    }
+}
+
+struct ChatPreparedLocalHistoryPage {
+    let id: String
+    let direction: ChatHistoryPageDirection
+    let conversationKey: ChatTimelineConversationKey
+    let baseVirtualState: ChatVirtualTimelineState
+    let baseWindow: ChatDatasetWindow
+    let snapshot: ChatTimelineSnapshot
+}
+
+private struct ChatInteractiveHistoryPagingPreparation {
+    let direction: ChatHistoryPageDirection
+    let currentWindow: ChatDatasetWindow
+    let requestedWindow: ChatDatasetWindow
+    let archiveState: ChatArchiveStateSnapshot
+    let virtualArchiveState: ChatArchiveStateSnapshot
+    let snapshot: ChatTimelineSnapshot
+    let pagingPlan: ChatInteractiveHistoryPagingPlan
+}
+
+private enum ChatPendingBoundaryPagingValidationPolicy {
+    static func isBoundaryVisible(
+        direction: ChatHistoryPageDirection,
+        boundaryContext: ChatHistoryPagingBoundaryContext
+    ) -> Bool {
+        switch direction {
+        case .older:
+            guard let firstRealSection = boundaryContext.firstRealSection else {
+                return false
+            }
+            return boundaryContext.visibleRealSections.contains(firstRealSection)
+        case .newer:
+            guard let lastRealSection = boundaryContext.lastRealSection else {
+                return false
+            }
+            return boundaryContext.visibleRealSections.contains(lastRealSection)
+        }
+    }
+}
+
 enum ChatShortLocalOlderRemainderPolicy {
     static func shouldRequestRemoteFirst(
         localOlderCount: Int,
@@ -8579,6 +8666,19 @@ extension ChatViewController {
         self.performInteractiveHistoryPaging(direction: direction)
     }
 
+    internal func currentScrollMotionState() -> ChatScrollMotionState {
+        if self.messagesCollectionView.isDecelerating {
+            return .decelerating
+        }
+        if self.messagesCollectionView.isDragging {
+            return .dragging
+        }
+        if self.messagesCollectionView.isTracking {
+            return .tracking
+        }
+        return .resting
+    }
+
     internal final func loadInitialDatasource(performPendingOpenMessageRequest: Bool = true) {
         self.recordChatOpenTimingInitialDatasourceLoadStarted(
             performPendingOpenMessageRequest: performPendingOpenMessageRequest
@@ -8651,6 +8751,415 @@ extension ChatViewController {
             DDLogDebug("ChatViewController.virtualTimelinePageSnapshot: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    private func frozenSnapshot(_ snapshot: ChatTimelineSnapshot) -> ChatTimelineSnapshot {
+        ChatTimelineSnapshot(
+            items: snapshot.items.map { $0.freeze() },
+            state: snapshot.state,
+            loadingState: snapshot.loadingState,
+            loadDecision: snapshot.loadDecision,
+            anchorRestore: snapshot.anchorRestore,
+            localOlderCandidateCount: snapshot.localOlderCandidateCount,
+            pageSize: snapshot.pageSize,
+            shortLocalRemainderRemoteFirst: snapshot.shortLocalRemainderRemoteFirst
+        )
+    }
+
+    private func makeInteractiveHistoryPagingPreparation(
+        direction: ChatHistoryPageDirection,
+        first: Bool = false,
+        samePage: Bool = false
+    ) -> ChatInteractiveHistoryPagingPreparation? {
+        func getWindow() -> ChatDatasetWindow {
+            let currentWindow = self.visibleWindow()
+
+            if samePage {
+                return self.datasetCoordinator.clamp(currentWindow, totalCount: self.messagesObserver.count)
+            }
+
+            return self.datasetCoordinator.nextWindow(
+                from: currentWindow,
+                direction: direction
+            )
+        }
+
+        guard self.messagesObserver != nil else {
+            return nil
+        }
+
+        let currentWindow = self.visibleWindow()
+        let requestedWindow = getWindow()
+        guard !requestedWindow.isEmpty || first else {
+            return nil
+        }
+
+        let chatArchiveState = self.loadChatArchiveStateSnapshot()
+        let persistedArchiveEnded = chatArchiveState.fullArchiveLoaded
+        let shouldProbePersistedArchiveEnd = ChatArchiveEndVerificationPolicy.shouldProbePersistedArchiveEnd(
+            persistedArchiveEnded: persistedArchiveEnded,
+            hasConfirmedArchiveEndThisSession: self.hasConfirmedArchiveEndThisSession,
+            hasUsedVerificationProbe: self.hasUsedArchiveEndVerificationProbe
+        )
+        let effectiveArchiveEnded = ChatArchiveEndVerificationPolicy.effectiveArchiveEnded(
+            persistedArchiveEnded: persistedArchiveEnded,
+            shouldProbePersistedArchiveEnd: shouldProbePersistedArchiveEnd
+        )
+        let virtualArchiveState = ChatArchiveStateSnapshot(
+            primaryKey: chatArchiveState.primaryKey,
+            persistedCursorId: chatArchiveState.persistedCursorId,
+            fullArchiveLoaded: effectiveArchiveEnded,
+            newestCursorId: chatArchiveState.newestCursorId,
+            newerLiveEdgeReached: chatArchiveState.newerLiveEdgeReached,
+            hasKnownNewerGap: chatArchiveState.hasKnownNewerGap,
+            knownGaps: chatArchiveState.knownGaps
+        )
+
+        guard let virtualSnapshot = self.virtualTimelinePageSnapshot(
+            direction: direction,
+            archiveState: virtualArchiveState
+        ) else {
+            return nil
+        }
+
+        let decision = virtualSnapshot.loadDecision
+        let pagingPlan = ChatInteractiveHistoryPagingPlanPolicy.plan(for: decision)
+        ChatArchiveDebugTrace.log("timelinePagingDecision", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("direction", direction),
+            ("decision", "\(decision)"),
+            ("snapshotItems", virtualSnapshot.items.count),
+            ("snapshotOldest", virtualSnapshot.state.oldest?.archivedId ?? "-"),
+            ("snapshotNewest", virtualSnapshot.state.newest?.archivedId ?? "-"),
+            ("snapshotResident", virtualSnapshot.state.residentPrimaryKeys.count),
+            ("localOlderCandidateCount", virtualSnapshot.localOlderCandidateCount ?? -1),
+            ("pageSize", virtualSnapshot.pageSize ?? self.datasourcePageSize),
+            ("shortLocalRemainderRemoteFirst", virtualSnapshot.shortLocalRemainderRemoteFirst),
+            ("currentOldest", self.virtualTimelineState.oldest?.archivedId ?? "-"),
+            ("currentNewest", self.virtualTimelineState.newest?.archivedId ?? "-"),
+            ("currentResident", self.virtualTimelineState.residentPrimaryKeys.count),
+            ("boundedOldest", self.boundedTimelineWindowState.oldest?.archivedId ?? "-"),
+            ("boundedNewest", self.boundedTimelineWindowState.newest?.archivedId ?? "-"),
+            ("datasourceFirst", self.datasource.first?.archivedId ?? "-"),
+            ("datasourceLast", self.datasource.last?.archivedId ?? "-"),
+            ("observerCount", self.messagesObserver?.count ?? -1),
+            ("scrollMotionState", self.currentScrollMotionState().rawValue),
+            ("executionAction", "-"),
+            ("preparedLocalPageId", self.pendingPreparedLocalHistoryPage?.id ?? "-"),
+            ("pendingDirection", self.pendingDeferredRemoteHistoryDirection.map { "\($0)" } ?? "-"),
+            ("discardReason", "-")
+        ])
+
+        if !pagingPlan.shouldShowOverlay {
+            self.logInteractiveHistoryPagingPlan(
+                direction: direction,
+                plan: pagingPlan,
+                localItemCount: virtualSnapshot.items.count,
+                localOlderCandidateCount: virtualSnapshot.localOlderCandidateCount,
+                pageSize: virtualSnapshot.pageSize,
+                shortLocalRemainderRemoteFirst: virtualSnapshot.shortLocalRemainderRemoteFirst
+            )
+        }
+
+        return ChatInteractiveHistoryPagingPreparation(
+            direction: direction,
+            currentWindow: currentWindow,
+            requestedWindow: requestedWindow,
+            archiveState: chatArchiveState,
+            virtualArchiveState: virtualArchiveState,
+            snapshot: virtualSnapshot,
+            pagingPlan: pagingPlan
+        )
+    }
+
+    @discardableResult
+    internal func handleBoundaryPagingCandidate(
+        direction: ChatHistoryPageDirection,
+        boundaryContext: ChatHistoryPagingBoundaryContext,
+        motionState: ChatScrollMotionState,
+        trigger: String
+    ) -> ChatBoundaryPagingExecutionAction {
+        let currentConversationKey = self.chatTimelineConversationKey
+        let currentVirtualState = self.virtualTimelineState.normalized(
+            owner: currentConversationKey.owner,
+            jid: currentConversationKey.jid,
+            conversationType: currentConversationKey.conversationType
+        )
+        let currentWindow = self.visibleWindow()
+
+        if motionState.isMoving,
+           let pending = self.pendingPreparedLocalHistoryPage,
+           pending.direction == direction,
+           pending.conversationKey == currentConversationKey,
+           pending.baseVirtualState == currentVirtualState,
+           pending.baseWindow == currentWindow {
+            ChatArchiveDebugTrace.log("boundaryPagingPrepareLocalFinish", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("trigger", trigger),
+                ("direction", direction),
+                ("preparedLocalPageId", pending.id),
+                ("duplicate", true),
+                ("scrollMotionState", motionState.rawValue)
+            ])
+            return .prepareLocal(direction)
+        }
+
+        if motionState.isMoving,
+           self.pendingDeferredRemoteHistoryDirection == direction {
+            ChatArchiveDebugTrace.log("boundaryPagingDeferRemote", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("trigger", trigger),
+                ("direction", direction),
+                ("duplicate", true),
+                ("scrollMotionState", motionState.rawValue)
+            ])
+            return .deferRemote(direction)
+        }
+
+        guard let preparation = self.makeInteractiveHistoryPagingPreparation(direction: direction) else {
+            self.pendingPreparedLocalHistoryPage = nil
+            self.pendingDeferredRemoteHistoryDirection = nil
+            self.logBoundaryPagingExecution(
+                trigger: trigger,
+                direction: direction,
+                boundaryContext: boundaryContext,
+                motionState: motionState,
+                action: .none,
+                discardReason: "planningFailed"
+            )
+            return .none
+        }
+
+        let action = ChatBoundaryPagingExecutionPolicy.action(
+            direction: direction,
+            pagingPlan: preparation.pagingPlan,
+            motionState: motionState
+        )
+        self.logBoundaryPagingExecution(
+            trigger: trigger,
+            direction: direction,
+            boundaryContext: boundaryContext,
+            motionState: motionState,
+            action: action,
+            discardReason: nil
+        )
+
+        switch action {
+        case .applyNow:
+            self.pendingPreparedLocalHistoryPage = nil
+            self.pendingDeferredRemoteHistoryDirection = nil
+            self.performInteractiveHistoryPaging(direction: direction)
+        case .prepareLocal:
+            let preparedId = "local-page-\(NanoID.new(6))"
+            ChatArchiveDebugTrace.log("boundaryPagingPrepareLocalStart", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("trigger", trigger),
+                ("direction", direction),
+                ("preparedLocalPageId", preparedId),
+                ("scrollMotionState", motionState.rawValue),
+                ("baseOldest", currentVirtualState.oldest?.archivedId ?? "-"),
+                ("baseNewest", currentVirtualState.newest?.archivedId ?? "-"),
+                ("snapshotOldest", preparation.snapshot.state.oldest?.archivedId ?? "-"),
+                ("snapshotNewest", preparation.snapshot.state.newest?.archivedId ?? "-"),
+                ("snapshotItems", preparation.snapshot.items.count)
+            ])
+            self.pendingPreparedLocalHistoryPage = ChatPreparedLocalHistoryPage(
+                id: preparedId,
+                direction: direction,
+                conversationKey: currentConversationKey,
+                baseVirtualState: currentVirtualState,
+                baseWindow: currentWindow,
+                snapshot: self.frozenSnapshot(preparation.snapshot)
+            )
+            self.pendingDeferredRemoteHistoryDirection = nil
+            ChatArchiveDebugTrace.log("boundaryPagingPrepareLocalFinish", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("trigger", trigger),
+                ("direction", direction),
+                ("preparedLocalPageId", preparedId),
+                ("duplicate", false),
+                ("scrollMotionState", motionState.rawValue)
+            ])
+        case .deferRemote:
+            self.pendingPreparedLocalHistoryPage = nil
+            self.pendingDeferredRemoteHistoryDirection = direction
+            ChatArchiveDebugTrace.log("boundaryPagingDeferRemote", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("trigger", trigger),
+                ("direction", direction),
+                ("duplicate", false),
+                ("scrollMotionState", motionState.rawValue)
+            ])
+        case .none:
+            self.pendingPreparedLocalHistoryPage = nil
+            self.pendingDeferredRemoteHistoryDirection = nil
+        }
+
+        return action
+    }
+
+    @discardableResult
+    internal func applyPendingBoundaryPagingAfterScrollRest(trigger: String) -> Bool {
+        let motionState = self.currentScrollMotionState()
+        guard motionState == .resting else {
+            return false
+        }
+
+        if let prepared = self.pendingPreparedLocalHistoryPage {
+            if let discardReason = self.preparedLocalHistoryPageDiscardReason(prepared) {
+                self.discardPreparedBoundaryPaging(reason: discardReason, trigger: trigger)
+                return false
+            }
+
+            self.pendingPreparedLocalHistoryPage = nil
+            self.pendingDeferredRemoteHistoryDirection = nil
+            self.setDatasourceLoadingEnabled(false)
+            self.currentPage.locked = true
+            ChatArchiveDebugTrace.log("boundaryPagingApplyPreparedLocal", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("trigger", trigger),
+                ("direction", prepared.direction),
+                ("preparedLocalPageId", prepared.id),
+                ("snapshotItems", prepared.snapshot.items.count),
+                ("snapshotOldest", prepared.snapshot.state.oldest?.archivedId ?? "-"),
+                ("snapshotNewest", prepared.snapshot.state.newest?.archivedId ?? "-")
+            ])
+            self.finishPagingInteraction(
+                snapshot: prepared.snapshot,
+                direction: prepared.direction,
+                animated: false
+            )
+            return true
+        }
+
+        if let direction = self.pendingDeferredRemoteHistoryDirection {
+            let boundaryContext = self.pagingBoundaryContext(
+                visibleSections: self.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
+            )
+            guard ChatPendingBoundaryPagingValidationPolicy.isBoundaryVisible(
+                direction: direction,
+                boundaryContext: boundaryContext
+            ) else {
+                self.pendingDeferredRemoteHistoryDirection = nil
+                ChatArchiveDebugTrace.log("boundaryPagingDiscardPrepared", [
+                    ("owner", self.owner),
+                    ("jid", self.jid),
+                    ("conversationType", self.conversationType.rawValue),
+                    ("trigger", trigger),
+                    ("direction", direction),
+                    ("discardReason", "remoteBoundaryNoLongerVisible")
+                ])
+                return false
+            }
+
+            self.pendingDeferredRemoteHistoryDirection = nil
+            ChatArchiveDebugTrace.log("boundaryPagingDeferRemote", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("trigger", "\(trigger)-apply"),
+                ("direction", direction),
+                ("duplicate", false),
+                ("scrollMotionState", motionState.rawValue)
+            ])
+            self.performInteractiveHistoryPaging(direction: direction)
+            return true
+        }
+
+        return false
+    }
+
+    private func preparedLocalHistoryPageDiscardReason(_ prepared: ChatPreparedLocalHistoryPage) -> String? {
+        let conversationKey = self.chatTimelineConversationKey
+        guard prepared.conversationKey == conversationKey else {
+            return "conversationChanged"
+        }
+
+        let normalizedState = self.virtualTimelineState.normalized(
+            owner: conversationKey.owner,
+            jid: conversationKey.jid,
+            conversationType: conversationKey.conversationType
+        )
+        guard normalizedState == prepared.baseVirtualState else {
+            return "virtualStateChanged"
+        }
+        guard normalizedState.activeRemoteLoad == nil else {
+            return "remoteInFlight"
+        }
+        guard self.currentPage.isUnlocked else {
+            return "pageLocked"
+        }
+        guard self.visibleWindow() == prepared.baseWindow else {
+            return "windowChanged"
+        }
+        guard self.currentScrollMotionState() == .resting else {
+            return "scrollMoving"
+        }
+
+        let boundaryContext = self.pagingBoundaryContext(
+            visibleSections: self.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
+        )
+        guard ChatPendingBoundaryPagingValidationPolicy.isBoundaryVisible(
+            direction: prepared.direction,
+            boundaryContext: boundaryContext
+        ) else {
+            return "boundaryNoLongerVisible"
+        }
+        return nil
+    }
+
+    private func discardPreparedBoundaryPaging(reason: String, trigger: String) {
+        let preparedDirection = self.pendingPreparedLocalHistoryPage?.direction
+        let preparedId = self.pendingPreparedLocalHistoryPage?.id
+        self.pendingPreparedLocalHistoryPage = nil
+        ChatArchiveDebugTrace.log("boundaryPagingDiscardPrepared", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("trigger", trigger),
+            ("direction", preparedDirection.map { "\($0)" } ?? "-"),
+            ("preparedLocalPageId", preparedId ?? "-"),
+            ("discardReason", reason)
+        ])
+    }
+
+    private func logBoundaryPagingExecution(
+        trigger: String,
+        direction: ChatHistoryPageDirection,
+        boundaryContext: ChatHistoryPagingBoundaryContext,
+        motionState: ChatScrollMotionState,
+        action: ChatBoundaryPagingExecutionAction,
+        discardReason: String?
+    ) {
+        ChatArchiveDebugTrace.log("boundaryPagingExecutionDecision", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("trigger", trigger),
+            ("direction", direction),
+            ("firstRealSection", boundaryContext.firstRealSection ?? -1),
+            ("lastRealSection", boundaryContext.lastRealSection ?? -1),
+            ("visibleRealSections", boundaryContext.visibleRealSections.map(String.init).joined(separator: ",")),
+            ("scrollMotionState", motionState.rawValue),
+            ("executionAction", action.diagnosticName),
+            ("preparedLocalPageId", self.pendingPreparedLocalHistoryPage?.id ?? "-"),
+            ("pendingDirection", self.pendingDeferredRemoteHistoryDirection.map { "\($0)" } ?? "-"),
+            ("discardReason", discardReason ?? "-")
+        ])
     }
 
     private func applyVirtualTimelineSnapshotState(_ snapshot: ChatTimelineSnapshot) {

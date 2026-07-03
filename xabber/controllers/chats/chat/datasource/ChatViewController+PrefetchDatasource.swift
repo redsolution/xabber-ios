@@ -168,7 +168,12 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             ("residentCount", residentCount),
             ("isResidentAtLiveTail", self.virtualTimelineState.isResidentAtLiveTail),
             ("canLoadDatasource", self.canLoadDatasource),
-            ("gestureTranslationY", Int(gestureTranslationY))
+            ("gestureTranslationY", Int(gestureTranslationY)),
+            ("scrollMotionState", self.currentScrollMotionState().rawValue),
+            ("executionAction", "-"),
+            ("preparedLocalPageId", self.pendingPreparedLocalHistoryPage?.id ?? "-"),
+            ("pendingDirection", self.pendingDeferredRemoteHistoryDirection.map { "\($0)" } ?? "-"),
+            ("discardReason", "-")
         ])
     }
 
@@ -185,10 +190,19 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             return
         }
 
-        self.triggerPaging(pageDirection)
+        self.handleBoundaryPagingCandidate(
+            direction: pageDirection,
+            boundaryContext: boundaryContext,
+            motionState: self.currentScrollMotionState(),
+            trigger: "interactive"
+        )
     }
 
     private func triggerBoundaryPagingAfterDragIfNeeded(_ scrollView: UIScrollView) {
+        if self.applyPendingBoundaryPagingAfterScrollRest(trigger: "dragEnd") {
+            return
+        }
+
         let boundaryContext = self.pagingBoundaryContext(
             visibleSections: self.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
         )

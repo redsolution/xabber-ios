@@ -1477,6 +1477,8 @@ class ChatViewController: MessagesViewController {
     var isExecutingOpenMessageRequest: Bool = false
     var isMessageAnchorNavigationInFlight: Bool = false
     var hasRequestedMentionUsersRefresh: Bool = false
+    internal var pendingPreparedLocalHistoryPage: ChatPreparedLocalHistoryPage? = nil
+    internal var pendingDeferredRemoteHistoryDirection: ChatHistoryPageDirection? = nil
     var interactiveHistoryPageLoadContext: ChatInteractiveHistoryPageLoadContext? = nil
     var interactiveHistoryCompletionRetryWorkItem: DispatchWorkItem? = nil
     var interactiveRemoteArchiveRequestStartWorkItem: DispatchWorkItem? = nil

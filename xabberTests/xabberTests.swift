@@ -9589,6 +9589,215 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(completionViewportY), offsetFromViewportTop, accuracy: 1.0)
     }
 
+    func testBoundaryPagingDuringDecelerationPreparesLocalOlderWithoutMutatingDatasourceState() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 620)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.messagesCollectionView.setContentOffset(
+            CGPoint(x: 0, y: -controller.messagesCollectionView.adjustedContentInset.top),
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let beforeDatasource = controller.datasource.map(\.primary)
+        let beforePage = ChatDatasetWindow(
+            minIndex: controller.currentPage.minIndex,
+            maxIndex: controller.currentPage.maxIndex
+        )
+        let beforeVirtualState = controller.virtualTimelineState
+        let context = controller.pagingBoundaryContext(
+            visibleSections: controller.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
+        )
+
+        let action = controller.handleBoundaryPagingCandidate(
+            direction: .older,
+            boundaryContext: context,
+            motionState: .decelerating,
+            trigger: "test"
+        )
+
+        XCTAssertEqual(action, .prepareLocal(.older))
+        XCTAssertNotNil(controller.pendingPreparedLocalHistoryPage)
+        XCTAssertNil(controller.pendingDeferredRemoteHistoryDirection)
+        XCTAssertEqual(controller.datasource.map(\.primary), beforeDatasource)
+        XCTAssertEqual(controller.currentPage.minIndex, beforePage.minIndex)
+        XCTAssertEqual(controller.currentPage.maxIndex, beforePage.maxIndex)
+        XCTAssertEqual(controller.virtualTimelineState, beforeVirtualState)
+        XCTAssertNil(controller.activeHistoryBoundaryPlaceholder)
+        XCTAssertNil(controller.interactiveHistoryPageLoadContext)
+    }
+
+    func testPreparedOlderPageAppliesAfterScrollRestAndPreservesAnchor() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 620)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.messagesCollectionView.setContentOffset(
+            CGPoint(x: 0, y: -controller.messagesCollectionView.adjustedContentInset.top),
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let context = controller.pagingBoundaryContext(
+            visibleSections: controller.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
+        )
+        let action = controller.handleBoundaryPagingCandidate(
+            direction: .older,
+            boundaryContext: context,
+            motionState: .decelerating,
+            trigger: "test"
+        )
+        XCTAssertEqual(action, .prepareLocal(.older))
+
+        let anchor = try XCTUnwrap(controller.capturePagingAnchorIfNeeded(direction: .older))
+        let beforeViewportY = try viewportY(for: anchor.primary, in: controller)
+        let previousFirstPrimary = try XCTUnwrap(controller.datasource.first(where: { !$0.isFakeMessage })?.primary)
+
+        XCTAssertTrue(controller.applyPendingBoundaryPagingAfterScrollRest(trigger: "test"))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertNil(controller.pendingPreparedLocalHistoryPage)
+        XCTAssertEqual(try viewportY(for: anchor.primary, in: controller), beforeViewportY, accuracy: 1.0)
+        XCTAssertNotEqual(controller.datasource.first(where: { !$0.isFakeMessage })?.primary, previousFirstPrimary)
+        XCTAssertTrue(controller.datasource.contains { $0.primary == anchor.primary })
+    }
+
+    func testPreparedNewerPageAppliesAfterScrollRestWithoutBottomJump() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 1_000)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        try applyResidentWindow(300..<900, to: controller)
+
+        let beforeLastPrimary = try XCTUnwrap(controller.datasource.last(where: { !$0.isFakeMessage })?.primary)
+        XCTAssertNotEqual(beforeLastPrimary, "first-frame-message-999")
+        let bottomOffset = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+            targetMaxY: controller.messagesCollectionView.contentSize.height,
+            contentHeight: controller.messagesCollectionView.contentSize.height,
+            viewportHeight: controller.messagesCollectionView.bounds.height,
+            contentInsets: controller.messagesCollectionView.contentInset
+        )
+        controller.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: bottomOffset), animated: false)
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let context = controller.pagingBoundaryContext(
+            visibleSections: controller.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
+        )
+        let action = controller.handleBoundaryPagingCandidate(
+            direction: .newer,
+            boundaryContext: context,
+            motionState: .decelerating,
+            trigger: "test"
+        )
+
+        XCTAssertEqual(action, .prepareLocal(.newer))
+        XCTAssertEqual(controller.datasource.last(where: { !$0.isFakeMessage })?.primary, beforeLastPrimary)
+        XCTAssertNotNil(controller.pendingPreparedLocalHistoryPage)
+
+        XCTAssertTrue(controller.applyPendingBoundaryPagingAfterScrollRest(trigger: "test"))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let expectedBottomOffset = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+            targetMaxY: controller.messagesCollectionView.contentSize.height,
+            contentHeight: controller.messagesCollectionView.contentSize.height,
+            viewportHeight: controller.messagesCollectionView.bounds.height,
+            contentInsets: controller.messagesCollectionView.contentInset
+        )
+        XCTAssertNil(controller.pendingPreparedLocalHistoryPage)
+        XCTAssertEqual(controller.datasource.last(where: { !$0.isFakeMessage })?.primary, "first-frame-message-999")
+        XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, expectedBottomOffset, accuracy: 1.0)
+    }
+
+    func testPreparedLocalPageIsDiscardedWhenVirtualStateChangesBeforeScrollRest() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 620)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.messagesCollectionView.setContentOffset(
+            CGPoint(x: 0, y: -controller.messagesCollectionView.adjustedContentInset.top),
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let context = controller.pagingBoundaryContext(
+            visibleSections: controller.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
+        )
+        XCTAssertEqual(
+            controller.handleBoundaryPagingCandidate(
+                direction: .older,
+                boundaryContext: context,
+                motionState: .decelerating,
+                trigger: "test"
+            ),
+            .prepareLocal(.older)
+        )
+        let beforeDatasource = controller.datasource.map(\.primary)
+
+        controller.virtualTimelineState = .empty(
+            owner: controller.owner,
+            jid: controller.jid,
+            conversationType: controller.conversationType
+        )
+
+        XCTAssertFalse(controller.applyPendingBoundaryPagingAfterScrollRest(trigger: "test"))
+        XCTAssertNil(controller.pendingPreparedLocalHistoryPage)
+        XCTAssertEqual(controller.datasource.map(\.primary), beforeDatasource)
+    }
+
+    func testRemoteOlderDuringDecelerationDefersWithoutPlaceholderOrContext() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 250)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.messagesCollectionView.setContentOffset(
+            CGPoint(x: 0, y: -controller.messagesCollectionView.adjustedContentInset.top),
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let beforeVirtualState = controller.virtualTimelineState
+        let context = controller.pagingBoundaryContext(
+            visibleSections: controller.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
+        )
+
+        let action = controller.handleBoundaryPagingCandidate(
+            direction: .older,
+            boundaryContext: context,
+            motionState: .decelerating,
+            trigger: "test"
+        )
+
+        XCTAssertEqual(action, .deferRemote(.older))
+        XCTAssertNil(controller.pendingPreparedLocalHistoryPage)
+        XCTAssertEqual(controller.pendingDeferredRemoteHistoryDirection, .older)
+        XCTAssertEqual(controller.virtualTimelineState, beforeVirtualState)
+        XCTAssertNil(controller.activeHistoryBoundaryPlaceholder)
+        XCTAssertNil(controller.interactiveHistoryPageLoadContext)
+    }
+
     private func makeController() -> ChatViewController {
         let controller = ChatViewController()
         controller.owner = owner
@@ -9596,6 +9805,61 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.conversationType = .regular
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         return controller
+    }
+
+    private func applyResidentWindow(_ range: Range<Int>, to controller: ChatViewController) throws {
+        let realm = try WRealm.safe()
+        let messages = try range.map { index in
+            try XCTUnwrap(
+                realm.object(
+                    ofType: MessageStorageItem.self,
+                    forPrimaryKey: "first-frame-message-\(index)"
+                )
+            )
+        }
+        let oldestIndex = try XCTUnwrap(range.first)
+        let newestIndex = try XCTUnwrap(range.last)
+        let state = ChatVirtualTimelineState(
+            conversationKey: ChatTimelineConversationKey(
+                owner: owner,
+                jid: jid,
+                conversationType: .regular
+            ),
+            segments: [
+                .unknownOlder,
+                .loadedRange(
+                    oldestArchiveId: "archive-\(oldestIndex)",
+                    newestArchiveId: "archive-\(newestIndex)"
+                ),
+                .unknownNewer
+            ],
+            oldest: timelineBoundary(index: oldestIndex),
+            newest: timelineBoundary(index: newestIndex),
+            residentPrimaryKeys: range.map { "first-frame-message-\($0)" },
+            residentArchivedIds: range.map { "archive-\($0)" },
+            activeRemoteLoad: nil,
+            activePlaceholder: nil,
+            isResidentAtLiveTail: false
+        )
+
+        controller.virtualTimelineState = state
+        controller.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: state)
+        controller.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: messages.count))
+        controller.applyChatDatasource(
+            controller.mapDataset(dataset: messages),
+            mode: .fullReload(keepOffset: false),
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+    }
+
+    private func timelineBoundary(index: Int) -> ChatTimelineBoundary {
+        ChatTimelineBoundary(
+            primary: "first-frame-message-\(index)",
+            archivedId: "archive-\(index)",
+            messageId: "message-\(index)",
+            date: Date(timeIntervalSince1970: TimeInterval(1_700_000_000 + index))
+        )
     }
 
     private func viewportY(for primary: String, in controller: ChatViewController) throws -> CGFloat {
@@ -14617,6 +14881,64 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 totalCount: 300
             ),
             .older
+        )
+    }
+}
+
+final class ChatBoundaryPagingExecutionPolicyTests: XCTestCase {
+
+    func testLocalOlderDuringDecelerationPreparesInsteadOfApplying() {
+        XCTAssertEqual(
+            ChatBoundaryPagingExecutionPolicy.action(
+                direction: .older,
+                pagingPlan: .local,
+                motionState: .decelerating
+            ),
+            .prepareLocal(.older)
+        )
+    }
+
+    func testLocalNewerDuringDraggingPreparesInsteadOfApplying() {
+        XCTAssertEqual(
+            ChatBoundaryPagingExecutionPolicy.action(
+                direction: .newer,
+                pagingPlan: .local,
+                motionState: .dragging
+            ),
+            .prepareLocal(.newer)
+        )
+    }
+
+    func testLocalPagingAtRestAppliesImmediately() {
+        XCTAssertEqual(
+            ChatBoundaryPagingExecutionPolicy.action(
+                direction: .older,
+                pagingPlan: .local,
+                motionState: .resting
+            ),
+            .applyNow(.older)
+        )
+    }
+
+    func testRemotePagingDuringDecelerationDefers() {
+        XCTAssertEqual(
+            ChatBoundaryPagingExecutionPolicy.action(
+                direction: .older,
+                pagingPlan: .remote(.remoteOlderPage),
+                motionState: .decelerating
+            ),
+            .deferRemote(.older)
+        )
+    }
+
+    func testNoOpDoesNotScheduleWork() {
+        XCTAssertEqual(
+            ChatBoundaryPagingExecutionPolicy.action(
+                direction: .older,
+                pagingPlan: .noOp,
+                motionState: .resting
+            ),
+            .none
         )
     }
 }
