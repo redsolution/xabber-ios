@@ -342,7 +342,7 @@ extension ChatViewController {
 
 enum ChatNavigationAvatarItemFactory {
     static let accessibilityIdentifier = "chat_navigation_avatar_button"
-    static let imageSize: CGFloat = 32
+    static let imageSize: CGFloat = 42
     private static let savedIconSize: CGFloat = 16
 
     static func makeItem(

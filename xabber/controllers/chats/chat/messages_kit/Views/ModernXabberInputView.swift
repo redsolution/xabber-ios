@@ -1868,7 +1868,7 @@ class ModernXabberInputView: UIView {
     let sendButton: SendButton = {
         let button = SendButton(frame: CGRect(square: ModernXabberInputView.LiquidGlassMetrics.buttonSize))
 
-        button.setImage(imageLiteral("mic", dimension: ModernXabberInputView.composerActionIconSize), for: .normal)
+        button.setImage(ModernXabberInputView.composerSendButtonImage(for: .record), for: .normal)
         button.tintColor = .secondaryLabel
         ModernXabberInputView.applyDetachedGlassButtonStyle(to: button)
 
@@ -3030,25 +3030,69 @@ class ModernXabberInputView: UIView {
         case record
         case send
     }
+
+    static func composerSendButtonImage(for state: SendButtonState) -> UIImage? {
+        (self.composerSendButtonSymbolImage(for: state) ?? self.composerSendButtonAssetFallbackImage(for: state))?
+            .withRenderingMode(.alwaysTemplate)
+    }
+
+    private static func composerSendButtonSymbolImage(for state: SendButtonState) -> UIImage? {
+        let configuration = UIImage.SymbolConfiguration(pointSize: Self.composerActionIconSize, weight: .regular)
+        switch state {
+            case .record:
+                return UIImage(systemName: "mic.fill", withConfiguration: configuration)
+            case .send:
+                return UIImage(systemName: "paperplane.fill", withConfiguration: configuration)
+        }
+    }
+
+    private static func composerSendButtonAssetFallbackImage(for state: SendButtonState) -> UIImage? {
+        switch state {
+            case .record:
+                return imageLiteral("mic.fill", dimension: Self.composerActionIconSize)
+            case .send:
+                return imageLiteral("xabber.paperplane.fill", dimension: Self.composerActionIconSize)
+        }
+    }
+
+    private func applySendButtonIcon(for state: SendButtonState, animated: Bool) {
+        let image = Self.composerSendButtonImage(for: state)
+        if animated,
+           #available(iOS 17.0, *),
+           let symbolImage = Self.composerSendButtonSymbolImage(for: state)?.withRenderingMode(.alwaysTemplate) {
+            self.sendButton.imageView?.setSymbolImage(symbolImage, contentTransition: .replace)
+            self.setSendButtonImage(symbolImage)
+            return
+        }
+
+        self.setSendButtonImage(image)
+    }
+
+    private func setSendButtonImage(_ image: UIImage?) {
+        self.sendButton.setImage(image, for: .normal)
+        guard var configuration = self.sendButton.configuration else { return }
+        configuration.image = image
+        configuration.baseForegroundColor = self.sendButton.tintColor
+        self.sendButton.configuration = configuration
+    }
     
     public var isSendButtonEnabled: Bool = false
     
     final func changeSendButtonState(to state: SendButtonState) {
+        let previousState = self.sendButtonState
         self.sendButtonState = state
         switch state {
             case .record:
-//                self.sendButton.setImage(imageLiteral( "microphone").withRenderingMode(.alwaysTemplate), for: .normal)
-                self.sendButton.setImage(imageLiteral("mic.fill", dimension: Self.composerActionIconSize), for: .normal)
                 self.sendButton.tintColor = .secondaryLabel
                 self.attachButton.isEnabled = true
                 self.sendButton.isEnabled = self.isSendButtonEnabled
             case .send:
-                self.sendButton.setImage(imageLiteral("xabber.paperplane.fill", dimension: Self.composerActionIconSize), for: .normal)
                 self.sendButton.tintColor = self.isSendButtonEnabled ? self.accountPalette.tint600 : .secondaryLabel
                 self.sendButton.isEnabled = self.isSendButtonEnabled
                 self.attachButton.isEnabled = true
         }
         self.refreshDetachedComposerButtonChrome()
+        self.applySendButtonIcon(for: state, animated: previousState != state)
     }
     
     final public func updateSendButtonState() {
@@ -3606,9 +3650,9 @@ class ModernXabberInputView: UIView {
         self.recordPanel.cancelButton.isHidden = false
         self.recordPanel.changeIndicatorToStop()
         self.showRecordingLockOverlay(isLocked: true, allowsStop: true, animated: true)
-        self.sendButton.setImage(imageLiteral("xabber.paperplane.fill", dimension: Self.composerActionIconSize), for: .normal)
         self.sendButton.tintColor = self.accountPalette.tint600
         ModernXabberInputView.applyDetachedGlassButtonStyle(to: self.sendButton)
+        self.applySendButtonIcon(for: .send, animated: false)
         self.applySendButtonDetachedChromeVisibility()
     }
     

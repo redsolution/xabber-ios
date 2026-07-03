@@ -116,7 +116,7 @@ final class ChatNavigationBarStateTests: XCTestCase {
         XCTAssertFalse(navigationItem.rightBarButtonItems?.contains(where: { $0 === searchItem }) ?? true)
     }
 
-    func testChatAvatarItemFactoryProducesStockBarButtonItem() {
+    func testChatAvatarItemFactoryProducesStockBarButtonItem() throws {
         let image = makeImage()
         let avatarImage = ChatNavigationAvatarItemFactory.avatarImage(from: image)
         let item = ChatNavigationAvatarItemFactory.makeItem(
@@ -126,9 +126,22 @@ final class ChatNavigationBarStateTests: XCTestCase {
         )
 
         XCTAssertNil(item.customView)
-        XCTAssertNotNil(item.image)
-        XCTAssertEqual(item.image?.renderingMode, .alwaysOriginal)
+        let itemImage = try XCTUnwrap(item.image)
+        XCTAssertEqual(ChatNavigationAvatarItemFactory.imageSize, 42, accuracy: 0.001)
+        XCTAssertEqual(itemImage.size.width, 42, accuracy: 0.001)
+        XCTAssertEqual(itemImage.size.height, 42, accuracy: 0.001)
+        XCTAssertEqual(itemImage.renderingMode, .alwaysOriginal)
         XCTAssertEqual(item.accessibilityIdentifier, ChatNavigationAvatarItemFactory.accessibilityIdentifier)
+    }
+
+    func testSavedMessagesAvatarFactoryUsesLargeNavbarAvatarImage() throws {
+        let image = try XCTUnwrap(ChatNavigationAvatarItemFactory.savedMessagesImage(
+            backgroundColor: .systemBlue,
+            iconTintColor: .white
+        ))
+
+        XCTAssertEqual(image.size.width, 42, accuracy: 0.001)
+        XCTAssertEqual(image.size.height, 42, accuracy: 0.001)
     }
 
     func testCompactChatConfigureNavbarKeepsUIKitStockNavigationAppearance() {
