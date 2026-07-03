@@ -16909,6 +16909,141 @@ final class ChatOpenAtMessageRequestBuilderTests: XCTestCase {
     }
 }
 
+final class ChatFirstFrameAuxiliaryWorkPolicyTests: XCTestCase {
+
+    func testAuxiliaryWorkIsDeferredDuringInitialAppearanceBeforeVisibleMessages() {
+        XCTAssertEqual(
+            ChatFirstFrameAuxiliaryWorkPolicy.datasourceApplyDecision(
+                isInitialHistoryAppearancePending: true,
+                containsRealMessages: true,
+                containsOnlyFakeMessages: false
+            ),
+            .deferUntilPostVisible
+        )
+        XCTAssertFalse(
+            ChatFirstFrameAuxiliaryWorkPolicy.shouldRunDeferredFlush(
+                hasPendingRefresh: true,
+                hasViewAppeared: false,
+                didLogFirstMessagesVisible: false
+            )
+        )
+    }
+
+    func testDeferredAuxiliaryWorkFlushesAfterFirstVisibleOrViewDidAppear() {
+        XCTAssertTrue(
+            ChatFirstFrameAuxiliaryWorkPolicy.shouldRunDeferredFlush(
+                hasPendingRefresh: true,
+                hasViewAppeared: false,
+                didLogFirstMessagesVisible: true
+            )
+        )
+        XCTAssertTrue(
+            ChatFirstFrameAuxiliaryWorkPolicy.shouldRunDeferredFlush(
+                hasPendingRefresh: true,
+                hasViewAppeared: true,
+                didLogFirstMessagesVisible: false
+            )
+        )
+        XCTAssertFalse(
+            ChatFirstFrameAuxiliaryWorkPolicy.shouldRunDeferredFlush(
+                hasPendingRefresh: false,
+                hasViewAppeared: true,
+                didLogFirstMessagesVisible: true
+            )
+        )
+    }
+
+    func testRepeatedInitialDatasourceAppliesCoalesceIntoOneFlush() {
+        XCTAssertTrue(
+            ChatFirstFrameAuxiliaryWorkPolicy.shouldScheduleDeferredFlush(
+                hasPendingRefresh: true,
+                isFlushScheduled: false,
+                hasViewAppeared: true,
+                didLogFirstMessagesVisible: false
+            )
+        )
+        XCTAssertFalse(
+            ChatFirstFrameAuxiliaryWorkPolicy.shouldScheduleDeferredFlush(
+                hasPendingRefresh: true,
+                isFlushScheduled: true,
+                hasViewAppeared: true,
+                didLogFirstMessagesVisible: false
+            )
+        )
+    }
+
+    func testNonInitialDatasourceAppliesRefreshImmediately() {
+        XCTAssertEqual(
+            ChatFirstFrameAuxiliaryWorkPolicy.datasourceApplyDecision(
+                isInitialHistoryAppearancePending: false,
+                containsRealMessages: true,
+                containsOnlyFakeMessages: false
+            ),
+            .runImmediately
+        )
+        XCTAssertEqual(
+            ChatFirstFrameAuxiliaryWorkPolicy.datasourceApplyDecision(
+                isInitialHistoryAppearancePending: true,
+                containsRealMessages: false,
+                containsOnlyFakeMessages: true
+            ),
+            .runImmediately
+        )
+    }
+
+    func testPendingAuxiliaryWorkCancelsOnDisappear() {
+        XCTAssertTrue(
+            ChatFirstFrameAuxiliaryWorkPolicy.shouldCancelPendingRefreshOnDisappear(
+                hasPendingRefresh: true
+            )
+        )
+        XCTAssertFalse(
+            ChatFirstFrameAuxiliaryWorkPolicy.shouldCancelPendingRefreshOnDisappear(
+                hasPendingRefresh: false
+            )
+        )
+    }
+
+    func testControllerCoalescesRepeatedInitialAppliesIntoOnePostVisibleFlush() {
+        let controller = ChatViewController()
+        controller.initialHistoryAppearancePending = true
+
+        controller.handleChatDatasourceAuxiliaryRefreshAfterApply(
+            containsRealMessages: true,
+            containsOnlyFakeMessages: false
+        )
+        controller.handleChatDatasourceAuxiliaryRefreshAfterApply(
+            containsRealMessages: true,
+            containsOnlyFakeMessages: false
+        )
+
+        XCTAssertTrue(controller.pendingFirstFrameAuxiliaryRefresh)
+        XCTAssertFalse(controller.isFirstFrameAuxiliaryRefreshFlushScheduled)
+
+        controller.hasCompletedInitialHistoryViewAppearance = true
+        controller.schedulePendingFirstFrameAuxiliaryRefreshFlushIfNeeded(trigger: "test-visible")
+        controller.schedulePendingFirstFrameAuxiliaryRefreshFlushIfNeeded(trigger: "test-visible")
+
+        XCTAssertTrue(controller.isFirstFrameAuxiliaryRefreshFlushScheduled)
+        controller.cancelPendingFirstFrameAuxiliaryRefresh(reason: "test-cleanup")
+    }
+
+    func testControllerCancelPreventsScheduledPostVisibleFlush() {
+        let controller = ChatViewController()
+        controller.initialHistoryAppearancePending = true
+        controller.hasCompletedInitialHistoryViewAppearance = true
+
+        controller.handleChatDatasourceAuxiliaryRefreshAfterApply(
+            containsRealMessages: true,
+            containsOnlyFakeMessages: false
+        )
+        controller.cancelPendingFirstFrameAuxiliaryRefresh(reason: "test-disappear")
+
+        XCTAssertFalse(controller.pendingFirstFrameAuxiliaryRefresh)
+        XCTAssertFalse(controller.isFirstFrameAuxiliaryRefreshFlushScheduled)
+    }
+}
+
 final class ChatOpenMessageRequestHandlingPolicyTests: XCTestCase {
 
     private let allSources: [ChatOpenMessageRequestSource] = [

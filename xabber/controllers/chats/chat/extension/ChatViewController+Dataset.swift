@@ -3867,6 +3867,52 @@ enum ChatInitialHistoryAppearancePolicy {
     }
 }
 
+enum ChatFirstFrameAuxiliaryWorkDecision: Equatable {
+    case runImmediately
+    case deferUntilPostVisible
+}
+
+enum ChatFirstFrameAuxiliaryWorkPolicy {
+    static func datasourceApplyDecision(
+        isInitialHistoryAppearancePending: Bool,
+        containsRealMessages: Bool,
+        containsOnlyFakeMessages: Bool
+    ) -> ChatFirstFrameAuxiliaryWorkDecision {
+        guard isInitialHistoryAppearancePending,
+              containsRealMessages,
+              !containsOnlyFakeMessages else {
+            return .runImmediately
+        }
+
+        return .deferUntilPostVisible
+    }
+
+    static func shouldRunDeferredFlush(
+        hasPendingRefresh: Bool,
+        hasViewAppeared: Bool,
+        didLogFirstMessagesVisible: Bool
+    ) -> Bool {
+        hasPendingRefresh && (hasViewAppeared || didLogFirstMessagesVisible)
+    }
+
+    static func shouldScheduleDeferredFlush(
+        hasPendingRefresh: Bool,
+        isFlushScheduled: Bool,
+        hasViewAppeared: Bool,
+        didLogFirstMessagesVisible: Bool
+    ) -> Bool {
+        !isFlushScheduled && shouldRunDeferredFlush(
+            hasPendingRefresh: hasPendingRefresh,
+            hasViewAppeared: hasViewAppeared,
+            didLogFirstMessagesVisible: didLogFirstMessagesVisible
+        )
+    }
+
+    static func shouldCancelPendingRefreshOnDisappear(hasPendingRefresh: Bool) -> Bool {
+        hasPendingRefresh
+    }
+}
+
 enum ChatFirstFrameLatestWarmupState: Equatable {
     case inactive
     case armed
@@ -5619,6 +5665,7 @@ extension ChatViewController {
         let newSnapshot = ChatDatasourceCoordinator.makeSnapshot(items: items)
         let previousSnapshot = datasourceSnapshot
         let containsOnlyFakeMessages = !items.isEmpty && items.allSatisfy(\.isFakeMessage)
+        let containsRealMessages = items.contains { !$0.isFakeMessage }
         let wasNearBottom = self.isNearBottom()
         let effectiveAnchorPrimary = anchorPrimary ?? restoreAnchor?.primary
         let shouldRestoreAnchorInApplyTransaction = anchorRestorePhase == .applyTransaction && restoreAnchor != nil
@@ -5785,21 +5832,10 @@ extension ChatViewController {
             let completionStartedAt = Date()
             completion?()
             let completionMs = ChatArchiveDebugTrace.milliseconds(since: completionStartedAt)
-            let refreshAuxiliaryState = {
-                self.refreshUnreadMentionsNavigatorState()
-                self.updateVisibleVoiceMessageQueue()
-            }
-            if self.initialHistoryAppearancePending,
-               items.contains(where: { !$0.isFakeMessage }),
-               !containsOnlyFakeMessages {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    self.refreshUnreadMentionsNavigatorState()
-                    self.updateVisibleVoiceMessageQueue()
-                }
-            } else {
-                refreshAuxiliaryState()
-            }
+            self.handleChatDatasourceAuxiliaryRefreshAfterApply(
+                containsRealMessages: containsRealMessages,
+                containsOnlyFakeMessages: containsOnlyFakeMessages
+            )
             if self.initialHistoryAppearancePending,
                ChatInitialHistoryAppearancePolicy.shouldFinish(itemCount: items.count, containsOnlyFakeMessages: containsOnlyFakeMessages) {
                 self.hasRenderedStableInitialHistory = true
@@ -8140,6 +8176,93 @@ extension ChatViewController {
                 }
             }
         )
+    }
+
+    internal func handleChatDatasourceAuxiliaryRefreshAfterApply(
+        containsRealMessages: Bool,
+        containsOnlyFakeMessages: Bool
+    ) {
+        switch ChatFirstFrameAuxiliaryWorkPolicy.datasourceApplyDecision(
+            isInitialHistoryAppearancePending: self.initialHistoryAppearancePending,
+            containsRealMessages: containsRealMessages,
+            containsOnlyFakeMessages: containsOnlyFakeMessages
+        ) {
+        case .runImmediately:
+            self.performChatDatasourceAuxiliaryRefresh()
+        case .deferUntilPostVisible:
+            self.deferFirstFrameAuxiliaryRefreshIfNeeded(reason: "datasourceApply")
+        }
+    }
+
+    internal func deferFirstFrameAuxiliaryRefreshIfNeeded(reason: String) {
+        let wasPending = self.pendingFirstFrameAuxiliaryRefresh
+        self.pendingFirstFrameAuxiliaryRefresh = true
+        if !wasPending {
+            ChatArchiveDebugTrace.log("chatFirstFrameAuxiliaryWorkDeferred", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("reason", reason)
+            ])
+        }
+        self.schedulePendingFirstFrameAuxiliaryRefreshFlushIfNeeded(trigger: reason)
+    }
+
+    internal func schedulePendingFirstFrameAuxiliaryRefreshFlushIfNeeded(trigger: String) {
+        guard ChatFirstFrameAuxiliaryWorkPolicy.shouldScheduleDeferredFlush(
+            hasPendingRefresh: self.pendingFirstFrameAuxiliaryRefresh,
+            isFlushScheduled: self.isFirstFrameAuxiliaryRefreshFlushScheduled,
+            hasViewAppeared: self.hasCompletedInitialHistoryViewAppearance,
+            didLogFirstMessagesVisible: self.chatOpenTimingSession?.didLogFirstMessagesVisible == true
+        ) else {
+            return
+        }
+
+        self.isFirstFrameAuxiliaryRefreshFlushScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+            self.isFirstFrameAuxiliaryRefreshFlushScheduled = false
+            guard ChatFirstFrameAuxiliaryWorkPolicy.shouldRunDeferredFlush(
+                hasPendingRefresh: self.pendingFirstFrameAuxiliaryRefresh,
+                hasViewAppeared: self.hasCompletedInitialHistoryViewAppearance,
+                didLogFirstMessagesVisible: self.chatOpenTimingSession?.didLogFirstMessagesVisible == true
+            ) else {
+                return
+            }
+
+            self.pendingFirstFrameAuxiliaryRefresh = false
+            ChatArchiveDebugTrace.log("chatFirstFrameAuxiliaryWorkFlush", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("trigger", trigger)
+            ])
+            self.performChatDatasourceAuxiliaryRefresh()
+        }
+    }
+
+    internal func cancelPendingFirstFrameAuxiliaryRefresh(reason: String) {
+        guard ChatFirstFrameAuxiliaryWorkPolicy.shouldCancelPendingRefreshOnDisappear(
+            hasPendingRefresh: self.pendingFirstFrameAuxiliaryRefresh
+        ) else {
+            return
+        }
+
+        self.pendingFirstFrameAuxiliaryRefresh = false
+        self.isFirstFrameAuxiliaryRefreshFlushScheduled = false
+        ChatArchiveDebugTrace.log("chatFirstFrameAuxiliaryWorkCancel", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("reason", reason)
+        ])
+    }
+
+    internal func performChatDatasourceAuxiliaryRefresh() {
+        self.refreshUnreadMentionsNavigatorState()
+        self.updateVisibleVoiceMessageQueue()
     }
 
     internal func finishInitialHistoryAppearanceIfPossible() {

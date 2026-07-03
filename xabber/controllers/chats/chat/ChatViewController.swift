@@ -1400,6 +1400,8 @@ class ChatViewController: MessagesViewController {
     var hasCompletedInitialHistoryViewAppearance: Bool = false
     var initialLatestOpenStabilizationState: ChatInitialLatestOpenStabilizationState = .inactive
     var initialFirstFrameLatestWarmupState: ChatFirstFrameLatestWarmupState = .inactive
+    var pendingFirstFrameAuxiliaryRefresh: Bool = false
+    var isFirstFrameAuxiliaryRefreshFlushScheduled: Bool = false
     var isApplyingBootstrapAnchorWindow: Bool = false
     var pendingForceLatestOpen: Bool = false
     var pendingForceLatestOpenAnimated: Bool = false
@@ -1935,6 +1937,7 @@ class ChatViewController: MessagesViewController {
             to: now
         )))
         ChatArchiveDebugTrace.log("chatOpenTimingFirstMessagesVisible", fields)
+        self.schedulePendingFirstFrameAuxiliaryRefreshFlushIfNeeded(trigger: reason)
         self.performInitialFirstFrameLatestWarmupIfNeeded(trigger: reason)
     }
 
@@ -4381,6 +4384,7 @@ class ChatViewController: MessagesViewController {
             user.mam.allowHistoryFixTask = false
         })
         LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
+        self.cancelPendingFirstFrameAuxiliaryRefresh(reason: "viewWillDisappear")
         self.flushPendingVisibleReadTarget()
         self.saveCurrentVisibleMessagePositionIfNeeded(reason: .viewWillDisappear)
 
@@ -4737,6 +4741,7 @@ class ChatViewController: MessagesViewController {
             reason: "viewDidAppear",
             modeDescription: "appearance"
         )
+        self.schedulePendingFirstFrameAuxiliaryRefreshFlushIfNeeded(trigger: "viewDidAppear")
         self.performInitialFirstFrameLatestWarmupIfNeeded(trigger: "viewDidAppear")
 //        self.topPanelState.accept(.audioPlayer)
         
