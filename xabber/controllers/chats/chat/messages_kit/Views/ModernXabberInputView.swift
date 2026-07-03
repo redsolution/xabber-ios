@@ -3060,12 +3060,35 @@ class ModernXabberInputView: UIView {
         if animated,
            #available(iOS 17.0, *),
            let symbolImage = Self.composerSendButtonSymbolImage(for: state)?.withRenderingMode(.alwaysTemplate) {
-            self.sendButton.imageView?.setSymbolImage(symbolImage, contentTransition: .replace)
-            self.setSendButtonImage(symbolImage)
-            return
+            if self.animateSendButtonIcon(to: symbolImage, for: state) {
+                return
+            }
         }
 
         self.setSendButtonImage(image)
+    }
+
+    @available(iOS 17.0, *)
+    private func animateSendButtonIcon(to image: UIImage, for state: SendButtonState) -> Bool {
+        self.sendButton.layoutIfNeeded()
+        guard let imageView = self.sendButton.imageView else {
+            return false
+        }
+
+        imageView.tintColor = self.sendButton.tintColor
+        imageView.setSymbolImage(
+            image,
+            contentTransition: .replace,
+            options: .nonRepeating
+        ) { [weak self] context in
+            guard context.isFinished,
+                  let self,
+                  self.sendButtonState == state else {
+                return
+            }
+            self.setSendButtonImage(image)
+        }
+        return true
     }
 
     private func setSendButtonImage(_ image: UIImage?) {

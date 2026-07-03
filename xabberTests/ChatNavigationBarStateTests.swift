@@ -127,21 +127,21 @@ final class ChatNavigationBarStateTests: XCTestCase {
 
         XCTAssertNil(item.customView)
         let itemImage = try XCTUnwrap(item.image)
-        XCTAssertEqual(ChatNavigationAvatarItemFactory.imageSize, 42, accuracy: 0.001)
-        XCTAssertEqual(itemImage.size.width, 42, accuracy: 0.001)
-        XCTAssertEqual(itemImage.size.height, 42, accuracy: 0.001)
+        XCTAssertEqual(ChatNavigationAvatarItemFactory.imageSize, 32, accuracy: 0.001)
+        XCTAssertEqual(itemImage.size.width, 32, accuracy: 0.001)
+        XCTAssertEqual(itemImage.size.height, 32, accuracy: 0.001)
         XCTAssertEqual(itemImage.renderingMode, .alwaysOriginal)
         XCTAssertEqual(item.accessibilityIdentifier, ChatNavigationAvatarItemFactory.accessibilityIdentifier)
     }
 
-    func testSavedMessagesAvatarFactoryUsesLargeNavbarAvatarImage() throws {
+    func testSavedMessagesAvatarFactoryUsesDefaultNavbarAvatarImage() throws {
         let image = try XCTUnwrap(ChatNavigationAvatarItemFactory.savedMessagesImage(
             backgroundColor: .systemBlue,
             iconTintColor: .white
         ))
 
-        XCTAssertEqual(image.size.width, 42, accuracy: 0.001)
-        XCTAssertEqual(image.size.height, 42, accuracy: 0.001)
+        XCTAssertEqual(image.size.width, 32, accuracy: 0.001)
+        XCTAssertEqual(image.size.height, 32, accuracy: 0.001)
     }
 
     func testCompactChatConfigureNavbarKeepsUIKitStockNavigationAppearance() {
