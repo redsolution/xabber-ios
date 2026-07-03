@@ -1173,6 +1173,7 @@ enum ChatHistoryLoadingOverlayPolicy {
 }
 
 enum ChatInteractiveRemoteArchiveTimeoutPolicy {
+    static let requestStartTimeout: TimeInterval = 12
     static let timeout: TimeInterval = 45
 }
 
@@ -1827,7 +1828,7 @@ struct ChatInteractiveHistoryPageLoadContext {
     let preLoadNewestArchivedId: String?
     let preLoadFullArchiveLoaded: Bool
     let preLoadNewerLiveEdgeReached: Bool
-    let remoteFetchStarted: Bool
+    var remoteFetchStarted: Bool
     let isArchiveEndVerificationProbe: Bool
     let canMutateOlderArchiveEnd: Bool
     let expectedWindowMaxIndex: Int
@@ -6611,6 +6612,58 @@ extension ChatViewController {
         }
     }
 
+    internal func handleInteractiveRemoteArchiveRequestStartTimeout(queryId: String) {
+        self.performOnMain {
+            guard let context = self.interactiveHistoryPageLoadContext,
+                  context.queryId == queryId else {
+                ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestStartTimeoutSkipped", [
+                    ("owner", self.owner),
+                    ("jid", self.jid),
+                    ("conversationType", self.conversationType.rawValue),
+                    ("queryId", queryId),
+                    ("reason", "queryMismatch"),
+                    ("activeQueryId", self.interactiveHistoryPageLoadContext?.queryId ?? "-"),
+                    ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-")
+                ])
+                return
+            }
+
+            guard !context.remoteFetchStarted else {
+                ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestStartTimeoutSkipped", [
+                    ("owner", self.owner),
+                    ("jid", self.jid),
+                    ("conversationType", self.conversationType.rawValue),
+                    ("queryId", queryId),
+                    ("reason", "alreadyStarted"),
+                    ("direction", context.direction),
+                    ("cursor", context.requestedCursorId ?? "-"),
+                    ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
+                    ("pageLocked", self.currentPage.locked)
+                ])
+                return
+            }
+
+            ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestStartTimeout", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("queryId", queryId),
+                ("direction", context.direction),
+                ("cursor", context.requestedCursorId ?? "-"),
+                ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
+                ("pageLocked", self.currentPage.locked),
+                ("remoteFetchStarted", context.remoteFetchStarted),
+                ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count)
+            ])
+            self.abortInteractiveHistoryPageLoad(
+                queryId: queryId,
+                reason: .requestStartFailed,
+                streamKind: .unknown,
+                errorDescription: "request dispatch did not start"
+            )
+        }
+    }
+
     private func abortInteractiveHistoryPageLoad(
         queryId: String?,
         reason: MessageArchiveRequestFailureReason,
@@ -6626,6 +6679,7 @@ extension ChatViewController {
             self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: self.virtualTimelineState)
             self.refreshScrollBoundaryAvailabilityCache(reason: "remoteLoadAbort")
         }
+        self.cancelInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
         self.cancelInteractiveHistoryCompletionRetry()
         self.interactiveHistoryPageLoadContext = nil
         self.activeHistoryBoundaryPlaceholder = nil
@@ -8227,6 +8281,7 @@ extension ChatViewController {
         }
         self.remoteHistoryFailureDispatcherTokens.removeAll()
         self.abortedRemoteHistoryQueryIds.removeAll()
+        self.cancelInteractiveRemoteArchiveRequestStartWatchdog()
         self.cancelInteractiveRemoteArchiveTimeout()
     }
 
@@ -8247,12 +8302,103 @@ extension ChatViewController {
     internal func unregisterRemoteHistoryPersistenceSource(queryId: String) {
         self.unregisterRemoteHistoryEndPageDispatcher(queryId: queryId)
         self.unregisterRemoteHistoryFailureDispatcher(queryId: queryId)
+        self.cancelInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
         self.cancelInteractiveRemoteArchiveTimeout(queryId: queryId)
         self.remoteHistoryRequestStartedAtByQueryId.removeValue(forKey: queryId)
         ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
             owner: self.owner,
             queryId: queryId
         )
+    }
+
+    internal func scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: String) {
+        guard queryId.isNotEmpty else {
+            return
+        }
+
+        self.cancelInteractiveRemoteArchiveRequestStartWatchdog()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.handleInteractiveRemoteArchiveRequestStartTimeout(queryId: queryId)
+        }
+        self.interactiveRemoteArchiveRequestStartWorkItem = workItem
+        self.interactiveRemoteArchiveRequestStartQueryId = queryId
+        ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestStartWatchdogScheduled", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("queryId", queryId),
+            ("timeoutMs", Int(ChatInteractiveRemoteArchiveTimeoutPolicy.requestStartTimeout * 1000)),
+            ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
+            ("interactiveQueryId", self.interactiveHistoryPageLoadContext?.queryId ?? "-")
+        ])
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + ChatInteractiveRemoteArchiveTimeoutPolicy.requestStartTimeout,
+            execute: workItem
+        )
+    }
+
+    internal func cancelInteractiveRemoteArchiveRequestStartWatchdog(queryId: String? = nil) {
+        guard let activeQueryId = self.interactiveRemoteArchiveRequestStartQueryId,
+              self.interactiveRemoteArchiveRequestStartWorkItem != nil else {
+            return
+        }
+
+        if let queryId = queryId,
+           queryId != activeQueryId {
+            ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestStartWatchdogCancelSkipped", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("queryId", queryId),
+                ("activeStartQueryId", activeQueryId),
+                ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
+                ("interactiveQueryId", self.interactiveHistoryPageLoadContext?.queryId ?? "-")
+            ])
+            return
+        }
+
+        self.interactiveRemoteArchiveRequestStartWorkItem?.cancel()
+        self.interactiveRemoteArchiveRequestStartWorkItem = nil
+        self.interactiveRemoteArchiveRequestStartQueryId = nil
+        ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestStartWatchdogCancelled", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("queryId", queryId ?? activeQueryId),
+            ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
+            ("interactiveQueryId", self.interactiveHistoryPageLoadContext?.queryId ?? "-")
+        ])
+    }
+
+    private func shouldDispatchInteractiveRemoteArchiveRequest(queryId: String) -> Bool {
+        guard let context = self.interactiveHistoryPageLoadContext,
+              context.queryId == queryId else {
+            ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestDispatchSkipped", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("queryId", queryId),
+                ("reason", "inactiveContext"),
+                ("activeQueryId", self.interactiveHistoryPageLoadContext?.queryId ?? "-"),
+                ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
+                ("aborted", self.abortedRemoteHistoryQueryIds.contains(queryId))
+            ])
+            return false
+        }
+
+        guard !context.remoteFetchStarted else {
+            ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestDispatchSkipped", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("queryId", queryId),
+                ("reason", "alreadyStarted"),
+                ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-")
+            ])
+            return false
+        }
+
+        return true
     }
 
     internal func markInteractiveRemoteArchiveRequestSent(
@@ -8272,6 +8418,24 @@ extension ChatViewController {
             return
         }
 
+        guard var context = self.interactiveHistoryPageLoadContext,
+              context.queryId == queryId else {
+            ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestStartSkipped", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("queryId", queryId),
+                ("reason", "inactiveContext"),
+                ("activeQueryId", self.interactiveHistoryPageLoadContext?.queryId ?? "-"),
+                ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
+                ("streamKind", streamKind.rawValue)
+            ])
+            return
+        }
+
+        context.remoteFetchStarted = true
+        self.interactiveHistoryPageLoadContext = context
+        self.cancelInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
         self.cancelInteractiveRemoteArchiveTimeout(queryId: queryId)
         let startedAt = Date()
         self.remoteHistoryRequestStartedAtByQueryId[queryId] = startedAt
@@ -8865,7 +9029,7 @@ extension ChatViewController {
                 preLoadNewestArchivedId: self.observedNewestArchivedId(),
                 preLoadFullArchiveLoaded: shouldProbePersistedArchiveEnd ? false : persistedArchiveEnded,
                 preLoadNewerLiveEdgeReached: chatArchiveState.newerLiveEdgeReached,
-                remoteFetchStarted: true,
+                remoteFetchStarted: false,
                 isArchiveEndVerificationProbe: shouldProbePersistedArchiveEnd,
                 canMutateOlderArchiveEnd: true,
                 expectedWindowMaxIndex: requestedWindow.maxIndex,
@@ -8878,6 +9042,7 @@ extension ChatViewController {
                 currentWindow: currentWindow,
                 localItemCount: remoteSnapshot?.items.count ?? 0
             )
+            self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 
             let requestRemoteHistory: (XMPPStream, MessageArchiveManager) -> String = { stream, mam in
                 mam.getNextHistory(
@@ -8902,6 +9067,9 @@ extension ChatViewController {
                 }
 
                 account.action { user, stream in
+                    guard self.shouldDispatchInteractiveRemoteArchiveRequest(queryId: queryId) else {
+                        return
+                    }
                     self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
                     let sentQueryId = requestRemoteHistory(stream, user.mam)
                     self.markInteractiveRemoteArchiveRequestSent(
@@ -8921,6 +9089,9 @@ extension ChatViewController {
             }
 
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                guard self.shouldDispatchInteractiveRemoteArchiveRequest(queryId: queryId) else {
+                    return
+                }
                 if let mam = session.mam {
                     self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
                     let sentQueryId = requestRemoteHistory(stream, mam)
@@ -8941,6 +9112,9 @@ extension ChatViewController {
                     requestFallbackHistory()
                 }
             } fail: {
+                guard self.shouldDispatchInteractiveRemoteArchiveRequest(queryId: queryId) else {
+                    return
+                }
                 requestFallbackHistory()
             }
         case .remote(.remoteNewerPage):
@@ -8981,7 +9155,7 @@ extension ChatViewController {
                 preLoadNewestArchivedId: self.observedNewestArchivedId(),
                 preLoadFullArchiveLoaded: effectiveArchiveEnded,
                 preLoadNewerLiveEdgeReached: chatArchiveState.newerLiveEdgeReached,
-                remoteFetchStarted: true,
+                remoteFetchStarted: false,
                 isArchiveEndVerificationProbe: false,
                 canMutateOlderArchiveEnd: false,
                 expectedWindowMaxIndex: requestedWindow.maxIndex,
@@ -8994,6 +9168,7 @@ extension ChatViewController {
                 currentWindow: currentWindow,
                 localItemCount: remoteSnapshot?.items.count ?? 0
             )
+            self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 
             let requestRemoteHistory: (XMPPStream, MessageArchiveManager) -> String = { stream, mam in
                 mam.getPrevHistory(
@@ -9018,6 +9193,9 @@ extension ChatViewController {
                 }
 
                 account.action { user, stream in
+                    guard self.shouldDispatchInteractiveRemoteArchiveRequest(queryId: queryId) else {
+                        return
+                    }
                     self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
                     let sentQueryId = requestRemoteHistory(stream, user.mam)
                     self.markInteractiveRemoteArchiveRequestSent(
@@ -9033,6 +9211,9 @@ extension ChatViewController {
             }
 
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                guard self.shouldDispatchInteractiveRemoteArchiveRequest(queryId: queryId) else {
+                    return
+                }
                 if let mam = session.mam {
                     self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
                     let sentQueryId = requestRemoteHistory(stream, mam)
@@ -9049,6 +9230,9 @@ extension ChatViewController {
                     requestFallbackHistory()
                 }
             } fail: {
+                guard self.shouldDispatchInteractiveRemoteArchiveRequest(queryId: queryId) else {
+                    return
+                }
                 requestFallbackHistory()
             }
         case .remote(.remoteGapRepairOlder(let gap)):
@@ -9083,7 +9267,7 @@ extension ChatViewController {
                 preLoadNewestArchivedId: self.observedNewestArchivedId(),
                 preLoadFullArchiveLoaded: effectiveArchiveEnded,
                 preLoadNewerLiveEdgeReached: chatArchiveState.newerLiveEdgeReached,
-                remoteFetchStarted: true,
+                remoteFetchStarted: false,
                 isArchiveEndVerificationProbe: false,
                 canMutateOlderArchiveEnd: false,
                 expectedWindowMaxIndex: requestedWindow.maxIndex,
@@ -9096,6 +9280,7 @@ extension ChatViewController {
                 currentWindow: currentWindow,
                 localItemCount: remoteSnapshot?.items.count ?? 0
             )
+            self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 
             let requestRemoteHistory: (XMPPStream, MessageArchiveManager) -> String = { stream, mam in
                 mam.getGapRepairHistory(
@@ -9121,6 +9306,9 @@ extension ChatViewController {
                 }
 
                 account.action { user, stream in
+                    guard self.shouldDispatchInteractiveRemoteArchiveRequest(queryId: queryId) else {
+                        return
+                    }
                     self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
                     let sentQueryId = requestRemoteHistory(stream, user.mam)
                     self.markInteractiveRemoteArchiveRequestSent(
@@ -9136,6 +9324,9 @@ extension ChatViewController {
             }
 
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                guard self.shouldDispatchInteractiveRemoteArchiveRequest(queryId: queryId) else {
+                    return
+                }
                 if let mam = session.mam {
                     self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
                     let sentQueryId = requestRemoteHistory(stream, mam)
@@ -9152,6 +9343,9 @@ extension ChatViewController {
                     requestFallbackHistory()
                 }
             } fail: {
+                guard self.shouldDispatchInteractiveRemoteArchiveRequest(queryId: queryId) else {
+                    return
+                }
                 requestFallbackHistory()
             }
         case .remote(.remoteGapRepairNewer(let gap)):
@@ -9186,7 +9380,7 @@ extension ChatViewController {
                 preLoadNewestArchivedId: self.observedNewestArchivedId(),
                 preLoadFullArchiveLoaded: effectiveArchiveEnded,
                 preLoadNewerLiveEdgeReached: chatArchiveState.newerLiveEdgeReached,
-                remoteFetchStarted: true,
+                remoteFetchStarted: false,
                 isArchiveEndVerificationProbe: false,
                 canMutateOlderArchiveEnd: false,
                 expectedWindowMaxIndex: requestedWindow.maxIndex,
@@ -9199,6 +9393,7 @@ extension ChatViewController {
                 currentWindow: currentWindow,
                 localItemCount: remoteSnapshot?.items.count ?? 0
             )
+            self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 
             let requestRemoteHistory: (XMPPStream, MessageArchiveManager) -> String = { stream, mam in
                 mam.getGapRepairHistory(
@@ -9224,6 +9419,9 @@ extension ChatViewController {
                 }
 
                 account.action { user, stream in
+                    guard self.shouldDispatchInteractiveRemoteArchiveRequest(queryId: queryId) else {
+                        return
+                    }
                     self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
                     let sentQueryId = requestRemoteHistory(stream, user.mam)
                     self.markInteractiveRemoteArchiveRequestSent(
@@ -9239,6 +9437,9 @@ extension ChatViewController {
             }
 
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                guard self.shouldDispatchInteractiveRemoteArchiveRequest(queryId: queryId) else {
+                    return
+                }
                 if let mam = session.mam {
                     self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
                     let sentQueryId = requestRemoteHistory(stream, mam)
@@ -9255,6 +9456,9 @@ extension ChatViewController {
                     requestFallbackHistory()
                 }
             } fail: {
+                guard self.shouldDispatchInteractiveRemoteArchiveRequest(queryId: queryId) else {
+                    return
+                }
                 requestFallbackHistory()
             }
         case .endReached, .noOp, .remote(.localOnly), .remote(.endReached):

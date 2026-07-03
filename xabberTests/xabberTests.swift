@@ -9893,6 +9893,88 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
         XCTAssertEqual(controller.virtualTimelineState.activePlaceholder, .top)
     }
 
+    func testRequestStartTimeoutClearsArmedButUnsentRemotePagingState() {
+        let controller = makeController()
+        controller.interactiveHistoryPageLoadContext = makeContext(
+            queryId: "active-query",
+            remoteFetchStarted: false
+        )
+        controller.virtualTimelineState = makeTimelineState(queryId: "active-query")
+        controller.boundedTimelineWindowState = ChatBoundedTimelineWindowState(
+            virtualState: controller.virtualTimelineState
+        )
+        controller.currentPage.locked = true
+        controller.currentPage.isLoading = true
+        controller.canLoadDatasource = false
+
+        controller.handleInteractiveRemoteArchiveRequestStartTimeout(queryId: "active-query")
+
+        XCTAssertNil(controller.interactiveHistoryPageLoadContext)
+        XCTAssertFalse(controller.currentPage.locked)
+        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertTrue(controller.canLoadDatasource)
+        XCTAssertNil(controller.virtualTimelineState.activeRemoteLoad)
+        XCTAssertNil(controller.virtualTimelineState.activePlaceholder)
+        XCTAssertFalse(controller.virtualTimelineState.segments.contains(.loadingPlaceholder(.top)))
+    }
+
+    func testRequestStartTimeoutIgnoresAlreadyStartedRemotePagingState() {
+        let controller = makeController()
+        controller.interactiveHistoryPageLoadContext = makeContext(
+            queryId: "active-query",
+            remoteFetchStarted: true
+        )
+        controller.virtualTimelineState = makeTimelineState(queryId: "active-query")
+        controller.boundedTimelineWindowState = ChatBoundedTimelineWindowState(
+            virtualState: controller.virtualTimelineState
+        )
+        controller.currentPage.locked = true
+        controller.currentPage.isLoading = true
+        controller.canLoadDatasource = false
+
+        controller.handleInteractiveRemoteArchiveRequestStartTimeout(queryId: "active-query")
+
+        XCTAssertEqual(controller.interactiveHistoryPageLoadContext?.queryId, "active-query")
+        XCTAssertTrue(controller.interactiveHistoryPageLoadContext?.remoteFetchStarted == true)
+        XCTAssertTrue(controller.currentPage.locked)
+        XCTAssertTrue(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.canLoadDatasource)
+        XCTAssertEqual(controller.virtualTimelineState.activeRemoteLoad?.queryId, "active-query")
+        XCTAssertEqual(controller.virtualTimelineState.activePlaceholder, .top)
+    }
+
+    func testMarkRemoteArchiveRequestSentMarksInteractiveContextAsStarted() {
+        let controller = makeController()
+        controller.interactiveHistoryPageLoadContext = makeContext(
+            queryId: "active-query",
+            remoteFetchStarted: false
+        )
+
+        controller.markInteractiveRemoteArchiveRequestSent(
+            queryId: "active-query",
+            direction: .older,
+            cursorId: "requested-cursor",
+            pageSize: 100,
+            streamKind: .uiAction,
+            resource: "xabber-ios-test_ui_upgrade_task",
+            bootstrapActive: false
+        )
+
+        XCTAssertTrue(controller.interactiveHistoryPageLoadContext?.remoteFetchStarted == true)
+        controller.cancelInteractiveRemoteArchiveTimeout(queryId: "active-query")
+    }
+
+    func testStaleRequestStartWatchdogCancelDoesNotCancelActiveQuery() {
+        let controller = makeController()
+
+        controller.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: "active-query")
+        controller.cancelInteractiveRemoteArchiveRequestStartWatchdog(queryId: "stale-query")
+
+        XCTAssertEqual(controller.interactiveRemoteArchiveRequestStartQueryId, "active-query")
+        XCTAssertNotNil(controller.interactiveRemoteArchiveRequestStartWorkItem)
+        controller.cancelInteractiveRemoteArchiveRequestStartWatchdog(queryId: "active-query")
+    }
+
     func testInteractiveOlderCursorSelectionUsesTimelineOldestBeforePersistedCursor() {
         let controller = makeController()
         controller.virtualTimelineState = makeTimelineState(queryId: "active-query")
@@ -9931,7 +10013,10 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
         return controller
     }
 
-    private func makeContext(queryId: String) -> ChatInteractiveHistoryPageLoadContext {
+    private func makeContext(
+        queryId: String,
+        remoteFetchStarted: Bool = true
+    ) -> ChatInteractiveHistoryPageLoadContext {
         ChatInteractiveHistoryPageLoadContext(
             queryId: queryId,
             direction: .older,
@@ -9945,7 +10030,7 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
             preLoadNewestArchivedId: "199",
             preLoadFullArchiveLoaded: false,
             preLoadNewerLiveEdgeReached: true,
-            remoteFetchStarted: true,
+            remoteFetchStarted: remoteFetchStarted,
             isArchiveEndVerificationProbe: false,
             canMutateOlderArchiveEnd: true,
             expectedWindowMaxIndex: 100,

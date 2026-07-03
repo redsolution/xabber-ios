@@ -1479,6 +1479,8 @@ class ChatViewController: MessagesViewController {
     var hasRequestedMentionUsersRefresh: Bool = false
     var interactiveHistoryPageLoadContext: ChatInteractiveHistoryPageLoadContext? = nil
     var interactiveHistoryCompletionRetryWorkItem: DispatchWorkItem? = nil
+    var interactiveRemoteArchiveRequestStartWorkItem: DispatchWorkItem? = nil
+    var interactiveRemoteArchiveRequestStartQueryId: String? = nil
     var interactiveRemoteArchiveTimeoutWorkItem: DispatchWorkItem? = nil
     var remoteHistoryFinishingQueryId: String? = nil
     internal var remoteHistoryEndPageDispatcherTokens: [String: MessageArchiveEndPageDispatcher.Token] = [:]
