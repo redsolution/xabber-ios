@@ -1524,6 +1524,7 @@ class ChatViewController: MessagesViewController {
     var initialBootstrapPageEndState: MessageArchivePageEndState? = nil
     var initialBootstrapResultCount: Int? = nil
     var initialBootstrapPersistedMessageCount: Int? = nil
+    var initialBootstrapPersistedRowsForQuery: Int? = nil
     var initialBootstrapVisibleRowsForConversation: Int? = nil
     var didEnterInitialBootstrapObserverSettlePhase: Bool = false
     var didObserveInitialBootstrapPostIdleTick: Bool = false

@@ -1838,6 +1838,7 @@ struct ChatInteractiveHistoryPageLoadContext {
     var resultFirst: String = ""
     var resultLast: String = ""
     var resultCount: Int = 0
+    var persistedRowsForQuery: Int = 0
     var visibleRowsForConversation: Int = 0
     var didEnterObserverSettlePhase: Bool = false
     var didObservePostIdleTick: Bool = false
@@ -2010,7 +2011,8 @@ enum ChatInitialBootstrapArchiveEndCommitPolicy {
     static func shouldCommitArchiveEnd(
         state: MessageArchivePageEndState?,
         resultCount: Int?,
-        visibleRowsForLatestPage: Int
+        visibleRowsForLatestPage: Int,
+        persistedRowsForQuery: Int = 0
     ) -> Bool {
         guard state?.archiveEnded == true,
               let resultCount else {
@@ -2021,7 +2023,7 @@ enum ChatInitialBootstrapArchiveEndCommitPolicy {
             return true
         }
 
-        return visibleRowsForLatestPage > 0
+        return visibleRowsForLatestPage > 0 || persistedRowsForQuery > 0
     }
 }
 
@@ -2361,6 +2363,117 @@ enum ChatHistoryPageOutcomePolicy {
         }
 
         return .duplicateOrNoAdvance(persistedCursorId: currentCursorId)
+    }
+}
+
+struct ChatArchiveCoverageCommitDecision: Equatable {
+    let resolvedCursorId: String?
+    let shouldCommitCoverage: Bool
+    let shouldAdvanceOlderCursor: Bool
+    let nextFullArchiveLoaded: Bool
+    let shouldMarkNewerLiveEdgeReached: Bool
+    let hasPersistenceProof: Bool
+    let cursorRepeatedAfterCompletion: Bool
+    let duplicateCursorSuppressed: Bool
+}
+
+enum ChatArchiveCoverageCommitPolicy {
+    static func resolve(
+        direction: ChatHistoryPageDirection,
+        snapshot: ChatArchiveStateSnapshot,
+        requestedCursorId: String?,
+        observedCursorId: String?,
+        transportFirst: String,
+        transportLast: String,
+        resultCount: Int,
+        persistedRowsForQuery: Int,
+        visibleRowsForConversation: Int,
+        queryExhausted: Bool,
+        canMutateOlderArchiveEnd: Bool,
+        coverageUpdateKind: RegularArchiveCoverageUpdateKind
+    ) -> ChatArchiveCoverageCommitDecision {
+        let hasPersistenceProof = persistedRowsForQuery > 0 || visibleRowsForConversation > 0
+        let hasTransportRange = resultCount > 0 && (transportFirst.isNotEmpty || transportLast.isNotEmpty)
+        let hasTerminalProof = queryExhausted && (resultCount == 0 || hasPersistenceProof)
+        let shouldCommitCoverage = coverageUpdateKind.shouldMutateCoverage &&
+            hasTransportRange &&
+            hasPersistenceProof
+        let shouldAdvanceOlderCursor = shouldAdvanceOlderCursor(
+            direction: direction,
+            updateKind: coverageUpdateKind,
+            hasPersistenceProof: hasPersistenceProof
+        )
+        let resolvedCursorId: String?
+
+        if shouldAdvanceOlderCursor {
+            resolvedCursorId = ChatArchiveStateMutationPolicy.resolveCursorId(
+                direction: direction,
+                observedCursorId: observedCursorId,
+                transportFirst: transportFirst,
+                transportLast: transportLast,
+                currentPersistedCursorId: snapshot.persistedCursorId,
+                hasPersistenceProof: hasPersistenceProof
+            )
+        } else {
+            resolvedCursorId = snapshot.persistedCursorId
+        }
+        let requestedCursorId = requestedCursorId?.isNotEmpty == true ? requestedCursorId : nil
+        let cursorRepeatedAfterCompletion = requestedCursorId != nil && requestedCursorId == resolvedCursorId
+        let duplicateCursorSuppressed = cursorRepeatedAfterCompletion &&
+            resultCount > 0 &&
+            !queryExhausted
+
+        let shouldMarkOlderArchiveEnd = direction == .older &&
+            hasTerminalProof &&
+            canMutateOlderArchiveEnd &&
+            shouldMarkOlderArchiveEnd(updateKind: coverageUpdateKind)
+        let shouldClearOlderArchiveEnd = direction == .older &&
+            hasPersistenceProof &&
+            shouldAdvanceOlderCursor
+        let shouldMarkNewerLiveEdgeReached = direction == .newer &&
+            hasTerminalProof &&
+            shouldMarkNewerLiveEdgeReached(updateKind: coverageUpdateKind)
+
+        return ChatArchiveCoverageCommitDecision(
+            resolvedCursorId: resolvedCursorId,
+            shouldCommitCoverage: shouldCommitCoverage,
+            shouldAdvanceOlderCursor: shouldAdvanceOlderCursor,
+            nextFullArchiveLoaded: shouldMarkOlderArchiveEnd ? true : (shouldClearOlderArchiveEnd ? false : snapshot.fullArchiveLoaded),
+            shouldMarkNewerLiveEdgeReached: shouldMarkNewerLiveEdgeReached,
+            hasPersistenceProof: hasPersistenceProof,
+            cursorRepeatedAfterCompletion: cursorRepeatedAfterCompletion,
+            duplicateCursorSuppressed: duplicateCursorSuppressed
+        )
+    }
+
+    private static func shouldAdvanceOlderCursor(
+        direction: ChatHistoryPageDirection,
+        updateKind: RegularArchiveCoverageUpdateKind,
+        hasPersistenceProof: Bool
+    ) -> Bool {
+        guard direction == .older,
+              hasPersistenceProof else {
+            return false
+        }
+
+        if case .pageOlder = updateKind {
+            return true
+        }
+        return false
+    }
+
+    private static func shouldMarkNewerLiveEdgeReached(updateKind: RegularArchiveCoverageUpdateKind) -> Bool {
+        if case .pageNewer = updateKind {
+            return true
+        }
+        return false
+    }
+
+    private static func shouldMarkOlderArchiveEnd(updateKind: RegularArchiveCoverageUpdateKind) -> Bool {
+        if case .pageOlder = updateKind {
+            return true
+        }
+        return false
     }
 }
 
@@ -2739,12 +2852,43 @@ enum ChatUnreadMentionFloatingControlPolicy {
 
 enum ChatArchiveStateMutationPolicy {
     static func resolveCursorId(
+        direction: ChatHistoryPageDirection,
+        observedCursorId: String?,
+        transportFirst: String,
+        transportLast: String,
+        currentPersistedCursorId: String?,
+        hasPersistenceProof: Bool
+    ) -> String? {
+        let currentCursorId = currentPersistedCursorId?.isNotEmpty == true ? currentPersistedCursorId : nil
+        let observedCursorId = observedCursorId?.isNotEmpty == true ? observedCursorId : nil
+        if direction == .older,
+           hasPersistenceProof {
+            let transportCursorId = MessageArchiveManager.HistoryCursorPolicy.persistedOlderCursorId(
+                purpose: .pageOlder,
+                first: transportFirst,
+                last: transportLast,
+                current: currentCursorId
+            )
+            if let transportCursorId, transportCursorId.isNotEmpty {
+                return transportCursorId
+            }
+        }
+
+        let resolvedCursorId = observedCursorId ?? currentCursorId
+        guard let resolvedCursorId, resolvedCursorId.isNotEmpty else {
+            return nil
+        }
+        return resolvedCursorId
+    }
+
+    static func resolveCursorId(
         observedCursorId: String?,
         transportFirst: String,
         transportLast: String,
         currentPersistedCursorId: String?
     ) -> String? {
         let currentCursorId = currentPersistedCursorId?.isNotEmpty == true ? currentPersistedCursorId : nil
+        let observedCursorId = observedCursorId?.isNotEmpty == true ? observedCursorId : nil
         let fallbackCursorId = MessageArchiveManager.HistoryCursorPolicy.persistedOlderCursorId(
             purpose: .pageOlder,
             first: transportFirst,
@@ -6125,6 +6269,7 @@ extension ChatViewController {
         self.initialBootstrapPageEndState = nil
         self.initialBootstrapResultCount = nil
         self.initialBootstrapPersistedMessageCount = nil
+        self.initialBootstrapPersistedRowsForQuery = nil
         self.initialBootstrapVisibleRowsForConversation = nil
         self.didEnterInitialBootstrapObserverSettlePhase = false
         self.didObserveInitialBootstrapPostIdleTick = false
@@ -6141,6 +6286,7 @@ extension ChatViewController {
         self.initialBootstrapPageEndState = nil
         self.initialBootstrapResultCount = nil
         self.initialBootstrapPersistedMessageCount = nil
+        self.initialBootstrapPersistedRowsForQuery = nil
         self.initialBootstrapVisibleRowsForConversation = nil
         self.didEnterInitialBootstrapObserverSettlePhase = false
         self.didObserveInitialBootstrapPostIdleTick = false
@@ -6170,12 +6316,13 @@ extension ChatViewController {
         let queryId = self.initialBootstrapQueryId
         let localMessageCount = self.localHistoryMessageCountForBootstrap()
         let visibleRowsForLatestPage = self.initialBootstrapVisibleRowsForConversation ?? 0
-        let hasMessages = visibleRowsForLatestPage > 0
+        let persistedRowsForQuery = self.initialBootstrapPersistedRowsForQuery ?? 0
+        let hasMessages = visibleRowsForLatestPage > 0 || persistedRowsForQuery > 0
         let didConfirmEmpty = self.initialBootstrapResultCount == 0
         let isMessagePipelineIdle = queryId.flatMap {
             !ChatRemoteHistoryCompletionCoordinator.hasPendingMessages(owner: self.owner, queryId: $0)
         } ?? true
-        let isArchivePagePersisted = visibleRowsForLatestPage > 0
+        let isArchivePagePersisted = visibleRowsForLatestPage > 0 || persistedRowsForQuery > 0
 
         let requiresObserverSettle = visibleRowsForLatestPage > 0
         if self.didReceiveInitialBootstrapEndPage,
@@ -6207,7 +6354,8 @@ extension ChatViewController {
         let shouldCommitArchiveEnd = ChatInitialBootstrapArchiveEndCommitPolicy.shouldCommitArchiveEnd(
             state: self.initialBootstrapPageEndState,
             resultCount: self.initialBootstrapResultCount,
-            visibleRowsForLatestPage: visibleRowsForLatestPage
+            visibleRowsForLatestPage: visibleRowsForLatestPage,
+            persistedRowsForQuery: persistedRowsForQuery
         )
         let resolvedCursorId = ChatArchiveStateMutationPolicy.resolveCursorId(
             observedCursorId: self.observedOldestArchivedId(),
@@ -6228,7 +6376,7 @@ extension ChatViewController {
         self.rebuildUnreadMentionItems()
         let persistedMessageCount = self.initialBootstrapPersistedMessageCount ?? 0
         self.resetInitialBootstrapTracking()
-        DDLogDebug("ChatViewController.initialBootstrap finished queryId=\(queryId ?? "-") persisted=\(persistedMessageCount) visibleRows=\(visibleRowsForLatestPage) localCount=\(localMessageCount)")
+        DDLogDebug("ChatViewController.initialBootstrap finished queryId=\(queryId ?? "-") persisted=\(persistedMessageCount) persistedRowsForQuery=\(persistedRowsForQuery) visibleRows=\(visibleRowsForLatestPage) localCount=\(localMessageCount)")
         self.applyBootstrapViewState(self.currentBootstrapViewState(), forceRender: true)
         return true
     }
@@ -6287,6 +6435,7 @@ extension ChatViewController {
         state: MessageArchivePageEndState,
         count: Int,
         persistedMessageCount: Int,
+        persistedRowsForQuery: Int = 0,
         visibleRowsForConversation: Int
     ) -> Bool {
         guard queryId == self.initialBootstrapQueryId else {
@@ -6297,6 +6446,7 @@ extension ChatViewController {
         self.initialBootstrapPageEndState = state
         self.initialBootstrapResultCount = count
         self.initialBootstrapPersistedMessageCount = persistedMessageCount
+        self.initialBootstrapPersistedRowsForQuery = persistedRowsForQuery
         self.initialBootstrapVisibleRowsForConversation = visibleRowsForConversation
         _ = self.completeInitialBootstrapIfNeeded()
         return true
@@ -6581,6 +6731,7 @@ extension ChatViewController {
         first: String,
         last: String,
         count: Int,
+        persistedRowsForQuery: Int = 0,
         visibleRowsForConversation: Int = 0
     ) -> Bool {
         guard var context = self.interactiveHistoryPageLoadContext,
@@ -6590,14 +6741,17 @@ extension ChatViewController {
 
         context.didReceiveEndPage = true
         context.queryExhausted = state.queryExhausted
-        context.persistedMessageCount = visibleRowsForConversation > 0
-            ? max(state.persistedMessageCount, visibleRowsForConversation)
-            : 0
+        context.persistedMessageCount = max(
+            state.persistedMessageCount,
+            persistedRowsForQuery,
+            visibleRowsForConversation
+        )
         context.resultFirst = first
         context.resultLast = last
         context.resultCount = count
+        context.persistedRowsForQuery = persistedRowsForQuery
         context.visibleRowsForConversation = visibleRowsForConversation
-        context.isArchivePagePersisted = visibleRowsForConversation > 0
+        context.isArchivePagePersisted = persistedRowsForQuery > 0 || visibleRowsForConversation > 0
         self.interactiveHistoryPageLoadContext = context
         if !self.tryFinishInteractiveHistoryPageLoadIfReady() {
             self.scheduleInteractiveHistoryCompletionRetry(queryId: queryId)
@@ -6671,8 +6825,11 @@ extension ChatViewController {
 
         if !hasProviderVisibleRows,
            context.resultCount > 0 {
+            let eventName = context.persistedRowsForQuery > 0
+                ? "nonVisiblePersistedRows"
+                : "persistenceMissing"
             DDLogDebug(
-                "ChatViewController.interactivePaging persistenceMissing queryId=\(context.queryId) count=\(context.resultCount) visibleRows=\(context.visibleRowsForConversation) direction=\(context.direction)"
+                "ChatViewController.interactivePaging \(eventName) queryId=\(context.queryId) count=\(context.resultCount) persistedRowsForQuery=\(context.persistedRowsForQuery) visibleRows=\(context.visibleRowsForConversation) direction=\(context.direction)"
             )
         }
 
@@ -6701,15 +6858,16 @@ extension ChatViewController {
             mode: applyMode,
             animated: false,
             completion: { applyResult in
-                if applyResult.didAdvance {
-                    self.commitRemoteHistoryArchiveStateAfterApply(
-                        context: context,
-                        applyResult: applyResult,
-                        baseArchiveState: currentArchiveState
-                    )
-                } else if context.resultCount > 0 {
+                self.commitRemoteHistoryArchiveStateAfterApply(
+                    context: context,
+                    applyResult: applyResult,
+                    baseArchiveState: currentArchiveState
+                )
+
+                if !applyResult.didAdvance,
+                   context.resultCount > 0 {
                     DDLogDebug(
-                        "ChatViewController.remoteHistoryApplyNoAdvance queryId=\(context.queryId) direction=\(context.direction) visibleRows=\(context.visibleRowsForConversation) count=\(context.resultCount) oldOldest=\(applyResult.previousOldestArchivedId ?? "-") newOldest=\(applyResult.newOldestArchivedId ?? "-") oldNewest=\(applyResult.previousNewestArchivedId ?? "-") newNewest=\(applyResult.newNewestArchivedId ?? "-")"
+                        "ChatViewController.remoteHistoryApplyNoAdvance queryId=\(context.queryId) direction=\(context.direction) persistedRowsForQuery=\(context.persistedRowsForQuery) visibleRows=\(context.visibleRowsForConversation) count=\(context.resultCount) oldOldest=\(applyResult.previousOldestArchivedId ?? "-") newOldest=\(applyResult.newOldestArchivedId ?? "-") oldNewest=\(applyResult.previousNewestArchivedId ?? "-") newNewest=\(applyResult.newNewestArchivedId ?? "-")"
                     )
                 }
 
@@ -6720,7 +6878,7 @@ extension ChatViewController {
                 self.currentPage.unlock()
                 self.remoteHistoryFinishingQueryId = nil
                 DDLogDebug(
-                    "ChatViewController.remoteHistoryApplySuccess queryId=\(context.queryId) direction=\(context.direction) didAdvance=\(applyResult.didAdvance) visibleRows=\(context.visibleRowsForConversation) persisted=\(context.persistedMessageCount ?? 0) items=\(applyResult.itemCount) oldOldest=\(applyResult.previousOldestArchivedId ?? "-") newOldest=\(applyResult.newOldestArchivedId ?? "-") oldNewest=\(applyResult.previousNewestArchivedId ?? "-") newNewest=\(applyResult.newNewestArchivedId ?? "-") queueWaitMs=\(applyResult.queueWaitMs) mapMs=\(applyResult.mapDurationMs)"
+                    "ChatViewController.remoteHistoryApplySuccess queryId=\(context.queryId) direction=\(context.direction) didAdvance=\(applyResult.didAdvance) persistedRowsForQuery=\(context.persistedRowsForQuery) visibleRows=\(context.visibleRowsForConversation) persisted=\(context.persistedMessageCount ?? 0) items=\(applyResult.itemCount) oldOldest=\(applyResult.previousOldestArchivedId ?? "-") newOldest=\(applyResult.newOldestArchivedId ?? "-") oldNewest=\(applyResult.previousNewestArchivedId ?? "-") newNewest=\(applyResult.newNewestArchivedId ?? "-") queueWaitMs=\(applyResult.queueWaitMs) mapMs=\(applyResult.mapDurationMs)"
                 )
             },
             cancelledCompletion: {
@@ -8179,8 +8337,22 @@ extension ChatViewController {
         applyResult: ChatRemoteHistoryApplyResult,
         baseArchiveState: ChatArchiveStateSnapshot
     ) {
-        if context.visibleRowsForConversation > 0,
-           context.resultCount > 0 {
+        let coverageDecision = ChatArchiveCoverageCommitPolicy.resolve(
+            direction: context.direction,
+            snapshot: baseArchiveState,
+            requestedCursorId: context.requestedCursorId,
+            observedCursorId: applyResult.newOldestArchivedId,
+            transportFirst: context.resultFirst,
+            transportLast: context.resultLast,
+            resultCount: context.resultCount,
+            persistedRowsForQuery: context.persistedRowsForQuery,
+            visibleRowsForConversation: context.visibleRowsForConversation,
+            queryExhausted: context.queryExhausted,
+            canMutateOlderArchiveEnd: context.canMutateOlderArchiveEnd,
+            coverageUpdateKind: context.coverageUpdateKind
+        )
+
+        if coverageDecision.shouldCommitCoverage {
             self.applyConversationArchiveLoadedRangeIfNeeded(
                 first: context.resultFirst,
                 last: context.resultLast,
@@ -8188,57 +8360,59 @@ extension ChatViewController {
             )
         }
 
-        let archiveStateForMutation = context.visibleRowsForConversation > 0
+        let archiveStateForMutation = coverageDecision.shouldCommitCoverage
             ? self.loadChatArchiveStateSnapshot()
             : baseArchiveState
-        let canUseTransportCursor = context.resultCount == 0 || context.visibleRowsForConversation > 0
-        let resolvedCursorId = ChatArchiveStateMutationPolicy.resolveCursorId(
-            observedCursorId: applyResult.newOldestArchivedId,
-            transportFirst: context.resultFirst,
-            transportLast: context.resultLast,
-            currentPersistedCursorId: archiveStateForMutation.persistedCursorId
-        )
-        let effectiveResolvedCursorId = canUseTransportCursor
-            ? resolvedCursorId
+        let effectiveResolvedCursorId = coverageDecision.shouldAdvanceOlderCursor
+            ? coverageDecision.resolvedCursorId
             : archiveStateForMutation.persistedCursorId
-        let outcome = ChatHistoryPageOutcomePolicy.resolve(
-            queryExhausted: context.queryExhausted,
-            didAdvance: applyResult.didAdvance,
-            persistedMessageCount: context.persistedMessageCount ?? 0,
-            requestedCursorId: context.requestedCursorId,
-            currentCursorId: effectiveResolvedCursorId
-        )
-        let nextFullArchiveLoaded: Bool
 
-        switch outcome {
-        case .advanced:
-            nextFullArchiveLoaded = false
+        if context.direction == .older,
+           coverageDecision.nextFullArchiveLoaded,
+           context.canMutateOlderArchiveEnd {
+            self.hasConfirmedArchiveEndThisSession = true
+        } else if context.direction == .older,
+                  coverageDecision.hasPersistenceProof,
+                  coverageDecision.shouldAdvanceOlderCursor {
             self.hasConfirmedArchiveEndThisSession = false
-            if context.isArchiveEndVerificationProbe {
-                self.hasUsedArchiveEndVerificationProbe = true
-            }
-        case .duplicateOrNoAdvance:
-            nextFullArchiveLoaded = false
-            self.hasConfirmedArchiveEndThisSession = false
-            if context.isArchiveEndVerificationProbe {
-                self.hasUsedArchiveEndVerificationProbe = true
-            }
-        case .emptyExhausted:
-            nextFullArchiveLoaded = context.canMutateOlderArchiveEnd
-            self.hasConfirmedArchiveEndThisSession = context.canMutateOlderArchiveEnd
-            if context.isArchiveEndVerificationProbe {
-                self.hasUsedArchiveEndVerificationProbe = true
-            }
+        }
+        if context.isArchiveEndVerificationProbe {
+            self.hasUsedArchiveEndVerificationProbe = true
         }
 
         let archiveStatePlan = ChatArchiveStateMutationPolicy.resolvePlan(
             snapshot: archiveStateForMutation,
             resolvedCursorId: effectiveResolvedCursorId,
-            nextFullArchiveLoaded: nextFullArchiveLoaded
+            nextFullArchiveLoaded: coverageDecision.nextFullArchiveLoaded
         )
+        ChatArchiveDebugTrace.log("remoteHistoryArchiveCommitDecision", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("queryId", context.queryId),
+            ("direction", context.direction),
+            ("requestedCursor", context.requestedCursorId ?? "-"),
+            ("observedCursor", applyResult.newOldestArchivedId ?? "-"),
+            ("transportFirst", context.resultFirst),
+            ("transportLast", context.resultLast),
+            ("persistedRowsForQuery", context.persistedRowsForQuery),
+            ("visibleRows", context.visibleRowsForConversation),
+            ("resultCount", context.resultCount),
+            ("queryExhausted", context.queryExhausted),
+            ("hasPersistenceProof", coverageDecision.hasPersistenceProof),
+            ("commitCoverage", coverageDecision.shouldCommitCoverage),
+            ("advanceOlderCursor", coverageDecision.shouldAdvanceOlderCursor),
+            ("resolvedCursor", effectiveResolvedCursorId ?? "-"),
+            ("previousCursor", archiveStateForMutation.persistedCursorId ?? "-"),
+            ("nextFullArchiveLoaded", coverageDecision.nextFullArchiveLoaded),
+            ("markNewerLiveEdge", coverageDecision.shouldMarkNewerLiveEdgeReached),
+            ("cursorRepeatedAfterCompletion", coverageDecision.cursorRepeatedAfterCompletion),
+            ("duplicateCursorSuppressed", coverageDecision.duplicateCursorSuppressed)
+        ])
         _ = self.applyChatArchiveStateIfNeeded(
             snapshot: archiveStateForMutation,
-            plan: archiveStatePlan
+            plan: archiveStatePlan,
+            markNewerLiveEdgeReached: coverageDecision.shouldMarkNewerLiveEdgeReached
         )
     }
 

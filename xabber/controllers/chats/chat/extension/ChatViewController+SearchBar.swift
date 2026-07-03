@@ -3034,6 +3034,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 state: effectiveState,
                 count: count,
                 persistedMessageCount: effectiveState.persistedMessageCount,
+                persistedRowsForQuery: completion.persistenceSummary.persistedRows,
                 visibleRowsForConversation: visibleRows
             ) {
                 ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
@@ -3042,7 +3043,15 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 ])
                 return
             }
-            if self.completeInteractiveHistoryPageLoadIfNeeded(queryId: queryId, state: effectiveState, first: first, last: last, count: count, visibleRowsForConversation: visibleRows) {
+            if self.completeInteractiveHistoryPageLoadIfNeeded(
+                queryId: queryId,
+                state: effectiveState,
+                first: first,
+                last: last,
+                count: count,
+                persistedRowsForQuery: completion.persistenceSummary.persistedRows,
+                visibleRowsForConversation: visibleRows
+            ) {
                 ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
                     ("queryId", queryId),
                     ("handler", "interactivePaging")

@@ -8754,6 +8754,21 @@ final class ChatBootstrapStateTests: XCTestCase {
             )
         )
     }
+
+    func testInitialBootstrapArchiveEndCommitAcceptsNonEmptyCompletePageWithPersistenceProof() {
+        XCTAssertTrue(
+            ChatInitialBootstrapArchiveEndCommitPolicy.shouldCommitArchiveEnd(
+                state: MessageArchivePageEndState(
+                    queryExhausted: true,
+                    archiveEnded: true,
+                    persistedMessageCount: 7
+                ),
+                resultCount: 7,
+                visibleRowsForLatestPage: 0,
+                persistedRowsForQuery: 7
+            )
+        )
+    }
 }
 
 final class ChatBootstrapLocalHistoryFallbackPolicyTests: XCTestCase {
@@ -16855,6 +16870,133 @@ final class ChatArchiveStateMutationPolicyTests: XCTestCase {
         XCTAssertTrue(plan.shouldWriteCursor)
         XCTAssertTrue(plan.shouldWriteFullArchiveLoaded)
         XCTAssertTrue(plan.needsWrite)
+    }
+
+    func testOlderArchiveCursorPrefersTransportLastWhenVisibleWindowIsTrimmed() {
+        let resolvedCursorId = ChatArchiveStateMutationPolicy.resolveCursorId(
+            direction: .older,
+            observedCursorId: "1708455120371253",
+            transportFirst: "1708514005403908",
+            transportLast: "1708422746676464",
+            currentPersistedCursorId: "1708514007142047",
+            hasPersistenceProof: true
+        )
+
+        XCTAssertEqual(resolvedCursorId, "1708422746676464")
+    }
+}
+
+final class ChatArchiveCoverageCommitPolicyTests: XCTestCase {
+
+    func testOffWindowPersistedOlderPageCommitsCoverageAndAdvancesRsmCursor() {
+        let snapshot = ChatArchiveStateSnapshot(
+            primaryKey: "chat-primary",
+            persistedCursorId: "1708455120371253",
+            fullArchiveLoaded: false
+        )
+
+        let decision = ChatArchiveCoverageCommitPolicy.resolve(
+            direction: .older,
+            snapshot: snapshot,
+            requestedCursorId: "1708455120371253",
+            observedCursorId: "1708455120371253",
+            transportFirst: "1708430340904108",
+            transportLast: "1708415086452920",
+            resultCount: 101,
+            persistedRowsForQuery: 57,
+            visibleRowsForConversation: 0,
+            queryExhausted: false,
+            canMutateOlderArchiveEnd: true,
+            coverageUpdateKind: .pageOlder(cursorArchiveId: "1708455120371253")
+        )
+
+        XCTAssertEqual(decision.resolvedCursorId, "1708415086452920")
+        XCTAssertTrue(decision.shouldCommitCoverage)
+        XCTAssertFalse(decision.nextFullArchiveLoaded)
+        XCTAssertFalse(decision.shouldMarkNewerLiveEdgeReached)
+        XCTAssertFalse(decision.cursorRepeatedAfterCompletion)
+        XCTAssertFalse(decision.duplicateCursorSuppressed)
+    }
+
+    func testNonEmptyExhaustedOlderPageMarksArchiveEndAfterPersistenceProof() {
+        let snapshot = ChatArchiveStateSnapshot(
+            primaryKey: "chat-primary",
+            persistedCursorId: "cursor-1",
+            fullArchiveLoaded: false
+        )
+
+        let decision = ChatArchiveCoverageCommitPolicy.resolve(
+            direction: .older,
+            snapshot: snapshot,
+            requestedCursorId: "cursor-1",
+            observedCursorId: "cursor-1",
+            transportFirst: "cursor-1",
+            transportLast: "cursor-0",
+            resultCount: 12,
+            persistedRowsForQuery: 12,
+            visibleRowsForConversation: 0,
+            queryExhausted: true,
+            canMutateOlderArchiveEnd: true,
+            coverageUpdateKind: .pageOlder(cursorArchiveId: "cursor-1")
+        )
+
+        XCTAssertEqual(decision.resolvedCursorId, "cursor-0")
+        XCTAssertTrue(decision.shouldCommitCoverage)
+        XCTAssertTrue(decision.nextFullArchiveLoaded)
+    }
+
+    func testEmptyExhaustedOlderPageMarksArchiveEndWithoutCoverageRange() {
+        let snapshot = ChatArchiveStateSnapshot(
+            primaryKey: "chat-primary",
+            persistedCursorId: "cursor-1",
+            fullArchiveLoaded: false
+        )
+
+        let decision = ChatArchiveCoverageCommitPolicy.resolve(
+            direction: .older,
+            snapshot: snapshot,
+            requestedCursorId: "cursor-1",
+            observedCursorId: nil,
+            transportFirst: "",
+            transportLast: "",
+            resultCount: 0,
+            persistedRowsForQuery: 0,
+            visibleRowsForConversation: 0,
+            queryExhausted: true,
+            canMutateOlderArchiveEnd: true,
+            coverageUpdateKind: .pageOlder(cursorArchiveId: "cursor-1")
+        )
+
+        XCTAssertEqual(decision.resolvedCursorId, "cursor-1")
+        XCTAssertFalse(decision.shouldCommitCoverage)
+        XCTAssertTrue(decision.nextFullArchiveLoaded)
+    }
+
+    func testGapRepairCommitsCoverageButDoesNotMarkArchiveEnd() {
+        let snapshot = ChatArchiveStateSnapshot(
+            primaryKey: "chat-primary",
+            persistedCursorId: "cursor-1",
+            fullArchiveLoaded: false
+        )
+
+        let decision = ChatArchiveCoverageCommitPolicy.resolve(
+            direction: .older,
+            snapshot: snapshot,
+            requestedCursorId: "gap-newer",
+            observedCursorId: "gap-newer",
+            transportFirst: "gap-first",
+            transportLast: "gap-last",
+            resultCount: 30,
+            persistedRowsForQuery: 30,
+            visibleRowsForConversation: 0,
+            queryExhausted: true,
+            canMutateOlderArchiveEnd: true,
+            coverageUpdateKind: .gapRepairOlder(cursorArchiveId: "gap-newer")
+        )
+
+        XCTAssertEqual(decision.resolvedCursorId, "cursor-1")
+        XCTAssertTrue(decision.shouldCommitCoverage)
+        XCTAssertFalse(decision.nextFullArchiveLoaded)
     }
 }
 
