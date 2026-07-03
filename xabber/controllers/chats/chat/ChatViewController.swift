@@ -1479,6 +1479,7 @@ class ChatViewController: MessagesViewController {
     var hasRequestedMentionUsersRefresh: Bool = false
     internal var pendingPreparedLocalHistoryPage: ChatPreparedLocalHistoryPage? = nil
     internal var pendingDeferredRemoteHistoryDirection: ChatHistoryPageDirection? = nil
+    internal var interactiveRemoteArchiveRequestDispatcher: ChatInteractiveRemoteArchiveRequestDispatching = AccountSchedulerChatInteractiveRemoteArchiveRequestDispatcher()
     var interactiveHistoryPageLoadContext: ChatInteractiveHistoryPageLoadContext? = nil
     var interactiveHistoryCompletionRetryWorkItem: DispatchWorkItem? = nil
     var interactiveRemoteArchiveRequestStartWorkItem: DispatchWorkItem? = nil

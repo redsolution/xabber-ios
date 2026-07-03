@@ -4268,6 +4268,59 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
         XCTAssertEqual(events, ["interactive-open", "snapshot-repair"])
     }
 
+    func testInteractiveMamTaskWaitsForCurrentIdleThenRunsBeforeNextIdle() {
+        let scheduler = AccountXMPPTaskScheduler(configuration: .test(defaultCooldown: 0))
+        let currentIdleStarted = expectation(description: "current idle started")
+        let interactiveStarted = expectation(description: "interactive started")
+        let nextIdleStarted = expectation(description: "next idle started")
+        let nextIdleDidNotStartEarly = expectation(description: "next idle waits behind interactive")
+        nextIdleDidNotStartEarly.isInverted = true
+        var finishCurrentIdle: (() -> Void)?
+        var events: [String] = []
+        var isCheckingEarlyNextIdle = true
+
+        scheduler.enqueue(
+            priority: .idle,
+            resource: .mamArchive,
+            deduplicationKey: "regular.idle-bootstrap.owner"
+        ) { finish in
+            events.append("current-idle")
+            finishCurrentIdle = finish
+            currentIdleStarted.fulfill()
+        }
+
+        wait(for: [currentIdleStarted], timeout: 1)
+
+        scheduler.enqueue(
+            priority: .idle,
+            resource: .mamArchive,
+            deduplicationKey: "regular.idle-bootstrap.owner.next"
+        ) { finish in
+            if isCheckingEarlyNextIdle {
+                nextIdleDidNotStartEarly.fulfill()
+            }
+            events.append("next-idle")
+            nextIdleStarted.fulfill()
+            finish()
+        }
+        scheduler.enqueue(
+            priority: .interactive,
+            resource: .mamArchive,
+            deduplicationKey: "chat.interactive-history.MAM next history: test"
+        ) { finish in
+            events.append("interactive")
+            interactiveStarted.fulfill()
+            finish()
+        }
+
+        wait(for: [nextIdleDidNotStartEarly], timeout: 0.1)
+        isCheckingEarlyNextIdle = false
+        finishCurrentIdle?()
+
+        wait(for: [interactiveStarted, nextIdleStarted], timeout: 1)
+        XCTAssertEqual(events, ["current-idle", "interactive", "next-idle"])
+    }
+
     func testSnapshotRepairsForTwoDialogsUseMamLaneSequentially() {
         let scheduler = AccountXMPPTaskScheduler(configuration: .test(defaultCooldown: 0))
         let firstStarted = expectation(description: "first repair started")
@@ -9314,6 +9367,24 @@ final class ChatOpenTimingPolicyTests: XCTestCase {
     }
 }
 
+private final class FakeChatInteractiveRemoteArchiveRequestDispatcher: ChatInteractiveRemoteArchiveRequestDispatching {
+    private(set) var requests: [ChatInteractiveRemoteArchiveDispatchRequest] = []
+
+    func enqueue(_ request: ChatInteractiveRemoteArchiveDispatchRequest) {
+        requests.append(request)
+    }
+
+    func startFirst(
+        streamKind: MessageArchiveEndPageEvent.StreamKind = .primary,
+        resource: String? = "fake-primary-resource"
+    ) {
+        guard let request = requests.first else {
+            return
+        }
+        request.transportStarted(request.queryId, streamKind, resource)
+    }
+}
+
 @MainActor
 final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
     private var previousRealmConfiguration: Realm.Configuration!
@@ -9544,6 +9615,32 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertTrue(controller.datasource.contains { $0.primary == anchor.primary })
     }
 
+    func testLocalOlderAtRestAppliesWithoutLoadingUIOrBoundaryPlaceholder() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 620)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.messagesCollectionView.setContentOffset(
+            CGPoint(x: 0, y: -controller.messagesCollectionView.adjustedContentInset.top),
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        controller.performInteractiveHistoryPaging(direction: .older)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.showLoadingIndicator.value)
+        XCTAssertNil(controller.activeHistoryBoundaryPlaceholder)
+        XCTAssertNil(controller.virtualTimelineState.activePlaceholder)
+        XCTAssertFalse(controller.virtualTimelineState.segments.contains(.loadingPlaceholder(.top)))
+    }
+
     func testOlderAnchorReloadRestoresOffsetBeforeCompletionRuns() throws {
         let controller = makeController()
         controller.ownerSender = Sender(id: owner, displayName: owner)
@@ -9628,6 +9725,8 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertEqual(controller.currentPage.minIndex, beforePage.minIndex)
         XCTAssertEqual(controller.currentPage.maxIndex, beforePage.maxIndex)
         XCTAssertEqual(controller.virtualTimelineState, beforeVirtualState)
+        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.showLoadingIndicator.value)
         XCTAssertNil(controller.activeHistoryBoundaryPlaceholder)
         XCTAssertNil(controller.interactiveHistoryPageLoadContext)
     }
@@ -9657,6 +9756,8 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             trigger: "test"
         )
         XCTAssertEqual(action, .prepareLocal(.older))
+        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.showLoadingIndicator.value)
 
         let anchor = try XCTUnwrap(controller.capturePagingAnchorIfNeeded(direction: .older))
         let beforeViewportY = try viewportY(for: anchor.primary, in: controller)
@@ -9667,6 +9768,10 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.messagesCollectionView.layoutIfNeeded()
 
         XCTAssertNil(controller.pendingPreparedLocalHistoryPage)
+        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.showLoadingIndicator.value)
+        XCTAssertNil(controller.activeHistoryBoundaryPlaceholder)
+        XCTAssertNil(controller.virtualTimelineState.activePlaceholder)
         XCTAssertEqual(try viewportY(for: anchor.primary, in: controller), beforeViewportY, accuracy: 1.0)
         XCTAssertNotEqual(controller.datasource.first(where: { !$0.isFakeMessage })?.primary, previousFirstPrimary)
         XCTAssertTrue(controller.datasource.contains { $0.primary == anchor.primary })
@@ -9794,8 +9899,64 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertNil(controller.pendingPreparedLocalHistoryPage)
         XCTAssertEqual(controller.pendingDeferredRemoteHistoryDirection, .older)
         XCTAssertEqual(controller.virtualTimelineState, beforeVirtualState)
+        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.showLoadingIndicator.value)
         XCTAssertNil(controller.activeHistoryBoundaryPlaceholder)
         XCTAssertNil(controller.interactiveHistoryPageLoadContext)
+    }
+
+    func testRemoteOlderAtRestArmsWithoutVisibleLoaderUntilTransportStarts() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 250)
+        let controller = makeController()
+        let dispatcher = FakeChatInteractiveRemoteArchiveRequestDispatcher()
+        controller.interactiveRemoteArchiveRequestDispatcher = dispatcher
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.messagesCollectionView.setContentOffset(
+            CGPoint(x: 0, y: -controller.messagesCollectionView.adjustedContentInset.top),
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let context = controller.pagingBoundaryContext(
+            visibleSections: controller.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
+        )
+
+        let action = controller.handleBoundaryPagingCandidate(
+            direction: .older,
+            boundaryContext: context,
+            motionState: .resting,
+            trigger: "test"
+        )
+
+        XCTAssertEqual(action, .applyNow(.older))
+        XCTAssertEqual(dispatcher.requests.count, 1)
+        let request = try XCTUnwrap(dispatcher.requests.first)
+        XCTAssertEqual(request.priority, .interactive)
+        XCTAssertEqual(request.resource, .mamArchive)
+        XCTAssertTrue(request.deduplicationKey.contains(request.queryId))
+        XCTAssertEqual(controller.interactiveHistoryPageLoadContext?.queryId, request.queryId)
+        XCTAssertFalse(controller.interactiveHistoryPageLoadContext?.remoteFetchStarted ?? true)
+        XCTAssertEqual(controller.virtualTimelineState.activeRemoteLoad?.queryId, request.queryId)
+        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.showLoadingIndicator.value)
+        XCTAssertNil(controller.activeHistoryBoundaryPlaceholder)
+        XCTAssertNil(controller.virtualTimelineState.activePlaceholder)
+        XCTAssertFalse(controller.virtualTimelineState.segments.contains(.loadingPlaceholder(.top)))
+
+        dispatcher.startFirst()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        XCTAssertTrue(controller.interactiveHistoryPageLoadContext?.remoteFetchStarted == true)
+        XCTAssertTrue(controller.currentPage.isLoading)
+        XCTAssertTrue(controller.showLoadingIndicator.value)
+        XCTAssertNotNil(controller.activeHistoryBoundaryPlaceholder)
+
+        controller.abortInteractiveHistoryPageLoad()
     }
 
     private func makeController() -> ChatViewController {
@@ -10560,12 +10721,12 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
             queryId: "active-query",
             remoteFetchStarted: false
         )
-        controller.virtualTimelineState = makeTimelineState(queryId: "active-query")
+        controller.virtualTimelineState = makeTimelineState(queryId: "active-query", hasPlaceholder: false)
         controller.boundedTimelineWindowState = ChatBoundedTimelineWindowState(
             virtualState: controller.virtualTimelineState
         )
         controller.currentPage.locked = true
-        controller.currentPage.isLoading = true
+        controller.currentPage.isLoading = false
         controller.canLoadDatasource = false
 
         controller.handleInteractiveRemoteArchiveRequestStartTimeout(queryId: "active-query")
@@ -10622,6 +10783,35 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
         )
 
         XCTAssertTrue(controller.interactiveHistoryPageLoadContext?.remoteFetchStarted == true)
+        controller.cancelInteractiveRemoteArchiveTimeout(queryId: "active-query")
+    }
+
+    func testMarkRemoteArchiveRequestSentDoesNotShowVisibleLoaderByItself() {
+        let controller = makeController()
+        controller.interactiveHistoryPageLoadContext = makeContext(
+            queryId: "active-query",
+            remoteFetchStarted: false
+        )
+        controller.virtualTimelineState = makeTimelineState(queryId: "active-query", hasPlaceholder: false)
+        controller.boundedTimelineWindowState = ChatBoundedTimelineWindowState(
+            virtualState: controller.virtualTimelineState
+        )
+
+        controller.markInteractiveRemoteArchiveRequestSent(
+            queryId: "active-query",
+            direction: .older,
+            cursorId: "requested-cursor",
+            pageSize: 250,
+            streamKind: .primary,
+            resource: "primary-resource",
+            bootstrapActive: false
+        )
+
+        XCTAssertTrue(controller.interactiveHistoryPageLoadContext?.remoteFetchStarted == true)
+        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.showLoadingIndicator.value)
+        XCTAssertNil(controller.activeHistoryBoundaryPlaceholder)
+        XCTAssertNil(controller.virtualTimelineState.activePlaceholder)
         controller.cancelInteractiveRemoteArchiveTimeout(queryId: "active-query")
     }
 
@@ -10699,21 +10889,28 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
         )
     }
 
-    private func makeTimelineState(queryId: String) -> ChatVirtualTimelineState {
+    private func makeTimelineState(queryId: String, hasPlaceholder: Bool = true) -> ChatVirtualTimelineState {
         let oldest = makeMessage(primary: "oldest", archivedId: "100", timestamp: 100)
         let newest = makeMessage(primary: "newest", archivedId: "199", timestamp: 199)
+        let segments: [ChatVirtualSegment] = hasPlaceholder
+            ? [
+                .unknownOlder,
+                .loadedRange(oldestArchiveId: oldest.archivedId, newestArchiveId: newest.archivedId),
+                .loadingPlaceholder(.top),
+                .liveTail
+            ]
+            : [
+                .unknownOlder,
+                .loadedRange(oldestArchiveId: oldest.archivedId, newestArchiveId: newest.archivedId),
+                .liveTail
+            ]
         return ChatVirtualTimelineState(
             conversationKey: ChatTimelineConversationKey(
                 owner: owner,
                 jid: jid,
                 conversationType: .regular
             ),
-            segments: [
-                .unknownOlder,
-                .loadedRange(oldestArchiveId: oldest.archivedId, newestArchiveId: newest.archivedId),
-                .loadingPlaceholder(.top),
-                .liveTail
-            ],
+            segments: segments,
             oldest: ChatTimelineBoundary(message: oldest),
             newest: ChatTimelineBoundary(message: newest),
             residentPrimaryKeys: [oldest.primary, newest.primary],
@@ -10724,7 +10921,7 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
                 decision: .remoteOlderPage,
                 cursorId: oldest.archivedId
             ),
-            activePlaceholder: .top,
+            activePlaceholder: hasPlaceholder ? .top : nil,
             isResidentAtLiveTail: true
         )
     }

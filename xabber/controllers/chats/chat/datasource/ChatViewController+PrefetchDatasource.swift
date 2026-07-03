@@ -32,16 +32,6 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         let visibleHeight: CGFloat
     }
 
-    private func triggerPaging(_ pageDirection: ChatHistoryPageDirection) {
-        self.setDatasourceLoadingEnabled(false)
-        switch pageDirection {
-        case .older:
-            self.onTouchEndPage(direction: .older)
-        case .newer:
-            self.onTouchStartPage(direction: .newer)
-        }
-    }
-
     private func boundaryPagingAvailability() -> ChatScrollBoundaryAvailability {
         self.scrollBoundaryAvailabilityCache.availability(for: self.chatTimelineConversationKey) ?? .empty
     }
@@ -214,7 +204,12 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             return
         }
 
-        self.triggerPaging(pageDirection)
+        self.handleBoundaryPagingCandidate(
+            direction: pageDirection,
+            boundaryContext: boundaryContext,
+            motionState: self.currentScrollMotionState(),
+            trigger: "dragEnd"
+        )
     }
 
     private func currentVisibleIndexPaths(including indexPath: IndexPath? = nil) -> [IndexPath] {
