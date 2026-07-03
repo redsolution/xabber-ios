@@ -9432,7 +9432,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
 
         let realMessages = controller.datasource.filter { !$0.isFakeMessage }
-        XCTAssertEqual(realMessages.count, 250)
+        XCTAssertEqual(realMessages.count, ChatInitialFirstFrameHistoryConfiguration.pageSize)
         XCTAssertEqual(realMessages.last?.primary, "first-frame-message-319")
         XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-0" })
         XCTAssertNil(controller.pendingOpenMessageRequest)
@@ -9505,13 +9505,71 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
 
         let realMessages = controller.datasource.filter { !$0.isFakeMessage }
-        XCTAssertEqual(realMessages.count, 250)
+        XCTAssertEqual(realMessages.count, ChatInitialFirstFrameHistoryConfiguration.pageSize)
         XCTAssertEqual(realMessages.last?.primary, "first-frame-message-319")
+        XCTAssertEqual(
+            realMessages.first?.primary,
+            "first-frame-message-\(320 - ChatInitialFirstFrameHistoryConfiguration.pageSize)"
+        )
         XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-0" })
         controller.messagesCollectionView.layoutIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         XCTAssertTrue(controller.isNearBottom(threshold: 1))
+    }
+
+    func testLatestFirstFrameWarmupExpandsToNormalPageAfterVisibleTrigger() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 320)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
+
+        XCTAssertEqual(
+            controller.datasource.filter { !$0.isFakeMessage }.count,
+            ChatInitialFirstFrameHistoryConfiguration.pageSize
+        )
+        XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
+
+        controller.hasCompletedInitialHistoryViewAppearance = true
+        controller.performInitialFirstFrameLatestWarmupIfNeeded(trigger: "test-visible")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertEqual(realMessages.count, ChatHistoryPagingConfiguration.pageSize)
+        XCTAssertEqual(realMessages.first?.primary, "first-frame-message-70")
+        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-319")
+        XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
+        XCTAssertTrue(controller.isNearBottom(threshold: 1))
+    }
+
+    func testPendingSavedPositionRequestDoesNotRunLatestWarmup() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 320)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        controller.pendingOpenMessageRequest = makeSavedPositionRequest(
+            primary: "first-frame-message-120",
+            archivedId: "archive-120",
+            messageId: "message-120",
+            sourceDate: Date(timeIntervalSince1970: 1_700_000_120)
+        )
+        let before = controller.datasource.filter { !$0.isFakeMessage }.map(\.primary)
+
+        controller.hasCompletedInitialHistoryViewAppearance = true
+        controller.performInitialFirstFrameLatestWarmupIfNeeded(trigger: "test-saved-position")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+
+        XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.map(\.primary), before)
+        XCTAssertEqual(before.count, ChatInitialFirstFrameHistoryConfiguration.pageSize)
+        XCTAssertEqual(before.last, "first-frame-message-319")
     }
 
     func testRepeatedBootstrapContentRenderDoesNotMoveBottomAlignedLatestFirstFrame() throws {
@@ -10389,6 +10447,108 @@ final class ChatInitialHistoryAppearancePolicyTests: XCTestCase {
             ChatStackedNavigationPreparationPolicy.shouldLoadInitialDatasource(
                 isDatasourceEmpty: false,
                 isShowingBootstrapPlaceholder: false
+            )
+        )
+    }
+
+    func testFirstFrameLatestWarmupArmsOnlyForSmallLiveTailLatestWindow() {
+        XCTAssertTrue(
+            ChatFirstFrameLatestWarmupPolicy.shouldArm(
+                appliedRealMessageCount: 80,
+                availableLocalMessageCount: 320,
+                initialLimit: 80,
+                normalLimit: 250,
+                isResidentAtLiveTail: true,
+                hasPendingAnchorRequest: false,
+                hasActiveAnchorExecution: false
+            )
+        )
+        XCTAssertFalse(
+            ChatFirstFrameLatestWarmupPolicy.shouldArm(
+                appliedRealMessageCount: 250,
+                availableLocalMessageCount: 320,
+                initialLimit: 80,
+                normalLimit: 250,
+                isResidentAtLiveTail: true,
+                hasPendingAnchorRequest: false,
+                hasActiveAnchorExecution: false
+            )
+        )
+        XCTAssertFalse(
+            ChatFirstFrameLatestWarmupPolicy.shouldArm(
+                appliedRealMessageCount: 80,
+                availableLocalMessageCount: 320,
+                initialLimit: 80,
+                normalLimit: 250,
+                isResidentAtLiveTail: false,
+                hasPendingAnchorRequest: false,
+                hasActiveAnchorExecution: false
+            )
+        )
+    }
+
+    func testFirstFrameLatestWarmupDoesNotRunForAnchorRequests() {
+        XCTAssertFalse(
+            ChatFirstFrameLatestWarmupPolicy.shouldRun(
+                state: .armed,
+                currentRealMessageCount: 80,
+                normalLimit: 250,
+                isResidentAtLiveTail: true,
+                hasPendingAnchorRequest: true,
+                hasActiveAnchorExecution: false,
+                hasViewAppeared: true,
+                didLogFirstMessagesVisible: true
+            )
+        )
+        XCTAssertFalse(
+            ChatFirstFrameLatestWarmupPolicy.shouldRun(
+                state: .armed,
+                currentRealMessageCount: 80,
+                normalLimit: 250,
+                isResidentAtLiveTail: true,
+                hasPendingAnchorRequest: false,
+                hasActiveAnchorExecution: true,
+                hasViewAppeared: true,
+                didLogFirstMessagesVisible: true
+            )
+        )
+    }
+
+    func testFirstFrameLatestWarmupRunsOnceAfterVisibleOrViewAppear() {
+        XCTAssertTrue(
+            ChatFirstFrameLatestWarmupPolicy.shouldRun(
+                state: .armed,
+                currentRealMessageCount: 80,
+                normalLimit: 250,
+                isResidentAtLiveTail: true,
+                hasPendingAnchorRequest: false,
+                hasActiveAnchorExecution: false,
+                hasViewAppeared: true,
+                didLogFirstMessagesVisible: false
+            )
+        )
+        XCTAssertTrue(
+            ChatFirstFrameLatestWarmupPolicy.shouldRun(
+                state: .armed,
+                currentRealMessageCount: 80,
+                normalLimit: 250,
+                isResidentAtLiveTail: true,
+                hasPendingAnchorRequest: false,
+                hasActiveAnchorExecution: false,
+                hasViewAppeared: false,
+                didLogFirstMessagesVisible: true
+            )
+        )
+        XCTAssertFalse(
+            ChatFirstFrameLatestWarmupPolicy.shouldRun(
+                state: .completed,
+                currentRealMessageCount: 80,
+                normalLimit: 250,
+                isResidentAtLiveTail: true,
+                hasPendingAnchorRequest: false,
+                hasActiveAnchorExecution: false,
+                hasViewAppeared: true,
+                didLogFirstMessagesVisible: true
             )
         )
     }
@@ -11696,8 +11856,10 @@ final class MessageArchivePagingRequestTests: XCTestCase {
         XCTAssertEqual(ChatHistoryPagingConfiguration.pageSize, 250)
     }
 
-    func testChatInitialFirstFrameUsesSharedPageSizeConstant() {
-        XCTAssertEqual(ChatInitialFirstFrameHistoryConfiguration.pageSize, 250)
+    func testChatInitialFirstFrameUsesSmallerLaunchWindowConstant() {
+        XCTAssertLessThan(ChatInitialFirstFrameHistoryConfiguration.pageSize, ChatHistoryPagingConfiguration.pageSize)
+        XCTAssertGreaterThanOrEqual(ChatInitialFirstFrameHistoryConfiguration.pageSize, 60)
+        XCTAssertLessThanOrEqual(ChatInitialFirstFrameHistoryConfiguration.pageSize, 100)
     }
 
     func testRegularArchivePageSizeDefaultsToSharedHistoryPageSize() {
@@ -15841,6 +16003,19 @@ final class ChatVirtualTimelineEngineTests: XCTestCase {
         XCTAssertTrue(latest.state.isResidentAtLiveTail)
         XCTAssertTrue(latest.state.segments.contains(.liveTail))
         XCTAssertFalse(latest.state.segments.contains(.unknownNewer))
+    }
+
+    func testScrollToLatestHonorsExplicitLimit() {
+        let provider = FakeProvider(items: makeMessages(0..<1_000))
+        var engine = makeEngine(provider: provider)
+
+        let latest = engine.scrollToLatest(limit: 80)
+
+        XCTAssertEqual(latest.items.count, 80)
+        XCTAssertEqual(latest.items.first?.primary, "p0920")
+        XCTAssertEqual(latest.items.last?.primary, "p0999")
+        XCTAssertTrue(latest.state.isResidentAtLiveTail)
+        XCTAssertEqual(provider.calls, ["latest:80"])
     }
 
     func testLocalOlderPagingDoesNotCreateRemoteLoadOrLoadingState() {

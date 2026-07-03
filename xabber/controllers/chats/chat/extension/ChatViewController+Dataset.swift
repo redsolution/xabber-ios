@@ -3867,6 +3867,59 @@ enum ChatInitialHistoryAppearancePolicy {
     }
 }
 
+enum ChatFirstFrameLatestWarmupState: Equatable {
+    case inactive
+    case armed
+    case inFlight
+    case completed
+}
+
+enum ChatFirstFrameLatestWarmupPolicy {
+    static func shouldArm(
+        appliedRealMessageCount: Int,
+        availableLocalMessageCount: Int,
+        initialLimit: Int,
+        normalLimit: Int,
+        isResidentAtLiveTail: Bool,
+        hasPendingAnchorRequest: Bool,
+        hasActiveAnchorExecution: Bool
+    ) -> Bool {
+        guard initialLimit > 0,
+              initialLimit < normalLimit,
+              appliedRealMessageCount > 0,
+              isResidentAtLiveTail,
+              !hasPendingAnchorRequest,
+              !hasActiveAnchorExecution else {
+            return false
+        }
+
+        let warmupTarget = min(availableLocalMessageCount, normalLimit)
+        return appliedRealMessageCount < warmupTarget
+    }
+
+    static func shouldRun(
+        state: ChatFirstFrameLatestWarmupState,
+        currentRealMessageCount: Int,
+        normalLimit: Int,
+        isResidentAtLiveTail: Bool,
+        hasPendingAnchorRequest: Bool,
+        hasActiveAnchorExecution: Bool,
+        hasViewAppeared: Bool,
+        didLogFirstMessagesVisible: Bool
+    ) -> Bool {
+        guard state == .armed,
+              currentRealMessageCount > 0,
+              currentRealMessageCount < normalLimit,
+              isResidentAtLiveTail,
+              !hasPendingAnchorRequest,
+              !hasActiveAnchorExecution else {
+            return false
+        }
+
+        return hasViewAppeared || didLogFirstMessagesVisible
+    }
+}
+
 enum ChatStackedNavigationPreparationPolicy {
     static func shouldLoadInitialDatasource(
         isDatasourceEmpty: Bool,
@@ -7733,6 +7786,14 @@ extension ChatViewController {
                     self.virtualTimelineState = nextVirtualState
                     self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
                     self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
+                    if let limit,
+                       limit == self.initialFirstFramePageSize {
+                        self.armInitialFirstFrameLatestWarmupIfNeeded(
+                            appliedRealMessageCount: frozenItems.count,
+                            availableLocalMessageCount: self.messagesObserver?.count ?? frozenItems.count,
+                            isResidentAtLiveTail: nextVirtualState.isResidentAtLiveTail
+                        )
+                    }
                     self.applyChatDatasource(
                         mappedDatasource,
                         mode: mode,
@@ -7996,6 +8057,91 @@ extension ChatViewController {
         )
     }
 
+    internal func armInitialFirstFrameLatestWarmupIfNeeded(
+        appliedRealMessageCount: Int,
+        availableLocalMessageCount: Int,
+        isResidentAtLiveTail: Bool
+    ) {
+        guard self.initialFirstFrameLatestWarmupState == .inactive,
+              ChatFirstFrameLatestWarmupPolicy.shouldArm(
+                appliedRealMessageCount: appliedRealMessageCount,
+                availableLocalMessageCount: availableLocalMessageCount,
+                initialLimit: self.initialFirstFramePageSize,
+                normalLimit: self.datasourcePageSize,
+                isResidentAtLiveTail: isResidentAtLiveTail,
+                hasPendingAnchorRequest: self.pendingOpenMessageRequest != nil,
+                hasActiveAnchorExecution: self.activeAnchorExecutionState != nil
+              ) else {
+            return
+        }
+
+        self.initialFirstFrameLatestWarmupState = .armed
+        ChatArchiveDebugTrace.log("chatInitialFirstFrameLatestWarmupArmed", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("appliedRealMessageCount", appliedRealMessageCount),
+            ("availableLocalMessageCount", availableLocalMessageCount),
+            ("initialLimit", self.initialFirstFramePageSize),
+            ("normalLimit", self.datasourcePageSize)
+        ])
+    }
+
+    internal func performInitialFirstFrameLatestWarmupIfNeeded(trigger: String) {
+        let currentRealMessageCount = self.chatOpenTimingRealMessageCount(in: self.datasource)
+        guard ChatFirstFrameLatestWarmupPolicy.shouldRun(
+            state: self.initialFirstFrameLatestWarmupState,
+            currentRealMessageCount: currentRealMessageCount,
+            normalLimit: self.datasourcePageSize,
+            isResidentAtLiveTail: self.virtualTimelineState.isResidentAtLiveTail,
+            hasPendingAnchorRequest: self.pendingOpenMessageRequest != nil,
+            hasActiveAnchorExecution: self.activeAnchorExecutionState != nil,
+            hasViewAppeared: self.hasCompletedInitialHistoryViewAppearance,
+            didLogFirstMessagesVisible: self.chatOpenTimingSession?.didLogFirstMessagesVisible == true
+        ) else {
+            return
+        }
+
+        self.initialFirstFrameLatestWarmupState = .inFlight
+        ChatArchiveDebugTrace.log("chatInitialFirstFrameLatestWarmupStart", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("trigger", trigger),
+            ("currentRealMessageCount", currentRealMessageCount),
+            ("targetLimit", self.datasourcePageSize)
+        ])
+        self.mapAndApplyTimelineLatest(
+            mode: .windowReload(),
+            animated: false,
+            invalidateLayout: true,
+            limit: self.datasourcePageSize,
+            suppressDefaultBottomScroll: true,
+            completion: { [weak self] in
+                guard let self else {
+                    return
+                }
+                self.initialFirstFrameLatestWarmupState = .completed
+                self.finishLatestBottomScroll(animated: false, consumePendingForceLatest: false)
+                ChatArchiveDebugTrace.log("chatInitialFirstFrameLatestWarmupFinish", [
+                    ("owner", self.owner),
+                    ("jid", self.jid),
+                    ("conversationType", self.conversationType.rawValue),
+                    ("realMessageCount", self.chatOpenTimingRealMessageCount(in: self.datasource)),
+                    ("isResidentAtLiveTail", self.virtualTimelineState.isResidentAtLiveTail)
+                ])
+            },
+            cancelledCompletion: { [weak self] in
+                guard let self else {
+                    return
+                }
+                if self.initialFirstFrameLatestWarmupState == .inFlight {
+                    self.initialFirstFrameLatestWarmupState = .armed
+                }
+            }
+        )
+    }
+
     internal func finishInitialHistoryAppearanceIfPossible() {
         guard self.initialHistoryAppearancePending,
               ChatInitialHistoryAppearancePolicy.shouldCompleteInitialAppearance(
@@ -8182,6 +8328,11 @@ extension ChatViewController {
             self.virtualTimelineState = snapshot.state
             self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: snapshot.state)
             self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
+            self.armInitialFirstFrameLatestWarmupIfNeeded(
+                appliedRealMessageCount: frozenItems.count,
+                availableLocalMessageCount: self.messagesObserver?.count ?? frozenItems.count,
+                isResidentAtLiveTail: snapshot.state.isResidentAtLiveTail
+            )
             self.applyChatDatasource(
                 self.mapDataset(dataset: frozenItems),
                 mode: .fullReload(),

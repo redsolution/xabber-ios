@@ -36,7 +36,7 @@ enum ChatHistoryPagingConfiguration {
 }
 
 enum ChatInitialFirstFrameHistoryConfiguration {
-    static let pageSize: Int = 250
+    static let pageSize: Int = 80
 }
 
 enum ChatOpenMessageRequestSource: String {
@@ -1399,6 +1399,7 @@ class ChatViewController: MessagesViewController {
     var hasRenderedStableInitialHistory: Bool = false
     var hasCompletedInitialHistoryViewAppearance: Bool = false
     var initialLatestOpenStabilizationState: ChatInitialLatestOpenStabilizationState = .inactive
+    var initialFirstFrameLatestWarmupState: ChatFirstFrameLatestWarmupState = .inactive
     var isApplyingBootstrapAnchorWindow: Bool = false
     var pendingForceLatestOpen: Bool = false
     var pendingForceLatestOpenAnimated: Bool = false
@@ -1934,6 +1935,7 @@ class ChatViewController: MessagesViewController {
             to: now
         )))
         ChatArchiveDebugTrace.log("chatOpenTimingFirstMessagesVisible", fields)
+        self.performInitialFirstFrameLatestWarmupIfNeeded(trigger: reason)
     }
 
     internal func finishChatOpenTimingSession(reason: String) {
@@ -4735,6 +4737,7 @@ class ChatViewController: MessagesViewController {
             reason: "viewDidAppear",
             modeDescription: "appearance"
         )
+        self.performInitialFirstFrameLatestWarmupIfNeeded(trigger: "viewDidAppear")
 //        self.topPanelState.accept(.audioPlayer)
         
 //        DispatchQueue.main.async {
