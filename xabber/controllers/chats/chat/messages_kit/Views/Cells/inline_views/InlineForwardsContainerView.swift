@@ -489,7 +489,6 @@ class InlineForwardsContainerView: InlineAttachmentView {
             inlineViews.removeLast().removeFromSuperview()
         }
         
-        print("Laid out forwardsContainer with \(attributes.forwardsInlineViewSize.count) sizes, inlineViews: \(inlineViews.count)")
     }
     
 //    func layout(with attributes: MessagesCollectionViewLayoutAttributes) {
