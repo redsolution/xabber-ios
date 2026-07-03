@@ -1167,6 +1167,20 @@ enum ChatInteractiveHistoryPagingPlanPolicy {
     }
 }
 
+enum ChatShortLocalOlderRemainderPolicy {
+    static func shouldRequestRemoteFirst(
+        localOlderCount: Int,
+        pageSize: Int,
+        archiveEnded: Bool
+    ) -> Bool {
+        guard localOlderCount > 0,
+              !archiveEnded else {
+            return false
+        }
+        return localOlderCount < max(1, pageSize)
+    }
+}
+
 enum ChatHistoryLoadingOverlayPolicy {
     static let isOverlayUserInteractionEnabled = false
     static let shouldDisableCollectionInteraction = false
@@ -1338,6 +1352,29 @@ struct ChatTimelineSnapshot {
     let loadingState: ChatTimelineLoadingState
     let loadDecision: ChatHistoryPagingLoadDecision?
     let anchorRestore: ChatTimelineAnchorRestoreCommand?
+    let localOlderCandidateCount: Int?
+    let pageSize: Int?
+    let shortLocalRemainderRemoteFirst: Bool
+
+    init(
+        items: [MessageStorageItem],
+        state: ChatVirtualTimelineState,
+        loadingState: ChatTimelineLoadingState,
+        loadDecision: ChatHistoryPagingLoadDecision?,
+        anchorRestore: ChatTimelineAnchorRestoreCommand?,
+        localOlderCandidateCount: Int? = nil,
+        pageSize: Int? = nil,
+        shortLocalRemainderRemoteFirst: Bool = false
+    ) {
+        self.items = items
+        self.state = state
+        self.loadingState = loadingState
+        self.loadDecision = loadDecision
+        self.anchorRestore = anchorRestore
+        self.localOlderCandidateCount = localOlderCandidateCount
+        self.pageSize = pageSize
+        self.shortLocalRemainderRemoteFirst = shortLocalRemainderRemoteFirst
+    }
 }
 
 extension ChatBoundedTimelineWindowState {
@@ -1427,14 +1464,20 @@ struct ChatVirtualTimelineEngine {
         let olderItems = provider.older(before: oldest, limit: pageSize)
         guard olderItems.isNotEmpty else {
             if archiveState.fullArchiveLoaded {
-                return currentSnapshot(loadDecision: .endReached)
+                return currentSnapshot(
+                    loadDecision: .endReached,
+                    localOlderCandidateCount: 0,
+                    shortLocalRemainderRemoteFirst: false
+                )
             }
             return remoteSnapshot(
                 queryId: queryId,
                 direction: .older,
                 decision: .remoteOlderPage,
                 cursorId: state.oldest?.archivedId,
-                loadingState: .edge(.top)
+                loadingState: .edge(.top),
+                localOlderCandidateCount: 0,
+                shortLocalRemainderRemoteFirst: false
             )
         }
 
@@ -1447,7 +1490,25 @@ struct ChatVirtualTimelineEngine {
                 direction: .older,
                 decision: gapDecision,
                 cursorId: cursorId(for: gapDecision),
-                loadingState: .gap(.top)
+                loadingState: .gap(.top),
+                localOlderCandidateCount: olderItems.count,
+                shortLocalRemainderRemoteFirst: false
+            )
+        }
+
+        if ChatShortLocalOlderRemainderPolicy.shouldRequestRemoteFirst(
+            localOlderCount: olderItems.count,
+            pageSize: pageSize,
+            archiveEnded: archiveState.fullArchiveLoaded
+        ) {
+            return remoteSnapshot(
+                queryId: queryId,
+                direction: .older,
+                decision: .remoteOlderPage,
+                cursorId: state.oldest?.archivedId,
+                loadingState: .edge(.top),
+                localOlderCandidateCount: olderItems.count,
+                shortLocalRemainderRemoteFirst: true
             )
         }
 
@@ -1466,7 +1527,9 @@ struct ChatVirtualTimelineEngine {
             isResidentAtLiveTail: wasLiveTail && stillHasPreviousNewest,
             loadingState: .none,
             loadDecision: .localOnly,
-            anchorRestore: nil
+            anchorRestore: nil,
+            localOlderCandidateCount: olderItems.count,
+            shortLocalRemainderRemoteFirst: false
         )
     }
 
@@ -1644,7 +1707,9 @@ struct ChatVirtualTimelineEngine {
         isResidentAtLiveTail: Bool,
         loadingState: ChatTimelineLoadingState,
         loadDecision: ChatHistoryPagingLoadDecision?,
-        anchorRestore: ChatTimelineAnchorRestoreCommand?
+        anchorRestore: ChatTimelineAnchorRestoreCommand?,
+        localOlderCandidateCount: Int? = nil,
+        shortLocalRemainderRemoteFirst: Bool = false
     ) -> ChatTimelineSnapshot {
         let deduplicated = Self.deduplicatedChronologicalItems(items)
         let trimmedItems = trimmed(deduplicated, direction: direction)
@@ -1673,7 +1738,10 @@ struct ChatVirtualTimelineEngine {
             state: state,
             loadingState: loadingState,
             loadDecision: loadDecision,
-            anchorRestore: anchorRestore
+            anchorRestore: anchorRestore,
+            localOlderCandidateCount: localOlderCandidateCount,
+            pageSize: pageSize,
+            shortLocalRemainderRemoteFirst: shortLocalRemainderRemoteFirst
         )
     }
 
@@ -1682,7 +1750,9 @@ struct ChatVirtualTimelineEngine {
         direction: ChatHistoryPageDirection,
         decision: ChatHistoryPagingLoadDecision,
         cursorId: String?,
-        loadingState: ChatTimelineLoadingState
+        loadingState: ChatTimelineLoadingState,
+        localOlderCandidateCount: Int? = nil,
+        shortLocalRemainderRemoteFirst: Bool = false
     ) -> ChatTimelineSnapshot {
         let activePlaceholder = placeholder(for: loadingState)
         let activeRemoteLoad = queryId.map {
@@ -1709,19 +1779,29 @@ struct ChatVirtualTimelineEngine {
             activePlaceholder: activePlaceholder,
             isResidentAtLiveTail: state.isResidentAtLiveTail
         )
-        return currentSnapshot(loadingState: loadingState, loadDecision: decision)
+        return currentSnapshot(
+            loadingState: loadingState,
+            loadDecision: decision,
+            localOlderCandidateCount: localOlderCandidateCount,
+            shortLocalRemainderRemoteFirst: shortLocalRemainderRemoteFirst
+        )
     }
 
     func currentSnapshot(
         loadingState: ChatTimelineLoadingState = .none,
-        loadDecision: ChatHistoryPagingLoadDecision? = nil
+        loadDecision: ChatHistoryPagingLoadDecision? = nil,
+        localOlderCandidateCount: Int? = nil,
+        shortLocalRemainderRemoteFirst: Bool = false
     ) -> ChatTimelineSnapshot {
         ChatTimelineSnapshot(
             items: provider.items(primaryKeys: state.residentPrimaryKeys),
             state: state,
             loadingState: loadingState,
             loadDecision: loadDecision,
-            anchorRestore: nil
+            anchorRestore: nil,
+            localOlderCandidateCount: localOlderCandidateCount,
+            pageSize: pageSize,
+            shortLocalRemainderRemoteFirst: shortLocalRemainderRemoteFirst
         )
     }
 
@@ -3182,6 +3262,15 @@ enum ChatHistoryPagingPolicy {
             return (hasKnownNewerGap || !newerLiveEdgeReached) ? .remoteNewerPage : .endReached
         case .older:
             if localWindow.minIndex < currentWindow.minIndex {
+                let localOlderCount = currentWindow.minIndex - localWindow.minIndex
+                let requestedOlderCount = currentWindow.minIndex - requestedWindow.minIndex
+                if ChatShortLocalOlderRemainderPolicy.shouldRequestRemoteFirst(
+                    localOlderCount: localOlderCount,
+                    pageSize: requestedOlderCount,
+                    archiveEnded: isArchiveEnded
+                ) {
+                    return .remoteOlderPage
+                }
                 return .localOnly
             }
             guard requestedWindow.minIndex < 0 else {
@@ -9005,6 +9094,9 @@ extension ChatViewController {
         direction: ChatHistoryPageDirection,
         plan: ChatInteractiveHistoryPagingPlan,
         localItemCount: Int,
+        localOlderCandidateCount: Int? = nil,
+        pageSize: Int? = nil,
+        shortLocalRemainderRemoteFirst: Bool = false,
         queryId: String? = nil
     ) {
         let normalizedState = self.virtualTimelineState.normalized(
@@ -9024,6 +9116,9 @@ extension ChatViewController {
             ("plan", "\(plan)"),
             ("queryId", queryId ?? "-"),
             ("localItems", localItemCount),
+            ("localOlderCandidateCount", localOlderCandidateCount ?? -1),
+            ("pageSize", pageSize ?? self.datasourcePageSize),
+            ("shortLocalRemainderRemoteFirst", shortLocalRemainderRemoteFirst),
             ("virtualOldest", normalizedState.oldest?.archivedId ?? "-"),
             ("virtualNewest", normalizedState.newest?.archivedId ?? "-"),
             ("virtualResident", normalizedState.residentPrimaryKeys.count),
@@ -9045,12 +9140,18 @@ extension ChatViewController {
         decision: ChatHistoryPagingLoadDecision,
         queryId: String,
         currentWindow: ChatDatasetWindow,
-        localItemCount: Int
+        localItemCount: Int,
+        localOlderCandidateCount: Int? = nil,
+        pageSize: Int? = nil,
+        shortLocalRemainderRemoteFirst: Bool = false
     ) {
         self.logInteractiveHistoryPagingPlan(
             direction: direction,
             plan: .remote(decision),
             localItemCount: localItemCount,
+            localOlderCandidateCount: localOlderCandidateCount,
+            pageSize: pageSize,
+            shortLocalRemainderRemoteFirst: shortLocalRemainderRemoteFirst,
             queryId: queryId
         )
         self.currentPage.locked = true
@@ -9127,6 +9228,9 @@ extension ChatViewController {
             ("snapshotOldest", virtualSnapshot.state.oldest?.archivedId ?? "-"),
             ("snapshotNewest", virtualSnapshot.state.newest?.archivedId ?? "-"),
             ("snapshotResident", virtualSnapshot.state.residentPrimaryKeys.count),
+            ("localOlderCandidateCount", virtualSnapshot.localOlderCandidateCount ?? -1),
+            ("pageSize", virtualSnapshot.pageSize ?? self.datasourcePageSize),
+            ("shortLocalRemainderRemoteFirst", virtualSnapshot.shortLocalRemainderRemoteFirst),
             ("currentOldest", self.virtualTimelineState.oldest?.archivedId ?? "-"),
             ("currentNewest", self.virtualTimelineState.newest?.archivedId ?? "-"),
             ("currentResident", self.virtualTimelineState.residentPrimaryKeys.count),
@@ -9142,7 +9246,10 @@ extension ChatViewController {
             self.logInteractiveHistoryPagingPlan(
                 direction: direction,
                 plan: pagingPlan,
-                localItemCount: virtualSnapshot.items.count
+                localItemCount: virtualSnapshot.items.count,
+                localOlderCandidateCount: virtualSnapshot.localOlderCandidateCount,
+                pageSize: virtualSnapshot.pageSize,
+                shortLocalRemainderRemoteFirst: virtualSnapshot.shortLocalRemainderRemoteFirst
             )
         }
 
@@ -9209,7 +9316,10 @@ extension ChatViewController {
                 decision: .remoteOlderPage,
                 queryId: queryId,
                 currentWindow: currentWindow,
-                localItemCount: remoteSnapshot?.items.count ?? 0
+                localItemCount: remoteSnapshot?.items.count ?? 0,
+                localOlderCandidateCount: remoteSnapshot?.localOlderCandidateCount,
+                pageSize: remoteSnapshot?.pageSize,
+                shortLocalRemainderRemoteFirst: remoteSnapshot?.shortLocalRemainderRemoteFirst ?? false
             )
             self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 

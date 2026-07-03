@@ -14024,7 +14024,7 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
         )
     }
 
-    func testOlderPagingUsesLocalRemainderBeforeRemoteArchiveWhenRequestedWindowOvershoots() {
+    func testOlderPagingRequestsRemoteBeforeShortLocalRemainderWhenArchiveOpen() {
         XCTAssertEqual(
             ChatHistoryPagingPolicy.loadDecision(
                 direction: .older,
@@ -14034,11 +14034,11 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 totalCount: 120,
                 isArchiveEnded: false
             ),
-            .localOnly
+            .remoteOlderPage
         )
     }
 
-    func testOlderPagingUsesLocalRemainderBeforeArchiveEndWhenRequestedWindowOvershoots() {
+    func testOlderPagingUsesShortLocalRemainderWhenArchiveEndWasReached() {
         XCTAssertEqual(
             ChatHistoryPagingPolicy.loadDecision(
                 direction: .older,
@@ -14047,6 +14047,20 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 localWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 120),
                 totalCount: 120,
                 isArchiveEnded: true
+            ),
+            .localOnly
+        )
+    }
+
+    func testOlderPagingUsesFullLocalPageBeforeRemoteArchiveWhenRequestedWindowOvershoots() {
+        XCTAssertEqual(
+            ChatHistoryPagingPolicy.loadDecision(
+                direction: .older,
+                currentWindow: ChatDatasetWindow(minIndex: 100, maxIndex: 200),
+                requestedWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 200),
+                localWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 200),
+                totalCount: 200,
+                isArchiveEnded: false
             ),
             .localOnly
         )
@@ -15140,6 +15154,151 @@ final class ChatVirtualTimelineEngineTests: XCTestCase {
         XCTAssertEqual(older.loadDecision, .localOnly)
         XCTAssertEqual(older.loadingState, .none)
         XCTAssertNil(older.state.activeRemoteLoad)
+    }
+
+    func testShortLocalOlderRemainderRequestsRemoteFirstWhenArchiveIsNotEnded() {
+        let provider = FakeProvider(items: makeMessages(450..<1_000))
+        var engine = makeEngine(provider: provider)
+        _ = engine.openLatest()
+
+        let remoteFirst = engine.pageOlder(queryId: "short-older-query")
+
+        XCTAssertEqual(remoteFirst.loadDecision, .remoteOlderPage)
+        XCTAssertEqual(remoteFirst.loadingState, .edge(.top))
+        XCTAssertEqual(remoteFirst.items.count, 500)
+        XCTAssertEqual(remoteFirst.items.first?.primary, "p0500")
+        XCTAssertEqual(remoteFirst.items.last?.primary, "p0999")
+        XCTAssertEqual(remoteFirst.state.activeRemoteLoad?.queryId, "short-older-query")
+        XCTAssertEqual(remoteFirst.state.activeRemoteLoad?.decision, .remoteOlderPage)
+        XCTAssertEqual(remoteFirst.state.activeRemoteLoad?.cursorId, "500")
+    }
+
+    func testShortLocalOlderRemainderAppliesAfterRemoteFinish() {
+        let provider = FakeProvider(items: makeMessages(450..<1_000))
+        var engine = makeEngine(provider: provider)
+        _ = engine.openLatest()
+        _ = engine.pageOlder(queryId: "short-older-query")
+
+        let finished = engine.finishRemoteLoad(queryId: "short-older-query", refetchDirection: .older)
+
+        XCTAssertEqual(finished.loadDecision, .localOnly)
+        XCTAssertEqual(finished.items.count, 550)
+        XCTAssertEqual(finished.items.first?.primary, "p0450")
+        XCTAssertEqual(finished.items.last?.primary, "p0999")
+        XCTAssertNil(finished.state.activeRemoteLoad)
+        XCTAssertNil(finished.state.activePlaceholder)
+    }
+
+    func testExactPageLocalOlderRemainderStillAppliesLocally() {
+        let provider = FakeProvider(items: makeMessages(400..<1_000))
+        var engine = makeEngine(provider: provider)
+        _ = engine.openLatest()
+
+        let older = engine.pageOlder(queryId: "exact-page-query")
+
+        XCTAssertEqual(older.loadDecision, .localOnly)
+        XCTAssertEqual(older.loadingState, .none)
+        XCTAssertNil(older.state.activeRemoteLoad)
+        XCTAssertEqual(older.items.first?.primary, "p0400")
+        XCTAssertEqual(older.items.last?.primary, "p0999")
+    }
+
+    func testShortLocalOlderRemainderAppliesLocallyWhenArchiveEnded() {
+        let provider = FakeProvider(items: makeMessages(450..<1_000))
+        var engine = makeEngine(
+            provider: provider,
+            archiveState: ChatArchiveStateSnapshot(
+                primaryKey: "chat",
+                persistedCursorId: nil,
+                fullArchiveLoaded: true,
+                newestCursorId: nil,
+                newerLiveEdgeReached: true
+            )
+        )
+        _ = engine.openLatest()
+
+        let older = engine.pageOlder(queryId: "ended-query")
+
+        XCTAssertEqual(older.loadDecision, .localOnly)
+        XCTAssertEqual(older.loadingState, .none)
+        XCTAssertNil(older.state.activeRemoteLoad)
+        XCTAssertEqual(older.items.count, 550)
+        XCTAssertEqual(older.items.first?.primary, "p0450")
+        XCTAssertEqual(older.items.last?.primary, "p0999")
+    }
+
+    func testEmptyExhaustedOlderCompletionAllowsShortLocalRemainderWithoutRemoteRetry() {
+        let coverageDecision = ChatArchiveCoverageCommitPolicy.resolve(
+            direction: .older,
+            snapshot: ChatArchiveStateSnapshot(
+                primaryKey: "chat",
+                persistedCursorId: "500",
+                fullArchiveLoaded: false
+            ),
+            requestedCursorId: "500",
+            observedCursorId: nil,
+            transportFirst: "",
+            transportLast: "",
+            resultCount: 0,
+            persistedRowsForQuery: 0,
+            visibleRowsForConversation: 0,
+            queryExhausted: true,
+            canMutateOlderArchiveEnd: true,
+            coverageUpdateKind: .pageOlder(cursorArchiveId: "500")
+        )
+        let provider = FakeProvider(items: makeMessages(450..<1_000))
+        var engine = makeEngine(
+            provider: provider,
+            archiveState: ChatArchiveStateSnapshot(
+                primaryKey: "chat",
+                persistedCursorId: coverageDecision.resolvedCursorId,
+                fullArchiveLoaded: coverageDecision.nextFullArchiveLoaded,
+                newestCursorId: nil,
+                newerLiveEdgeReached: true
+            )
+        )
+        _ = engine.openLatest()
+
+        let older = engine.pageOlder(queryId: "retry-query")
+
+        XCTAssertTrue(coverageDecision.nextFullArchiveLoaded)
+        XCTAssertEqual(older.loadDecision, .localOnly)
+        XCTAssertEqual(older.loadingState, .none)
+        XCTAssertNil(older.state.activeRemoteLoad)
+        XCTAssertEqual(older.items.first?.primary, "p0450")
+        XCTAssertEqual(older.items.last?.primary, "p0999")
+    }
+
+    func testShortLocalOlderRemainderCrossingKnownGapUsesGapRepair() {
+        let gap = RegularChatArchiveGap(
+            olderRangeNewestArchiveId: "300",
+            newerRangeOldestArchiveId: "400"
+        )
+        let provider = FakeProvider(items: makeMessages(350..<501))
+        var engine = makeEngine(
+            provider: provider,
+            archiveState: ChatArchiveStateSnapshot(
+                primaryKey: "chat",
+                persistedCursorId: nil,
+                fullArchiveLoaded: false,
+                knownGaps: [gap]
+            )
+        )
+        _ = engine.openAround(
+            anchor: ChatTimelineAnchor(
+                primary: "p0420",
+                archivedId: "420",
+                messageId: "m-420",
+                date: nil
+            )
+        )
+
+        let snapshot = engine.pageOlder(queryId: "gap-query")
+
+        XCTAssertEqual(snapshot.loadDecision, .remoteGapRepairOlder(gap))
+        XCTAssertEqual(snapshot.loadingState, .gap(.top))
+        XCTAssertEqual(snapshot.state.activeRemoteLoad?.queryId, "gap-query")
+        XCTAssertEqual(snapshot.state.activeRemoteLoad?.cursorId, gap.newerRangeOldestArchiveId)
     }
 
     func testRemoteOlderDecisionWithoutQueryDoesNotCreateActiveRemoteLoad() {
