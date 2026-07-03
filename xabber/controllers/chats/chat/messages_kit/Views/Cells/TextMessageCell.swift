@@ -22,6 +22,46 @@ import UIKit
 import MapKit
 import MaterialComponents.MDCPalettes
 
+protocol TextMessageCellAvatarLoading: AnyObject {
+    func loadGroupAvatar(
+        url: String,
+        userId: String,
+        jid: String,
+        owner: String,
+        size: CGFloat,
+        completion: @escaping (UIImage?) -> Void
+    )
+}
+
+final class DefaultTextMessageCellAvatarLoader: TextMessageCellAvatarLoading {
+    func loadGroupAvatar(
+        url: String,
+        userId: String,
+        jid: String,
+        owner: String,
+        size: CGFloat,
+        completion: @escaping (UIImage?) -> Void
+    ) {
+        DefaultAvatarManager.shared.getGroupAvatar(
+            url: url,
+            userId: userId,
+            jid: jid,
+            owner: owner,
+            size: size,
+            callback: completion
+        )
+    }
+}
+
+struct TextMessageCellAvatarIdentity: Equatable {
+    let messagePrimary: String
+    let avatarUrl: String
+    let userId: String
+    let jid: String
+    let owner: String
+    let displayName: String
+}
+
 class InlineLocationsGridView: InlineAttachmentView {
     final class LocationView: UIView {
         private let imageView: UIImageView = {
@@ -303,6 +343,9 @@ public class TextMessageCell: MessageContentCell {
         label.isHidden = true
         return label
     }()
+
+    var avatarLoader: TextMessageCellAvatarLoading = DefaultTextMessageCellAvatarLoader()
+    private(set) var representedAvatarIdentity: TextMessageCellAvatarIdentity?
     
     
         
@@ -701,23 +744,11 @@ public class TextMessageCell: MessageContentCell {
         
         super.prepareForReuse()
         
+        representedAvatarIdentity = nil
         messageLabel.attributedText = nil
         messageLabel.text = nil
-//        forwardsContainer.subviews.forEach { $0.removeFromSuperview() }
-//        forwardsContainer.inlineViews.removeAll()
         forwardsContainer.resetState()
-        imagesView.subviews.forEach { $0.removeFromSuperview() }
-        imagesView.views.removeAll()
-        audiosView.subviews.forEach { $0.removeFromSuperview() }
-        audiosView.views.removeAll()
-        filesView.subviews.forEach { $0.removeFromSuperview() }
-        filesView.views.removeAll()
-        videosView.subviews.forEach { $0.removeFromSuperview() }
-        videosView.views.removeAll()
-        locationsView.subviews.forEach { $0.removeFromSuperview() }
-        locationsView.views.removeAll()
-        contactsView.subviews.forEach { $0.removeFromSuperview() }
-        contactsView.views.removeAll()
+        resetReusableAttachmentState()
         authorView.text = nil
         warningLabel.text = nil
         warningLabel.isHidden = true
@@ -750,7 +781,7 @@ public class TextMessageCell: MessageContentCell {
     }()
     
     override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
-        applyTextContent(with: message, at: indexPath, and: messagesCollectionView, reuseInlineViews: false)
+        applyTextContent(with: message, at: indexPath, and: messagesCollectionView, reuseInlineViews: true)
     }
 
     override func reconfigureContent(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
@@ -811,22 +842,67 @@ public class TextMessageCell: MessageContentCell {
         self.imagesView.layer.backgroundColor = MDCPalette.grey.tint100.cgColor
         
         ensureLongPressGestureInstalled()
-        avatarView.isHidden = false
-        if message.withAvatar {
-            if let avatarUrl = message.avatarUrl {
-                let userId = message.groupchatAuthorId
-                DefaultAvatarManager.shared.getGroupAvatar(url: avatarUrl, userId: userId, jid: message.jid, owner: message.owner, size: 32) { image in
-                    if let image = image {
-                        self.avatarView.image = image
-                    } else {
-                        self.avatarView.image = UIImageView.getDefaultAvatar(for: message.groupchatAuthorNickname, owner: message.owner, size: 32)
-                    }
-                }
-            } else {
-                avatarView.image = UIImageView.getDefaultAvatar(for: message.groupchatAuthorNickname, owner: message.owner, size: 32)
-            }
-        } else {
+        configureAvatar(for: message)
+    }
+
+    private func resetReusableAttachmentState() {
+        audiosView.views.forEach { view in
+            view.resetWaveform()
+            view.resetState()
+            view.delegate = nil
+        }
+    }
+
+    private func configureAvatar(for message: MessageType) {
+        guard message.withAvatar else {
+            representedAvatarIdentity = nil
             avatarView.isHidden = true
+            avatarView.image = nil
+            return
+        }
+
+        avatarView.isHidden = false
+        let fallback = UIImageView.getDefaultAvatar(
+            for: message.groupchatAuthorNickname,
+            owner: message.owner,
+            size: 32
+        )
+        guard let avatarUrl = message.avatarUrl else {
+            representedAvatarIdentity = nil
+            avatarView.image = fallback
+            return
+        }
+
+        let identity = TextMessageCellAvatarIdentity(
+            messagePrimary: message.primary,
+            avatarUrl: avatarUrl,
+            userId: message.groupchatAuthorId,
+            jid: message.jid,
+            owner: message.owner,
+            displayName: message.groupchatAuthorNickname
+        )
+        representedAvatarIdentity = identity
+        avatarView.image = fallback
+
+        avatarLoader.loadGroupAvatar(
+            url: avatarUrl,
+            userId: message.groupchatAuthorId,
+            jid: message.jid,
+            owner: message.owner,
+            size: 32
+        ) { [weak self] image in
+            let applyImage = {
+                guard let self,
+                      self.representedAvatarIdentity == identity else {
+                    return
+                }
+                self.avatarView.image = image ?? fallback
+            }
+            if Thread.isMainThread {
+                applyImage()
+            } else {
+                DispatchQueue.main.async(execute: applyImage)
+            }
         }
     }
 
