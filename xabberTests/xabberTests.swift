@@ -23488,6 +23488,72 @@ final class LastChatsSwipeActionTests: XCTestCase {
         }
     }
 
+    func testSwipeActionAssetCacheReusesTemplatedImages() {
+        LastChatsViewController.SwipeActionKind.allCases.forEach { kind in
+            let first = LastChatsViewController.swipeActionDescriptor(for: kind).image
+            let second = LastChatsViewController.swipeActionDescriptor(for: kind).image
+
+            XCTAssertNotNil(first, "Expected cached image for \(kind)")
+            XCTAssertTrue(first === second, "Expected repeated lookup to reuse cached image for \(kind)")
+            XCTAssertEqual(first?.renderingMode, .alwaysTemplate)
+        }
+    }
+
+    func testMutedAndUnmutedRowsSelectDifferentDescriptors() {
+        let unmuted = makeDatasource(conversationType: .regular, isMute: false)
+        let muted = makeDatasource(conversationType: .regular, isMute: true)
+
+        XCTAssertEqual(
+            LastChatsViewController.trailingSwipeActionKinds(for: unmuted, filter: .chats),
+            [.archive, .delete, .mute, .block]
+        )
+        XCTAssertEqual(
+            LastChatsViewController.trailingSwipeActionKinds(for: muted, filter: .chats),
+            [.archive, .delete, .unmute, .block]
+        )
+        XCTAssertFalse(
+            LastChatsViewController.swipeActionDescriptor(for: .mute).image ===
+                LastChatsViewController.swipeActionDescriptor(for: .unmute).image
+        )
+    }
+
+    func testArchivedAndNonArchivedTrailingActionOrderIsPreserved() {
+        let item = makeDatasource(conversationType: .regular)
+
+        XCTAssertEqual(
+            LastChatsViewController.trailingSwipeActionKinds(for: item, filter: .chats),
+            [.archive, .delete, .mute, .block]
+        )
+        XCTAssertEqual(
+            LastChatsViewController.trailingSwipeActionKinds(for: item, filter: .archived),
+            [.unarchive, .delete, .mute, .block]
+        )
+    }
+
+    func testCallActionKindIsGatedByConversationType() {
+        let direct = makeDatasource(conversationType: .regular)
+        let group = makeDatasource(conversationType: .group)
+
+        XCTAssertEqual(
+            LastChatsViewController.leadingSwipeActionKinds(for: direct),
+            [.pin, .call]
+        )
+        XCTAssertEqual(
+            LastChatsViewController.leadingSwipeActionKinds(for: group),
+            [.pin]
+        )
+    }
+
+    func testBlockActionKindIsGatedByConversationType() {
+        let direct = makeDatasource(conversationType: .regular)
+        let saved = makeDatasource(conversationType: .saved)
+        let notification = makeDatasource(conversationType: .notifications)
+
+        XCTAssertTrue(LastChatsViewController.trailingSwipeActionKinds(for: direct, filter: .chats).contains(.block))
+        XCTAssertFalse(LastChatsViewController.trailingSwipeActionKinds(for: saved, filter: .chats).contains(.block))
+        XCTAssertFalse(LastChatsViewController.trailingSwipeActionKinds(for: notification, filter: .chats).contains(.block))
+    }
+
     func testDirectChatsAllowCallAndBlockActions() {
         let directTypes: [ClientSynchronizationManager.ConversationType] = [
             .regular,
