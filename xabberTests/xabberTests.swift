@@ -17194,12 +17194,19 @@ final class ChatOpenMessageRequestHandlingPolicyTests: XCTestCase {
         .directOpenAtMessage
     ]
 
-    func testMessageAnchorRequestsAreSuppressedForEverySource() {
+    func testOnlySearchMessageAnchorRequestsAreHonoredWhileGlobalAnchorsAreSuppressed() {
         allSources.forEach { source in
-            XCTAssertFalse(
-                ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: source),
-                "\(source) should open latest while message anchors are suppressed"
-            )
+            if source == .search {
+                XCTAssertTrue(
+                    ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: source),
+                    "\(source) should use archive anchor navigation"
+                )
+            } else {
+                XCTAssertFalse(
+                    ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: source),
+                    "\(source) should open latest while non-search message anchors are suppressed"
+                )
+            }
         }
     }
 
@@ -17927,7 +17934,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         let plan = ChatAnchorContextPrefetchPolicy.plan(
             observerIndex: 60,
             totalCount: 150,
-            pageSize: ChatHistoryPagingConfiguration.pageSize,
+            pageSize: 100,
             archivedId: "archived-42"
         )
 
@@ -17939,7 +17946,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         let plan = ChatAnchorContextPrefetchPolicy.plan(
             observerIndex: 5,
             totalCount: 20,
-            pageSize: ChatHistoryPagingConfiguration.pageSize,
+            pageSize: 100,
             archivedId: "archived-42"
         )
 
@@ -17964,6 +17971,17 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
                 isSynced: true
             ),
             .background
+        )
+    }
+
+    func testSearchContextPrefetchBlocksEvenWhenLocalAnchorExists() {
+        XCTAssertEqual(
+            ChatAnchorContextPrefetchModePolicy.mode(
+                for: .search,
+                hasLocalMatch: true,
+                isSynced: true
+            ),
+            .blocking
         )
     }
 
@@ -23138,7 +23156,9 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
     private func makeSavedActionSearchDatasource(
         owner: String = "owner@example.com",
         favoritesJid: String = "favorites.example.com",
-        username: String = "Saved messages"
+        username: String = "Saved messages",
+        date: Date = Date(timeIntervalSince1970: 1_711_283_200),
+        messageArchiveId: String? = nil
     ) -> SearchResultsViewController.Datasource {
         SearchResultsViewController.Datasource(
             jid: favoritesJid,
@@ -23146,7 +23166,7 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
             username: username,
             attributedUsername: nil,
             message: "Hello",
-            date: Date(timeIntervalSince1970: 1_711_283_200),
+            date: date,
             state: nil,
             isMute: false,
             isSynced: true,
@@ -23168,8 +23188,33 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
             hasErrorInChat: false,
             updateTS: 0,
             isVerificationActionRequired: false,
-            messageArchiveId: nil
+            messageArchiveId: messageArchiveId
         )
+    }
+
+    func testSearchResultOpenRequestUsesSearchSourceAndArchiveAnchor() {
+        let date = Date(timeIntervalSince1970: 1_711_283_201)
+        let datasource = makeSavedActionSearchDatasource(
+            date: date,
+            messageArchiveId: "1711283201000000"
+        )
+
+        let request = SearchResultOpenRequestFactory.request(for: datasource)
+
+        XCTAssertEqual(request?.source, .search)
+        XCTAssertEqual(request?.owner, datasource.owner)
+        XCTAssertEqual(request?.chatJid, datasource.jid)
+        XCTAssertEqual(request?.conversationType, .saved)
+        XCTAssertEqual(request?.anchor.archivedId, "1711283201000000")
+        XCTAssertEqual(request?.anchor.sourceDate, date)
+        XCTAssertTrue(request?.highlight ?? false)
+        XCTAssertTrue(request?.markReadOnVisible ?? false)
+    }
+
+    func testSearchResultWithoutArchiveIdDoesNotCreateOpenMessageRequest() {
+        let datasource = makeSavedActionSearchDatasource(messageArchiveId: nil)
+
+        XCTAssertNil(SearchResultOpenRequestFactory.request(for: datasource))
     }
 
     func testSavedSearchResultOpensSavedChat() {
@@ -23178,14 +23223,16 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         let datasource = makeSavedActionSearchDatasource(favoritesJid: favoritesJid)
         var didDismissSearch = false
         var openedItem: SearchResultsViewController.Datasource?
+        var openMessageRequest: ChatOpenMessageRequest?
 
         InPlaceSearchResultRouteHelper.open(
             datasource,
             updater: updater,
             dismissSearch: { didDismissSearch = true },
             reload: {},
-            openNewChat: { item, completion in
+            openNewChat: { item, request, completion in
                 openedItem = item
+                openMessageRequest = request
                 completion(nil)
             }
         )
@@ -23194,6 +23241,7 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertEqual(openedItem?.owner, datasource.owner)
         XCTAssertEqual(openedItem?.jid, favoritesJid)
         XCTAssertEqual(openedItem?.conversationType, .saved)
+        XCTAssertNil(openMessageRequest)
     }
 
     func testSavedContextOpenDoesNotCreateRegularChatForOriginalAuthor() {
@@ -23208,7 +23256,7 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
             updater: updater,
             dismissSearch: {},
             reload: {},
-            openNewChat: { item, completion in
+            openNewChat: { item, _, completion in
                 openedItem = item
                 completion(nil)
             }
@@ -23217,6 +23265,61 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertEqual(openedItem?.jid, favoritesJid)
         XCTAssertNotEqual(openedItem?.jid, originalAuthorJid)
         XCTAssertEqual(openedItem?.conversationType, .saved)
+    }
+
+    func testMessageSearchResultPassesOpenMessageRequestToNewChat() {
+        let updater = ChatSearchResultsController()
+        let datasource = makeSavedActionSearchDatasource(messageArchiveId: "1711283201000000")
+        var openedItem: SearchResultsViewController.Datasource?
+        var openMessageRequest: ChatOpenMessageRequest?
+
+        InPlaceSearchResultRouteHelper.open(
+            datasource,
+            updater: updater,
+            dismissSearch: {},
+            reload: {},
+            openNewChat: { item, request, completion in
+                openedItem = item
+                openMessageRequest = request
+                completion(nil)
+            }
+        )
+
+        XCTAssertEqual(openedItem?.jid, datasource.jid)
+        XCTAssertEqual(openMessageRequest?.source, .search)
+        XCTAssertEqual(openMessageRequest?.anchor.archivedId, "1711283201000000")
+        XCTAssertEqual(openMessageRequest?.chatJid, datasource.jid)
+    }
+
+    func testRemoteSearchCompletionWaitsForRemainingQueries() {
+        let queries: Set<SearchResultsViewController.SearchRequest> = [
+            .init(owner: "owner@example.com", queryId: "q-regular"),
+            .init(owner: "owner@example.com", queryId: "q-group")
+        ]
+
+        let decision = SearchRemoteQueryCompletionPolicy.endPageDecision(
+            queryId: "q-regular",
+            currentQueries: queries
+        )
+
+        XCTAssertFalse(decision.isStale)
+        XCTAssertEqual(decision.remainingQueries, [.init(owner: "owner@example.com", queryId: "q-group")])
+        XCTAssertFalse(decision.isLoadingDone)
+    }
+
+    func testRemoteSearchCompletionIgnoresStaleQueries() {
+        let queries: Set<SearchResultsViewController.SearchRequest> = [
+            .init(owner: "owner@example.com", queryId: "q-current")
+        ]
+
+        let decision = SearchRemoteQueryCompletionPolicy.endPageDecision(
+            queryId: "q-stale",
+            currentQueries: queries
+        )
+
+        XCTAssertTrue(decision.isStale)
+        XCTAssertEqual(decision.remainingQueries, queries)
+        XCTAssertFalse(decision.isLoadingDone)
     }
 
     func testAccountNavigationButtonUsesSystemBarButtonHitTarget() {

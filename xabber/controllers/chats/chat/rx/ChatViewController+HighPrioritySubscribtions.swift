@@ -326,6 +326,8 @@ extension ChatViewController {
         self.searchTextObserver
             .asObservable()
             .skip(1)
+            .distinctUntilChanged()
+            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
             .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
                 self.setLoadingIndicatorVisible((value ?? "").isNotEmpty)

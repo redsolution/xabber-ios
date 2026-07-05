@@ -53,13 +53,19 @@ extension SearchResultsViewController: UITableViewDelegate {
             vc.owner = item.owner
             vc.jid = item.jid
             vc.conversationType = item.conversationType
+            if let request = SearchResultOpenRequestFactory.request(for: item) {
+                vc.queueOpenMessageRequest(
+                    request,
+                    hooks: ChatAnchorExecutionHooks(
+                        direction: .up,
+                        animatedScroll: true,
+                        onFailed: {},
+                        onPositioned: nil
+                    )
+                )
+            }
             showStacked(vc, in: self.presenter ?? self)
             self.currentVc = vc
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if let archivedId = item.messageArchiveId {
-                    vc.showSearchResultFromExternalSource(message: archivedId, date: item.date ?? Date())
-                }
-            }
         }
     }
 }

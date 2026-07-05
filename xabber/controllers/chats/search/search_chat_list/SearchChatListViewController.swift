@@ -476,7 +476,8 @@ class SearchChatListViewController: SimpleBaseViewController {
         searchTextObserver
             .asObservable()
             .skip(1)
-//            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
+            .distinctUntilChanged()
+            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
                 if (value ?? "").isEmpty {
                     self.searchPanel.changeState(to: .empty)

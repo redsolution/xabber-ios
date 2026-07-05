@@ -1479,6 +1479,7 @@ class ChatViewController: MessagesViewController {
     var activeAnchorExecutionHooks: ChatAnchorExecutionHooks? = nil
     var isExecutingOpenMessageRequest: Bool = false
     var isMessageAnchorNavigationInFlight: Bool = false
+    var searchAnchorNavigationWasScrollEnabled: Bool? = nil
     var hasRequestedMentionUsersRefresh: Bool = false
     internal var pendingPreparedLocalHistoryPage: ChatPreparedLocalHistoryPage? = nil
     internal var pendingDeferredRemoteHistoryDirection: ChatHistoryPageDirection? = nil

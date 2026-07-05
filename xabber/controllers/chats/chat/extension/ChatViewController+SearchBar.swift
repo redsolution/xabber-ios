@@ -116,6 +116,10 @@ enum ChatAnchorContextPrefetchModePolicy {
         hasLocalMatch: Bool,
         isSynced: Bool
     ) -> ChatAnchorContextPrefetchMode {
+        if source == .search {
+            return .blocking
+        }
+
         if hasLocalMatch && isSynced {
             return .background
         }
@@ -239,11 +243,15 @@ enum ChatOpenMessageRequestHandlingPolicy {
     }
 
     static func shouldRestoreSavedFirstFramePosition() -> Bool {
-        shouldHonorMessageAnchors()
+        return shouldHonorMessageAnchors()
     }
 
     static func shouldHonorMessageAnchorRequest(source: ChatOpenMessageRequestSource) -> Bool {
-        shouldHonorMessageAnchors()
+        if source == .search {
+            return true
+        }
+
+        return shouldHonorMessageAnchors()
     }
 
     static func shouldHonorDefaultUnreadPosition() -> Bool {
@@ -923,6 +931,7 @@ extension ChatViewController {
         self.activeAnchorExecutionHooks = nil
         self.isApplyingBootstrapAnchorWindow = false
         self.syncAnchorExecutionFlags()
+        self.setSearchAnchorNavigationScrollLocked(false)
 
         guard self.isViewLoaded else {
             return
@@ -937,6 +946,33 @@ extension ChatViewController {
     private func syncAnchorExecutionFlags() {
         self.isExecutingOpenMessageRequest = self.activeAnchorExecutionState != nil
         self.isMessageAnchorNavigationInFlight = self.pendingOpenMessageRequest != nil || self.activeAnchorExecutionState != nil
+    }
+
+    private func setSearchAnchorNavigationScrollLocked(_ locked: Bool) {
+        guard self.isViewLoaded else {
+            return
+        }
+
+        if locked {
+            if self.searchAnchorNavigationWasScrollEnabled == nil {
+                self.searchAnchorNavigationWasScrollEnabled = self.messagesCollectionView.isScrollEnabled
+            }
+            self.messagesCollectionView.isScrollEnabled = false
+        } else if let wasScrollEnabled = self.searchAnchorNavigationWasScrollEnabled {
+            self.messagesCollectionView.isScrollEnabled = wasScrollEnabled
+            self.searchAnchorNavigationWasScrollEnabled = nil
+        }
+    }
+
+    private func setSearchAnchorNavigationScrollLockedIfNeeded(
+        _ locked: Bool,
+        for request: ChatOpenMessageRequest
+    ) {
+        guard request.source == .search else {
+            return
+        }
+
+        self.setSearchAnchorNavigationScrollLocked(locked)
     }
 
     internal func saveCurrentVisibleMessagePositionIfNeeded(
@@ -1186,6 +1222,22 @@ extension ChatViewController {
             hasLocalMatch: true,
             isSynced: self.currentChatIsSyncedForAnchorBootstrap()
         )
+        let resolvedTarget = ResolvedJumpTarget(
+            primary: target.primary,
+            archivedId: target.archivedId
+        )
+
+        if contextPrefetchMode == .blocking {
+            self.pendingOpenMessageRequest = request
+            if self.activeAnchorExecutionState?.request != request {
+                self.activeAnchorExecutionState = self.initialAnchorExecutionState(for: request)
+            }
+            self.activeAnchorExecutionHooks = activeHooks
+            self.syncAnchorExecutionFlags()
+            if self.prepareContextPrefetchIfNeeded(around: resolvedTarget, request: request) {
+                return true
+            }
+        }
 
         self.pendingOpenMessageRequest = nil
         self.activeAnchorExecutionState = nil
@@ -1213,10 +1265,7 @@ extension ChatViewController {
                 activeHooks?.onPositioned?()
                 if contextPrefetchMode == .background {
                     self.startBackgroundContextPrefetchIfNeeded(
-                        around: ResolvedJumpTarget(
-                            primary: target.primary,
-                            archivedId: target.archivedId
-                        ),
+                        around: resolvedTarget,
                         request: request
                     )
                 }
@@ -1499,6 +1548,7 @@ extension ChatViewController {
         self.activeAnchorExecutionHooks = nil
         self.isApplyingBootstrapAnchorWindow = false
         self.syncAnchorExecutionFlags()
+        self.setSearchAnchorNavigationScrollLocked(false)
         self.setLoadingIndicatorVisible(false)
         self.setDatasourceLoadingEnabled(true)
     }
@@ -1552,6 +1602,7 @@ extension ChatViewController {
         self.activeAnchorExecutionState = state
         self.syncAnchorExecutionFlags()
         self.setDatasourceLoadingEnabled(false)
+        self.setSearchAnchorNavigationScrollLockedIfNeeded(true, for: request)
         switch ChatAnchorLoadingPresentationPolicy.presentation(
             isBootstrapNavigation: state.usesBootstrapLoading
         ) {
@@ -2216,6 +2267,7 @@ extension ChatViewController {
         updatedState.didObserveContextPostIdleTick = false
         self.activeAnchorExecutionState = updatedState
         self.syncAnchorExecutionFlags()
+        self.setSearchAnchorNavigationScrollLockedIfNeeded(true, for: request)
 
         let requestCallbacks = MessageArchiveManager.RequestCallbacks(
             onMessage: nil,
@@ -2585,11 +2637,11 @@ extension ChatViewController {
                 ),
                 highlight: true,
                 markReadOnVisible: true,
-                source: .external
+                source: .search
             ),
             hooks: ChatAnchorExecutionHooks(
                 direction: .up,
-                animatedScroll: false,
+                animatedScroll: true,
                 onFailed: {},
                 onPositioned: nil
             )
@@ -2635,7 +2687,7 @@ extension ChatViewController {
             ),
             hooks: ChatAnchorExecutionHooks(
                 direction: .up,
-                animatedScroll: false,
+                animatedScroll: true,
                 onFailed: {},
                 onPositioned: nil
             )
@@ -2682,7 +2734,7 @@ extension ChatViewController {
             ),
             hooks: ChatAnchorExecutionHooks(
                 direction: .down,
-                animatedScroll: false,
+                animatedScroll: true,
                 onFailed: {},
                 onPositioned: nil
             )
@@ -2694,7 +2746,7 @@ extension ChatViewController {
     }
     
     internal func scrollToSearchedMessage(primary: String) {
-        self.positionMessage(primary: primary, highlight: true, animated: false)
+        self.positionMessage(primary: primary, highlight: true, animated: true)
     }
 
     internal func scrollToMessage(
@@ -2777,7 +2829,7 @@ extension ChatViewController {
             primary: self.datasource[scrollIndex].primary,
             archivedId: archivedId,
             highlight: true,
-            animated: false
+            animated: true
         )
     }
 
@@ -2867,9 +2919,17 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             ),
             highlight: true,
             markReadOnVisible: true,
-            source: .external
+            source: .search
         )
-        self.queueOpenMessageRequest(request)
+        self.queueOpenMessageRequest(
+            request,
+            hooks: ChatAnchorExecutionHooks(
+                direction: .up,
+                animatedScroll: true,
+                onFailed: nil,
+                onPositioned: nil
+            )
+        )
     }
     
     public final func scrollToMessageAtIndex(_ index: Int) {
@@ -2898,7 +2958,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             ),
             hooks: ChatAnchorExecutionHooks(
                 direction: self.chatScrollDirection ?? .up,
-                animatedScroll: false,
+                animatedScroll: true,
                 onFailed: nil,
                 onPositioned: nil
             )
@@ -2935,7 +2995,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 ),
                 hooks: ChatAnchorExecutionHooks(
                     direction: .up,
-                    animatedScroll: false,
+                    animatedScroll: true,
                     onFailed: { [weak self] in
                         self?.preventHidingDate = false
                     },

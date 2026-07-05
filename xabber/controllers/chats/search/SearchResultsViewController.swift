@@ -219,7 +219,8 @@ class SearchResultsViewController: SimpleBaseViewController {
         super.subscribe()
         self.searchObserver
             .asObservable()
-            .debounce(.microseconds(200), scheduler: MainScheduler.asyncInstance)
+            .distinctUntilChanged()
+            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
             .subscribe { searchText in
                 self.updateDatasource(searchText)
             } onError: { _ in
@@ -232,6 +233,27 @@ class SearchResultsViewController: SimpleBaseViewController {
 
     }
     
+    private final func registerSearchRequest(owner: String, queryId: String) {
+        let registration = { [weak self] in
+            guard let self else { return }
+            guard queryId.isNotEmpty else {
+                if self.currentQueries.isEmpty {
+                    self.isLoadingDone = true
+                }
+                return
+            }
+
+            let request = SearchRequest(owner: owner, queryId: queryId)
+            self.currentQueries.insert(request)
+            self.isLoadingDone = false
+        }
+        if Thread.isMainThread {
+            registration()
+        } else {
+            DispatchQueue.main.sync(execute: registration)
+        }
+    }
+
     private final func searchForAccount(_ owner: String, search text: String, withUIStream: Bool) {
         guard text.isNotEmpty else { return }
         do {
@@ -268,7 +290,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                         loadFull: false,
                         requestCallbacks: requestCallbacks
                     ) ?? ""
-                    self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
+                    self.registerSearchRequest(owner: owner, queryId: queryId)
                 } fail: {
                     AccountManager.shared.find(for: owner)?.action({ user, stream in
                         let queryId = user.mam.searchText(
@@ -279,7 +301,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                             loadFull: false,
                             requestCallbacks: requestCallbacks
                         )
-                        self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
+                        self.registerSearchRequest(owner: owner, queryId: queryId)
                     })
                 }
             } else {
@@ -300,7 +322,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                         loadFull: false,
                         requestCallbacks: requestCallbacks
                     )
-                    self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
+                    self.registerSearchRequest(owner: owner, queryId: queryId)
                 })
             }
         } catch {
@@ -833,9 +855,73 @@ enum BottomInPlaceSearchHostHelper {
     }
 }
 
+enum SearchResultOpenRequestFactory {
+    static func request(for item: SearchResultsViewController.Datasource) -> ChatOpenMessageRequest? {
+        guard let archivedId = item.messageArchiveId,
+              archivedId.isNotEmpty else {
+            return nil
+        }
+
+        return ChatOpenMessageRequest(
+            chatJid: item.jid,
+            owner: item.owner,
+            conversationType: item.conversationType,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: archivedId,
+                messageId: nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: item.date ?? Date()
+            ),
+            highlight: true,
+            markReadOnVisible: true,
+            source: .search
+        )
+    }
+}
+
+enum SearchRemoteQueryCompletionPolicy {
+    typealias SearchRequest = SearchResultsViewController.SearchRequest
+
+    struct EndPageDecision: Equatable {
+        let remainingQueries: Set<SearchRequest>
+        let isStale: Bool
+        let isLoadingDone: Bool
+    }
+
+    static func endPageDecision(
+        queryId: String,
+        currentQueries: Set<SearchRequest>
+    ) -> EndPageDecision {
+        guard currentQueries.contains(where: { $0.queryId == queryId }) else {
+            return EndPageDecision(
+                remainingQueries: currentQueries,
+                isStale: true,
+                isLoadingDone: currentQueries.isEmpty
+            )
+        }
+
+        let remainingQueries = currentQueries.filter { $0.queryId != queryId }
+        return EndPageDecision(
+            remainingQueries: remainingQueries,
+            isStale: false,
+            isLoadingDone: remainingQueries.isEmpty
+        )
+    }
+
+    static func shouldAcceptMessage(
+        queryId: String,
+        currentQueries: Set<SearchRequest>
+    ) -> Bool {
+        currentQueries.contains(where: { $0.queryId == queryId })
+    }
+}
+
 enum InPlaceSearchResultRouteHelper {
     typealias OpenNewChat = (
         _ item: SearchResultsViewController.Datasource,
+        _ openMessageRequest: ChatOpenMessageRequest?,
         _ completion: @escaping (ChatViewController?) -> Void
     ) -> Void
 
@@ -856,13 +942,10 @@ enum InPlaceSearchResultRouteHelper {
             return
         }
 
-        openNewChat(item) { chatVc in
+        let openMessageRequest = SearchResultOpenRequestFactory.request(for: item)
+        openNewChat(item, openMessageRequest) { chatVc in
             guard let chatVc else { return }
             updater.currentVc = chatVc
-            guard let archivedId = item.messageArchiveId else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak chatVc] in
-                chatVc?.showSearchResultFromExternalSource(message: archivedId, date: item.date ?? Date())
-            }
         }
     }
 
@@ -870,8 +953,16 @@ enum InPlaceSearchResultRouteHelper {
         for item: SearchResultsViewController.Datasource,
         in chatViewController: ChatViewController
     ) {
-        guard let archivedId = item.messageArchiveId else { return }
-        chatViewController.showSearchResultFromExternalSource(message: archivedId, date: item.date ?? Date())
+        guard let request = SearchResultOpenRequestFactory.request(for: item) else { return }
+        chatViewController.queueOpenMessageRequest(
+            request,
+            hooks: ChatAnchorExecutionHooks(
+                direction: .up,
+                animatedScroll: true,
+                onFailed: {},
+                onPositioned: nil
+            )
+        )
     }
 }
 
@@ -1070,7 +1161,8 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
         searchObserver
             .asObservable()
             .skip(1)
-            .debounce(.microseconds(200), scheduler: MainScheduler.asyncInstance)
+            .distinctUntilChanged()
+            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
             .subscribe { [weak self] searchText in
                 self?.updateDatasource(searchText)
             } onError: { _ in
@@ -1099,6 +1191,29 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
             return false
         }
         return true
+    }
+
+    private func registerSearchRequest(owner: String, queryId: String) {
+        let registration = { [weak self] in
+            guard let self else { return }
+            guard queryId.isNotEmpty else {
+                if self.currentQueries.isEmpty {
+                    self.isLoadingDone = true
+                    self.updateSections()
+                    self.onSnapshotChanged?()
+                }
+                return
+            }
+
+            let request = SearchRequest(owner: owner, queryId: queryId)
+            self.currentQueries.insert(request)
+            self.isLoadingDone = false
+        }
+        if Thread.isMainThread {
+            registration()
+        } else {
+            DispatchQueue.main.sync(execute: registration)
+        }
     }
 
     private final func searchForAccount(_ owner: String, search text: String, withUIStream: Bool) {
@@ -1139,7 +1254,7 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                             loadFull: false,
                             requestCallbacks: requestCallbacks
                         ) ?? ""
-                        self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
+                        self.registerSearchRequest(owner: owner, queryId: queryId)
                     }
                 } fail: {
                     AccountManager.shared.find(for: owner)?.action({ user, stream in
@@ -1152,7 +1267,7 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                                 loadFull: false,
                                 requestCallbacks: requestCallbacks
                             )
-                            self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
+                            self.registerSearchRequest(owner: owner, queryId: queryId)
                         }
                     })
                 }
@@ -1167,7 +1282,7 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                             loadFull: false,
                             requestCallbacks: requestCallbacks
                         )
-                        self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
+                        self.registerSearchRequest(owner: owner, queryId: queryId)
                     }
                 })
             }
@@ -1526,33 +1641,61 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
     }
 
     func didReceiveEndPage(queryId: String, state: MessageArchivePageEndState, first: String, last: String, count: Int) {
-        if currentQueries.contains(where: { $0.queryId == queryId }) {
-            DispatchQueue.main.async {
-                self.isLoadingDone = true
-                try? self.updateMessagesSearchResults()
+        DispatchQueue.main.async {
+            let decision = SearchRemoteQueryCompletionPolicy.endPageDecision(
+                queryId: queryId,
+                currentQueries: self.currentQueries
+            )
+            guard !decision.isStale else {
+                return
             }
+
+            self.currentQueries = decision.remainingQueries
+            self.isLoadingDone = decision.isLoadingDone
+            try? self.updateMessagesSearchResults()
         }
     }
 
     func didReceiveMessage(_ item: MessageStorageItem, queryId: String) {
-        if currentQueries.contains(where: { $0.queryId == queryId }) {
-            messagesQueue.append(item)
+        DispatchQueue.main.async {
+            guard SearchRemoteQueryCompletionPolicy.shouldAcceptMessage(
+                queryId: queryId,
+                currentQueries: self.currentQueries
+            ) else {
+                return
+            }
+
+            self.messagesQueue.append(item)
         }
     }
 }
 
 extension SearchResultsViewController: TemporaryMessageReceiverProtocol {
     func didReceiveEndPage(queryId: String, state: MessageArchivePageEndState, first: String, last: String, count: Int) {
-        if self.currentQueries.contains(where: { $0.queryId == queryId }) {
-            DispatchQueue.main.async {
-                self.isLoadingDone = true
-                try? self.updateMessagesSearchResults()
+        DispatchQueue.main.async {
+            let decision = SearchRemoteQueryCompletionPolicy.endPageDecision(
+                queryId: queryId,
+                currentQueries: self.currentQueries
+            )
+            guard !decision.isStale else {
+                return
             }
+
+            self.currentQueries = decision.remainingQueries
+            self.isLoadingDone = decision.isLoadingDone
+            try? self.updateMessagesSearchResults()
         }
     }
     
     func didReceiveMessage(_ item: MessageStorageItem, queryId: String) {
-        if self.currentQueries.contains(where: { $0.queryId == queryId }) {
+        DispatchQueue.main.async {
+            guard SearchRemoteQueryCompletionPolicy.shouldAcceptMessage(
+                queryId: queryId,
+                currentQueries: self.currentQueries
+            ) else {
+                return
+            }
+
             self.messagesQueue.append(item)
             self.searchResultsObserver.accept(item.primary)
         }

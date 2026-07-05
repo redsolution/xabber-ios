@@ -36,12 +36,12 @@ extension LastChatsViewController: SearchResultsDelegateProtocol {
             reload: { [weak self] in
                 self?.reloadInPlaceSearchResultsIfNeeded()
             },
-            openNewChat: { [weak self] item, completion in
+            openNewChat: { [weak self] item, openMessageRequest, completion in
                 self?.stackNewChat(
                     owner: item.owner,
                     jid: item.jid,
                     conversationType: item.conversationType,
-                    openMessageRequest: nil
+                    openMessageRequest: openMessageRequest
                 ) { chatVc in
                     completion(chatVc)
                 }
