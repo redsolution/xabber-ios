@@ -2973,6 +2973,7 @@ class ChatViewController: MessagesViewController {
             invalidateLayout: true,
             limit: isStabilizing ? self.initialFirstFramePageSize : nil,
             suppressDefaultBottomScroll: isStabilizing,
+            forceBottomAlignmentTarget: isStabilizing ? .newestRealMessage : nil,
             completion: { [weak self] in
                 guard let self else {
                     return

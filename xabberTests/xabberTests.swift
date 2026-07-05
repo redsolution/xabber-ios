@@ -9642,6 +9642,121 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertTrue(controller.isNearBottom(threshold: 1))
     }
 
+    func testBottomAlignmentNewestTargetIgnoresFakeAndSkeletonRows() {
+        let items = [
+            makeDatasource(
+                index: 0,
+                kind: .skeleton(NSAttributedString(string: "Skeleton")),
+                isFakeMessage: true
+            ),
+            makeDatasource(
+                index: 1,
+                kind: .date(NSAttributedString(string: "Today")),
+                isFakeMessage: false
+            ),
+            makeDatasource(index: 2),
+            makeDatasource(
+                index: 3,
+                kind: .skeleton(NSAttributedString(string: "Skeleton")),
+                isFakeMessage: true
+            )
+        ]
+
+        XCTAssertEqual(
+            ChatBottomAlignmentTargetPolicy.indexPath(for: .newestRealMessage, in: items),
+            IndexPath(item: 0, section: 2)
+        )
+    }
+
+    func testBottomAlignmentMessageTargetResolvesPrimaryBeforeFinalRow() {
+        let items = (0..<4).map { makeDatasource(index: $0) }
+        let anchor = makeAnchor(primary: items[1].primary)
+
+        XCTAssertEqual(
+            ChatBottomAlignmentTargetPolicy.indexPath(for: .message(anchor), in: items),
+            IndexPath(item: 0, section: 1)
+        )
+    }
+
+    func testBottomAlignmentMessageTargetResolvesArchivedIdBeforeFinalRow() {
+        let items = (0..<4).map { makeDatasource(index: $0) }
+        let anchor = makeAnchor(archivedId: items[1].archivedId)
+
+        XCTAssertEqual(
+            ChatBottomAlignmentTargetPolicy.indexPath(for: .message(anchor), in: items),
+            IndexPath(item: 0, section: 1)
+        )
+    }
+
+    func testBottomAlignmentMessageTargetResolvesMessageIdBeforeFinalRow() {
+        let items = (0..<4).map { makeDatasource(index: $0) }
+        let anchor = makeAnchor(messageId: items[1].messageId)
+
+        XCTAssertEqual(
+            ChatBottomAlignmentTargetPolicy.indexPath(for: .message(anchor), in: items),
+            IndexPath(item: 0, section: 1)
+        )
+    }
+
+    func testSkeletonReplacementForcesNewestTargetBottomAlignmentBeforeCompletion() throws {
+        let controller = makeController()
+        controller.ownerSender = Sender(id: owner, displayName: owner)
+        controller.opponentSender = Sender(id: jid, displayName: jid)
+        controller.loadViewIfNeeded()
+        controller.view.layoutIfNeeded()
+
+        let skeletonItems = (0..<120).map {
+            makeDatasource(
+                index: $0,
+                kind: .skeleton(NSAttributedString(string: "Skeleton row \($0)")),
+                isFakeMessage: true
+            )
+        }
+        controller.applyChatDatasource(
+            skeletonItems,
+            mode: .fullReload(keepOffset: false),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.messagesCollectionView.setContentOffset(
+            CGPoint(x: 0, y: -controller.messagesCollectionView.adjustedContentInset.top),
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let realItems = (0..<120).map { makeDatasource(index: $0) }
+        var completionOffsetY: CGFloat?
+
+        controller.applyChatDatasource(
+            realItems,
+            mode: .fullReload(keepOffset: false),
+            animated: false,
+            suppressDefaultBottomScroll: true,
+            forceBottomAlignmentTarget: .newestRealMessage,
+            completion: {
+                completionOffsetY = controller.messagesCollectionView.contentOffset.y
+            }
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let targetIndexPath = try XCTUnwrap(
+            ChatBottomAlignmentTargetPolicy.indexPath(for: .newestRealMessage, in: realItems)
+        )
+        let targetMaxY = try XCTUnwrap(
+            controller.messagesCollectionView.layoutAttributesForItem(at: targetIndexPath)?.frame.maxY
+        )
+        let expectedOffsetY = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+            targetMaxY: targetMaxY,
+            contentHeight: controller.messagesCollectionView.contentSize.height,
+            viewportHeight: controller.messagesCollectionView.bounds.height,
+            contentInsets: controller.messagesCollectionView.contentInset
+        )
+
+        XCTAssertEqual(try XCTUnwrap(completionOffsetY), expectedOffsetY, accuracy: 1.0)
+        XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, expectedOffsetY, accuracy: 1.0)
+    }
+
     func testLocalOlderPageKeepsCapturedAnchorViewportPositionAfterApply() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 620)
@@ -10092,7 +10207,11 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         return frame.minY - controller.messagesCollectionView.contentOffset.y
     }
 
-    private func makeDatasource(index: Int) -> ChatViewController.Datasource {
+    private func makeDatasource(
+        index: Int,
+        kind: MessageKind? = nil,
+        isFakeMessage: Bool = false
+    ) -> ChatViewController.Datasource {
         ChatViewController.Datasource(
             primary: "atomic-message-\(index)",
             jid: jid,
@@ -10102,7 +10221,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             messageId: "atomic-message-id-\(index)",
             sentDate: Date(timeIntervalSince1970: TimeInterval(1_700_100_000 + index)),
             editDate: nil,
-            kind: .attributedText(NSAttributedString(string: "Atomic message \(index)")),
+            kind: kind ?? .attributedText(NSAttributedString(string: "Atomic message \(index)")),
             withAuthor: false,
             withAvatar: false,
             error: false,
@@ -10130,7 +10249,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             selectedSearchResultId: nil,
             isHadHistoryGap: false,
             tailed: false,
-            isFakeMessage: false,
+            isFakeMessage: isFakeMessage,
             images: [],
             videos: [],
             files: [],
@@ -10214,6 +10333,21 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             highlight: false,
             markReadOnVisible: false,
             source: .savedVisiblePosition
+        )
+    }
+
+    private func makeAnchor(
+        primary: String? = nil,
+        archivedId: String? = nil,
+        messageId: String? = nil
+    ) -> ChatMessageAnchorRef {
+        ChatMessageAnchorRef(
+            messagePrimary: primary,
+            archivedId: archivedId,
+            messageId: messageId,
+            authorId: nil,
+            bodyFingerprint: nil,
+            sourceDate: Date(timeIntervalSince1970: 1_700_100_000)
         )
     }
 }

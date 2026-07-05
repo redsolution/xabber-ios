@@ -4114,6 +4114,60 @@ enum ChatDatasourceApplyMode {
     case targetedDiff
 }
 
+enum ChatBottomAlignmentTarget: Equatable {
+    case newestRealMessage
+    case message(ChatMessageAnchorRef)
+}
+
+enum ChatBottomAlignmentTargetPolicy {
+    static func indexPath(
+        for target: ChatBottomAlignmentTarget,
+        in items: [ChatViewController.Datasource]
+    ) -> IndexPath? {
+        guard let section = section(for: target, in: items) else {
+            return nil
+        }
+        return IndexPath(item: 0, section: section)
+    }
+
+    static func section(
+        for target: ChatBottomAlignmentTarget,
+        in items: [ChatViewController.Datasource]
+    ) -> Int? {
+        switch target {
+        case .newestRealMessage:
+            return newestRealMessageSection(in: items)
+        case .message(let anchor):
+            return ChatLoadedMessageNavigationPolicy.index(in: items, for: anchor)
+        }
+    }
+
+    private static func newestRealMessageSection(
+        in items: [ChatViewController.Datasource]
+    ) -> Int? {
+        items
+            .enumerated()
+            .reversed()
+            .first { _, item in
+                isRealMessage(item)
+            }?
+            .offset
+    }
+
+    private static func isRealMessage(_ item: ChatViewController.Datasource) -> Bool {
+        guard !item.isFakeMessage else {
+            return false
+        }
+
+        switch item.kind {
+        case .date(_), .unread(_), .initial(_), .skeleton(_):
+            return false
+        default:
+            return true
+        }
+    }
+}
+
 struct ChatOutgoingAutoScrollRequest: Equatable {
     let previousNewestPrimary: String?
 }
@@ -5634,6 +5688,7 @@ extension ChatViewController {
         animated: Bool = true,
         invalidateLayout: Bool = false,
         suppressDefaultBottomScroll: Bool = false,
+        forceBottomAlignmentTarget: ChatBottomAlignmentTarget? = nil,
         applyCategory: ChatDatasourceApplyCategory = .default,
         anchorRestorePhase: ChatHistoryPageAnchorRestorePhase = .none,
         anchorPrimary: String? = nil,
@@ -5675,6 +5730,7 @@ extension ChatViewController {
         )
         let shouldAutoScrollToBottom = !suppressDefaultBottomScroll
             && !shouldRestoreAnchorInApplyTransaction
+            && forceBottomAlignmentTarget == nil
             && wasNearBottom
             && !isDefaultBottomScrollDeferred
             && !containsOnlyFakeMessages
@@ -5705,6 +5761,7 @@ extension ChatViewController {
             requestedAnimated: requestedStructuralAnimation,
             outgoingAutoScrollDecision: outgoingAutoScrollDecision
         )
+        let forceBottomAlignmentDescription = forceBottomAlignmentTarget.map { String(describing: $0) } ?? "-"
         ChatArchiveDebugTrace.log("chatDatasourceApplyStart", [
             ("owner", self.owner),
             ("jid", self.jid),
@@ -5722,6 +5779,7 @@ extension ChatViewController {
             ("animated", animated),
             ("structuralAnimated", shouldAnimateApply),
             ("invalidateLayout", invalidateLayout),
+            ("forceBottomAlignmentTarget", forceBottomAlignmentDescription),
             ("oldOffsetY", Int(oldContentOffset.y)),
             ("oldContentHeight", Int(oldContentSize.height)),
             ("oldBottomDistance", Int(oldBottomDistance))
@@ -5731,6 +5789,7 @@ extension ChatViewController {
         var anchorRestoreDiagnostics = ChatHistoryPageAnchorRestoreDiagnostics()
         var reloadedOffsetY: CGFloat?
         var reloadedContentHeight: CGFloat?
+        var forcedBottomAlignmentApplied = false
 
         let restoreAnchorInApplyTransactionIfNeeded: () -> Void = {
             guard shouldRestoreAnchorInApplyTransaction,
@@ -5764,6 +5823,22 @@ extension ChatViewController {
                 ("insetTop", Int(self.messagesCollectionView.adjustedContentInset.top)),
                 ("insetBottom", Int(self.messagesCollectionView.adjustedContentInset.bottom))
             ])
+        }
+
+        let forceBottomAlignmentIfNeeded: () -> Void = {
+            guard let forceBottomAlignmentTarget,
+                  let targetIndexPath = ChatBottomAlignmentTargetPolicy.indexPath(
+                    for: forceBottomAlignmentTarget,
+                    in: self.datasource
+                  ) else {
+                return
+            }
+
+            UIView.performWithoutAnimation {
+                self.scrollToBottomAligned(targetIndexPath: targetIndexPath, animated: false)
+                self.messagesCollectionView.layoutIfNeeded()
+            }
+            forcedBottomAlignmentApplied = true
         }
 
         let finish: () -> Void = {
@@ -5809,24 +5884,28 @@ extension ChatViewController {
                     ("insetBottom", Int(self.messagesCollectionView.adjustedContentInset.bottom))
                 ])
             }
-            switch outgoingAutoScrollDecision {
-            case .scroll(let indexPath):
-                UIView.performWithoutAnimation {
-                    self.scrollToBottomAligned(
-                        targetIndexPath: indexPath,
-                        animated: false
-                    )
-                }
-                self.scheduleOutgoingBottomRealignment(targetIndexPath: indexPath)
-            case .handledNoScroll:
-                break
-            case .notHandled, .useDefaultAndClear:
-                if shouldTailAppendBottomPin {
+            if forceBottomAlignmentTarget != nil {
+                forceBottomAlignmentIfNeeded()
+            } else {
+                switch outgoingAutoScrollDecision {
+                case .scroll(let indexPath):
                     UIView.performWithoutAnimation {
-                        self.scrollToBottomAligned(targetIndexPath: nil, animated: false)
+                        self.scrollToBottomAligned(
+                            targetIndexPath: indexPath,
+                            animated: false
+                        )
                     }
-                } else if shouldAutoScrollToBottom {
-                    self.scrollToBottom(animated: shouldAnimateApply)
+                    self.scheduleOutgoingBottomRealignment(targetIndexPath: indexPath)
+                case .handledNoScroll:
+                    break
+                case .notHandled, .useDefaultAndClear:
+                    if shouldTailAppendBottomPin {
+                        UIView.performWithoutAnimation {
+                            self.scrollToBottomAligned(targetIndexPath: nil, animated: false)
+                        }
+                    } else if shouldAutoScrollToBottom {
+                        self.scrollToBottom(animated: shouldAnimateApply)
+                    }
                 }
             }
             let completionStartedAt = Date()
@@ -5896,6 +5975,8 @@ extension ChatViewController {
                 ("autoScrollToBottom", shouldAutoScrollToBottom),
                 ("tailAppendBottomPinned", shouldTailAppendBottomPin),
                 ("suppressDefaultBottomScroll", suppressDefaultBottomScroll),
+                ("forceBottomAlignmentTarget", forceBottomAlignmentDescription),
+                ("forcedBottomAlignmentApplied", forcedBottomAlignmentApplied),
                 ("outgoingAutoScroll", "\(outgoingAutoScrollDecision)")
             ])
             datasourceApplySignpost.end()
@@ -7779,6 +7860,7 @@ extension ChatViewController {
         invalidateLayout: Bool = false,
         limit: Int? = nil,
         suppressDefaultBottomScroll: Bool = false,
+        forceBottomAlignmentTarget: ChatBottomAlignmentTarget? = nil,
         completion: (() -> Void)? = nil,
         cancelledCompletion: (() -> Void)? = nil
     ) {
@@ -7836,6 +7918,7 @@ extension ChatViewController {
                         animated: animated,
                         invalidateLayout: invalidateLayout,
                         suppressDefaultBottomScroll: suppressDefaultBottomScroll,
+                        forceBottomAlignmentTarget: forceBottomAlignmentTarget,
                         completion: completion
                     )
                 }
@@ -8462,6 +8545,7 @@ extension ChatViewController {
                 animated: false,
                 invalidateLayout: forceLatestBottom,
                 suppressDefaultBottomScroll: forceLatestBottom,
+                forceBottomAlignmentTarget: forceLatestBottom ? .newestRealMessage : nil,
                 completion: forceLatestBottom ? {
                     self.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
                 } : nil
@@ -8515,6 +8599,7 @@ extension ChatViewController {
                 invalidateLayout: shouldForceLatestOpen,
                 limit: shouldForceLatestOpen ? self.initialFirstFramePageSize : nil,
                 suppressDefaultBottomScroll: shouldForceLatestOpen,
+                forceBottomAlignmentTarget: shouldForceLatestOpen ? .newestRealMessage : nil,
                 completion: shouldForceLatestOpen ? {
                     self.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
                 } : nil,
@@ -10923,6 +11008,7 @@ extension ChatViewController {
                 invalidateLayout: false,
                 limit: self.initialFirstFramePageSize,
                 suppressDefaultBottomScroll: true,
+                forceBottomAlignmentTarget: .newestRealMessage,
                 completion: {
                     completion()
                     self.finishLatestBottomScroll(
