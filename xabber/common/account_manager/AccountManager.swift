@@ -27,6 +27,171 @@ import CocoaLumberjack
 import SwiftKeychainWrapper
 import Kingfisher
 
+enum AccountDeletionDiagnosticsEventName: String, Equatable {
+    case started = "account_deletion_started"
+    case finished = "account_deletion_finished"
+}
+
+struct AccountDeletionDiagnosticsEvent {
+    let name: AccountDeletionDiagnosticsEventName
+    let jid: String
+    let hard: Bool
+    let invokedOnMainThread: Bool
+    let totalDurationMs: Int?
+    let preRealmCleanupMs: Int?
+    let realmWriteMs: Int?
+    let postCleanupMs: Int?
+
+    func diagnosticLine() -> String {
+        ConnectionDiagnosticsLogger.line(
+            event: name.rawValue,
+            stream: .accountDelete,
+            jid: jid,
+            details: details
+        )
+    }
+
+    func log() {
+        ConnectionDiagnosticsLogger.log(
+            event: name.rawValue,
+            stream: .accountDelete,
+            jid: jid,
+            details: details
+        )
+    }
+
+    private var details: [String: Any?] {
+        [
+            "hard": hard,
+            "invokedOnMainThread": invokedOnMainThread,
+            "postCleanupMs": postCleanupMs,
+            "preRealmCleanupMs": preRealmCleanupMs,
+            "realmWriteMs": realmWriteMs,
+            "totalDurationMs": totalDurationMs
+        ]
+    }
+}
+
+final class AccountDeletionDiagnosticsRecorder {
+    typealias Clock = () -> TimeInterval
+    typealias Sink = (AccountDeletionDiagnosticsEvent) -> Void
+
+    static let live = AccountDeletionDiagnosticsRecorder(
+        clock: { ProcessInfo.processInfo.systemUptime },
+        sink: { $0.log() }
+    )
+
+    private let clock: Clock
+    private let sink: Sink
+
+    init(
+        clock: @escaping Clock = { ProcessInfo.processInfo.systemUptime },
+        sink: @escaping Sink = { $0.log() }
+    ) {
+        self.clock = clock
+        self.sink = sink
+    }
+
+    func begin(
+        jid: String,
+        hard: Bool,
+        invokedOnMainThread: Bool = Thread.isMainThread
+    ) -> AccountDeletionDiagnosticsSession {
+        let startedAt = now()
+        emit(
+            AccountDeletionDiagnosticsEvent(
+                name: .started,
+                jid: jid,
+                hard: hard,
+                invokedOnMainThread: invokedOnMainThread,
+                totalDurationMs: nil,
+                preRealmCleanupMs: nil,
+                realmWriteMs: nil,
+                postCleanupMs: nil
+            )
+        )
+        return AccountDeletionDiagnosticsSession(
+            recorder: self,
+            jid: jid,
+            hard: hard,
+            invokedOnMainThread: invokedOnMainThread,
+            startedAt: startedAt
+        )
+    }
+
+    fileprivate func now() -> TimeInterval {
+        clock()
+    }
+
+    fileprivate func emit(_ event: AccountDeletionDiagnosticsEvent) {
+        sink(event)
+    }
+}
+
+struct AccountDeletionDiagnosticsSession {
+    private let recorder: AccountDeletionDiagnosticsRecorder
+    private let jid: String
+    private let hard: Bool
+    private let invokedOnMainThread: Bool
+    private let startedAt: TimeInterval
+
+    private var lastStageAt: TimeInterval
+    private var preRealmCleanupMs: Int?
+    private var realmWriteMs: Int?
+    private var didFinish: Bool = false
+
+    init(
+        recorder: AccountDeletionDiagnosticsRecorder,
+        jid: String,
+        hard: Bool,
+        invokedOnMainThread: Bool,
+        startedAt: TimeInterval
+    ) {
+        self.recorder = recorder
+        self.jid = jid
+        self.hard = hard
+        self.invokedOnMainThread = invokedOnMainThread
+        self.startedAt = startedAt
+        self.lastStageAt = startedAt
+    }
+
+    mutating func markPreRealmCleanupFinished() {
+        guard !didFinish else { return }
+        let now = recorder.now()
+        preRealmCleanupMs = Self.milliseconds(from: now - lastStageAt)
+        lastStageAt = now
+    }
+
+    mutating func markRealmWriteFinished() {
+        guard !didFinish else { return }
+        let now = recorder.now()
+        realmWriteMs = Self.milliseconds(from: now - lastStageAt)
+        lastStageAt = now
+    }
+
+    mutating func finish() {
+        guard !didFinish else { return }
+        didFinish = true
+        let now = recorder.now()
+        recorder.emit(
+            AccountDeletionDiagnosticsEvent(
+                name: .finished,
+                jid: jid,
+                hard: hard,
+                invokedOnMainThread: invokedOnMainThread,
+                totalDurationMs: Self.milliseconds(from: now - startedAt),
+                preRealmCleanupMs: preRealmCleanupMs,
+                realmWriteMs: realmWriteMs,
+                postCleanupMs: Self.milliseconds(from: now - lastStageAt)
+            )
+        )
+    }
+
+    private static func milliseconds(from seconds: TimeInterval) -> Int {
+        Int((max(0, seconds) * 1000).rounded())
+    }
+}
+
 public class AccountManager: NSObject {
     
     enum Pipeline {
@@ -86,6 +251,7 @@ public class AccountManager: NSObject {
     var newAccountObservable: BehaviorRelay<UserObserver> = BehaviorRelay(value: UserObserver(jid: "", state: .none))
     
     var users: [Account]
+    var accountDeletionDiagnosticsRecorder: AccountDeletionDiagnosticsRecorder = .live
     
     var bag: DisposeBag = DisposeBag()
     var activeUsers: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set<String>())
@@ -397,6 +563,7 @@ public class AccountManager: NSObject {
     }
     
     func deleteAccount(by jid: String, hard: Bool = true) {
+        var diagnosticsSession = accountDeletionDiagnosticsRecorder.begin(jid: jid, hard: hard)
         
         if XMPPUIActionManager.shared.currentJid == jid {
             XMPPUIActionManager.shared.close(soft: !hard, disconnect: true)
@@ -437,6 +604,7 @@ public class AccountManager: NSObject {
         }
         
         CommonContactsMetadataManager.shared.clear(for: jid)
+        diagnosticsSession.markPreRealmCleanupFinished()
         
         do {
             if let index = users.firstIndex(where: { $0.jid == jid }) {
@@ -472,9 +640,11 @@ public class AccountManager: NSObject {
         } catch {
             DDLogDebug("AccountManager: \(#function). \(error.localizedDescription)")
         }
+        diagnosticsSession.markRealmWriteFinished()
         if let index = ApplicationStateManager.shared.expiredTokenAccountsList.firstIndex(where: { $0.jid == jid }) {
             ApplicationStateManager.shared.expiredTokenAccountsList.remove(at: index)
         }
+        diagnosticsSession.finish()
 //        ApplicationStateManager.shared.expiredTokenAccountsList.remove(jid)
     }
     
