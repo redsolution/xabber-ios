@@ -5866,6 +5866,7 @@ final class NotificationsFeatureTests: XCTestCase {
     private func makeAccount() -> Account {
         AccountManager.shared.users.removeAll { $0.jid == owner }
         let account = Account(jid: owner, queue: .main)
+        account.sendReadiness.markStreamManagementEnabled()
         AccountManager.shared.users.append(account)
         return account
     }
@@ -7342,6 +7343,8 @@ final class NotificationsFeatureTests: XCTestCase {
 
         account.notifications.update(account.xmppStream)
         account.notifications.update(account.xmppStream)
+
+        _ = waitForQueuedNotificationRequest(on: account)
 
         XCTAssertEqual(
             account.mam.callbacksQueue.filter { $0.task.conversationType == .notifications }.count,
