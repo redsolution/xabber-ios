@@ -26,6 +26,53 @@ import CocoaLumberjack
 import XMPPFramework
 
 extension ContactInfoViewController: InfoScreenHeaderDelegate {
+    private func contactInfoActionResolution() -> ContactInfoActionExitResolution {
+        ContactInfoActionExitPolicy.resolve(
+            currentController: self,
+            presentingViewController: navigationController?.presentingViewController ?? presentationController?.presentingViewController,
+            isBlockedByUnrelatedPresentedModal: hasUnrelatedPresentedModal(),
+            exitAction: NavigationExitPolicy.action(
+                for: NavigationExitPolicyContext(destination: self, route: .currentNavigationPush)
+            )
+        )
+    }
+
+    private func hasUnrelatedPresentedModal() -> Bool {
+        guard let activePresentedController = AppRootCoordinator.active?.currentPresentedVc else {
+            return false
+        }
+
+        if activePresentedController === self {
+            return false
+        }
+
+        if let navigationController,
+           activePresentedController === navigationController {
+            return false
+        }
+
+        return true
+    }
+
+    internal func performAfterResolvedContactInfoExit(_ perform: @escaping (UIViewController) -> Void) {
+        let resolution = contactInfoActionResolution()
+        guard resolution.action != .ignore,
+              let routePresenter = resolution.routePresenter else {
+            return
+        }
+
+        switch resolution.action {
+        case .dismissThenPerform:
+            dismiss(animated: true) {
+                perform(routePresenter)
+            }
+        case .performImmediately:
+            perform(routePresenter)
+        case .ignore:
+            break
+        }
+    }
+
     func shouldUpdateAvatar() -> UIImage? {
         return nil
     }
@@ -95,61 +142,50 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
     }
     
     internal func openChat(conversationType: ClientSynchronizationManager.ConversationType = .regular) {
+        routeToChat(conversationType: conversationType, configure: nil)
+    }
+
+    private func routeToChat(
+        conversationType: ClientSynchronizationManager.ConversationType,
+        configure: ((ChatViewController?) -> Void)?
+    ) {
         if conversationType == .omemo {
             AccountManager.shared.find(for: self.owner)?.omemo.initChat(jid: self.jid)
         }
-        if leftMenuDelegate == nil {
+
+        performAfterResolvedContactInfoExit { [weak self] routePresenter in
+            guard let self else { return }
+
+            if let leftMenuDelegate = self.leftMenuDelegate {
+                leftMenuDelegate.openChatlistWithChat(
+                    owner: self.owner,
+                    jid: self.jid,
+                    conversationType: conversationType,
+                    configure: configure
+                )
+                return
+            }
+
             let chatVc = ChatViewController()
             chatVc.owner = self.owner
             chatVc.jid = self.jid
             chatVc.conversationType = conversationType
-            
-            showDetail(chatVc, currentVc: self)
-        } else {
-            self.leftMenuDelegate?.openChatlistWithChat(owner: self.owner, jid: self.jid, conversationType: conversationType, configure: nil)
-            self.dismiss(animated: true) {
-            }
+            configure?(chatVc)
+
+            showStacked(chatVc, in: routePresenter)
         }
     }
-    
+
     internal func searchChat(conversationType: ClientSynchronizationManager.ConversationType = .regular) {
-        if conversationType == .omemo {
-            AccountManager.shared.find(for: self.owner)?.omemo.initChat(jid: self.jid)
-        }
-        if leftMenuDelegate == nil {
-            let chatVc = ChatViewController()
-            chatVc.owner = self.owner
-            chatVc.jid = self.jid
-            chatVc.conversationType = conversationType
-            chatVc.inSearchMode.accept(true)
-            showDetail(chatVc, currentVc: self)
-        } else {
-            self.leftMenuDelegate?.openChatlistWithChat(owner: self.owner, jid: self.jid, conversationType: conversationType, configure: {
-                chatVc in
-                chatVc?.inSearchMode.accept(true)
-            })
-            self.dismiss(animated: true) {
-            }
+        routeToChat(conversationType: conversationType) { chatVc in
+            chatVc?.inSearchMode.accept(true)
         }
     }
-    
+
     internal func onStartEncryptedChat() {
-        AccountManager.shared.find(for: self.owner)?.omemo.initChat(jid: self.jid)
-        
-        if leftMenuDelegate == nil {
-            let chatVc = ChatViewController()
-            chatVc.owner = self.owner
-            chatVc.jid = self.jid
-            chatVc.conversationType = .omemo
-            showDetail(chatVc, currentVc: self)
-        } else {
-            self.leftMenuDelegate?.openChatlistWithChat(owner: self.owner, jid: self.jid, conversationType: .omemo, configure: nil)
-            self.dismiss(animated: true) {
-//                self.leftMenuDelegate?.openChatlistWithChat(owner: self.owner, jid: self.jid, conversationType: .omemo)
-            }
-        }
+        routeToChat(conversationType: .omemo, configure: nil)
     }
-    
+
     internal func onChangeNotifications() {
         if isMuted {
 //            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in

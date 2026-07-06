@@ -27,6 +27,85 @@ import RxCocoa
 import CocoaLumberjack
 import XMPPFramework
 
+enum ContactInfoLeadingNavigationStyle: Equatable {
+    case systemBack
+    case dismissModal
+    case revealSplitList
+    case none
+}
+
+struct ContactInfoNavigationBarConfiguration: Equatable {
+    let leadingStyle: ContactInfoLeadingNavigationStyle
+    let leftItemsSupplementBackButton: Bool
+    let showsDevicesActionInRightItems: Bool
+}
+
+enum ContactInfoNavigationBarPolicy {
+    static let devicesButtonAccessibilityIdentifier = "contact_info_devices_button"
+    static let dismissButtonAccessibilityIdentifier = "contact_info_dismiss_button"
+    static let revealSplitListButtonAccessibilityIdentifier = "contact_info_reveal_split_list_button"
+
+    static func configuration(exitAction: NavigationExitAction) -> ContactInfoNavigationBarConfiguration {
+        let leadingStyle: ContactInfoLeadingNavigationStyle
+        switch exitAction {
+        case .dismissModal:
+            leadingStyle = .dismissModal
+        case .popNavigationStack:
+            leadingStyle = .systemBack
+        case .revealSplitList:
+            leadingStyle = .revealSplitList
+        case .none:
+            leadingStyle = .none
+        }
+
+        return ContactInfoNavigationBarConfiguration(
+            leadingStyle: leadingStyle,
+            leftItemsSupplementBackButton: false,
+            showsDevicesActionInRightItems: true
+        )
+    }
+}
+
+enum ContactInfoActionExitAction: Equatable {
+    case dismissThenPerform
+    case performImmediately
+    case ignore
+}
+
+struct ContactInfoActionExitResolution {
+    let action: ContactInfoActionExitAction
+    let routePresenter: UIViewController?
+}
+
+enum ContactInfoActionExitPolicy {
+    static func resolve(
+        currentController: UIViewController,
+        presentingViewController: UIViewController?,
+        isBlockedByUnrelatedPresentedModal: Bool,
+        exitAction: NavigationExitAction
+    ) -> ContactInfoActionExitResolution {
+        guard !isBlockedByUnrelatedPresentedModal else {
+            return ContactInfoActionExitResolution(action: .ignore, routePresenter: nil)
+        }
+
+        if exitAction == .dismissModal {
+            guard let presentingViewController else {
+                return ContactInfoActionExitResolution(action: .ignore, routePresenter: nil)
+            }
+
+            return ContactInfoActionExitResolution(
+                action: .dismissThenPerform,
+                routePresenter: presentingViewController
+            )
+        }
+
+        return ContactInfoActionExitResolution(
+            action: .performImmediately,
+            routePresenter: currentController
+        )
+    }
+}
+
 class ContactInfoViewController: BaseViewController {
     
     class Datasource {
@@ -137,6 +216,7 @@ class ContactInfoViewController: BaseViewController {
     
     internal let leftDevicesNavBarButton: UIBarButtonItem = {
         let button = UIBarButtonItem()
+        button.accessibilityIdentifier = ContactInfoNavigationBarPolicy.devicesButtonAccessibilityIdentifier
         
         return button
     }()
@@ -453,7 +533,6 @@ class ContactInfoViewController: BaseViewController {
     
     
     internal func configure() {
-        navigationItem.setRightBarButtonItems([searchButton], animated: false)
         view.addSubview(tableView)
         
         tableView.delegate = self
@@ -470,9 +549,7 @@ class ContactInfoViewController: BaseViewController {
         leftDevicesNavBarButton.target = self
         leftDevicesNavBarButton.action = #selector(onLeftDevicesNavBarButtonTouchUp)
         
-        
-        self.navigationItem.leftItemsSupplementBackButton = true
-        self.navigationItem.setLeftBarButton(leftDevicesNavBarButton, animated: true)
+        applyNavigationBarConfiguration(animated: false)
         
         self.headerView.configureButtons {
             let call = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
@@ -582,13 +659,68 @@ class ContactInfoViewController: BaseViewController {
             return [write, call, mute, more]
         }
     }
+
+    private func navigationExitAction() -> NavigationExitAction {
+        NavigationExitPolicy.action(
+            for: NavigationExitPolicyContext(destination: self, route: .currentNavigationPush)
+        )
+    }
+
+    internal func applyNavigationBarConfiguration(animated: Bool) {
+        let configuration = ContactInfoNavigationBarPolicy.configuration(
+            exitAction: navigationExitAction()
+        )
+
+        navigationItem.leftItemsSupplementBackButton = configuration.leftItemsSupplementBackButton
+
+        switch configuration.leadingStyle {
+        case .systemBack, .none:
+            navigationItem.setLeftBarButton(nil, animated: animated)
+        case .dismissModal, .revealSplitList:
+            navigationItem.setLeftBarButton(
+                makeNavigationExitBarButton(for: configuration.leadingStyle),
+                animated: animated
+            )
+        }
+
+        var rightItems: [UIBarButtonItem] = [searchButton]
+        if configuration.showsDevicesActionInRightItems {
+            rightItems.append(leftDevicesNavBarButton)
+        }
+        navigationItem.setRightBarButtonItems(rightItems, animated: animated)
+    }
+
+    private func makeNavigationExitBarButton(for style: ContactInfoLeadingNavigationStyle) -> UIBarButtonItem {
+        switch style {
+        case .dismissModal:
+            let item = UIBarButtonItem(
+                barButtonSystemItem: .close,
+                target: self,
+                action: #selector(onNavigationExitButtonTouchUp)
+            )
+            item.accessibilityIdentifier = ContactInfoNavigationBarPolicy.dismissButtonAccessibilityIdentifier
+            return item
+        case .revealSplitList:
+            let item = UIBarButtonItem(
+                image: UIImage(systemName: "chevron.left"),
+                style: .plain,
+                target: self,
+                action: #selector(onNavigationExitButtonTouchUp)
+            )
+            item.accessibilityIdentifier = ContactInfoNavigationBarPolicy.revealSplitListButtonAccessibilityIdentifier
+            return item
+        case .systemBack, .none:
+            return UIBarButtonItem()
+        }
+    }
     
     @objc
     internal func onCallButtonTouchUpInside(_ sender: InfoHeaderButton) {
-        self.dismiss(animated: true) {
-            VoIPManager.shared.startCall(owner: self.owner, jid: self.jid)
+        let owner = self.owner
+        let jid = self.jid
+        performAfterResolvedContactInfoExit { _ in
+            VoIPManager.shared.startCall(owner: owner, jid: jid)
         }
-        
     }
     
     @objc
@@ -614,6 +746,20 @@ class ContactInfoViewController: BaseViewController {
     @objc
     func onLeftDevicesNavBarButtonTouchUp(_ sender: UIBarButtonItem) {
         showFingerprints()
+    }
+
+    @objc
+    func onNavigationExitButtonTouchUp(_ sender: UIBarButtonItem) {
+        switch navigationExitAction() {
+        case .dismissModal:
+            dismiss(animated: true)
+        case .popNavigationStack:
+            navigationController?.popViewController(animated: true)
+        case .revealSplitList:
+            splitViewController?.show(.primary)
+        case .none:
+            break
+        }
     }
     
     @objc
@@ -674,6 +820,7 @@ class ContactInfoViewController: BaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        applyNavigationBarConfiguration(animated: false)
         subscribe()
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()

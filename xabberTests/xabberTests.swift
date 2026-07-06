@@ -727,6 +727,78 @@ final class NavigationExitPolicyTests: XCTestCase {
     }
 }
 
+final class ContactInfoNavigationTests: XCTestCase {
+    func testPushedContactInfoKeepsSystemBackAndMovesDevicesActionRight() {
+        let configuration = ContactInfoNavigationBarPolicy.configuration(exitAction: .popNavigationStack)
+
+        XCTAssertEqual(configuration.leadingStyle, .systemBack)
+        XCTAssertFalse(configuration.leftItemsSupplementBackButton)
+        XCTAssertTrue(configuration.showsDevicesActionInRightItems)
+        XCTAssertEqual(
+            ContactInfoNavigationBarPolicy.devicesButtonAccessibilityIdentifier,
+            "contact_info_devices_button"
+        )
+    }
+
+    func testModalRootContactInfoExposesOneDismissAction() {
+        let configuration = ContactInfoNavigationBarPolicy.configuration(exitAction: .dismissModal)
+
+        XCTAssertEqual(configuration.leadingStyle, .dismissModal)
+        XCTAssertFalse(configuration.leftItemsSupplementBackButton)
+        XCTAssertTrue(configuration.showsDevicesActionInRightItems)
+        XCTAssertEqual(
+            ContactInfoNavigationBarPolicy.dismissButtonAccessibilityIdentifier,
+            "contact_info_dismiss_button"
+        )
+    }
+
+    func testCallActionDismissesOnlyForModalPresentation() {
+        let modalResolution = ContactInfoActionExitPolicy.resolve(
+            currentController: UIViewController(),
+            presentingViewController: UIViewController(),
+            isBlockedByUnrelatedPresentedModal: false,
+            exitAction: .dismissModal
+        )
+        let pushedController = UIViewController()
+        let pushedResolution = ContactInfoActionExitPolicy.resolve(
+            currentController: pushedController,
+            presentingViewController: nil,
+            isBlockedByUnrelatedPresentedModal: false,
+            exitAction: .popNavigationStack
+        )
+
+        XCTAssertEqual(modalResolution.action, .dismissThenPerform)
+        XCTAssertEqual(pushedResolution.action, .performImmediately)
+        XCTAssertIdentical(pushedResolution.routePresenter, pushedController)
+    }
+
+    func testChatActionRoutesAfterModalDismissFromRealPresenter() {
+        let currentController = UIViewController()
+        let realPresenter = UIViewController()
+        let resolution = ContactInfoActionExitPolicy.resolve(
+            currentController: currentController,
+            presentingViewController: realPresenter,
+            isBlockedByUnrelatedPresentedModal: false,
+            exitAction: .dismissModal
+        )
+
+        XCTAssertEqual(resolution.action, .dismissThenPerform)
+        XCTAssertIdentical(resolution.routePresenter, realPresenter)
+    }
+
+    func testUnrelatedActiveModalBlocksContactInfoActionRouting() {
+        let resolution = ContactInfoActionExitPolicy.resolve(
+            currentController: UIViewController(),
+            presentingViewController: nil,
+            isBlockedByUnrelatedPresentedModal: true,
+            exitAction: .popNavigationStack
+        )
+
+        XCTAssertEqual(resolution.action, .ignore)
+        XCTAssertNil(resolution.routePresenter)
+    }
+}
+
 final class NavigationTransitionMutationPolicyTests: XCTestCase {
     func testLastChatsQueuesNonCriticalMutationsDuringNavigationTransition() {
         XCTAssertTrue(
