@@ -896,6 +896,140 @@ final class DevicesNavigationContainmentTests: XCTestCase {
     }
 }
 
+@MainActor
+final class DevicesSecurityLayoutTests: XCTestCase {
+    func testDevicesListUsesSelfSizingRowsAndReadableEstimates() {
+        let controller = DevicesListViewController()
+        controller.loadViewIfNeeded()
+        controller.configure(for: "layout@example.test")
+        controller.datasource = [
+            DevicesListViewController.Datasource(
+                .current,
+                title: "This device",
+                value: String(repeating: "Current device explanation ", count: 8),
+                editable: false,
+                childs: [
+                    DevicesListViewController.Datasource(
+                        .token,
+                        title: " ",
+                        value: String(repeating: "resource ", count: 12),
+                        editable: false
+                    ),
+                    DevicesListViewController.Datasource(
+                        .button,
+                        title: "Terminate all other sessions",
+                        value: "terminate_all_sessions",
+                        editable: false
+                    )
+                ]
+            ),
+            DevicesListViewController.Datasource(
+                .token,
+                title: "Active devices",
+                value: String(repeating: "Active devices section explanation ", count: 8),
+                editable: false,
+                childs: [
+                    DevicesListViewController.Datasource(
+                        .session,
+                        title: "Non-Verified Devices Connected",
+                        value: String(repeating: "Review and verify every connected device. ", count: 8),
+                        editable: false
+                    ),
+                    DevicesListViewController.Datasource(
+                        .token,
+                        title: "Desktop client with a long resource title",
+                        value: String(repeating: "Long device metadata ", count: 10),
+                        editable: false
+                    )
+                ]
+            ),
+            DevicesListViewController.Datasource(
+                .button,
+                title: "",
+                editable: false,
+                childs: [
+                    DevicesListViewController.Datasource(
+                        .button,
+                        title: "Quit account",
+                        value: "quit",
+                        editable: false
+                    )
+                ]
+            )
+        ]
+
+        XCTAssertEqual(controller.tableView.rowHeight, UITableView.automaticDimension)
+        XCTAssertGreaterThanOrEqual(controller.tableView.estimatedRowHeight, 44)
+        XCTAssertGreaterThan(controller.tableView.estimatedSectionHeaderHeight, 0)
+        XCTAssertGreaterThan(controller.tableView.estimatedSectionFooterHeight, 0)
+        XCTAssertEqual(
+            controller.tableView(controller.tableView, heightForRowAt: IndexPath(row: 0, section: 0)),
+            UITableView.automaticDimension
+        )
+        XCTAssertEqual(
+            controller.tableView(controller.tableView, heightForRowAt: IndexPath(row: 1, section: 0)),
+            UITableView.automaticDimension
+        )
+        XCTAssertEqual(
+            controller.tableView(controller.tableView, heightForRowAt: IndexPath(row: 0, section: 1)),
+            UITableView.automaticDimension
+        )
+        XCTAssertEqual(
+            controller.tableView(controller.tableView, heightForRowAt: IndexPath(row: 0, section: 2)),
+            UITableView.automaticDimension
+        )
+    }
+
+    func testDeviceDetailUsesSelfSizingRowsAndReadableEstimates() throws {
+        let controller = DeviceDetailViewController()
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(firstTableView(in: controller.view))
+        controller.datasource = [
+            [
+                DeviceDetailViewController.Datasource(
+                    title: "Fingerprint",
+                    value: String(repeating: "ABCD ", count: 18),
+                    key: "omemo_fingerprint"
+                )
+            ],
+            [
+                DeviceDetailViewController.Datasource(
+                    title: "Terminate session",
+                    value: nil,
+                    key: "terminate"
+                )
+            ]
+        ]
+
+        XCTAssertEqual(tableView.rowHeight, UITableView.automaticDimension)
+        XCTAssertGreaterThanOrEqual(tableView.estimatedRowHeight, 44)
+        XCTAssertGreaterThan(tableView.estimatedSectionHeaderHeight, 0)
+        XCTAssertGreaterThan(tableView.estimatedSectionFooterHeight, 0)
+        XCTAssertEqual(
+            controller.tableView(tableView, heightForRowAt: IndexPath(row: 0, section: 0)),
+            UITableView.automaticDimension
+        )
+        XCTAssertEqual(
+            controller.tableView(tableView, heightForRowAt: IndexPath(row: 0, section: 1)),
+            UITableView.automaticDimension
+        )
+    }
+
+    private func firstTableView(in view: UIView) -> UITableView? {
+        if let tableView = view as? UITableView {
+            return tableView
+        }
+
+        for subview in view.subviews {
+            if let tableView = firstTableView(in: subview) {
+                return tableView
+            }
+        }
+
+        return nil
+    }
+}
+
 final class NavigationTransitionMutationPolicyTests: XCTestCase {
     func testLastChatsQueuesNonCriticalMutationsDuringNavigationTransition() {
         XCTAssertTrue(

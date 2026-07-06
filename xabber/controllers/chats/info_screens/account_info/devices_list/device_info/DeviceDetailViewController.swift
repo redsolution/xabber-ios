@@ -73,7 +73,7 @@ class DeviceDetailViewController: SimpleBaseViewController {
         view.register(UITableViewCell.self, forCellReuseIdentifier: "DangerCell")
         view.register(StatusInfoCell.self, forCellReuseIdentifier: StatusInfoCell.cellName)
         view.register(ResourceInfoCell.self, forCellReuseIdentifier: ResourceInfoCell.cellName)
-        
+        DevicesSecurityTableLayout.apply(to: view)
         
         return view
     }()
@@ -288,17 +288,7 @@ class DeviceDetailViewController: SimpleBaseViewController {
 
 extension DeviceDetailViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        let item = datasource[indexPath.section][indexPath.row]
-        switch item.key {
-        case "omemo_fingerprint":
-            return 84
-        default:
-                if #available(iOS 26, *) {
-                    return 52
-                } else {
-                    return 44
-                }
-        }
+        return UITableView.automaticDimension
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

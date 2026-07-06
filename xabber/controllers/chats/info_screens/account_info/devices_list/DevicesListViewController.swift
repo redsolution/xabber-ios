@@ -45,6 +45,22 @@ enum DevicesNavigationBarPolicy {
     }
 }
 
+enum DevicesSecurityTableLayout {
+    static let minimumInteractiveRowHeight: CGFloat = 44
+    static let estimatedRowHeight: CGFloat = 72
+    static let estimatedSectionHeaderHeight: CGFloat = 34
+    static let estimatedSectionFooterHeight: CGFloat = 64
+
+    static func apply(to tableView: UITableView) {
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = max(estimatedRowHeight, minimumInteractiveRowHeight)
+        tableView.sectionHeaderHeight = UITableView.automaticDimension
+        tableView.sectionFooterHeight = UITableView.automaticDimension
+        tableView.estimatedSectionHeaderHeight = estimatedSectionHeaderHeight
+        tableView.estimatedSectionFooterHeight = estimatedSectionFooterHeight
+    }
+}
+
 class DevicesListViewController: BaseViewController {
     class Datasource {
         enum Kind {
@@ -101,6 +117,7 @@ class DevicesListViewController: BaseViewController {
         
         view.register(DeviceInfoTableCell.self, forCellReuseIdentifier: DeviceInfoTableCell.cellName)
         view.register(ButtonTableViewCell.self, forCellReuseIdentifier: ButtonTableViewCell.cellName)
+        DevicesSecurityTableLayout.apply(to: view)
         
         return view
     }()
