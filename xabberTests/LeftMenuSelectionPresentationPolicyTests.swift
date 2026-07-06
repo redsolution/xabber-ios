@@ -74,6 +74,94 @@ final class LeftMenuSelectionPresentationPolicyTests: XCTestCase {
     }
 }
 
+@MainActor
+final class LeftMenuSplitContainmentTests: XCTestCase {
+    func testColumnInstallationKeepsPrimaryAndUsesSupplementaryNavigationContainer() throws {
+        let splitViewController = UISplitViewController(style: .tripleColumn)
+        let primary = UIViewController()
+        let supplementaryRoot = UIViewController()
+        let supplementaryNavigation = UINavigationController(rootViewController: supplementaryRoot)
+        let secondary = UIViewController()
+
+        LeftMenuSplitColumnInstaller.install(
+            primary: primary,
+            supplementaryNavigationController: supplementaryNavigation,
+            secondary: secondary,
+            in: splitViewController
+        )
+
+        XCTAssertIdentical(splitViewController.viewController(for: .primary), primary)
+        let installedSupplementary = try XCTUnwrap(
+            splitViewController.viewController(for: .supplementary) as? UINavigationController
+        )
+        XCTAssertIdentical(installedSupplementary, supplementaryNavigation)
+        XCTAssertIdentical(installedSupplementary.viewControllers.first, supplementaryRoot)
+        XCTAssertIdentical(splitViewController.viewController(for: .secondary), secondary)
+    }
+
+    func testColumnInstallationPreservesSecondaryNavigationContainerWhenProvided() throws {
+        let splitViewController = UISplitViewController(style: .tripleColumn)
+        let primary = UIViewController()
+        let supplementaryNavigation = UINavigationController(rootViewController: UIViewController())
+        let secondaryNavigation = UINavigationController(rootViewController: UIViewController())
+
+        LeftMenuSplitColumnInstaller.install(
+            primary: primary,
+            supplementaryNavigationController: supplementaryNavigation,
+            secondary: secondaryNavigation,
+            in: splitViewController
+        )
+
+        XCTAssertIdentical(splitViewController.viewController(for: .secondary), secondaryNavigation)
+    }
+
+    func testCompactRevealHidesPrimaryFromAccessibilityButKeepsDestinationColumnsAccessible() {
+        let splitViewController = makeInstalledSplitViewController()
+
+        LeftMenuSplitColumnInstaller.applyAccessibilityContainment(
+            for: .compactRevealSupplementary,
+            in: splitViewController
+        )
+
+        XCTAssertTrue(splitViewController.viewController(for: .primary)?.view.accessibilityElementsHidden ?? false)
+        XCTAssertFalse(splitViewController.viewController(for: .supplementary)?.view.accessibilityElementsHidden ?? true)
+        XCTAssertFalse(splitViewController.viewController(for: .secondary)?.view.accessibilityElementsHidden ?? true)
+    }
+
+    func testRegularRevealHidesPrimaryFromAccessibilityButKeepsDestinationColumnsAccessible() {
+        let splitViewController = makeInstalledSplitViewController()
+
+        LeftMenuSplitColumnInstaller.applyAccessibilityContainment(
+            for: .regularRevealSupplementaryAndHidePrimary,
+            in: splitViewController
+        )
+
+        XCTAssertTrue(splitViewController.viewController(for: .primary)?.view.accessibilityElementsHidden ?? false)
+        XCTAssertFalse(splitViewController.viewController(for: .supplementary)?.view.accessibilityElementsHidden ?? true)
+        XCTAssertFalse(splitViewController.viewController(for: .secondary)?.view.accessibilityElementsHidden ?? true)
+    }
+
+    func testPrimaryAppearanceRestoresLeftMenuAccessibility() {
+        let primary = UIViewController()
+        primary.view.accessibilityElementsHidden = true
+
+        LeftMenuSplitColumnInstaller.restorePrimaryAccessibility(for: primary)
+
+        XCTAssertFalse(primary.view.accessibilityElementsHidden)
+    }
+
+    private func makeInstalledSplitViewController() -> UISplitViewController {
+        let splitViewController = UISplitViewController(style: .tripleColumn)
+        LeftMenuSplitColumnInstaller.install(
+            primary: UIViewController(),
+            supplementaryNavigationController: UINavigationController(rootViewController: UIViewController()),
+            secondary: UIViewController(),
+            in: splitViewController
+        )
+        return splitViewController
+    }
+}
+
 final class LeftMenuSplitPresentationAnimationPolicyTests: XCTestCase {
     func testDestinationPreparationDisablesAnimations() {
         XCTAssertTrue(

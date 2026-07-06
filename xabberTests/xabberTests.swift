@@ -1507,6 +1507,28 @@ final class EULAGateRoutingTests: XCTestCase {
         XCTAssertTrue(AppRootCoordinator.canRoute())
     }
 
+    func testRouteGateBlocksRoutingBehindPresentedModal() {
+        XCTAssertFalse(AppRootCoordinator.canRoute(hasPresentedModal: true))
+    }
+
+    func testRouteGateAllowsRoutingWithoutPresentedModal() {
+        XCTAssertTrue(AppRootCoordinator.canRoute(hasPresentedModal: false))
+    }
+
+    func testRootRebuildModalStateClearRemovesPresentedControllerReference() {
+        let previousActive = AppRootCoordinator.active
+        defer {
+            AppRootCoordinator.active = previousActive
+        }
+
+        let coordinator = AppRootCoordinator(window: UIWindow(), appDelegate: nil)
+        coordinator.currentPresentedVc = UIViewController()
+
+        coordinator.clearPresentedModalStateForRootRebuild()
+
+        XCTAssertNil(coordinator.currentPresentedVc)
+    }
+
     func testTopLevelSectionNavigationFactoryUsesStockUINavigationController() {
         [
             AppRootCoordinator.makeTopLevelSectionNavigationController(rootViewController: LastChatsViewController()),

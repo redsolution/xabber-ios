@@ -439,6 +439,41 @@ enum LeftMenuSplitDestinationPreparer {
     }
 }
 
+enum LeftMenuSplitColumnInstaller {
+    static func install(
+        primary: UIViewController,
+        supplementaryNavigationController: UINavigationController,
+        secondary: UIViewController,
+        in splitViewController: UISplitViewController
+    ) {
+        if let currentPrimary = splitViewController.viewController(for: .primary),
+           currentPrimary === primary {
+            // Keep the existing primary column stable when it already owns the left menu.
+        } else {
+            splitViewController.setViewController(primary, for: .primary)
+        }
+        splitViewController.setViewController(supplementaryNavigationController, for: .supplementary)
+        splitViewController.setViewController(secondary, for: .secondary)
+    }
+
+    static func applyAccessibilityContainment(
+        for action: LeftMenuSelectionPresentationPolicy.PresentationAction,
+        in splitViewController: UISplitViewController
+    ) {
+        switch action {
+        case .compactRevealSupplementary, .regularRevealSupplementaryAndHidePrimary:
+            splitViewController.viewController(for: .primary)?.view.accessibilityElementsHidden = true
+        }
+
+        splitViewController.viewController(for: .supplementary)?.view.accessibilityElementsHidden = false
+        splitViewController.viewController(for: .secondary)?.view.accessibilityElementsHidden = false
+    }
+
+    static func restorePrimaryAccessibility(for viewController: UIViewController) {
+        viewController.view.accessibilityElementsHidden = false
+    }
+}
+
 class LeftMenuViewController: UIViewController {
     private enum ExperimentLayout {
         static let menuSurfaceHorizontalInset: CGFloat = 16
@@ -1195,6 +1230,7 @@ class LeftMenuViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        LeftMenuSplitColumnInstaller.restorePrimaryAccessibility(for: self)
     }
 
     override func viewDidLayoutSubviews() {
@@ -1603,6 +1639,7 @@ extension LeftMenuViewController: UITableViewDelegate {
             if action.hidesPrimary {
                 splitVC.hide(.primary)
             }
+            LeftMenuSplitColumnInstaller.applyAccessibilityContainment(for: action, in: splitVC)
             return
         }
 
@@ -1613,6 +1650,7 @@ extension LeftMenuViewController: UITableViewDelegate {
             if action.hidesPrimary {
                 splitVC.hide(.primary)
             }
+            LeftMenuSplitColumnInstaller.applyAccessibilityContainment(for: action, in: splitVC)
             splitVC.view.setNeedsLayout()
         }
     }
@@ -1706,8 +1744,12 @@ extension LeftMenuViewController: UITableViewDelegate {
             presenter: self
         )
         if usesStockCompactSplit(splitVC) {
-            splitVC.setViewController(nvc, for: .supplementary)
-            splitVC.setViewController(svc, for: .secondary)
+            LeftMenuSplitColumnInstaller.install(
+                primary: self,
+                supplementaryNavigationController: nvc,
+                secondary: svc,
+                in: splitVC
+            )
             applySelectionPresentation(to: splitVC)
             return true
         }
@@ -1723,9 +1765,15 @@ extension LeftMenuViewController: UITableViewDelegate {
             targetBounds: secondaryTargetBounds
         )
         LeftMenuSplitDestinationPreparer.perform(.columnInstallation) {
-            splitVC.setViewController(nvc, for: .supplementary)
-            splitVC.setViewController(svc, for: .secondary)
+            LeftMenuSplitColumnInstaller.install(
+                primary: self,
+                supplementaryNavigationController: nvc,
+                secondary: svc,
+                in: splitVC
+            )
         }
+        LeftMenuSplitDestinationPreparer.prepareAttached(nvc, targetBounds: supplementaryTargetBounds)
+        LeftMenuSplitDestinationPreparer.prepareAttached(svc, targetBounds: secondaryTargetBounds)
         applySelectionPresentation(to: splitVC)
         return true
     }
@@ -1770,7 +1818,7 @@ extension LeftMenuViewController: UITableViewDelegate {
             svc = EmptyChatViewController()
         }
         (svc as? EmptyChatViewController)?.kind = kind
-        let nsvc = UINavigationController(rootViewController: svc)
+        let nvc = UINavigationController(rootViewController: vc)
         guard let splitVC = self.splitViewController else {
             return false
         }
@@ -1785,24 +1833,36 @@ extension LeftMenuViewController: UITableViewDelegate {
             presenter: self
         )
         if usesStockCompactSplit(splitVC) {
-            splitVC.viewControllers = [self, vc, nsvc]
+            LeftMenuSplitColumnInstaller.install(
+                primary: self,
+                supplementaryNavigationController: nvc,
+                secondary: svc,
+                in: splitVC
+            )
             applySelectionPresentation(to: splitVC)
             return true
         }
 
-        SearchSectionNavigationContainerPolicy.applyTransparentSplitAppearanceIfAllowed(to: nsvc, in: splitVC)
+        SearchSectionNavigationContainerPolicy.applyTransparentSplitAppearanceIfAllowed(to: nvc, in: splitVC)
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(vc)
         LeftMenuSplitDestinationPreparer.prepare(
-            vc,
+            nvc,
             targetBounds: supplementaryTargetBounds
         )
         LeftMenuSplitDestinationPreparer.prepare(
-            nsvc,
+            svc,
             targetBounds: secondaryTargetBounds
         )
         LeftMenuSplitDestinationPreparer.perform(.columnInstallation) {
-            splitVC.viewControllers = [self, vc, nsvc]
+            LeftMenuSplitColumnInstaller.install(
+                primary: self,
+                supplementaryNavigationController: nvc,
+                secondary: svc,
+                in: splitVC
+            )
         }
+        LeftMenuSplitDestinationPreparer.prepareAttached(nvc, targetBounds: supplementaryTargetBounds)
+        LeftMenuSplitDestinationPreparer.prepareAttached(svc, targetBounds: secondaryTargetBounds)
         applySelectionPresentation(to: splitVC)
         return true
     }

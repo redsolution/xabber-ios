@@ -555,7 +555,11 @@ final class AppRootCoordinator: NSObject {
     }
 
     static func canRoute() -> Bool {
-        true
+        canRoute(hasPresentedModal: false)
+    }
+
+    static func canRoute(hasPresentedModal: Bool) -> Bool {
+        !hasPresentedModal
     }
 
     static func makeTopLevelSectionNavigationController(
@@ -613,7 +617,7 @@ final class AppRootCoordinator: NSObject {
     func rebuildRoot(userInfo: [AnyHashable: Any]?) {
         splitController = nil
         tabController = nil
-        currentPresentedVc = nil
+        clearPresentedModalStateForRootRebuild()
 
         switch Self.rootKind(
             hasAccounts: !AccountManager.shared.emptyAccountsList(),
@@ -714,6 +718,10 @@ final class AppRootCoordinator: NSObject {
 
     @discardableResult
     func route(_ route: AppRoute) -> Bool {
+        guard Self.canRoute(hasPresentedModal: currentPresentedVc != nil) else {
+            return false
+        }
+
         switch route {
         case let .chat(owner, jid, conversationType):
             return openChat(owner: owner, jid: jid, conversationType: conversationType)
@@ -732,6 +740,10 @@ final class AppRootCoordinator: NSObject {
         case .userActivity:
             return false
         }
+    }
+
+    func clearPresentedModalStateForRootRebuild() {
+        currentPresentedVc = nil
     }
 
     @discardableResult
