@@ -528,24 +528,11 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         instance.updateDisplayMode()
         instance.references.forEach { $0.messageId = instance.primary }
 
-        if envelope.isForwardedSaved {
-            if let groupChatCard = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: [GroupChatStorageItem.genPrimary(jid: envelope.displayAuthorJid, owner: self.owner), "saved-forwarded"].prp()) {
-                instance.groupchatCard = groupChatCard
-            } else {
-                let groupChatCard = GroupchatUserStorageItem()
-                groupChatCard.owner = self.owner
-                groupChatCard.nickname = envelope.displayAuthorJid
-                groupChatCard.primary = [GroupChatStorageItem.genPrimary(jid: envelope.displayAuthorJid, owner: self.owner), "saved-forwarded"].prp()
-                instance.groupchatCard = groupChatCard
-            }
-        }
-
         try performSavedWrite(in: realm, commitTransaction: commitTransaction) {
-            if isExist {
-                realm.add(instance, update: .all)
-            } else {
-                realm.add(instance)
+            if let groupChatCard = savedForwardAuthorCard(for: envelope, in: realm) {
+                instance.groupchatCard = groupChatCard
             }
+            realm.add(instance, update: isExist ? .all : .modified)
             storeSavedForwardingStanza(for: instance, envelope: envelope, in: realm)
             updateSavedLastChatPreviewIfNeeded(
                 realm: realm,
@@ -553,6 +540,29 @@ class XMPPFavoritesManager: AbstractXMPPManager {
                 instance: instance
             )
         }
+    }
+
+    private func savedForwardAuthorCard(for envelope: SavedMessageEnvelope, in realm: Realm) -> GroupchatUserStorageItem? {
+        guard envelope.isForwardedSaved else {
+            return nil
+        }
+
+        let primary = savedForwardAuthorCardPrimary(displayAuthorJid: envelope.displayAuthorJid)
+        if let groupChatCard = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: primary) {
+            return groupChatCard
+        }
+
+        let groupChatCard = GroupchatUserStorageItem()
+        groupChatCard.owner = self.owner
+        groupChatCard.jid = envelope.displayAuthorJid
+        groupChatCard.nickname = envelope.displayAuthorJid
+        groupChatCard.primary = primary
+        realm.add(groupChatCard, update: .modified)
+        return groupChatCard
+    }
+
+    private func savedForwardAuthorCardPrimary(displayAuthorJid: String) -> String {
+        [GroupChatStorageItem.genPrimary(jid: displayAuthorJid, owner: self.owner), "saved-forwarded"].prp()
     }
 
     private func storeSavedForwardingStanza(

@@ -27433,6 +27433,10 @@ final class FavoritesFeatureTests: XCTestCase {
         )
     }
 
+    private func savedForwardAuthorCardPrimary(authorJid: String) -> String {
+        [GroupChatStorageItem.genPrimary(jid: authorJid, owner: owner), "saved-forwarded"].prp()
+    }
+
     private func geolocReferenceXML(body: String, text: String = "Yekaterinburg") -> String {
         """
         <reference xmlns='https://xabber.com/protocol/references' begin='0' end='\(body.count)' type='mutable'>
@@ -28666,6 +28670,115 @@ final class FavoritesFeatureTests: XCTestCase {
         let groupReference = try XCTUnwrap(stored.references.first(where: { $0.kind == .groupchat }))
         XCTAssertEqual(groupReference.metadata?["jid"] as? String, contactJid)
         XCTAssertEqual(groupReference.metadata?["nickname"] as? String, "Alexey Boldin")
+    }
+
+    func testSavedForwardedReceiveUsesTransactionLocalAuthorCardWhenRealmSnapshotIsStale() throws {
+        let cardPrimary = savedForwardAuthorCardPrimary(authorJid: contactJid)
+        let writerReady = DispatchSemaphore(value: 0)
+        let releaseWriter = DispatchSemaphore(value: 0)
+        let writerDone = DispatchSemaphore(value: 0)
+        let writerQueue = DispatchQueue(label: "FavoritesFeatureTests.realm-author-writer.\(UUID().uuidString)")
+        var writerResult: Result<Void, Error>?
+
+        writerQueue.async {
+            defer { writerDone.signal() }
+            writerResult = Result {
+                let writerRealm = try WRealm.safe()
+                writerRealm.beginWrite()
+
+                let card = GroupchatUserStorageItem()
+                card.owner = self.owner
+                card.jid = self.contactJid
+                card.nickname = "Preexisting saved author"
+                card.primary = cardPrimary
+                writerRealm.add(card, update: .modified)
+
+                writerReady.signal()
+                _ = releaseWriter.wait(timeout: .now() + 5)
+                try writerRealm.commitWrite()
+            }
+        }
+
+        guard writerReady.wait(timeout: .now() + 5) == .success else {
+            releaseWriter.signal()
+            XCTFail("Timed out waiting for concurrent author-card writer")
+            return
+        }
+
+        let receiverQueue = DispatchQueue(label: "FavoritesFeatureTests.realm-receiver.\(UUID().uuidString)")
+        let receiverStarted = DispatchSemaphore(value: 0)
+        let receiverDone = DispatchSemaphore(value: 0)
+        var result: Result<Void, Error>?
+
+        receiverQueue.async {
+            defer { receiverDone.signal() }
+            result = Result {
+                let receivingRealm = try WRealm.safe()
+                receivingRealm.autorefresh = false
+                XCTAssertNil(receivingRealm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: cardPrimary))
+                receiverStarted.signal()
+
+                try self.favoritesManager().receiveSaved(
+                    message: try self.makeForwardedSavedMessage(
+                        id: "saved-stale-author-card-1",
+                        innerId: "inner-stale-author-card-1"
+                    ),
+                    realm: receivingRealm,
+                    commitTransaction: true
+                )
+
+                receivingRealm.refresh()
+                let stored = try XCTUnwrap(receivingRealm.object(
+                    ofType: MessageStorageItem.self,
+                    forPrimaryKey: MessageStorageItem.genPrimary(messageId: "saved-stale-author-card-1", owner: self.owner)
+                ))
+                self.assertStoredAsSavedServiceConversation(stored)
+                XCTAssertEqual(stored.groupchatCard?.primary, cardPrimary)
+                XCTAssertEqual(
+                    receivingRealm.objects(GroupchatUserStorageItem.self)
+                        .filter("primary == %@", cardPrimary)
+                        .count,
+                    1
+                )
+            }
+        }
+
+        guard receiverStarted.wait(timeout: .now() + 5) == .success else {
+            releaseWriter.signal()
+            _ = writerDone.wait(timeout: .now() + 5)
+            XCTFail("Timed out waiting for receiving Realm to observe stale snapshot")
+            return
+        }
+
+        Thread.sleep(forTimeInterval: 0.1)
+        releaseWriter.signal()
+        XCTAssertEqual(writerDone.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(receiverDone.wait(timeout: .now() + 5), .success)
+        try writerResult?.get()
+        try result?.get()
+    }
+
+    func testSavedForwardedRepeatedReceiveReusesSavedForwardAuthorCard() throws {
+        let message = try makeNestedForwardedSavedMessage()
+        let manager = favoritesManager()
+
+        manager.receiveSaved(message: message)
+        manager.receiveSaved(message: message)
+
+        let realm = try WRealm.safe()
+        let cardPrimary = savedForwardAuthorCardPrimary(authorJid: contactJid)
+        let stored = try XCTUnwrap(realm.object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: MessageStorageItem.genPrimary(messageId: "saved-nested-1", owner: owner)
+        ))
+        assertStoredAsSavedServiceConversation(stored)
+        XCTAssertEqual(stored.groupchatCard?.primary, cardPrimary)
+        XCTAssertEqual(
+            realm.objects(GroupchatUserStorageItem.self)
+                .filter("primary == %@", cardPrimary)
+                .count,
+            1
+        )
     }
 
     func testSavedForwardedMessageDisplaysOriginalAuthor() throws {
