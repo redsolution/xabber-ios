@@ -128,14 +128,20 @@ extension ChatViewController {
     }
 
     class UnreadMentionsNavigatorView: UIView {
+        private enum Metrics {
+            static let size: CGFloat = NativeGlassBarStyle.buttonSize
+            static let countBadgeSize: CGFloat = 20
+            static let countBadgeBorderWidth: CGFloat = 2
+            static let countBadgeBorderColor = UIColor.systemBackground.withAlphaComponent(0.88)
+        }
+
         var onBadgeTap: (() -> Void)?
 
-        private(set) var preferredSize = CGSize(width: 44, height: 44)
+        private(set) var preferredSize = CGSize(square: Metrics.size)
         private(set) var mode: ChatUnreadMentionNavigatorMode = .hidden
         internal private(set) var currentUnreadCountText: String? = nil
 
         private let badgeButton = UIButton(type: .system)
-        private let surfaceColor = UIColor.systemBackground.withAlphaComponent(0.98)
         private let countBadgeLabel: UILabel = {
             let label = UILabel()
             label.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
@@ -165,16 +171,14 @@ extension ChatViewController {
             self.clipsToBounds = false
 
             self.badgeButton.translatesAutoresizingMaskIntoConstraints = false
-            self.badgeButton.setTitle("@", for: .normal)
-            self.badgeButton.backgroundColor = self.surfaceColor
-            self.badgeButton.layer.cornerRadius = 22
-            self.badgeButton.layer.masksToBounds = false
+            self.badgeButton.setTitle(nil, for: .normal)
+            self.badgeButton.setImage(imageLiteral("at", dimension: NativeGlassBarStyle.iconSize), for: .normal)
             self.badgeButton.tintColor = .systemBlue
-            self.badgeButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .bold)
-            self.badgeButton.layer.shadowColor = UIColor.black.withAlphaComponent(0.16).cgColor
-            self.badgeButton.layer.shadowOffset = CGSize(width: 0, height: 5)
-            self.badgeButton.layer.shadowRadius = 12
-            self.badgeButton.layer.shadowOpacity = 1
+            NativeGlassBarStyle.applyDetachedIconButtonStyle(
+                to: self.badgeButton,
+                tintColor: .systemBlue,
+                image: imageLiteral("at", dimension: NativeGlassBarStyle.iconSize)
+            )
             self.badgeButton.addTarget(self, action: #selector(buttonTapped(_:)), for: .touchUpInside)
             self.badgeButton.accessibilityLabel = "Unread mentions"
             self.badgeButton.accessibilityIdentifier = "chat-unread-mentions-button"
@@ -184,17 +188,19 @@ extension ChatViewController {
 
             self.countBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
             self.countBadgeLabel.accessibilityIdentifier = "chat-unread-mentions-count"
-            self.countBadgeLabel.layer.borderWidth = 2
+            self.countBadgeLabel.layer.borderWidth = Metrics.countBadgeBorderWidth
+            self.countBadgeLabel.layer.borderColor = Metrics.countBadgeBorderColor.cgColor
 
             NSLayoutConstraint.activate([
                 self.badgeButton.topAnchor.constraint(equalTo: self.topAnchor),
                 self.badgeButton.leadingAnchor.constraint(equalTo: self.leadingAnchor),
                 self.badgeButton.trailingAnchor.constraint(equalTo: self.trailingAnchor),
                 self.badgeButton.bottomAnchor.constraint(equalTo: self.bottomAnchor),
-                self.countBadgeLabel.heightAnchor.constraint(equalToConstant: 20),
-                self.countBadgeLabel.centerXAnchor.constraint(equalTo: self.badgeButton.trailingAnchor, constant: -7),
-                self.countBadgeLabel.centerYAnchor.constraint(equalTo: self.badgeButton.topAnchor, constant: 7),
-                self.countBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 20)
+                self.countBadgeLabel.topAnchor.constraint(equalTo: self.badgeButton.topAnchor),
+                self.countBadgeLabel.trailingAnchor.constraint(equalTo: self.badgeButton.trailingAnchor),
+                self.countBadgeLabel.leadingAnchor.constraint(greaterThanOrEqualTo: self.badgeButton.leadingAnchor),
+                self.countBadgeLabel.heightAnchor.constraint(equalToConstant: Metrics.countBadgeSize),
+                self.countBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: Metrics.countBadgeSize)
             ])
         }
 
@@ -212,16 +218,20 @@ extension ChatViewController {
         ) {
             self.mode = mode
             self.badgeButton.tintColor = accentColor
+            NativeGlassBarStyle.applyDetachedIconButtonStyle(
+                to: self.badgeButton,
+                tintColor: accentColor,
+                image: imageLiteral("at", dimension: NativeGlassBarStyle.iconSize)
+            )
             self.countBadgeLabel.backgroundColor = accentColor
-            self.badgeButton.backgroundColor = self.surfaceColor
-            self.countBadgeLabel.layer.borderColor = self.surfaceColor.cgColor
+            self.countBadgeLabel.layer.borderColor = Metrics.countBadgeBorderColor.cgColor
 
             let unreadText = unreadCount > 99 ? "99+" : "\(unreadCount)"
             self.currentUnreadCountText = unreadCount > 0 ? unreadText : nil
             self.countBadgeLabel.text = unreadText
             self.countBadgeLabel.isHidden = unreadCount <= 0
             self.badgeButton.accessibilityValue = unreadCount > 0 ? unreadText : nil
-            self.preferredSize = CGSize(width: 44, height: 44)
+            self.preferredSize = CGSize(square: Metrics.size)
         }
     }
 }

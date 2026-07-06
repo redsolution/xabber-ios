@@ -31035,9 +31035,36 @@ final class ChatUnreadMentionsTests: XCTestCase {
         let view = ChatViewController.UnreadMentionsNavigatorView(frame: .zero)
         view.update(mode: .indicator, unreadCount: 1, accentColor: .systemBlue)
 
-        XCTAssertEqual(view.preferredSize, CGSize(width: 44, height: 44))
+        XCTAssertEqual(view.preferredSize, CGSize(square: NativeGlassBarStyle.buttonSize))
         XCTAssertFalse(view.showsDirectionalButtons)
         XCTAssertEqual(view.currentUnreadCountText, "1")
+    }
+
+    func testUnreadMentionNavigatorViewUsesDetachedNativeGlassButtonStyle() throws {
+        let view = ChatViewController.UnreadMentionsNavigatorView(
+            frame: CGRect(square: NativeGlassBarStyle.buttonSize)
+        )
+        view.update(mode: .indicator, unreadCount: 1, accentColor: .systemBlue)
+        view.layoutIfNeeded()
+
+        let button = try unreadMentionBadgeButton(in: view)
+        button.layoutIfNeeded()
+
+        XCTAssertEqual(button.bounds.size, CGSize(square: NativeGlassBarStyle.buttonSize))
+        XCTAssertNil(button.title(for: .normal))
+        XCTAssertNotNil(buttonGlyphImage(button))
+        XCTAssertEqual(button.backgroundColor ?? .clear, .clear)
+        XCTAssertEqual(button.layer.borderWidth, 0, accuracy: 0.001)
+        XCTAssertEqual(button.layer.shadowOpacity, 0, accuracy: 0.001)
+
+        if #available(iOS 26.0, *) {
+            XCTAssertNotNil(button.configuration)
+            XCTAssertNil(detachedButtonEffectView(in: button))
+        } else {
+            let effectView = try XCTUnwrap(detachedButtonEffectView(in: button))
+            XCTAssertTrue(effectView.effect is UIBlurEffect)
+            XCTAssertEqual(effectView.layer.cornerRadius, NativeGlassBarStyle.cornerRadius, accuracy: 0.001)
+        }
     }
 
     func testUnreadMentionNavigatorViewCapsUnreadCountBadgeAtNinetyNinePlus() {
@@ -31045,6 +31072,26 @@ final class ChatUnreadMentionsTests: XCTestCase {
         view.update(mode: .indicator, unreadCount: 120, accentColor: .systemBlue)
 
         XCTAssertEqual(view.currentUnreadCountText, "99+")
+    }
+
+    func testUnreadMentionNavigatorCountBadgeStaysInsideFortyFourPointBounds() throws {
+        let view = ChatViewController.UnreadMentionsNavigatorView(
+            frame: CGRect(square: NativeGlassBarStyle.buttonSize)
+        )
+        view.update(mode: .indicator, unreadCount: 120, accentColor: .systemBlue)
+        view.layoutIfNeeded()
+
+        let button = try unreadMentionBadgeButton(in: view)
+        button.layoutIfNeeded()
+        let countBadge = try unreadMentionCountBadge(in: button)
+        let countFrame = countBadge.convert(countBadge.bounds, to: view)
+
+        XCTAssertEqual(view.currentUnreadCountText, "99+")
+        XCTAssertFalse(countBadge.isHidden)
+        XCTAssertGreaterThanOrEqual(countFrame.minX, -0.001)
+        XCTAssertGreaterThanOrEqual(countFrame.minY, -0.001)
+        XCTAssertLessThanOrEqual(countFrame.maxX, NativeGlassBarStyle.buttonSize + 0.001)
+        XCTAssertLessThanOrEqual(countFrame.maxY, NativeGlassBarStyle.buttonSize + 0.001)
     }
 
     func testUnreadMentionFloatingControlPolicyKeepsScrollDownButtonWhenNavigatorVisible() {
@@ -31199,41 +31246,82 @@ final class ChatUnreadMentionsTests: XCTestCase {
 
     func testFloatingControlsLayoutPolicyStacksMentionIndicatorAboveScrollButton() throws {
         let inputHeight: CGFloat = 83
+        let sendButtonFrame = CGRect(x: 318, y: 700, width: 44, height: 44)
         let scrollFrame = try XCTUnwrap(
             ChatViewController.FloatingControlsLayoutPolicy.scrollButtonVisibleFrame(
-                sendButtonFrame: CGRect(x: 318, y: 700, width: 44, height: 44)
+                sendButtonFrame: sendButtonFrame
             )
         )
-        let mentionOriginY = ChatViewController.FloatingControlsLayoutPolicy.mentionIndicatorOriginY(
-            viewHeight: 812,
-            mentionHeight: 44,
-            inputHeight: inputHeight,
-            scrollButtonFrame: scrollFrame,
-            showsScrollDownButton: true
+        let mentionFrame = try XCTUnwrap(
+            ChatViewController.FloatingControlsLayoutPolicy.mentionIndicatorFrame(
+                sendButtonFrame: sendButtonFrame,
+                viewHeight: 812,
+                mentionSize: CGSize(square: NativeGlassBarStyle.buttonSize),
+                inputHeight: inputHeight,
+                scrollButtonFrame: scrollFrame,
+                showsScrollDownButton: true
+            )
         )
-        let singleMentionOriginY = ChatViewController.FloatingControlsLayoutPolicy.mentionIndicatorOriginY(
-            viewHeight: 812,
-            mentionHeight: 44,
-            inputHeight: inputHeight,
-            scrollButtonFrame: nil,
-            showsScrollDownButton: false
+        let singleMentionFrame = try XCTUnwrap(
+            ChatViewController.FloatingControlsLayoutPolicy.mentionIndicatorFrame(
+                sendButtonFrame: sendButtonFrame,
+                viewHeight: 812,
+                mentionSize: CGSize(square: NativeGlassBarStyle.buttonSize),
+                inputHeight: inputHeight,
+                scrollButtonFrame: nil,
+                showsScrollDownButton: false
+            )
         )
 
-        XCTAssertLessThan(mentionOriginY, scrollFrame.minY)
+        XCTAssertEqual(mentionFrame.size, CGSize(square: NativeGlassBarStyle.buttonSize))
+        XCTAssertEqual(mentionFrame.midX, sendButtonFrame.midX, accuracy: 0.001)
+        XCTAssertLessThan(mentionFrame.minY, scrollFrame.minY)
         XCTAssertEqual(
-            mentionOriginY,
-            scrollFrame.minY - NativeGlassBarStyle.interItemSpacing - 44,
+            mentionFrame.maxY,
+            scrollFrame.minY - NativeGlassBarStyle.interItemSpacing,
             accuracy: 0.001
         )
+        XCTAssertEqual(singleMentionFrame.midX, sendButtonFrame.midX, accuracy: 0.001)
         XCTAssertEqual(
-            singleMentionOriginY,
+            singleMentionFrame.minY,
             ChatViewController.FloatingControlsLayoutPolicy.lowerSlotY(
                 viewHeight: 812,
-                controlHeight: 44,
+                controlHeight: NativeGlassBarStyle.buttonSize,
                 inputHeight: inputHeight
             ),
             accuracy: 0.001
         )
+    }
+
+    func testFloatingControlsLayoutPolicyReturnsNilForInvalidMentionSendButtonFrame() {
+        XCTAssertNil(
+            ChatViewController.FloatingControlsLayoutPolicy.mentionIndicatorFrame(
+                sendButtonFrame: .zero,
+                viewHeight: 812,
+                mentionSize: CGSize(square: NativeGlassBarStyle.buttonSize),
+                inputHeight: 83,
+                scrollButtonFrame: nil,
+                showsScrollDownButton: false
+            )
+        )
+    }
+
+    private func unreadMentionBadgeButton(
+        in view: ChatViewController.UnreadMentionsNavigatorView
+    ) throws -> UIButton {
+        try XCTUnwrap(view.subviews.compactMap { $0 as? UIButton }.first)
+    }
+
+    private func unreadMentionCountBadge(in button: UIButton) throws -> UILabel {
+        try XCTUnwrap(button.subviews.compactMap { $0 as? UILabel }.first)
+    }
+
+    private func detachedButtonEffectView(in button: UIButton) -> UIVisualEffectView? {
+        button.subviews.compactMap { $0 as? UIVisualEffectView }.first
+    }
+
+    private func buttonGlyphImage(_ button: UIButton) -> UIImage? {
+        button.image(for: .normal) ?? button.configuration?.image
     }
 
     func testUnreadMentionFloatingControlPolicyHidesNavigatorDuringSearch() {

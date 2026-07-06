@@ -2665,6 +2665,43 @@ class ChatViewController: MessagesViewController {
             return scrollButtonFrame.minY - verticalSpacing - mentionHeight
         }
 
+        static func mentionIndicatorFrame(
+            sendButtonFrame: CGRect,
+            viewHeight: CGFloat,
+            mentionSize: CGSize,
+            inputHeight: CGFloat,
+            scrollButtonFrame: CGRect?,
+            showsScrollDownButton: Bool
+        ) -> CGRect? {
+            guard isValidSendButtonFrame(sendButtonFrame),
+                  isValidControlSize(mentionSize),
+                  viewHeight.isFinite,
+                  viewHeight > 0,
+                  inputHeight.isFinite,
+                  inputHeight >= 0 else {
+                return nil
+            }
+
+            let originY = mentionIndicatorOriginY(
+                viewHeight: viewHeight,
+                mentionHeight: mentionSize.height,
+                inputHeight: inputHeight,
+                scrollButtonFrame: scrollButtonFrame,
+                showsScrollDownButton: showsScrollDownButton
+            )
+            guard originY.isFinite else {
+                return nil
+            }
+
+            return CGRect(
+                origin: CGPoint(
+                    x: sendButtonFrame.midX - mentionSize.width / 2,
+                    y: originY
+                ),
+                size: mentionSize
+            )
+        }
+
         private static func isValidSendButtonFrame(_ frame: CGRect) -> Bool {
             frame.width > 0 &&
             frame.height > 0 &&
@@ -2672,6 +2709,13 @@ class ChatViewController: MessagesViewController {
             frame.origin.y.isFinite &&
             frame.width.isFinite &&
             frame.height.isFinite
+        }
+
+        private static func isValidControlSize(_ size: CGSize) -> Bool {
+            size.width > 0 &&
+            size.height > 0 &&
+            size.width.isFinite &&
+            size.height.isFinite
         }
     }
 
@@ -3201,9 +3245,12 @@ class ChatViewController: MessagesViewController {
         self.scrollToLatestTimeline(animated: animated)
     }
 
-    internal func unreadMentionsNavigatorVisibleFrame() -> CGRect {
+    internal func unreadMentionsNavigatorVisibleFrame() -> CGRect? {
         let inputHeight = self.floatingControlsInputHeight()
         let size = self.unreadMentionsNavigatorView.preferredSize
+        guard let sendButtonFrame = self.scrollDownButtonSendButtonFrameInView() else {
+            return nil
+        }
         let requestedShowsScrollDownButton = ChatUnreadMentionFloatingControlPolicy.shouldShowScrollDownButton(
             requested: self.shouldShowScrollDownButton.value,
             navigatorVisible: self.shouldShowUnreadMentionsNavigator.value
@@ -3211,32 +3258,30 @@ class ChatViewController: MessagesViewController {
         let showsScrollDownButton = requestedShowsScrollDownButton &&
             !ScrollDownButtonStartupVisibilityPolicy.isSuppressed(until: self.scrollDownButtonVisibilitySuppressedUntil)
         let scrollButtonFrame = showsScrollDownButton ? self.scrollDownButtonVisibleFrame() : nil
-        return CGRect(
-            origin: CGPoint(
-                x: FloatingControlsLayoutPolicy.trailingX(
-                    viewWidth: self.view.frame.width,
-                    controlWidth: size.width
-                ),
-                y: FloatingControlsLayoutPolicy.mentionIndicatorOriginY(
-                    viewHeight: self.view.frame.height,
-                    mentionHeight: size.height,
-                    inputHeight: inputHeight,
-                    scrollButtonFrame: scrollButtonFrame,
-                    showsScrollDownButton: showsScrollDownButton
-                )
-            ),
-            size: size
+        return FloatingControlsLayoutPolicy.mentionIndicatorFrame(
+            sendButtonFrame: sendButtonFrame,
+            viewHeight: self.view.frame.height,
+            mentionSize: size,
+            inputHeight: inputHeight,
+            scrollButtonFrame: scrollButtonFrame,
+            showsScrollDownButton: showsScrollDownButton
         )
     }
 
     internal func unreadMentionsNavigatorHiddenFrame() -> CGRect {
         let size = self.unreadMentionsNavigatorView.preferredSize
+        let originX: CGFloat
+        if let sendButtonFrame = self.scrollDownButtonSendButtonFrameInView() {
+            originX = sendButtonFrame.midX - size.width / 2
+        } else {
+            originX = FloatingControlsLayoutPolicy.trailingX(
+                viewWidth: self.view.frame.width,
+                controlWidth: size.width
+            )
+        }
         return CGRect(
             origin: CGPoint(
-                x: FloatingControlsLayoutPolicy.trailingX(
-                    viewWidth: self.view.frame.width,
-                    controlWidth: size.width
-                ),
+                x: originX,
                 y: self.view.frame.height + size.height + 24
             ),
             size: size
@@ -3245,7 +3290,17 @@ class ChatViewController: MessagesViewController {
 
     internal func updateUnreadMentionsNavigatorFrame(animated: Bool) {
         let shouldShowNavigator = self.shouldShowUnreadMentionsNavigator.value
-        let frame = shouldShowNavigator ? self.unreadMentionsNavigatorVisibleFrame() : self.unreadMentionsNavigatorHiddenFrame()
+        let frame: CGRect
+        if shouldShowNavigator {
+            guard let visibleFrame = self.unreadMentionsNavigatorVisibleFrame() else {
+                self.unreadMentionsNavigatorView.isUserInteractionEnabled = false
+                self.unreadMentionsNavigatorView.isHidden = true
+                return
+            }
+            frame = visibleFrame
+        } else {
+            frame = self.unreadMentionsNavigatorHiddenFrame()
+        }
         let shouldAnimate = self.shouldAnimateDuringInitialLatestStabilization(requestedAnimated: animated)
         let updates = {
             self.unreadMentionsNavigatorView.frame = frame
