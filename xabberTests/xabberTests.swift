@@ -19592,6 +19592,64 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
         XCTAssertEqual(request.source, .initialUnreadBoundary)
         XCTAssertEqual(request.targetResolution, .firstIncomingAfterBoundary("1711283295000000"))
     }
+
+    func testDeterministicOpeningMatrixKeepsTargetSelectionAndReadSideEffectsSeparated() {
+        let saved = ChatSavedVisiblePosition(
+            messagePrimary: "saved-primary",
+            archivedId: "1711283293000000",
+            messageId: "saved-message",
+            sourceDate: sourceDate
+        )
+        let zeroServerUnreadStates = [
+            makeState(unread: 0, syncUnreadCount: 0, syncUnreadAfterId: nil),
+            makeState(unread: 0, syncUnreadCount: 0, syncUnreadAfterId: "1711283295000000"),
+            makeState(unread: 3, syncUnreadCount: 0, syncUnreadAfterId: "1711283295000000"),
+            makeState(
+                unread: 0,
+                syncUnreadCount: 0,
+                syncUnreadAfterId: "1711283295000000",
+                savedPosition: saved,
+                savedAtLastMessageId: "last-message",
+                savedAtSnapshotLastArchiveId: "snapshot-last"
+            )
+        ]
+
+        zeroServerUnreadStates.forEach { state in
+            XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
+        }
+
+        let unreadDecision = ChatInitialPositionPolicy.decision(
+            for: makeState(
+                unread: 4,
+                syncUnreadCount: 2,
+                syncUnreadAfterId: "1711283295000000",
+                savedPosition: saved,
+                savedAtLastMessageId: "last-message",
+                savedAtSnapshotLastArchiveId: "snapshot-last"
+            ),
+            explicitRequest: nil
+        )
+        guard case .open(let unreadRequest) = unreadDecision else {
+            return XCTFail("Expected server unread boundary request, got \(unreadDecision)")
+        }
+        XCTAssertEqual(unreadRequest.source, .initialUnreadBoundary)
+        XCTAssertEqual(unreadRequest.anchor.archivedId, "1711283295000000")
+        XCTAssertEqual(unreadRequest.targetResolution, .firstIncomingAfterBoundary("1711283295000000"))
+        XCTAssertFalse(unreadRequest.markReadOnVisible)
+
+        let searchRequest = makeExplicitRequest(source: .search)
+        XCTAssertEqual(
+            ChatInitialPositionPolicy.decision(
+                for: makeState(unread: 4, syncUnreadCount: 2, syncUnreadAfterId: "1711283295000000"),
+                explicitRequest: searchRequest
+            ),
+            .open(searchRequest)
+        )
+        XCTAssertTrue(ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: .search))
+        XCTAssertTrue(ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: .initialUnreadBoundary))
+        XCTAssertFalse(ChatOpenReadMarkingPolicy.shouldReadLastMessageOnOpen(isSynced: true, unread: 0))
+        XCTAssertFalse(ChatOpenReadMarkingPolicy.shouldReadLastMessageOnOpen(isSynced: true, unread: 4))
+    }
 }
 
 final class ChatOpenAtMessageRequestBuilderTests: XCTestCase {
