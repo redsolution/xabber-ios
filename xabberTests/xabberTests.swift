@@ -23372,6 +23372,7 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         conversationType: ClientSynchronizationManager.ConversationType = .group,
         mentionId: String? = nil,
         unread: Int = 0,
+        syncUnreadCount: Int? = nil,
         syncUnreadAfterId: String? = nil,
         lastReadId: String? = nil,
         lastMessageId: String = "",
@@ -23384,7 +23385,9 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         chat.conversationType = conversationType
         chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)
         chat.mentionId = mentionId
-        chat.syncUnreadCount = max(unread, 0)
+        let resolvedSyncUnreadCount = syncUnreadCount ?? max(unread, 0)
+        chat.syncUnreadCount = max(resolvedSyncUnreadCount, 0)
+        chat.runtimeUnreadCount = max(0, unread - chat.syncUnreadCount)
         chat.syncUnreadAfterId = syncUnreadAfterId
         chat.lastReadId = lastReadId
         chat.lastMessageId = lastMessageId
@@ -23864,11 +23867,60 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         XCTAssertEqual(request.anchor.sourceDate, Date(timeIntervalSince1970: 1_711_283_200))
     }
 
-    func testLastChatsNormalSelectionOpensLatestWhenUnreadBoundaryExists() throws {
+    func testLastChatsNormalSelectionQueuesUnreadBoundaryWhenServerUnreadExists() throws {
         try insertLastChat(
             jid: "romeo@example.com",
             conversationType: .regular,
             unread: 4,
+            syncUnreadAfterId: "1711283295000000",
+            lastReadId: "1711283294000000"
+        )
+        let realm = try WRealm.safe()
+
+        let request = try XCTUnwrap(
+            LastChatsViewController.initialOpenRequest(
+                owner: owner,
+                jid: "romeo@example.com",
+                conversationType: .regular,
+                explicitOpenMessageRequest: nil,
+                in: realm
+            )
+        )
+
+        XCTAssertEqual(request.source, .initialUnreadBoundary)
+        XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
+        XCTAssertEqual(request.targetResolution, .firstIncomingAfterBoundary("1711283295000000"))
+        XCTAssertFalse(request.markReadOnVisible)
+    }
+
+    func testLastChatsNormalSelectionOpensLatestWhenServerUnreadCountIsZero() throws {
+        try insertLastChat(
+            jid: "romeo@example.com",
+            conversationType: .regular,
+            unread: 0,
+            syncUnreadCount: 0,
+            syncUnreadAfterId: "1711283295000000",
+            lastReadId: "1711283294000000"
+        )
+        let realm = try WRealm.safe()
+
+        XCTAssertNil(
+            LastChatsViewController.initialOpenRequest(
+                owner: owner,
+                jid: "romeo@example.com",
+                conversationType: .regular,
+                explicitOpenMessageRequest: nil,
+                in: realm
+            )
+        )
+    }
+
+    func testLastChatsNormalSelectionOpensLatestForRuntimeOnlyUnread() throws {
+        try insertLastChat(
+            jid: "romeo@example.com",
+            conversationType: .regular,
+            unread: 3,
+            syncUnreadCount: 0,
             syncUnreadAfterId: "1711283295000000",
             lastReadId: "1711283294000000"
         )
@@ -23973,6 +24025,75 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         XCTAssertTrue(chat.pendingForceLatestOpen)
         XCTAssertNil(chat.pendingOpenMessageRequest)
         XCTAssertNil(chat.activeAnchorExecutionState)
+    }
+
+    @MainActor
+    func testStackNewChatQueuesUnreadBoundaryIntentInsteadOfForceLatest() throws {
+        try insertLastChat(
+            jid: "romeo@example.com",
+            conversationType: .regular,
+            unread: 2,
+            syncUnreadAfterId: "1711283295000000",
+            lastReadId: "1711283294000000"
+        )
+        let controller = LastChatsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        navigationController.loadViewIfNeeded()
+        var openedChat: ChatViewController?
+
+        controller.stackNewChat(
+            owner: owner,
+            jid: "romeo@example.com",
+            conversationType: .regular
+        ) { chat in
+            openedChat = chat
+        }
+
+        let chat = try XCTUnwrap(openedChat)
+        let request = try XCTUnwrap(chat.pendingOpenMessageRequest)
+        XCTAssertFalse(chat.pendingForceLatestOpen)
+        XCTAssertEqual(request.source, .initialUnreadBoundary)
+        XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
+        XCTAssertEqual(request.targetResolution, .firstIncomingAfterBoundary("1711283295000000"))
+    }
+
+    @MainActor
+    func testSelectingGroupChatKeepsUnreadBoundaryWhenMentionAnchorIsSuppressed() throws {
+        try insertLastChat(
+            jid: "group@example.com",
+            conversationType: .group,
+            mentionId: "mention-1",
+            unread: 2,
+            syncUnreadAfterId: "1711283295000000"
+        )
+        try insertUnreadMentionNotification(
+            jid: "group@example.com",
+            archivedId: "mention-1"
+        )
+        let controller = LastChatsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        navigationController.loadViewIfNeeded()
+        let datasource = makeDatasource(hasUnreadMention: true)
+        let sections = LastChatsViewController.makeDatasourceSections(
+            from: [datasource],
+            showsSkeleton: false
+        )
+        controller.setDatasource([datasource], sections: sections, showsSkeleton: false)
+        controller.showSkeleton.accept(false)
+
+        controller.tableView(
+            controller.tableView,
+            didSelectRowAt: IndexPath(row: 0, section: 0)
+        )
+
+        let chat = try XCTUnwrap(navigationController.topViewController as? ChatViewController)
+        waitFor {
+            chat.pendingOpenMessageRequest?.source == .initialUnreadBoundary
+        }
+        let request = try XCTUnwrap(chat.pendingOpenMessageRequest)
+        XCTAssertFalse(chat.pendingForceLatestOpen)
+        XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
+        XCTAssertEqual(request.targetResolution, .firstIncomingAfterBoundary("1711283295000000"))
     }
 
     func testSearchChatListMapperCarriesUnreadMentionFlagForGroupResults() throws {
