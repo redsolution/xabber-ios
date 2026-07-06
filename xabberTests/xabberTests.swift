@@ -10226,6 +10226,38 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertTrue(controller.isNearBottom(threshold: 1))
     }
 
+    func testLatestFirstFrameWarmupIsBottomAlignedBeforeCompletionScroll() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 320)
+        let controller = makeWarmupRecordingController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
+
+        XCTAssertEqual(
+            controller.datasource.filter { !$0.isFakeMessage }.count,
+            ChatInitialFirstFrameHistoryConfiguration.pageSize
+        )
+        XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
+
+        controller.shouldRecordLatestBottomScroll = true
+        controller.hasCompletedInitialHistoryViewAppearance = true
+        controller.performInitialFirstFrameLatestWarmupIfNeeded(trigger: "test-visible")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertEqual(realMessages.count, ChatHistoryPagingConfiguration.pageSize)
+        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-319")
+        XCTAssertEqual(
+            try XCTUnwrap(controller.recordedOffsetBeforeLatestBottomScroll),
+            try XCTUnwrap(controller.recordedTargetOffsetBeforeLatestBottomScroll),
+            accuracy: ChatBottomScrollAlignmentPolicy.contentOffsetTolerance
+        )
+    }
+
     func testPendingSavedPositionRequestDoesNotRunLatestWarmup() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 320)
@@ -10820,6 +10852,15 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         return controller
     }
 
+    private func makeWarmupRecordingController() -> WarmupOffsetRecordingChatViewController {
+        let controller = WarmupOffsetRecordingChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = .regular
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        return controller
+    }
+
     private func applyResidentWindow(_ range: Range<Int>, to controller: ChatViewController) throws {
         let realm = try WRealm.safe()
         let messages = try range.map { index in
@@ -11027,6 +11068,31 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             authorId: nil,
             bodyFingerprint: nil,
             sourceDate: Date(timeIntervalSince1970: 1_700_100_000)
+        )
+    }
+}
+
+private final class WarmupOffsetRecordingChatViewController: ChatViewController {
+    var shouldRecordLatestBottomScroll = false
+    private(set) var recordedOffsetBeforeLatestBottomScroll: CGFloat?
+    private(set) var recordedTargetOffsetBeforeLatestBottomScroll: CGFloat?
+
+    override func finishLatestBottomScroll(animated: Bool, consumePendingForceLatest: Bool) {
+        if shouldRecordLatestBottomScroll {
+            messagesCollectionView.layoutIfNeeded()
+            updateChatCollectionInsets()
+            messagesCollectionView.layoutIfNeeded()
+            recordedOffsetBeforeLatestBottomScroll = messagesCollectionView.contentOffset.y
+            recordedTargetOffsetBeforeLatestBottomScroll = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+                targetMaxY: messagesCollectionView.contentSize.height,
+                contentHeight: messagesCollectionView.contentSize.height,
+                viewportHeight: messagesCollectionView.bounds.height,
+                contentInsets: messagesCollectionView.contentInset
+            )
+        }
+        super.finishLatestBottomScroll(
+            animated: animated,
+            consumePendingForceLatest: consumePendingForceLatest
         )
     }
 }

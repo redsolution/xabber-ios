@@ -8355,6 +8355,7 @@ extension ChatViewController {
             invalidateLayout: true,
             limit: self.datasourcePageSize,
             suppressDefaultBottomScroll: true,
+            forceBottomAlignmentTarget: .newestRealMessage,
             completion: { [weak self] in
                 guard let self else {
                     return
