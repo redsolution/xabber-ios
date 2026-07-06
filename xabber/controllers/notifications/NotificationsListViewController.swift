@@ -77,6 +77,14 @@ struct NotificationsListCoordinator {
     }
 }
 
+extension NotificationsListViewController: LeftMenuRootNavigationChromeRefreshable {
+    func refreshLeftMenuRootNavigationChromeAfterModalDismiss() {
+        UIView.performWithoutAnimation {
+            configureBars(animated: false)
+        }
+    }
+}
+
 enum NotificationsBackAction: Equatable {
     case dismissModal
     case popNavigationStack

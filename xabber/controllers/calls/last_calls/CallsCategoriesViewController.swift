@@ -308,3 +308,9 @@ extension CallsCategoriesViewController: UITableViewDelegate {
         selectFilter(CallsListFilter(rawValue: item.key) ?? .all, animated: false, notify: true)
     }
 }
+
+extension CallsCategoriesViewController: LeftMenuRootNavigationChromeRefreshable {
+    func refreshLeftMenuRootNavigationChromeAfterModalDismiss() {
+        configureLeadingNavigationItem(forRegularWidth: true, animated: false)
+    }
+}

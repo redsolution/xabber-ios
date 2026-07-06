@@ -3449,3 +3449,11 @@ extension LastChatsViewController: SharedAudioPlayerPanelDelegate {
         self.renderPinnedVoicePlayer(snapshot: nil)
     }
 }
+
+extension LastChatsViewController: LeftMenuRootNavigationChromeRefreshable {
+    func refreshLeftMenuRootNavigationChromeAfterModalDismiss() {
+        UIView.performWithoutAnimation {
+            configureBars(updateNavigationItems: true)
+        }
+    }
+}

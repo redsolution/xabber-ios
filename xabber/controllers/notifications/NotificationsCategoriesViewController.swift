@@ -393,3 +393,9 @@ extension NotificationsCategoriesViewController: UITableViewDelegate {
         selectFilter(NotificationsListViewController.Filter(rawValue: item.key) ?? .all, animated: false, notify: true)
     }
 }
+
+extension NotificationsCategoriesViewController: LeftMenuRootNavigationChromeRefreshable {
+    func refreshLeftMenuRootNavigationChromeAfterModalDismiss() {
+        configureLeadingNavigationItem(forRegularWidth: true, animated: false)
+    }
+}

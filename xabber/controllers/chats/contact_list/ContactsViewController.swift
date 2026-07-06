@@ -63,6 +63,14 @@ struct ContactsListCoordinator {
     }
 }
 
+extension ContactsViewController: LeftMenuRootNavigationChromeRefreshable {
+    func refreshLeftMenuRootNavigationChromeAfterModalDismiss() {
+        UIView.performWithoutAnimation {
+            configureBars(animated: false, updateNavigationItems: true)
+        }
+    }
+}
+
 enum ContactsListSupport {
 
     struct Context {

@@ -246,6 +246,7 @@ final class ModalPresentationContainmentController: NSObject, UIAdaptivePresenta
     private weak var presentedContentViewController: UIViewController?
     private weak var forwardedDelegate: UIAdaptivePresentationControllerDelegate?
     private let currentControllerAccess: ModalPresentationCurrentControllerAccess
+    private let dismissalHandler: (() -> Void)?
 
     private var previousPresentingAccessibilityElementsHidden = false
     private var previousNavigationAccessibilityViewIsModal = false
@@ -259,7 +260,8 @@ final class ModalPresentationContainmentController: NSObject, UIAdaptivePresenta
         rootViewController: UIViewController,
         presentedContentViewController: UIViewController,
         forwardedDelegate: UIAdaptivePresentationControllerDelegate?,
-        currentControllerAccess: ModalPresentationCurrentControllerAccess = .application
+        currentControllerAccess: ModalPresentationCurrentControllerAccess = .application,
+        dismissalHandler: (() -> Void)? = nil
     ) {
         self.presentingView = presentingView
         self.navigationController = navigationController
@@ -267,6 +269,7 @@ final class ModalPresentationContainmentController: NSObject, UIAdaptivePresenta
         self.presentedContentViewController = presentedContentViewController
         self.forwardedDelegate = forwardedDelegate
         self.currentControllerAccess = currentControllerAccess
+        self.dismissalHandler = dismissalHandler
         super.init()
     }
 
@@ -315,6 +318,8 @@ final class ModalPresentationContainmentController: NSObject, UIAdaptivePresenta
            currentControllerAccess.get() === presentedContentViewController {
             currentControllerAccess.set(nil)
         }
+
+        dismissalHandler?()
     }
 
     func presentationControllerShouldDismiss(_ presentationController: UIPresentationController) -> Bool {
@@ -340,7 +345,8 @@ final class ModalPresentationContainmentController: NSObject, UIAdaptivePresenta
         presentingViewController: UIViewController,
         presentedContentViewController: UIViewController,
         forwardedDelegate: UIAdaptivePresentationControllerDelegate?,
-        currentControllerAccess: ModalPresentationCurrentControllerAccess = .application
+        currentControllerAccess: ModalPresentationCurrentControllerAccess = .application,
+        dismissalHandler: (() -> Void)? = nil
     ) -> ModalPresentationContainmentController {
         let controller = ModalPresentationContainmentController(
             presentingView: presentingViewController.view,
@@ -348,7 +354,8 @@ final class ModalPresentationContainmentController: NSObject, UIAdaptivePresenta
             rootViewController: rootViewController,
             presentedContentViewController: presentedContentViewController,
             forwardedDelegate: forwardedDelegate,
-            currentControllerAccess: currentControllerAccess
+            currentControllerAccess: currentControllerAccess,
+            dismissalHandler: dismissalHandler
         )
         controller.activate()
         navigationController.presentationController?.delegate = controller
@@ -373,6 +380,7 @@ func presentContainedNavigationModal(
     replaceCurrentPresented: Bool = true,
     forwardedDelegate: UIAdaptivePresentationControllerDelegate? = nil,
     currentControllerAccess: ModalPresentationCurrentControllerAccess = .application,
+    dismissalHandler: (() -> Void)? = nil,
     completion: (() -> Void)? = nil
 ) -> Bool {
     if replaceCurrentPresented {
@@ -397,7 +405,8 @@ func presentContainedNavigationModal(
         presentingViewController: presentingViewController,
         presentedContentViewController: presentedContentViewController,
         forwardedDelegate: forwardedDelegate,
-        currentControllerAccess: currentControllerAccess
+        currentControllerAccess: currentControllerAccess,
+        dismissalHandler: dismissalHandler
     )
     if let presentedViewController = presenter.presentedViewController {
         presentedViewController.present(navigationController, animated: true) {
@@ -414,7 +423,12 @@ func presentContainedNavigationModal(
 }
 
 @discardableResult
-func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil, replaceParent: Bool = true) -> Bool {
+func showModal(
+    _ vc: UIViewController,
+    parent parentVc: UIViewController? = nil,
+    replaceParent: Bool = true,
+    dismissalHandler: (() -> Void)? = nil
+) -> Bool {
     var parent: UIViewController? = parentVc
 //    if (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc != nil {
 //        parent = (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc
@@ -438,7 +452,8 @@ func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil,
         presentedContentViewController: vc,
         from: parent,
         replaceCurrentPresented: replaceParent,
-        forwardedDelegate: parentVc as? UIAdaptivePresentationControllerDelegate
+        forwardedDelegate: parentVc as? UIAdaptivePresentationControllerDelegate,
+        dismissalHandler: dismissalHandler
     )
 }
 

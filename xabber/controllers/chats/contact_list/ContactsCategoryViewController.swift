@@ -528,3 +528,9 @@ extension ContactsCategoryViewController: ContactsCategoryDelegate {
     
     
 }
+
+extension ContactsCategoryViewController: LeftMenuRootNavigationChromeRefreshable {
+    func refreshLeftMenuRootNavigationChromeAfterModalDismiss() {
+        configureLeadingNavigationItem(forRegularWidth: true, animated: false)
+    }
+}

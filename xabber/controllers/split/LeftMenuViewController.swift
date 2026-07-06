@@ -75,6 +75,53 @@ enum LeftMenuSelectionPresentationPolicy {
     }
 }
 
+protocol LeftMenuRootNavigationChromeRefreshable: AnyObject {
+    func refreshLeftMenuRootNavigationChromeAfterModalDismiss()
+}
+
+enum LeftMenuRootNavigationChromeRecovery {
+    static func refreshRootChrome(in splitViewController: UISplitViewController?) {
+        guard let splitViewController else {
+            return
+        }
+
+        refreshRootChrome(in: splitViewController.viewController(for: .supplementary))
+        refreshRootChrome(in: splitViewController.viewController(for: .secondary))
+    }
+
+    private static func refreshRootChrome(in viewController: UIViewController?) {
+        guard let viewController else {
+            return
+        }
+
+        if let navigationController = viewController as? UINavigationController {
+            refreshRootChrome(in: navigationController)
+            return
+        }
+
+        (viewController as? LeftMenuRootNavigationChromeRefreshable)?
+            .refreshLeftMenuRootNavigationChromeAfterModalDismiss()
+    }
+
+    private static func refreshRootChrome(in navigationController: UINavigationController) {
+        let candidates = [
+            navigationController.visibleViewController,
+            navigationController.topViewController,
+            navigationController.viewControllers.first
+        ].compactMap { $0 }
+        var visited = Set<ObjectIdentifier>()
+
+        for candidate in candidates {
+            let identifier = ObjectIdentifier(candidate)
+            guard visited.insert(identifier).inserted else {
+                continue
+            }
+            (candidate as? LeftMenuRootNavigationChromeRefreshable)?
+                .refreshLeftMenuRootNavigationChromeAfterModalDismiss()
+        }
+    }
+}
+
 enum LeftMenuSplitPresentationAnimationPolicy {
     enum Phase {
         case destinationPreparation
@@ -1167,7 +1214,7 @@ class LeftMenuViewController: UIViewController {
         let vc = PremiumSubscribtionViewController()
         vc.jid = AccountManager.shared.users.first?.jid ?? ""
         vc.owner = AccountManager.shared.users.first?.jid ?? ""
-        showModal(vc, parent: self)
+        showModal(vc, parent: self, dismissalHandler: makeModalDismissalRecoveryHandler())
         revealSelectedContentColumn()
     }
     
@@ -1181,7 +1228,7 @@ class LeftMenuViewController: UIViewController {
         let vc = SettingsViewController()
         vc.jid = AccountManager.shared.users.first?.jid ?? ""
         vc.owner = AccountManager.shared.users.first?.jid ?? ""
-        showModal(vc, parent: self)
+        showModal(vc, parent: self, dismissalHandler: makeModalDismissalRecoveryHandler())
         revealSelectedContentColumn()
     }
     
@@ -1665,6 +1712,17 @@ extension LeftMenuViewController: UITableViewDelegate {
         return true
     }
 
+    private func makeModalDismissalRecoveryHandler() -> () -> Void {
+        { [weak self] in
+            guard let self else {
+                return
+            }
+
+            _ = self.revealSelectedContentColumn()
+            LeftMenuRootNavigationChromeRecovery.refreshRootChrome(in: self.splitViewController)
+        }
+    }
+
     private func usesRegularCategorySplit() -> Bool {
         guard let splitVC = splitViewController else {
             return UIDevice.current.userInterfaceIdiom == .pad
@@ -1960,7 +2018,7 @@ extension LeftMenuViewController: UITableViewDelegate {
             let vc = SettingsViewController()
             vc.jid = AccountManager.shared.users.first?.jid ?? ""
             vc.owner = AccountManager.shared.users.first?.jid ?? ""
-            showModal(vc, parent: self)
+            showModal(vc, parent: self, dismissalHandler: makeModalDismissalRecoveryHandler())
             revealSelectedContentColumn()
         } else {
             let category = self.datasource[indexPath.section][indexPath.row].category

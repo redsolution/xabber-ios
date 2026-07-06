@@ -986,3 +986,11 @@ extension LastCallsViewController: CallsControllerFilterProtocol {
         filter.accept(value)
     }
 }
+
+extension LastCallsViewController: LeftMenuRootNavigationChromeRefreshable {
+    func refreshLeftMenuRootNavigationChromeAfterModalDismiss() {
+        UIView.performWithoutAnimation {
+            configureBars(animated: false, updateNavigationItems: true)
+        }
+    }
+}

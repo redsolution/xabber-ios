@@ -2339,13 +2339,60 @@ final class ModalPresentationContainmentTests: XCTestCase {
         XCTAssertFalse(presenter.view.accessibilityElementsHidden)
     }
 
+    func testDismissalHandlerRunsOnceOnAdaptiveDismiss() {
+        let presenter = UIViewController()
+        let root = UIViewController()
+        let navigationController = UINavigationController(rootViewController: root)
+        var dismissalHandlerCallCount = 0
+        let containment = makeContainment(
+            presenter: presenter,
+            navigationController: navigationController,
+            root: root,
+            dismissalHandler: {
+                dismissalHandlerCallCount += 1
+            }
+        )
+        let presentationController = UIPresentationController(
+            presentedViewController: navigationController,
+            presenting: presenter
+        )
+
+        containment.activate()
+        containment.presentationControllerDidDismiss(presentationController)
+        containment.presentationControllerDidDismiss(presentationController)
+
+        XCTAssertEqual(dismissalHandlerCallCount, 1)
+    }
+
+    func testDismissalHandlerIsIdempotentAcrossRepeatedRestore() {
+        let presenter = UIViewController()
+        let root = UIViewController()
+        let navigationController = UINavigationController(rootViewController: root)
+        var dismissalHandlerCallCount = 0
+        let containment = makeContainment(
+            presenter: presenter,
+            navigationController: navigationController,
+            root: root,
+            dismissalHandler: {
+                dismissalHandlerCallCount += 1
+            }
+        )
+
+        containment.activate()
+        containment.restoreIfNeeded()
+        containment.restoreIfNeeded()
+
+        XCTAssertEqual(dismissalHandlerCallCount, 1)
+    }
+
     private func makeContainment(
         presenter: UIViewController,
         navigationController: UINavigationController,
         root: UIViewController,
         forwardedDelegate: UIAdaptivePresentationControllerDelegate? = nil,
         currentPresented: @escaping () -> UIViewController? = { nil },
-        setCurrentPresented: @escaping (UIViewController?) -> Void = { _ in }
+        setCurrentPresented: @escaping (UIViewController?) -> Void = { _ in },
+        dismissalHandler: (() -> Void)? = nil
     ) -> ModalPresentationContainmentController {
         ModalPresentationContainmentController(
             presentingView: presenter.view,
@@ -2356,7 +2403,8 @@ final class ModalPresentationContainmentTests: XCTestCase {
             currentControllerAccess: ModalPresentationCurrentControllerAccess(
                 get: currentPresented,
                 set: setCurrentPresented
-            )
+            ),
+            dismissalHandler: dismissalHandler
         )
     }
 
@@ -2373,6 +2421,86 @@ final class ModalPresentationContainmentTests: XCTestCase {
             shouldDismissCount += 1
             return shouldDismissResult
         }
+    }
+}
+
+@MainActor
+final class LeftMenuRootNavigationChromeRecoveryTests: XCTestCase {
+    func testRecoveryRestoresChatsSidebarButton() {
+        withInterfaceType(.split) {
+            assertRecoveryRestoresSidebarButton(
+                rootViewController: LastChatsViewController(),
+                expectedIdentifier: "chats_sidebar_menu_button"
+            )
+        }
+    }
+
+    func testRecoveryRestoresContactsSidebarButton() {
+        withInterfaceType(.split) {
+            let rootViewController = ContactsCategoryViewController()
+            rootViewController.isGroup = false
+            assertRecoveryRestoresSidebarButton(
+                rootViewController: rootViewController,
+                expectedIdentifier: "contacts_sidebar_menu_button"
+            )
+        }
+    }
+
+    func testRecoveryRestoresGroupsSidebarButton() {
+        withInterfaceType(.split) {
+            let rootViewController = ContactsCategoryViewController()
+            rootViewController.isGroup = true
+            assertRecoveryRestoresSidebarButton(
+                rootViewController: rootViewController,
+                expectedIdentifier: "groups_sidebar_menu_button"
+            )
+        }
+    }
+
+    func testRecoveryRestoresCallsSidebarButton() {
+        withInterfaceType(.split) {
+            assertRecoveryRestoresSidebarButton(
+                rootViewController: CallsCategoriesViewController(),
+                expectedIdentifier: "calls_sidebar_menu_button"
+            )
+        }
+    }
+
+    func testRecoveryRestoresNotificationsSidebarButton() {
+        withInterfaceType(.split) {
+            assertRecoveryRestoresSidebarButton(
+                rootViewController: NotificationsCategoriesViewController(),
+                expectedIdentifier: "notifications_sidebar_menu_button"
+            )
+        }
+    }
+
+    private func assertRecoveryRestoresSidebarButton(
+        rootViewController: UIViewController,
+        expectedIdentifier: String
+    ) {
+        let splitViewController = UISplitViewController(style: .tripleColumn)
+        let navigationController = UINavigationController(rootViewController: rootViewController)
+        splitViewController.setViewController(UIViewController(), for: .primary)
+        splitViewController.setViewController(navigationController, for: .supplementary)
+        rootViewController.navigationItem.leftBarButtonItem = UIBarButtonItem(systemItem: .cancel)
+
+        LeftMenuRootNavigationChromeRecovery.refreshRootChrome(in: splitViewController)
+
+        XCTAssertEqual(
+            rootViewController.navigationItem.leftBarButtonItem?.accessibilityIdentifier,
+            expectedIdentifier
+        )
+    }
+
+    private func withInterfaceType(_ interfaceType: CommonConfigManager.InterfaceType, block: () -> Void) {
+        let previousInterfaceType = CommonConfigManager.shared.config.interface_type
+        defer {
+            CommonConfigManager.shared.config.interface_type = previousInterfaceType
+        }
+
+        CommonConfigManager.shared.config.interface_type = interfaceType.rawValue
+        block()
     }
 }
 
