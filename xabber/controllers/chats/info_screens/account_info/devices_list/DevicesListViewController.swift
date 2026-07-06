@@ -61,6 +61,58 @@ enum DevicesSecurityTableLayout {
     }
 }
 
+enum DevicesSecuritySectionTextRole {
+    case header
+    case footer
+}
+
+final class DevicesSecuritySectionTextView: UITableViewHeaderFooterView {
+    static let reuseIdentifier = "DevicesSecuritySectionTextView"
+
+    let bodyLabel: UILabel = {
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.adjustsFontForContentSizeCategory = true
+        label.isAccessibilityElement = false
+        return label
+    }()
+
+    override init(reuseIdentifier: String?) {
+        super.init(reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    func configure(text: String, role: DevicesSecuritySectionTextRole) {
+        bodyLabel.text = text
+        bodyLabel.font = UIFont.preferredFont(forTextStyle: role == .header ? .subheadline : .footnote)
+        bodyLabel.textColor = role == .header ? .secondaryLabel : .tertiaryLabel
+        isAccessibilityElement = true
+        accessibilityLabel = text
+        accessibilityTraits = .staticText
+    }
+
+    private func setup() {
+        contentView.backgroundColor = .clear
+        backgroundView = UIView()
+        backgroundView?.backgroundColor = .clear
+        contentView.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
+        contentView.addSubview(bodyLabel)
+        NSLayoutConstraint.activate([
+            bodyLabel.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
+            bodyLabel.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            bodyLabel.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            bodyLabel.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor)
+        ])
+    }
+}
+
 class DevicesListViewController: BaseViewController {
     class Datasource {
         enum Kind {
@@ -117,6 +169,7 @@ class DevicesListViewController: BaseViewController {
         
         view.register(DeviceInfoTableCell.self, forCellReuseIdentifier: DeviceInfoTableCell.cellName)
         view.register(ButtonTableViewCell.self, forCellReuseIdentifier: ButtonTableViewCell.cellName)
+        view.register(DevicesSecuritySectionTextView.self, forHeaderFooterViewReuseIdentifier: DevicesSecuritySectionTextView.reuseIdentifier)
         DevicesSecurityTableLayout.apply(to: view)
         
         return view

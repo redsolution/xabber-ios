@@ -27,6 +27,27 @@ extension DevicesListViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         return UITableView.automaticDimension
     }
+
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        guard let text = devicesSectionHeaderText(for: section) else {
+            return nil
+        }
+        return makeSectionTextView(in: tableView, text: text, role: .header)
+    }
+
+    func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
+        guard let text = devicesSectionFooterText(for: section) else {
+            return nil
+        }
+        return makeSectionTextView(in: tableView, text: text, role: .footer)
+    }
+
+    private func makeSectionTextView(in tableView: UITableView, text: String, role: DevicesSecuritySectionTextRole) -> DevicesSecuritySectionTextView {
+        let view = tableView.dequeueReusableHeaderFooterView(withIdentifier: DevicesSecuritySectionTextView.reuseIdentifier) as? DevicesSecuritySectionTextView
+            ?? DevicesSecuritySectionTextView(reuseIdentifier: DevicesSecuritySectionTextView.reuseIdentifier)
+        view.configure(text: text, role: role)
+        return view
+    }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)

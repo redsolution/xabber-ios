@@ -193,20 +193,30 @@ extension DevicesListViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        if section == 1 && self.devices.count == 1 {
-            return nil
-        }
-        if datasource[section].kind == .session {
-            return nil
-        }
-        return datasource[section].title
+        return nil
     }
     
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        if self.devices.isEmpty || datasource[section].kind == .session {
+        return nil
+    }
+
+    func devicesSectionHeaderText(for section: Int) -> String? {
+        guard datasource.indices.contains(section),
+              datasource[section].kind != .session else {
             return nil
         }
-        return datasource[section].value
+        let text = datasource[section].title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    func devicesSectionFooterText(for section: Int) -> String? {
+        guard datasource.indices.contains(section),
+              devices.isNotEmpty,
+              datasource[section].kind != .session else {
+            return nil
+        }
+        let text = datasource[section].value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text?.isEmpty == false ? text : nil
     }
     
 }

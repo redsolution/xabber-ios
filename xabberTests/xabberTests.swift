@@ -1283,6 +1283,131 @@ final class DevicesVerificationCellTests: XCTestCase {
     }
 }
 
+@MainActor
+final class DevicesSectionTextLayoutTests: XCTestCase {
+    func testHeaderAndFooterViewsUseDynamicTypeWrappingStaticText() throws {
+        let controller = makeController()
+
+        let headerView = try XCTUnwrap(
+            controller.tableView.delegate?.tableView?(controller.tableView, viewForHeaderInSection: 1)
+        )
+        let footerView = try XCTUnwrap(
+            controller.tableView.delegate?.tableView?(controller.tableView, viewForFooterInSection: 1)
+        )
+        let headerLabel = try XCTUnwrap(firstLabel(in: headerView))
+        let footerLabel = try XCTUnwrap(firstLabel(in: footerView))
+
+        XCTAssertTrue(headerLabel.adjustsFontForContentSizeCategory)
+        XCTAssertTrue(footerLabel.adjustsFontForContentSizeCategory)
+        XCTAssertEqual(headerLabel.numberOfLines, 0)
+        XCTAssertEqual(footerLabel.numberOfLines, 0)
+        XCTAssertEqual(headerLabel.font.pointSize, UIFont.preferredFont(forTextStyle: .subheadline).pointSize)
+        XCTAssertEqual(footerLabel.font.pointSize, UIFont.preferredFont(forTextStyle: .footnote).pointSize)
+        XCTAssertTrue(headerView.isAccessibilityElement)
+        XCTAssertTrue(footerView.isAccessibilityElement)
+        XCTAssertFalse(headerView.accessibilityTraits.contains(.button))
+        XCTAssertFalse(footerView.accessibilityTraits.contains(.button))
+    }
+
+    func testFooterViewWrapsLongLocalizedTextWithinLayoutMargins() throws {
+        let controller = makeController()
+        let footerView = try XCTUnwrap(
+            controller.tableView.delegate?.tableView?(controller.tableView, viewForFooterInSection: 1)
+        )
+        footerView.bounds = CGRect(x: 0, y: 0, width: 320, height: 1)
+        footerView.setNeedsLayout()
+        footerView.layoutIfNeeded()
+
+        let fittingSize = footerView.systemLayoutSizeFitting(
+            CGSize(width: 320, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+
+        XCTAssertGreaterThan(fittingSize.height, UIFont.preferredFont(forTextStyle: .footnote).lineHeight * 2)
+    }
+
+    func testHeaderFooterStringTitlesAreReplacedByCustomViews() throws {
+        let controller = makeController()
+
+        XCTAssertNil(controller.tableView(controller.tableView, titleForHeaderInSection: 1))
+        XCTAssertNil(controller.tableView(controller.tableView, titleForFooterInSection: 1))
+        XCTAssertNotNil(controller.tableView.delegate?.tableView?(controller.tableView, viewForHeaderInSection: 1))
+        XCTAssertNotNil(controller.tableView.delegate?.tableView?(controller.tableView, viewForFooterInSection: 1))
+    }
+
+    func testHeaderFooterTextDoesNotUseTokenTerminologyOrDestructiveTraits() throws {
+        let controller = makeController()
+        let views = [
+            controller.tableView.delegate?.tableView?(controller.tableView, viewForHeaderInSection: 0),
+            controller.tableView.delegate?.tableView?(controller.tableView, viewForFooterInSection: 0),
+            controller.tableView.delegate?.tableView?(controller.tableView, viewForHeaderInSection: 1),
+            controller.tableView.delegate?.tableView?(controller.tableView, viewForFooterInSection: 1)
+        ].compactMap { $0 }
+
+        XCTAssertFalse(views.isEmpty)
+        for view in views {
+            let labelText = try XCTUnwrap(firstLabel(in: view)?.text?.lowercased())
+            XCTAssertFalse(labelText.contains("token"))
+            XCTAssertFalse(labelText.contains("revoke"))
+            XCTAssertFalse(view.accessibilityTraits.contains(.button))
+        }
+    }
+
+    private func makeController() -> DevicesListViewController {
+        let controller = DevicesListViewController()
+        controller.loadViewIfNeeded()
+        controller.configure(for: "section-text@example.test")
+        controller.devices = [
+            DeviceStorageItem(value: [
+                "uid": "desktop-1",
+                "owner": "section-text@example.test"
+            ])
+        ]
+        controller.datasource = [
+            DevicesListViewController.Datasource(
+                .current,
+                title: "This device",
+                value: String(repeating: "Only other device sessions are signed out. ", count: 5),
+                editable: false,
+                childs: [
+                    DevicesListViewController.Datasource(
+                        .token,
+                        title: " ",
+                        value: "resource",
+                        editable: false
+                    ),
+                    DevicesListViewController.Datasource(
+                        .button,
+                        title: "Terminate all other sessions",
+                        value: "terminate_all_sessions",
+                        editable: false
+                    )
+                ]
+            ),
+            DevicesListViewController.Datasource(
+                .token,
+                title: "Active devices",
+                value: String(repeating: "You can terminate sessions you do not need. Current device remains signed in. ", count: 5),
+                editable: false
+            )
+        ]
+        return controller
+    }
+
+    private func firstLabel(in view: UIView) -> UILabel? {
+        if let label = view as? UILabel {
+            return label
+        }
+        for subview in view.subviews {
+            if let label = firstLabel(in: subview) {
+                return label
+            }
+        }
+        return nil
+    }
+}
+
 final class NavigationTransitionMutationPolicyTests: XCTestCase {
     func testLastChatsQueuesNonCriticalMutationsDuringNavigationTransition() {
         XCTAssertTrue(
