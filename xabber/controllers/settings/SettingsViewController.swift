@@ -47,7 +47,7 @@ struct SettingsCloudStorageQuotaDisplayState: Equatable {
             guard let galleryType = galleryType else {
                 return value
             }
-            return galleryType.displayTitle // + " · " + value
+            return galleryType.displayTitle + " · " + value
         }
 
         if hasCachedQuota {
