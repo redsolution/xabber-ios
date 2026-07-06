@@ -875,6 +875,27 @@ final class NotificationsNavigationTests: XCTestCase {
     }
 }
 
+final class DevicesNavigationContainmentTests: XCTestCase {
+    func testModalRootDevicesInstallsDismissPolicy() {
+        XCTAssertEqual(
+            DevicesNavigationBarPolicy.leadingAction(exitAction: .dismissModal),
+            .dismissModal
+        )
+        XCTAssertEqual(
+            DevicesNavigationBarPolicy.leadingAction(exitAction: .popNavigationStack),
+            .none
+        )
+        XCTAssertEqual(
+            DevicesNavigationBarPolicy.leadingAction(exitAction: .revealSplitList),
+            .none
+        )
+        XCTAssertEqual(
+            DevicesNavigationBarPolicy.leadingAction(exitAction: .none),
+            .none
+        )
+    }
+}
+
 final class NavigationTransitionMutationPolicyTests: XCTestCase {
     func testLastChatsQueuesNonCriticalMutationsDuringNavigationTransition() {
         XCTAssertTrue(

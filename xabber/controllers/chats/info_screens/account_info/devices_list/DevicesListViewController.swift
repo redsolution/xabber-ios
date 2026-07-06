@@ -27,6 +27,24 @@ import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 import XMPPFramework
 
+enum DevicesLeadingNavigationAction: Equatable {
+    case dismissModal
+    case none
+}
+
+enum DevicesNavigationBarPolicy {
+    static let dismissButtonAccessibilityIdentifier = "devices_dismiss_button"
+
+    static func leadingAction(exitAction: NavigationExitAction) -> DevicesLeadingNavigationAction {
+        switch exitAction {
+        case .dismissModal:
+            return .dismissModal
+        case .popNavigationStack, .revealSplitList, .none:
+            return .none
+        }
+    }
+}
+
 class DevicesListViewController: BaseViewController {
     class Datasource {
         enum Kind {
@@ -310,6 +328,7 @@ class DevicesListViewController: BaseViewController {
         super.viewWillAppear(animated)
         subscribe()
         title = "Devices".localizeString(id: "account_settings_devices", arguments: [])
+        configureDevicesLeadingNavigationItem(animated: false)
         AccountManager.shared.find(for: self.jid)?.action({ user, stream in
             user.omemo.getContactDevices(stream, jid: self.jid, force: true)
         })
@@ -339,6 +358,29 @@ class DevicesListViewController: BaseViewController {
     internal func onEdit(sender: AnyObject) {
         self.tableView.setEditing(true, animated: true)
         navigationItem.setRightBarButton(doneEditButton, animated: true)
+    }
+
+    private func configureDevicesLeadingNavigationItem(animated: Bool) {
+        let exitAction = NavigationExitPolicy.action(
+            for: NavigationExitPolicyContext(destination: self, route: .currentNavigationPush)
+        )
+        switch DevicesNavigationBarPolicy.leadingAction(exitAction: exitAction) {
+        case .dismissModal:
+            let button = UIBarButtonItem(
+                barButtonSystemItem: .close,
+                target: self,
+                action: #selector(dismissScreen)
+            )
+            button.accessibilityIdentifier = DevicesNavigationBarPolicy.dismissButtonAccessibilityIdentifier
+            navigationItem.setLeftBarButton(button, animated: animated)
+        case .none:
+            navigationItem.setLeftBarButton(nil, animated: animated)
+        }
+    }
+
+    @objc
+    internal func dismissScreen() {
+        dismiss(animated: true)
     }
     
     @objc
