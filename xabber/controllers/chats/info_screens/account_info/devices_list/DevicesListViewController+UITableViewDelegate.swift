@@ -51,6 +51,9 @@ extension DevicesListViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        guard accountQuitFlow.canPerformSecurityAction else {
+            return
+        }
         
         switch datasource[indexPath.section].kind {
         case .current:
@@ -181,6 +184,10 @@ extension DevicesListViewController {
     }
 
     func devicesSecuritySwipeAction(at indexPath: IndexPath) -> DevicesSecuritySwipeAction? {
+        guard accountQuitFlow.canPerformSecurityAction else {
+            return nil
+        }
+
         guard datasource.indices.contains(indexPath.section) else {
             return nil
         }
@@ -206,6 +213,11 @@ extension DevicesListViewController {
         confirmation: DevicesSessionTerminationConfirmation,
         completion: @escaping (Bool) -> Void
     ) {
+        guard accountQuitFlow.canPerformSecurityAction else {
+            completion(false)
+            return
+        }
+
         let hasConnection = !AccountManager.shared.connectingUsers.value.contains(self.jid)
         guard hasConnection else {
             presentNoConnectionForSessionTermination()
@@ -234,12 +246,20 @@ extension DevicesListViewController {
     }
 
     private func revokeDeviceSession(uid: String) {
+        guard accountQuitFlow.canPerformSecurityAction else {
+            return
+        }
+
         AccountManager.shared.find(for: self.jid)?.action({ user, stream in
             user.devices.revoke(stream, uids: [uid])
         })
     }
 
     private func deleteBrokenDeviceKey(deviceId: Int) {
+        guard accountQuitFlow.canPerformSecurityAction else {
+            return
+        }
+
         AccountManager.shared.find(for: self.jid)?.unsafeAction({ user, stream in
             user.omemo.deleteDevice(deviceId: deviceId)
         })

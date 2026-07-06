@@ -24,30 +24,62 @@ import UIKit
 extension DevicesListViewController {
     
     internal func quitAccount() {
+        guard accountQuitFlow.canStartQuit else {
+            return
+        }
+
         let presenter = QuitAccountPresenter(jid: jid)
-        presenter.present(in: self, animated: true) {
-            self.unsubscribe()
-            AccountManager.shared.deleteAccount(by: self.jid)
-            if AccountManager.shared.emptyAccountsList() {
-                DispatchQueue.main.async {
-                    let vc = OnboardingViewController()
-                    
-                    let navigationController = UINavigationController(rootViewController: vc)
-                    
-                    navigationController.isNavigationBarHidden = true
-                    (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = navigationController
-                }
-            } else {
-                DispatchQueue.main.async {
-                    self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-                    self.navigationController?.navigationBar.shadowImage = nil
-                    self.navigationController?.popToRootViewController(animated: true)
-                }
+        presenter.present(in: self, animated: true) { [weak self] in
+            self?.beginConfirmedQuitAccountCleanup()
+        }
+    }
+
+    @discardableResult
+    internal func beginConfirmedQuitAccountCleanup() -> Bool {
+        guard accountQuitFlow.beginCleanup() else {
+            return false
+        }
+
+        setAccountQuitProgressVisible(true)
+        DispatchQueue.main.async { [weak self] in
+            self?.performConfirmedQuitAccountCleanup()
+        }
+        return true
+    }
+
+    private func performConfirmedQuitAccountCleanup() {
+        unsubscribe()
+        AccountManager.shared.deleteAccount(by: jid)
+        let route = accountQuitFlow.complete(
+            hasRemainingAccounts: !AccountManager.shared.emptyAccountsList()
+        )
+        setAccountQuitProgressVisible(false)
+        routeAfterQuitAccountCleanup(route)
+    }
+
+    private func routeAfterQuitAccountCleanup(_ route: QuitAccountCleanupRoute) {
+        switch route {
+        case .onboarding:
+            DispatchQueue.main.async {
+                let vc = OnboardingViewController()
+                let navigationController = UINavigationController(rootViewController: vc)
+                navigationController.isNavigationBarHidden = true
+                (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = navigationController
+            }
+        case .root:
+            DispatchQueue.main.async {
+                self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
+                self.navigationController?.navigationBar.shadowImage = nil
+                self.navigationController?.popToRootViewController(animated: true)
             }
         }
     }
     
     internal final func onRevokeAll() {
+        guard accountQuitFlow.canPerformSecurityAction else {
+            return
+        }
+
         let hasConnection = !AccountManager.shared.connectingUsers.value.contains(self.jid)
         guard hasConnection else {
             ActionSheetPresenter().present(
@@ -85,6 +117,10 @@ extension DevicesListViewController {
     }
     
     internal final func showTokenInfo(uid: String, canEdit: Bool) {
+        guard accountQuitFlow.canPerformSecurityAction else {
+            return
+        }
+
         let vc = DeviceDetailViewController()
         vc.owner = self.jid
         vc.jid = self.jid

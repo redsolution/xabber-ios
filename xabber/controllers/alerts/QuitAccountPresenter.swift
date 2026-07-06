@@ -21,16 +21,56 @@
 import Foundation
 import UIKit
 
+enum QuitAccountCleanupRoute: Equatable {
+    case onboarding
+    case root
+}
+
+struct QuitAccountCleanupFlowState {
+    private(set) var isInProgress: Bool = false
+
+    var canStartQuit: Bool {
+        !isInProgress
+    }
+
+    var canPerformSecurityAction: Bool {
+        !isInProgress
+    }
+
+    @discardableResult
+    mutating func beginCleanup() -> Bool {
+        guard !isInProgress else {
+            return false
+        }
+        isInProgress = true
+        return true
+    }
+
+    mutating func complete(hasRemainingAccounts: Bool) -> QuitAccountCleanupRoute {
+        isInProgress = false
+        return hasRemainingAccounts ? .root : .onboarding
+    }
+
+    mutating func failCleanup() {
+        isInProgress = false
+    }
+}
+
 struct QuitAccountPresenter {
     let jid: String
     
+    static func confirmationMessage(jid: String) -> String {
+        [
+            "You are quitting".localizeString(id: "account_quitting", arguments: []),
+            jid,
+            "account. Account data will be deleted from this device. Your data on server will not be affected.".localizeString(id: "account_data_deletion", arguments: [])
+        ].joined(separator: " ")
+    }
     
     func present(in view: UIViewController, animated: Bool, completion: (()->Void)?) {
         let alert = UIAlertController(title: "Quit account"
                                         .localizeString(id: "settings_account__button_quit_account", arguments: []),
-                                      message: ["You are quitting".localizeString(id: "account_quitting", arguments: []),
-                                                jid, "account. Account data will be deleted from this device. Your data on server will not be affected.".localizeString(id: "account_data_deletion", arguments: [])
-                                               ].joined(separator: " "),
+                                      message: Self.confirmationMessage(jid: jid),
                                       preferredStyle: .actionSheet)
         alert.addAction(UIAlertAction(title: "Cancel".localizeString(id: "cancel", arguments: []), style: .cancel, handler: nil))
         alert.addAction(UIAlertAction(title: "Quit".localizeString(id: "quit", arguments: []), style: .destructive, handler: { (_) in
