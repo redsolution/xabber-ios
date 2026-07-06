@@ -799,6 +799,82 @@ final class ContactInfoNavigationTests: XCTestCase {
     }
 }
 
+final class NotificationsNavigationTests: XCTestCase {
+    func testBackPolicyPreservesModalDismiss() {
+        let action = NotificationsBackPolicy.action(
+            exitAction: .dismissModal,
+            hasChatsRootFallback: true
+        )
+
+        XCTAssertEqual(action, .dismissModal)
+    }
+
+    func testBackPolicyPopsLocalStackBeforeChatsFallback() {
+        let action = NotificationsBackPolicy.action(
+            exitAction: .popNavigationStack,
+            hasChatsRootFallback: true
+        )
+
+        XCTAssertEqual(action, .popNavigationStack)
+    }
+
+    func testBackPolicyFallsBackToChatsOnlyForRootSectionWithoutExitAction() {
+        XCTAssertEqual(
+            NotificationsBackPolicy.action(exitAction: .none, hasChatsRootFallback: true),
+            .selectChatsRoot
+        )
+        XCTAssertEqual(
+            NotificationsBackPolicy.action(exitAction: .none, hasChatsRootFallback: false),
+            .none
+        )
+    }
+
+    func testDetailPresentationUsesModalContainedRoutesForContactAndDeviceNotifications() {
+        XCTAssertEqual(
+            NotificationsDetailPresentationPolicy.presentation(
+                sectionKey: "subscribtion_requests",
+                category: .info
+            ),
+            .modalContainedContactInfo
+        )
+        XCTAssertEqual(
+            NotificationsDetailPresentationPolicy.presentation(
+                sectionKey: "notifications",
+                category: .device
+            ),
+            .modalContainedDevices
+        )
+    }
+
+    func testDetailPresentationUsesMentionChatRouteOnlyForMentionNotifications() {
+        XCTAssertEqual(
+            NotificationsDetailPresentationPolicy.presentation(
+                sectionKey: "notifications",
+                category: .mention
+            ),
+            .mentionChat
+        )
+        XCTAssertEqual(
+            NotificationsDetailPresentationPolicy.presentation(
+                sectionKey: "notifications",
+                category: .info
+            ),
+            .none
+        )
+    }
+
+    func testMentionRoutePolicyBlocksRouteBehindUnrelatedModal() {
+        XCTAssertEqual(
+            NotificationsMentionRoutePolicy.action(isBlockedByUnrelatedPresentedModal: true),
+            .ignore
+        )
+        XCTAssertEqual(
+            NotificationsMentionRoutePolicy.action(isBlockedByUnrelatedPresentedModal: false),
+            .openChat
+        )
+    }
+}
+
 final class NavigationTransitionMutationPolicyTests: XCTestCase {
     func testLastChatsQueuesNonCriticalMutationsDuringNavigationTransition() {
         XCTAssertTrue(

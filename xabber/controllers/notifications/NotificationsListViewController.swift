@@ -77,6 +77,75 @@ struct NotificationsListCoordinator {
     }
 }
 
+enum NotificationsBackAction: Equatable {
+    case dismissModal
+    case popNavigationStack
+    case revealSplitList
+    case selectChatsRoot
+    case none
+}
+
+enum NotificationsBackPolicy {
+    static func action(
+        exitAction: NavigationExitAction,
+        hasChatsRootFallback: Bool
+    ) -> NotificationsBackAction {
+        switch exitAction {
+        case .dismissModal:
+            return .dismissModal
+        case .popNavigationStack:
+            return .popNavigationStack
+        case .revealSplitList:
+            return .revealSplitList
+        case .none:
+            return hasChatsRootFallback ? .selectChatsRoot : .none
+        }
+    }
+}
+
+enum NotificationsDetailPresentation: Equatable {
+    case modalContainedContactInfo
+    case modalContainedDevices
+    case mentionChat
+    case none
+}
+
+enum NotificationsDetailPresentationPolicy {
+    static func presentation(
+        sectionKey: String,
+        category: XMPPNotificationsManager.Category
+    ) -> NotificationsDetailPresentation {
+        switch sectionKey {
+        case "subscribtion_requests":
+            return .modalContainedContactInfo
+        case "notifications":
+            switch category {
+            case .contact:
+                return .modalContainedContactInfo
+            case .device:
+                return .modalContainedDevices
+            case .mention:
+                return .mentionChat
+            case .info:
+                return .none
+            }
+        default:
+            return .none
+        }
+    }
+}
+
+enum NotificationsMentionRouteAction: Equatable {
+    case openChat
+    case ignore
+}
+
+enum NotificationsMentionRoutePolicy {
+    static func action(isBlockedByUnrelatedPresentedModal: Bool) -> NotificationsMentionRouteAction {
+        isBlockedByUnrelatedPresentedModal ? .ignore : .openChat
+    }
+}
+
 enum NotificationsSupport {
     private static let sectionTitleFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -1222,7 +1291,32 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     @objc
     private final func onBackButtonTouchUpInside(_ sender: UIBarButtonItem) {
-        self.leftMenuDelegate?.selectRootScreenAndCategory(screen: "chat", category: nil)
+        performNotificationsBackAction(resolveNotificationsBackAction())
+    }
+
+    private func resolveNotificationsBackAction() -> NotificationsBackAction {
+        let exitAction = NavigationExitPolicy.action(
+            for: NavigationExitPolicyContext(destination: self, route: .currentNavigationPush)
+        )
+        return NotificationsBackPolicy.action(
+            exitAction: exitAction,
+            hasChatsRootFallback: leftMenuDelegate != nil
+        )
+    }
+
+    private func performNotificationsBackAction(_ action: NotificationsBackAction) {
+        switch action {
+        case .dismissModal:
+            dismiss(animated: true)
+        case .popNavigationStack:
+            navigationController?.popViewController(animated: true)
+        case .revealSplitList:
+            splitViewController?.show(.primary)
+        case .selectChatsRoot:
+            leftMenuDelegate?.selectRootScreenAndCategory(screen: "chat", category: nil)
+        case .none:
+            break
+        }
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -1568,8 +1662,22 @@ extension NotificationsListViewController: UITableViewDelegate {
         let section = self.datasource[indexPath.section]
         let item = section.childs[indexPath.row]
 //        section.childs[indexPath.row].isRead = true
-        switch section.key {
-            case "subscribtion_requests":
+        let routeCategory: XMPPNotificationsManager.Category = {
+            guard section.key == "notifications" else {
+                return item.category
+            }
+
+            do {
+                let realm = try WRealm.safe()
+                return realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: item.primary)?.category ?? item.category
+            } catch {
+                DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
+                return item.category
+            }
+        }()
+
+        switch NotificationsDetailPresentationPolicy.presentation(sectionKey: section.key, category: routeCategory) {
+            case .modalContainedContactInfo:
                 let vc = ContactInfoViewController()
                 vc.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
                 vc.owner = item.owner
@@ -1578,16 +1686,22 @@ extension NotificationsListViewController: UITableViewDelegate {
 //                if let cell = tableView.cellForRow(at: indexPath) as? NotificationsSubscribtionsListViewController.ContactItemCell {
 //                    cell.updateReadState(true, animated: true)
 //                }
-            case "notifications":
+            case .modalContainedDevices:
                 do {
                     let realm = try WRealm.safe()
                     let currentItem = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: item.primary)
-                    switch currentItem?.category ?? item.category {
-                    case .device:
-                        let vc = DevicesListViewController()
-                        vc.configure(for: currentItem?.owner ?? item.owner)
-                        showModal(vc, parent: self)
-                    case .mention:
+                    let vc = DevicesListViewController()
+                    vc.configure(for: currentItem?.owner ?? item.owner)
+                    showModal(vc, parent: self)
+                } catch {
+                    DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
+                }
+            case .mentionChat:
+                do {
+                    let realm = try WRealm.safe()
+                    let currentItem = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: item.primary)
+                    switch NotificationsMentionRoutePolicy.action(isBlockedByUnrelatedPresentedModal: hasUnrelatedPresentedModal()) {
+                    case .openChat:
                         guard let notification = currentItem else {
                             break
                         }
@@ -1602,7 +1716,7 @@ extension NotificationsListViewController: UITableViewDelegate {
                         ) { vc in
                             vc?.queueOpenMessageRequest(request)
                         }
-                    default:
+                    case .ignore:
                         break
                     }
                 } catch {
@@ -1611,9 +1725,26 @@ extension NotificationsListViewController: UITableViewDelegate {
 //                if let cell = tableView.cellForRow(at: indexPath) as? NotificationItemCell {
 //                    cell.updateReadState(true, animated: true)
 //                }
-            default:
+            case .none:
                 break
         }
+    }
+
+    private func hasUnrelatedPresentedModal() -> Bool {
+        guard let activePresentedController = ModalPresentationCurrentControllerAccess.application.get() else {
+            return false
+        }
+
+        if activePresentedController === self {
+            return false
+        }
+
+        if let navigationController,
+           activePresentedController === navigationController {
+            return false
+        }
+
+        return true
     }
 }
 
