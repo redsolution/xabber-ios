@@ -10647,6 +10647,41 @@ final class ChatBootstrapStateTests: XCTestCase {
         )
     }
 
+    func testSearchAnchorWithoutLocalAnchorKeepsBootstrapSkeleton() {
+        let hasPendingInitialAnchorRequest = ChatInitialAnchorBootstrapPolicy.shouldBlockBootstrap(
+            source: .search,
+            isSynced: true,
+            messageCount: 3,
+            hasLocalAnchor: false,
+            isShowingBootstrapPlaceholder: true
+        )
+
+        XCTAssertTrue(hasPendingInitialAnchorRequest)
+        XCTAssertEqual(
+            ChatBootstrapViewState.resolve(
+                messageCount: 3,
+                isSynced: true,
+                isInitialArchiveLoaded: true,
+                isInitialBootstrapInFlight: false,
+                hasPendingInitialAnchorRequest: hasPendingInitialAnchorRequest
+            ),
+            .skeleton
+        )
+        XCTAssertTrue(ChatInitialAnchorBootstrapPolicy.needsLocalAnchorLookup(source: .search))
+    }
+
+    func testSearchAnchorWithLocalAnchorCanRevealContent() {
+        XCTAssertFalse(
+            ChatInitialAnchorBootstrapPolicy.shouldBlockBootstrap(
+                source: .search,
+                isSynced: true,
+                messageCount: 3,
+                hasLocalAnchor: true,
+                isShowingBootstrapPlaceholder: true
+            )
+        )
+    }
+
     func testUnreadBoundaryFirstFramePolicyRequiresLocalAnchorIndex() {
         XCTAssertEqual(
             ChatUnreadBoundaryFirstFramePolicy.decision(
@@ -11604,6 +11639,60 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
     }
 
+    func testSearchLocalTargetAppliesAnchorWindowBeforeFirstRealFrame() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 320)
+        let controller = makeWarmupRecordingController()
+        let request = makeSearchRequest(
+            archivedId: "archive-120",
+            sourceDate: Date(timeIntervalSince1970: 1_700_000_120)
+        )
+
+        controller.queueOpenMessageRequest(request)
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertTrue(realMessages.contains { $0.primary == "first-frame-message-120" })
+        XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-319" })
+        XCTAssertFalse(controller.virtualTimelineState.isResidentAtLiveTail)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+        let targetViewportY = try viewportY(for: "first-frame-message-120", in: controller)
+        XCTAssertGreaterThanOrEqual(targetViewportY, -1)
+        XCTAssertLessThanOrEqual(targetViewportY, controller.messagesCollectionView.bounds.height + 1)
+    }
+
+    func testSearchWithoutLocalTargetKeepsBootstrapSkeletonInsteadOfOpeningLatest() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 120)
+        let controller = makeWarmupRecordingController()
+        let request = makeSearchRequest(
+            archivedId: "missing-search-archive",
+            sourceDate: Date(timeIntervalSince1970: 1_700_000_999)
+        )
+
+        controller.queueOpenMessageRequest(request)
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.isEmpty || controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertFalse(controller.datasource.contains { $0.primary == "first-frame-message-119" })
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+        if let activeAnchorExecutionState = controller.activeAnchorExecutionState {
+            XCTAssertTrue(activeAnchorExecutionState.usesBootstrapLoading)
+            XCTAssertTrue(activeAnchorExecutionState.isRemoteFetchInFlight)
+        }
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
+    }
+
     func testRepeatedBootstrapContentRenderDoesNotMoveBottomAlignedLatestFirstFrame() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 320)
@@ -12383,6 +12472,30 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             highlight: false,
             markReadOnVisible: false,
             source: .savedVisiblePosition
+        )
+    }
+
+    private func makeSearchRequest(
+        primary: String? = nil,
+        archivedId: String?,
+        messageId: String? = nil,
+        sourceDate: Date
+    ) -> ChatOpenMessageRequest {
+        ChatOpenMessageRequest(
+            chatJid: jid,
+            owner: owner,
+            conversationType: .regular,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: primary,
+                archivedId: archivedId,
+                messageId: messageId,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: sourceDate
+            ),
+            highlight: true,
+            markReadOnVisible: true,
+            source: .search
         )
     }
 
@@ -24265,6 +24378,44 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         XCTAssertEqual(request.source, .initialUnreadBoundary)
         XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
         XCTAssertEqual(request.targetResolution, .firstIncomingAfterBoundary("1711283295000000"))
+    }
+
+    @MainActor
+    func testStackNewChatQueuesSearchOpenRequestInsteadOfForceLatest() throws {
+        let controller = LastChatsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        navigationController.loadViewIfNeeded()
+        let searchRequest = ChatOpenMessageRequest(
+            chatJid: "romeo@example.com",
+            owner: owner,
+            conversationType: .regular,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: "1711283295000000",
+                messageId: nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: Date(timeIntervalSince1970: 1_711_283_295)
+            ),
+            highlight: true,
+            markReadOnVisible: true,
+            source: .search
+        )
+        var openedChat: ChatViewController?
+
+        controller.stackNewChat(
+            owner: owner,
+            jid: "romeo@example.com",
+            conversationType: .regular,
+            openMessageRequest: searchRequest
+        ) { chat in
+            openedChat = chat
+        }
+
+        let chat = try XCTUnwrap(openedChat)
+        XCTAssertFalse(chat.pendingForceLatestOpen)
+        XCTAssertEqual(chat.pendingOpenMessageRequest, searchRequest)
+        XCTAssertNil(chat.activeAnchorExecutionState)
     }
 
     @MainActor

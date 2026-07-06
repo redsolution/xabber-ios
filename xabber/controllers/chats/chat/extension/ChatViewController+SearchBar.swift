@@ -203,7 +203,7 @@ enum ChatInitialAnchorBootstrapPolicy {
             return false
         }
 
-        if source == .initialUnreadBoundary {
+        if source == .initialUnreadBoundary || source == .search {
             return !(isSynced && messageCount > 0 && hasLocalAnchor)
         }
 
@@ -223,7 +223,7 @@ enum ChatInitialAnchorBootstrapPolicy {
     }
 
     static func needsLocalAnchorLookup(source: ChatOpenMessageRequestSource) -> Bool {
-        source == .savedVisiblePosition || source == .initialUnreadBoundary
+        source == .savedVisiblePosition || source == .initialUnreadBoundary || source == .search
     }
 }
 
@@ -1529,6 +1529,80 @@ extension ChatViewController {
         }
     }
 
+    @discardableResult
+    internal func applySearchFirstFrameWindowIfNeeded(isSynced: Bool) -> Bool {
+        guard let request = self.pendingOpenMessageRequest,
+              request.source == .search,
+              request.owner == self.owner,
+              request.chatJid == self.jid,
+              request.conversationType == self.conversationType,
+              self.messagesObserver != nil,
+              self.currentPage.isUnlocked else {
+            return false
+        }
+
+        guard isSynced,
+              let localAnchor = self.searchFirstFrameLocalAnchor(for: request),
+              self.messagesObserver.count > 0,
+              localAnchor.index >= 0,
+              localAnchor.index < self.messagesObserver.count else {
+            return false
+        }
+
+        guard self.currentBootstrapViewState() == .content,
+              self.isShowingBootstrapPlaceholder else {
+            return false
+        }
+
+        let message = localAnchor.message
+        let target = ResolvedJumpTarget(
+            primary: message.primary,
+            archivedId: message.archivedId.isNotEmpty ? message.archivedId : nil
+        )
+        let hooks = self.activeAnchorExecutionHooks
+
+        return self.currentPage.setCustomPage(localAnchor.index / self.datasourcePageSize) {
+            var executionState = ChatAnchorExecutionState(
+                request: request,
+                usesBootstrapLoading: false
+            )
+            executionState.isPositioning = true
+            self.activeAnchorExecutionState = executionState
+            self.syncAnchorExecutionFlags()
+            self.isApplyingBootstrapAnchorWindow = true
+            self.setShouldShowInitialMessage(false)
+            self.setLoadingIndicatorVisible(false)
+            self.setArchiveLoading(false)
+            self.setSkeletonVisible(false)
+            self.setDatasourceLoadingEnabled(false)
+
+            guard self.applyFirstFrameAnchorSnapshot(message: message, target: target),
+                  self.datasourceSnapshotContainsTarget(target) else {
+                self.recoverSearchFirstFrameRequest(trigger: .manual)
+                return
+            }
+
+            self.positionMessage(
+                primary: target.primary,
+                archivedId: target.archivedId,
+                highlight: request.highlight,
+                animated: false,
+                completion: {
+                    self.finishActiveAnchorExecution()
+                    self.scheduleMentionReadOnVisibleIfNeeded(
+                        for: request,
+                        positionedPrimary: target.primary
+                    )
+                    hooks?.onPositioned?()
+                    self.startBackgroundContextPrefetchIfNeeded(
+                        around: target,
+                        request: request
+                    )
+                }
+            )
+        }
+    }
+
     private func applyFirstFrameAnchorSnapshot(
         message: MessageStorageItem,
         target: ResolvedJumpTarget
@@ -1625,6 +1699,34 @@ extension ChatViewController {
     private func recoverUnreadBoundaryFirstFrameRequest(trigger: ChatAnchorExecutionResumeTrigger) {
         guard let state = self.activeAnchorExecutionState,
               state.request.source == .initialUnreadBoundary else {
+            self.failActiveAnchorExecution()
+            return
+        }
+
+        var recoveredState = state
+        recoveredState.usesBootstrapLoading = true
+        recoveredState.isPositioning = false
+        recoveredState.isRemoteFetchInFlight = false
+        self.activeAnchorExecutionState = recoveredState
+        self.isApplyingBootstrapAnchorWindow = false
+        self.syncAnchorExecutionFlags()
+        self.setLoadingIndicatorVisible(false)
+        self.setArchiveLoading(false)
+        self.setDatasourceLoadingEnabled(false)
+        self.currentPage.unlock()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.pendingOpenMessageRequest == recoveredState.request else {
+                return
+            }
+            self.performPendingOpenMessageRequestIfNeeded(trigger: trigger)
+        }
+    }
+
+    private func recoverSearchFirstFrameRequest(trigger: ChatAnchorExecutionResumeTrigger) {
+        guard let state = self.activeAnchorExecutionState,
+              state.request.source == .search else {
             self.failActiveAnchorExecution()
             return
         }
@@ -1912,6 +2014,36 @@ extension ChatViewController {
         }
     }
 
+    private func searchFirstFrameLocalAnchor(
+        for request: ChatOpenMessageRequest
+    ) -> (message: MessageStorageItem, index: Int)? {
+        guard request.source == .search else {
+            return nil
+        }
+
+        do {
+            let provider = ChatLocalHistoryPageProvider(
+                realm: try WRealm.safe(),
+                owner: self.owner,
+                jid: self.jid,
+                conversationType: self.conversationType
+            )
+            let anchor = request.anchor
+            guard let message = provider.message(
+                primary: anchor.messagePrimary,
+                archivedId: anchor.archivedId,
+                messageId: anchor.messageId
+            ) else {
+                return nil
+            }
+
+            return (message, provider.index(of: message))
+        } catch {
+            DDLogDebug("ChatViewController.searchFirstFrameLocalAnchor: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     private func resolvedTargetAfterContextPrefetch(
         for request: ChatOpenMessageRequest,
         fallback: ResolvedJumpTarget
@@ -1997,6 +2129,10 @@ extension ChatViewController {
     internal func hasLocalAnchorForBootstrap(_ request: ChatOpenMessageRequest) -> Bool {
         if request.source == .initialUnreadBoundary {
             return self.unreadBoundaryFirstFrameLocalAnchor(for: request) != nil
+        }
+
+        if request.source == .search {
+            return self.searchFirstFrameLocalAnchor(for: request) != nil
         }
 
         guard self.localAnchorMessage(for: request) != nil else {
