@@ -146,7 +146,7 @@ extension ChatViewController {
                 stream,
                 jid: self.jid,
                 conversationType: self.conversationType,
-                pageSize: self.datasourcePageSize,
+                pageSize: self.initialBootstrapArchiveRequestPageSize,
                 queryId: bootstrapQueryId,
                 callback: nil,
                 requestCallbacks: bootstrapRequestCallbacks
@@ -167,7 +167,7 @@ extension ChatViewController {
                     stream,
                     jid: self.jid,
                     conversationType: self.conversationType,
-                    pageSize: self.datasourcePageSize,
+                    pageSize: self.initialBootstrapArchiveRequestPageSize,
                     queryId: bootstrapQueryId,
                     callback: nil,
                     requestCallbacks: bootstrapRequestCallbacks
@@ -190,8 +190,11 @@ extension ChatViewController {
                 (_) in
                 self.refreshPinnedMessagePanelIfNeeded()
                 if self.showSkeletonObserver.value {
+                    let didRevealBootstrapContent = self.revealInitialBootstrapContentIfAvailable()
                     _ = self.completeInitialBootstrapIfNeeded()
-                    self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
+                    if !didRevealBootstrapContent {
+                        self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
+                    }
                     self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
                     return
                 }

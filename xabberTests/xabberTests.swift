@@ -9483,7 +9483,7 @@ final class ChatBootstrapStateTests: XCTestCase {
         )
     }
 
-    func testBootstrapStateKeepsSkeletonWhenSyncedChatHasLocalMessagesDuringInitialBootstrap() {
+    func testBootstrapStateShowsContentWhenInitialBootstrapHasProviderVisibleMessages() {
         XCTAssertEqual(
             ChatBootstrapViewState.resolve(
                 messageCount: 3,
@@ -9492,7 +9492,20 @@ final class ChatBootstrapStateTests: XCTestCase {
                 isInitialBootstrapInFlight: true,
                 hasPendingInitialAnchorRequest: false
             ),
-            .skeleton
+            .content
+        )
+    }
+
+    func testBootstrapStateShowsContentForUnsyncedBootstrapRowsWithoutWaitingForMamFin() {
+        XCTAssertEqual(
+            ChatBootstrapViewState.resolve(
+                messageCount: 2,
+                isSynced: false,
+                isInitialArchiveLoaded: false,
+                isInitialBootstrapInFlight: true,
+                hasPendingInitialAnchorRequest: false
+            ),
+            .content
         )
     }
 
@@ -9537,7 +9550,7 @@ final class ChatBootstrapStateTests: XCTestCase {
         )
     }
 
-    func testBootstrapStateKeepsSkeletonForUnsyncedLocalMessagesWhenFallbackIsAllowed() {
+    func testBootstrapStateShowsContentForUnsyncedBootstrapRowsWhenFallbackIsAllowed() {
         XCTAssertEqual(
             ChatBootstrapViewState.resolve(
                 messageCount: 2,
@@ -9546,7 +9559,7 @@ final class ChatBootstrapStateTests: XCTestCase {
                 hasPendingInitialAnchorRequest: false,
                 allowsStaleLocalHistory: true
             ),
-            .skeleton
+            .content
         )
     }
 
@@ -9587,6 +9600,48 @@ final class ChatBootstrapStateTests: XCTestCase {
                 didObservePostIdleTick: false
             )
         )
+    }
+
+    func testInitialBootstrapFailureRecoveryRevealsRowsWithoutArchiveCompletion() {
+        XCTAssertTrue(
+            ChatInitialBootstrapFailureRecoveryPolicy.shouldRevealLocalHistory(
+                messageCount: 1,
+                hasPendingInitialAnchorRequest: false
+            )
+        )
+        XCTAssertFalse(
+            ChatInitialBootstrapFailureRecoveryPolicy.shouldRevealLocalHistory(
+                messageCount: 0,
+                hasPendingInitialAnchorRequest: false
+            )
+        )
+        XCTAssertFalse(
+            ChatInitialBootstrapFailureRecoveryPolicy.shouldRevealLocalHistory(
+                messageCount: 1,
+                hasPendingInitialAnchorRequest: true
+            )
+        )
+        XCTAssertFalse(
+            ChatInitialBootstrapCompletionPolicy.shouldFinish(
+                didReceiveEndPage: false,
+                hasMessages: true,
+                didConfirmEmpty: false,
+                isMessagePipelineIdle: true,
+                isArchivePagePersisted: true,
+                requiresObserverSettle: false,
+                didObservePostIdleTick: false
+            )
+        )
+    }
+
+    func testInitialBootstrapArchiveRequestUsesFirstFramePageSize() {
+        let controller = ChatViewController()
+
+        XCTAssertEqual(
+            controller.initialBootstrapArchiveRequestPageSize,
+            ChatInitialFirstFrameHistoryConfiguration.pageSize
+        )
+        XCTAssertLessThan(controller.initialBootstrapArchiveRequestPageSize, controller.datasourcePageSize)
     }
 
     func testInitialBootstrapCompletionAllowsSynchronousArchivePersistenceWhenQueueIsStillPending() {

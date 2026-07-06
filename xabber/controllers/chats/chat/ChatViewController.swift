@@ -39,6 +39,15 @@ enum ChatInitialFirstFrameHistoryConfiguration {
     static let pageSize: Int = 80
 }
 
+enum ChatInitialBootstrapArchivePageSizePolicy {
+    static func requestPageSize(
+        initialFirstFramePageSize: Int,
+        datasourcePageSize: Int
+    ) -> Int {
+        max(1, min(initialFirstFramePageSize, datasourcePageSize))
+    }
+}
+
 enum ChatOpenMessageRequestSource: String {
     case mentionNotification = "mention-notification"
     case pushNotification = "push-notification"
@@ -1350,6 +1359,12 @@ class ChatViewController: MessagesViewController {
         
     let datasourcePageSize: Int = ChatHistoryPagingConfiguration.pageSize
     let initialFirstFramePageSize: Int = ChatInitialFirstFrameHistoryConfiguration.pageSize
+    var initialBootstrapArchiveRequestPageSize: Int {
+        ChatInitialBootstrapArchivePageSizePolicy.requestPageSize(
+            initialFirstFramePageSize: self.initialFirstFramePageSize,
+            datasourcePageSize: self.datasourcePageSize
+        )
+    }
         
     var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
 
@@ -1537,6 +1552,7 @@ class ChatViewController: MessagesViewController {
     var initialBootstrapVisibleRowsForConversation: Int? = nil
     var didEnterInitialBootstrapObserverSettlePhase: Bool = false
     var didObserveInitialBootstrapPostIdleTick: Bool = false
+    var initialBootstrapTimeoutWorkItem: DispatchWorkItem? = nil
     var initialBootstrapLocalHistoryFallbackWorkItem: DispatchWorkItem? = nil
     var allowsStaleLocalHistoryDuringInitialBootstrap: Bool = false
     var hasConfirmedArchiveEndThisSession: Bool = false

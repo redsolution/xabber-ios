@@ -3681,7 +3681,7 @@ enum ChatBootstrapViewState: Equatable {
             return .skeleton
         }
         if isInitialBootstrapInFlight {
-            return .skeleton
+            return messageCount > 0 ? .content : .skeleton
         }
         if allowsStaleLocalHistory && messageCount > 0 {
             return .content
@@ -3696,6 +3696,24 @@ enum ChatBootstrapViewState: Equatable {
             return .content
         }
         return .empty
+    }
+}
+
+enum ChatInitialBootstrapContentRevealPolicy {
+    static func shouldRevealContent(
+        isShowingSkeleton: Bool,
+        bootstrapState: ChatBootstrapViewState
+    ) -> Bool {
+        isShowingSkeleton && bootstrapState == .content
+    }
+}
+
+enum ChatInitialBootstrapFailureRecoveryPolicy {
+    static func shouldRevealLocalHistory(
+        messageCount: Int,
+        hasPendingInitialAnchorRequest: Bool
+    ) -> Bool {
+        messageCount > 0 && !hasPendingInitialAnchorRequest
     }
 }
 
@@ -6948,6 +6966,7 @@ extension ChatViewController {
 
     internal func beginInitialBootstrapTracking(queryId: String) {
         self.cancelInitialBootstrapLocalHistoryFallback()
+        self.cancelInitialBootstrapTimeout()
         self.initialBootstrapQueryId = queryId
         self.isInitialBootstrapInFlight = true
         self.didReceiveInitialBootstrapEndPage = false
@@ -6958,12 +6977,17 @@ extension ChatViewController {
         self.initialBootstrapVisibleRowsForConversation = nil
         self.didEnterInitialBootstrapObserverSettlePhase = false
         self.didObserveInitialBootstrapPostIdleTick = false
+        self.registerRemoteHistoryFailureDispatcher(queryId: queryId)
+        self.scheduleInitialBootstrapTimeout(queryId: queryId)
     }
 
     internal func resetInitialBootstrapTracking() {
         self.cancelInitialBootstrapLocalHistoryFallback()
+        self.cancelInitialBootstrapTimeout()
         if let initialBootstrapQueryId {
             self.unregisterRemoteHistoryPersistenceSource(queryId: initialBootstrapQueryId)
+            self.unregisterRemoteHistoryFailureDispatcher(queryId: initialBootstrapQueryId)
+            self.unregisterRemoteHistoryEndPageDispatcher(queryId: initialBootstrapQueryId)
         }
         self.initialBootstrapQueryId = nil
         self.isInitialBootstrapInFlight = false
@@ -6975,6 +6999,39 @@ extension ChatViewController {
         self.initialBootstrapVisibleRowsForConversation = nil
         self.didEnterInitialBootstrapObserverSettlePhase = false
         self.didObserveInitialBootstrapPostIdleTick = false
+    }
+
+    internal func scheduleInitialBootstrapTimeout(queryId: String) {
+        guard queryId.isNotEmpty else {
+            return
+        }
+
+        self.cancelInitialBootstrapTimeout()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.handleInitialBootstrapRemoteArchiveFailure(
+                queryId: queryId,
+                reason: .timeout,
+                streamKind: .unknown,
+                errorDescription: nil
+            )
+        }
+        self.initialBootstrapTimeoutWorkItem = workItem
+        ChatArchiveDebugTrace.log("initialBootstrapTimeoutScheduled", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("queryId", queryId),
+            ("timeoutMs", Int(ChatInteractiveRemoteArchiveTimeoutPolicy.timeout * 1000))
+        ])
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + ChatInteractiveRemoteArchiveTimeoutPolicy.timeout,
+            execute: workItem
+        )
+    }
+
+    internal func cancelInitialBootstrapTimeout() {
+        self.initialBootstrapTimeoutWorkItem?.cancel()
+        self.initialBootstrapTimeoutWorkItem = nil
     }
 
     internal func localHistoryMessageCountForBootstrap() -> Int {
@@ -7112,6 +7169,68 @@ extension ChatViewController {
         self.allowsStaleLocalHistoryDuringInitialBootstrap = true
         self.applyBootstrapViewState(self.currentBootstrapViewState(), forceRender: true)
         return true
+    }
+
+    @discardableResult
+    internal func revealInitialBootstrapContentIfAvailable() -> Bool {
+        let state = self.currentBootstrapViewState()
+        guard ChatInitialBootstrapContentRevealPolicy.shouldRevealContent(
+            isShowingSkeleton: self.showSkeletonObserver.value,
+            bootstrapState: state
+        ) else {
+            return false
+        }
+
+        self.initialBootstrapLocalHistoryFallbackWorkItem?.cancel()
+        self.initialBootstrapLocalHistoryFallbackWorkItem = nil
+        self.applyBootstrapViewState(state, forceRender: true)
+        return true
+    }
+
+    internal func handleInitialBootstrapRemoteArchiveFailure(
+        queryId: String,
+        reason: MessageArchiveRequestFailureReason,
+        streamKind: MessageArchiveEndPageEvent.StreamKind,
+        errorDescription: String?
+    ) {
+        self.performOnMain {
+            guard self.isInitialBootstrapInFlight,
+                  self.initialBootstrapQueryId == queryId else {
+                ChatArchiveDebugTrace.log("initialBootstrapFailureSkipped", [
+                    ("owner", self.owner),
+                    ("jid", self.jid),
+                    ("conversationType", self.conversationType.rawValue),
+                    ("queryId", queryId),
+                    ("activeQueryId", self.initialBootstrapQueryId ?? "-"),
+                    ("reason", reason.rawValue)
+                ])
+                return
+            }
+
+            let localMessageCount = self.localHistoryMessageCountForBootstrap()
+            let shouldRevealLocalHistory = ChatInitialBootstrapFailureRecoveryPolicy.shouldRevealLocalHistory(
+                messageCount: localMessageCount,
+                hasPendingInitialAnchorRequest: self.hasPendingInitialAnchorRequest()
+            )
+            ChatArchiveDebugTrace.log("initialBootstrapFailure", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("queryId", queryId),
+                ("reason", reason.rawValue),
+                ("streamKind", streamKind.rawValue),
+                ("error", errorDescription ?? "none"),
+                ("localCount", localMessageCount),
+                ("revealLocalHistory", shouldRevealLocalHistory)
+            ])
+
+            self.resetInitialBootstrapTracking()
+            if shouldRevealLocalHistory {
+                self.allowsStaleLocalHistoryDuringInitialBootstrap = true
+            }
+            self.applyBootstrapViewState(self.currentBootstrapViewState(), forceRender: true)
+            self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
+        }
     }
 
     @discardableResult
@@ -9690,7 +9809,19 @@ extension ChatViewController {
         }
         self.abortedRemoteHistoryQueryIds.remove(queryId)
         let token = MessageArchiveRequestFailureDispatcher.register(owner: self.owner, queryId: queryId) { [weak self] event in
-            self?.handleInteractiveRemoteArchiveFailure(
+            guard let self else {
+                return
+            }
+            if self.initialBootstrapQueryId == event.queryId {
+                self.handleInitialBootstrapRemoteArchiveFailure(
+                    queryId: event.queryId,
+                    reason: event.reason,
+                    streamKind: event.streamKind,
+                    errorDescription: event.errorDescription
+                )
+                return
+            }
+            self.handleInteractiveRemoteArchiveFailure(
                 queryId: event.queryId,
                 reason: event.reason,
                 streamKind: event.streamKind,
@@ -9731,6 +9862,7 @@ extension ChatViewController {
         }
         self.remoteHistoryFailureDispatcherTokens.removeAll()
         self.abortedRemoteHistoryQueryIds.removeAll()
+        self.cancelInitialBootstrapTimeout()
         self.cancelInteractiveRemoteArchiveRequestStartWatchdog()
         self.cancelInteractiveRemoteArchiveTimeout()
     }
