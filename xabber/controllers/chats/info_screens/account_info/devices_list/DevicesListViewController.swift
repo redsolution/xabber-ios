@@ -129,6 +129,31 @@ struct DevicesSessionTerminationConfirmation: Equatable {
     }
 }
 
+enum DevicesTerminateAllSessionsEffect: Equatable {
+    case none
+    case revokeAllOtherSessions
+}
+
+struct DevicesTerminateAllSessionsConfirmation: Equatable {
+    let title: String
+    let message: String
+    let confirmTitle: String
+    let cancelTitle: String
+
+    static var `default`: DevicesTerminateAllSessionsConfirmation {
+        DevicesTerminateAllSessionsConfirmation(
+            title: "Terminate other device sessions?".localizeString(id: "devices_terminate_all_other_sessions_title", arguments: []),
+            message: "Terminate all other device sessions. This device remains signed in. Account and server data is not deleted.".localizeString(id: "devices_terminate_all_other_sessions_message", arguments: []),
+            confirmTitle: "Terminate other sessions".localizeString(id: "devices_terminate_all_other_sessions_confirm", arguments: []),
+            cancelTitle: "Cancel".localizeString(id: "cancel", arguments: [])
+        )
+    }
+
+    func effect(confirmed: Bool) -> DevicesTerminateAllSessionsEffect {
+        return confirmed ? .revokeAllOtherSessions : .none
+    }
+}
+
 enum DevicesSecuritySwipeAction: Equatable {
     case terminateSession(uid: String, confirmation: DevicesSessionTerminationConfirmation)
     case deleteBrokenKey(deviceId: Int)
@@ -269,7 +294,7 @@ class DevicesListViewController: BaseViewController {
                                                      title: " ",
                                                      value: account.resource?.resource ?? "",
                                                      editable: false),
-                                          Datasource(.button, title: "Terminate all other sessions".localizeString(id: "account_terminate_all_sessions", arguments: []), value: "terminate_all_sessions", editable: false)]))
+                                          Datasource(.button, title: "Terminate other sessions".localizeString(id: "devices_terminate_other_sessions_button", arguments: []), value: "terminate_all_sessions", editable: false)]))
         
         omemoDevices.forEach { device in
             if device.state == .unknown {

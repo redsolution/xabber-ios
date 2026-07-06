@@ -29,43 +29,89 @@ class ButtonTableViewCell: UITableViewCell {
     enum Style {
         case normal
         case danger
+        case destructiveSubtle
     }
     
     var stack: UIStackView = {
         let stack = UIStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
         
         stack.axis = .horizontal
         stack.alignment = .center
         stack.spacing = 4
         stack.isLayoutMarginsRelativeArrangement = true
-        stack.layoutMargins = UIEdgeInsets(top: 4, bottom: 4, left: 20, right: 16)
+        stack.layoutMargins = UIEdgeInsets(top: 8, bottom: 8, left: 20, right: 16)
         
         return stack
     }()
     
     var titleLabel: UILabel = {
-        let label = UILabel(frame: CGRect(origin: .zero, size: CGSize(width: 200, height: 24)))
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
         label.textColor = UIColor.gray
+        label.font = UIFont.preferredFont(forTextStyle: .body)
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.isAccessibilityElement = false
         return label
     }()
-    
-    
-    private func activateConstraints() {
-        
+
+    private var didSetup = false
+    private var minimumHeightConstraint: NSLayoutConstraint?
+
+    var minimumEffectiveHeight: CGFloat {
+        return minimumHeightConstraint?.constant ?? 0
     }
     
     func configure(for title: String, style: Style) {
-        selectionStyle = .blue //?
-        addSubview(stack)
-        stack.fillSuperview()
-        stack.addArrangedSubview(titleLabel)
+        setupIfNeeded()
+
+        selectionStyle = .default
         backgroundColor = .white
+        contentView.backgroundColor = .white
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        accessibilityLabel = title
         titleLabel.text = title
         switch style {
-        case .normal: titleLabel.textColor = MDCPalette.blue.tint500
-        case .danger: titleLabel.textColor = MDCPalette.red.tint500
+        case .normal:
+            titleLabel.font = UIFont.preferredFont(forTextStyle: .body)
+            titleLabel.textColor = MDCPalette.blue.tint500
+        case .danger:
+            titleLabel.font = UIFont.preferredFont(forTextStyle: .body)
+            titleLabel.textColor = MDCPalette.red.tint500
+        case .destructiveSubtle:
+            titleLabel.font = UIFont.preferredFont(forTextStyle: .callout)
+            titleLabel.textColor = .systemRed
         }
-        activateConstraints()
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.numberOfLines = 0
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        titleLabel.text = nil
+        accessibilityLabel = nil
+        accessibilityHint = nil
+        accessibilityIdentifier = nil
+        accessibilityTraits = .button
+    }
+
+    private func setupIfNeeded() {
+        guard !didSetup else {
+            return
+        }
+
+        didSetup = true
+        contentView.addSubview(stack)
+        stack.fillSuperview()
+        stack.addArrangedSubview(titleLabel)
+
+        let heightConstraint = contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
+        heightConstraint.priority = .required
+        heightConstraint.isActive = true
+        minimumHeightConstraint = heightConstraint
     }
     
     override func awakeFromNib() {

@@ -980,6 +980,61 @@ final class DevicesSecurityLayoutTests: XCTestCase {
         )
     }
 
+    func testTerminateAllOtherSessionsCellIsSubordinateButtonWithMinimumTarget() throws {
+        let controller = DevicesListViewController()
+        controller.loadViewIfNeeded()
+        controller.configure(for: "terminate-all-layout@example.test")
+        controller.datasource = [
+            DevicesListViewController.Datasource(
+                .current,
+                title: "This device",
+                value: "Only other device sessions are signed out.",
+                editable: false,
+                childs: [
+                    DevicesListViewController.Datasource(
+                        .token,
+                        title: " ",
+                        value: "resource",
+                        editable: false
+                    ),
+                    DevicesListViewController.Datasource(
+                        .button,
+                        title: String(repeating: "Terminate all other sessions ", count: 4),
+                        value: "terminate_all_sessions",
+                        editable: false
+                    )
+                ]
+            )
+        ]
+
+        let cell = try XCTUnwrap(
+            controller.tableView(
+                controller.tableView,
+                cellForRowAt: IndexPath(row: 1, section: 0)
+            ) as? ButtonTableViewCell
+        )
+        cell.bounds = CGRect(x: 0, y: 0, width: 320, height: 1)
+        cell.contentView.bounds = cell.bounds
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+
+        let fittingSize = cell.contentView.systemLayoutSizeFitting(
+            CGSize(width: 320, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+
+        XCTAssertTrue(cell.isAccessibilityElement)
+        XCTAssertTrue(cell.accessibilityTraits.contains(.button))
+        XCTAssertFalse(cell.accessibilityTraits.contains(.staticText))
+        XCTAssertEqual(cell.accessibilityIdentifier, "devices_terminate_all_other_sessions_button")
+        XCTAssertTrue(cell.titleLabel.adjustsFontForContentSizeCategory)
+        XCTAssertEqual(cell.titleLabel.numberOfLines, 0)
+        XCTAssertEqual(cell.titleLabel.font.pointSize, UIFont.preferredFont(forTextStyle: .callout).pointSize)
+        XCTAssertGreaterThanOrEqual(cell.minimumEffectiveHeight, 44)
+        XCTAssertGreaterThan(fittingSize.height, 44)
+    }
+
     func testDeviceDetailUsesSelfSizingRowsAndReadableEstimates() throws {
         let controller = DeviceDetailViewController()
         controller.loadViewIfNeeded()
@@ -1525,6 +1580,36 @@ final class DevicesSessionActionTests: XCTestCase {
         XCTAssertTrue(message.contains("selected device session"))
         XCTAssertTrue(message.contains("current device remains signed in"))
         XCTAssertTrue(message.contains("server data is not deleted"))
+    }
+
+    func testTerminateAllOtherSessionsConfirmationUsesPreciseSessionLanguage() {
+        let confirmation = DevicesTerminateAllSessionsConfirmation.default
+        let exposedText = [
+            confirmation.title,
+            confirmation.message,
+            confirmation.confirmTitle,
+            confirmation.cancelTitle
+        ].joined(separator: " ").lowercased()
+        let message = confirmation.message.lowercased()
+
+        XCTAssertFalse(exposedText.contains("token"))
+        XCTAssertFalse(exposedText.contains("revoke"))
+        XCTAssertTrue(message.contains("other device sessions"))
+        XCTAssertTrue(message.contains("this device remains signed in"))
+        XCTAssertTrue(message.contains("account and server data is not deleted"))
+    }
+
+    func testTerminateAllOtherSessionsConfirmationMapsToRevokeAllOnlyWhenConfirmed() {
+        let confirmation = DevicesTerminateAllSessionsConfirmation.default
+
+        XCTAssertEqual(
+            confirmation.effect(confirmed: true),
+            .revokeAllOtherSessions
+        )
+        XCTAssertEqual(
+            confirmation.effect(confirmed: false),
+            .none
+        )
     }
 
     private func uidForTerminateAction(

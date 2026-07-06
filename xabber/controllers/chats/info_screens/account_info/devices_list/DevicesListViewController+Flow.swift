@@ -48,28 +48,40 @@ extension DevicesListViewController {
     }
     
     internal final func onRevokeAll() {
-        let items = [
-            ActionSheetPresenter.Item(destructive: true, title: "Terminate all other sessions".localizeString(id: "account_terminate_all_other_sessions", arguments: []), value: "terminate")
-        ]
-        
         let hasConnection = !AccountManager.shared.connectingUsers.value.contains(self.jid)
-        
-        ActionSheetPresenter().present(
-            in: self,
-            title: hasConnection ? nil : "No connection",
-            message: hasConnection ? nil : "Please wait while connection established",
-            cancel: "Cancel".localizeString(id: "cancel", arguments: []),
-            values: hasConnection ? items : [],
-            animated: true) { value in
-            switch value {
-            case "terminate":
-                AccountManager.shared.find(for: self.jid)?.action({ user, stream in
-                    user.devices.revokeAll(stream)
-                })
-            default:
-                break
+        guard hasConnection else {
+            ActionSheetPresenter().present(
+                in: self,
+                title: "No connection",
+                message: "Please wait while connection established",
+                cancel: "Cancel".localizeString(id: "cancel", arguments: []),
+                values: [],
+                animated: true) { _ in
             }
+            return
         }
+
+        let confirmation = DevicesTerminateAllSessionsConfirmation.default
+        YesNoPresenter().present(
+            in: self,
+            style: .actionSheet,
+            title: confirmation.title,
+            message: confirmation.message,
+            yesText: confirmation.confirmTitle,
+            dangerYes: true,
+            noText: confirmation.cancelTitle,
+            animated: true) { [weak self] confirmed in
+            guard confirmation.effect(confirmed: confirmed) == .revokeAllOtherSessions else {
+                return
+            }
+            self?.revokeAllOtherDeviceSessions()
+        }
+    }
+
+    private func revokeAllOtherDeviceSessions() {
+        AccountManager.shared.find(for: self.jid)?.action({ user, stream in
+            user.devices.revokeAll(stream)
+        })
     }
     
     internal final func showTokenInfo(uid: String, canEdit: Bool) {

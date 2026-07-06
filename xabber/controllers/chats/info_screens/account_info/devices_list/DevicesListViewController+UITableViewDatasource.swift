@@ -62,7 +62,13 @@ extension DevicesListViewController: UITableViewDataSource {
                 guard let cell = tableView.dequeueReusableCell(withIdentifier: ButtonTableViewCell.cellName, for: indexPath) as? ButtonTableViewCell else {
                     return UITableViewCell(frame: .zero)
                 }
-                cell.configure(for: item.title, style: .danger)
+                if item.value == "terminate_all_sessions" {
+                    cell.configure(for: item.title, style: .destructiveSubtle)
+                    cell.accessibilityIdentifier = "devices_terminate_all_other_sessions_button"
+                    cell.accessibilityHint = "Requires confirmation."
+                } else {
+                    cell.configure(for: item.title, style: .danger)
+                }
                 return cell
             case .session:
                 fatalError()
