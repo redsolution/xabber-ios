@@ -74,10 +74,8 @@ extension DevicesListViewController: UITableViewDataSource {
                 cell.configure(title: item.title, subtitle: item.value)
                 
                 if activeVerificationSessionSid == nil {
-                    cell.closeButton.removeFromSuperview()
-                    cell.blueButton.setTitle("Verify", for: .normal)
-                    cell.labelsStack.addArrangedSubview(cell.blueButton)
-                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                    cell.setCloseButtonVisible(false)
+                    cell.showVerificationButton(title: "Verify")
                     cell.blueButton.addTarget(self, action: #selector(onVerifyButtonPressed), for: .touchUpInside)
                     
                     return cell
@@ -91,24 +89,18 @@ extension DevicesListViewController: UITableViewDataSource {
                     
                     switch instance?.state {
                     case .receivedRequest:
-                        cell.blueButton.setTitle("Proceed to Verification", for: .normal)
+                        cell.showVerificationButton(title: "Proceed to Verification")
                         cell.blueButton.addTarget(self, action: #selector(onAcceptButtonPressed), for: .touchUpInside)
-                        cell.labelsStack.addArrangedSubview(cell.blueButton)
-                        cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
                         break
                         
                     case .acceptedRequest:
-                        cell.blueButton.setTitle("Show the code", for: .normal)
+                        cell.showVerificationButton(title: "Show the code")
                         cell.blueButton.addTarget(self, action: #selector(onShowCodePressed), for: .touchUpInside)
-                        cell.labelsStack.addArrangedSubview(cell.blueButton)
-                        cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
                         break
                         
                     case .receivedRequestAccept:
-                        cell.blueButton.setTitle("Enter the code", for: .normal)
+                        cell.showVerificationButton(title: "Enter the code")
                         cell.blueButton.addTarget(self, action: #selector(onEnterCodePressed), for: .touchUpInside)
-                        cell.labelsStack.addArrangedSubview(cell.blueButton)
-                        cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
                         break
                         
                     default:

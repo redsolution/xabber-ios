@@ -1172,6 +1172,117 @@ final class DeviceInfoTableCellLayoutTests: XCTestCase {
     }
 }
 
+@MainActor
+final class DevicesVerificationCellTests: XCTestCase {
+    func testVerifyButtonEffectiveHeightIsAtLeast44AndUsesDynamicType() {
+        let cell = makeCell(actionTitle: "Verify")
+
+        XCTAssertGreaterThanOrEqual(minimumHeightConstant(for: cell.blueButton), 44)
+        XCTAssertTrue(cell.blueButton.titleLabel?.adjustsFontForContentSizeCategory ?? false)
+        XCTAssertEqual(cell.blueButton.titleLabel?.numberOfLines, 0)
+        XCTAssertGreaterThan(cell.blueButton.configuration?.contentInsets.top ?? 0, 0)
+        XCTAssertGreaterThan(cell.blueButton.configuration?.contentInsets.bottom ?? 0, 0)
+    }
+
+    func testLongButtonTitleKeepsMinimumTargetAndSelfSizesCell() {
+        let cell = makeCell(actionTitle: "Proceed to Verification")
+        cell.bounds = CGRect(x: 0, y: 0, width: 320, height: 1)
+        cell.contentView.bounds = cell.bounds
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+
+        let fittingSize = cell.contentView.systemLayoutSizeFitting(
+            CGSize(width: 320, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+
+        XCTAssertGreaterThanOrEqual(minimumHeightConstant(for: cell.blueButton), 44)
+        XCTAssertGreaterThan(fittingSize.height, 44)
+        XCTAssertTrue(cell.labelsStack.arrangedSubviews.contains(cell.blueButton))
+    }
+
+    func testCloseButtonEffectiveSizeAndAccessibility() throws {
+        let cell = makeCell()
+
+        XCTAssertGreaterThanOrEqual(minimumHeightConstant(for: cell.closeButton), 44)
+        XCTAssertGreaterThanOrEqual(minimumWidthConstant(for: cell.closeButton), 44)
+        let label = try XCTUnwrap(cell.closeButton.accessibilityLabel?.lowercased())
+        XCTAssertTrue(label.contains("close"))
+        XCTAssertEqual(cell.closeButton.accessibilityIdentifier, "verification_session_close_button")
+    }
+
+    func testRepeatedConfigureAndActionSetupDoesNotDuplicateArrangedSubviewsOrConstraints() {
+        let cell = VerificationSessionTableViewCell()
+
+        cell.configure(title: "Secure session", subtitle: "First subtitle")
+        cell.showVerificationButton(title: "Verify")
+        cell.configure(title: "Secure session", subtitle: "Second subtitle")
+        cell.showVerificationButton(title: "Proceed to Verification")
+
+        XCTAssertEqual(cell.contentView.subviews.filter { $0 === cell.stack }.count, 1)
+        XCTAssertEqual(cell.stack.arrangedSubviews.filter { $0 === cell.customImageView }.count, 1)
+        XCTAssertEqual(cell.stack.arrangedSubviews.filter { $0 === cell.labelsStack }.count, 1)
+        XCTAssertEqual(cell.stack.arrangedSubviews.filter { $0 === cell.closeButton }.count, 1)
+        XCTAssertEqual(cell.labelsStack.arrangedSubviews.filter { $0 === cell.titleLabel }.count, 1)
+        XCTAssertEqual(cell.labelsStack.arrangedSubviews.filter { $0 === cell.subtitleLabel }.count, 1)
+        XCTAssertEqual(cell.labelsStack.arrangedSubviews.filter { $0 === cell.blueButton }.count, 1)
+        XCTAssertEqual(heightConstraintCount(for: cell.blueButton), 1)
+        XCTAssertEqual(heightConstraintCount(for: cell.closeButton), 1)
+    }
+
+    func testAccessibilityLabelsIdentifyVerifyAndCloseActionsWithoutTokenTerminology() throws {
+        let cell = makeCell(actionTitle: "Proceed to Verification")
+
+        let verifyLabel = try XCTUnwrap(cell.blueButton.accessibilityLabel?.lowercased())
+        let closeLabel = try XCTUnwrap(cell.closeButton.accessibilityLabel?.lowercased())
+
+        XCTAssertTrue(verifyLabel.contains("verification"))
+        XCTAssertTrue(closeLabel.contains("close"))
+        XCTAssertFalse(verifyLabel.contains("token"))
+        XCTAssertFalse(closeLabel.contains("token"))
+    }
+
+    private func makeCell(actionTitle: String? = nil) -> VerificationSessionTableViewCell {
+        let cell = VerificationSessionTableViewCell()
+        cell.configure(
+            title: "Secure Your Conversation",
+            subtitle: "Your device session needs verification before encrypted messages can be trusted."
+        )
+        if let actionTitle {
+            cell.showVerificationButton(title: actionTitle)
+        }
+        return cell
+    }
+
+    private func minimumHeightConstant(for view: UIView) -> CGFloat {
+        minimumDimensionConstant(for: view, attribute: .height)
+    }
+
+    private func minimumWidthConstant(for view: UIView) -> CGFloat {
+        minimumDimensionConstant(for: view, attribute: .width)
+    }
+
+    private func minimumDimensionConstant(for view: UIView, attribute: NSLayoutConstraint.Attribute) -> CGFloat {
+        view.constraints
+            .filter { constraint in
+                constraint.firstItem === view
+                && constraint.firstAttribute == attribute
+                && (constraint.relation == .greaterThanOrEqual || constraint.relation == .equal)
+            }
+            .map(\.constant)
+            .max() ?? 0
+    }
+
+    private func heightConstraintCount(for view: UIView) -> Int {
+        view.constraints.filter { constraint in
+            constraint.firstItem === view
+            && constraint.firstAttribute == .height
+            && (constraint.relation == .greaterThanOrEqual || constraint.relation == .equal)
+        }.count
+    }
+}
+
 final class NavigationTransitionMutationPolicyTests: XCTestCase {
     func testLastChatsQueuesNonCriticalMutationsDuringNavigationTransition() {
         XCTAssertTrue(
