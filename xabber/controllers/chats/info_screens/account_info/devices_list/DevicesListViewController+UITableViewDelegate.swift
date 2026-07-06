@@ -64,17 +64,14 @@ extension DevicesListViewController: UITableViewDelegate {
                 break
             }
         case .token:
-            if indexPath.row == 0 && (isVerificationRequired || self.activeVerificationSessionSid != nil) {
+            if isDevicesVerificationRow(at: indexPath) {
                 return
             }
-            
-            var uid = ""
-            if isVerificationRequired || self.activeVerificationSessionSid != nil {
-                uid = devices[indexPath.row - 1].uid
-            } else {
-                uid = devices[indexPath.row].uid
+
+            guard let item = deviceItemForDevicesRow(at: indexPath) else {
+                return
             }
-            showTokenInfo(uid: uid, canEdit: false)
+            showTokenInfo(uid: item.uid, canEdit: false)
         case .button:
             let item = datasource[indexPath.section].childs[indexPath.row]
             if item.value == "quit" {
@@ -117,56 +114,145 @@ extension DevicesListViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
-        let item = datasource[indexPath.section]
-        switch item.kind {
-        case .current, .button: return false
-        case .token: return true
-        case .broken: return true
-        case .session: return false
-        }
+        return devicesSecuritySwipeAction(at: indexPath) != nil
     }
     
     func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
         return false
     }
     
-    
-    // invalid number of section of no devices only obsolete
-    func tableView(_ tableView: UITableView, editActionsForRowAt indexPath: IndexPath) -> [UITableViewRowAction]? {
-        if indexPath.section == 2 {
-            let revokeAction = UITableViewRowAction(style: .destructive, title: "Delete key") { (action, indexPath) in
-                let item = self.brokenOmemoDevices[indexPath.row]
-                let deviceId = item.deviceId
-                AccountManager.shared.find(for: self.jid)?.unsafeAction({ user, stream in
-                    user.omemo.deleteDevice(deviceId: deviceId)
-                })
-            }
-            return [revokeAction]
+    func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        guard let devicesAction = devicesSecuritySwipeAction(at: indexPath) else {
+            return nil
         }
-        let revokeAction = UITableViewRowAction(style: .destructive, title: "Revoke token".localizeString(id: "settings_account_revoke_token", arguments: [])) { (action, indexPath) in
-            
-            let hasConnection = !AccountManager.shared.connectingUsers.value.contains(self.jid)
-            if hasConnection {
-                let item = self.devices[indexPath.row - 1]
-                let uid = item.uid
-                AccountManager.shared.find(for: self.jid)?.action({ (user, stream) in
-                    user.devices.revoke(stream, uids: [uid])
-                })
-            } else {
-                ActionSheetPresenter().present(
-                    in: self,
-                    title: "No connection",
-                    message: "Please wait while connection established",
-                    cancel: "Cancel".localizeString(id: "cancel", arguments: []),
-                    values: [],
-                    animated: true) { _ in
-                        
-                    }
+
+        let action = UIContextualAction(style: .destructive, title: devicesAction.title) { [weak self] _, _, completion in
+            guard let self = self else {
+                completion(false)
+                return
             }
-            
-            
-            
+
+            switch devicesAction {
+            case .terminateSession(let uid, let confirmation):
+                self.presentSingleSessionTerminationConfirmation(uid: uid, confirmation: confirmation, completion: completion)
+            case .deleteBrokenKey(let deviceId):
+                self.deleteBrokenDeviceKey(deviceId: deviceId)
+                completion(true)
+            }
         }
-        return [revokeAction]
+        let configuration = UISwipeActionsConfiguration(actions: [action])
+        configuration.performsFirstActionWithFullSwipe = false
+        return configuration
+    }
+}
+
+extension DevicesListViewController {
+    func hasDevicesVerificationRow(in section: Int) -> Bool {
+        guard datasource.indices.contains(section),
+              datasource[section].kind == .token else {
+            return false
+        }
+        return datasource[section].childs.first?.kind == .session
+    }
+
+    func isDevicesVerificationRow(at indexPath: IndexPath) -> Bool {
+        return hasDevicesVerificationRow(in: indexPath.section) && indexPath.row == 0
+    }
+
+    func deviceIndexForDevicesRow(at indexPath: IndexPath) -> Int? {
+        guard datasource.indices.contains(indexPath.section),
+              datasource[indexPath.section].kind == .token,
+              !isDevicesVerificationRow(at: indexPath) else {
+            return nil
+        }
+
+        let deviceIndex = indexPath.row - (hasDevicesVerificationRow(in: indexPath.section) ? 1 : 0)
+        guard devices.indices.contains(deviceIndex) else {
+            return nil
+        }
+        return deviceIndex
+    }
+
+    func deviceItemForDevicesRow(at indexPath: IndexPath) -> DeviceStorageItem? {
+        guard let deviceIndex = deviceIndexForDevicesRow(at: indexPath) else {
+            return nil
+        }
+        return devices[deviceIndex]
+    }
+
+    func devicesSecuritySwipeAction(at indexPath: IndexPath) -> DevicesSecuritySwipeAction? {
+        guard datasource.indices.contains(indexPath.section) else {
+            return nil
+        }
+
+        switch datasource[indexPath.section].kind {
+        case .token:
+            guard let item = deviceItemForDevicesRow(at: indexPath) else {
+                return nil
+            }
+            return .terminateSession(uid: item.uid, confirmation: .singleSession)
+        case .broken:
+            guard brokenOmemoDevices.indices.contains(indexPath.row) else {
+                return nil
+            }
+            return .deleteBrokenKey(deviceId: brokenOmemoDevices[indexPath.row].deviceId)
+        case .current, .button, .session:
+            return nil
+        }
+    }
+
+    private func presentSingleSessionTerminationConfirmation(
+        uid: String,
+        confirmation: DevicesSessionTerminationConfirmation,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let hasConnection = !AccountManager.shared.connectingUsers.value.contains(self.jid)
+        guard hasConnection else {
+            presentNoConnectionForSessionTermination()
+            completion(false)
+            return
+        }
+
+        YesNoPresenter().present(
+            in: self,
+            style: .actionSheet,
+            title: confirmation.title,
+            message: confirmation.message,
+            yesText: confirmation.confirmTitle,
+            dangerYes: true,
+            noText: confirmation.cancelTitle,
+            animated: true
+        ) { [weak self] confirmed in
+            guard confirmed else {
+                completion(false)
+                return
+            }
+
+            self?.revokeDeviceSession(uid: uid)
+            completion(true)
+        }
+    }
+
+    private func revokeDeviceSession(uid: String) {
+        AccountManager.shared.find(for: self.jid)?.action({ user, stream in
+            user.devices.revoke(stream, uids: [uid])
+        })
+    }
+
+    private func deleteBrokenDeviceKey(deviceId: Int) {
+        AccountManager.shared.find(for: self.jid)?.unsafeAction({ user, stream in
+            user.omemo.deleteDevice(deviceId: deviceId)
+        })
+    }
+
+    private func presentNoConnectionForSessionTermination() {
+        ActionSheetPresenter().present(
+            in: self,
+            title: "No connection",
+            message: "Please wait while connection established",
+            cancel: "Cancel".localizeString(id: "cancel", arguments: []),
+            values: [],
+            animated: true) { _ in
+        }
     }
 }

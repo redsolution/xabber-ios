@@ -1408,6 +1408,220 @@ final class DevicesSectionTextLayoutTests: XCTestCase {
     }
 }
 
+@MainActor
+final class DevicesSessionActionTests: XCTestCase {
+    func testSwipeActionTitleUsesSessionLanguageWithoutLegacyTerminology() throws {
+        let controller = makeController(includesVerificationRow: false)
+
+        let configuration = try XCTUnwrap(
+            controller.tableView.delegate?.tableView?(
+                controller.tableView,
+                trailingSwipeActionsConfigurationForRowAt: IndexPath(row: 0, section: 1)
+            )
+        )
+        let action = try XCTUnwrap(configuration.actions.first)
+        let title = try XCTUnwrap(action.title)
+        let lowercasedTitle = title.lowercased()
+
+        XCTAssertEqual(action.style, .destructive)
+        XCTAssertEqual(title, "Terminate session")
+        XCTAssertFalse(configuration.performsFirstActionWithFullSwipe)
+        XCTAssertFalse(lowercasedTitle.contains("token"))
+        XCTAssertFalse(lowercasedTitle.contains("revoke"))
+    }
+
+    func testSessionActionTextAndConfirmationDoNotUseLegacyTerminology() throws {
+        let controller = makeController(includesVerificationRow: false)
+        let action = try XCTUnwrap(
+            controller.devicesSecuritySwipeAction(at: IndexPath(row: 0, section: 1))
+        )
+
+        guard case .terminateSession(_, let confirmation) = action else {
+            return XCTFail("Expected a single-session termination action")
+        }
+
+        let exposedText = [
+            action.title,
+            confirmation.title,
+            confirmation.message,
+            confirmation.confirmTitle,
+            confirmation.cancelTitle
+        ].joined(separator: " ").lowercased()
+
+        XCTAssertFalse(exposedText.contains("token"))
+        XCTAssertFalse(exposedText.contains("revoke"))
+    }
+
+    func testRowToDeviceMappingWithoutVerificationRow() throws {
+        let controller = makeController(includesVerificationRow: false)
+
+        XCTAssertEqual(
+            try uidForTerminateAction(controller, row: 0),
+            "desktop-1"
+        )
+        XCTAssertEqual(
+            try uidForTerminateAction(controller, row: 1),
+            "phone-2"
+        )
+    }
+
+    func testRowToDeviceMappingWithVerificationRowAndNoActionOnVerificationWarning() throws {
+        let controller = makeController(includesVerificationRow: true)
+
+        XCTAssertNil(controller.devicesSecuritySwipeAction(at: IndexPath(row: 0, section: 1)))
+        XCTAssertNil(
+            controller.tableView.delegate?.tableView?(
+                controller.tableView,
+                trailingSwipeActionsConfigurationForRowAt: IndexPath(row: 0, section: 1)
+            )
+        )
+        XCTAssertEqual(
+            try uidForTerminateAction(controller, row: 1),
+            "desktop-1"
+        )
+        XCTAssertEqual(
+            try uidForTerminateAction(controller, row: 2),
+            "phone-2"
+        )
+    }
+
+    func testBrokenObsoleteDeviceKeyDeletionRemainsSeparate() throws {
+        let controller = makeController(includesVerificationRow: false, includesBrokenSection: true)
+        let action = try XCTUnwrap(
+            controller.devicesSecuritySwipeAction(at: IndexPath(row: 0, section: 2))
+        )
+        let configuration = try XCTUnwrap(
+            controller.tableView.delegate?.tableView?(
+                controller.tableView,
+                trailingSwipeActionsConfigurationForRowAt: IndexPath(row: 0, section: 2)
+            )
+        )
+
+        guard case .deleteBrokenKey(let deviceId) = action else {
+            return XCTFail("Expected obsolete key deletion to stay separate")
+        }
+
+        XCTAssertEqual(deviceId, 42)
+        XCTAssertEqual(action.title, "Delete key")
+        XCTAssertEqual(configuration.actions.first?.title, "Delete key")
+        XCTAssertFalse(action.requiresConfirmation)
+    }
+
+    func testSingleSessionTerminationRequiresExplicitConfirmation() throws {
+        let controller = makeController(includesVerificationRow: false)
+        let action = try XCTUnwrap(
+            controller.devicesSecuritySwipeAction(at: IndexPath(row: 0, section: 1))
+        )
+
+        guard case .terminateSession(_, let confirmation) = action else {
+            return XCTFail("Expected a single-session termination action")
+        }
+
+        let message = confirmation.message.lowercased()
+
+        XCTAssertTrue(action.requiresConfirmation)
+        XCTAssertEqual(confirmation.confirmTitle, "Terminate session")
+        XCTAssertEqual(confirmation.cancelTitle, "Cancel")
+        XCTAssertTrue(message.contains("selected device session"))
+        XCTAssertTrue(message.contains("current device remains signed in"))
+        XCTAssertTrue(message.contains("server data is not deleted"))
+    }
+
+    private func uidForTerminateAction(
+        _ controller: DevicesListViewController,
+        row: Int
+    ) throws -> String {
+        let action = try XCTUnwrap(
+            controller.devicesSecuritySwipeAction(at: IndexPath(row: row, section: 1))
+        )
+
+        guard case .terminateSession(let uid, _) = action else {
+            throw XCTestError(.failureWhileWaiting, userInfo: [
+                NSLocalizedDescriptionKey: "Expected terminate-session action"
+            ])
+        }
+
+        return uid
+    }
+
+    private func makeController(
+        includesVerificationRow: Bool,
+        includesBrokenSection: Bool = false
+    ) -> DevicesListViewController {
+        let controller = DevicesListViewController()
+        controller.loadViewIfNeeded()
+        controller.configure(for: "session-action@example.test")
+        controller.devices = [
+            DeviceStorageItem(value: [
+                "uid": "desktop-1",
+                "owner": "session-action@example.test"
+            ]),
+            DeviceStorageItem(value: [
+                "uid": "phone-2",
+                "owner": "session-action@example.test"
+            ])
+        ]
+        controller.isVerificationRequired = includesVerificationRow
+        let activeDevicesSection = DevicesListViewController.Datasource(
+            .token,
+            title: "Active devices",
+            value: "You can terminate sessions you do not need. Current device remains signed in.",
+            editable: false
+        )
+        if includesVerificationRow {
+            activeDevicesSection.childs.append(
+                DevicesListViewController.Datasource(
+                    .session,
+                    title: "Non-Verified Devices Connected",
+                    value: "Verify connected devices before trusting encrypted sessions.",
+                    editable: false
+                )
+            )
+        }
+        controller.datasource = [
+            DevicesListViewController.Datasource(
+                .current,
+                title: "This device",
+                value: "Only other device sessions are signed out.",
+                editable: false,
+                childs: [
+                    DevicesListViewController.Datasource(
+                        .token,
+                        title: " ",
+                        value: "resource",
+                        editable: false
+                    ),
+                    DevicesListViewController.Datasource(
+                        .button,
+                        title: "Terminate all other sessions",
+                        value: "terminate_all_sessions",
+                        editable: false
+                    )
+                ]
+            ),
+            activeDevicesSection
+        ]
+
+        if includesBrokenSection {
+            let brokenDevice = SignalDeviceStorageItem()
+            brokenDevice.owner = "session-action@example.test"
+            brokenDevice.jid = "session-action@example.test"
+            brokenDevice.deviceId = 42
+            controller.brokenOmemoDevices = [brokenDevice]
+            controller.datasource.append(
+                DevicesListViewController.Datasource(
+                    .broken,
+                    title: "Obsolete devices",
+                    value: nil,
+                    editable: false
+                )
+            )
+        }
+
+        return controller
+    }
+}
+
 final class NavigationTransitionMutationPolicyTests: XCTestCase {
     func testLastChatsQueuesNonCriticalMutationsDuringNavigationTransition() {
         XCTAssertTrue(

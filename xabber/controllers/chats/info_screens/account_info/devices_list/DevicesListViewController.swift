@@ -113,6 +113,45 @@ final class DevicesSecuritySectionTextView: UITableViewHeaderFooterView {
     }
 }
 
+struct DevicesSessionTerminationConfirmation: Equatable {
+    let title: String
+    let message: String
+    let confirmTitle: String
+    let cancelTitle: String
+
+    static var singleSession: DevicesSessionTerminationConfirmation {
+        DevicesSessionTerminationConfirmation(
+            title: "Terminate this session?".localizeString(id: "devices_session_terminate_single_title", arguments: []),
+            message: "Terminate the selected device session. Current device remains signed in. Account and server data is not deleted.".localizeString(id: "devices_session_terminate_single_message", arguments: []),
+            confirmTitle: "Terminate session".localizeString(id: "device__info__terminate_session__button", arguments: []),
+            cancelTitle: "Cancel".localizeString(id: "cancel", arguments: [])
+        )
+    }
+}
+
+enum DevicesSecuritySwipeAction: Equatable {
+    case terminateSession(uid: String, confirmation: DevicesSessionTerminationConfirmation)
+    case deleteBrokenKey(deviceId: Int)
+
+    var title: String {
+        switch self {
+        case .terminateSession:
+            return "Terminate session".localizeString(id: "device__info__terminate_session__button", arguments: [])
+        case .deleteBrokenKey:
+            return "Delete key"
+        }
+    }
+
+    var requiresConfirmation: Bool {
+        switch self {
+        case .terminateSession:
+            return true
+        case .deleteBrokenKey:
+            return false
+        }
+    }
+}
+
 class DevicesListViewController: BaseViewController {
     class Datasource {
         enum Kind {
