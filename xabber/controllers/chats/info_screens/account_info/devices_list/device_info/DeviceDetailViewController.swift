@@ -24,6 +24,142 @@ import RealmSwift
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 
+enum DeviceDetailSessionTerminationEffect: Equatable {
+    case none
+    case terminateSession(uid: String)
+}
+
+struct DeviceDetailSessionTerminationConfirmation: Equatable {
+    let uid: String
+    let title: String
+    let message: String
+    let confirmTitle: String
+    let cancelTitle: String
+
+    static func `default`(uid: String) -> DeviceDetailSessionTerminationConfirmation {
+        DeviceDetailSessionTerminationConfirmation(
+            uid: uid,
+            title: "Terminate session?".localizeString(id: "terminate_session_question", arguments: []),
+            message: "Terminate the selected device session. Current device remains signed in. Account and server data is not deleted.".localizeString(id: "device_detail_terminate_session_message", arguments: []),
+            confirmTitle: "Terminate session".localizeString(id: "device__info__terminate_session__button", arguments: []),
+            cancelTitle: "Cancel".localizeString(id: "cancel", arguments: [])
+        )
+    }
+
+    func effect(confirmed: Bool) -> DeviceDetailSessionTerminationEffect {
+        confirmed ? .terminateSession(uid: uid) : .none
+    }
+}
+
+enum DeviceDetailPrimaryAction: Equatable {
+    case none
+    case rename
+    case showStatusResource
+    case showAccountConnection
+    case terminateSession(DeviceDetailSessionTerminationConfirmation)
+}
+
+final class DeviceDetailValueTableViewCell: UITableViewCell {
+    static let cellName = "DeviceDetailValueTableViewCell"
+
+    let stack: UIStackView = {
+        let stack = UIStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.spacing = 4
+        return stack
+    }()
+
+    let titleLabel: UILabel = {
+        let label = UILabel()
+        label.font = UIFont.preferredFont(forTextStyle: .subheadline)
+        label.textColor = .secondaryLabel
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        return label
+    }()
+
+    let valueLabel: UILabel = {
+        let label = UILabel()
+        label.font = UIFont.preferredFont(forTextStyle: .body)
+        label.textColor = .label
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        return label
+    }()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setupSubviews()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupSubviews()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        titleLabel.text = nil
+        valueLabel.text = nil
+        valueLabel.font = UIFont.preferredFont(forTextStyle: .body)
+        valueLabel.lineBreakMode = .byWordWrapping
+        selectionStyle = .none
+        accessoryType = .none
+        accessibilityLabel = nil
+        accessibilityTraits = .staticText
+    }
+
+    func configure(
+        title: String,
+        value: String?,
+        isFingerprint: Bool = false,
+        selectionStyle: UITableViewCell.SelectionStyle = .none,
+        accessoryType: UITableViewCell.AccessoryType = .none
+    ) {
+        titleLabel.text = title
+        valueLabel.text = value
+        valueLabel.isHidden = value?.isEmpty ?? true
+        if isFingerprint {
+            let baseFont = UIFont.monospacedSystemFont(ofSize: 15, weight: .regular)
+            valueLabel.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: baseFont)
+            valueLabel.lineBreakMode = .byCharWrapping
+        } else {
+            valueLabel.font = UIFont.preferredFont(forTextStyle: .body)
+            valueLabel.lineBreakMode = .byWordWrapping
+        }
+        titleLabel.adjustsFontForContentSizeCategory = true
+        valueLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.numberOfLines = 0
+        valueLabel.numberOfLines = 0
+        self.selectionStyle = selectionStyle
+        self.accessoryType = accessoryType
+        isAccessibilityElement = true
+        accessibilityTraits = selectionStyle == .none ? .staticText : [.staticText, .button]
+        accessibilityLabel = [title, value]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+    }
+
+    private func setupSubviews() {
+        contentView.addSubview(stack)
+        stack.addArrangedSubview(titleLabel)
+        stack.addArrangedSubview(valueLabel)
+
+        let margins = contentView.layoutMarginsGuide
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: margins.topAnchor, constant: 4),
+            stack.leadingAnchor.constraint(equalTo: margins.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: margins.trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: margins.bottomAnchor, constant: -4),
+            contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
+        ])
+    }
+}
+
 class DeviceDetailViewController: SimpleBaseViewController {
     
     class Datasource: Hashable, Equatable {
@@ -71,6 +207,8 @@ class DeviceDetailViewController: SimpleBaseViewController {
         view.register(UITableViewCell.self, forCellReuseIdentifier: "SimpleCell")
         view.register(UITableViewCell.self, forCellReuseIdentifier: "ButtonCell")
         view.register(UITableViewCell.self, forCellReuseIdentifier: "DangerCell")
+        view.register(ButtonTableViewCell.self, forCellReuseIdentifier: ButtonTableViewCell.cellName)
+        view.register(DeviceDetailValueTableViewCell.self, forCellReuseIdentifier: DeviceDetailValueTableViewCell.cellName)
         view.register(StatusInfoCell.self, forCellReuseIdentifier: StatusInfoCell.cellName)
         view.register(ResourceInfoCell.self, forCellReuseIdentifier: ResourceInfoCell.cellName)
         DevicesSecurityTableLayout.apply(to: view)
@@ -222,7 +360,7 @@ class DeviceDetailViewController: SimpleBaseViewController {
                 ]
             }
         } catch {
-            DDLogDebug("TokenInfoViewController: \(#function). \(error.localizedDescription)")
+            DDLogDebug("DeviceDetailViewController: \(#function). \(error.localizedDescription)")
         }
     }
     
@@ -251,32 +389,36 @@ class DeviceDetailViewController: SimpleBaseViewController {
     }
     
     private final func onTerminate() {
-        let items = [
-            ActionSheetPresenter.Item(destructive: true, title: "Terminate session?".localizeString(id: "device__info__terminate_session__button", arguments: []), value: "terminate")
-        ]
-        
-        ActionSheetPresenter().present(
+        let confirmation = DeviceDetailSessionTerminationConfirmation.default(uid: uid)
+        YesNoPresenter().present(
             in: self,
-            title: nil,
-            message: nil,
-            cancel: "Cancel".localizeString(id: "cancel", arguments: []),
-            values: items,
-            animated: true) { value in
-            switch value {
-            case "terminate":
-                XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
-                    session.devices?.revoke(stream, uids: [self.uid])
-                } fail: {
-                    AccountManager.shared.find(for: self.jid)?.action({ user, stream in
-                        user.devices.revoke(stream, uids: [self.uid])
-                    })
-                }
-            default:
-                break
+            style: .actionSheet,
+            title: confirmation.title,
+            message: confirmation.message,
+            yesText: confirmation.confirmTitle,
+            dangerYes: true,
+            noText: confirmation.cancelTitle,
+            animated: true) { [weak self] confirmed in
+            guard let self else {
+                return
             }
+            guard case .terminateSession(let uid) = confirmation.effect(confirmed: confirmed) else {
+                return
+            }
+            self.terminateDeviceSession(uid: uid)
             DispatchQueue.main.async {
                 self.goBack()
             }
+        }
+    }
+
+    private func terminateDeviceSession(uid: String) {
+        XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
+            session.devices?.revoke(stream, uids: [uid])
+        } fail: {
+            AccountManager.shared.find(for: self.jid)?.action({ user, stream in
+                user.devices.revoke(stream, uids: [uid])
+            })
         }
     }
     
@@ -287,6 +429,26 @@ class DeviceDetailViewController: SimpleBaseViewController {
 }
 
 extension DeviceDetailViewController: UITableViewDelegate {
+    func deviceDetailPrimaryAction(at indexPath: IndexPath) -> DeviceDetailPrimaryAction {
+        guard datasource.indices.contains(indexPath.section),
+              datasource[indexPath.section].indices.contains(indexPath.row) else {
+            return .none
+        }
+
+        switch datasource[indexPath.section][indexPath.row].key {
+        case "rename":
+            return .rename
+        case "terminate":
+            return .terminateSession(DeviceDetailSessionTerminationConfirmation.default(uid: uid))
+        case "status":
+            return .showStatusResource
+        case "resource":
+            return .showAccountConnection
+        default:
+            return .none
+        }
+    }
+
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         return UITableView.automaticDimension
     }
@@ -315,7 +477,7 @@ extension DeviceDetailViewController: UITableViewDelegate {
 //                    self.present(nvc, animated: true, completion: nil)
                 }
             } catch {
-                DDLogDebug("TokenInfoViewController: \(#function). \(error.localizedDescription)")
+                DDLogDebug("DeviceDetailViewController: \(#function). \(error.localizedDescription)")
             }
         case "resource":
             let vc = AccountConnectionViewController()
@@ -508,14 +670,19 @@ extension DeviceDetailViewController: UITableViewDataSource {
         let item = datasource[indexPath.section][indexPath.row]
         switch item.key {
         case "terminate":
-            let cell = tableView.dequeueReusableCell(withIdentifier: "DangerCell", for: indexPath)
-            cell.textLabel?.text = item.title
-            cell.textLabel?.textColor = .systemRed
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: ButtonTableViewCell.cellName, for: indexPath) as? ButtonTableViewCell else {
+                return UITableViewCell(frame: .zero)
+            }
+            cell.configure(for: item.title, style: .danger)
+            cell.accessibilityIdentifier = "device_detail_terminate_session_button"
+            cell.accessibilityHint = "Requires confirmation.".localizeString(id: "device_detail_terminate_session_accessibility_hint", arguments: [])
             return cell
         case "rename":
-            let cell = tableView.dequeueReusableCell(withIdentifier: "ButtonCell", for: indexPath)
-            cell.textLabel?.text = item.title
-            cell.textLabel?.textColor = .systemBlue
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: ButtonTableViewCell.cellName, for: indexPath) as? ButtonTableViewCell else {
+                return UITableViewCell(frame: .zero)
+            }
+            cell.configure(for: item.title, style: .normal)
+            cell.accessibilityIdentifier = "device_detail_rename_button"
             return cell
         case "status":
             if self.resource != nil {
@@ -532,22 +699,22 @@ extension DeviceDetailViewController: UITableViewDataSource {
                 
                 return cell
             } else {
-                let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
-                cell.textLabel?.text = item.title
-                cell.detailTextLabel?.text = item.value
-                return cell
+                return valueCell(tableView, for: indexPath, item: item)
             }
         case "resource":
-            let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
-            cell.textLabel?.text = item.title
-            cell.detailTextLabel?.text = item.value
-            cell.accessoryType = .disclosureIndicator
-            return cell
+            return valueCell(
+                tableView,
+                for: indexPath,
+                item: item,
+                selectionStyle: .default,
+                accessoryType: .disclosureIndicator
+            )
             
         case "omemo_state_ignore":
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
             cell.textLabel?.text = item.title
             cell.textLabel?.textColor = .systemGray
+            configureWrappingText(in: cell)
             cell.accessoryType = .none
             cell.imageView?.image = UIImage(systemName: "checkerboard.shield")?.withRenderingMode(.alwaysTemplate)
             cell.imageView?.tintColor = .systemGray
@@ -557,6 +724,7 @@ extension DeviceDetailViewController: UITableViewDataSource {
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
             cell.textLabel?.text = item.title
             cell.textLabel?.textColor = .systemGreen
+            configureWrappingText(in: cell)
             cell.accessoryType = .none
             cell.imageView?.image = UIImage(named: "lock.circle.fill")?.withRenderingMode(.alwaysTemplate)
             cell.imageView?.tintColor = .systemGreen
@@ -566,6 +734,7 @@ extension DeviceDetailViewController: UITableViewDataSource {
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
             cell.textLabel?.text = item.title
             cell.textLabel?.textColor = .systemGreen
+            configureWrappingText(in: cell)
             cell.accessoryType = .none
             cell.imageView?.image = UIImage(named: "lock.fill")?.withRenderingMode(.alwaysTemplate)
             cell.imageView?.tintColor = .systemGreen
@@ -575,6 +744,7 @@ extension DeviceDetailViewController: UITableViewDataSource {
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
             cell.textLabel?.text = item.title
             cell.textLabel?.textColor = .systemRed
+            configureWrappingText(in: cell)
             cell.accessoryType = .none
             cell.imageView?.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate)
             cell.imageView?.tintColor = .systemRed
@@ -584,45 +754,60 @@ extension DeviceDetailViewController: UITableViewDataSource {
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
             cell.textLabel?.text = item.title
             cell.textLabel?.textColor = .systemOrange
+            configureWrappingText(in: cell)
             cell.accessoryType = .none
             cell.imageView?.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate)
             cell.imageView?.tintColor = .systemOrange
             
             return cell
         case "omemo_fingerprint":
-            let cell = UITableViewCell(style: .subtitle, reuseIdentifier: "SimpleCell")
-            cell.textLabel?.text = item.title
-            cell.detailTextLabel?.text = item.value
-            cell.detailTextLabel?.numberOfLines = 2
-            if #available(iOS 13.0, *) {
-                cell.detailTextLabel?.font = UIFont.monospacedSystemFont(ofSize: 14, weight: .light)
-            } else {
-                // Fallback on earlier versions
-            }
-            cell.accessoryType = .none
-            cell.selectionStyle = .none
-            return cell
+            return valueCell(tableView, for: indexPath, item: item, isFingerprint: true)
         case "omemo_trusted_by":
-            let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
-            cell.textLabel?.text = item.title
-            cell.detailTextLabel?.text = item.value
-            cell.accessoryType = .none
-            
-            return cell
+            return valueCell(tableView, for: indexPath, item: item)
         case "manual_verification":
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
             cell.textLabel?.text = item.title
             cell.textLabel?.textColor = .systemOrange
+            configureWrappingText(in: cell)
             cell.accessoryType = .none
             cell.imageView?.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate)
             cell.imageView?.tintColor = .systemOrange
             
             return cell
         default:
-            let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
-            cell.textLabel?.text = item.title
-            cell.detailTextLabel?.text = item.value
-            return cell
+            return valueCell(tableView, for: indexPath, item: item)
         }
+    }
+
+    private func valueCell(
+        _ tableView: UITableView,
+        for indexPath: IndexPath,
+        item: Datasource,
+        isFingerprint: Bool = false,
+        selectionStyle: UITableViewCell.SelectionStyle = .none,
+        accessoryType: UITableViewCell.AccessoryType = .none
+    ) -> UITableViewCell {
+        guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceDetailValueTableViewCell.cellName, for: indexPath) as? DeviceDetailValueTableViewCell else {
+            return UITableViewCell(frame: .zero)
+        }
+        cell.configure(
+            title: item.title,
+            value: item.value,
+            isFingerprint: isFingerprint,
+            selectionStyle: selectionStyle,
+            accessoryType: accessoryType
+        )
+        return cell
+    }
+
+    private func configureWrappingText(in cell: UITableViewCell) {
+        cell.textLabel?.font = UIFont.preferredFont(forTextStyle: .body)
+        cell.textLabel?.adjustsFontForContentSizeCategory = true
+        cell.textLabel?.numberOfLines = 0
+        cell.textLabel?.lineBreakMode = .byWordWrapping
+        cell.detailTextLabel?.font = UIFont.preferredFont(forTextStyle: .body)
+        cell.detailTextLabel?.adjustsFontForContentSizeCategory = true
+        cell.detailTextLabel?.numberOfLines = 0
+        cell.detailTextLabel?.lineBreakMode = .byWordWrapping
     }
 }
