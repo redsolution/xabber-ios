@@ -137,6 +137,7 @@ extension LastChatsViewController: UITableViewDelegate {
             jid: jid,
             conversationType: conversationType,
             unread: chat.unread,
+            syncUnreadCount: chat.syncUnreadCount,
             syncUnreadAfterId: chat.syncUnreadAfterId,
             lastReadId: chat.lastReadId,
             lastMessageId: chat.lastMessageId,

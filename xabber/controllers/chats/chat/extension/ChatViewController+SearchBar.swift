@@ -225,7 +225,7 @@ enum ChatInitialAnchorBootstrapPolicy {
 
 enum ChatInitialAutomaticOpenPolicy {
     static func shouldOpenUnreadBoundaryOnChatOpen() -> Bool {
-        false
+        true
     }
 
     static func shouldRestoreSavedVisiblePositionOnChatOpen() -> Bool {
@@ -238,8 +238,12 @@ enum ChatOpenMessageRequestHandlingPolicy {
         false
     }
 
+    static func shouldForceLatestForDefaultOpen() -> Bool {
+        true
+    }
+
     static func shouldForceLatestOnOpen() -> Bool {
-        !shouldHonorMessageAnchors()
+        shouldForceLatestForDefaultOpen()
     }
 
     static func shouldRestoreSavedFirstFramePosition() -> Bool {
@@ -247,7 +251,7 @@ enum ChatOpenMessageRequestHandlingPolicy {
     }
 
     static func shouldHonorMessageAnchorRequest(source: ChatOpenMessageRequestSource) -> Bool {
-        if source == .search {
+        if source == .search || source == .initialUnreadBoundary {
             return true
         }
 
@@ -274,6 +278,7 @@ enum ChatInitialPositionPolicy {
         let jid: String
         let conversationType: ClientSynchronizationManager.ConversationType
         let unread: Int
+        let syncUnreadCount: Int
         let syncUnreadAfterId: String?
         let lastReadId: String?
         let lastMessageId: String
@@ -295,8 +300,8 @@ enum ChatInitialPositionPolicy {
 
         if ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: .initialUnreadBoundary),
            ChatInitialAutomaticOpenPolicy.shouldOpenUnreadBoundaryOnChatOpen(),
-           chat.unread > 0,
-           let boundaryId = normalizedId(chat.syncUnreadAfterId) ?? normalizedId(chat.lastReadId) {
+           chat.syncUnreadCount > 0,
+           let boundaryId = normalizedUnreadBoundaryId(chat.syncUnreadAfterId) {
             let sourceDate = archiveDate(from: boundaryId) ?? chat.messageDate
             return .open(
                 ChatOpenMessageRequest(
@@ -347,6 +352,16 @@ enum ChatInitialPositionPolicy {
         }
 
         return .bottom
+    }
+
+    static func normalizedUnreadBoundaryId(_ value: String?) -> String? {
+        guard let normalized = normalizedId(value),
+              let numericValue = Double(normalized),
+              numericValue > 0 else {
+            return nil
+        }
+
+        return normalized
     }
 
     static func archiveDate(from archivedId: String) -> Date? {
