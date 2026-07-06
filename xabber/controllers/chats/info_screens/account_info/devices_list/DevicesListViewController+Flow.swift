@@ -22,6 +22,7 @@ import Foundation
 import UIKit
 
 extension DevicesListViewController {
+    typealias AccountQuitDeletionHandler = (_ jid: String, _ completion: @escaping (AccountDeletionCleanupResult) -> Void) -> Void
     
     internal func quitAccount() {
         guard accountQuitFlow.canStartQuit else {
@@ -49,12 +50,41 @@ extension DevicesListViewController {
 
     private func performConfirmedQuitAccountCleanup() {
         unsubscribe()
-        AccountManager.shared.deleteAccount(by: jid)
-        let route = accountQuitFlow.complete(
-            hasRemainingAccounts: !AccountManager.shared.emptyAccountsList()
-        )
+        accountQuitDeletionHandler?(jid) { [weak self] result in
+            self?.finishConfirmedQuitAccountCleanup(result)
+        } ?? AccountManager.shared.deleteAccountAsync(by: jid) { [weak self] result in
+            self?.finishConfirmedQuitAccountCleanup(result)
+        }
+    }
+
+    private func finishConfirmedQuitAccountCleanup(_ result: AccountDeletionCleanupResult) {
+        guard result.succeeded else {
+            accountQuitFlow.failCleanup()
+            setAccountQuitProgressVisible(false)
+            presentAccountQuitCleanupFailure()
+            return
+        }
+
+        let hasRemainingAccounts = accountQuitRemainingAccountsProvider?()
+            ?? !AccountManager.shared.emptyAccountsList()
+        let route = accountQuitFlow.complete(hasRemainingAccounts: hasRemainingAccounts)
         setAccountQuitProgressVisible(false)
         routeAfterQuitAccountCleanup(route)
+    }
+
+    private func presentAccountQuitCleanupFailure() {
+        let alert = UIAlertController(
+            title: "Account data could not be deleted",
+            message: "Please try again.",
+            preferredStyle: .alert
+        )
+        alert.addAction(
+            UIAlertAction(
+                title: "OK",
+                style: .default
+            )
+        )
+        present(alert, animated: true)
     }
 
     private func routeAfterQuitAccountCleanup(_ route: QuitAccountCleanupRoute) {

@@ -30,6 +30,313 @@ import Kingfisher
 enum AccountDeletionDiagnosticsEventName: String, Equatable {
     case started = "account_deletion_started"
     case finished = "account_deletion_finished"
+    case failed = "account_deletion_failed"
+}
+
+enum AccountDeletionCleanupStage: String, Equatable {
+    case preRealmCleanup
+    case storageCleanup
+    case postCleanup
+}
+
+enum AccountDeletionUIActionClosePolicy {
+    static func closeSoftFlag(hard: Bool) -> Bool {
+        !hard
+    }
+}
+
+enum AccountDeletionCredentialCleanupPolicy {
+    static func shouldClearSharedKeychain(supportsMultiaccounts: Bool) -> Bool {
+        !supportsMultiaccounts
+    }
+}
+
+struct AccountDeletionCleanupResult: Equatable {
+    let jid: String
+    let hard: Bool
+    let succeeded: Bool
+    let failedStage: AccountDeletionCleanupStage?
+    let errorDescription: String?
+    let storageInvokedOnMainThread: Bool?
+
+    static func success(
+        jid: String,
+        hard: Bool,
+        storageInvokedOnMainThread: Bool
+    ) -> AccountDeletionCleanupResult {
+        AccountDeletionCleanupResult(
+            jid: jid,
+            hard: hard,
+            succeeded: true,
+            failedStage: nil,
+            errorDescription: nil,
+            storageInvokedOnMainThread: storageInvokedOnMainThread
+        )
+    }
+
+    static func failure(
+        jid: String,
+        hard: Bool,
+        failedStage: AccountDeletionCleanupStage,
+        error: Error,
+        storageInvokedOnMainThread: Bool?
+    ) -> AccountDeletionCleanupResult {
+        AccountDeletionCleanupResult(
+            jid: jid,
+            hard: hard,
+            succeeded: false,
+            failedStage: failedStage,
+            errorDescription: Self.errorDescription(from: error),
+            storageInvokedOnMainThread: storageInvokedOnMainThread
+        )
+    }
+
+    private static func errorDescription(from error: Error) -> String {
+        if let localized = error as? LocalizedError,
+           let description = localized.errorDescription {
+            return description
+        }
+        return error.localizedDescription
+    }
+}
+
+struct AccountDeletionCleanupOperations {
+    let preRealmCleanup: () throws -> Void
+    let storageCleanup: () throws -> Void
+    let postCleanup: () throws -> Void
+}
+
+final class AccountDeletionCleanupCoordinator {
+    typealias Queue = (@escaping () -> Void) -> Void
+
+    private static let defaultStorageQueue = DispatchQueue(
+        label: "com.xabber.account-deletion.storage",
+        qos: .userInitiated
+    )
+
+    private let storageQueue: Queue
+    private let completionQueue: Queue
+
+    init(
+        storageQueue: @escaping Queue = { work in
+            AccountDeletionCleanupCoordinator.defaultStorageQueue.async(execute: work)
+        },
+        completionQueue: @escaping Queue = { work in
+            DispatchQueue.main.async(execute: work)
+        }
+    ) {
+        self.storageQueue = storageQueue
+        self.completionQueue = completionQueue
+    }
+
+    func runSynchronously(
+        jid: String,
+        hard: Bool,
+        operations: AccountDeletionCleanupOperations
+    ) -> AccountDeletionCleanupResult {
+        do {
+            try operations.preRealmCleanup()
+        } catch {
+            return .failure(
+                jid: jid,
+                hard: hard,
+                failedStage: .preRealmCleanup,
+                error: error,
+                storageInvokedOnMainThread: nil
+            )
+        }
+
+        let storageInvokedOnMainThread = Thread.isMainThread
+        do {
+            try operations.storageCleanup()
+        } catch {
+            return .failure(
+                jid: jid,
+                hard: hard,
+                failedStage: .storageCleanup,
+                error: error,
+                storageInvokedOnMainThread: storageInvokedOnMainThread
+            )
+        }
+
+        do {
+            try operations.postCleanup()
+        } catch {
+            return .failure(
+                jid: jid,
+                hard: hard,
+                failedStage: .postCleanup,
+                error: error,
+                storageInvokedOnMainThread: storageInvokedOnMainThread
+            )
+        }
+
+        return .success(
+            jid: jid,
+            hard: hard,
+            storageInvokedOnMainThread: storageInvokedOnMainThread
+        )
+    }
+
+    func runAsync(
+        jid: String,
+        hard: Bool,
+        operations: AccountDeletionCleanupOperations,
+        completion: @escaping (AccountDeletionCleanupResult) -> Void
+    ) {
+        do {
+            try operations.preRealmCleanup()
+        } catch {
+            completionQueue {
+                completion(
+                    .failure(
+                        jid: jid,
+                        hard: hard,
+                        failedStage: .preRealmCleanup,
+                        error: error,
+                        storageInvokedOnMainThread: nil
+                    )
+                )
+            }
+            return
+        }
+
+        storageQueue { [completionQueue] in
+            let storageInvokedOnMainThread = Thread.isMainThread
+            do {
+                try operations.storageCleanup()
+            } catch {
+                completionQueue {
+                    completion(
+                        .failure(
+                            jid: jid,
+                            hard: hard,
+                            failedStage: .storageCleanup,
+                            error: error,
+                            storageInvokedOnMainThread: storageInvokedOnMainThread
+                        )
+                    )
+                }
+                return
+            }
+
+            completionQueue {
+                do {
+                    try operations.postCleanup()
+                } catch {
+                    completion(
+                        .failure(
+                            jid: jid,
+                            hard: hard,
+                            failedStage: .postCleanup,
+                            error: error,
+                            storageInvokedOnMainThread: storageInvokedOnMainThread
+                        )
+                    )
+                    return
+                }
+
+                completion(
+                    .success(
+                        jid: jid,
+                        hard: hard,
+                        storageInvokedOnMainThread: storageInvokedOnMainThread
+                    )
+                )
+            }
+        }
+    }
+}
+
+enum AccountDeletionStorageCleanupKind: Equatable {
+    case account
+    case vCards
+    case messages
+    case presence
+    case deviceSessionCredentials
+    case groupchats
+    case recentChats
+    case clientSynchronization
+    case blocks
+    case serverDiscovery
+    case roster
+    case messageDeletes
+    case reliableDelivery
+    case omemo
+    case certificates
+    case notifications
+    case favorites
+    case authenticatedKeyExchange
+    case subscriptions
+
+    static var defaultOrder: [AccountDeletionStorageCleanupKind] {
+        AccountDeletionStorageCleanupStep.defaultSteps.map(\.kind)
+    }
+}
+
+struct AccountDeletionStorageCleanupStep {
+    let kind: AccountDeletionStorageCleanupKind
+    let perform: (_ jid: String) -> Void
+
+    static let defaultSteps: [AccountDeletionStorageCleanupStep] = [
+        AccountDeletionStorageCleanupStep(kind: .account) {
+            Account.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .vCards) {
+            VCardManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .messages) {
+            MessageManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .presence) {
+            PresenceManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .deviceSessionCredentials) {
+            XTokenManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .groupchats) {
+            GroupchatManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .recentChats) {
+            LastChats.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .clientSynchronization) {
+            ClientSynchronizationManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .blocks) {
+            BlockManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .serverDiscovery) {
+            ServerDiscoManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .roster) {
+            RosterManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .messageDeletes) {
+            MessageDeleteManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .reliableDelivery) {
+            ReliableMessageDeliveryManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .omemo) {
+            OmemoManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .certificates) {
+            X509XMPPManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .notifications) {
+            XMPPNotificationsManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .favorites) {
+            XMPPFavoritesManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .authenticatedKeyExchange) {
+            AuthenticatedKeyExchangeManager.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .subscriptions) {
+            SubscribtionsManager.shared.remove(for: $0, commitTransaction: false)
+        }
+    ]
 }
 
 struct AccountDeletionDiagnosticsEvent {
@@ -41,6 +348,35 @@ struct AccountDeletionDiagnosticsEvent {
     let preRealmCleanupMs: Int?
     let realmWriteMs: Int?
     let postCleanupMs: Int?
+    let succeeded: Bool?
+    let failedStage: AccountDeletionCleanupStage?
+    let storageInvokedOnMainThread: Bool?
+
+    init(
+        name: AccountDeletionDiagnosticsEventName,
+        jid: String,
+        hard: Bool,
+        invokedOnMainThread: Bool,
+        totalDurationMs: Int?,
+        preRealmCleanupMs: Int?,
+        realmWriteMs: Int?,
+        postCleanupMs: Int?,
+        succeeded: Bool? = nil,
+        failedStage: AccountDeletionCleanupStage? = nil,
+        storageInvokedOnMainThread: Bool? = nil
+    ) {
+        self.name = name
+        self.jid = jid
+        self.hard = hard
+        self.invokedOnMainThread = invokedOnMainThread
+        self.totalDurationMs = totalDurationMs
+        self.preRealmCleanupMs = preRealmCleanupMs
+        self.realmWriteMs = realmWriteMs
+        self.postCleanupMs = postCleanupMs
+        self.succeeded = succeeded
+        self.failedStage = failedStage
+        self.storageInvokedOnMainThread = storageInvokedOnMainThread
+    }
 
     func diagnosticLine() -> String {
         ConnectionDiagnosticsLogger.line(
@@ -62,11 +398,14 @@ struct AccountDeletionDiagnosticsEvent {
 
     private var details: [String: Any?] {
         [
+            "failedStage": failedStage?.rawValue,
             "hard": hard,
             "invokedOnMainThread": invokedOnMainThread,
             "postCleanupMs": postCleanupMs,
             "preRealmCleanupMs": preRealmCleanupMs,
             "realmWriteMs": realmWriteMs,
+            "storageInvokedOnMainThread": storageInvokedOnMainThread,
+            "succeeded": succeeded,
             "totalDurationMs": totalDurationMs
         ]
     }
@@ -138,6 +477,7 @@ struct AccountDeletionDiagnosticsSession {
     private var lastStageAt: TimeInterval
     private var preRealmCleanupMs: Int?
     private var realmWriteMs: Int?
+    private var storageInvokedOnMainThread: Bool?
     private var didFinish: Bool = false
 
     init(
@@ -162,10 +502,11 @@ struct AccountDeletionDiagnosticsSession {
         lastStageAt = now
     }
 
-    mutating func markRealmWriteFinished() {
+    mutating func markRealmWriteFinished(invokedOnMainThread: Bool = Thread.isMainThread) {
         guard !didFinish else { return }
         let now = recorder.now()
         realmWriteMs = Self.milliseconds(from: now - lastStageAt)
+        storageInvokedOnMainThread = invokedOnMainThread
         lastStageAt = now
     }
 
@@ -182,13 +523,67 @@ struct AccountDeletionDiagnosticsSession {
                 totalDurationMs: Self.milliseconds(from: now - startedAt),
                 preRealmCleanupMs: preRealmCleanupMs,
                 realmWriteMs: realmWriteMs,
-                postCleanupMs: Self.milliseconds(from: now - lastStageAt)
+                postCleanupMs: Self.milliseconds(from: now - lastStageAt),
+                succeeded: true,
+                storageInvokedOnMainThread: storageInvokedOnMainThread
+            )
+        )
+    }
+
+    mutating func fail(stage: AccountDeletionCleanupStage) {
+        guard !didFinish else { return }
+        didFinish = true
+        let now = recorder.now()
+        recorder.emit(
+            AccountDeletionDiagnosticsEvent(
+                name: .failed,
+                jid: jid,
+                hard: hard,
+                invokedOnMainThread: invokedOnMainThread,
+                totalDurationMs: Self.milliseconds(from: now - startedAt),
+                preRealmCleanupMs: preRealmCleanupMs,
+                realmWriteMs: realmWriteMs,
+                postCleanupMs: Self.milliseconds(from: now - lastStageAt),
+                succeeded: false,
+                failedStage: stage,
+                storageInvokedOnMainThread: storageInvokedOnMainThread
             )
         )
     }
 
     private static func milliseconds(from seconds: TimeInterval) -> Int {
         Int((max(0, seconds) * 1000).rounded())
+    }
+}
+
+private final class AccountDeletionDiagnosticsSessionBox {
+    private let lock = NSLock()
+    private var session: AccountDeletionDiagnosticsSession
+
+    init(session: AccountDeletionDiagnosticsSession) {
+        self.session = session
+    }
+
+    func markPreRealmCleanupFinished() {
+        update { $0.markPreRealmCleanupFinished() }
+    }
+
+    func markRealmWriteFinished(invokedOnMainThread: Bool) {
+        update { $0.markRealmWriteFinished(invokedOnMainThread: invokedOnMainThread) }
+    }
+
+    func finish() {
+        update { $0.finish() }
+    }
+
+    func fail(stage: AccountDeletionCleanupStage) {
+        update { $0.fail(stage: stage) }
+    }
+
+    private func update(_ body: (inout AccountDeletionDiagnosticsSession) -> Void) {
+        lock.lock()
+        body(&session)
+        lock.unlock()
     }
 }
 
@@ -562,11 +957,72 @@ public class AccountManager: NSObject {
         }
     }
     
-    func deleteAccount(by jid: String, hard: Bool = true) {
-        var diagnosticsSession = accountDeletionDiagnosticsRecorder.begin(jid: jid, hard: hard)
-        
+    @discardableResult
+    func deleteAccount(by jid: String, hard: Bool = true) -> AccountDeletionCleanupResult {
+        let diagnosticsSession = AccountDeletionDiagnosticsSessionBox(
+            session: accountDeletionDiagnosticsRecorder.begin(jid: jid, hard: hard)
+        )
+        let result = AccountDeletionCleanupCoordinator().runSynchronously(
+            jid: jid,
+            hard: hard,
+            operations: accountDeletionCleanupOperations(
+                jid: jid,
+                hard: hard,
+                diagnosticsSession: diagnosticsSession
+            )
+        )
+        finishAccountDeletion(result, diagnosticsSession: diagnosticsSession)
+        return result
+    }
+
+    func deleteAccountAsync(
+        by jid: String,
+        hard: Bool = true,
+        completion: @escaping (AccountDeletionCleanupResult) -> Void
+    ) {
+        let diagnosticsSession = AccountDeletionDiagnosticsSessionBox(
+            session: accountDeletionDiagnosticsRecorder.begin(jid: jid, hard: hard)
+        )
+        AccountDeletionCleanupCoordinator().runAsync(
+            jid: jid,
+            hard: hard,
+            operations: accountDeletionCleanupOperations(
+                jid: jid,
+                hard: hard,
+                diagnosticsSession: diagnosticsSession
+            )
+        ) { [weak self] result in
+            self?.finishAccountDeletion(result, diagnosticsSession: diagnosticsSession)
+            completion(result)
+        }
+    }
+
+    private func accountDeletionCleanupOperations(
+        jid: String,
+        hard: Bool,
+        diagnosticsSession: AccountDeletionDiagnosticsSessionBox
+    ) -> AccountDeletionCleanupOperations {
+        AccountDeletionCleanupOperations(
+            preRealmCleanup: {
+                self.performPreRealmAccountDeletionCleanup(jid: jid, hard: hard)
+                diagnosticsSession.markPreRealmCleanupFinished()
+            },
+            storageCleanup: {
+                try self.performStorageAccountDeletionCleanup(jid: jid)
+                diagnosticsSession.markRealmWriteFinished(invokedOnMainThread: Thread.isMainThread)
+            },
+            postCleanup: {
+                self.performPostRealmAccountDeletionCleanup(jid: jid)
+            }
+        )
+    }
+
+    private func performPreRealmAccountDeletionCleanup(jid: String, hard: Bool) {
         if XMPPUIActionManager.shared.currentJid == jid {
-            XMPPUIActionManager.shared.close(soft: !hard, disconnect: true)
+            XMPPUIActionManager.shared.close(
+                soft: AccountDeletionUIActionClosePolicy.closeSoftFlag(hard: hard),
+                disconnect: true
+            )
             XMPPUIActionManager.shared.currentJid = nil
         }
         self.xmppBackgroundTasks.filter { $0.jid == jid }.forEach {
@@ -595,7 +1051,9 @@ public class AccountManager: NSObject {
         SignatureManager.shared.clear()
         CredentialsManager.shared.clearSignature()
         ApplicationStateManager.shared.clearApplicationBlockedState()
-        if !CommonConfigManager.shared.config.supports_multiaccounts {
+        if AccountDeletionCredentialCleanupPolicy.shouldClearSharedKeychain(
+            supportsMultiaccounts: CommonConfigManager.shared.config.supports_multiaccounts
+        ) {
             CredentialsManager.shared.clearKeyachain()
         }
         
@@ -604,47 +1062,47 @@ public class AccountManager: NSObject {
         }
         
         CommonContactsMetadataManager.shared.clear(for: jid)
-        diagnosticsSession.markPreRealmCleanupFinished()
-        
-        do {
-            if let index = users.firstIndex(where: { $0.jid == jid }) {
-                autoreleasepool { () -> Void in
-                    users.remove(at: index)
-                }
-                
-            }
-            let realm = try WRealm.safe()
-            try autoreleasepool {
-                try realm.write {
-                    Account.remove(for: jid, commitTransaction: false)
-                    VCardManager.remove(for: jid, commitTransaction: false)
-                    MessageManager.remove(for: jid, commitTransaction: false)
-                    PresenceManager.remove(for: jid, commitTransaction: false)
-                    XTokenManager.remove(for: jid, commitTransaction: false)
-                    GroupchatManager.remove(for: jid, commitTransaction: false)
-                    LastChats.remove(for: jid, commitTransaction: false)
-                    ClientSynchronizationManager.remove(for: jid, commitTransaction: false)
-                    BlockManager.remove(for: jid, commitTransaction: false)
-                    ServerDiscoManager.remove(for: jid, commitTransaction: false)
-                    RosterManager.remove(for: jid, commitTransaction: false)
-                    MessageDeleteManager.remove(for: jid, commitTransaction: false)
-                    ReliableMessageDeliveryManager.remove(for: jid, commitTransaction: false)
-                    OmemoManager.remove(for: jid, commitTransaction: false)
-                    X509XMPPManager.remove(for: jid, commitTransaction: false)
-                    XMPPNotificationsManager.remove(for: jid, commitTransaction: false)
-                    XMPPFavoritesManager.remove(for: jid, commitTransaction: false)
-                    AuthenticatedKeyExchangeManager.remove(for: jid, commitTransaction: false)
-                    SubscribtionsManager.shared.remove(for: jid, commitTransaction: false)
+    }
+
+    private func performStorageAccountDeletionCleanup(jid: String) throws {
+        let realm = try WRealm.safe()
+        try autoreleasepool {
+            try realm.write {
+                AccountDeletionStorageCleanupStep.defaultSteps.forEach { step in
+                    step.perform(jid)
                 }
             }
-        } catch {
-            DDLogDebug("AccountManager: \(#function). \(error.localizedDescription)")
         }
-        diagnosticsSession.markRealmWriteFinished()
+    }
+
+    private func performPostRealmAccountDeletionCleanup(jid: String) {
+        removeAccountFromMemory(jid: jid)
         if let index = ApplicationStateManager.shared.expiredTokenAccountsList.firstIndex(where: { $0.jid == jid }) {
             ApplicationStateManager.shared.expiredTokenAccountsList.remove(at: index)
         }
-        diagnosticsSession.finish()
+    }
+
+    private func removeAccountFromMemory(jid: String) {
+        if let index = users.firstIndex(where: { $0.jid == jid }) {
+            autoreleasepool { () -> Void in
+                users.remove(at: index)
+            }
+        }
+    }
+
+    private func finishAccountDeletion(
+        _ result: AccountDeletionCleanupResult,
+        diagnosticsSession: AccountDeletionDiagnosticsSessionBox
+    ) {
+        if result.succeeded {
+            diagnosticsSession.finish()
+            return
+        }
+
+        if let failedStage = result.failedStage {
+            diagnosticsSession.fail(stage: failedStage)
+        }
+        DDLogDebug("AccountManager: deleteAccount failed for \(result.jid) at \(result.failedStage?.rawValue ?? "unknown")")
 //        ApplicationStateManager.shared.expiredTokenAccountsList.remove(jid)
     }
     

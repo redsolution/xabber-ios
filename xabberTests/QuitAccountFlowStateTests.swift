@@ -92,4 +92,39 @@ final class QuitAccountFlowStateTests: XCTestCase {
         XCTAssertTrue(controller.refreshControl.isEnabled)
         XCTAssertFalse(controller.isAccountQuitProgressVisible)
     }
+
+    @MainActor
+    func testProgressStateClearsOnlyAfterAsyncCleanupCompletion() {
+        let controller = DevicesListViewController()
+        controller.loadViewIfNeeded()
+        controller.configure(for: "cleanup@example.test")
+
+        var capturedCompletion: ((AccountDeletionCleanupResult) -> Void)?
+        controller.accountQuitDeletionHandler = { _, completion in
+            capturedCompletion = completion
+        }
+        controller.accountQuitRemainingAccountsProvider = {
+            true
+        }
+
+        XCTAssertTrue(controller.beginConfirmedQuitAccountCleanup())
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertTrue(controller.isAccountQuitProgressVisible)
+        XCTAssertFalse(controller.accountQuitFlow.canStartQuit)
+
+        capturedCompletion?(
+            AccountDeletionCleanupResult(
+                jid: "cleanup@example.test",
+                hard: true,
+                succeeded: true,
+                failedStage: nil,
+                errorDescription: nil,
+                storageInvokedOnMainThread: false
+            )
+        )
+
+        XCTAssertFalse(controller.isAccountQuitProgressVisible)
+        XCTAssertTrue(controller.accountQuitFlow.canStartQuit)
+    }
 }

@@ -227,6 +227,8 @@ class DevicesListViewController: BaseViewController {
     internal var activeVerificationSessionSid: String? = nil
     var isVerificationRequired: Bool = false
     internal var accountQuitFlow = QuitAccountCleanupFlowState()
+    internal var accountQuitDeletionHandler: AccountQuitDeletionHandler?
+    internal var accountQuitRemainingAccountsProvider: (() -> Bool)?
     internal private(set) var accountQuitProgressView: UIView?
     
     internal let tableView: UITableView = {

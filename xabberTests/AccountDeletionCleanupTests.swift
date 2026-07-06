@@ -88,6 +88,49 @@ final class AccountDeletionCleanupTests: XCTestCase {
         XCTAssertEqual(events.map(\.hard), [false, false])
     }
 
+    func testDiagnosticsRecordFailureStageAndStorageThread() {
+        var clock = FakeAccountDeletionClock(times: [1, 2, 5, 6])
+        var events: [AccountDeletionDiagnosticsEvent] = []
+        let recorder = AccountDeletionDiagnosticsRecorder(
+            clock: { clock.next() },
+            sink: { events.append($0) }
+        )
+
+        var session = recorder.begin(
+            jid: "failed-delete@example.com",
+            hard: true,
+            invokedOnMainThread: true
+        )
+        session.markPreRealmCleanupFinished()
+        session.markRealmWriteFinished(invokedOnMainThread: false)
+        session.fail(stage: .storageCleanup)
+
+        XCTAssertEqual(events.map(\.name), [.started, .failed])
+        XCTAssertEqual(events.last?.succeeded, false)
+        XCTAssertEqual(events.last?.failedStage, .storageCleanup)
+        XCTAssertEqual(events.last?.storageInvokedOnMainThread, false)
+        XCTAssertEqual(events.last?.preRealmCleanupMs, 1000)
+        XCTAssertEqual(events.last?.realmWriteMs, 3000)
+    }
+
+    func testHardFalseKeepsSoftClosePolicy() {
+        XCTAssertTrue(AccountDeletionUIActionClosePolicy.closeSoftFlag(hard: false))
+        XCTAssertFalse(AccountDeletionUIActionClosePolicy.closeSoftFlag(hard: true))
+    }
+
+    func testMultiAccountCredentialClearingPolicyIsPreserved() {
+        XCTAssertFalse(
+            AccountDeletionCredentialCleanupPolicy.shouldClearSharedKeychain(
+                supportsMultiaccounts: true
+            )
+        )
+        XCTAssertTrue(
+            AccountDeletionCredentialCleanupPolicy.shouldClearSharedKeychain(
+                supportsMultiaccounts: false
+            )
+        )
+    }
+
     func testDiagnosticLineDoesNotExposeSecretMaterial() {
         let event = AccountDeletionDiagnosticsEvent(
             name: .finished,
