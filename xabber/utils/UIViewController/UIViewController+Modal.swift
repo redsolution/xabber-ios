@@ -9,6 +9,7 @@
 import Foundation
 import UIKit
 import CocoaLumberjack
+import ObjectiveC
 
 enum StackedNavigationRoute: Equatable {
     case currentNavigationPush
@@ -147,6 +148,151 @@ protocol StackedNavigationPresentationPreparing: AnyObject {
     func prepareForStackedNavigationPresentation(targetBounds: CGRect?)
 }
 
+struct ModalPresentationCurrentControllerAccess {
+    let get: () -> UIViewController?
+    let set: (UIViewController?) -> Void
+
+    static var application: ModalPresentationCurrentControllerAccess {
+        ModalPresentationCurrentControllerAccess(
+            get: {
+                AppRootCoordinator.active?.currentPresentedVc
+                    ?? (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc
+            },
+            set: { viewController in
+                if let coordinator = AppRootCoordinator.active {
+                    coordinator.currentPresentedVc = viewController
+                }
+                (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc = viewController
+            }
+        )
+    }
+}
+
+final class ModalPresentationContainmentController: NSObject, UIAdaptivePresentationControllerDelegate {
+    private weak var presentingView: UIView?
+    private weak var navigationController: UINavigationController?
+    private weak var rootViewController: UIViewController?
+    private weak var presentedContentViewController: UIViewController?
+    private weak var forwardedDelegate: UIAdaptivePresentationControllerDelegate?
+    private let currentControllerAccess: ModalPresentationCurrentControllerAccess
+
+    private var previousPresentingAccessibilityElementsHidden = false
+    private var previousNavigationAccessibilityViewIsModal = false
+    private var previousRootAccessibilityViewIsModal = false
+    private var isActive = false
+    private var didRestore = false
+
+    init(
+        presentingView: UIView,
+        navigationController: UINavigationController,
+        rootViewController: UIViewController,
+        presentedContentViewController: UIViewController,
+        forwardedDelegate: UIAdaptivePresentationControllerDelegate?,
+        currentControllerAccess: ModalPresentationCurrentControllerAccess = .application
+    ) {
+        self.presentingView = presentingView
+        self.navigationController = navigationController
+        self.rootViewController = rootViewController
+        self.presentedContentViewController = presentedContentViewController
+        self.forwardedDelegate = forwardedDelegate
+        self.currentControllerAccess = currentControllerAccess
+        super.init()
+    }
+
+    deinit {
+        restoreIfNeeded()
+    }
+
+    func activate() {
+        guard !isActive else {
+            return
+        }
+        isActive = true
+
+        if let presentingView {
+            previousPresentingAccessibilityElementsHidden = presentingView.accessibilityElementsHidden
+            presentingView.accessibilityElementsHidden = true
+        }
+
+        if let navigationView = navigationController?.view {
+            previousNavigationAccessibilityViewIsModal = navigationView.accessibilityViewIsModal
+            navigationView.accessibilityViewIsModal = true
+        }
+
+        if let rootView = rootViewController?.view {
+            previousRootAccessibilityViewIsModal = rootView.accessibilityViewIsModal
+            rootView.accessibilityViewIsModal = true
+        }
+    }
+
+    func presentationDidComplete() {
+        let focusTarget = rootViewController?.viewIfLoaded ?? navigationController?.viewIfLoaded
+        UIAccessibility.post(notification: .screenChanged, argument: focusTarget)
+    }
+
+    func restoreIfNeeded() {
+        guard !didRestore else {
+            return
+        }
+        didRestore = true
+
+        presentingView?.accessibilityElementsHidden = previousPresentingAccessibilityElementsHidden
+        navigationController?.viewIfLoaded?.accessibilityViewIsModal = previousNavigationAccessibilityViewIsModal
+        rootViewController?.viewIfLoaded?.accessibilityViewIsModal = previousRootAccessibilityViewIsModal
+
+        if let presentedContentViewController,
+           currentControllerAccess.get() === presentedContentViewController {
+            currentControllerAccess.set(nil)
+        }
+    }
+
+    func presentationControllerShouldDismiss(_ presentationController: UIPresentationController) -> Bool {
+        forwardedDelegate?.presentationControllerShouldDismiss?(presentationController) ?? true
+    }
+
+    func presentationControllerWillDismiss(_ presentationController: UIPresentationController) {
+        forwardedDelegate?.presentationControllerWillDismiss?(presentationController)
+    }
+
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        restoreIfNeeded()
+        forwardedDelegate?.presentationControllerDidDismiss?(presentationController)
+    }
+
+    func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
+        forwardedDelegate?.presentationControllerDidAttemptToDismiss?(presentationController)
+    }
+
+    static func install(
+        on navigationController: UINavigationController,
+        rootViewController: UIViewController,
+        presentingViewController: UIViewController,
+        presentedContentViewController: UIViewController,
+        forwardedDelegate: UIAdaptivePresentationControllerDelegate?,
+        currentControllerAccess: ModalPresentationCurrentControllerAccess = .application
+    ) -> ModalPresentationContainmentController {
+        let controller = ModalPresentationContainmentController(
+            presentingView: presentingViewController.view,
+            navigationController: navigationController,
+            rootViewController: rootViewController,
+            presentedContentViewController: presentedContentViewController,
+            forwardedDelegate: forwardedDelegate,
+            currentControllerAccess: currentControllerAccess
+        )
+        controller.activate()
+        navigationController.presentationController?.delegate = controller
+        objc_setAssociatedObject(
+            navigationController,
+            &modalPresentationContainmentControllerKey,
+            controller,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+        return controller
+    }
+}
+
+private var modalPresentationContainmentControllerKey: UInt8 = 0
+
 @discardableResult
 func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil, replaceParent: Bool = true) -> Bool {
     var parent: UIViewController? = parentVc
@@ -164,9 +310,9 @@ func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil,
         return false
     }
     
+    let currentControllerAccess = ModalPresentationCurrentControllerAccess.application
     if replaceParent {
-        AppRootCoordinator.active?.currentPresentedVc = vc
-        (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc = vc
+        currentControllerAccess.set(vc)
     }
 //    }
     let nvc = UINavigationController(rootViewController: vc)
@@ -185,10 +331,23 @@ func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil,
     }
     
     parent.definesPresentationContext = true
+    let presentingViewController = parent.presentedViewController ?? parent
+    let containmentController = ModalPresentationContainmentController.install(
+        on: nvc,
+        rootViewController: vc,
+        presentingViewController: presentingViewController,
+        presentedContentViewController: vc,
+        forwardedDelegate: parentVc as? UIAdaptivePresentationControllerDelegate,
+        currentControllerAccess: currentControllerAccess
+    )
     if let presentedViewController = parent.presentedViewController {
-        presentedViewController.present(nvc, animated: true)
+        presentedViewController.present(nvc, animated: true) {
+            containmentController.presentationDidComplete()
+        }
     } else {
-        parent.present(nvc, animated: true, completion: nil)
+        parent.present(nvc, animated: true) {
+            containmentController.presentationDidComplete()
+        }
     }
     return true
 }

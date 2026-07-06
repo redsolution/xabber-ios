@@ -1134,6 +1134,182 @@ final class CreateNewEntityBotTests: XCTestCase {
     }
 }
 
+@MainActor
+final class ModalPresentationContainmentTests: XCTestCase {
+    func testActivateHidesPresenterAndMarksPresentedViewsAsModal() {
+        let presenter = UIViewController()
+        let root = UIViewController()
+        let navigationController = UINavigationController(rootViewController: root)
+        presenter.loadViewIfNeeded()
+        navigationController.loadViewIfNeeded()
+        root.loadViewIfNeeded()
+
+        let containment = makeContainment(
+            presenter: presenter,
+            navigationController: navigationController,
+            root: root
+        )
+
+        containment.activate()
+
+        XCTAssertTrue(presenter.view.accessibilityElementsHidden)
+        XCTAssertTrue(navigationController.view.accessibilityViewIsModal)
+        XCTAssertTrue(root.view.accessibilityViewIsModal)
+    }
+
+    func testRestoreReturnsAccessibilityStateToPreviousValues() {
+        let presenter = UIViewController()
+        let root = UIViewController()
+        let navigationController = UINavigationController(rootViewController: root)
+        presenter.loadViewIfNeeded()
+        navigationController.loadViewIfNeeded()
+        root.loadViewIfNeeded()
+
+        presenter.view.accessibilityElementsHidden = true
+        navigationController.view.accessibilityViewIsModal = true
+        root.view.accessibilityViewIsModal = true
+
+        let containment = makeContainment(
+            presenter: presenter,
+            navigationController: navigationController,
+            root: root
+        )
+
+        containment.activate()
+        containment.restoreIfNeeded()
+
+        XCTAssertTrue(presenter.view.accessibilityElementsHidden)
+        XCTAssertTrue(navigationController.view.accessibilityViewIsModal)
+        XCTAssertTrue(root.view.accessibilityViewIsModal)
+    }
+
+    func testRestoreClearsCurrentPresentedControllerOnlyForDismissedController() {
+        let presenter = UIViewController()
+        let root = UIViewController()
+        let navigationController = UINavigationController(rootViewController: root)
+        var currentPresented: UIViewController? = root
+
+        let containment = makeContainment(
+            presenter: presenter,
+            navigationController: navigationController,
+            root: root,
+            currentPresented: { currentPresented },
+            setCurrentPresented: { currentPresented = $0 }
+        )
+
+        containment.activate()
+        containment.restoreIfNeeded()
+
+        XCTAssertNil(currentPresented)
+
+        let other = UIViewController()
+        currentPresented = other
+        let secondContainment = makeContainment(
+            presenter: presenter,
+            navigationController: navigationController,
+            root: root,
+            currentPresented: { currentPresented },
+            setCurrentPresented: { currentPresented = $0 }
+        )
+
+        secondContainment.activate()
+        secondContainment.restoreIfNeeded()
+
+        XCTAssertTrue(currentPresented === other)
+    }
+
+    func testDeinitRestoresAccessibilityStateForProgrammaticDismissFallback() {
+        let presenter = UIViewController()
+        let root = UIViewController()
+        let navigationController = UINavigationController(rootViewController: root)
+        presenter.loadViewIfNeeded()
+        navigationController.loadViewIfNeeded()
+        root.loadViewIfNeeded()
+
+        var containment: ModalPresentationContainmentController? = makeContainment(
+            presenter: presenter,
+            navigationController: navigationController,
+            root: root
+        )
+
+        containment?.activate()
+        XCTAssertTrue(presenter.view.accessibilityElementsHidden)
+        XCTAssertTrue(navigationController.view.accessibilityViewIsModal)
+        XCTAssertTrue(root.view.accessibilityViewIsModal)
+
+        containment = nil
+
+        XCTAssertFalse(presenter.view.accessibilityElementsHidden)
+        XCTAssertFalse(navigationController.view.accessibilityViewIsModal)
+        XCTAssertFalse(root.view.accessibilityViewIsModal)
+    }
+
+    func testForwardedAdaptivePresentationDelegateReceivesDismissCallbacks() {
+        let presenter = UIViewController()
+        let root = UIViewController()
+        let navigationController = UINavigationController(rootViewController: root)
+        let forwardedDelegate = RecordingAdaptivePresentationDelegate()
+        forwardedDelegate.shouldDismissResult = false
+
+        let containment = makeContainment(
+            presenter: presenter,
+            navigationController: navigationController,
+            root: root,
+            forwardedDelegate: forwardedDelegate
+        )
+        let presentationController = UIPresentationController(
+            presentedViewController: navigationController,
+            presenting: presenter
+        )
+
+        containment.activate()
+
+        XCTAssertFalse(containment.presentationControllerShouldDismiss(presentationController))
+
+        containment.presentationControllerDidDismiss(presentationController)
+
+        XCTAssertEqual(forwardedDelegate.didDismissCount, 1)
+        XCTAssertEqual(forwardedDelegate.shouldDismissCount, 1)
+        XCTAssertFalse(presenter.view.accessibilityElementsHidden)
+    }
+
+    private func makeContainment(
+        presenter: UIViewController,
+        navigationController: UINavigationController,
+        root: UIViewController,
+        forwardedDelegate: UIAdaptivePresentationControllerDelegate? = nil,
+        currentPresented: @escaping () -> UIViewController? = { nil },
+        setCurrentPresented: @escaping (UIViewController?) -> Void = { _ in }
+    ) -> ModalPresentationContainmentController {
+        ModalPresentationContainmentController(
+            presentingView: presenter.view,
+            navigationController: navigationController,
+            rootViewController: root,
+            presentedContentViewController: root,
+            forwardedDelegate: forwardedDelegate,
+            currentControllerAccess: ModalPresentationCurrentControllerAccess(
+                get: currentPresented,
+                set: setCurrentPresented
+            )
+        )
+    }
+
+    private final class RecordingAdaptivePresentationDelegate: NSObject, UIAdaptivePresentationControllerDelegate {
+        var didDismissCount = 0
+        var shouldDismissCount = 0
+        var shouldDismissResult = true
+
+        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+            didDismissCount += 1
+        }
+
+        func presentationControllerShouldDismiss(_ presentationController: UIPresentationController) -> Bool {
+            shouldDismissCount += 1
+            return shouldDismissResult
+        }
+    }
+}
+
 final class EULAAcceptanceTests: XCTestCase {
     private func makeDefaults(file: StaticString = #filePath, line: UInt = #line) throws -> (UserDefaults, String) {
         let suiteName = "xabber.eula.tests.\(UUID().uuidString)"
