@@ -5460,6 +5460,73 @@ final class AccountStreamLifecycleGateTests: XCTestCase {
     }
 }
 
+final class VCardLazyLoadScheduleStateTests: XCTestCase {
+    func testConcurrentReservationsDeduplicateMissingJids() {
+        let state = VCardLazyLoadScheduleState()
+        let rosterJids = Set((0..<100).map { "user\($0)@example.com" })
+        let storedVCardJids = Set((0..<10).map { "user\($0)@example.com" })
+        let expectedJids = rosterJids.subtracting(storedVCardJids)
+        let queue = DispatchQueue.global(qos: .userInitiated)
+        let group = DispatchGroup()
+        let resultLock = NSLock()
+        var reservedJids: [String] = []
+
+        for _ in 0..<50 {
+            group.enter()
+            queue.async {
+                let reserved = state.reserveMissingJids(
+                    rosterJids: rosterJids,
+                    storedVCardJids: storedVCardJids
+                )
+                resultLock.lock()
+                reservedJids.append(contentsOf: reserved)
+                resultLock.unlock()
+                group.leave()
+            }
+        }
+
+        XCTAssertEqual(group.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(Set(reservedJids), expectedJids)
+        XCTAssertEqual(reservedJids.count, expectedJids.count)
+        expectedJids.forEach { jid in
+            XCTAssertTrue(state.contains(jid))
+        }
+    }
+
+    func testReleaseAllowsMissingJidToBeReservedAgain() {
+        let state = VCardLazyLoadScheduleState()
+        let rosterJids: Set<String> = ["alice@example.com"]
+        let storedVCardJids = Set<String>()
+
+        XCTAssertEqual(
+            state.reserveFirstMissingJid(rosterJids: rosterJids, storedVCardJids: storedVCardJids),
+            "alice@example.com"
+        )
+        XCTAssertTrue(state.contains("alice@example.com"))
+
+        state.release("alice@example.com")
+
+        XCTAssertFalse(state.contains("alice@example.com"))
+        XCTAssertEqual(
+            state.reserveFirstMissingJid(rosterJids: rosterJids, storedVCardJids: storedVCardJids),
+            "alice@example.com"
+        )
+    }
+
+    func testStoredVCardJidsAreExcludedFromReservation() {
+        let state = VCardLazyLoadScheduleState()
+        let rosterJids: Set<String> = ["alice@example.com", "bob@example.com"]
+        let storedVCardJids: Set<String> = ["bob@example.com"]
+
+        XCTAssertEqual(
+            state.reserveMissingJids(rosterJids: rosterJids, storedVCardJids: storedVCardJids),
+            ["alice@example.com"]
+        )
+        XCTAssertTrue(state.contains("alice@example.com"))
+        XCTAssertFalse(state.contains("bob@example.com"))
+    }
+}
+
 final class AccountXMPPTaskSchedulerTests: XCTestCase {
     func testRunsQueuedTasksByPriority() {
         let scheduler = AccountXMPPTaskScheduler(

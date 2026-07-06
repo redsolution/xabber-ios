@@ -23,6 +23,51 @@ import XMPPFramework
 import RealmSwift
 //import Haneke
 
+internal final class VCardLazyLoadScheduleState {
+    private let lock = NSRecursiveLock()
+    private var scheduledJids: Set<String> = Set()
+
+    func reserveMissingJids(rosterJids: Set<String>, storedVCardJids: Set<String>) -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let missingJids = rosterJids
+            .subtracting(storedVCardJids)
+            .filter { !scheduledJids.contains($0) }
+            .sorted()
+        missingJids.forEach { scheduledJids.insert($0) }
+        return missingJids
+    }
+
+    func reserveFirstMissingJid(rosterJids: Set<String>, storedVCardJids: Set<String>) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let jid = rosterJids
+            .subtracting(storedVCardJids)
+            .filter({ !scheduledJids.contains($0) })
+            .sorted()
+            .first else {
+            return nil
+        }
+        scheduledJids.insert(jid)
+        return jid
+    }
+
+    func release(_ jid: String) {
+        lock.lock()
+        scheduledJids.remove(jid)
+        lock.unlock()
+    }
+
+    func contains(_ jid: String) -> Bool {
+        lock.lock()
+        let result = scheduledJids.contains(jid)
+        lock.unlock()
+        return result
+    }
+}
+
 
 class VCardManager: AbstractXMPPManager {
     
@@ -174,24 +219,23 @@ class VCardManager: AbstractXMPPManager {
     
     var missedVCardJidsList: Set<String> = Set()
     var missedVCardLastQueryId: String? = nil
-    private var scheduledLazyVCardJids: Set<String> = Set()
+    private let lazyLoadScheduleState = VCardLazyLoadScheduleState()
     
     public final func lazyLoadMissedVCards(_ stream: XMPPStream) {
         do {
             let realm = try WRealm.safe()
             let jids = Set(realm.objects(RosterStorageItem.self).filter("owner == %@", self.owner).compactMap { $0.jid })
             let vcards = Set(realm.objects(vCardStorageItem.self).filter("owner == %@", self.owner).compactMap { $0.jid })
-            let missingJids = jids
-                .subtracting(vcards)
-                .filter { !self.scheduledLazyVCardJids.contains($0) }
-
-            guard missingJids.isNotEmpty else {
-                return
-            }
 
             if let account = AccountManager.shared.find(for: self.owner) {
+                let missingJids = lazyLoadScheduleState.reserveMissingJids(
+                    rosterJids: jids,
+                    storedVCardJids: vcards
+                )
+                guard missingJids.isNotEmpty else {
+                    return
+                }
                 missingJids.forEach { jid in
-                    self.scheduledLazyVCardJids.insert(jid)
                     account.xmppTaskScheduler.enqueueAccountTask(
                         priority: .background,
                         resource: .vcard,
@@ -203,7 +247,7 @@ class VCardManager: AbstractXMPPManager {
                             return
                         }
                         guard stream.isAuthenticated else {
-                            self.scheduledLazyVCardJids.remove(jid)
+                            self.lazyLoadScheduleState.release(jid)
                             finish()
                             return
                         }
@@ -211,8 +255,11 @@ class VCardManager: AbstractXMPPManager {
                         finish()
                     }
                 }
-            } else if stream.isAuthenticated, let jid = missingJids.first {
-                self.scheduledLazyVCardJids.insert(jid)
+            } else if stream.isAuthenticated,
+                      let jid = lazyLoadScheduleState.reserveFirstMissingJid(
+                        rosterJids: jids,
+                        storedVCardJids: vcards
+                      ) {
                 _ = self.requestItem(stream, jid: jid)
             }
         } catch {
@@ -240,7 +287,7 @@ class VCardManager: AbstractXMPPManager {
         if elementID == self.addContactVcardCheckId {
             self.addContactVcardCheckCallback?(from, iq.iqType != .error)
         }
-        self.scheduledLazyVCardJids.remove(from)
+        self.lazyLoadScheduleState.release(from)
         if elementID == self.missedVCardLastQueryId {
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                 user.vcards.continueLazyLoadMissedVCards(stream)
