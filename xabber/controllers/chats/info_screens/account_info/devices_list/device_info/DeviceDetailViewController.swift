@@ -180,7 +180,7 @@ final class DeviceDetailValueTableViewCell: UITableViewCell {
 
     private func configureInlineValueLayout() {
         stack.axis = .horizontal
-        stack.alignment = .top
+        stack.alignment = .center
         stack.spacing = 12
         titleLabel.textAlignment = .left
         titleLabel.numberOfLines = 0
@@ -222,10 +222,10 @@ final class DeviceDetailValueTableViewCell: UITableViewCell {
 
         let margins = contentView.layoutMarginsGuide
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: margins.topAnchor, constant: 4),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
             stack.leadingAnchor.constraint(equalTo: margins.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: margins.trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: margins.bottomAnchor, constant: -4),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
             contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
         ])
     }

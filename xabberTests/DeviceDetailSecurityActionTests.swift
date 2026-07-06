@@ -101,8 +101,40 @@ final class DeviceDetailSecurityActionTests: XCTestCase {
         )
 
         XCTAssertEqual(cell.stack.axis, .horizontal)
+        XCTAssertEqual(cell.stack.alignment, .center)
         XCTAssertEqual(cell.titleLabel.textAlignment, .left)
         XCTAssertEqual(cell.valueLabel.textAlignment, .right)
+    }
+
+    func testSingleLineDetailValueRowsMatchStatusRowHeight() throws {
+        let controller = makeController(datasource: [
+            [
+                DeviceDetailViewController.Datasource(
+                    title: "Client",
+                    value: "Xabber",
+                    key: "client"
+                )
+            ]
+        ])
+        let tableView = try XCTUnwrap(firstTableView(in: controller.view))
+        let valueCell = try XCTUnwrap(
+            controller.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 0, section: 0)
+            ) as? DeviceDetailValueTableViewCell
+        )
+        let statusCell = StatusInfoCell(style: .default, reuseIdentifier: StatusInfoCell.cellName)
+        statusCell.configure(
+            title: "Online",
+            status: .online,
+            entity: .contact,
+            isTemporary: false
+        )
+
+        let valueHeight = fittingHeight(for: valueCell)
+        let statusHeight = max(44, fittingHeight(for: statusCell))
+
+        XCTAssertEqual(valueHeight, statusHeight, accuracy: 0.5)
     }
 
     func testFingerprintValueUsesTwoAlignedOctetRows() throws {
