@@ -78,6 +78,77 @@ enum StackedNavigationRoutePolicy {
     }
 }
 
+enum NavigationExitAction: Equatable {
+    case dismissModal
+    case popNavigationStack
+    case revealSplitList
+    case none
+}
+
+struct NavigationExitPolicyContext: Equatable {
+    let route: StackedNavigationRoute
+    let isInsidePresentedModalNavigation: Bool
+    let canPopNavigation: Bool
+    let hasSplitViewController: Bool
+    let isSplitCollapsed: Bool
+
+    init(
+        route: StackedNavigationRoute,
+        isInsidePresentedModalNavigation: Bool,
+        canPopNavigation: Bool,
+        hasSplitViewController: Bool,
+        isSplitCollapsed: Bool
+    ) {
+        self.route = route
+        self.isInsidePresentedModalNavigation = isInsidePresentedModalNavigation
+        self.canPopNavigation = canPopNavigation
+        self.hasSplitViewController = hasSplitViewController
+        self.isSplitCollapsed = isSplitCollapsed
+    }
+
+    init(destination: UIViewController, route: StackedNavigationRoute) {
+        let navigationController = destination.navigationController
+        let splitViewController = destination.splitViewController ?? navigationController?.splitViewController
+        let destinationIndex = navigationController?.viewControllers.firstIndex { $0 === destination }
+
+        self.init(
+            route: route,
+            isInsidePresentedModalNavigation: navigationController?.presentingViewController != nil ||
+                destination.presentingViewController != nil,
+            canPopNavigation: destinationIndex.map { $0 > 0 } ?? false,
+            hasSplitViewController: splitViewController != nil,
+            isSplitCollapsed: splitViewController?.isCollapsed ?? true
+        )
+    }
+}
+
+enum NavigationExitPolicy {
+    static func action(for context: NavigationExitPolicyContext) -> NavigationExitAction {
+        if context.isInsidePresentedModalNavigation {
+            return .dismissModal
+        }
+
+        switch context.route {
+        case .splitDetailReplacement:
+            if context.hasSplitViewController {
+                return .revealSplitList
+            }
+        case .currentNavigationPush:
+            if context.canPopNavigation {
+                return .popNavigationStack
+            }
+        }
+
+        if context.canPopNavigation {
+            return .popNavigationStack
+        }
+        if context.hasSplitViewController && !context.isSplitCollapsed {
+            return .revealSplitList
+        }
+        return .none
+    }
+}
+
 enum ChatBackgroundPresentationMode: Equatable {
     case automatic
     case sharedSplitBackdrop

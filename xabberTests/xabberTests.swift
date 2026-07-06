@@ -641,6 +641,92 @@ final class StackedNavigationRoutePolicyTests: XCTestCase {
     }
 }
 
+final class NavigationExitPolicyTests: XCTestCase {
+    func testPresentedModalRootResolvesToDismiss() {
+        let action = NavigationExitPolicy.action(
+            for: NavigationExitPolicyContext(
+                route: .currentNavigationPush,
+                isInsidePresentedModalNavigation: true,
+                canPopNavigation: false,
+                hasSplitViewController: true,
+                isSplitCollapsed: false
+            )
+        )
+
+        XCTAssertEqual(action, .dismissModal)
+    }
+
+    func testPushedDestinationWithPreviousControllerResolvesToPop() {
+        let action = NavigationExitPolicy.action(
+            for: NavigationExitPolicyContext(
+                route: .currentNavigationPush,
+                isInsidePresentedModalNavigation: false,
+                canPopNavigation: true,
+                hasSplitViewController: false,
+                isSplitCollapsed: true
+            )
+        )
+
+        XCTAssertEqual(action, .popNavigationStack)
+    }
+
+    func testRootControllerInsideNavigationStackDoesNotAttemptPopLoop() {
+        let action = NavigationExitPolicy.action(
+            for: NavigationExitPolicyContext(
+                route: .currentNavigationPush,
+                isInsidePresentedModalNavigation: false,
+                canPopNavigation: false,
+                hasSplitViewController: false,
+                isSplitCollapsed: true
+            )
+        )
+
+        XCTAssertEqual(action, .none)
+    }
+
+    func testRegularSplitDetailReplacementResolvesToRevealSplitList() {
+        let action = NavigationExitPolicy.action(
+            for: NavigationExitPolicyContext(
+                route: .splitDetailReplacement,
+                isInsidePresentedModalNavigation: false,
+                canPopNavigation: false,
+                hasSplitViewController: true,
+                isSplitCollapsed: false
+            )
+        )
+
+        XCTAssertEqual(action, .revealSplitList)
+    }
+
+    func testCompactSplitPushRouteResolvesToPop() {
+        let action = NavigationExitPolicy.action(
+            for: NavigationExitPolicyContext(
+                route: .currentNavigationPush,
+                isInsidePresentedModalNavigation: false,
+                canPopNavigation: true,
+                hasSplitViewController: true,
+                isSplitCollapsed: true
+            )
+        )
+
+        XCTAssertEqual(action, .popNavigationStack)
+    }
+
+    func testSplitDetailReplacementTakesPriorityWhenNavigationAndSplitAreBothPresent() {
+        let action = NavigationExitPolicy.action(
+            for: NavigationExitPolicyContext(
+                route: .splitDetailReplacement,
+                isInsidePresentedModalNavigation: false,
+                canPopNavigation: true,
+                hasSplitViewController: true,
+                isSplitCollapsed: false
+            )
+        )
+
+        XCTAssertEqual(action, .revealSplitList)
+    }
+}
+
 final class NavigationTransitionMutationPolicyTests: XCTestCase {
     func testLastChatsQueuesNonCriticalMutationsDuringNavigationTransition() {
         XCTAssertTrue(
