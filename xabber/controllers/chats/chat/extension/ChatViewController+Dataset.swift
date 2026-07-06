@@ -8745,10 +8745,16 @@ extension ChatViewController {
             self.setShouldShowInitialMessage(false)
         case .content:
             self.rebuildUnreadMentionItems()
+            let shouldSuppressInitialLatestForce = self.pendingOpenMessageRequest?.source == .initialUnreadBoundary
             let shouldForceLatestOpen = ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen()
                 && (self.pendingForceLatestOpen || self.initialHistoryAppearancePending)
+                && !shouldSuppressInitialLatestForce
             if shouldForceLatestOpen {
                 self.beginInitialLatestOpenStabilizationIfNeeded()
+            }
+            if !shouldForceLatestOpen,
+               self.applyUnreadBoundaryFirstFrameWindowIfNeeded(isSynced: self.currentChatIsSyncedForBootstrap()) {
+                return true
             }
             if !shouldForceLatestOpen,
                self.applySavedPositionFirstFrameWindowIfNeeded(isSynced: self.currentChatIsSyncedForBootstrap()) {

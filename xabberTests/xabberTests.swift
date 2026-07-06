@@ -10625,6 +10625,75 @@ final class ChatBootstrapStateTests: XCTestCase {
         )
     }
 
+    func testInitialUnreadBoundaryWithoutLocalAnchorKeepsBootstrapSkeleton() {
+        let hasPendingInitialAnchorRequest = ChatInitialAnchorBootstrapPolicy.shouldBlockBootstrap(
+            source: .initialUnreadBoundary,
+            isSynced: true,
+            messageCount: 3,
+            hasLocalAnchor: false,
+            isShowingBootstrapPlaceholder: true
+        )
+
+        XCTAssertTrue(hasPendingInitialAnchorRequest)
+        XCTAssertEqual(
+            ChatBootstrapViewState.resolve(
+                messageCount: 3,
+                isSynced: true,
+                isInitialArchiveLoaded: true,
+                isInitialBootstrapInFlight: false,
+                hasPendingInitialAnchorRequest: hasPendingInitialAnchorRequest
+            ),
+            .skeleton
+        )
+    }
+
+    func testUnreadBoundaryFirstFramePolicyRequiresLocalAnchorIndex() {
+        XCTAssertEqual(
+            ChatUnreadBoundaryFirstFramePolicy.decision(
+                requestSource: .initialUnreadBoundary,
+                isSynced: true,
+                observerCount: 20,
+                localAnchorIndex: 5,
+                isPageUnlocked: true
+            ),
+            .unreadBoundary(anchorIndex: 5)
+        )
+        XCTAssertEqual(
+            ChatUnreadBoundaryFirstFramePolicy.decision(
+                requestSource: .initialUnreadBoundary,
+                isSynced: true,
+                observerCount: 20,
+                localAnchorIndex: nil,
+                isPageUnlocked: true
+            ),
+            .wait
+        )
+    }
+
+    func testUnreadBoundaryFirstFramePolicyAppliesOnlyForContentBootstrapPlaceholder() {
+        XCTAssertTrue(
+            ChatUnreadBoundaryFirstFramePolicy.shouldApplySynchronously(
+                bootstrapState: .content,
+                isShowingBootstrapPlaceholder: true,
+                decision: .unreadBoundary(anchorIndex: 5)
+            )
+        )
+        XCTAssertFalse(
+            ChatUnreadBoundaryFirstFramePolicy.shouldApplySynchronously(
+                bootstrapState: .skeleton,
+                isShowingBootstrapPlaceholder: true,
+                decision: .unreadBoundary(anchorIndex: 5)
+            )
+        )
+        XCTAssertFalse(
+            ChatUnreadBoundaryFirstFramePolicy.shouldApplySynchronously(
+                bootstrapState: .content,
+                isShowingBootstrapPlaceholder: false,
+                decision: .unreadBoundary(anchorIndex: 5)
+            )
+        )
+    }
+
     func testSavedVisiblePositionWithSyncedLocalAnchorDoesNotKeepBootstrapSkeleton() {
         let hasPendingInitialAnchorRequest = ChatInitialAnchorBootstrapPolicy.shouldBlockBootstrap(
             source: .savedVisiblePosition,
@@ -11487,6 +11556,54 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertEqual(before.last, "first-frame-message-319")
     }
 
+    func testUnreadBoundaryLocalTargetAppliesAnchorWindowBeforeFirstRealFrame() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedNumericArchiveMessages(count: 320)
+        let controller = makeWarmupRecordingController()
+        let request = makeUnreadBoundaryRequest(boundaryArchivedId: archiveId(for: 150))
+
+        controller.queueOpenMessageRequest(request)
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertTrue(realMessages.contains { $0.primary == "first-frame-message-151" })
+        XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-319" })
+        XCTAssertFalse(controller.virtualTimelineState.isResidentAtLiveTail)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+        let targetViewportY = try viewportY(for: "first-frame-message-151", in: controller)
+        XCTAssertGreaterThanOrEqual(targetViewportY, -1)
+        XCTAssertLessThanOrEqual(targetViewportY, controller.messagesCollectionView.bounds.height + 1)
+    }
+
+    func testUnreadBoundaryWithoutLocalIncomingTargetKeepsBootstrapSkeletonInsteadOfOpeningLatest() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedNumericArchiveMessages(count: 120)
+        let controller = makeWarmupRecordingController()
+        let request = makeUnreadBoundaryRequest(boundaryArchivedId: archiveId(for: 200))
+
+        controller.queueOpenMessageRequest(request)
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.isEmpty || controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertFalse(controller.datasource.contains { $0.primary == "first-frame-message-119" })
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+        if let activeAnchorExecutionState = controller.activeAnchorExecutionState {
+            XCTAssertTrue(activeAnchorExecutionState.usesBootstrapLoading)
+            XCTAssertTrue(activeAnchorExecutionState.isRemoteFetchInFlight)
+        }
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
+    }
+
     func testRepeatedBootstrapContentRenderDoesNotMoveBottomAlignedLatestFirstFrame() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 320)
@@ -12211,6 +12328,15 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         }
     }
 
+    private func seedNumericArchiveMessages(count: Int) throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            (0..<count).forEach { index in
+                realm.add(makeMessage(index: index, archivedId: archiveId(for: index)), update: .modified)
+            }
+        }
+    }
+
     private func seedMessage(index: Int) throws {
         let realm = try WRealm.safe()
         try realm.write {
@@ -12218,7 +12344,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         }
     }
 
-    private func makeMessage(index: Int) -> MessageStorageItem {
+    private func makeMessage(index: Int, archivedId: String? = nil) -> MessageStorageItem {
         let message = MessageStorageItem()
         message.primary = "first-frame-message-\(index)"
         message.owner = owner
@@ -12226,7 +12352,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         message.conversationType = .regular
         message.body = "Local message \(index)"
         message.messageId = "message-\(index)"
-        message.archivedId = "archive-\(index)"
+        message.archivedId = archivedId ?? "archive-\(index)"
         message.outgoing = index % 2 == 0
         message.isRead = true
         message.state = .read
@@ -12260,6 +12386,31 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         )
     }
 
+    private func makeUnreadBoundaryRequest(boundaryArchivedId: String) -> ChatOpenMessageRequest {
+        ChatOpenMessageRequest(
+            chatJid: jid,
+            owner: owner,
+            conversationType: .regular,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: boundaryArchivedId,
+                messageId: nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: ChatInitialPositionPolicy.archiveDate(from: boundaryArchivedId)
+                    ?? Date(timeIntervalSince1970: 1_700_000_000)
+            ),
+            highlight: false,
+            markReadOnVisible: false,
+            source: .initialUnreadBoundary,
+            targetResolution: .firstIncomingAfterBoundary(boundaryArchivedId)
+        )
+    }
+
+    private func archiveId(for index: Int) -> String {
+        String((Int64(1_700_000_000) + Int64(index)) * 1_000_000)
+    }
+
     private func makeAnchor(
         primary: String? = nil,
         archivedId: String? = nil,
@@ -12278,10 +12429,12 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
 private final class WarmupOffsetRecordingChatViewController: ChatViewController {
     var shouldRecordLatestBottomScroll = false
+    private(set) var latestBottomScrollCallCount = 0
     private(set) var recordedOffsetBeforeLatestBottomScroll: CGFloat?
     private(set) var recordedTargetOffsetBeforeLatestBottomScroll: CGFloat?
 
     override func finishLatestBottomScroll(animated: Bool, consumePendingForceLatest: Bool) {
+        latestBottomScrollCallCount += 1
         if shouldRecordLatestBottomScroll {
             messagesCollectionView.layoutIfNeeded()
             updateChatCollectionInsets()
@@ -19505,6 +19658,38 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         XCTAssertEqual(target, incomingAfterBoundary)
     }
 
+    func testUnreadBoundaryTargetChoosesEarliestIncomingArchiveAfterBoundary() {
+        let boundary = ChatUnreadBoundaryTargetPolicy.Candidate(
+            primary: "boundary",
+            archivedId: "1711283295000000",
+            messageId: "boundary-id",
+            sourceDate: Date(timeIntervalSince1970: 1_711_283_295),
+            isOutgoing: false
+        )
+        let laterIncoming = ChatUnreadBoundaryTargetPolicy.Candidate(
+            primary: "later-incoming",
+            archivedId: "1711283295000009",
+            messageId: "later-id",
+            sourceDate: Date(timeIntervalSince1970: 1_711_283_299),
+            isOutgoing: false
+        )
+        let earlierIncoming = ChatUnreadBoundaryTargetPolicy.Candidate(
+            primary: "earlier-incoming",
+            archivedId: "1711283295000002",
+            messageId: "earlier-id",
+            sourceDate: Date(timeIntervalSince1970: 1_711_283_297),
+            isOutgoing: false
+        )
+
+        let target = ChatUnreadBoundaryTargetPolicy.target(
+            boundaryArchivedId: "1711283295000000",
+            fallback: boundary,
+            loadedMessages: [laterIncoming, earlierIncoming]
+        )
+
+        XCTAssertEqual(target, earlierIncoming)
+    }
+
     func testUnreadBoundaryTargetUsesBoundaryWhenFirstIncomingUnreadIsNotLoaded() {
         let boundary = ChatUnreadBoundaryTargetPolicy.Candidate(
             primary: "boundary",
@@ -19521,6 +19706,31 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(target, boundary)
+    }
+
+    func testUnreadBoundaryTargetUsesFallbackWhenBoundaryIdIsNotNumeric() {
+        let fallback = ChatUnreadBoundaryTargetPolicy.Candidate(
+            primary: "fallback",
+            archivedId: "not-a-number",
+            messageId: "fallback-id",
+            sourceDate: Date(timeIntervalSince1970: 1_711_283_295),
+            isOutgoing: false
+        )
+        let incoming = ChatUnreadBoundaryTargetPolicy.Candidate(
+            primary: "incoming-after",
+            archivedId: "1711283295000002",
+            messageId: "incoming-id",
+            sourceDate: Date(timeIntervalSince1970: 1_711_283_297),
+            isOutgoing: false
+        )
+
+        let target = ChatUnreadBoundaryTargetPolicy.target(
+            boundaryArchivedId: "not-a-number",
+            fallback: fallback,
+            loadedMessages: [incoming]
+        )
+
+        XCTAssertEqual(target, fallback)
     }
 
     func testVisiblePositionSelectionIgnoresFakeSkeletonDateUnreadAndInitialRows() {

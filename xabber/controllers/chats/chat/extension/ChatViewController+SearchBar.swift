@@ -203,6 +203,10 @@ enum ChatInitialAnchorBootstrapPolicy {
             return false
         }
 
+        if source == .initialUnreadBoundary {
+            return !(isSynced && messageCount > 0 && hasLocalAnchor)
+        }
+
         if isSynced,
            messageCount > 0 {
             return false
@@ -219,7 +223,46 @@ enum ChatInitialAnchorBootstrapPolicy {
     }
 
     static func needsLocalAnchorLookup(source: ChatOpenMessageRequestSource) -> Bool {
-        source == .savedVisiblePosition
+        source == .savedVisiblePosition || source == .initialUnreadBoundary
+    }
+}
+
+enum ChatUnreadBoundaryFirstFramePolicy {
+    enum Decision: Equatable {
+        case wait
+        case unreadBoundary(anchorIndex: Int)
+    }
+
+    static func decision(
+        requestSource: ChatOpenMessageRequestSource,
+        isSynced: Bool,
+        observerCount: Int,
+        localAnchorIndex: Int?,
+        isPageUnlocked: Bool
+    ) -> Decision {
+        guard requestSource == .initialUnreadBoundary,
+              isSynced,
+              observerCount > 0,
+              let localAnchorIndex,
+              localAnchorIndex >= 0,
+              localAnchorIndex < observerCount,
+              isPageUnlocked else {
+            return .wait
+        }
+
+        return .unreadBoundary(anchorIndex: localAnchorIndex)
+    }
+
+    static func shouldApplySynchronously(
+        bootstrapState: ChatBootstrapViewState,
+        isShowingBootstrapPlaceholder: Bool,
+        decision: Decision
+    ) -> Bool {
+        guard case .unreadBoundary = decision else {
+            return false
+        }
+
+        return bootstrapState == .content && isShowingBootstrapPlaceholder
     }
 }
 
@@ -1374,7 +1417,7 @@ extension ChatViewController {
             self.setArchiveLoading(false)
             self.setDatasourceLoadingEnabled(false)
 
-            guard self.applySavedPositionFirstFrameAnchorSnapshot(message: message, target: target),
+            guard self.applyFirstFrameAnchorSnapshot(message: message, target: target),
                   ChatSavedPositionFirstFrameCompletionPolicy.renderedWindowAction(
                     requestSource: request.source,
                     targetExistsInSnapshot: self.datasourceSnapshotContainsTarget(target)
@@ -1404,7 +1447,89 @@ extension ChatViewController {
         }
     }
 
-    private func applySavedPositionFirstFrameAnchorSnapshot(
+    @discardableResult
+    internal func applyUnreadBoundaryFirstFrameWindowIfNeeded(isSynced: Bool) -> Bool {
+        guard let request = self.pendingOpenMessageRequest,
+              request.source == .initialUnreadBoundary,
+              request.owner == self.owner,
+              request.chatJid == self.jid,
+              request.conversationType == self.conversationType,
+              self.messagesObserver != nil,
+              self.currentPage.isUnlocked else {
+            return false
+        }
+
+        guard let localAnchor = self.unreadBoundaryFirstFrameLocalAnchor(for: request) else {
+            return false
+        }
+
+        let decision = ChatUnreadBoundaryFirstFramePolicy.decision(
+            requestSource: request.source,
+            isSynced: isSynced,
+            observerCount: self.messagesObserver.count,
+            localAnchorIndex: localAnchor.index,
+            isPageUnlocked: self.currentPage.isUnlocked
+        )
+
+        guard ChatUnreadBoundaryFirstFramePolicy.shouldApplySynchronously(
+                bootstrapState: self.currentBootstrapViewState(),
+                isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
+                decision: decision
+              ),
+              case .unreadBoundary(let anchorIndex) = decision else {
+            return false
+        }
+
+        let message = localAnchor.message
+        let target = ResolvedJumpTarget(
+            primary: message.primary,
+            archivedId: message.archivedId.isNotEmpty ? message.archivedId : nil
+        )
+        let hooks = self.activeAnchorExecutionHooks
+
+        return self.currentPage.setCustomPage(anchorIndex / self.datasourcePageSize) {
+            var executionState = ChatAnchorExecutionState(
+                request: request,
+                usesBootstrapLoading: false
+            )
+            executionState.isPositioning = true
+            self.activeAnchorExecutionState = executionState
+            self.syncAnchorExecutionFlags()
+            self.isApplyingBootstrapAnchorWindow = true
+            self.setShouldShowInitialMessage(false)
+            self.setLoadingIndicatorVisible(false)
+            self.setArchiveLoading(false)
+            self.setSkeletonVisible(false)
+            self.setDatasourceLoadingEnabled(false)
+
+            guard self.applyFirstFrameAnchorSnapshot(message: message, target: target),
+                  self.datasourceSnapshotContainsTarget(target) else {
+                self.recoverUnreadBoundaryFirstFrameRequest(trigger: .manual)
+                return
+            }
+
+            self.positionMessage(
+                primary: target.primary,
+                archivedId: target.archivedId,
+                highlight: false,
+                animated: false,
+                completion: {
+                    self.finishActiveAnchorExecution()
+                    self.scheduleMentionReadOnVisibleIfNeeded(
+                        for: request,
+                        positionedPrimary: target.primary
+                    )
+                    hooks?.onPositioned?()
+                    self.startBackgroundContextPrefetchIfNeeded(
+                        around: target,
+                        request: request
+                    )
+                }
+            )
+        }
+    }
+
+    private func applyFirstFrameAnchorSnapshot(
         message: MessageStorageItem,
         target: ResolvedJumpTarget
     ) -> Bool {
@@ -1460,7 +1585,7 @@ extension ChatViewController {
             )
             return self.datasourceSnapshotContainsTarget(target)
         } catch {
-            DDLogDebug("ChatViewController.applySavedPositionFirstFrameAnchorSnapshot: \(error.localizedDescription)")
+            DDLogDebug("ChatViewController.applyFirstFrameAnchorSnapshot: \(error.localizedDescription)")
             return false
         }
     }
@@ -1486,6 +1611,34 @@ extension ChatViewController {
         self.setLoadingIndicatorVisible(false)
         self.setArchiveLoading(false)
         self.setDatasourceLoadingEnabled(true)
+        self.currentPage.unlock()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.pendingOpenMessageRequest == recoveredState.request else {
+                return
+            }
+            self.performPendingOpenMessageRequestIfNeeded(trigger: trigger)
+        }
+    }
+
+    private func recoverUnreadBoundaryFirstFrameRequest(trigger: ChatAnchorExecutionResumeTrigger) {
+        guard let state = self.activeAnchorExecutionState,
+              state.request.source == .initialUnreadBoundary else {
+            self.failActiveAnchorExecution()
+            return
+        }
+
+        var recoveredState = state
+        recoveredState.usesBootstrapLoading = true
+        recoveredState.isPositioning = false
+        recoveredState.isRemoteFetchInFlight = false
+        self.activeAnchorExecutionState = recoveredState
+        self.isApplyingBootstrapAnchorWindow = false
+        self.syncAnchorExecutionFlags()
+        self.setLoadingIndicatorVisible(false)
+        self.setArchiveLoading(false)
+        self.setDatasourceLoadingEnabled(false)
         self.currentPage.unlock()
 
         DispatchQueue.main.async { [weak self] in
@@ -1733,6 +1886,32 @@ extension ChatViewController {
         }
     }
 
+    private func unreadBoundaryFirstFrameLocalAnchor(
+        for request: ChatOpenMessageRequest
+    ) -> (message: MessageStorageItem, index: Int)? {
+        guard request.source == .initialUnreadBoundary,
+              case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution else {
+            return nil
+        }
+
+        do {
+            let provider = ChatLocalHistoryPageProvider(
+                realm: try WRealm.safe(),
+                owner: self.owner,
+                jid: self.jid,
+                conversationType: self.conversationType
+            )
+            guard let message = provider.firstIncoming(afterArchiveBoundaryId: boundaryArchivedId) else {
+                return nil
+            }
+
+            return (message, provider.index(of: message))
+        } catch {
+            DDLogDebug("ChatViewController.unreadBoundaryFirstFrameLocalAnchor: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     private func resolvedTargetAfterContextPrefetch(
         for request: ChatOpenMessageRequest,
         fallback: ResolvedJumpTarget
@@ -1816,6 +1995,10 @@ extension ChatViewController {
     }
 
     internal func hasLocalAnchorForBootstrap(_ request: ChatOpenMessageRequest) -> Bool {
+        if request.source == .initialUnreadBoundary {
+            return self.unreadBoundaryFirstFrameLocalAnchor(for: request) != nil
+        }
+
         guard self.localAnchorMessage(for: request) != nil else {
             return false
         }
