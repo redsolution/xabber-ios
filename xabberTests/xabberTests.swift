@@ -11445,6 +11445,67 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertNil(controller.activeAnchorExecutionState)
     }
 
+    func testZeroServerUnreadWithUnreadAfterIdUsesLatestFirstFrame() throws {
+        try seedChat(
+            isSynced: true,
+            isInitialArchiveLoaded: true,
+            runtimeUnreadCount: 3,
+            syncUnreadCount: 0,
+            syncUnreadAfterId: "1711283295000000"
+        )
+        try seedMessages(count: 320)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertEqual(realMessages.count, ChatInitialFirstFrameHistoryConfiguration.pageSize)
+        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-319")
+        XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-120" })
+        XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        XCTAssertTrue(controller.isNearBottom(threshold: 1))
+    }
+
+    func testSavedVisiblePositionPresentUsesLatestFirstFrame() throws {
+        try seedChat(
+            isSynced: true,
+            isInitialArchiveLoaded: true,
+            lastMessageId: "last-message",
+            syncSnapshotLastArchiveId: "snapshot-last"
+        )
+        try seedMessages(count: 320)
+        try updateSeededChat { chat in
+            chat.lastVisibleMessagePrimary = "first-frame-message-50"
+            chat.lastVisibleMessageArchivedId = "archive-50"
+            chat.lastVisibleMessageId = "message-50"
+            chat.lastVisibleMessageDate = Date(timeIntervalSince1970: 1_700_000_050)
+            chat.lastVisiblePositionSavedAtLastMessageId = "last-message"
+            chat.lastVisiblePositionSavedAtSnapshotLastArchiveId = "snapshot-last"
+        }
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertEqual(realMessages.count, ChatInitialFirstFrameHistoryConfiguration.pageSize)
+        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-319")
+        XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-50" })
+        XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        XCTAssertTrue(controller.isNearBottom(threshold: 1))
+    }
+
     func testMissingLocalAnchorOpenRequestIsSuppressedToLatestLocalHistory() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 5)
@@ -11481,6 +11542,36 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertTrue(controller.showSkeletonObserver.value)
         XCTAssertTrue(controller.datasource.isEmpty || controller.datasource.allSatisfy(\.isFakeMessage))
         XCTAssertFalse(controller.datasource.contains { !$0.isFakeMessage })
+    }
+
+    func testNoAnchorSkeletonRevealBottomAlignsNewestBeforeFirstStableFrame() throws {
+        try seedChat(isSynced: false, isInitialArchiveLoaded: false)
+        try seedMessages(count: 320)
+        let controller = makeWarmupRecordingController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.isEmpty || controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+
+        try updateSeededChat { chat in
+            chat.isSynced = true
+            chat.isInitialArchiveLoaded = true
+        }
+        controller.applyBootstrapViewState(.content, forceRender: true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.last?.primary, "first-frame-message-319")
+        XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 1)
+        XCTAssertTrue(controller.isNearBottom(threshold: 1))
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
     }
 
     func testLatestFirstFrameUsesConfiguredLocalWindowBeforeFullTimelinePreload() throws {
@@ -12391,7 +12482,15 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         )
     }
 
-    private func seedChat(isSynced: Bool, isInitialArchiveLoaded: Bool) throws {
+    private func seedChat(
+        isSynced: Bool,
+        isInitialArchiveLoaded: Bool,
+        runtimeUnreadCount: Int = 0,
+        syncUnreadCount: Int = 0,
+        syncUnreadAfterId: String? = nil,
+        lastMessageId: String = "message-1",
+        syncSnapshotLastArchiveId: String? = "archive-1"
+    ) throws {
         let realm = try WRealm.safe()
         let chat = LastChatsStorageItem()
         chat.owner = owner
@@ -12400,11 +12499,32 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
         chat.isSynced = isSynced
         chat.isInitialArchiveLoaded = isInitialArchiveLoaded
-        chat.lastMessageId = "message-1"
-        chat.syncSnapshotLastArchiveId = "archive-1"
+        chat.runtimeUnreadCount = max(runtimeUnreadCount, 0)
+        chat.syncUnreadCount = max(syncUnreadCount, 0)
+        chat.syncUnreadAfterId = syncUnreadAfterId
+        LastChatUnreadCounter.refreshTotal(for: chat)
+        chat.lastMessageId = lastMessageId
+        chat.syncSnapshotLastArchiveId = syncSnapshotLastArchiveId
 
         try realm.write {
             realm.add(chat, update: .modified)
+        }
+    }
+
+    private func updateSeededChat(_ update: (LastChatsStorageItem) -> Void) throws {
+        let realm = try WRealm.safe()
+        let chat = try XCTUnwrap(
+            realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: .regular
+                )
+            )
+        )
+        try realm.write {
+            update(chat)
         }
     }
 
@@ -24331,6 +24451,35 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
 
     @MainActor
     func testStackNewChatSeedsForceLatestOpenIntentWhenAnchorsAreSuppressed() throws {
+        let controller = LastChatsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        navigationController.loadViewIfNeeded()
+        var openedChat: ChatViewController?
+
+        controller.stackNewChat(
+            owner: owner,
+            jid: "romeo@example.com",
+            conversationType: .regular
+        ) { chat in
+            openedChat = chat
+        }
+
+        let chat = try XCTUnwrap(openedChat)
+        XCTAssertTrue(chat.pendingForceLatestOpen)
+        XCTAssertNil(chat.pendingOpenMessageRequest)
+        XCTAssertNil(chat.activeAnchorExecutionState)
+    }
+
+    @MainActor
+    func testStackNewChatSeedsForceLatestForZeroServerUnreadWithUnreadAfterId() throws {
+        try insertLastChat(
+            jid: "romeo@example.com",
+            conversationType: .regular,
+            unread: 3,
+            syncUnreadCount: 0,
+            syncUnreadAfterId: "1711283295000000",
+            lastReadId: "1711283294000000"
+        )
         let controller = LastChatsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         navigationController.loadViewIfNeeded()
