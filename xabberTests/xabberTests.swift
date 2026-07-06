@@ -1463,6 +1463,106 @@ final class EULAAcceptanceTests: XCTestCase {
     }
 }
 
+final class CreateNewEntityNavigationTests: XCTestCase {
+    func testModalCreateFlowDismissesBeforeOpeningBotChat() {
+        let currentController = UIViewController()
+        let presenter = UIViewController()
+
+        let resolution = CreateNewEntityBotRoutePolicy.resolve(
+            currentController: currentController,
+            presentingViewController: presenter,
+            isVisible: true,
+            hasCompletedRoute: false,
+            isBlockedByUnrelatedPresentedModal: false,
+            exitAction: .dismissModal
+        )
+
+        XCTAssertEqual(resolution.action, .dismissThenRoute)
+        XCTAssertIdentical(resolution.routePresenter, presenter)
+    }
+
+    func testPushedCreateFlowRoutesFromCurrentWithoutDismiss() {
+        let currentController = UIViewController()
+
+        let resolution = CreateNewEntityBotRoutePolicy.resolve(
+            currentController: currentController,
+            presentingViewController: nil,
+            isVisible: true,
+            hasCompletedRoute: false,
+            isBlockedByUnrelatedPresentedModal: false,
+            exitAction: .popNavigationStack
+        )
+
+        XCTAssertEqual(resolution.action, .routeFromCurrent)
+        XCTAssertIdentical(resolution.routePresenter, currentController)
+    }
+
+    func testRouteClosureUsesRealPresenterAfterDismiss() {
+        let currentController = UIViewController()
+        let realPresenter = UIViewController()
+
+        let resolution = CreateNewEntityBotRoutePolicy.resolve(
+            currentController: currentController,
+            presentingViewController: realPresenter,
+            isVisible: true,
+            hasCompletedRoute: false,
+            isBlockedByUnrelatedPresentedModal: false,
+            exitAction: .dismissModal
+        )
+
+        XCTAssertIdentical(resolution.routePresenter, realPresenter)
+    }
+
+    func testDuplicateAsyncCompletionDoesNotRouteTwice() {
+        let resolution = CreateNewEntityBotRoutePolicy.resolve(
+            currentController: UIViewController(),
+            presentingViewController: UIViewController(),
+            isVisible: true,
+            hasCompletedRoute: true,
+            isBlockedByUnrelatedPresentedModal: false,
+            exitAction: .dismissModal
+        )
+
+        XCTAssertEqual(resolution.action, .ignore)
+        XCTAssertNil(resolution.routePresenter)
+    }
+
+    func testStaleCompletionAfterDisappearanceDoesNotRoute() {
+        let resolution = CreateNewEntityBotRoutePolicy.resolve(
+            currentController: UIViewController(),
+            presentingViewController: UIViewController(),
+            isVisible: false,
+            hasCompletedRoute: false,
+            isBlockedByUnrelatedPresentedModal: false,
+            exitAction: .dismissModal
+        )
+
+        XCTAssertEqual(resolution.action, .ignore)
+        XCTAssertNil(resolution.routePresenter)
+    }
+
+    func testUnrelatedActiveModalBlocksRoutingBehindModal() {
+        let resolution = CreateNewEntityBotRoutePolicy.resolve(
+            currentController: UIViewController(),
+            presentingViewController: nil,
+            isVisible: true,
+            hasCompletedRoute: false,
+            isBlockedByUnrelatedPresentedModal: true,
+            exitAction: .popNavigationStack
+        )
+
+        XCTAssertEqual(resolution.action, .ignore)
+        XCTAssertNil(resolution.routePresenter)
+    }
+
+    func testRosterPolicyStillSkipsOnlyMutualContacts() {
+        XCTAssertFalse(CreateNewEntityViewController.shouldEnsureRoster(for: .both))
+        XCTAssertTrue(CreateNewEntityViewController.shouldEnsureRoster(for: nil))
+        XCTAssertTrue(CreateNewEntityViewController.shouldEnsureRoster(for: .to))
+        XCTAssertTrue(CreateNewEntityViewController.shouldEnsureRoster(for: .from))
+    }
+}
+
 final class EULAGateRoutingTests: XCTestCase {
     private func makeDefaults(file: StaticString = #filePath, line: UInt = #line) throws -> (UserDefaults, String) {
         let suiteName = "xabber.eula.gate.tests.\(UUID().uuidString)"

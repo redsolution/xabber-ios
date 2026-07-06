@@ -16,6 +16,47 @@ import RxSwift
 import RxCocoa
 import RxRealm
 
+enum CreateNewEntityBotRouteAction: Equatable {
+    case dismissThenRoute
+    case routeFromCurrent
+    case ignore
+}
+
+struct CreateNewEntityBotRouteResolution {
+    let action: CreateNewEntityBotRouteAction
+    let routePresenter: UIViewController?
+}
+
+enum CreateNewEntityBotRoutePolicy {
+    static func resolve(
+        currentController: UIViewController,
+        presentingViewController: UIViewController?,
+        isVisible: Bool,
+        hasCompletedRoute: Bool,
+        isBlockedByUnrelatedPresentedModal: Bool,
+        exitAction: NavigationExitAction
+    ) -> CreateNewEntityBotRouteResolution {
+        guard isVisible,
+              !hasCompletedRoute,
+              !isBlockedByUnrelatedPresentedModal else {
+            return CreateNewEntityBotRouteResolution(action: .ignore, routePresenter: nil)
+        }
+
+        if exitAction == .dismissModal,
+           let presentingViewController {
+            return CreateNewEntityBotRouteResolution(
+                action: .dismissThenRoute,
+                routePresenter: presentingViewController
+            )
+        }
+
+        return CreateNewEntityBotRouteResolution(
+            action: .routeFromCurrent,
+            routePresenter: currentController
+        )
+    }
+}
+
 class CreateNewEntityViewController: UIViewController {
 
     struct BotDefinition: Equatable {
@@ -82,6 +123,8 @@ class CreateNewEntityViewController: UIViewController {
     }()
 
     private var botSelectionInProgress: Bool = false
+    private var hasCompletedBotSelectionRoute: Bool = false
+    private var isCreateEntityVisible: Bool = false
     
     private static func datasource(
         title: String,
@@ -225,11 +268,32 @@ class CreateNewEntityViewController: UIViewController {
     }
 
     private func openBotChat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
-        DispatchQueue.main.async {
-            self.setBotSelectionInProgress(false)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
             let presentingViewController = self.navigationController?.presentingViewController ?? self.presentationController?.presentingViewController
+            let exitAction = NavigationExitPolicy.action(
+                for: NavigationExitPolicyContext(destination: self, route: .currentNavigationPush)
+            )
+            let resolution = CreateNewEntityBotRoutePolicy.resolve(
+                currentController: self,
+                presentingViewController: presentingViewController,
+                isVisible: self.isCreateEntityVisible,
+                hasCompletedRoute: self.hasCompletedBotSelectionRoute,
+                isBlockedByUnrelatedPresentedModal: self.hasUnrelatedPresentedModal(),
+                exitAction: exitAction
+            )
 
-            let route: (UIViewController) -> Void = { presenter in
+            guard resolution.action != .ignore,
+                  let routePresenter = resolution.routePresenter else {
+                self.setBotSelectionInProgress(false)
+                return
+            }
+
+            self.hasCompletedBotSelectionRoute = true
+            self.setBotSelectionInProgress(false)
+
+            let route: (UIViewController) -> Void = { [weak self] presenter in
+                guard let self else { return }
                 if let delegate = self.leftMenuSelectRootCategoryDelegate {
                     delegate.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType, configure: nil)
                 } else {
@@ -242,14 +306,31 @@ class CreateNewEntityViewController: UIViewController {
                 }
             }
 
-            if let presentingViewController = presentingViewController {
+            if resolution.action == .dismissThenRoute {
                 self.dismiss(animated: true) {
-                    route(presentingViewController)
+                    route(routePresenter)
                 }
             } else {
-                route(self)
+                route(routePresenter)
             }
         }
+    }
+
+    private func hasUnrelatedPresentedModal() -> Bool {
+        guard let activePresentedController = AppRootCoordinator.active?.currentPresentedVc else {
+            return false
+        }
+
+        if activePresentedController === self {
+            return false
+        }
+
+        if let navigationController,
+           activePresentedController === navigationController {
+            return false
+        }
+
+        return true
     }
 
     private func showBotSelectionError(_ message: String) {
@@ -279,6 +360,7 @@ class CreateNewEntityViewController: UIViewController {
 
         let conversationType = self.conversationType()
         setBotSelectionInProgress(true)
+        hasCompletedBotSelectionRoute = false
 
         if !Self.shouldEnsureRoster(for: existingRosterSubscription(owner: owner, jid: jid)) {
             account.action { user, _ in
@@ -357,9 +439,12 @@ class CreateNewEntityViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        isCreateEntityVisible = true
     }
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        isCreateEntityVisible = false
     }
 }
 
