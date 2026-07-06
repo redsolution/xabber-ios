@@ -8912,15 +8912,6 @@ extension ChatViewController {
             }
         }
         var out: [Datasource] = []
-        var unreadId: String? = nil
-        do {
-            let realm = try WRealm.safe()
-            let lastChatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))
-            unreadId = lastChatInstance?.lastReadId
-            unreadId = (lastChatInstance?.unread ?? 0) == 0 ? nil : unreadId
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-        }
 
         func appendDateSeparatorIfNeeded(before item: MessageStorageItem, at offset: Int) {
             guard offset == 0 || self.isDateChange(from: dataset[offset - 1].sentDate, to: item.sentDate) else {
@@ -9130,65 +9121,6 @@ extension ChatViewController {
                 }
             }
             let shouldShowAvatar = withAvatar || (self.conversationType == .group && !presentation.displayOutgoing)
-//            if (dataset.count > 1 && (offset + 1) < dataset.count) || (offset + 1 == dataset.count) {
-//                if item.archivedId == unreadId {
-//                    let kind: MessageKind = .unread(
-//                        NSAttributedString(
-//                            string: "Unread messages",
-//                            attributes: [
-//                                .font: UIFont.preferredFont(forTextStyle: .caption1),
-//                                .foregroundColor: UIColor.white,
-//                            ]
-//                        )
-//                    )
-//                    self.unreadMessagePositionId = offset
-//                    out.append(Datasource(
-//                        primary: "\(item.primary) unread",
-//                        jid: self.jid,
-//                        owner: self.owner,
-//                        outgoing: item.outgoing,
-//                        sender: item.outgoing ? self.ownerSender : self.opponentSender,
-//                        messageId: item.messageId,
-//                        sentDate: date,
-//                        editDate: nil,
-//                        kind: kind,
-//                        withAuthor: false,
-//                        withAvatar: false,//self.groupchat ? !item.outgoing : false,
-//                        error: item.state == .error,
-//                        errorType: "",
-//                        canPinMessage: false,
-//                        canEditMessage: false,
-//                        canDeleteMessage: false,
-//                        forwards: [],
-//                        isOutgoing: item.outgoing,
-//                        isEdited: false,
-//                        groupchatAuthorRole: "",
-//                        groupchatAuthorId: "",
-//                        groupchatAuthorNickname: "",
-//                        groupchatAuthorBadge: "",
-//                        isHasAttachedMessages: false,
-//                        isDownloaded: true,
-//                        state: .none,
-//                        searchString:  "",
-//                        errorMetadata: nil,
-//                        burnDate: 0,
-//                        afterburnInterval: 0,
-//                        archivedId: "\(item.archivedId) unread",
-//                        queryIds: "\(item.queryIds ?? "") unread",
-//                        isRead: item.isRead,
-//                        selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
-//                        isHadHistoryGap: false,
-//                        isFakeMessage: true,
-//                        images: [],
-//                        videos: [],
-//                        files: [],
-//                        audios: [],
-//                        timeMarkerText: NSAttributedString(),
-//                        indicator: .none,
-//                        avatarUrl: nil
-//                    ))
-//                }
-//            }
             out.append(Datasource(
                 primary: item.primary,
                 jid: self.jid,
@@ -11357,11 +11289,6 @@ extension ChatViewController {
     }
     
     internal func scrollToLastOrUnreadItem() {
-        if ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen() {
-            self.requestForceLatestOpen(animated: !self.initialHistoryAppearancePending)
-            return
-        }
-
         if ChatInitialScrollPolicy.shouldDeferDefaultScroll(
             hasPendingAnchorRequest: self.pendingOpenMessageRequest != nil,
             isAnchorNavigationInFlight: self.isMessageAnchorNavigationInFlight
@@ -11371,16 +11298,8 @@ extension ChatViewController {
         }
         let shouldAnimateScroll = !self.initialHistoryAppearancePending
 
-        if ChatOpenMessageRequestHandlingPolicy.shouldHonorDefaultUnreadPosition(),
-           let index = self.unreadMessagePositionId {
-            if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
-                self.scrollToBottom(animated: shouldAnimateScroll)
-                self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: shouldAnimateScroll)
-            } else if self.datasourceItem(atSection: index) != nil {
-                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: shouldAnimateScroll)
-            } else {
-                self.scrollToLatestTimeline(animated: shouldAnimateScroll)
-            }
+        if ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen() {
+            self.requestForceLatestOpen(animated: shouldAnimateScroll)
             return
         }
 

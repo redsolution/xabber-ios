@@ -11784,6 +11784,28 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
     }
 
+    func testLegacyDefaultScrollDoesNotClearQueuedInitialAnchorRequests() throws {
+        let requests = [
+            makeSearchRequest(
+                archivedId: "archive-120",
+                sourceDate: Date(timeIntervalSince1970: 1_700_000_120)
+            ),
+            makeUnreadBoundaryRequest(boundaryArchivedId: archiveId(for: 150))
+        ]
+
+        for request in requests {
+            let controller = makeController()
+            controller.loadViewIfNeeded()
+            controller.unreadMessagePositionId = 1
+            controller.queueOpenMessageRequest(request)
+
+            controller.scrollToLastOrUnreadItem()
+
+            XCTAssertEqual(controller.pendingOpenMessageRequest, request, "\(request.source) should remain queued")
+            XCTAssertFalse(controller.pendingForceLatestOpen, "\(request.source) should not be replaced with force-latest")
+        }
+    }
+
     func testRepeatedBootstrapContentRenderDoesNotMoveBottomAlignedLatestFirstFrame() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 320)

@@ -5042,27 +5042,6 @@ class ChatViewController: MessagesViewController {
         }
     }
     
-//    internal final func scrollToLastUnreadMessage(select: Bool = false) {
-//        do {
-//            let realm = try WRealm.safe()
-//            if let unreadId = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))?.lastReadId {
-//                if let primary = realm.objects(MessageStorageItem.self).filter("owner == %@ AND opponent == %@ AND archivedId == %@", self.owner, self.jid, unreadId).first?.primary {
-//                    if let index = self.messagesObserver?.firstIndex(where: { $0.primary == primary }), index != 0 {
-//                        if self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section }).contains(index) {
-//                            return
-//                        }
-//                        let offset = (0...index).compactMap ({
-//                            return (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.sizeForItem(at: IndexPath(row: 0, section: $0)).height
-//                        }).reduce(0, +) - ((self.view.bounds.height / 4) * 3)
-//                        self.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: offset), animated: false)
-//                    }
-//                }
-//            }
-//        } catch {
-//            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-//        }
-//    }
-    
     static func getColorsForGradient(forColor color: BackgroundColor) -> [CGColor] {
         switch color {
         case .purple:

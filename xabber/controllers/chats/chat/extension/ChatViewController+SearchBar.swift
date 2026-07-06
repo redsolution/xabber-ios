@@ -301,10 +301,6 @@ enum ChatOpenMessageRequestHandlingPolicy {
         return shouldHonorMessageAnchors()
     }
 
-    static func shouldHonorDefaultUnreadPosition() -> Bool {
-        shouldHonorMessageAnchors()
-    }
-
     static func effectiveScrollDownTarget(_ target: ChatScrollDownTargetPolicy.Target) -> ChatScrollDownTargetPolicy.Target {
         shouldHonorMessageAnchors() ? target : .latest
     }
