@@ -124,6 +124,10 @@ struct NavigationExitPolicyContext: Equatable {
 
 enum NavigationExitPolicy {
     static func action(for context: NavigationExitPolicyContext) -> NavigationExitAction {
+        if context.route == .currentNavigationPush && context.canPopNavigation {
+            return .popNavigationStack
+        }
+
         if context.isInsidePresentedModalNavigation {
             return .dismissModal
         }

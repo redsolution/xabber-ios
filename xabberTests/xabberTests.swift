@@ -656,6 +656,20 @@ final class NavigationExitPolicyTests: XCTestCase {
         XCTAssertEqual(action, .dismissModal)
     }
 
+    func testPushedDestinationInsidePresentedModalNavigationResolvesToPop() {
+        let action = NavigationExitPolicy.action(
+            for: NavigationExitPolicyContext(
+                route: .currentNavigationPush,
+                isInsidePresentedModalNavigation: true,
+                canPopNavigation: true,
+                hasSplitViewController: false,
+                isSplitCollapsed: true
+            )
+        )
+
+        XCTAssertEqual(action, .popNavigationStack)
+    }
+
     func testPushedDestinationWithPreviousControllerResolvesToPop() {
         let action = NavigationExitPolicy.action(
             for: NavigationExitPolicyContext(
