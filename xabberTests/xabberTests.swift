@@ -11574,6 +11574,39 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertNil(controller.activeAnchorExecutionState)
     }
 
+    func testSkeletonRevealDoesNotClearUnreadCountersBeforeVisibleReadBoundary() throws {
+        try seedChat(
+            isSynced: false,
+            isInitialArchiveLoaded: false,
+            runtimeUnreadCount: 3,
+            syncUnreadCount: 0
+        )
+        try seedMessages(count: 320)
+        let controller = makeWarmupRecordingController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+
+        try assertSeededUnreadState(runtime: 3, sync: 0, after: nil)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+
+        try updateSeededChat { chat in
+            chat.isSynced = true
+            chat.isInitialArchiveLoaded = true
+        }
+        controller.applyBootstrapViewState(.content, forceRender: true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.last?.primary, "first-frame-message-319")
+        XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 1)
+        try assertSeededUnreadState(runtime: 3, sync: 0, after: nil)
+    }
+
     func testLatestFirstFrameUsesConfiguredLocalWindowBeforeFullTimelinePreload() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 320)
@@ -11710,10 +11743,17 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
     }
 
     func testUnreadBoundaryWithoutLocalIncomingTargetKeepsBootstrapSkeletonInsteadOfOpeningLatest() throws {
-        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        let boundaryArchivedId = archiveId(for: 200)
+        try seedChat(
+            isSynced: true,
+            isInitialArchiveLoaded: true,
+            runtimeUnreadCount: 1,
+            syncUnreadCount: 2,
+            syncUnreadAfterId: boundaryArchivedId
+        )
         try seedNumericArchiveMessages(count: 120)
         let controller = makeWarmupRecordingController()
-        let request = makeUnreadBoundaryRequest(boundaryArchivedId: archiveId(for: 200))
+        let request = makeUnreadBoundaryRequest(boundaryArchivedId: boundaryArchivedId)
 
         controller.queueOpenMessageRequest(request)
         controller.loadViewIfNeeded()
@@ -11728,10 +11768,17 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             XCTAssertTrue(activeAnchorExecutionState.isRemoteFetchInFlight)
         }
         XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
+        try assertSeededUnreadState(runtime: 1, sync: 2, after: boundaryArchivedId)
     }
 
     func testSearchLocalTargetAppliesAnchorWindowBeforeFirstRealFrame() throws {
-        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedChat(
+            isSynced: true,
+            isInitialArchiveLoaded: true,
+            runtimeUnreadCount: 1,
+            syncUnreadCount: 2,
+            syncUnreadAfterId: "archive-90"
+        )
         try seedMessages(count: 320)
         let controller = makeWarmupRecordingController()
         let request = makeSearchRequest(
@@ -11758,6 +11805,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let targetViewportY = try viewportY(for: "first-frame-message-120", in: controller)
         XCTAssertGreaterThanOrEqual(targetViewportY, -1)
         XCTAssertLessThanOrEqual(targetViewportY, controller.messagesCollectionView.bounds.height + 1)
+        try assertSeededUnreadState(runtime: 1, sync: 2, after: "archive-90")
     }
 
     func testSearchWithoutLocalTargetKeepsBootstrapSkeletonInsteadOfOpeningLatest() throws {
@@ -12548,6 +12596,32 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         try realm.write {
             update(chat)
         }
+    }
+
+    private func assertSeededUnreadState(
+        runtime: Int,
+        sync: Int,
+        after: String?,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let realm = try WRealm.safe()
+        let chat = try XCTUnwrap(
+            realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: .regular
+                )
+            ),
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(chat.runtimeUnreadCount, runtime, file: file, line: line)
+        XCTAssertEqual(chat.syncUnreadCount, sync, file: file, line: line)
+        XCTAssertEqual(chat.syncUnreadAfterId, after, file: file, line: line)
+        XCTAssertEqual(chat.unread, runtime + sync, file: file, line: line)
     }
 
     private func seedMessages(count: Int) throws {
@@ -20152,12 +20226,17 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
     }
 
     func testOpenReadMarkingPolicyDoesNotReadLastMessageJustBecauseUnreadChatOpened() {
-        XCTAssertFalse(
-            ChatOpenReadMarkingPolicy.shouldReadLastMessageOnOpen(
-                isSynced: true,
-                unread: 5
-            )
-        )
+        [false, true].forEach { isSynced in
+            [0, 1, 5].forEach { unread in
+                XCTAssertFalse(
+                    ChatOpenReadMarkingPolicy.shouldReadLastMessageOnOpen(
+                        isSynced: isSynced,
+                        unread: unread
+                    ),
+                    "initial open must not read latest just because chat sync=\(isSynced) unread=\(unread)"
+                )
+            }
+        }
     }
 
     func testLoadedMessageLookupMatchesPrimaryBeforeOtherAnchorIds() {
@@ -33281,6 +33360,64 @@ final class ChatUnreadMentionsTests: XCTestCase {
         )
 
         XCTAssertTrue(primaries.isEmpty)
+    }
+
+    func testSearchRequestMentionReadOnVisiblePolicySkipsUntilTargetIsVisible() throws {
+        let message = makeMessage(
+            primary: "m1",
+            archivedId: "a1",
+            messageId: "mid-1",
+            authorId: "other-1",
+            mentionMemberIds: [currentMemberId],
+            date: Date(timeIntervalSince1970: 10)
+        )
+        let notification = makeMentionNotification(
+            primary: "n1",
+            archivedId: "a1",
+            messageId: "mid-1",
+            date: Date(timeIntervalSince1970: 10)
+        )
+        let request = ChatOpenMessageRequest(
+            chatJid: groupchatJid,
+            owner: owner,
+            conversationType: .group,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: "a1",
+                messageId: "mid-1",
+                authorId: "other-1",
+                bodyFingerprint: nil,
+                sourceDate: Date(timeIntervalSince1970: 10)
+            ),
+            highlight: true,
+            markReadOnVisible: true,
+            source: .search
+        )
+        let realm = try WRealm.safe()
+
+        try realm.write {
+            realm.add(message, update: .modified)
+            realm.add(notification, update: .modified)
+        }
+
+        XCTAssertTrue(ChatMentionReadOnVisiblePolicy.notificationPrimariesToMarkRead(
+            for: request,
+            owner: owner,
+            chatJid: groupchatJid,
+            conversationType: .group,
+            positionedPrimary: "m1",
+            visiblePrimaries: [],
+            in: realm
+        ).isEmpty)
+        XCTAssertEqual(ChatMentionReadOnVisiblePolicy.notificationPrimariesToMarkRead(
+            for: request,
+            owner: owner,
+            chatJid: groupchatJid,
+            conversationType: .group,
+            positionedPrimary: "m1",
+            visiblePrimaries: ["m1"],
+            in: realm
+        ), ["n1"])
     }
 
     func testFloatingControlsLayoutPolicyStacksMentionIndicatorAboveScrollButton() throws {

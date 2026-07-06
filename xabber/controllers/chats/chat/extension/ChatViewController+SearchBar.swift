@@ -1820,6 +1820,13 @@ extension ChatViewController {
     }
 
     private func failActiveAnchorExecution() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.failActiveAnchorExecution()
+            }
+            return
+        }
+
         let executionState = self.activeAnchorExecutionState
         let onFailed = self.activeAnchorExecutionHooks?.onFailed
         self.finishActiveAnchorExecution()
