@@ -39,6 +39,58 @@ enum ChatInitialFirstFrameHistoryConfiguration {
     static let pageSize: Int = 80
 }
 
+struct ChatHistoryLoadActivityKey: Hashable {
+    let owner: String
+    let jid: String
+    let conversationTypeRawValue: String
+    let reason: String
+
+    init(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        reason: String
+    ) {
+        self.owner = owner
+        self.jid = jid
+        self.conversationTypeRawValue = conversationType.rawValue
+        self.reason = reason
+    }
+}
+
+enum ChatHistoryLoadActivityRegistry {
+    private static let lock = NSLock()
+    private static var activeCounts: [ChatHistoryLoadActivityKey: Int] = [:]
+
+    static var hasActiveHistoryLoad: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return activeCounts.values.contains { $0 > 0 }
+    }
+
+    static func begin(_ key: ChatHistoryLoadActivityKey) {
+        lock.lock()
+        activeCounts[key, default: 0] += 1
+        lock.unlock()
+    }
+
+    static func end(_ key: ChatHistoryLoadActivityKey) {
+        lock.lock()
+        if let count = activeCounts[key], count > 1 {
+            activeCounts[key] = count - 1
+        } else {
+            activeCounts.removeValue(forKey: key)
+        }
+        lock.unlock()
+    }
+
+    static func resetForTests() {
+        lock.lock()
+        activeCounts.removeAll()
+        lock.unlock()
+    }
+}
+
 enum ChatInitialBootstrapArchivePageSizePolicy {
     static func requestPageSize(
         initialFirstFramePageSize: Int,
@@ -1090,13 +1142,7 @@ class ChatViewController: MessagesViewController {
         var lowArchivedId: String
         var highArchivedId: String
         var isLoading: Bool = false
-        var locked: Bool = false {
-            didSet {
-                if !locked {
-                    print("lockedDidSet")
-                }
-            }
-        }
+        var locked: Bool = false
         var longLock: Bool = false
         
         open var isUnlocked: Bool {
@@ -1417,6 +1463,10 @@ class ChatViewController: MessagesViewController {
     var initialFirstFrameLatestWarmupState: ChatFirstFrameLatestWarmupState = .inactive
     var pendingFirstFrameAuxiliaryRefresh: Bool = false
     var isFirstFrameAuxiliaryRefreshFlushScheduled: Bool = false
+    var pendingArchiveObserverRefresh: Bool = false
+    var archiveObserverRefreshWorkItem: DispatchWorkItem? = nil
+    var activeChatHistoryLoadActivityKeys: Set<ChatHistoryLoadActivityKey> = []
+    var activeHistoryLoadingUIActivityReason: String? = nil
     var isApplyingBootstrapAnchorWindow: Bool = false
     var pendingForceLatestOpen: Bool = false
     var pendingForceLatestOpenAnimated: Bool = false
@@ -1670,6 +1720,65 @@ class ChatViewController: MessagesViewController {
         self.performOnMain {
             self.canLoadDatasource = isEnabled
             self.loadDatasourceObserver.accept(isEnabled)
+        }
+    }
+
+    internal func beginChatHistoryLoadActivity(reason: String) {
+        let key = ChatHistoryLoadActivityKey(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType,
+            reason: reason
+        )
+        guard !self.activeChatHistoryLoadActivityKeys.contains(key) else {
+            return
+        }
+        self.activeChatHistoryLoadActivityKeys.insert(key)
+        ChatHistoryLoadActivityRegistry.begin(key)
+        ChatArchiveDebugTrace.log("historyLoadActivityBegin", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("reason", reason),
+            ("activeLocalCount", self.activeChatHistoryLoadActivityKeys.count)
+        ])
+    }
+
+    internal func endChatHistoryLoadActivity(reason: String) {
+        let key = ChatHistoryLoadActivityKey(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType,
+            reason: reason
+        )
+        guard self.activeChatHistoryLoadActivityKeys.remove(key) != nil else {
+            return
+        }
+        ChatHistoryLoadActivityRegistry.end(key)
+        ChatArchiveDebugTrace.log("historyLoadActivityEnd", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("reason", reason),
+            ("activeLocalCount", self.activeChatHistoryLoadActivityKeys.count)
+        ])
+    }
+
+    internal func endAllChatHistoryLoadActivities(reason cleanupReason: String) {
+        let keys = self.activeChatHistoryLoadActivityKeys
+        self.activeChatHistoryLoadActivityKeys.removeAll()
+        self.activeHistoryLoadingUIActivityReason = nil
+        keys.forEach {
+            ChatHistoryLoadActivityRegistry.end($0)
+        }
+        if !keys.isEmpty {
+            ChatArchiveDebugTrace.log("historyLoadActivityEndAll", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("reason", cleanupReason),
+                ("endedCount", keys.count)
+            ])
         }
     }
 
@@ -2132,6 +2241,12 @@ class ChatViewController: MessagesViewController {
             self.historyLoadingGeneration += 1
             let generation = self.historyLoadingGeneration
             let startedAt = Date()
+            if let activeHistoryLoadingUIActivityReason = self.activeHistoryLoadingUIActivityReason {
+                self.endChatHistoryLoadActivity(reason: activeHistoryLoadingUIActivityReason)
+            }
+            let activityReason = queryId.map { "remote:\($0)" } ?? "remote:generation:\(generation)"
+            self.activeHistoryLoadingUIActivityReason = activityReason
+            self.beginChatHistoryLoadActivity(reason: activityReason)
 
             self.currentPage.isLoading = true
             self.setLoadingIndicatorVisible(true)
@@ -2148,6 +2263,10 @@ class ChatViewController: MessagesViewController {
     internal func endHistoryLoadingUI(unlockPage: Bool) {
         self.performOnMain {
             self.stopChatArchiveMainStallProbe(reason: "endHistoryLoadingUI")
+            if let activeHistoryLoadingUIActivityReason = self.activeHistoryLoadingUIActivityReason {
+                self.endChatHistoryLoadActivity(reason: activeHistoryLoadingUIActivityReason)
+                self.activeHistoryLoadingUIActivityReason = nil
+            }
             self.currentPage.isLoading = false
             self.setLoadingIndicatorVisible(false)
             self.setArchiveLoading(false)
@@ -2158,6 +2277,7 @@ class ChatViewController: MessagesViewController {
             if unlockPage {
                 self.currentPage.unlock()
             }
+            self.flushPendingArchiveObserverRefreshIfPossible(reason: "historyLoadingEnded")
         }
     }
 
@@ -4303,6 +4423,8 @@ class ChatViewController: MessagesViewController {
     
     private func unsubscribe() {
         NotifyManager.shared.currentDialog = nil
+        self.cancelPendingArchiveObserverRefresh(reason: "unsubscribe")
+        self.endAllChatHistoryLoadActivities(reason: "unsubscribe")
         self.bag = DisposeBag()
         self.cancelInitialBootstrapLocalHistoryFallback()
         self.clearRemoteHistoryEndPageDispatchers()

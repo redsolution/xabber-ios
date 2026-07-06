@@ -3855,6 +3855,52 @@ enum ChatInitialLatestOpenStabilizationPolicy {
     }
 }
 
+enum ChatObserverRefreshBackpressureAction: Equatable {
+    case applyImmediately
+    case scheduleCoalesced
+    case keepCoalesced
+    case deferUntilScrollRest
+}
+
+enum ChatObserverRefreshFlushAction: Equatable {
+    case none
+    case keepPending
+    case flush
+}
+
+enum ChatObserverRefreshBackpressurePolicy {
+    static let coalescingDelay: TimeInterval = 0.18
+
+    static func action(
+        isShowingBootstrapPlaceholder: Bool,
+        isHistoryPressureActive: Bool,
+        motionState: ChatScrollMotionState,
+        hasScheduledRefresh: Bool
+    ) -> ChatObserverRefreshBackpressureAction {
+        guard !isShowingBootstrapPlaceholder,
+              isHistoryPressureActive else {
+            return .applyImmediately
+        }
+
+        if motionState.isMoving {
+            return .deferUntilScrollRest
+        }
+
+        return hasScheduledRefresh ? .keepCoalesced : .scheduleCoalesced
+    }
+
+    static func flushAction(
+        hasPendingRefresh: Bool,
+        motionState: ChatScrollMotionState
+    ) -> ChatObserverRefreshFlushAction {
+        guard hasPendingRefresh else {
+            return .none
+        }
+
+        return motionState.isMoving ? .keepPending : .flush
+    }
+}
+
 enum ChatInitialHistoryAppearancePolicy {
     static func shouldStart(isShowingBootstrapPlaceholder: Bool) -> Bool {
         isShowingBootstrapPlaceholder
@@ -6979,12 +7025,14 @@ extension ChatViewController {
         self.didObserveInitialBootstrapPostIdleTick = false
         self.registerRemoteHistoryFailureDispatcher(queryId: queryId)
         self.scheduleInitialBootstrapTimeout(queryId: queryId)
+        self.beginChatHistoryLoadActivity(reason: "initial:\(queryId)")
     }
 
     internal func resetInitialBootstrapTracking() {
         self.cancelInitialBootstrapLocalHistoryFallback()
         self.cancelInitialBootstrapTimeout()
         if let initialBootstrapQueryId {
+            self.endChatHistoryLoadActivity(reason: "initial:\(initialBootstrapQueryId)")
             self.unregisterRemoteHistoryPersistenceSource(queryId: initialBootstrapQueryId)
             self.unregisterRemoteHistoryFailureDispatcher(queryId: initialBootstrapQueryId)
             self.unregisterRemoteHistoryEndPageDispatcher(queryId: initialBootstrapQueryId)
@@ -7120,6 +7168,7 @@ extension ChatViewController {
         self.resetInitialBootstrapTracking()
         DDLogDebug("ChatViewController.initialBootstrap finished queryId=\(queryId ?? "-") persisted=\(persistedMessageCount) persistedRowsForQuery=\(persistedRowsForQuery) visibleRows=\(visibleRowsForLatestPage) localCount=\(localMessageCount)")
         self.applyBootstrapViewState(self.currentBootstrapViewState(), forceRender: true)
+        self.flushPendingArchiveObserverRefreshIfPossible(reason: "initialBootstrapComplete")
         return true
     }
 
@@ -7229,6 +7278,7 @@ extension ChatViewController {
                 self.allowsStaleLocalHistoryDuringInitialBootstrap = true
             }
             self.applyBootstrapViewState(self.currentBootstrapViewState(), forceRender: true)
+            self.cancelPendingArchiveObserverRefresh(reason: "initialBootstrapFailure")
             self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
         }
     }
@@ -7253,6 +7303,7 @@ extension ChatViewController {
         self.initialBootstrapPersistedRowsForQuery = persistedRowsForQuery
         self.initialBootstrapVisibleRowsForConversation = visibleRowsForConversation
         _ = self.completeInitialBootstrapIfNeeded()
+        self.flushPendingArchiveObserverRefreshIfPossible(reason: "initialBootstrapEndPage")
         return true
     }
 
@@ -9240,6 +9291,129 @@ extension ChatViewController {
             return .tracking
         }
         return .resting
+    }
+
+    internal var isArchiveObserverRefreshPressureActive: Bool {
+        self.isInitialBootstrapInFlight ||
+        self.currentPage.isLoading ||
+        self.interactiveHistoryPageLoadContext != nil ||
+        self.virtualTimelineState.activeRemoteLoad != nil ||
+        self.activeChatHistoryLoadActivityKeys.isNotEmpty
+    }
+
+    internal func handleMessagesObserverRefresh() {
+        self.refreshPinnedMessagePanelIfNeeded()
+        if self.showSkeletonObserver.value {
+            let didRevealBootstrapContent = self.revealInitialBootstrapContentIfAvailable()
+            _ = self.completeInitialBootstrapIfNeeded()
+            if !didRevealBootstrapContent {
+                self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
+            }
+            self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
+            return
+        }
+        if self.currentPage.locked {
+            _ = self.tryFinishInteractiveHistoryPageLoadIfReady()
+            return
+        }
+        if self.applyObserverRefreshBackpressureIfNeeded() {
+            return
+        }
+        self.didReceiveChangeset()
+    }
+
+    @discardableResult
+    internal func applyObserverRefreshBackpressureIfNeeded() -> Bool {
+        let action = ChatObserverRefreshBackpressurePolicy.action(
+            isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
+            isHistoryPressureActive: self.isArchiveObserverRefreshPressureActive,
+            motionState: self.currentScrollMotionState(),
+            hasScheduledRefresh: self.archiveObserverRefreshWorkItem != nil
+        )
+
+        switch action {
+        case .applyImmediately:
+            return false
+        case .deferUntilScrollRest:
+            self.pendingArchiveObserverRefresh = true
+            self.archiveObserverRefreshWorkItem?.cancel()
+            self.archiveObserverRefreshWorkItem = nil
+            self.logArchiveObserverRefreshBackpressure(action: "deferUntilScrollRest")
+            return true
+        case .keepCoalesced:
+            self.pendingArchiveObserverRefresh = true
+            self.logArchiveObserverRefreshBackpressure(action: "keepCoalesced")
+            return true
+        case .scheduleCoalesced:
+            self.pendingArchiveObserverRefresh = true
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.archiveObserverRefreshWorkItem = nil
+                self.flushPendingArchiveObserverRefreshIfPossible(reason: "coalescedTimer")
+            }
+            self.archiveObserverRefreshWorkItem = workItem
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + ChatObserverRefreshBackpressurePolicy.coalescingDelay,
+                execute: workItem
+            )
+            self.logArchiveObserverRefreshBackpressure(action: "scheduleCoalesced")
+            return true
+        }
+    }
+
+    @discardableResult
+    internal func flushPendingArchiveObserverRefreshIfPossible(reason: String) -> Bool {
+        let action = ChatObserverRefreshBackpressurePolicy.flushAction(
+            hasPendingRefresh: self.pendingArchiveObserverRefresh,
+            motionState: self.currentScrollMotionState()
+        )
+
+        switch action {
+        case .none:
+            return false
+        case .keepPending:
+            self.logArchiveObserverRefreshBackpressure(action: "flushDeferred:\(reason)")
+            return false
+        case .flush:
+            self.archiveObserverRefreshWorkItem?.cancel()
+            self.archiveObserverRefreshWorkItem = nil
+            self.pendingArchiveObserverRefresh = false
+            self.logArchiveObserverRefreshBackpressure(action: "flush:\(reason)")
+            if self.currentPage.locked {
+                _ = self.tryFinishInteractiveHistoryPageLoadIfReady()
+                return true
+            }
+            self.didReceiveChangeset()
+            return true
+        }
+    }
+
+    internal func cancelPendingArchiveObserverRefresh(reason: String) {
+        guard self.pendingArchiveObserverRefresh || self.archiveObserverRefreshWorkItem != nil else {
+            return
+        }
+        self.archiveObserverRefreshWorkItem?.cancel()
+        self.archiveObserverRefreshWorkItem = nil
+        self.pendingArchiveObserverRefresh = false
+        self.logArchiveObserverRefreshBackpressure(action: "cancel:\(reason)")
+    }
+
+    private func logArchiveObserverRefreshBackpressure(action: String) {
+        ChatArchiveDebugTrace.log("observerRefreshBackpressure", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("action", action),
+            ("isInitialBootstrapInFlight", self.isInitialBootstrapInFlight),
+            ("isPageLoading", self.currentPage.isLoading),
+            ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
+            ("interactiveQueryId", self.interactiveHistoryPageLoadContext?.queryId ?? "-"),
+            ("scrollMotionState", self.currentScrollMotionState().rawValue),
+            ("pendingRefresh", self.pendingArchiveObserverRefresh),
+            ("scheduledRefresh", self.archiveObserverRefreshWorkItem != nil),
+            ("datasourceCount", self.datasource.count),
+            ("observerCount", self.messagesObserver?.count ?? -1)
+        ])
     }
 
     internal final func loadInitialDatasource(performPendingOpenMessageRequest: Bool = true) {

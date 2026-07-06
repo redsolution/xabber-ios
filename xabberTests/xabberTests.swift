@@ -11246,6 +11246,75 @@ final class ChatInitialHistoryAppearancePolicyTests: XCTestCase {
         )
     }
 
+    func testObserverBackpressureKeepsInitialSkeletonRevealImmediate() {
+        XCTAssertEqual(
+            ChatObserverRefreshBackpressurePolicy.action(
+                isShowingBootstrapPlaceholder: true,
+                isHistoryPressureActive: true,
+                motionState: .dragging,
+                hasScheduledRefresh: false
+            ),
+            .applyImmediately
+        )
+    }
+
+    func testObserverBackpressureDefersPressureRefreshWhileScrollIsMoving() {
+        XCTAssertEqual(
+            ChatObserverRefreshBackpressurePolicy.action(
+                isShowingBootstrapPlaceholder: false,
+                isHistoryPressureActive: true,
+                motionState: .decelerating,
+                hasScheduledRefresh: false
+            ),
+            .deferUntilScrollRest
+        )
+    }
+
+    func testObserverBackpressureCoalescesPressureRefreshAtRest() {
+        XCTAssertEqual(
+            ChatObserverRefreshBackpressurePolicy.action(
+                isShowingBootstrapPlaceholder: false,
+                isHistoryPressureActive: true,
+                motionState: .resting,
+                hasScheduledRefresh: false
+            ),
+            .scheduleCoalesced
+        )
+        XCTAssertEqual(
+            ChatObserverRefreshBackpressurePolicy.action(
+                isShowingBootstrapPlaceholder: false,
+                isHistoryPressureActive: true,
+                motionState: .resting,
+                hasScheduledRefresh: true
+            ),
+            .keepCoalesced
+        )
+    }
+
+    func testObserverBackpressureFlushesPendingOnlyAtScrollRest() {
+        XCTAssertEqual(
+            ChatObserverRefreshBackpressurePolicy.flushAction(
+                hasPendingRefresh: true,
+                motionState: .resting
+            ),
+            .flush
+        )
+        XCTAssertEqual(
+            ChatObserverRefreshBackpressurePolicy.flushAction(
+                hasPendingRefresh: true,
+                motionState: .dragging
+            ),
+            .keepPending
+        )
+        XCTAssertEqual(
+            ChatObserverRefreshBackpressurePolicy.flushAction(
+                hasPendingRefresh: false,
+                motionState: .resting
+            ),
+            .none
+        )
+    }
+
     func testInitialAppearanceDoesNotCompleteBeforeViewDidAppear() {
         XCTAssertFalse(
             ChatInitialHistoryAppearancePolicy.shouldCompleteInitialAppearance(
@@ -11632,6 +11701,49 @@ final class ChatInitialHistoryAppearancePolicyTests: XCTestCase {
             ),
             .finishRequest
         )
+    }
+}
+
+final class ChatHistoryLoadActivityRegistryTests: XCTestCase {
+
+    func testActivityRegistryRefCountsActiveHistoryLoads() {
+        ChatHistoryLoadActivityRegistry.resetForTests()
+        defer { ChatHistoryLoadActivityRegistry.resetForTests() }
+
+        let key = ChatHistoryLoadActivityKey(
+            owner: "alice@example.com",
+            jid: "room@example.com",
+            conversationType: .group,
+            reason: "initial:q1"
+        )
+
+        ChatHistoryLoadActivityRegistry.begin(key)
+        ChatHistoryLoadActivityRegistry.begin(key)
+        XCTAssertTrue(ChatHistoryLoadActivityRegistry.hasActiveHistoryLoad)
+
+        ChatHistoryLoadActivityRegistry.end(key)
+        XCTAssertTrue(ChatHistoryLoadActivityRegistry.hasActiveHistoryLoad)
+
+        ChatHistoryLoadActivityRegistry.end(key)
+        XCTAssertFalse(ChatHistoryLoadActivityRegistry.hasActiveHistoryLoad)
+    }
+
+    func testChatControllerEndsAllRegisteredHistoryLoadActivitiesOnCleanup() {
+        ChatHistoryLoadActivityRegistry.resetForTests()
+        defer { ChatHistoryLoadActivityRegistry.resetForTests() }
+
+        let controller = ChatViewController()
+        controller.owner = "alice@example.com"
+        controller.jid = "room@example.com"
+        controller.conversationType = .group
+
+        controller.beginChatHistoryLoadActivity(reason: "initial:q1")
+        controller.beginChatHistoryLoadActivity(reason: "remote:q2")
+        XCTAssertTrue(ChatHistoryLoadActivityRegistry.hasActiveHistoryLoad)
+
+        controller.endAllChatHistoryLoadActivities(reason: "testCleanup")
+
+        XCTAssertFalse(ChatHistoryLoadActivityRegistry.hasActiveHistoryLoad)
     }
 }
 

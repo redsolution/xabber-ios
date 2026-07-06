@@ -603,6 +603,45 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         XCTAssertFalse(LastChatsBootstrapDatasetUpdatePolicy.shouldCoalesceDatasetUpdate(isBootstrapActive: true, hasScheduledUpdate: true))
     }
 
+    func testBootstrapDatasetUpdatePolicyTreatsActiveChatHistoryLoadAsPressure() {
+        XCTAssertTrue(
+            LastChatsBootstrapDatasetUpdatePolicy.isDatasetUpdatePressureActive(
+                isAccountSyncBootstrapActive: false,
+                isChatHistoryLoadActive: true
+            )
+        )
+        XCTAssertTrue(
+            LastChatsBootstrapDatasetUpdatePolicy.isDatasetUpdatePressureActive(
+                isAccountSyncBootstrapActive: true,
+                isChatHistoryLoadActive: false
+            )
+        )
+        XCTAssertFalse(
+            LastChatsBootstrapDatasetUpdatePolicy.isDatasetUpdatePressureActive(
+                isAccountSyncBootstrapActive: false,
+                isChatHistoryLoadActive: false
+            )
+        )
+
+        XCTAssertFalse(
+            LastChatsBootstrapDatasetUpdatePolicy.shouldAnimateDatasetMutation(
+                requestedAnimated: true,
+                isDatasetUpdatePressureActive: true
+            )
+        )
+        XCTAssertTrue(
+            LastChatsBootstrapDatasetUpdatePolicy.shouldSkipVisibleRowReconfigure(
+                isDatasetUpdatePressureActive: true
+            )
+        )
+        XCTAssertTrue(
+            LastChatsBootstrapDatasetUpdatePolicy.shouldCoalesceDatasetUpdate(
+                isDatasetUpdatePressureActive: true,
+                hasScheduledUpdate: false
+            )
+        )
+    }
+
     private func withInterfaceType(_ interfaceType: CommonConfigManager.InterfaceType, useYubikey: Bool, block: () -> Void) {
         let previousInterfaceType = CommonConfigManager.shared.config.interface_type
         let previousUseYubikey = CommonConfigManager.shared.config.use_yubikey

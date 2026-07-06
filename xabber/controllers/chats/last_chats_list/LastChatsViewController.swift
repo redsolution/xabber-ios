@@ -56,6 +56,13 @@ enum LastChatsBootstrapDatasetUpdatePolicy {
 
     static let coalescingDelay: TimeInterval = 0.18
 
+    static func isDatasetUpdatePressureActive(
+        isAccountSyncBootstrapActive: Bool,
+        isChatHistoryLoadActive: Bool
+    ) -> Bool {
+        isAccountSyncBootstrapActive || isChatHistoryLoadActive
+    }
+
     static func shouldDeferDatasetUpdateForNavigationTransition(
         isBootstrapActive: Bool,
         isNavigationTransitionActive: Bool
@@ -70,6 +77,13 @@ enum LastChatsBootstrapDatasetUpdatePolicy {
         isBootstrapActive && !hasScheduledUpdate
     }
 
+    static func shouldCoalesceDatasetUpdate(
+        isDatasetUpdatePressureActive: Bool,
+        hasScheduledUpdate: Bool
+    ) -> Bool {
+        isDatasetUpdatePressureActive && !hasScheduledUpdate
+    }
+
     static func shouldAnimateDatasetMutation(
         requestedAnimated: Bool,
         isBootstrapActive: Bool
@@ -77,8 +91,19 @@ enum LastChatsBootstrapDatasetUpdatePolicy {
         requestedAnimated && !isBootstrapActive
     }
 
+    static func shouldAnimateDatasetMutation(
+        requestedAnimated: Bool,
+        isDatasetUpdatePressureActive: Bool
+    ) -> Bool {
+        requestedAnimated && !isDatasetUpdatePressureActive
+    }
+
     static func shouldSkipVisibleRowReconfigure(isBootstrapActive: Bool) -> Bool {
         isBootstrapActive
+    }
+
+    static func shouldSkipVisibleRowReconfigure(isDatasetUpdatePressureActive: Bool) -> Bool {
+        isDatasetUpdatePressureActive
     }
 
     static func deferredDatasetUpdateAction(
@@ -1685,6 +1710,13 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
     }
 
+    internal var hasVisibleDatasetUpdatePressureInProgress: Bool {
+        LastChatsBootstrapDatasetUpdatePolicy.isDatasetUpdatePressureActive(
+            isAccountSyncBootstrapActive: self.hasVisibleAccountSyncBootstrapInProgress,
+            isChatHistoryLoadActive: ChatHistoryLoadActivityRegistry.hasActiveHistoryLoad
+        )
+    }
+
     internal final func reloadTableViewOrDeferForActiveSwipe() {
         if self.deferUntilNavigationTransitionCompletesIfNeeded({ [weak self] in
             self?.reloadTableViewOrDeferForActiveSwipe()
@@ -1700,7 +1732,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     @discardableResult
     internal final func reconfigureVisibleRow(at indexPath: IndexPath) -> Bool {
         if LastChatsBootstrapDatasetUpdatePolicy.shouldSkipVisibleRowReconfigure(
-            isBootstrapActive: self.hasVisibleAccountSyncBootstrapInProgress
+            isDatasetUpdatePressureActive: self.hasVisibleDatasetUpdatePressureInProgress
         ) {
             DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=skipVisibleReconfigure count=1")
             return false
@@ -2324,9 +2356,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             }
             return
         }
-        let bootstrapActive = self.hasVisibleAccountSyncBootstrapInProgress
+        let pressureActive = self.hasVisibleDatasetUpdatePressureInProgress
         if LastChatsBootstrapDatasetUpdatePolicy.shouldDeferDatasetUpdateForNavigationTransition(
-            isBootstrapActive: bootstrapActive,
+            isBootstrapActive: pressureActive,
             isNavigationTransitionActive: self.isNavigationTransitionActive
         ) {
             self.pendingDatasetUpdateAfterNavigationTransition = true
@@ -2352,17 +2384,17 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
     @discardableResult
     private final func scheduleBootstrapDatasetUpdateIfNeeded() -> Bool {
-        let bootstrapActive = self.hasVisibleAccountSyncBootstrapInProgress
+        let pressureActive = self.hasVisibleDatasetUpdatePressureInProgress
         guard !self.isExecutingBootstrapCoalescedDatasetUpdate else {
             return false
         }
-        guard bootstrapActive else {
+        guard pressureActive else {
             self.pendingDatasetUpdateAfterBootstrapCoalescing = false
             return false
         }
 
         guard LastChatsBootstrapDatasetUpdatePolicy.shouldCoalesceDatasetUpdate(
-            isBootstrapActive: bootstrapActive,
+            isDatasetUpdatePressureActive: pressureActive,
             hasScheduledUpdate: self.bootstrapDatasetUpdateWorkItem != nil
         ) else {
             self.pendingDatasetUpdateAfterBootstrapCoalescing = true
@@ -2383,7 +2415,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             deadline: .now() + LastChatsBootstrapDatasetUpdatePolicy.coalescingDelay,
             execute: workItem
         )
-        DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateCoalesced reason=bootstrapActive delayMs=\(Int(LastChatsBootstrapDatasetUpdatePolicy.coalescingDelay * 1000))")
+        DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateCoalesced reason=pressureActive delayMs=\(Int(LastChatsBootstrapDatasetUpdatePolicy.coalescingDelay * 1000))")
         return true
     }
     
@@ -2396,14 +2428,14 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         let oldSections = self.datasourceSections
         let oldShowsSkeleton = self.datasourceShowsSkeleton
         let newShowsSkeleton = self.showSkeleton.value
-        let bootstrapActive = self.hasVisibleAccountSyncBootstrapInProgress
+        let pressureActive = self.hasVisibleDatasetUpdatePressureInProgress
         let requestedAnimate = LeftMenuFirstPresentationPolicy.shouldAnimate(
             requested: self.isFirstLayout && !self.shouldSuppressNextDatasetAnimation,
             isQuietModeActive: self.isLeftMenuFirstPresentationQuietModeActive
         )
         let shouldAnimate = LastChatsBootstrapDatasetUpdatePolicy.shouldAnimateDatasetMutation(
             requestedAnimated: requestedAnimate,
-            isBootstrapActive: bootstrapActive
+            isDatasetUpdatePressureActive: pressureActive
         )
         self.shouldSuppressNextDatasetAnimation = false
         let renderStartedAt = Date()
@@ -2461,7 +2493,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     }
                 }
                 let durationMs = Int(Date().timeIntervalSince(renderStartedAt) * 1000)
-                DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateFinish bootstrapActive=\(bootstrapActive) rows=\(newDataset.count) visibleRows=\(self.tableView.indexPathsForVisibleRows?.count ?? 0) durationMs=\(durationMs) animated=\(shouldAnimate)")
+                DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateFinish pressureActive=\(pressureActive) rows=\(newDataset.count) visibleRows=\(self.tableView.indexPathsForVisibleRows?.count ?? 0) durationMs=\(durationMs) animated=\(shouldAnimate)")
             }
         }
     }
@@ -2475,7 +2507,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         self.canUpdateDataset = true
         self.syncSelectedChatSelection()
         guard self.needsDatasetRefresh else { return }
-        if self.hasVisibleAccountSyncBootstrapInProgress {
+        if self.hasVisibleDatasetUpdatePressureInProgress {
             self.runDatasetUpdateTask()
             return
         }
@@ -2528,9 +2560,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         reloads: [IndexPath],
         reconfigures: [IndexPath]
     ) {
-        let bootstrapActive = hasVisibleAccountSyncBootstrapInProgress
+        let pressureActive = hasVisibleDatasetUpdatePressureInProgress
         let effectiveReconfigures: [IndexPath]
-        if LastChatsBootstrapDatasetUpdatePolicy.shouldSkipVisibleRowReconfigure(isBootstrapActive: bootstrapActive) {
+        if LastChatsBootstrapDatasetUpdatePolicy.shouldSkipVisibleRowReconfigure(isDatasetUpdatePressureActive: pressureActive) {
             effectiveReconfigures = []
             if reconfigures.isNotEmpty {
                 DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=skipVisibleReconfigure count=\(reconfigures.count)")

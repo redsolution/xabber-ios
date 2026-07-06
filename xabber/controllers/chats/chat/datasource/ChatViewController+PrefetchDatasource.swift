@@ -302,12 +302,14 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         self.flushPendingScrollWork()
+        self.flushPendingArchiveObserverRefreshIfPossible(reason: "scrollDidEndDecelerating")
         self.triggerBoundaryPagingAfterDragIfNeeded(scrollView)
     }
     
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         self.flushPendingScrollWork()
         guard !decelerate else { return }
+        self.flushPendingArchiveObserverRefreshIfPossible(reason: "scrollDidEndDragging")
         self.triggerBoundaryPagingAfterDragIfNeeded(scrollView)
     }
     

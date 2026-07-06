@@ -188,21 +188,7 @@ extension ChatViewController {
             .observe(on: MainScheduler.asyncInstance)
             .subscribe {
                 (_) in
-                self.refreshPinnedMessagePanelIfNeeded()
-                if self.showSkeletonObserver.value {
-                    let didRevealBootstrapContent = self.revealInitialBootstrapContentIfAvailable()
-                    _ = self.completeInitialBootstrapIfNeeded()
-                    if !didRevealBootstrapContent {
-                        self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
-                    }
-                    self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
-                    return
-                }
-                if self.currentPage.locked {
-                    _ = self.tryFinishInteractiveHistoryPageLoadIfReady()
-                    return
-                }
-                self.didReceiveChangeset()
+                self.handleMessagesObserverRefresh()
             }
             .disposed(by: self.bag)
 
