@@ -78,6 +78,44 @@ struct SettingsCloudStorageQuotaDisplayState: Equatable {
     }
 }
 
+enum SettingsNavigationBarLeadingAction: Equatable {
+    case dismissModal
+    case none
+}
+
+enum SettingsNavigationBarRightAction: Equatable {
+    case edit
+    case done
+    case qrCode
+    case accountColorPalette
+}
+
+enum SettingsNavigationBarPolicy {
+    static func leadingAction(exitAction: NavigationExitAction) -> SettingsNavigationBarLeadingAction {
+        exitAction == .dismissModal ? .dismissModal : .none
+    }
+
+    static func rightActions(
+        multiAccounts: Bool,
+        isEditing: Bool,
+        lockedAccountColor: String
+    ) -> [SettingsNavigationBarRightAction] {
+        if multiAccounts {
+            return [isEditing ? .done : .edit]
+        }
+        if lockedAccountColor.isNotEmpty {
+            return [.qrCode]
+        }
+        return [.qrCode, .accountColorPalette]
+    }
+}
+
+enum SettingsModalPresentationPolicy {
+    static func presenter(for settingsController: UIViewController) -> UIViewController {
+        settingsController.navigationController ?? settingsController
+    }
+}
+
 final class SafetyReportingViewController: SimpleBaseViewController {
     private let textView: UITextView = {
         let textView = UITextView()
@@ -761,28 +799,70 @@ class SettingsViewController: BaseViewController {
 //        }
 //
 //
-        if multiAccounts {
-            editButton = UIBarButtonItem(barButtonSystemItem: .edit, target: self, action: #selector(onEdit))
-            doneEditButton = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(onDoneEditing))
-            if self.tableView.isEditing {
-                navigationItem.setRightBarButton(doneEditButton, animated: false)
-            } else {
-                navigationItem.setRightBarButton(editButton, animated: false)
-            }
+        let buttons = SettingsNavigationBarPolicy
+            .rightActions(
+                multiAccounts: multiAccounts,
+                isEditing: tableView.isEditing,
+                lockedAccountColor: CommonConfigManager.shared.config.locked_account_color
+            )
+            .map { makeSettingsRightBarButton(for: $0) }
+
+        if buttons.count == 1 {
+            navigationItem.setRightBarButton(buttons.first, animated: false)
         } else {
-            let qrCodeButton = UIBarButtonItem(image: imageLiteral( "qrcode"),
-                                               style: .done,
-                                               target: self,
-                                               action: #selector(self.onQRCode))
-            let paletteButton = UIBarButtonItem(image: imageLiteral( "paintpalette"),
-                                                style: .plain,
-                                                target: self,
-                                                action: #selector(self.showAccountColorViewController))
-            if CommonConfigManager.shared.config.locked_account_color.isNotEmpty {
-                navigationItem.setRightBarButton(qrCodeButton, animated: false)
-            } else {
-                navigationItem.setRightBarButtonItems([qrCodeButton, paletteButton], animated: false)
-            }
+            navigationItem.setRightBarButtonItems(buttons, animated: false)
+        }
+    }
+
+    private func makeSettingsRightBarButton(for action: SettingsNavigationBarRightAction) -> UIBarButtonItem {
+        switch action {
+        case .edit:
+            ensureSettingsEditButtons()
+            return editButton!
+        case .done:
+            ensureSettingsEditButtons()
+            return doneEditButton!
+        case .qrCode:
+            return UIBarButtonItem(
+                image: imageLiteral( "qrcode"),
+                style: .done,
+                target: self,
+                action: #selector(self.onQRCode)
+            )
+        case .accountColorPalette:
+            return UIBarButtonItem(
+                image: imageLiteral( "paintpalette"),
+                style: .plain,
+                target: self,
+                action: #selector(self.showAccountColorViewController)
+            )
+        }
+    }
+
+    private func ensureSettingsEditButtons() {
+        if editButton == nil {
+            editButton = UIBarButtonItem(barButtonSystemItem: .edit, target: self, action: #selector(onEdit))
+        }
+        if doneEditButton == nil {
+            doneEditButton = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(onDoneEditing))
+        }
+    }
+
+    private func configureSettingsLeadingNavigationItem(animated: Bool) {
+        let exitAction = NavigationExitPolicy.action(
+            for: NavigationExitPolicyContext(destination: self, route: .currentNavigationPush)
+        )
+        switch SettingsNavigationBarPolicy.leadingAction(exitAction: exitAction) {
+        case .dismissModal:
+            let button = UIBarButtonItem(
+                barButtonSystemItem: .close,
+                target: self,
+                action: #selector(dismissScreen)
+            )
+            button.accessibilityIdentifier = "settings_dismiss_button"
+            navigationItem.setLeftBarButton(button, animated: animated)
+        case .none:
+            navigationItem.setLeftBarButton(nil, animated: animated)
         }
     }
 
@@ -1206,6 +1286,7 @@ class SettingsViewController: BaseViewController {
         headerViewConfig()
         subscribe()
         refreshCloudStorageQuotaForCurrentAccount()
+        configureSettingsLeadingNavigationItem(animated: false)
 
         if self.shouldShowTabBar {
             self.tabBarController?.tabBar.isHidden = false

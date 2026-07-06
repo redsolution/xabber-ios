@@ -365,6 +365,55 @@ final class ModalPresentationContainmentController: NSObject, UIAdaptivePresenta
 private var modalPresentationContainmentControllerKey: UInt8 = 0
 
 @discardableResult
+func presentContainedNavigationModal(
+    _ navigationController: UINavigationController,
+    rootViewController: UIViewController,
+    presentedContentViewController: UIViewController,
+    from presenter: UIViewController,
+    replaceCurrentPresented: Bool = true,
+    forwardedDelegate: UIAdaptivePresentationControllerDelegate? = nil,
+    currentControllerAccess: ModalPresentationCurrentControllerAccess = .application,
+    completion: (() -> Void)? = nil
+) -> Bool {
+    if replaceCurrentPresented {
+        currentControllerAccess.set(presentedContentViewController)
+    }
+
+    navigationController.modalPresentationStyle = .formSheet
+    navigationController.modalTransitionStyle = .coverVertical
+    if UIDevice.current.userInterfaceIdiom == .pad {
+        if let popoverController = navigationController.popoverPresentationController {
+            popoverController.sourceView = presenter.view
+            popoverController.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0, height: 0)
+            popoverController.permittedArrowDirections = [.any]
+        }
+    }
+
+    presenter.definesPresentationContext = true
+    let presentingViewController = presenter.presentedViewController ?? presenter
+    let containmentController = ModalPresentationContainmentController.install(
+        on: navigationController,
+        rootViewController: rootViewController,
+        presentingViewController: presentingViewController,
+        presentedContentViewController: presentedContentViewController,
+        forwardedDelegate: forwardedDelegate,
+        currentControllerAccess: currentControllerAccess
+    )
+    if let presentedViewController = presenter.presentedViewController {
+        presentedViewController.present(navigationController, animated: true) {
+            containmentController.presentationDidComplete()
+            completion?()
+        }
+    } else {
+        presenter.present(navigationController, animated: true) {
+            containmentController.presentationDidComplete()
+            completion?()
+        }
+    }
+    return true
+}
+
+@discardableResult
 func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil, replaceParent: Bool = true) -> Bool {
     var parent: UIViewController? = parentVc
 //    if (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc != nil {
@@ -380,47 +429,17 @@ func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil,
     guard let parent = parent else {
         return false
     }
-    
-    let currentControllerAccess = ModalPresentationCurrentControllerAccess.application
-    if replaceParent {
-        currentControllerAccess.set(vc)
-    }
+
 //    }
     let nvc = UINavigationController(rootViewController: vc)
-    nvc.modalPresentationStyle = .formSheet
-    nvc.modalTransitionStyle = .coverVertical
-    if UIDevice.current.userInterfaceIdiom == .pad {
-        if let popoverController = nvc.popoverPresentationController {
-            popoverController.sourceView = parent.view
-            popoverController.sourceRect = CGRect(x: parent.view.bounds.midX, y: parent.view.bounds.midY, width: 0, height: 0)
-            popoverController.permittedArrowDirections = [.any]
-        }
-    }
-    
-    if let adaptiveDelegate = parentVc as? UIAdaptivePresentationControllerDelegate {
-        nvc.presentationController?.delegate = adaptiveDelegate
-    }
-    
-    parent.definesPresentationContext = true
-    let presentingViewController = parent.presentedViewController ?? parent
-    let containmentController = ModalPresentationContainmentController.install(
-        on: nvc,
+    return presentContainedNavigationModal(
+        nvc,
         rootViewController: vc,
-        presentingViewController: presentingViewController,
         presentedContentViewController: vc,
-        forwardedDelegate: parentVc as? UIAdaptivePresentationControllerDelegate,
-        currentControllerAccess: currentControllerAccess
+        from: parent,
+        replaceCurrentPresented: replaceParent,
+        forwardedDelegate: parentVc as? UIAdaptivePresentationControllerDelegate
     )
-    if let presentedViewController = parent.presentedViewController {
-        presentedViewController.present(nvc, animated: true) {
-            containmentController.presentationDidComplete()
-        }
-    } else {
-        parent.present(nvc, animated: true) {
-            containmentController.presentationDidComplete()
-        }
-    }
-    return true
 }
 
 private func splitController(for presenter: UIViewController) -> UISplitViewController? {

@@ -412,7 +412,13 @@ enum EULANavigationGate {
             navigation()
         case .presentEULA:
             let vc = EULAAcceptanceNavigationController(onAccepted: navigation)
-            presenter.present(vc, animated: true)
+            presentContainedNavigationModal(
+                vc,
+                rootViewController: vc.viewControllers.first ?? vc,
+                presentedContentViewController: vc.viewControllers.first ?? vc,
+                from: presenter,
+                forwardedDelegate: presenter as? UIAdaptivePresentationControllerDelegate
+            )
         }
     }
 }

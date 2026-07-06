@@ -22,6 +22,19 @@ import Foundation
 import UIKit
 
 extension SettingsViewController {
+
+    @discardableResult
+    internal func presentContainedSettingsModal(_ vc: UIViewController, replaceCurrentPresented: Bool = true) -> Bool {
+        let navigationController = UINavigationController(rootViewController: vc)
+        return presentContainedNavigationModal(
+            navigationController,
+            rootViewController: vc,
+            presentedContentViewController: vc,
+            from: SettingsModalPresentationPolicy.presenter(for: self),
+            replaceCurrentPresented: replaceCurrentPresented,
+            forwardedDelegate: self
+        )
+    }
     
     @objc
     internal func dismissScreen() {
@@ -45,7 +58,7 @@ extension SettingsViewController {
         let vc = AccountColorViewController()
         vc.isModal = true
         vc.configure(for: jid)
-        showModal(vc, parent: self)
+        presentContainedSettingsModal(vc)
     }
 
     @objc
@@ -58,7 +71,7 @@ extension SettingsViewController {
     private func continueToAddAccount() {
         let vc = SignInCreditionalsViewController()
         vc.isModal = true
-        showModal(vc, parent: self)
+        presentContainedSettingsModal(vc)
     }
     
     internal func showAccountInfo(_ jid: String, isEnabled: Bool) {

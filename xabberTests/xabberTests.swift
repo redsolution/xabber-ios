@@ -1864,6 +1864,74 @@ final class EULAGateRoutingTests: XCTestCase {
 }
 
 @MainActor
+final class SettingsNavigationContainmentTests: XCTestCase {
+    func testModalRootLeadingPolicyInstallsOnlyDismissAction() {
+        XCTAssertEqual(
+            SettingsNavigationBarPolicy.leadingAction(exitAction: .dismissModal),
+            .dismissModal
+        )
+        XCTAssertEqual(
+            SettingsNavigationBarPolicy.leadingAction(exitAction: .popNavigationStack),
+            .none
+        )
+        XCTAssertEqual(
+            SettingsNavigationBarPolicy.leadingAction(exitAction: .revealSplitList),
+            .none
+        )
+        XCTAssertEqual(
+            SettingsNavigationBarPolicy.leadingAction(exitAction: .none),
+            .none
+        )
+    }
+
+    func testRightBarPolicyPreservesExistingSettingsButtonRules() {
+        XCTAssertEqual(
+            SettingsNavigationBarPolicy.rightActions(
+                multiAccounts: true,
+                isEditing: false,
+                lockedAccountColor: ""
+            ),
+            [.edit]
+        )
+        XCTAssertEqual(
+            SettingsNavigationBarPolicy.rightActions(
+                multiAccounts: true,
+                isEditing: true,
+                lockedAccountColor: ""
+            ),
+            [.done]
+        )
+        XCTAssertEqual(
+            SettingsNavigationBarPolicy.rightActions(
+                multiAccounts: false,
+                isEditing: false,
+                lockedAccountColor: "brand"
+            ),
+            [.qrCode]
+        )
+        XCTAssertEqual(
+            SettingsNavigationBarPolicy.rightActions(
+                multiAccounts: false,
+                isEditing: false,
+                lockedAccountColor: ""
+            ),
+            [.qrCode, .accountColorPalette]
+        )
+    }
+
+    func testNestedSettingsModalUsesVisibleNavigationContext() {
+        let settings = UIViewController()
+        let navigationController = UINavigationController(rootViewController: settings)
+
+        XCTAssertTrue(SettingsModalPresentationPolicy.presenter(for: settings) === navigationController)
+
+        let detachedSettings = UIViewController()
+
+        XCTAssertTrue(SettingsModalPresentationPolicy.presenter(for: detachedSettings) === detachedSettings)
+    }
+}
+
+@MainActor
 final class RootLargeTitleConfigurationTests: XCTestCase {
     func testStockSearchSectionNavigationFactoryUsesCommonLargeTitleConfig() {
         assertStockSearchSectionNavigation(useLargeTitle: true)

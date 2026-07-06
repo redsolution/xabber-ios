@@ -99,7 +99,7 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
         
-        showModal(vc, parent: self)
+        presentContainedSettingsModal(vc)
     }
     
     func onChangeAvatar() {
@@ -176,7 +176,7 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
         vc.delegate = self
         vc.palette = nil
         vc.lastSettedEmoji = nil
-        showModal(vc, parent: self)
+        presentContainedSettingsModal(vc)
     }
     
     internal final func onOpenEmojiPicker() {
