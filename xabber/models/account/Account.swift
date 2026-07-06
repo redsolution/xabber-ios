@@ -399,6 +399,36 @@ struct AccountStreamConnectPreflight {
     }
 }
 
+enum AccountForegroundConnectionRecoveryDecision: Equatable {
+    case skip
+    case requestImmediateReconnect
+    case waitForActiveAttempt
+}
+
+enum AccountForegroundConnectionRecoveryPolicy {
+    static func decide(
+        canFlushApplicationStanzas: Bool,
+        lifecyclePhase: AccountStreamLifecyclePhase,
+        isNetworkPathSatisfied: Bool?
+    ) -> AccountForegroundConnectionRecoveryDecision {
+        guard !canFlushApplicationStanzas else {
+            return .skip
+        }
+        guard isNetworkPathSatisfied != false else {
+            return .skip
+        }
+
+        switch lifecyclePhase {
+        case .idle, .failed:
+            return .requestImmediateReconnect
+        case .connecting, .tlsNegotiating, .authenticating, .binding, .postAuthSetup:
+            return .waitForActiveAttempt
+        case .online, .disconnecting:
+            return .skip
+        }
+    }
+}
+
 final class AccountStreamLifecycleGate {
     private let lock = NSLock()
     private var nextAttemptID: UInt64 = 0
@@ -523,6 +553,7 @@ enum AccountDisconnectCause: String, Equatable {
     case backgroundSuspension
     case accidentalSocket
     case pingTimeout
+    case bindingTimeout
     case retryableAuthFailure
     case permanentAuthFailure
     case serverStreamError
@@ -531,7 +562,7 @@ enum AccountDisconnectCause: String, Equatable {
         switch self {
         case .intentionalShutdown, .accountDeletion, .resourceUpdate, .backgroundSuspension, .permanentAuthFailure:
             return true
-        case .accidentalSocket, .pingTimeout, .retryableAuthFailure, .serverStreamError:
+        case .accidentalSocket, .pingTimeout, .bindingTimeout, .retryableAuthFailure, .serverStreamError:
             return false
         }
     }
@@ -699,6 +730,7 @@ struct AccountConnectionResiliencePolicy {
     let jitterRatio: Double
     let fastResumeDelays: [TimeInterval]
     let outboundConfirmationTimeout: TimeInterval
+    let bindingSetupTimeout: TimeInterval
     let jitter: () -> Double
 
     static func aggressive(jitter: @escaping () -> Double = { Double.random(in: -1...1) }) -> AccountConnectionResiliencePolicy {
@@ -714,6 +746,7 @@ struct AccountConnectionResiliencePolicy {
             jitterRatio: 0.2,
             fastResumeDelays: [0, 1],
             outboundConfirmationTimeout: 8,
+            bindingSetupTimeout: 8,
             jitter: jitter
         )
     }
@@ -725,6 +758,7 @@ enum AccountConnectionStaleReason: String, Equatable {
     case outboundConfirmationTimeout
     case primaryStreamAckTimeout
     case primaryStreamTrackingLimit
+    case bindingTimeout
 }
 
 struct AccountConnectionHealthSnapshot: Equatable {
@@ -738,6 +772,7 @@ struct AccountConnectionHealthSnapshot: Equatable {
     let lastActivityAge: TimeInterval?
     let isSuspectedStale: Bool
     let suspectedStaleReason: AccountConnectionStaleReason?
+    let isNetworkPathSatisfied: Bool?
 }
 
 struct AccountConnectionResilienceActions {
@@ -782,6 +817,7 @@ final class AccountConnectionResilienceCoordinator {
     private var retryTimer: AccountConnectionResilienceCancellable?
     private var pathDebounceTimer: AccountConnectionResilienceCancellable?
     private var stableOnlineTimer: AccountConnectionResilienceCancellable?
+    private var bindingWatchdogTimer: AccountConnectionResilienceCancellable?
     private var pausedReconnect: (cause: AccountDisconnectCause, trigger: AccountConnectTrigger)?
 
     var healthSnapshot: AccountConnectionHealthSnapshot {
@@ -817,6 +853,7 @@ final class AccountConnectionResilienceCoordinator {
             scheduleLivenessTick()
         } else {
             cancelLiveness()
+            cancelBindingWatchdog(reason: "foreground-inactive")
         }
     }
 
@@ -827,6 +864,7 @@ final class AccountConnectionResilienceCoordinator {
     }
 
     private func streamDidReachOnlineLocked(resumed: Bool) {
+        cancelBindingWatchdog(reason: "stream-online")
         isOnline = true
         pendingPing = false
         missedPings = 0
@@ -849,6 +887,7 @@ final class AccountConnectionResilienceCoordinator {
     }
 
     private func streamDidDisconnectLocked(cause: AccountDisconnectCause) {
+        cancelBindingWatchdog(reason: "stream-disconnected")
         isOnline = false
         pendingPing = false
         missedPings = 0
@@ -868,6 +907,44 @@ final class AccountConnectionResilienceCoordinator {
             return
         }
         scheduleReconnect(cause: cause, trigger: .resilienceRetry)
+    }
+
+    func streamDidEnterBinding() {
+        withStateLock {
+            streamDidEnterBindingLocked()
+        }
+    }
+
+    func streamDidLeaveBinding(reason: String) {
+        withStateLock {
+            cancelBindingWatchdog(reason: reason)
+        }
+    }
+
+    private func streamDidEnterBindingLocked() {
+        guard isForegroundActive, !isOnline, !isSuspectedStale, currentPath?.isSatisfied ?? true else {
+            actions.log(
+                "resilience_binding_watchdog_skipped",
+                [
+                    "foreground": isForegroundActive,
+                    "online": isOnline,
+                    "suspectedStale": isSuspectedStale,
+                    "pathSatisfied": currentPath?.isSatisfied
+                ]
+            )
+            return
+        }
+
+        bindingWatchdogTimer?.cancel()
+        actions.log(
+            "resilience_binding_watchdog_started",
+            ["timeout": policy.bindingSetupTimeout]
+        )
+        bindingWatchdogTimer = scheduler.schedule(after: policy.bindingSetupTimeout) { [weak self] in
+            self?.withStateLock {
+                self?.handleBindingTimeout()
+            }
+        }
     }
 
     func noteInboundActivity(_ reason: String) {
@@ -989,8 +1066,28 @@ final class AccountConnectionResilienceCoordinator {
         }
     }
 
-    private func scheduleReconnectLocked(cause: AccountDisconnectCause, trigger: AccountConnectTrigger) {
+    func requestImmediateReconnect(cause: AccountDisconnectCause, trigger: AccountConnectTrigger) {
+        withStateLock {
+            scheduleReconnectLocked(
+                cause: cause,
+                trigger: trigger,
+                delayOverride: 0,
+                replaceExistingRetry: true
+            )
+        }
+    }
+
+    private func scheduleReconnectLocked(
+        cause: AccountDisconnectCause,
+        trigger: AccountConnectTrigger,
+        delayOverride: TimeInterval? = nil,
+        replaceExistingRetry: Bool = false
+    ) {
         guard cause.allowsAutoReconnect else { return }
+        if replaceExistingRetry {
+            retryTimer?.cancel()
+            retryTimer = nil
+        }
         guard retryTimer == nil else { return }
         guard currentPath?.isSatisfied ?? true else {
             pausedReconnect = (cause, trigger)
@@ -1001,7 +1098,7 @@ final class AccountConnectionResilienceCoordinator {
             return
         }
 
-        let delay = reconnectDelay()
+        let delay = delayOverride ?? reconnectDelay()
         actions.log(
             "resilience_reconnect_scheduled",
             ["cause": cause.rawValue, "trigger": trigger.rawValue, "delay": delay]
@@ -1031,6 +1128,7 @@ final class AccountConnectionResilienceCoordinator {
 
         guard snapshot.isSatisfied else {
             cancelLiveness()
+            cancelBindingWatchdog(reason: "path-unsatisfied")
             return
         }
 
@@ -1043,9 +1141,19 @@ final class AccountConnectionResilienceCoordinator {
             sendLivenessProbeNow()
         } else if let pausedReconnect {
             self.pausedReconnect = nil
-            scheduleReconnect(cause: pausedReconnect.cause, trigger: .pathRecovery)
+            scheduleReconnectLocked(
+                cause: pausedReconnect.cause,
+                trigger: .pathRecovery,
+                delayOverride: 0,
+                replaceExistingRetry: true
+            )
         } else {
-            scheduleReconnect(cause: .accidentalSocket, trigger: .pathRecovery)
+            scheduleReconnectLocked(
+                cause: .accidentalSocket,
+                trigger: .pathRecovery,
+                delayOverride: 0,
+                replaceExistingRetry: true
+            )
         }
     }
 
@@ -1105,12 +1213,49 @@ final class AccountConnectionResilienceCoordinator {
         forceCloseAfterLivenessFailure(reason: .pingTimeout)
     }
 
+    private func handleBindingTimeout() {
+        bindingWatchdogTimer?.cancel()
+        bindingWatchdogTimer = nil
+        guard isForegroundActive, !isOnline, !isSuspectedStale, currentPath?.isSatisfied ?? true else {
+            actions.log(
+                "resilience_binding_timeout_ignored",
+                [
+                    "foreground": isForegroundActive,
+                    "online": isOnline,
+                    "suspectedStale": isSuspectedStale,
+                    "pathSatisfied": currentPath?.isSatisfied
+                ]
+            )
+            return
+        }
+
+        actions.log(
+            "resilience_binding_timeout",
+            ["timeout": policy.bindingSetupTimeout]
+        )
+        cancelLiveness()
+        markSuspectedStale(.bindingTimeout)
+        isOnline = false
+        actions.forceClose(.bindingTimeout)
+        scheduleReconnectLocked(
+            cause: .bindingTimeout,
+            trigger: .resilienceRetry,
+            delayOverride: 0,
+            replaceExistingRetry: true
+        )
+    }
+
     private func forceCloseAfterLivenessFailure(reason: AccountConnectionStaleReason) {
         cancelLiveness()
         markSuspectedStale(reason)
         isOnline = false
         actions.forceClose(.pingTimeout)
-        scheduleReconnectLocked(cause: .pingTimeout, trigger: .resilienceRetry)
+        scheduleReconnectLocked(
+            cause: .pingTimeout,
+            trigger: .resilienceRetry,
+            delayOverride: 0,
+            replaceExistingRetry: true
+        )
     }
 
     private func scheduleOutboundConfirmationTimeout() {
@@ -1190,6 +1335,13 @@ final class AccountConnectionResilienceCoordinator {
         pausedReconnect = nil
     }
 
+    private func cancelBindingWatchdog(reason: String) {
+        guard bindingWatchdogTimer != nil else { return }
+        bindingWatchdogTimer?.cancel()
+        bindingWatchdogTimer = nil
+        actions.log("resilience_binding_watchdog_cancelled", ["reason": reason])
+    }
+
     private enum ConfirmedActivityKind {
         case inboundStanza
         case streamManagementAck
@@ -1263,7 +1415,8 @@ final class AccountConnectionResilienceCoordinator {
             lastConfirmedActivityAt: lastActivityAt,
             lastActivityAge: lastActivityAt.map { max(0, now - $0) },
             isSuspectedStale: isSuspectedStale,
-            suspectedStaleReason: suspectedStaleReason
+            suspectedStaleReason: suspectedStaleReason,
+            isNetworkPathSatisfied: currentPath?.isSatisfied
         )
     }
 }
@@ -3436,6 +3589,39 @@ final class Account: NSObject {
             )
             return false
         }
+    }
+
+    @discardableResult
+    final func requestForegroundConnectionRecovery(trigger: AccountConnectTrigger = .uiActionOpen) -> Bool {
+        let readiness = self.sendReadiness.snapshot
+        let gateSnapshot = self.connectionGate.snapshot()
+        let healthSnapshot = self.connectionResilience.healthSnapshot
+        let decision = AccountForegroundConnectionRecoveryPolicy.decide(
+            canFlushApplicationStanzas: readiness.canFlushApplicationStanzas,
+            lifecyclePhase: gateSnapshot.phase,
+            isNetworkPathSatisfied: healthSnapshot.isNetworkPathSatisfied
+        )
+        self.logConnectionDiagnostics(
+            event: "foreground_connection_recovery_evaluated",
+            trigger: trigger,
+            phase: gateSnapshot.phase,
+            details: [
+                "decision": String(describing: decision),
+                "sendReady": readiness.canFlushApplicationStanzas,
+                "readinessPhase": "\(readiness.phase)",
+                "pathSatisfied": healthSnapshot.isNetworkPathSatisfied
+            ]
+        )
+
+        guard decision == .requestImmediateReconnect else {
+            return false
+        }
+
+        self.connectionResilience.requestImmediateReconnect(
+            cause: .accidentalSocket,
+            trigger: trigger
+        )
+        return true
     }
 
     private func configureEndpointResolutionForConnect() {

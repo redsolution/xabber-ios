@@ -448,7 +448,7 @@ extension ChatViewController {
                 let status = (results.first?.statusMessage.isEmpty ?? true) ? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus) : results.first?.statusMessage ?? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
 //                    self.contactUsename = nickname
                 self.titleLabel.attributedText = self.updateTitle()
-                let statusStr = AccountManager.shared.connectingUsers.value.contains(self.owner) ? "Waiting for network...".localizeString(id: "waiting_for_network", arguments: []) : status
+                let statusStr = self.connectionAwareStatusText(fallbackStatus: status)
                 if self.statusLabel.text == " " && self.conversationType != .saved {
                     self.statusLabel.text = statusStr
                 }
@@ -612,12 +612,7 @@ extension ChatViewController {
         }
 //        self.contactUsename = self.opponentSender.displayName
         self.titleLabel.attributedText = self.updateTitle()
-        self.setStatusText(AccountManager
-            .shared
-            .connectingUsers
-            .value
-            .contains(self.owner) ? "Waiting for network..."
-                    .localizeString(id: "waiting_for_network", arguments: []) : self.contactStatus ?? " ")
+        self.setStatusText(self.connectionAwareStatusText(fallbackStatus: self.contactStatus ?? " "))
         
         switch ChatMarkersManager.BurnMessagesTimerValues(rawValue: Int(item.afterburnInterval)) {
             case .off, .none:

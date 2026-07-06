@@ -4684,6 +4684,7 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
             jitterRatio: 0.2,
             fastResumeDelays: [0, 1],
             outboundConfirmationTimeout: 8,
+            bindingSetupTimeout: 8,
             jitter: { 0 }
         )
         let harness = makeHarness(policy: policy)
@@ -4826,6 +4827,78 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
         harness.scheduler.advance(by: 1)
 
         XCTAssertEqual(harness.recorder.reconnectWasStarted, [true, false])
+    }
+
+    func testBindingWatchdogDoesNotFireBeforeTimeout() {
+        let harness = makeHarness()
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidEnterBinding()
+        harness.scheduler.advance(by: 7.9)
+
+        XCTAssertTrue(harness.recorder.forceCloseCauses.isEmpty)
+        XCTAssertTrue(harness.recorder.reconnectTriggers.isEmpty)
+        XCTAssertTrue(harness.recorder.staleReasons.isEmpty)
+    }
+
+    func testBindingWatchdogTimeoutForceClosesAndReconnectsImmediately() {
+        let harness = makeHarness()
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidEnterBinding()
+        harness.scheduler.advance(by: 8)
+
+        XCTAssertEqual(harness.recorder.forceCloseCauses, [.bindingTimeout])
+        XCTAssertEqual(harness.recorder.reconnectTriggers, [.resilienceRetry])
+        XCTAssertEqual(harness.recorder.staleReasons, [.bindingTimeout])
+        XCTAssertTrue(harness.recorder.diagnosticsEvents.contains("resilience_binding_timeout"))
+    }
+
+    func testBindingWatchdogCancelsWhenStreamReachesOnline() {
+        let harness = makeHarness()
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidEnterBinding()
+        harness.scheduler.advance(by: 4)
+        harness.coordinator.streamDidReachOnline(resumed: false)
+        harness.scheduler.advance(by: 20)
+
+        XCTAssertTrue(harness.recorder.forceCloseCauses.isEmpty)
+        XCTAssertTrue(harness.recorder.reconnectTriggers.isEmpty)
+        XCTAssertFalse(harness.coordinator.healthSnapshot.isSuspectedStale)
+    }
+
+    func testBindingWatchdogDoesNotStartWhenForegroundInactive() {
+        let harness = makeHarness()
+
+        harness.coordinator.streamDidEnterBinding()
+        harness.scheduler.advance(by: 20)
+
+        XCTAssertTrue(harness.recorder.forceCloseCauses.isEmpty)
+        XCTAssertTrue(harness.recorder.reconnectTriggers.isEmpty)
+    }
+
+    func testBindingWatchdogCancelsWhenPathBecomesUnsatisfied() {
+        let harness = makeHarness()
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidEnterBinding()
+        harness.coordinator.networkPathDidChange(.init(status: .unsatisfied, interfaces: [.wifi]))
+        harness.scheduler.advance(by: 0.75)
+        harness.scheduler.advance(by: 20)
+
+        XCTAssertTrue(harness.recorder.forceCloseCauses.isEmpty)
+        XCTAssertTrue(harness.recorder.reconnectTriggers.isEmpty)
+        XCTAssertEqual(harness.coordinator.healthSnapshot.isNetworkPathSatisfied, false)
+    }
+
+    func testImmediateReconnectBypassesBackoffForForegroundRecovery() {
+        let harness = makeHarness()
+
+        harness.coordinator.requestImmediateReconnect(cause: .accidentalSocket, trigger: .uiActionOpen)
+        harness.scheduler.advance(by: 0)
+
+        XCTAssertEqual(harness.recorder.reconnectTriggers, [.uiActionOpen])
     }
 
     private func makeHarness(
@@ -5055,6 +5128,117 @@ final class AccountSendReadinessCoordinatorTests: XCTestCase {
             jid: jid,
             reason: "test-cleanup",
             clearAuthentication: true
+        )
+    }
+}
+
+final class AccountForegroundConnectionRecoveryPolicyTests: XCTestCase {
+
+    func testIdleNotReadySatisfiedPathRequestsImmediateReconnect() {
+        let decision = AccountForegroundConnectionRecoveryPolicy.decide(
+            canFlushApplicationStanzas: false,
+            lifecyclePhase: .idle,
+            isNetworkPathSatisfied: true
+        )
+
+        XCTAssertEqual(decision, .requestImmediateReconnect)
+    }
+
+    func testFailedNotReadyUnknownPathRequestsImmediateReconnect() {
+        let decision = AccountForegroundConnectionRecoveryPolicy.decide(
+            canFlushApplicationStanzas: false,
+            lifecyclePhase: .failed,
+            isNetworkPathSatisfied: nil
+        )
+
+        XCTAssertEqual(decision, .requestImmediateReconnect)
+    }
+
+    func testActiveBindingAttemptIsLeftForWatchdog() {
+        let decision = AccountForegroundConnectionRecoveryPolicy.decide(
+            canFlushApplicationStanzas: false,
+            lifecyclePhase: .binding,
+            isNetworkPathSatisfied: true
+        )
+
+        XCTAssertEqual(decision, .waitForActiveAttempt)
+    }
+
+    func testReadyOrUnsatisfiedPathSkipsForegroundRecovery() {
+        XCTAssertEqual(
+            AccountForegroundConnectionRecoveryPolicy.decide(
+                canFlushApplicationStanzas: true,
+                lifecyclePhase: .idle,
+                isNetworkPathSatisfied: true
+            ),
+            .skip
+        )
+        XCTAssertEqual(
+            AccountForegroundConnectionRecoveryPolicy.decide(
+                canFlushApplicationStanzas: false,
+                lifecyclePhase: .idle,
+                isNetworkPathSatisfied: false
+            ),
+            .skip
+        )
+    }
+}
+
+final class ChatConnectionStatusTextPolicyTests: XCTestCase {
+
+    func testBindingWithSatisfiedPathShowsConnectingInsteadOfWaitingForNetwork() {
+        let text = ChatConnectionStatusTextPolicy.text(
+            actionText: nil,
+            isAccountConnecting: true,
+            sendReadinessSnapshot: snapshot(phase: .binding),
+            isNetworkPathSatisfied: true,
+            fallbackStatus: "Online"
+        )
+
+        XCTAssertEqual(text, ChatConnectionStatusTextPolicy.connectingText)
+    }
+
+    func testUnsatisfiedPathShowsWaitingForNetwork() {
+        let text = ChatConnectionStatusTextPolicy.text(
+            actionText: nil,
+            isAccountConnecting: true,
+            sendReadinessSnapshot: snapshot(phase: .binding),
+            isNetworkPathSatisfied: false,
+            fallbackStatus: "Online"
+        )
+
+        XCTAssertEqual(text, ChatConnectionStatusTextPolicy.waitingForNetworkText)
+    }
+
+    func testBackgroundSuspendedFallsBackToContactStatus() {
+        let text = ChatConnectionStatusTextPolicy.text(
+            actionText: nil,
+            isAccountConnecting: true,
+            sendReadinessSnapshot: snapshot(phase: .backgroundSuspended),
+            isNetworkPathSatisfied: true,
+            fallbackStatus: "Last seen recently"
+        )
+
+        XCTAssertEqual(text, "Last seen recently")
+    }
+
+    func testActionTextHasPriorityOverConnectionState() {
+        let text = ChatConnectionStatusTextPolicy.text(
+            actionText: "typing...",
+            isAccountConnecting: true,
+            sendReadinessSnapshot: snapshot(phase: .binding),
+            isNetworkPathSatisfied: false,
+            fallbackStatus: "Online"
+        )
+
+        XCTAssertEqual(text, "typing...")
+    }
+
+    private func snapshot(phase: AccountSendReadinessPhase) -> AccountSendReadinessSnapshot {
+        AccountSendReadinessSnapshot(
+            phase: phase,
+            updatedAt: Date(timeIntervalSince1970: 0),
+            reason: nil
         )
     }
 }

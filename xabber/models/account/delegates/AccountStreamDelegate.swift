@@ -285,6 +285,7 @@ extension Account: XMPPStreamDelegate {
         }
         self.cancelDelayedConnectTimer()
         self.connectionGate.markPostAuthSetup()
+        self.connectionResilience.streamDidLeaveBinding(reason: "authenticated")
         self.logConnectionDiagnostics(event: "post_auth_setup_started")
         self.didAuthenticate()
         if let resource = sender.myJID?.resource {
@@ -334,6 +335,7 @@ extension Account: XMPPStreamDelegate {
             self.connectionGate.markBinding()
             self.sendReadiness.markBinding()
             self.logConnectionDiagnostics(event: "resource_binding_available")
+            self.connectionResilience.streamDidEnterBinding()
         }
         syncManager.checkAvailability(features)
         devices.setAvailable(features)
@@ -357,6 +359,7 @@ extension Account: XMPPStreamDelegate {
             rawXML: error.xmlString
         )
         self.didReceiveError(error)
+        self.connectionResilience.streamDidLeaveBinding(reason: "authentication-failed")
         self.sendReadiness.markStreamError(self.streamErrorName(error))
     }
     
@@ -393,6 +396,7 @@ extension Account: XMPPStreamDelegate {
             rawXML: error.xmlString
         )
         self.didReceiveError(error)
+        self.connectionResilience.streamDidLeaveBinding(reason: "stream-error")
         self.sendReadiness.markStreamError(self.streamErrorName(error))
     }
     

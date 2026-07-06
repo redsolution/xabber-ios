@@ -95,16 +95,7 @@ extension ChatViewController {
     }
 
     internal func updateStatusText() {
-        if let text = CommonChatStatesManager.shared.actionText(for: self.jid, owner: self.owner) {
-            self.setStatusText(text)
-        } else {
-            self.setStatusText(AccountManager
-                .shared
-                .connectingUsers
-                .value
-                .contains(self.owner) ? "Waiting for network..."
-                        .localizeString(id: "waiting_for_network", arguments: []) : self.contactStatus ?? " ")
-        }
+        self.setStatusText(self.connectionAwareStatusText(fallbackStatus: self.contactStatus ?? " "))
         self.statusLabel.layoutIfNeeded()
         if (self.statusLabel.text ?? "").isEmpty {
             self.statusLabel.isHidden = true
@@ -555,6 +546,7 @@ extension ChatViewController {
             .asObservable()
             .observe(on: MainScheduler.asyncInstance)
             .subscribe { result in
+            self.updateStatusText()
             if result.contains(self.owner) {
                 if !self.shouldRequestChatInfo {
                     self.applyBaseSendButtonReadiness(

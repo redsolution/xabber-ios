@@ -39,6 +39,45 @@ enum ChatInitialFirstFrameHistoryConfiguration {
     static let pageSize: Int = 80
 }
 
+enum ChatConnectionStatusTextPolicy {
+    static var waitingForNetworkText: String {
+        "Waiting for network...".localizeString(id: "waiting_for_network", arguments: [])
+    }
+
+    static var connectingText: String {
+        "Connecting...".localizeString(id: "application_state_connecting", arguments: [])
+    }
+
+    static func text(
+        actionText: String?,
+        isAccountConnecting: Bool,
+        sendReadinessSnapshot: AccountSendReadinessSnapshot?,
+        isNetworkPathSatisfied: Bool?,
+        fallbackStatus: String?
+    ) -> String {
+        if let actionText, actionText.isNotEmpty {
+            return actionText
+        }
+        guard isAccountConnecting else {
+            return fallbackStatus ?? " "
+        }
+        guard isNetworkPathSatisfied != false else {
+            return waitingForNetworkText
+        }
+        guard let phase = sendReadinessSnapshot?.phase else {
+            return connectingText
+        }
+
+        switch phase {
+        case .connecting, .tlsNegotiating, .authenticating, .binding, .enablingStreamManagement,
+             .resuming, .suspectedStale, .streamError, .streamManagementFailed:
+            return connectingText
+        case .disconnected, .backgroundSuspended, .ready(_):
+            return fallbackStatus ?? " "
+        }
+    }
+}
+
 struct ChatHistoryLoadActivityKey: Hashable {
     let owner: String
     let jid: String
@@ -2336,6 +2375,17 @@ class ChatViewController: MessagesViewController {
         }
     }
 
+    internal func connectionAwareStatusText(fallbackStatus: String?) -> String {
+        let account = AccountManager.shared.find(for: self.owner)
+        return ChatConnectionStatusTextPolicy.text(
+            actionText: CommonChatStatesManager.shared.actionText(for: self.jid, owner: self.owner),
+            isAccountConnecting: account != nil && AccountManager.shared.connectingUsers.value.contains(self.owner),
+            sendReadinessSnapshot: account?.sendReadiness.snapshot,
+            isNetworkPathSatisfied: account?.connectionResilience.healthSnapshot.isNetworkPathSatisfied,
+            fallbackStatus: fallbackStatus
+        )
+    }
+
     internal func applyNormalPresenceStatus(realm: Realm) {
         let results = realm
             .objects(ResourceStorageItem.self)
@@ -2349,9 +2399,7 @@ class ChatViewController: MessagesViewController {
             ? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
             : results.first?.statusMessage ?? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
         self.titleLabel.attributedText = self.updateTitle()
-        let statusStr = AccountManager.shared.connectingUsers.value.contains(self.owner)
-            ? "Waiting for network...".localizeString(id: "waiting_for_network", arguments: [])
-            : status
+        let statusStr = self.connectionAwareStatusText(fallbackStatus: status)
         if self.statusLabel.text == " " {
             self.statusLabel.text = statusStr
         }
@@ -4923,6 +4971,8 @@ class ChatViewController: MessagesViewController {
         self.suppressScrollDownButtonVisibilityAfterAppearance()
         self.hasCompletedInitialHistoryViewAppearance = true
         self.recordChatOpenTimingViewDidAppear()
+        AccountManager.shared.find(for: self.owner)?
+            .requestForegroundConnectionRecovery(trigger: .uiActionOpen)
         self.finishInitialHistoryAppearanceIfPossible()
         self.completeInitialLatestOpenStabilizationIfPossible()
         self.performPendingOpenMessageRequestIfNeeded()
