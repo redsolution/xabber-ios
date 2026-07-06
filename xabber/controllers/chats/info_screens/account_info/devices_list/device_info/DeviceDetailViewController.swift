@@ -59,6 +59,37 @@ enum DeviceDetailPrimaryAction: Equatable {
     case terminateSession(DeviceDetailSessionTerminationConfirmation)
 }
 
+enum DeviceDetailFingerprintFormatter {
+    private static let octetLength = 8
+
+    static func twoLineOctets(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+
+        let compactValue = value.replacingOccurrences(
+            of: "[\\s:]",
+            with: "",
+            options: .regularExpression
+        )
+        guard compactValue.count >= octetLength * 2,
+              compactValue.count % octetLength == 0 else {
+            return value
+        }
+
+        let octets = compactValue.split(by: octetLength)
+        let octetsPerLine = Int(ceil(Double(octets.count) / 2.0))
+        let firstLine = octets.prefix(octetsPerLine).joined(separator: " ")
+        let secondLine = octets.dropFirst(octetsPerLine).joined(separator: " ")
+
+        guard secondLine.isNotEmpty else {
+            return firstLine
+        }
+
+        return "\(firstLine)\n\(secondLine)"
+    }
+}
+
 final class DeviceDetailValueTableViewCell: UITableViewCell {
     static let cellName = "DeviceDetailValueTableViewCell"
 
@@ -102,10 +133,18 @@ final class DeviceDetailValueTableViewCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.spacing = 4
         titleLabel.text = nil
+        titleLabel.textAlignment = .left
         valueLabel.text = nil
+        valueLabel.textAlignment = .natural
         valueLabel.font = UIFont.preferredFont(forTextStyle: .body)
         valueLabel.lineBreakMode = .byWordWrapping
+        valueLabel.numberOfLines = 0
+        valueLabel.adjustsFontSizeToFitWidth = false
+        valueLabel.minimumScaleFactor = 1.0
         selectionStyle = .none
         accessoryType = .none
         accessibilityLabel = nil
@@ -120,20 +159,15 @@ final class DeviceDetailValueTableViewCell: UITableViewCell {
         accessoryType: UITableViewCell.AccessoryType = .none
     ) {
         titleLabel.text = title
-        valueLabel.text = value
+        valueLabel.text = isFingerprint ? DeviceDetailFingerprintFormatter.twoLineOctets(value) : value
         valueLabel.isHidden = value?.isEmpty ?? true
         if isFingerprint {
-            let baseFont = UIFont.monospacedSystemFont(ofSize: 15, weight: .regular)
-            valueLabel.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: baseFont)
-            valueLabel.lineBreakMode = .byCharWrapping
+            configureFingerprintLayout()
         } else {
-            valueLabel.font = UIFont.preferredFont(forTextStyle: .body)
-            valueLabel.lineBreakMode = .byWordWrapping
+            configureInlineValueLayout()
         }
         titleLabel.adjustsFontForContentSizeCategory = true
         valueLabel.adjustsFontForContentSizeCategory = true
-        titleLabel.numberOfLines = 0
-        valueLabel.numberOfLines = 0
         self.selectionStyle = selectionStyle
         self.accessoryType = accessoryType
         isAccessibilityElement = true
@@ -142,6 +176,43 @@ final class DeviceDetailValueTableViewCell: UITableViewCell {
             .compactMap { $0 }
             .filter { !$0.isEmpty }
             .joined(separator: ", ")
+    }
+
+    private func configureInlineValueLayout() {
+        stack.axis = .horizontal
+        stack.alignment = .top
+        stack.spacing = 12
+        titleLabel.textAlignment = .left
+        titleLabel.numberOfLines = 0
+        titleLabel.setContentHuggingPriority(.required, for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        valueLabel.font = UIFont.preferredFont(forTextStyle: .body)
+        valueLabel.textAlignment = .right
+        valueLabel.numberOfLines = 0
+        valueLabel.lineBreakMode = .byWordWrapping
+        valueLabel.adjustsFontSizeToFitWidth = false
+        valueLabel.minimumScaleFactor = 1.0
+        valueLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        valueLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    }
+
+    private func configureFingerprintLayout() {
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.spacing = 4
+        titleLabel.textAlignment = .left
+        titleLabel.numberOfLines = 0
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        let baseFont = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        valueLabel.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: baseFont)
+        valueLabel.textAlignment = .left
+        valueLabel.numberOfLines = 2
+        valueLabel.lineBreakMode = .byClipping
+        valueLabel.adjustsFontSizeToFitWidth = true
+        valueLabel.minimumScaleFactor = 0.75
+        valueLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        valueLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
     }
 
     private func setupSubviews() {

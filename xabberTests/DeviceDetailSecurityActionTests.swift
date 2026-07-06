@@ -82,6 +82,66 @@ final class DeviceDetailSecurityActionTests: XCTestCase {
         XCTAssertGreaterThan(fittingHeight, 44)
     }
 
+    func testDetailValueRowsPlaceTitleLeftAndValueRight() throws {
+        let controller = makeController(datasource: [
+            [
+                DeviceDetailViewController.Datasource(
+                    title: "Client",
+                    value: "Xabber Desktop",
+                    key: "client"
+                )
+            ]
+        ])
+        let tableView = try XCTUnwrap(firstTableView(in: controller.view))
+        let cell = try XCTUnwrap(
+            controller.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 0, section: 0)
+            ) as? DeviceDetailValueTableViewCell
+        )
+
+        XCTAssertEqual(cell.stack.axis, .horizontal)
+        XCTAssertEqual(cell.titleLabel.textAlignment, .left)
+        XCTAssertEqual(cell.valueLabel.textAlignment, .right)
+    }
+
+    func testFingerprintValueUsesTwoAlignedOctetRows() throws {
+        let fingerprint = "0000000011111111222222223333333344444444555555556666666677777777"
+        let controller = makeController(datasource: [
+            [
+                DeviceDetailViewController.Datasource(
+                    title: "Fingerprint",
+                    value: fingerprint,
+                    key: "omemo_fingerprint"
+                )
+            ]
+        ])
+        let tableView = try XCTUnwrap(firstTableView(in: controller.view))
+        let cell = try XCTUnwrap(
+            controller.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 0, section: 0)
+            ) as? DeviceDetailValueTableViewCell
+        )
+        let expected = """
+        00000000 11111111 22222222 33333333
+        44444444 55555555 66666666 77777777
+        """
+        let text = try XCTUnwrap(cell.valueLabel.text)
+        let lines = text.components(separatedBy: "\n")
+
+        XCTAssertEqual(cell.stack.axis, .vertical)
+        XCTAssertEqual(text, expected)
+        XCTAssertEqual(cell.valueLabel.numberOfLines, 2)
+        XCTAssertEqual(lines.count, 2)
+        guard lines.count == 2 else {
+            return
+        }
+        XCTAssertEqual(lines[0].count, lines[1].count)
+        XCTAssertEqual(lines[0].split(separator: " ").count, lines[1].split(separator: " ").count)
+        XCTAssertTrue(lines.joined(separator: " ").split(separator: " ").allSatisfy { $0.count == 8 })
+    }
+
     func testFingerprintValueRemainsReadableAtAccessibilitySizes() throws {
         let controller = makeController(datasource: [
             [
@@ -102,8 +162,8 @@ final class DeviceDetailSecurityActionTests: XCTestCase {
         let fittingHeight = fittingHeight(for: cell)
 
         XCTAssertTrue(cell.valueLabel.adjustsFontForContentSizeCategory)
-        XCTAssertEqual(cell.valueLabel.numberOfLines, 0)
-        XCTAssertGreaterThan(fittingHeight, 84)
+        XCTAssertEqual(cell.valueLabel.numberOfLines, 2)
+        XCTAssertGreaterThan(fittingHeight, 44)
     }
 
     func testPrimaryRowActionsPreserveExistingNavigationBehavior() {
