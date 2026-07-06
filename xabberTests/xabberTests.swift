@@ -1030,6 +1030,148 @@ final class DevicesSecurityLayoutTests: XCTestCase {
     }
 }
 
+@MainActor
+final class DeviceInfoTableCellLayoutTests: XCTestCase {
+    func testDeviceLabelsAdjustForDynamicTypeAndWrap() {
+        let cell = DeviceInfoTableCell(style: .default, reuseIdentifier: DeviceInfoTableCell.cellName)
+
+        XCTAssertTrue(cell.clientLabel.adjustsFontForContentSizeCategory)
+        XCTAssertTrue(cell.descriptionLabel.adjustsFontForContentSizeCategory)
+        XCTAssertEqual(cell.clientLabel.numberOfLines, 0)
+        XCTAssertEqual(cell.descriptionLabel.numberOfLines, 0)
+    }
+
+    func testLongDeviceTextProducesSelfSizingHeightAboveOldFixedRows() {
+        let cell = DeviceInfoTableCell(style: .default, reuseIdentifier: DeviceInfoTableCell.cellName)
+        cell.configure(
+            client: "Xabber",
+            device: String(repeating: "Very long iPhone device name ", count: 5),
+            description: "",
+            ip: "2001:db8:85a3::8a2e:370:7334",
+            lastAuth: Date(timeIntervalSinceNow: -3_600),
+            current: false,
+            editable: true,
+            isOnline: true,
+            trustState: .trusted
+        )
+        cell.bounds = CGRect(x: 0, y: 0, width: 320, height: 1)
+        cell.contentView.bounds = cell.bounds
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+
+        let fittingSize = cell.contentView.systemLayoutSizeFitting(
+            CGSize(width: 320, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+
+        XCTAssertGreaterThan(fittingSize.height, 60)
+    }
+
+    func testRepeatedConfigureDoesNotAddDuplicateStaticConstraints() {
+        let cell = DeviceInfoTableCell(style: .default, reuseIdentifier: DeviceInfoTableCell.cellName)
+
+        cell.configure(
+            client: "Xabber",
+            device: "iPhone",
+            description: "",
+            ip: "192.0.2.1",
+            lastAuth: Date(),
+            current: false,
+            editable: true,
+            isOnline: true,
+            trustState: .trusted
+        )
+        let firstWidthConstraintCount = rightStackWidthConstraintCount(in: cell)
+
+        cell.configure(
+            client: "Xabber",
+            device: "iPad",
+            description: "",
+            ip: "192.0.2.2",
+            lastAuth: Date(),
+            current: false,
+            editable: true,
+            isOnline: false,
+            trustState: .unknown
+        )
+
+        XCTAssertEqual(firstWidthConstraintCount, 1)
+        XCTAssertEqual(rightStackWidthConstraintCount(in: cell), 1)
+    }
+
+    func testTrustIconStateResetsAcrossReuse() {
+        let cell = DeviceInfoTableCell(style: .default, reuseIdentifier: DeviceInfoTableCell.cellName)
+
+        cell.configure(
+            client: "Xabber",
+            device: "iPhone",
+            description: "",
+            ip: "192.0.2.1",
+            lastAuth: Date(),
+            current: false,
+            editable: true,
+            isOnline: true,
+            trustState: .unknown
+        )
+        XCTAssertFalse(cell.trustIconView.isHidden)
+        XCTAssertNotNil(cell.trustIconView.image)
+
+        cell.prepareForReuse()
+        cell.configure(
+            client: "Xabber",
+            device: "Desktop",
+            description: "",
+            ip: "192.0.2.3",
+            lastAuth: Date(),
+            current: false,
+            editable: false,
+            isOnline: false,
+            trustState: nil,
+            hasBundle: nil
+        )
+
+        XCTAssertTrue(cell.trustIconView.isHidden)
+        XCTAssertNil(cell.trustIconView.image)
+        XCTAssertEqual(cell.accessoryType, .none)
+        XCTAssertEqual(cell.selectionStyle, .none)
+    }
+
+    func testAccessibilityLabelUsesDeviceSessionLanguageWithoutTokenTerminology() throws {
+        let cell = DeviceInfoTableCell(style: .default, reuseIdentifier: DeviceInfoTableCell.cellName)
+
+        cell.configure(
+            client: "Xabber",
+            device: "iPhone 16",
+            description: "",
+            ip: "192.0.2.5",
+            lastAuth: Date(timeIntervalSinceNow: -120),
+            current: true,
+            editable: true,
+            isOnline: true,
+            trustState: .trusted,
+            isTrustebByCertificate: true
+        )
+
+        let label = try XCTUnwrap(cell.accessibilityLabel?.lowercased())
+        XCTAssertTrue(cell.isAccessibilityElement)
+        XCTAssertTrue(label.contains("device"))
+        XCTAssertTrue(label.contains("session"))
+        XCTAssertTrue(label.contains("iphone 16"))
+        XCTAssertTrue(label.contains("online"))
+        XCTAssertFalse(label.contains("token"))
+        XCTAssertFalse(label.contains("revoke"))
+    }
+
+    private func rightStackWidthConstraintCount(in cell: DeviceInfoTableCell) -> Int {
+        cell.rightStack.constraints.filter { constraint in
+            constraint.firstItem === cell.rightStack
+            && constraint.firstAttribute == .width
+            && constraint.relation == .equal
+        }.count
+    }
+}
+
 final class NavigationTransitionMutationPolicyTests: XCTestCase {
     func testLastChatsQueuesNonCriticalMutationsDuringNavigationTransition() {
         XCTAssertTrue(

@@ -25,6 +25,7 @@ import MaterialComponents.MDCPalettes
 class DeviceInfoTableCell: UITableViewCell {
     
     static let cellName = "DeviceInfoTableCell"
+    private var didActivateStaticConstraints = false
     
     var stack: UIStackView = {
         let stack = UIStackView()
@@ -32,6 +33,7 @@ class DeviceInfoTableCell: UITableViewCell {
         stack.axis = .horizontal
         stack.distribution = .fill
         stack.spacing = 8
+        stack.setContentCompressionResistancePriority(.required, for: .vertical)
         return stack
     }()
     
@@ -41,6 +43,7 @@ class DeviceInfoTableCell: UITableViewCell {
         stack.axis = .vertical
         stack.distribution = .fill
         stack.spacing = 4
+        stack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         return stack
     }()
@@ -49,6 +52,8 @@ class DeviceInfoTableCell: UITableViewCell {
         let stack = UIStackView()
 
         stack.axis = .horizontal
+        stack.setContentCompressionResistancePriority(.required, for: .horizontal)
+        stack.setContentHuggingPriority(.required, for: .horizontal)
 
         return stack
     }()
@@ -56,7 +61,11 @@ class DeviceInfoTableCell: UITableViewCell {
     var clientLabel: UILabel = {
         let label = UILabel()
         label.text = " "
+        label.font = UIFont.preferredFont(forTextStyle: .body)
         label.textColor = MDCPalette.grey.tint900
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 0
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         
         return label
     }()
@@ -64,8 +73,11 @@ class DeviceInfoTableCell: UITableViewCell {
     var descriptionLabel: UILabel = {
         let label = UILabel()
         label.text = " "
-        label.font = UIFont.systemFont(ofSize: 13, weight: .regular)
+        label.font = UIFont.preferredFont(forTextStyle: .caption1)
         label.textColor = MDCPalette.grey.tint700
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 0
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         
         return label
     }()
@@ -73,15 +85,19 @@ class DeviceInfoTableCell: UITableViewCell {
     var authDateLabel: UILabel = {
         let label = UILabel()
         label.text = " "
-        label.font = UIFont.systemFont(ofSize: 13, weight: .regular)
+        label.font = UIFont.preferredFont(forTextStyle: .caption1)
         label.textColor = MDCPalette.grey.tint700
         label.textAlignment = .right
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 0
         return label
     }()
     
     var trustIconView: UIImageView = {
         let view = UIImageView(frame: CGRect(square: 24))
         view.translatesAutoresizingMaskIntoConstraints = false
+        view.setContentCompressionResistancePriority(.required, for: .horizontal)
+        view.setContentHuggingPriority(.required, for: .horizontal)
         
         return view
     }()
@@ -95,14 +111,22 @@ class DeviceInfoTableCell: UITableViewCell {
     }()
     
     private func activateConstraints() {
+        guard !didActivateStaticConstraints else {
+            return
+        }
+        didActivateStaticConstraints = true
+
         NSLayoutConstraint.activate([
 //            descriptionLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
-            rightStack.widthAnchor.constraint(equalToConstant: 20),
+            rightStack.widthAnchor.constraint(equalToConstant: 24),
+            trustIconView.widthAnchor.constraint(equalToConstant: 24),
+            trustIconView.heightAnchor.constraint(equalToConstant: 24),
         ])
     }
     
     func configure(fingerprint: String? = nil, client: String, device: String, description descr: String, ip: String, lastAuth date: Date?, current: Bool, editable: Bool, isOnline: Bool, trustState: SignalDeviceStorageItem.TrustState? = nil, hasBundle: Bool? = nil, isTrustebByCertificate: Bool = false, trustedBy: String? = nil) {
-        
+        resetConfigurationState()
+
         if trustedBy == "manual" {
             descriptionLabel.text = "\(ip) ⦁ trusted by \(trustedBy!)"
         } else if trustedBy != nil {
@@ -206,11 +230,87 @@ class DeviceInfoTableCell: UITableViewCell {
         
         if editable {
             accessoryType = .disclosureIndicator
+            selectionStyle = .default
         } else {
+            accessoryType = .none
             selectionStyle = .none
         }
         
+        updateAccessibilityLabel(
+            client: client,
+            device: device,
+            current: current,
+            editable: editable,
+            isOnline: isOnline,
+            trustState: trustState,
+            hasBundle: hasBundle,
+            isTrustebByCertificate: isTrustebByCertificate
+        )
         activateConstraints()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        resetConfigurationState()
+    }
+
+    private func resetConfigurationState() {
+        clientLabel.text = " "
+        descriptionLabel.text = " "
+        authDateLabel.text = " "
+        clientLabel.textColor = MDCPalette.grey.tint900
+        descriptionLabel.textColor = MDCPalette.grey.tint700
+        authDateLabel.textColor = MDCPalette.grey.tint700
+        trustIconView.isHidden = true
+        trustIconView.image = nil
+        trustIconView.tintColor = .systemGray
+        accessoryType = .none
+        selectionStyle = .default
+        isAccessibilityElement = false
+        accessibilityLabel = nil
+        accessibilityValue = nil
+        accessibilityHint = nil
+        accessibilityTraits = []
+    }
+
+    private func updateAccessibilityLabel(client: String, device: String, current: Bool, editable: Bool, isOnline: Bool, trustState: SignalDeviceStorageItem.TrustState?, hasBundle: Bool?, isTrustebByCertificate: Bool) {
+        var parts: [String] = ["Device session"]
+        let title = device.isNotEmpty ? device : client
+        if title.isNotEmpty {
+            parts.append(title)
+        }
+        if client.isNotEmpty && client != title {
+            parts.append(client)
+        }
+        if let details = descriptionLabel.text,
+           details.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty {
+            parts.append(details)
+        }
+        parts.append(isOnline ? "Online" : "Offline")
+        if current {
+            parts.append("This device")
+        }
+
+        switch trustState {
+        case .unknown, .distrusted:
+            parts.append("Action required")
+        case .ignore:
+            parts.append("Ignored")
+        case .trusted:
+            parts.append(isTrustebByCertificate ? "Signed" : "Trusted")
+        case .fingerprintChanged:
+            parts.append("Fingerprint changed")
+        case .revoked:
+            parts.append("Revoked")
+        case nil:
+            if hasBundle == false {
+                parts.append("Encryption not enabled")
+            }
+        }
+
+        isAccessibilityElement = true
+        accessibilityLabel = parts.joined(separator: ", ")
+        accessibilityTraits = editable ? .button : .staticText
     }
     
     func setup() {
