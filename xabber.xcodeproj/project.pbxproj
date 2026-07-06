@@ -26,6 +26,7 @@
 		4E7300022FC100000ABC001 /* AccountDeletionCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7300012FC100000ABC001 /* AccountDeletionCleanupTests.swift */; };
 		4E7400022FC200000ABC001 /* QuitAccountFlowStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7400012FC200000ABC001 /* QuitAccountFlowStateTests.swift */; };
 		4E7500022FC300000ABC001 /* AccountDeletionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7500012FC300000ABC001 /* AccountDeletionCoordinatorTests.swift */; };
+		4E7600022FC400000ABC001 /* AccountDelayedActionLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7600012FC400000ABC001 /* AccountDelayedActionLifecycleTests.swift */; };
 		4E6800022FA700000ABC001 /* ChatTimelineCursorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6800012FA700000ABC001 /* ChatTimelineCursorTests.swift */; };
 		4E6900022FA800000ABC001 /* ChatPerformanceSignpostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6900012FA800000ABC001 /* ChatPerformanceSignpostTests.swift */; };
 		4E6900042FA800000ABC001 /* ChatPerformanceSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6900032FA800000ABC001 /* ChatPerformanceSignposts.swift */; };
@@ -900,6 +901,7 @@
 		4E7300012FC100000ABC001 /* AccountDeletionCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionCleanupTests.swift; sourceTree = "<group>"; };
 		4E7400012FC200000ABC001 /* QuitAccountFlowStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitAccountFlowStateTests.swift; sourceTree = "<group>"; };
 		4E7500012FC300000ABC001 /* AccountDeletionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionCoordinatorTests.swift; sourceTree = "<group>"; };
+		4E7600012FC400000ABC001 /* AccountDelayedActionLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDelayedActionLifecycleTests.swift; sourceTree = "<group>"; };
 		4E6800012FA700000ABC001 /* ChatTimelineCursorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTimelineCursorTests.swift; sourceTree = "<group>"; };
 		4E6900012FA800000ABC001 /* ChatPerformanceSignpostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPerformanceSignpostTests.swift; sourceTree = "<group>"; };
 		4E6900032FA800000ABC001 /* ChatPerformanceSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPerformanceSignposts.swift; sourceTree = "<group>"; };
@@ -3891,6 +3893,7 @@
 						4E7300012FC100000ABC001 /* AccountDeletionCleanupTests.swift */,
 						4E7400012FC200000ABC001 /* QuitAccountFlowStateTests.swift */,
 						4E7500012FC300000ABC001 /* AccountDeletionCoordinatorTests.swift */,
+						4E7600012FC400000ABC001 /* AccountDelayedActionLifecycleTests.swift */,
 						4E6800012FA700000ABC001 /* ChatTimelineCursorTests.swift */,
 					4E6900012FA800000ABC001 /* ChatPerformanceSignpostTests.swift */,
 					4E6A00012FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift */,
@@ -5884,6 +5887,7 @@
 						4E7300022FC100000ABC001 /* AccountDeletionCleanupTests.swift in Sources */,
 						4E7400022FC200000ABC001 /* QuitAccountFlowStateTests.swift in Sources */,
 						4E7500022FC300000ABC001 /* AccountDeletionCoordinatorTests.swift in Sources */,
+						4E7600022FC400000ABC001 /* AccountDelayedActionLifecycleTests.swift in Sources */,
 						4E6800022FA700000ABC001 /* ChatTimelineCursorTests.swift in Sources */,
 					4E6900022FA800000ABC001 /* ChatPerformanceSignpostTests.swift in Sources */,
 					4E6A00022FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift in Sources */,

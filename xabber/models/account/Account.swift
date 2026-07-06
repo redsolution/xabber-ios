@@ -4484,7 +4484,8 @@ final class Account: NSObject {
             autoreleaseFrequency: .workItem,
             target: nil
         ).asyncAfter(deadline: .now() + delay ) {
-            [unowned self] in
+            [weak self] in
+            guard let self else { return }
             toExecute(self, self.xmppStream)
         }
     }
