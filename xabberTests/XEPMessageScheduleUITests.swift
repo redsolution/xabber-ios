@@ -499,7 +499,8 @@ final class XEPMessageScheduleUITests: XCTestCase {
         XCTAssertFalse(inputView.sendButton.isEnabled)
     }
 
-    func testModernInputComposerActionGlyphsAreCompactWithoutShrinkingTapTargets() throws {
+    func testModernInputComposerActionGlyphsUse24PointCanvasWithoutShrinkingTapTargets() throws {
+        let expectedGlyphDimension: CGFloat = 24
         let inputView = ModernXabberInputView(frame: CGRect(x: 0, y: 0, width: 390, height: 49))
         inputView.layoutIfNeeded()
         inputView.isSendButtonEnabled = true
@@ -508,14 +509,14 @@ final class XEPMessageScheduleUITests: XCTestCase {
         for button in [inputView.attachButton, inputView.sendButton] {
             XCTAssertEqual(button.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
             XCTAssertEqual(button.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
-            XCTAssertLessThanOrEqual(try buttonGlyphMaxDimension(button), 18)
+            XCTAssertEqual(try buttonGlyphMaxDimension(button), expectedGlyphDimension, accuracy: 0.001)
         }
 
         inputView.changeSendButtonState(to: .record)
 
         XCTAssertEqual(inputView.sendButton.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
         XCTAssertEqual(inputView.sendButton.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
-        XCTAssertLessThanOrEqual(try buttonGlyphMaxDimension(inputView.sendButton), 18)
+        XCTAssertEqual(try buttonGlyphMaxDimension(inputView.sendButton), expectedGlyphDimension, accuracy: 0.001)
     }
 
     func testChatControllerRefreshHidesScheduledMessagesButtonAfterRowsDisappear() throws {

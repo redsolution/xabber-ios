@@ -11,7 +11,7 @@ import XCTest
 
 @MainActor
 final class ChatComposerSendButtonIconTests: XCTestCase {
-    private static let maxCompactGlyphDimension = NativeGlassBarStyle.buttonSize / 2
+    private static let composerActionGlyphDimension: CGFloat = 24
 
     func testTypingPolicySkipsLayoutAndControlAnimationForStableOneLineSendState() {
         let previousVisualState = ComposerTypingVisualState(
@@ -87,16 +87,16 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
         XCTAssertNil(inputView.mentionPanel.superview)
     }
 
-    func testComposerSendButtonImagesStayCompact() throws {
+    func testComposerSendButtonImagesUseRequestedActionGlyphSize() throws {
         let recordImage = try XCTUnwrap(ModernXabberInputView.composerSendButtonImage(for: .record))
         let sendImage = try XCTUnwrap(ModernXabberInputView.composerSendButtonImage(for: .send))
 
-        XCTAssertLessThanOrEqual(max(recordImage.size.width, recordImage.size.height), Self.maxCompactGlyphDimension)
-        XCTAssertLessThanOrEqual(max(sendImage.size.width, sendImage.size.height), Self.maxCompactGlyphDimension)
+        XCTAssertEqual(max(recordImage.size.width, recordImage.size.height), Self.composerActionGlyphDimension, accuracy: 0.001)
+        XCTAssertEqual(max(sendImage.size.width, sendImage.size.height), Self.composerActionGlyphDimension, accuracy: 0.001)
     }
 
     func testComposerSendButtonImagesUseSameGlyphBox() throws {
-        let expectedGlyphDimension: CGFloat = 17
+        let expectedGlyphDimension = Self.composerActionGlyphDimension
         let recordImage = try XCTUnwrap(ModernXabberInputView.composerSendButtonImage(for: .record))
         let sendImage = try XCTUnwrap(ModernXabberInputView.composerSendButtonImage(for: .send))
         let recordAlphaBounds = try alphaBounds(of: recordImage)
@@ -128,7 +128,7 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
         XCTAssertNotNil(buttonGlyphImage(inputView.sendButton))
         XCTAssertEqual(inputView.sendButton.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
         XCTAssertEqual(inputView.sendButton.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
-        XCTAssertLessThanOrEqual(try buttonGlyphMaxDimension(inputView.sendButton), Self.maxCompactGlyphDimension)
+        XCTAssertEqual(try buttonGlyphMaxDimension(inputView.sendButton), Self.composerActionGlyphDimension, accuracy: 0.001)
         XCTAssertTrue(inputView.sendButton.tintColor.isEqual(UIColor.secondaryLabel))
 
         inputView.changeSendButtonState(to: .send)
@@ -136,7 +136,7 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
         XCTAssertNotNil(buttonGlyphImage(inputView.sendButton))
         XCTAssertEqual(inputView.sendButton.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
         XCTAssertEqual(inputView.sendButton.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
-        XCTAssertLessThanOrEqual(try buttonGlyphMaxDimension(inputView.sendButton), Self.maxCompactGlyphDimension)
+        XCTAssertEqual(try buttonGlyphMaxDimension(inputView.sendButton), Self.composerActionGlyphDimension, accuracy: 0.001)
         XCTAssertTrue(inputView.sendButton.tintColor.isEqual(inputView.accountPalette.tint600))
         XCTAssertTrue(inputView.sendButton.isEnabled)
 
@@ -161,11 +161,11 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
         for _ in 0..<3 {
             inputView.changeSendButtonState(to: .send)
             XCTAssertNotNil(buttonGlyphImage(inputView.sendButton))
-            XCTAssertLessThanOrEqual(try buttonGlyphMaxDimension(inputView.sendButton), Self.maxCompactGlyphDimension)
+            XCTAssertEqual(try buttonGlyphMaxDimension(inputView.sendButton), Self.composerActionGlyphDimension, accuracy: 0.001)
 
             inputView.changeSendButtonState(to: .record)
             XCTAssertNotNil(buttonGlyphImage(inputView.sendButton))
-            XCTAssertLessThanOrEqual(try buttonGlyphMaxDimension(inputView.sendButton), Self.maxCompactGlyphDimension)
+            XCTAssertEqual(try buttonGlyphMaxDimension(inputView.sendButton), Self.composerActionGlyphDimension, accuracy: 0.001)
         }
     }
 

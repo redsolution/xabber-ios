@@ -198,7 +198,7 @@ class ModernXabberInputView: UIView {
             ?? UIImage(systemName: "clock", withConfiguration: configuration)
     }
 
-    private static let composerActionIconSize: CGFloat = 17
+    private static let composerActionIconSize: CGFloat = 24
 
     final class ComposerContextPreviewView: UIView {
         enum Mode: Equatable {
