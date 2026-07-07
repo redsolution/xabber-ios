@@ -1931,7 +1931,7 @@ class ModernXabberInputView: UIView {
     let attachButton: UIButton = {
         let button = UIButton(frame: CGRect(square: ModernXabberInputView.LiquidGlassMetrics.buttonSize))
 
-        button.setImage(imageLiteral("paperclip", dimension: ModernXabberInputView.composerActionIconSize), for: .normal)
+        button.setImage(ModernXabberInputView.composerAttachmentButtonImage(), for: .normal)
         button.tintColor = .secondaryLabel
         ModernXabberInputView.applyDetachedGlassButtonStyle(to: button)
         
@@ -3138,7 +3138,18 @@ class ModernXabberInputView: UIView {
     }
 
     static func composerSendButtonImage(for state: SendButtonState) -> UIImage? {
-        (self.composerSendButtonSymbolImage(for: state) ?? self.composerSendButtonAssetFallbackImage(for: state))?
+        guard let image = self.composerSendButtonSymbolImage(for: state) ?? self.composerSendButtonAssetFallbackImage(for: state) else {
+            return nil
+        }
+        return self.normalizedComposerActionImage(image)
+            .withRenderingMode(.alwaysTemplate)
+    }
+
+    private static func composerAttachmentButtonImage() -> UIImage? {
+        guard let image = imageLiteral("paperclip", dimension: Self.composerActionIconSize) else {
+            return nil
+        }
+        return self.normalizedComposerActionImage(image)
             .withRenderingMode(.alwaysTemplate)
     }
 
@@ -3161,12 +3172,39 @@ class ModernXabberInputView: UIView {
         }
     }
 
+    private static func normalizedComposerActionImage(_ image: UIImage) -> UIImage {
+        let targetSize = CGSize(width: Self.composerActionIconSize, height: Self.composerActionIconSize)
+        guard image.size.width > 0,
+              image.size.height > 0 else {
+            return image
+        }
+
+        let scale = min(targetSize.width / image.size.width, targetSize.height / image.size.height)
+        let drawSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let drawRect = CGRect(
+            x: (targetSize.width - drawSize.width) / 2,
+            y: (targetSize.height - drawSize.height) / 2,
+            width: drawSize.width,
+            height: drawSize.height
+        )
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+
+        return renderer.image { _ in
+            image.withRenderingMode(.alwaysOriginal).draw(in: drawRect)
+        }
+    }
+
     private func applySendButtonIcon(for state: SendButtonState, animated: Bool) {
         let image = Self.composerSendButtonImage(for: state)
         if animated,
            #available(iOS 17.0, *),
-           let symbolImage = Self.composerSendButtonSymbolImage(for: state)?.withRenderingMode(.alwaysTemplate) {
-            if self.animateSendButtonIcon(to: symbolImage, for: state) {
+           let image {
+            if self.animateSendButtonIcon(
+                to: image,
+                for: state
+            ) {
                 return
             }
         }
@@ -3175,12 +3213,16 @@ class ModernXabberInputView: UIView {
     }
 
     @available(iOS 17.0, *)
-    private func animateSendButtonIcon(to image: UIImage, for state: SendButtonState) -> Bool {
+    private func animateSendButtonIcon(
+        to image: UIImage,
+        for state: SendButtonState
+    ) -> Bool {
         self.sendButton.layoutIfNeeded()
         guard let imageView = self.sendButton.imageView else {
             return false
         }
 
+        self.setSendButtonImage(image)
         imageView.tintColor = self.sendButton.tintColor
         imageView.setSymbolImage(
             image,

@@ -95,6 +95,24 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
         XCTAssertLessThanOrEqual(max(sendImage.size.width, sendImage.size.height), Self.maxCompactGlyphDimension)
     }
 
+    func testComposerSendButtonImagesUseSameGlyphBox() throws {
+        let expectedGlyphDimension: CGFloat = 17
+        let recordImage = try XCTUnwrap(ModernXabberInputView.composerSendButtonImage(for: .record))
+        let sendImage = try XCTUnwrap(ModernXabberInputView.composerSendButtonImage(for: .send))
+        let recordAlphaBounds = try alphaBounds(of: recordImage)
+        let sendAlphaBounds = try alphaBounds(of: sendImage)
+
+        XCTAssertEqual(recordImage.size.width, expectedGlyphDimension, accuracy: 0.001)
+        XCTAssertEqual(recordImage.size.height, expectedGlyphDimension, accuracy: 0.001)
+        XCTAssertEqual(sendImage.size.width, expectedGlyphDimension, accuracy: 0.001)
+        XCTAssertEqual(sendImage.size.height, expectedGlyphDimension, accuracy: 0.001)
+        XCTAssertEqual(
+            max(recordAlphaBounds.width, recordAlphaBounds.height),
+            max(sendAlphaBounds.width, sendAlphaBounds.height),
+            accuracy: 1
+        )
+    }
+
     func testChangeSendButtonStatePreservesGlyphTintAndTapTarget() throws {
         let inputView = ModernXabberInputView(frame: CGRect(
             x: 0,
@@ -158,5 +176,57 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
     private func buttonGlyphMaxDimension(_ button: UIButton) throws -> CGFloat {
         let image = try XCTUnwrap(buttonGlyphImage(button))
         return max(image.size.width, image.size.height)
+    }
+
+    private func alphaBounds(of image: UIImage) throws -> CGRect {
+        let cgImage = try XCTUnwrap(image.cgImage)
+        let width = cgImage.width
+        let height = cgImage.height
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            XCTFail("Unable to create bitmap context")
+            return .zero
+        }
+
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        var minX = width
+        var minY = height
+        var maxX = -1
+        var maxY = -1
+        for y in 0..<height {
+            for x in 0..<width {
+                let alpha = pixels[y * bytesPerRow + x * bytesPerPixel + 3]
+                guard alpha > 0 else { continue }
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+            }
+        }
+
+        guard maxX >= minX, maxY >= minY else {
+            XCTFail("Image has no visible alpha")
+            return .zero
+        }
+
+        let scale = image.scale
+        return CGRect(
+            x: CGFloat(minX) / scale,
+            y: CGFloat(minY) / scale,
+            width: CGFloat(maxX - minX + 1) / scale,
+            height: CGFloat(maxY - minY + 1) / scale
+        )
     }
 }
