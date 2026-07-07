@@ -27913,6 +27913,32 @@ final class GroupchatProtocolRegressionTests: XCTestCase {
         XCTAssertEqual(user?.lastSeen, beforeLastSeen)
     }
 
+    func testUpdateUserCardWithoutOuterWriteTransactionPersistsSafely() throws {
+        let manager = GroupchatManager(withOwner: owner)
+        let card = try makeUserCard(xml: """
+        <user xmlns='https://xabber.com/protocol/groups' id='user-2'>
+          <jid>member@example.com</jid>
+          <nickname>Member</nickname>
+        </user>
+        """)
+
+        _ = manager.updateUserCard(
+            card,
+            groupchat: "group@example.com",
+            trustedSource: false,
+            messageAction: nil,
+            commitTransaction: false,
+            cardDate: Date(timeIntervalSince1970: 10)
+        )
+
+        let user = try WRealm.safe().object(
+            ofType: GroupchatUserStorageItem.self,
+            forPrimaryKey: GroupchatUserStorageItem.genPrimary(id: "user-2", groupchat: "group@example.com", owner: owner)
+        )
+        XCTAssertEqual(user?.nickname, "Member")
+        XCTAssertEqual(user?.jid, "member@example.com")
+    }
+
     func testSuccessfulUnblockClearsRequestTracking() throws {
         let manager = GroupchatManager(withOwner: owner)
         let stream = XMPPStream()

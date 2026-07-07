@@ -1447,7 +1447,7 @@ class GroupchatManager: AbstractXMPPManager {
         func transaction(_ commit: Bool, transaction: (() -> Void)) {
             do {
                 let realm = try  WRealm.safe()
-                if commit {
+                if commit || !realm.isInWriteTransaction {
                     try realm.write {
                         transaction()
                     }
