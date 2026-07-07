@@ -1646,6 +1646,7 @@ class ChatViewController: MessagesViewController {
     var initialBootstrapTimeoutWorkItem: DispatchWorkItem? = nil
     var initialBootstrapLocalHistoryFallbackWorkItem: DispatchWorkItem? = nil
     var allowsStaleLocalHistoryDuringInitialBootstrap: Bool = false
+    var allowsBootstrapFailureFallback: Bool = false
     var hasConfirmedArchiveEndThisSession: Bool = false
     var hasUsedArchiveEndVerificationProbe: Bool = false
     var inSearchMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)

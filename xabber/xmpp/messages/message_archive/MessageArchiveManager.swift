@@ -74,6 +74,7 @@ enum MessageArchiveRequestFailureReason: String {
     case timeout
     case uiActionDisconnect
     case requestStartFailed
+    case serverError
 }
 
 struct MessageArchiveRequestFailureEvent: Equatable {
@@ -520,6 +521,15 @@ class MessageArchiveManager: AbstractXMPPManager {
             case .bootstrap, .pageOlder, .pageNewer, .jump, .gapRepair, .snapshotRepair:
                 return true
             case .search, .latest, .media, .inviteRecovery:
+                return false
+            }
+        }
+
+        var routesMamServerErrorAsRequestFailure: Bool {
+            switch self {
+            case .bootstrap, .pageOlder, .pageNewer, .gapRepair, .snapshotRepair:
+                return true
+            case .jump, .search, .latest, .media, .inviteRecovery:
                 return false
             }
         }
@@ -1209,8 +1219,18 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
 
     private func removePendingArchiveRequestAfterFailure(_ item: CallbackQueueItem) {
-        let queryId = item.elementId
         self.removeCallbackQueueItem(item)
+        self.removeArchiveRequestStateAfterFailure(queryId: item.elementId)
+        if let taskQueryId = item.task.queryId,
+           taskQueryId != item.elementId {
+            self.removeArchiveRequestStateAfterFailure(queryId: taskQueryId)
+        }
+    }
+
+    private func removeArchiveRequestStateAfterFailure(queryId: String) {
+        guard queryId.isNotEmpty else {
+            return
+        }
         self.queryIds.remove(queryId)
         self.persistedMessageCountsByQueryId.removeValue(forKey: queryId)
         self.searchResultsQueries.remove(queryId)
@@ -1436,7 +1456,62 @@ class MessageArchiveManager: AbstractXMPPManager {
         guard let owner else {
             return false
         }
-        return MessageArchiveEndPageDispatcher.hasHandler(owner: owner, queryId: elementId)
+        return MessageArchiveEndPageDispatcher.hasHandler(owner: owner, queryId: elementId) ||
+            MessageArchiveRequestFailureDispatcher.hasHandler(owner: owner, queryId: elementId)
+    }
+
+    internal static func mamErrorDescription(from iq: XMPPIQ) -> String? {
+        guard let error = iq.element(forName: "error") else {
+            return nil
+        }
+
+        var parts: [String] = []
+        if let code = error.attributeStringValue(forName: "code"),
+           code.isNotEmpty {
+            parts.append(code)
+        }
+        if let type = error.attributeStringValue(forName: "type"),
+           type.isNotEmpty {
+            parts.append(type)
+        }
+        if let condition = xmppStanzaErrorCondition(in: error) {
+            parts.append(condition)
+        }
+        if let text = error.elements(forName: "text").first?.stringValue,
+           text.isNotEmpty {
+            parts.append(text)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    private static func xmppStanzaErrorCondition(in error: DDXMLElement) -> String? {
+        let knownConditions = [
+            "bad-request",
+            "conflict",
+            "feature-not-implemented",
+            "forbidden",
+            "gone",
+            "internal-server-error",
+            "item-not-found",
+            "jid-malformed",
+            "not-acceptable",
+            "not-allowed",
+            "not-authorized",
+            "policy-violation",
+            "recipient-unavailable",
+            "redirect",
+            "registration-required",
+            "remote-server-not-found",
+            "remote-server-timeout",
+            "resource-constraint",
+            "service-unavailable",
+            "subscription-required",
+            "undefined-condition",
+            "unexpected-request"
+        ]
+        return knownConditions.first {
+            error.element(forName: $0, xmlns: "urn:ietf:params:xml:ns:xmpp-stanzas") != nil
+        }
     }
 
     internal static func unroutedEndPageEvent(
@@ -1566,6 +1641,29 @@ class MessageArchiveManager: AbstractXMPPManager {
             )
             if let item = self.firstCallbackQueueItem(where: { $0.elementId == elementId }) {
                 let queryId = item.task.queryId ?? elementId
+                if item.task.purpose.routesMamServerErrorAsRequestFailure {
+                    let event = MessageArchiveRequestFailureEvent(
+                        owner: self.owner,
+                        queryId: queryId,
+                        streamKind: streamKind,
+                        reason: .serverError,
+                        errorDescription: Self.mamErrorDescription(from: iq),
+                        pendingQueryCount: 1
+                    )
+                    self.removePendingArchiveRequestAfterFailure(item)
+                    let delivered = MessageArchiveRequestFailureDispatcher.publish(event)
+                    if !delivered {
+                        ChatArchiveDebugTrace.log("mamErrorRequestFailureDropNoHandler", [
+                            ("owner", self.owner),
+                            ("queryId", queryId),
+                            ("elementId", elementId),
+                            ("streamKind", streamKind.rawValue),
+                            ("reason", event.reason.rawValue),
+                            ("error", event.errorDescription ?? "none")
+                        ])
+                    }
+                    return true
+                }
                 let pageEndState = self.makePageEndState(
                     for: item.task,
                     queryId: queryId,

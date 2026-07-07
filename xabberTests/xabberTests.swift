@@ -10884,6 +10884,45 @@ final class ChatBootstrapStateTests: XCTestCase {
         )
     }
 
+    func testBootstrapStateShowsContentForUnsyncedRowsAfterTerminalBootstrapFailure() {
+        XCTAssertEqual(
+            ChatBootstrapViewState.resolve(
+                messageCount: 2,
+                isSynced: false,
+                isInitialBootstrapInFlight: false,
+                hasPendingInitialAnchorRequest: false,
+                allowsBootstrapFailureFallback: true
+            ),
+            .content
+        )
+    }
+
+    func testBootstrapStateShowsEmptyForEmptyUnsyncedChatAfterTerminalBootstrapFailure() {
+        XCTAssertEqual(
+            ChatBootstrapViewState.resolve(
+                messageCount: 0,
+                isSynced: false,
+                isInitialBootstrapInFlight: false,
+                hasPendingInitialAnchorRequest: false,
+                allowsBootstrapFailureFallback: true
+            ),
+            .empty
+        )
+    }
+
+    func testBootstrapStateKeepsSkeletonForPendingAnchorAfterTerminalBootstrapFailure() {
+        XCTAssertEqual(
+            ChatBootstrapViewState.resolve(
+                messageCount: 2,
+                isSynced: false,
+                isInitialBootstrapInFlight: false,
+                hasPendingInitialAnchorRequest: true,
+                allowsBootstrapFailureFallback: true
+            ),
+            .skeleton
+        )
+    }
+
     func testBootstrapStateKeepsSkeletonForEmptyUnsyncedChatWhenFallbackIsAllowed() {
         XCTAssertEqual(
             ChatBootstrapViewState.resolve(
@@ -11393,6 +11432,8 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
+        MessageArchiveEndPageDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
         previousRealmConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "ChatFirstFrameLocalHistoryRegressionTests-\(name)-\(UUID().uuidString)"
@@ -11404,6 +11445,8 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
     }
 
     override func tearDown() {
+        MessageArchiveEndPageDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
         previousRealmConfiguration = nil
         super.tearDown()
@@ -11636,6 +11679,51 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
         XCTAssertTrue(controller.isNearBottom(threshold: 1))
         XCTAssertEqual(controller.latestBottomScrollCallCount, 1)
+    }
+
+    func testActiveMamErrorDuringInitialBootstrapRevealsLocalRowsInsteadOfLeavingSkeleton() throws {
+        let bootstrapQueryId = "MAM bootstrap history: active-error"
+        let conversationType = ClientSynchronizationManager.ConversationType.group
+        try seedChat(isSynced: false, isInitialArchiveLoaded: false, conversationType: conversationType)
+        try seedMessage(index: 0, conversationType: conversationType)
+        let controller = makeWarmupRecordingController(conversationType: conversationType)
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = CapturingXMPPStream()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        controller.beginInitialBootstrapTracking(queryId: bootstrapQueryId)
+        manager.getNextHistory(
+            stream,
+            for: jid,
+            conversationType: conversationType,
+            messageId: nil,
+            queryId: bootstrapQueryId,
+            requestCallbacks: .none,
+            deferCoverageCommitUntilConsumerProof: true
+        )
+
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.isEmpty || controller.datasource.allSatisfy(\.isFakeMessage))
+
+        let iq = try makeIQ(xml: """
+        <iq type='error' id='\(bootstrapQueryId)' from='\(jid)'>
+          <query xmlns='urn:xmpp:mam:2' queryid='\(bootstrapQueryId)'/>
+          <error code='405' type='cancel'>
+            <not-allowed xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>
+          </error>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(stream, withIQ: iq))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.map(\.primary), ["first-frame-message-0"])
+        XCTAssertFalse(controller.pendingArchiveObserverRefresh)
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
     }
 
     func testPendingObserverRefreshAfterUnsyncedBootstrapRevealDoesNotLeaveNewest() throws {
@@ -12530,13 +12618,20 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         return controller
     }
 
-    private func makeWarmupRecordingController() -> WarmupOffsetRecordingChatViewController {
+    private func makeWarmupRecordingController(
+        conversationType: ClientSynchronizationManager.ConversationType = .regular
+    ) -> WarmupOffsetRecordingChatViewController {
         let controller = WarmupOffsetRecordingChatViewController()
         controller.owner = owner
         controller.jid = jid
-        controller.conversationType = .regular
+        controller.conversationType = conversationType
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         return controller
+    }
+
+    private func makeIQ(xml: String) throws -> XMPPIQ {
+        let document = try DDXMLDocument(xmlString: xml, options: 0)
+        return XMPPIQ(from: try XCTUnwrap(document.rootElement()))
     }
 
     private func applyResidentWindow(_ range: Range<Int>, to controller: ChatViewController) throws {
@@ -12666,14 +12761,15 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         syncUnreadCount: Int = 0,
         syncUnreadAfterId: String? = nil,
         lastMessageId: String = "message-1",
-        syncSnapshotLastArchiveId: String? = "archive-1"
+        syncSnapshotLastArchiveId: String? = "archive-1",
+        conversationType: ClientSynchronizationManager.ConversationType = .regular
     ) throws {
         let realm = try WRealm.safe()
         let chat = LastChatsStorageItem()
         chat.owner = owner
         chat.jid = jid
-        chat.conversationType = .regular
-        chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        chat.conversationType = conversationType
+        chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)
         chat.isSynced = isSynced
         chat.isInitialArchiveLoaded = isInitialArchiveLoaded
         chat.runtimeUnreadCount = max(runtimeUnreadCount, 0)
@@ -12758,19 +12854,26 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         }
     }
 
-    private func seedMessage(index: Int) throws {
+    private func seedMessage(
+        index: Int,
+        conversationType: ClientSynchronizationManager.ConversationType = .regular
+    ) throws {
         let realm = try WRealm.safe()
         try realm.write {
-            realm.add(makeMessage(index: index), update: .modified)
+            realm.add(makeMessage(index: index, conversationType: conversationType), update: .modified)
         }
     }
 
-    private func makeMessage(index: Int, archivedId: String? = nil) -> MessageStorageItem {
+    private func makeMessage(
+        index: Int,
+        archivedId: String? = nil,
+        conversationType: ClientSynchronizationManager.ConversationType = .regular
+    ) -> MessageStorageItem {
         let message = MessageStorageItem()
         message.primary = "first-frame-message-\(index)"
         message.owner = owner
         message.opponent = jid
-        message.conversationType = .regular
+        message.conversationType = conversationType
         message.body = "Local message \(index)"
         message.messageId = "message-\(index)"
         message.archivedId = archivedId ?? "archive-\(index)"
@@ -14039,6 +14142,26 @@ final class MessageArchiveRequestClassificationTests: XCTestCase {
         XCTAssertTrue(nonArchiveProducing.allSatisfy { !$0.isArchiveHistoryProducing })
     }
 
+    func testMamServerErrorFailureRouteExcludesAnchorAndUtilityRequests() {
+        let failureRouted: [MessageArchiveManager.RequestPurpose] = [
+            .bootstrap,
+            .pageOlder,
+            .pageNewer,
+            .gapRepair,
+            .snapshotRepair
+        ]
+        let callbackRouted: [MessageArchiveManager.RequestPurpose] = [
+            .jump,
+            .search,
+            .latest,
+            .media,
+            .inviteRecovery
+        ]
+
+        XCTAssertTrue(failureRouted.allSatisfy(\.routesMamServerErrorAsRequestFailure))
+        XCTAssertTrue(callbackRouted.allSatisfy { !$0.routesMamServerErrorAsRequestFailure })
+    }
+
     func testRegularHistoryRequestsOmitConversationTypeFilter() {
         XCTAssertFalse(
             MessageArchiveManager.ConversationTypeFilterPolicy.shouldIncludeConversationTypeField(
@@ -15206,6 +15329,57 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         )
 
         XCTAssertEqual(events.map(\.queryId), [queryId])
+        XCTAssertFalse(manager.queryIds.contains(queryId))
+        XCTAssertFalse(manager.callbacksQueue.contains { $0.elementId == queryId })
+        XCTAssertFalse(manager.shouldPersistArchiveQueryId(queryId))
+    }
+
+    func testActiveHistoryProducingMamErrorPublishesFailureInsteadOfEndPage() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = CapturingXMPPStream()
+        stream.myJID = XMPPJID(string: owner, resource: "xabber-ios-test")
+        let queryId = "MAM next history: active-server-error"
+        let failureExpectation = expectation(description: "active MAM error failure")
+        let endPageExpectation = expectation(description: "active MAM error should not publish end page")
+        endPageExpectation.isInverted = true
+        var receivedFailure: MessageArchiveRequestFailureEvent?
+
+        MessageArchiveRequestFailureDispatcher.register(owner: owner, queryId: queryId) { event in
+            receivedFailure = event
+            failureExpectation.fulfill()
+        }
+        MessageArchiveEndPageDispatcher.register(owner: owner, queryId: queryId) { _ in
+            endPageExpectation.fulfill()
+        }
+
+        manager.getNextHistory(
+            stream,
+            for: "romeo@example.com",
+            conversationType: .regular,
+            messageId: "500",
+            queryId: queryId,
+            requestCallbacks: .none,
+            deferCoverageCommitUntilConsumerProof: true
+        )
+
+        let iq = try makeIQ(xml: """
+        <iq type='error' id='\(queryId)'>
+          <query xmlns='urn:xmpp:mam:2' queryid='\(queryId)'/>
+          <error code='405' type='cancel'>
+            <not-allowed xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>
+          </error>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(stream, withIQ: iq))
+        wait(for: [failureExpectation, endPageExpectation], timeout: 1.0)
+        XCTAssertEqual(receivedFailure?.queryId, queryId)
+        XCTAssertEqual(receivedFailure?.streamKind, .primary)
+        XCTAssertEqual(receivedFailure?.reason, .serverError)
+        XCTAssertEqual(receivedFailure?.pendingQueryCount, 1)
+        XCTAssertTrue(receivedFailure?.errorDescription?.contains("405") == true)
+        XCTAssertTrue(receivedFailure?.errorDescription?.contains("cancel") == true)
+        XCTAssertTrue(receivedFailure?.errorDescription?.contains("not-allowed") == true)
         XCTAssertFalse(manager.queryIds.contains(queryId))
         XCTAssertFalse(manager.callbacksQueue.contains { $0.elementId == queryId })
         XCTAssertFalse(manager.shouldPersistArchiveQueryId(queryId))

@@ -3675,13 +3675,17 @@ enum ChatBootstrapViewState: Equatable {
         isInitialArchiveLoaded: Bool = true,
         isInitialBootstrapInFlight: Bool,
         hasPendingInitialAnchorRequest: Bool,
-        allowsStaleLocalHistory: Bool = false
+        allowsStaleLocalHistory: Bool = false,
+        allowsBootstrapFailureFallback: Bool = false
     ) -> ChatBootstrapViewState {
         if hasPendingInitialAnchorRequest {
             return .skeleton
         }
         if isInitialBootstrapInFlight {
             return isSynced && isInitialArchiveLoaded && messageCount > 0 ? .content : .skeleton
+        }
+        if allowsBootstrapFailureFallback {
+            return messageCount > 0 ? .content : .empty
         }
         if allowsStaleLocalHistory && messageCount > 0 {
             return .content
@@ -7183,6 +7187,7 @@ extension ChatViewController {
         self.initialBootstrapLocalHistoryFallbackWorkItem?.cancel()
         self.initialBootstrapLocalHistoryFallbackWorkItem = nil
         self.allowsStaleLocalHistoryDuringInitialBootstrap = false
+        self.allowsBootstrapFailureFallback = false
     }
 
     @discardableResult
@@ -7240,9 +7245,10 @@ extension ChatViewController {
             }
 
             let localMessageCount = self.localHistoryMessageCountForBootstrap()
+            let hasPendingInitialAnchorRequest = self.hasPendingInitialAnchorRequest()
             let shouldRevealLocalHistory = ChatInitialBootstrapFailureRecoveryPolicy.shouldRevealLocalHistory(
                 messageCount: localMessageCount,
-                hasPendingInitialAnchorRequest: self.hasPendingInitialAnchorRequest()
+                hasPendingInitialAnchorRequest: hasPendingInitialAnchorRequest
             )
             ChatArchiveDebugTrace.log("initialBootstrapFailure", [
                 ("owner", self.owner),
@@ -7253,10 +7259,14 @@ extension ChatViewController {
                 ("streamKind", streamKind.rawValue),
                 ("error", errorDescription ?? "none"),
                 ("localCount", localMessageCount),
-                ("revealLocalHistory", shouldRevealLocalHistory)
+                ("revealLocalHistory", shouldRevealLocalHistory),
+                ("allowFailureFallback", !hasPendingInitialAnchorRequest)
             ])
 
             self.resetInitialBootstrapTracking()
+            if !hasPendingInitialAnchorRequest {
+                self.allowsBootstrapFailureFallback = true
+            }
             if shouldRevealLocalHistory {
                 self.allowsStaleLocalHistoryDuringInitialBootstrap = true
             }
@@ -8527,7 +8537,8 @@ extension ChatViewController {
             isInitialArchiveLoaded: chatInstance?.isInitialArchiveLoaded ?? false,
             isInitialBootstrapInFlight: self.isInitialBootstrapInFlight,
             hasPendingInitialAnchorRequest: self.hasPendingInitialAnchorRequest(chatInstance: chatInstance),
-            allowsStaleLocalHistory: self.allowsStaleLocalHistoryDuringInitialBootstrap
+            allowsStaleLocalHistory: self.allowsStaleLocalHistoryDuringInitialBootstrap,
+            allowsBootstrapFailureFallback: self.allowsBootstrapFailureFallback
         )
     }
 
@@ -8551,7 +8562,8 @@ extension ChatViewController {
                 isInitialArchiveLoaded: false,
                 isInitialBootstrapInFlight: self.isInitialBootstrapInFlight,
                 hasPendingInitialAnchorRequest: self.hasPendingInitialAnchorRequest(chatInstance: nil),
-                allowsStaleLocalHistory: self.allowsStaleLocalHistoryDuringInitialBootstrap
+                allowsStaleLocalHistory: self.allowsStaleLocalHistoryDuringInitialBootstrap,
+                allowsBootstrapFailureFallback: self.allowsBootstrapFailureFallback
             )
         }
     }
