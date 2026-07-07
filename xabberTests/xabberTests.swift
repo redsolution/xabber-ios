@@ -11587,6 +11587,96 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertNil(controller.activeAnchorExecutionState)
     }
 
+    func testUnsyncedBootstrapObserverRefreshKeepsSkeletonUntilMamFinThenRevealsNewest() throws {
+        let bootstrapQueryId = "initial-bootstrap-latest"
+        try seedChat(isSynced: false, isInitialArchiveLoaded: false)
+        try seedMessage(index: 0)
+        let controller = makeWarmupRecordingController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        controller.beginInitialBootstrapTracking(queryId: bootstrapQueryId)
+        controller.applyBootstrapViewState(controller.currentBootstrapViewState(), forceRender: true)
+
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.isEmpty || controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertFalse(controller.datasource.contains { $0.primary == "first-frame-message-0" })
+
+        try seedMessages(range: 1..<321)
+        controller.handleMessagesObserverRefresh()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.isEmpty || controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertFalse(controller.datasource.contains { $0.primary == "first-frame-message-0" })
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
+
+        try updateSeededChat { chat in
+            chat.isSynced = true
+            chat.isInitialArchiveLoaded = true
+        }
+        XCTAssertTrue(
+            controller.handleInitialBootstrapEndPageIfNeeded(
+                queryId: bootstrapQueryId,
+                state: MessageArchivePageEndState(queryExhausted: false, archiveEnded: false, persistedMessageCount: 320),
+                count: 320,
+                persistedMessageCount: 320,
+                persistedRowsForQuery: 320,
+                visibleRowsForConversation: 321
+            )
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-320")
+        XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-0" })
+        XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
+        XCTAssertTrue(controller.isNearBottom(threshold: 1))
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 1)
+    }
+
+    func testPendingObserverRefreshAfterUnsyncedBootstrapRevealDoesNotLeaveNewest() throws {
+        let bootstrapQueryId = "initial-bootstrap-pending-refresh"
+        try seedChat(isSynced: false, isInitialArchiveLoaded: false)
+        try seedMessage(index: 0)
+        try seedMessages(range: 1..<321)
+        let controller = makeWarmupRecordingController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        controller.beginInitialBootstrapTracking(queryId: bootstrapQueryId)
+        controller.pendingArchiveObserverRefresh = true
+
+        try updateSeededChat { chat in
+            chat.isSynced = true
+            chat.isInitialArchiveLoaded = true
+        }
+        XCTAssertTrue(
+            controller.handleInitialBootstrapEndPageIfNeeded(
+                queryId: bootstrapQueryId,
+                state: MessageArchivePageEndState(queryExhausted: false, archiveEnded: false, persistedMessageCount: 320),
+                count: 320,
+                persistedMessageCount: 320,
+                persistedRowsForQuery: 320,
+                visibleRowsForConversation: 321
+            )
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-320")
+        XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-0" })
+        XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
+        XCTAssertTrue(controller.isNearBottom(threshold: 1))
+        XCTAssertFalse(controller.pendingArchiveObserverRefresh)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 1)
+    }
+
     func testSkeletonRevealDoesNotClearUnreadCountersBeforeVisibleReadBoundary() throws {
         try seedChat(
             isSynced: false,
@@ -12641,6 +12731,15 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let realm = try WRealm.safe()
         try realm.write {
             (0..<count).forEach { index in
+                realm.add(makeMessage(index: index), update: .modified)
+            }
+        }
+    }
+
+    private func seedMessages(range: Range<Int>) throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            range.forEach { index in
                 realm.add(makeMessage(index: index), update: .modified)
             }
         }

@@ -7923,13 +7923,6 @@ extension ChatViewController {
             let slice = mappedWindow.items
             let nextTimelineState = mappedWindow.timelineState
             let nextVirtualTimelineState = mappedWindow.virtualState
-            var mappedDatasource = self.mapDataset(dataset: slice)
-            if let boundaryPlaceholder {
-                mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
-                    to: mappedDatasource,
-                    position: boundaryPlaceholder
-                )
-            }
 
             DispatchQueue.main.async {
                 guard ChatDatasourceApplyGenerationPolicy.shouldApply(
@@ -7938,6 +7931,13 @@ extension ChatViewController {
                 ) else {
                     cancelledCompletion?()
                     return
+                }
+                var mappedDatasource = self.mapDataset(dataset: slice)
+                if let boundaryPlaceholder {
+                    mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
+                        to: mappedDatasource,
+                        position: boundaryPlaceholder
+                    )
                 }
                 self.virtualTimelineState = nextVirtualTimelineState
                 self.boundedTimelineWindowState = nextTimelineState
@@ -7987,13 +7987,6 @@ extension ChatViewController {
                 let snapshot = engine.openAround(anchor: anchor)
                 let frozenItems = snapshot.items.map { $0.freeze() }
                 let nextVirtualState = snapshot.state.withRuntimePlaceholder(boundaryPlaceholder)
-                var mappedDatasource = self.mapDataset(dataset: frozenItems)
-                if let boundaryPlaceholder {
-                    mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
-                        to: mappedDatasource,
-                        position: boundaryPlaceholder
-                    )
-                }
 
                 DispatchQueue.main.async {
                     guard ChatDatasourceApplyGenerationPolicy.shouldApply(
@@ -8004,6 +7997,13 @@ extension ChatViewController {
                         return
                     }
 
+                    var mappedDatasource = self.mapDataset(dataset: frozenItems)
+                    if let boundaryPlaceholder {
+                        mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
+                            to: mappedDatasource,
+                            position: boundaryPlaceholder
+                        )
+                    }
                     self.virtualTimelineState = nextVirtualState
                     self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
                     self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
@@ -8059,7 +8059,6 @@ extension ChatViewController {
                 let snapshot = engine.scrollToLatest(limit: limit)
                 let frozenItems = snapshot.items.map { $0.freeze() }
                 let nextVirtualState = snapshot.state
-                let mappedDatasource = self.mapDataset(dataset: frozenItems)
 
                 DispatchQueue.main.async {
                     guard ChatDatasourceApplyGenerationPolicy.shouldApply(
@@ -8070,6 +8069,7 @@ extension ChatViewController {
                         return
                     }
 
+                    let mappedDatasource = self.mapDataset(dataset: frozenItems)
                     self.activeHistoryBoundaryPlaceholder = nil
                     self.virtualTimelineState = nextVirtualState
                     self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
@@ -8140,13 +8140,6 @@ extension ChatViewController {
                 let snapshot = engine.currentSnapshot()
                 let frozenItems = snapshot.items.map { $0.freeze() }
                 let nextVirtualState = snapshot.state.withRuntimePlaceholder(boundaryPlaceholder)
-                var mappedDatasource = self.mapDataset(dataset: frozenItems)
-                if let boundaryPlaceholder {
-                    mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
-                        to: mappedDatasource,
-                        position: boundaryPlaceholder
-                    )
-                }
 
                 DispatchQueue.main.async {
                     guard ChatDatasourceApplyGenerationPolicy.shouldApply(
@@ -8157,6 +8150,13 @@ extension ChatViewController {
                         return
                     }
 
+                    var mappedDatasource = self.mapDataset(dataset: frozenItems)
+                    if let boundaryPlaceholder {
+                        mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
+                            to: mappedDatasource,
+                            position: boundaryPlaceholder
+                        )
+                    }
                     self.virtualTimelineState = nextVirtualState
                     self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
                     self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
@@ -8201,8 +8201,6 @@ extension ChatViewController {
         let nextVirtualState = snapshot.state
 
         self.datasetMappingQueue.async {
-            let mappedDatasource = self.mapDataset(dataset: frozenItems)
-
             DispatchQueue.main.async {
                 guard ChatDatasourceApplyGenerationPolicy.shouldApply(
                     requestGeneration: generation,
@@ -8212,6 +8210,7 @@ extension ChatViewController {
                     return
                 }
 
+                let mappedDatasource = self.mapDataset(dataset: frozenItems)
                 self.virtualTimelineState = nextVirtualState
                 self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
                 self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
@@ -10436,35 +10435,6 @@ extension ChatViewController {
                     ("newNewest", nextVirtualState.newest?.archivedId ?? "-"),
                     ("activeRemoteLoad", nextVirtualState.activeRemoteLoad?.queryId ?? "-")
                 ])
-                let mapStartedAt = Date()
-                let mappedDatasource = self.mapDataset(dataset: frozenItems)
-                let mapDurationMs = ChatArchiveDebugTrace.milliseconds(since: mapStartedAt)
-                let workerDurationMs = ChatArchiveDebugTrace.milliseconds(since: startedAt)
-                let applyResult = ChatRemoteHistoryApplyResult(
-                    queryId: queryId,
-                    direction: refetchDirection,
-                    visibleRows: visibleRows,
-                    resultCount: resultCount,
-                    queryExhausted: queryExhausted,
-                    previousOldestArchivedId: previousOldestArchivedId,
-                    previousNewestArchivedId: previousNewestArchivedId,
-                    newOldestArchivedId: nextVirtualState.oldest?.archivedId,
-                    newNewestArchivedId: nextVirtualState.newest?.archivedId,
-                    itemCount: frozenItems.count,
-                    queueWaitMs: queueWaitMs,
-                    mapDurationMs: mapDurationMs
-                )
-
-                ChatArchiveDebugTrace.log("remoteHistoryApplyMapDone", [
-                    ("owner", requestOwner),
-                    ("jid", requestJid),
-                    ("conversationType", requestConversationType.rawValue),
-                    ("queryId", queryId),
-                    ("direction", refetchDirection),
-                    ("mapMs", mapDurationMs),
-                    ("workerDurationMs", workerDurationMs),
-                    ("datasourceItems", mappedDatasource.count)
-                ])
                 let mainEnqueuedAt = Date()
                 DispatchQueue.main.async {
                     ChatArchiveDebugTrace.log("remoteHistoryApplyMainStart", [
@@ -10497,6 +10467,34 @@ extension ChatViewController {
                         return
                     }
 
+                    let mapStartedAt = Date()
+                    let mappedDatasource = self.mapDataset(dataset: frozenItems)
+                    let mapDurationMs = ChatArchiveDebugTrace.milliseconds(since: mapStartedAt)
+                    let workerDurationMs = ChatArchiveDebugTrace.milliseconds(since: startedAt)
+                    let applyResult = ChatRemoteHistoryApplyResult(
+                        queryId: queryId,
+                        direction: refetchDirection,
+                        visibleRows: visibleRows,
+                        resultCount: resultCount,
+                        queryExhausted: queryExhausted,
+                        previousOldestArchivedId: previousOldestArchivedId,
+                        previousNewestArchivedId: previousNewestArchivedId,
+                        newOldestArchivedId: nextVirtualState.oldest?.archivedId,
+                        newNewestArchivedId: nextVirtualState.newest?.archivedId,
+                        itemCount: frozenItems.count,
+                        queueWaitMs: queueWaitMs,
+                        mapDurationMs: mapDurationMs
+                    )
+                    ChatArchiveDebugTrace.log("remoteHistoryApplyMapDone", [
+                        ("owner", requestOwner),
+                        ("jid", requestJid),
+                        ("conversationType", requestConversationType.rawValue),
+                        ("queryId", queryId),
+                        ("direction", refetchDirection),
+                        ("mapMs", mapDurationMs),
+                        ("workerDurationMs", workerDurationMs),
+                        ("datasourceItems", mappedDatasource.count)
+                    ])
                     self.activeHistoryBoundaryPlaceholder = nil
                     self.virtualTimelineState = nextVirtualState
                     self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
