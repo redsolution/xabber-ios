@@ -33,6 +33,7 @@ protocol MessageType {
     var kind: MessageKind { get }
     var withAuthor: Bool { get }
     var withAvatar: Bool { get }
+    var reservesAvatarSpace: Bool { get }
     var error: Bool { get }
     var errorType: String { get }
     var canPinMessage: Bool { get }
@@ -60,6 +61,12 @@ protocol MessageType {
     var attributedAuthor: NSAttributedString? { get }
     
 //    var queryIds: String? { get }
+}
+
+extension MessageType {
+    var reservesAvatarSpace: Bool {
+        withAvatar
+    }
 }
 
 class CallAttachment {

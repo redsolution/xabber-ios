@@ -505,7 +505,7 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
         }
         attributes.timeMarkerWithBackplate = timeMarkerWithBackplate
         
-        if message.withAvatar {
+        if message.reservesAvatarSpace {
             attributes.avatarSize = CGSize(square: 32)
         }
     }

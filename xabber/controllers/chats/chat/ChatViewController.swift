@@ -1352,6 +1352,7 @@ class ChatViewController: MessagesViewController {
         var kind: MessageKind
         var withAuthor: Bool
         var withAvatar: Bool
+        var reservesAvatarSpace: Bool = false
         var error: Bool
         var errorType: String
         var canPinMessage: Bool
@@ -1403,6 +1404,8 @@ class ChatViewController: MessagesViewController {
                 a.groupchatAuthorNickname == b.groupchatAuthorNickname &&
                 a.groupchatAuthorBadge == b.groupchatAuthorBadge &&
                 a.withAuthor == b.withAuthor &&
+                a.withAvatar == b.withAvatar &&
+                a.reservesAvatarSpace == b.reservesAvatarSpace &&
                 a.isDownloaded == b.isDownloaded &&
                 a.searchString == b.searchString &&
                 a.burnDate == b.burnDate &&

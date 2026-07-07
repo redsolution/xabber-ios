@@ -4417,6 +4417,7 @@ struct ChatMessageLayoutSignature: Equatable {
     let isOutgoing: Bool
     let withAuthor: Bool
     let withAvatar: Bool
+    let reservesAvatarSpace: Bool
     let tailed: Bool
     let hasIndicator: Bool
     let messageWarningText: String?
@@ -4458,6 +4459,7 @@ struct ChatMessageLayoutSignature: Equatable {
         self.isOutgoing = message.isOutgoing
         self.withAuthor = message.withAuthor
         self.withAvatar = message.withAvatar
+        self.reservesAvatarSpace = message.reservesAvatarSpace
         self.tailed = message.tailed
         self.hasIndicator = message.indicator != .none
         self.messageWarningText = message.messageWarningText
@@ -8988,6 +8990,43 @@ extension ChatViewController {
             .foregroundColor: UIColor.label,
             .font: UIFont.preferredFont(forTextStyle: .body, compatibleWith: self.traitCollection)
         ]
+
+        func nonEmptyGroupAuthorValue(_ value: String?) -> String? {
+            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  value.isNotEmpty else {
+                return nil
+            }
+            return value
+        }
+
+        func groupAuthorKey(
+            for item: MessageStorageItem,
+            presentation: SavedMessageDisplayPolicy.Presentation
+        ) -> String {
+            if let authorId = nonEmptyGroupAuthorValue(presentation.groupchatAuthorId) {
+                return "id:\(authorId)"
+            }
+            if let authorJid = nonEmptyGroupAuthorValue(item.groupchatMetadata?["jid"] as? String) {
+                return "jid:\(authorJid.lowercased())"
+            }
+            if let nickname = nonEmptyGroupAuthorValue(presentation.groupchatAuthorNickname) {
+                return "nickname:\(nickname)"
+            }
+            return "unknown:\(item.primary)"
+        }
+
+        func isSameIncomingGroupAuthor(
+            _ lhs: MessageStorageItem,
+            _ lhsPresentation: SavedMessageDisplayPolicy.Presentation,
+            _ rhs: MessageStorageItem,
+            _ rhsPresentation: SavedMessageDisplayPolicy.Presentation
+        ) -> Bool {
+            guard !lhsPresentation.displayOutgoing,
+                  !rhsPresentation.displayOutgoing else {
+                return false
+            }
+            return groupAuthorKey(for: lhs, presentation: lhsPresentation) == groupAuthorKey(for: rhs, presentation: rhsPresentation)
+        }
                 
         dataset.enumerated().forEach {
             (offset, item) in
@@ -9010,6 +9049,7 @@ extension ChatViewController {
             
             var withAuthor: Bool = false
             var withAvatar: Bool = false
+            var reservesAvatarSpace: Bool = false
             var tailed: Bool = true
             let date = presentation.visibleDate
             let prevMessage = offset - 1
@@ -9020,17 +9060,13 @@ extension ChatViewController {
                     let prevItem = dataset[prevMessage]
                     let prevPresentation = displayPresentation(for: prevItem)
                     if self.conversationType == .group {
-                        withAvatar = !(prevItem.groupchatCard?.userId == item.groupchatCard?.userId)
-                        tailed = !(prevItem.groupchatCard?.userId == item.groupchatCard?.userId)
+                        tailed = !isSameIncomingGroupAuthor(prevItem, prevPresentation, item, presentation)
                         
                     } else {
                         tailed = !(presentation.displayOutgoing == prevPresentation.displayOutgoing)
                     }
                     if isDateChange(from: presentation.visibleDate, to: prevPresentation.visibleDate) {
                         tailed = true
-                        if self.conversationType == .group {
-                            withAvatar = true
-                        }
                     }
                 }
             }
@@ -9038,7 +9074,7 @@ extension ChatViewController {
                 let prevItem = dataset[prevMessage]
                 let prevPresentation = displayPresentation(for: prevItem)
                 if self.conversationType == .group {
-                    withAuthor = !(prevItem.groupchatCard?.userId == item.groupchatCard?.userId)
+                    withAuthor = !isSameIncomingGroupAuthor(prevItem, prevPresentation, item, presentation)
                     if isDateChange(from: presentation.visibleDate, to: prevPresentation.visibleDate) {
                         withAuthor = true
                     }
@@ -9051,21 +9087,26 @@ extension ChatViewController {
                 let nextItem = dataset[nextMessage]
                 let nextPresentation = displayPresentation(for: nextItem)
                 
-                if self.avatarVerticalPosition == "bottom" {
-                    if self.conversationType == .group {
-                        withAvatar = !(nextItem.groupchatCard?.userId == item.groupchatCard?.userId)
-                        tailed = !(nextItem.groupchatCard?.userId == item.groupchatCard?.userId)
-                        
-                    } else {
-                        tailed = !(presentation.displayOutgoing == nextPresentation.displayOutgoing)
+                if self.conversationType == .group {
+                    let isSameNextAuthor = isSameIncomingGroupAuthor(item, presentation, nextItem, nextPresentation)
+                    withAvatar = !isSameNextAuthor
+                    if self.avatarVerticalPosition == "bottom" {
+                        tailed = !isSameNextAuthor
                     }
                     if isDateChange(from: presentation.visibleDate, to: nextPresentation.visibleDate) {
-                        tailed = true
-                        if self.conversationType == .group {
-                            withAvatar = true
+                        withAvatar = true
+                        if self.avatarVerticalPosition == "bottom" {
+                            tailed = true
                         }
                     }
+                } else if self.avatarVerticalPosition == "bottom" {
+                    tailed = !(presentation.displayOutgoing == nextPresentation.displayOutgoing)
+                    if isDateChange(from: presentation.visibleDate, to: nextPresentation.visibleDate) {
+                        tailed = true
+                    }
                 }
+            } else if self.conversationType == .group {
+                withAvatar = true
             }
             var attributedAuthor: NSAttributedString? = nil
             if presentation.isSavedForward {
@@ -9110,11 +9151,14 @@ extension ChatViewController {
             let timeMarkerString = cachedDisplayModel.timeMarkerText
             if presentation.displayOutgoing {
                 withAuthor = false
-                if presentation.isSavedMessage {
+                if presentation.isSavedMessage || self.conversationType == .group {
                     withAvatar = false
                 }
             }
-            let shouldShowAvatar = withAvatar || (self.conversationType == .group && !presentation.displayOutgoing)
+            reservesAvatarSpace = withAvatar
+            if self.conversationType == .group {
+                reservesAvatarSpace = !presentation.displayOutgoing
+            }
             out.append(Datasource(
                 primary: item.primary,
                 jid: self.jid,
@@ -9126,7 +9170,8 @@ extension ChatViewController {
                 editDate: item.editDate,
                 kind: kind,
                 withAuthor: withAuthor,
-                withAvatar: shouldShowAvatar,
+                withAvatar: withAvatar,
+                reservesAvatarSpace: reservesAvatarSpace,
                 error: effectiveState == .error,
                 errorType: item.messageError ?? "",
                 canPinMessage: [.system, .sticker].contains(item.displayAs) ? false : self.canUnpinMessage.value,
@@ -9161,7 +9206,7 @@ extension ChatViewController {
                 audios: mappedReferences.audio,
                 timeMarkerText: timeMarkerString,
                 indicator: indicator,
-                avatarUrl: shouldShowAvatar ? presentation.displayAvatarSource : nil,
+                avatarUrl: withAvatar ? presentation.displayAvatarSource : nil,
                 attributedAuthor: attributedAuthor
             ))
         }
