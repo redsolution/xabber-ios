@@ -3985,6 +3985,8 @@ enum ChatFirstFrameLatestWarmupState: Equatable {
 }
 
 enum ChatFirstFrameLatestWarmupPolicy {
+    // Post-visible latest-window expansion changes content geometry after the
+    // first correct bottom-aligned frame and is visible as an opening jump.
     static func shouldArm(
         appliedRealMessageCount: Int,
         availableLocalMessageCount: Int,
@@ -3994,17 +3996,7 @@ enum ChatFirstFrameLatestWarmupPolicy {
         hasPendingAnchorRequest: Bool,
         hasActiveAnchorExecution: Bool
     ) -> Bool {
-        guard initialLimit > 0,
-              initialLimit < normalLimit,
-              appliedRealMessageCount > 0,
-              isResidentAtLiveTail,
-              !hasPendingAnchorRequest,
-              !hasActiveAnchorExecution else {
-            return false
-        }
-
-        let warmupTarget = min(availableLocalMessageCount, normalLimit)
-        return appliedRealMessageCount < warmupTarget
+        false
     }
 
     static func shouldRun(
@@ -4017,16 +4009,7 @@ enum ChatFirstFrameLatestWarmupPolicy {
         hasViewAppeared: Bool,
         didLogFirstMessagesVisible: Bool
     ) -> Bool {
-        guard state == .armed,
-              currentRealMessageCount > 0,
-              currentRealMessageCount < normalLimit,
-              isResidentAtLiveTail,
-              !hasPendingAnchorRequest,
-              !hasActiveAnchorExecution else {
-            return false
-        }
-
-        return hasViewAppeared || didLogFirstMessagesVisible
+        false
     }
 }
 

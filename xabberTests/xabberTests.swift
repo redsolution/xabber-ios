@@ -11480,7 +11480,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertNil(controller.pendingOpenMessageRequest)
         XCTAssertNil(controller.activeAnchorExecutionState)
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         controller.messagesCollectionView.layoutIfNeeded()
         XCTAssertTrue(controller.isNearBottom(threshold: 1))
     }
@@ -11732,7 +11732,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertTrue(controller.isNearBottom(threshold: 1))
     }
 
-    func testLatestFirstFrameWarmupExpandsToNormalPageAfterVisibleTrigger() throws {
+    func testLatestFirstFrameDoesNotWarmupAfterVisibleTrigger() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 320)
         let controller = makeController()
@@ -11754,14 +11754,17 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.messagesCollectionView.layoutIfNeeded()
 
         let realMessages = controller.datasource.filter { !$0.isFakeMessage }
-        XCTAssertEqual(realMessages.count, ChatHistoryPagingConfiguration.pageSize)
-        XCTAssertEqual(realMessages.first?.primary, "first-frame-message-70")
+        XCTAssertEqual(realMessages.count, ChatInitialFirstFrameHistoryConfiguration.pageSize)
+        XCTAssertEqual(
+            realMessages.first?.primary,
+            "first-frame-message-\(320 - ChatInitialFirstFrameHistoryConfiguration.pageSize)"
+        )
         XCTAssertEqual(realMessages.last?.primary, "first-frame-message-319")
         XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
         XCTAssertTrue(controller.isNearBottom(threshold: 1))
     }
 
-    func testLatestFirstFrameWarmupIsBottomAlignedBeforeCompletionScroll() throws {
+    func testLatestFirstFrameVisibleTriggerDoesNotRunCompletionScrollOrReload() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 320)
         let controller = makeWarmupRecordingController()
@@ -11784,13 +11787,14 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.messagesCollectionView.layoutIfNeeded()
 
         let realMessages = controller.datasource.filter { !$0.isFakeMessage }
-        XCTAssertEqual(realMessages.count, ChatHistoryPagingConfiguration.pageSize)
-        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-319")
+        XCTAssertEqual(realMessages.count, ChatInitialFirstFrameHistoryConfiguration.pageSize)
         XCTAssertEqual(
-            try XCTUnwrap(controller.recordedOffsetBeforeLatestBottomScroll),
-            try XCTUnwrap(controller.recordedTargetOffsetBeforeLatestBottomScroll),
-            accuracy: ChatBottomScrollAlignmentPolicy.contentOffsetTolerance
+            realMessages.first?.primary,
+            "first-frame-message-\(320 - ChatInitialFirstFrameHistoryConfiguration.pageSize)"
         )
+        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-319")
+        XCTAssertNil(controller.recordedOffsetBeforeLatestBottomScroll)
+        XCTAssertNil(controller.recordedTargetOffsetBeforeLatestBottomScroll)
     }
 
     func testPendingSavedPositionRequestDoesNotRunLatestWarmup() throws {
@@ -13197,8 +13201,8 @@ final class ChatInitialHistoryAppearancePolicyTests: XCTestCase {
         )
     }
 
-    func testFirstFrameLatestWarmupArmsOnlyForSmallLiveTailLatestWindow() {
-        XCTAssertTrue(
+    func testFirstFrameLatestWarmupDoesNotArmForSmallLiveTailLatestWindow() {
+        XCTAssertFalse(
             ChatFirstFrameLatestWarmupPolicy.shouldArm(
                 appliedRealMessageCount: 80,
                 availableLocalMessageCount: 320,
@@ -13260,8 +13264,8 @@ final class ChatInitialHistoryAppearancePolicyTests: XCTestCase {
         )
     }
 
-    func testFirstFrameLatestWarmupRunsOnceAfterVisibleOrViewAppear() {
-        XCTAssertTrue(
+    func testFirstFrameLatestWarmupDoesNotRunAfterVisibleOrViewAppear() {
+        XCTAssertFalse(
             ChatFirstFrameLatestWarmupPolicy.shouldRun(
                 state: .armed,
                 currentRealMessageCount: 80,
@@ -13273,7 +13277,7 @@ final class ChatInitialHistoryAppearancePolicyTests: XCTestCase {
                 didLogFirstMessagesVisible: false
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             ChatFirstFrameLatestWarmupPolicy.shouldRun(
                 state: .armed,
                 currentRealMessageCount: 80,
