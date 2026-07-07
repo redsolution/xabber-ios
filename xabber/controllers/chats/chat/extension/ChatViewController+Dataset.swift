@@ -399,6 +399,42 @@ struct ChatDisplayModelCacheContext: Hashable {
     }
 }
 
+struct ChatDatasourceMappingContext {
+    let owner: String
+    let jid: String
+    let conversationType: ClientSynchronizationManager.ConversationType
+    let ownerSender: Sender
+    let opponentSender: Sender
+    var showSkeleton: Bool
+    let skeletonMessages: [NSAttributedString]
+    var searchText: String?
+    var inSearchMode: Bool
+    var displayCacheContext: ChatDisplayModelCacheContext
+    let bodyTextAttributes: [NSAttributedString.Key: Any]
+    let systemTextAttributes: [NSAttributedString.Key: Any]
+    let dateSeparatorAttributes: [NSAttributedString.Key: Any]
+    let timeMarkerAttributes: [NSAttributedString.Key: Any]
+    let searchHighlightColor: UIColor
+    let avatarVerticalPosition: String
+    let canUnpinMessage: Bool
+    var revealedSensitiveMediaPrimaries: Set<String>
+}
+
+struct ChatDatasourceMappingResult {
+    let datasource: [ChatViewController.Datasource]
+    let editedMessagePrimariesNeedingLayoutInvalidation: [String]
+}
+
+private struct ChatDatasourceMappingDateFormatters {
+    let sectionDateFormatter: DateFormatter
+    let attachmentTimeFormatter: DateFormatter
+
+    init() {
+        self.sectionDateFormatter = ChatViewController.makeSectionsDateFormatter()
+        self.attachmentTimeFormatter = ChatViewController.makeAttachmentTimeFormatter()
+    }
+}
+
 struct ChatDisplayModelCacheKey: Hashable {
     let messagePrimary: String
     let displayRevision: String
@@ -5120,11 +5156,68 @@ struct ChatDatasetCoordinator {
 
 extension ChatViewController {
     internal static let attachmentTimeFormatter: DateFormatter = {
+        makeAttachmentTimeFormatter()
+    }()
+
+    fileprivate static func makeAttachmentTimeFormatter() -> DateFormatter {
         let formatter = DateFormatter()
         formatter.dateStyle = .none
         formatter.timeStyle = .short
         return formatter
-    }()
+    }
+
+    fileprivate static func makeSectionsDateFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+        return formatter
+    }
+
+    internal func captureDatasourceMappingContext() -> ChatDatasourceMappingContext {
+        let traitCollection = self.traitCollection
+        let bodyFont = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
+        let captionFont = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: traitCollection)
+        let bodyColor = UIColor.label.resolvedColor(with: traitCollection)
+        let searchHighlightColor = UIColor.systemGreen.resolvedColor(with: traitCollection)
+        let timeMarkerColor = UIColor(red: 158.0 / 255.0, green: 158.0 / 255.0, blue: 158.0 / 255.0, alpha: 1)
+        let searchText = self.searchTextObserver.value
+
+        return ChatDatasourceMappingContext(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType,
+            ownerSender: self.ownerSender,
+            opponentSender: self.opponentSender,
+            showSkeleton: self.showSkeletonObserver.value,
+            skeletonMessages: self.skeletonMessages,
+            searchText: searchText,
+            inSearchMode: self.inSearchMode.value,
+            displayCacheContext: ChatDisplayModelCacheContext.current(
+                searchText: searchText,
+                traitCollection: traitCollection
+            ),
+            bodyTextAttributes: [
+                .foregroundColor: bodyColor,
+                .font: bodyFont
+            ],
+            systemTextAttributes: [
+                .font: captionFont.italic(),
+                .foregroundColor: UIColor.white
+            ],
+            dateSeparatorAttributes: [
+                .font: captionFont,
+                .foregroundColor: UIColor.white
+            ],
+            timeMarkerAttributes: [
+                .foregroundColor: timeMarkerColor,
+                .font: UIFont.systemFont(ofSize: 10, weight: .regular)
+            ],
+            searchHighlightColor: searchHighlightColor,
+            avatarVerticalPosition: self.avatarVerticalPosition,
+            canUnpinMessage: self.canUnpinMessage.value,
+            revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries
+        )
+    }
 
     internal func requestOutgoingAutoScrollAfterDatasourceUpdate() {
         self.pendingOutgoingAutoScrollRequest = ChatOutgoingAutoScrollRequest(
@@ -5593,15 +5686,27 @@ extension ChatViewController {
     }
     
     internal func mapAttachment(_ attachment: MessageForwardsInlineStorageItem) -> MessageAttachment {
+        mapAttachment(
+            attachment,
+            context: captureDatasourceMappingContext(),
+            formatters: ChatDatasourceMappingDateFormatters()
+        )
+    }
+
+    private func mapAttachment(
+        _ attachment: MessageForwardsInlineStorageItem,
+        context: ChatDatasourceMappingContext,
+        formatters: ChatDatasourceMappingDateFormatters
+    ) -> MessageAttachment {
         let references = attachment.references.toArray()
-        let mappedReferences = Self.mapReferenceAttachments(references, revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries)
-        let timeString = Self.attachmentTimeFormatter.string(from: attachment.originalDate ?? Date())
+        let mappedReferences = Self.mapReferenceAttachments(
+            references,
+            revealedSensitiveMediaPrimaries: context.revealedSensitiveMediaPrimaries
+        )
+        let timeString = formatters.attachmentTimeFormatter.string(from: attachment.originalDate ?? Date())
         let timeMarkerString = NSAttributedString(
             string: timeString,
-            attributes: [
-                NSAttributedString.Key.foregroundColor: UIColor(red: 158.0 / 255.0, green: 158.0 / 255.0, blue: 158.0 / 255.0, alpha: 1),
-                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 10, weight: .regular)
-            ]
+            attributes: context.timeMarkerAttributes
         )
         return MessageAttachment(
             primary: attachment.primary,
@@ -5609,12 +5714,9 @@ extension ChatViewController {
             jid: attachment.forwardJid,
             outgoing: attachment.isOutgoing,
             textMessage: attachment.createRefBody(
-                [
-                    NSAttributedString.Key.foregroundColor: UIColor.label,
-                    NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .body)//UIFont.systemFont(ofSize: 16, weight: .regular),
-                ],
-                searchedText: self.searchTextObserver.value,
-                searchedTextColor: .systemGreen
+                context.bodyTextAttributes,
+                searchedText: context.searchText,
+                searchedTextColor: context.searchHighlightColor
             ),
             images: mappedReferences.images,
             videos: mappedReferences.videos,
@@ -5623,42 +5725,51 @@ extension ChatViewController {
             files: mappedReferences.files,
             audios: mappedReferences.audio,
             timeMarker: timeMarkerString,
-            subforwards: attachment.subforwards.toArray().compactMap({ return mapAttachment($0) })
+            subforwards: attachment.subforwards.toArray().compactMap {
+                return mapAttachment($0, context: context, formatters: formatters)
+            }
         )
     }
 
     private func cachedDisplayModel(
         for item: MessageStorageItem,
         presentation: SavedMessageDisplayPolicy.Presentation,
-        textAttributes: [NSAttributedString.Key: Any],
-        context: ChatDisplayModelCacheContext
+        context: ChatDatasourceMappingContext,
+        formatters: ChatDatasourceMappingDateFormatters
     ) -> ChatCachedDisplayModel {
         let key = Self.displayModelCacheKey(
             for: item,
             presentation: presentation,
-            revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries,
-            context: context
+            revealedSensitiveMediaPrimaries: context.revealedSensitiveMediaPrimaries,
+            context: context.displayCacheContext
         )
         return displayModelCache.model(for: key) {
             let kind = self.displayKind(
                 for: item,
                 presentation: presentation,
-                textAttributes: textAttributes
+                context: context
             )
             let mappedReferences = Self.mappedReferenceAttachments(
                 presentation.visibleReferences,
-                revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries
+                revealedSensitiveMediaPrimaries: context.revealedSensitiveMediaPrimaries
             )
             let forwardSignature = Self.forwardDisplayRevision(
                 presentation.visibleForwards,
-                revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries,
-                context: context
+                revealedSensitiveMediaPrimaries: context.revealedSensitiveMediaPrimaries,
+                context: context.displayCacheContext
             )
             let lazyForwards = ChatLazyForwardDisplayModel(signature: forwardSignature) { [weak self] in
                 guard let self else { return [] }
-                return presentation.visibleForwards.compactMap { self.mapAttachment($0) }
+                return presentation.visibleForwards.compactMap {
+                    self.mapAttachment($0, context: context, formatters: formatters)
+                }
             }
-            let timeMarkerString = self.timeMarkerText(for: item, presentation: presentation)
+            let timeMarkerString = self.timeMarkerText(
+                for: item,
+                presentation: presentation,
+                context: context,
+                formatters: formatters
+            )
             return ChatCachedDisplayModel(
                 kind: kind,
                 mappedReferences: mappedReferences,
@@ -5672,7 +5783,7 @@ extension ChatViewController {
     private func displayKind(
         for item: MessageStorageItem,
         presentation: SavedMessageDisplayPolicy.Presentation,
-        textAttributes: [NSAttributedString.Key: Any]
+        context: ChatDatasourceMappingContext
     ) -> MessageKind {
         switch item.displayAs {
         case .text:
@@ -5680,17 +5791,17 @@ extension ChatViewController {
                 return .attributedText(
                     SavedMessageDisplayPolicy.attributedBody(
                         for: presentation,
-                        attributes: textAttributes,
-                        searchedText: self.searchTextObserver.value,
-                        searchedTextColor: .systemGreen
+                        attributes: context.bodyTextAttributes,
+                        searchedText: context.searchText,
+                        searchedTextColor: context.searchHighlightColor
                     )
                 )
             } else {
                 return .attributedText(
                     item.createRefBody(
-                        textAttributes,
-                        searchedText: self.searchTextObserver.value,
-                        searchedTextColor: .systemGreen
+                        context.bodyTextAttributes,
+                        searchedText: context.searchText,
+                        searchedTextColor: context.searchHighlightColor
                     )
                 )
             }
@@ -5704,10 +5815,7 @@ extension ChatViewController {
             return .system(
                 NSAttributedString(
                     string: presentation.visibleBody,
-                    attributes: [
-                        .font: UIFont.preferredFont(forTextStyle: .caption1).italic(),
-                        .foregroundColor: UIColor.white,
-                    ]
+                    attributes: context.systemTextAttributes
                 )
             )
         case .sticker:
@@ -5717,9 +5825,11 @@ extension ChatViewController {
 
     private func timeMarkerText(
         for item: MessageStorageItem,
-        presentation: SavedMessageDisplayPolicy.Presentation
+        presentation: SavedMessageDisplayPolicy.Presentation,
+        context: ChatDatasourceMappingContext,
+        formatters: ChatDatasourceMappingDateFormatters
     ) -> NSAttributedString {
-        var timeString = Self.attachmentTimeFormatter.string(from: presentation.visibleDate)
+        var timeString = formatters.attachmentTimeFormatter.string(from: presentation.visibleDate)
         if item.afterburnInterval > 0 {
             timeString = "\(timeString) ⦁ \(item.afterburnInterval.prettyMinuteFormatedString)"
         }
@@ -5728,10 +5838,7 @@ extension ChatViewController {
         }
         return NSAttributedString(
             string: timeString,
-            attributes: [
-                NSAttributedString.Key.foregroundColor: UIColor(red: 158.0 / 255.0, green: 158.0 / 255.0, blue: 158.0 / 255.0, alpha: 1),
-                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 10, weight: .regular)
-            ]
+            attributes: context.timeMarkerAttributes
         )
     }
 
@@ -7904,6 +8011,7 @@ extension ChatViewController {
         let currentWindow = self.visibleWindow()
         let timelineState = self.boundedTimelineWindowState
         let virtualTimelineState = self.virtualTimelineState
+        let mappingContext = self.captureDatasourceMappingContext()
 
         self.datasetMappingQueue.async {
             let mappedWindow = self.messageWindowSliceForMapping(
@@ -7918,6 +8026,7 @@ extension ChatViewController {
             let slice = mappedWindow.items
             let nextTimelineState = mappedWindow.timelineState
             let nextVirtualTimelineState = mappedWindow.virtualState
+            let mappingResult = self.mapDataset(dataset: slice, context: mappingContext)
 
             DispatchQueue.main.async {
                 guard ChatDatasourceApplyGenerationPolicy.shouldApply(
@@ -7927,7 +8036,7 @@ extension ChatViewController {
                     cancelledCompletion?()
                     return
                 }
-                var mappedDatasource = self.mapDataset(dataset: slice)
+                var mappedDatasource = mappingResult.datasource
                 if let boundaryPlaceholder {
                     mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
                         to: mappedDatasource,
@@ -7937,6 +8046,9 @@ extension ChatViewController {
                 self.virtualTimelineState = nextVirtualTimelineState
                 self.boundedTimelineWindowState = nextTimelineState
                 self.syncCurrentPage(with: normalizedWindow)
+                self.invalidateEditedMessageLayoutCache(
+                    primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
+                )
                 self.applyChatDatasource(
                     mappedDatasource,
                     mode: mode,
@@ -7964,6 +8076,7 @@ extension ChatViewController {
             jid: self.jid,
             conversationType: self.conversationType
         )
+        let mappingContext = self.captureDatasourceMappingContext()
 
         self.datasetMappingQueue.async {
             do {
@@ -7982,6 +8095,7 @@ extension ChatViewController {
                 let snapshot = engine.openAround(anchor: anchor)
                 let frozenItems = snapshot.items.map { $0.freeze() }
                 let nextVirtualState = snapshot.state.withRuntimePlaceholder(boundaryPlaceholder)
+                let mappingResult = self.mapDataset(dataset: frozenItems, context: mappingContext)
 
                 DispatchQueue.main.async {
                     guard ChatDatasourceApplyGenerationPolicy.shouldApply(
@@ -7992,7 +8106,7 @@ extension ChatViewController {
                         return
                     }
 
-                    var mappedDatasource = self.mapDataset(dataset: frozenItems)
+                    var mappedDatasource = mappingResult.datasource
                     if let boundaryPlaceholder {
                         mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
                             to: mappedDatasource,
@@ -8002,6 +8116,9 @@ extension ChatViewController {
                     self.virtualTimelineState = nextVirtualState
                     self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
                     self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
+                    self.invalidateEditedMessageLayoutCache(
+                        primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
+                    )
                     self.applyChatDatasource(
                         mappedDatasource,
                         mode: mode,
@@ -8036,6 +8153,7 @@ extension ChatViewController {
             jid: self.jid,
             conversationType: self.conversationType
         )
+        let mappingContext = self.captureDatasourceMappingContext()
 
         self.datasetMappingQueue.async {
             do {
@@ -8054,6 +8172,7 @@ extension ChatViewController {
                 let snapshot = engine.scrollToLatest(limit: limit)
                 let frozenItems = snapshot.items.map { $0.freeze() }
                 let nextVirtualState = snapshot.state
+                let mappingResult = self.mapDataset(dataset: frozenItems, context: mappingContext)
 
                 DispatchQueue.main.async {
                     guard ChatDatasourceApplyGenerationPolicy.shouldApply(
@@ -8064,11 +8183,14 @@ extension ChatViewController {
                         return
                     }
 
-                    let mappedDatasource = self.mapDataset(dataset: frozenItems)
+                    let mappedDatasource = mappingResult.datasource
                     self.activeHistoryBoundaryPlaceholder = nil
                     self.virtualTimelineState = nextVirtualState
                     self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
                     self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
+                    self.invalidateEditedMessageLayoutCache(
+                        primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
+                    )
                     if let limit,
                        limit == self.initialFirstFramePageSize {
                         self.armInitialFirstFrameLatestWarmupIfNeeded(
@@ -8117,6 +8239,7 @@ extension ChatViewController {
             jid: self.jid,
             conversationType: self.conversationType
         )
+        let mappingContext = self.captureDatasourceMappingContext()
 
         self.datasetMappingQueue.async {
             do {
@@ -8135,6 +8258,7 @@ extension ChatViewController {
                 let snapshot = engine.currentSnapshot()
                 let frozenItems = snapshot.items.map { $0.freeze() }
                 let nextVirtualState = snapshot.state.withRuntimePlaceholder(boundaryPlaceholder)
+                let mappingResult = self.mapDataset(dataset: frozenItems, context: mappingContext)
 
                 DispatchQueue.main.async {
                     guard ChatDatasourceApplyGenerationPolicy.shouldApply(
@@ -8145,7 +8269,7 @@ extension ChatViewController {
                         return
                     }
 
-                    var mappedDatasource = self.mapDataset(dataset: frozenItems)
+                    var mappedDatasource = mappingResult.datasource
                     if let boundaryPlaceholder {
                         mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
                             to: mappedDatasource,
@@ -8155,6 +8279,9 @@ extension ChatViewController {
                     self.virtualTimelineState = nextVirtualState
                     self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
                     self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
+                    self.invalidateEditedMessageLayoutCache(
+                        primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
+                    )
                     self.applyChatDatasource(
                         mappedDatasource,
                         mode: mode,
@@ -8194,8 +8321,10 @@ extension ChatViewController {
         let generation = self.datasetMappingGeneration
         let frozenItems = snapshot.items.map { $0.freeze() }
         let nextVirtualState = snapshot.state
+        let mappingContext = self.captureDatasourceMappingContext()
 
         self.datasetMappingQueue.async {
+            let mappingResult = self.mapDataset(dataset: frozenItems, context: mappingContext)
             DispatchQueue.main.async {
                 guard ChatDatasourceApplyGenerationPolicy.shouldApply(
                     requestGeneration: generation,
@@ -8205,10 +8334,13 @@ extension ChatViewController {
                     return
                 }
 
-                let mappedDatasource = self.mapDataset(dataset: frozenItems)
+                let mappedDatasource = mappingResult.datasource
                 self.virtualTimelineState = nextVirtualState
                 self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
                 self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
+                self.invalidateEditedMessageLayoutCache(
+                    primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
+                )
                 self.applyChatDatasource(
                     mappedDatasource,
                     mode: mode,
@@ -8222,6 +8354,16 @@ extension ChatViewController {
                     completion: completion
                 )
             }
+        }
+    }
+
+    private func invalidateEditedMessageLayoutCache(primaries: [String]) {
+        guard primaries.isNotEmpty,
+              let layout = self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout else {
+            return
+        }
+        primaries.forEach {
+            layout.invalidateLastMessageCachedSize(primary: $0)
         }
     }
 
@@ -8857,20 +8999,32 @@ extension ChatViewController {
     }
 
     internal final func mapDataset(dataset: Array<MessageStorageItem>) -> [Datasource] {
+        mapDataset(
+            dataset: dataset,
+            context: captureDatasourceMappingContext()
+        ).datasource
+    }
+
+    internal final func mapDataset(
+        dataset: Array<MessageStorageItem>,
+        context: ChatDatasourceMappingContext
+    ) -> ChatDatasourceMappingResult {
         var mapSignpost = ChatPerformanceSignposts.begin(.mapDataset)
         defer {
             mapSignpost.end()
         }
-        if self.showSkeletonObserver.value {
-            return skeletonMessages.enumerated().compactMap {
+        let formatters = ChatDatasourceMappingDateFormatters()
+
+        if context.showSkeleton {
+            let datasource = context.skeletonMessages.enumerated().compactMap {
                 (offset, item) in
-                let date = Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(((self.skeletonMessages.count - offset) * 1000)))
+                let date = Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(((context.skeletonMessages.count - offset) * 1000)))
                 return Datasource(
                     primary: UUID().uuidString,
-                    jid: self.jid,
-                    owner: self.owner,
+                    jid: context.jid,
+                    owner: context.owner,
                     outgoing: ((offset % 3) == 0),
-                    sender: self.opponentSender,
+                    sender: context.opponentSender,
                     messageId: UUID().uuidString,
                     sentDate: date,
                     editDate: nil,
@@ -8906,8 +9060,13 @@ extension ChatViewController {
                     indicator: .none
                 )
             }
+            return ChatDatasourceMappingResult(
+                datasource: datasource,
+                editedMessagePrimariesNeedingLayoutInvalidation: []
+            )
         }
         var out: [Datasource] = []
+        var editedMessagePrimariesNeedingLayoutInvalidation: [String] = []
 
         func appendDateSeparatorIfNeeded(before item: MessageStorageItem, at offset: Int) {
             guard offset == 0 || self.isDateChange(from: dataset[offset - 1].sentDate, to: item.sentDate) else {
@@ -8915,19 +9074,16 @@ extension ChatViewController {
             }
             let kind: MessageKind = .date(
                 NSAttributedString(
-                    string: sectionsDateFormatter.string(from: item.sentDate),
-                    attributes: [
-                        .font: UIFont.preferredFont(forTextStyle: .caption1),
-                        .foregroundColor: UIColor.white,
-                    ]
+                    string: formatters.sectionDateFormatter.string(from: item.sentDate),
+                    attributes: context.dateSeparatorAttributes
                 )
             )
             out.append(Datasource(
                 primary: "\(item.primary) date changed",
-                jid: self.jid,
-                owner: self.owner,
+                jid: context.jid,
+                owner: context.owner,
                 outgoing: item.outgoing,
-                sender: item.outgoing ? self.ownerSender : self.opponentSender,
+                sender: item.outgoing ? context.ownerSender : context.opponentSender,
                 messageId: item.messageId,
                 sentDate: item.date,
                 editDate: nil,
@@ -8976,20 +9132,12 @@ extension ChatViewController {
             }
             let presentation = SavedMessageDisplayPolicy.presentation(
                 for: item,
-                currentUserJid: self.owner,
-                currentUserName: self.ownerSender.displayName
+                currentUserJid: context.owner,
+                currentUserName: context.ownerSender.displayName
             )
             displayPresentationCache[item.primary] = presentation
             return presentation
         }
-        let displayContext = ChatDisplayModelCacheContext.current(
-            searchText: self.searchTextObserver.value,
-            traitCollection: self.traitCollection
-        )
-        let textAttributes: [NSAttributedString.Key: Any] = [
-            .foregroundColor: UIColor.label,
-            .font: UIFont.preferredFont(forTextStyle: .body, compatibleWith: self.traitCollection)
-        ]
 
         func nonEmptyGroupAuthorValue(_ value: String?) -> String? {
             guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -9037,12 +9185,12 @@ extension ChatViewController {
             let presentation = displayPresentation(for: item)
             let displaySender = presentation.isSavedMessage
                 ? Sender(id: presentation.displayAuthorJid, displayName: presentation.displayAuthorName)
-                : (item.outgoing ? self.ownerSender : self.opponentSender)
+                : (item.outgoing ? context.ownerSender : context.opponentSender)
             let cachedDisplayModel = self.cachedDisplayModel(
                 for: item,
                 presentation: presentation,
-                textAttributes: textAttributes,
-                context: displayContext
+                context: context,
+                formatters: formatters
             )
             let kind = cachedDisplayModel.kind
             let isDownloaded = cachedDisplayModel.isDownloaded
@@ -9055,11 +9203,11 @@ extension ChatViewController {
             let prevMessage = offset - 1
             let nextMessage = offset + 1
             
-            if self.avatarVerticalPosition == "top" {
+            if context.avatarVerticalPosition == "top" {
                 if prevMessage >= 0 {
                     let prevItem = dataset[prevMessage]
                     let prevPresentation = displayPresentation(for: prevItem)
-                    if self.conversationType == .group {
+                    if context.conversationType == .group {
                         tailed = !isSameIncomingGroupAuthor(prevItem, prevPresentation, item, presentation)
                         
                     } else {
@@ -9073,13 +9221,13 @@ extension ChatViewController {
             if prevMessage >= 0 {
                 let prevItem = dataset[prevMessage]
                 let prevPresentation = displayPresentation(for: prevItem)
-                if self.conversationType == .group {
+                if context.conversationType == .group {
                     withAuthor = !isSameIncomingGroupAuthor(prevItem, prevPresentation, item, presentation)
                     if isDateChange(from: presentation.visibleDate, to: prevPresentation.visibleDate) {
                         withAuthor = true
                     }
                 }
-            } else if self.conversationType == .group {
+            } else if context.conversationType == .group {
                 withAuthor = true
             }
 
@@ -9087,25 +9235,25 @@ extension ChatViewController {
                 let nextItem = dataset[nextMessage]
                 let nextPresentation = displayPresentation(for: nextItem)
                 
-                if self.conversationType == .group {
+                if context.conversationType == .group {
                     let isSameNextAuthor = isSameIncomingGroupAuthor(item, presentation, nextItem, nextPresentation)
                     withAvatar = !isSameNextAuthor
-                    if self.avatarVerticalPosition == "bottom" {
+                    if context.avatarVerticalPosition == "bottom" {
                         tailed = !isSameNextAuthor
                     }
                     if isDateChange(from: presentation.visibleDate, to: nextPresentation.visibleDate) {
                         withAvatar = true
-                        if self.avatarVerticalPosition == "bottom" {
+                        if context.avatarVerticalPosition == "bottom" {
                             tailed = true
                         }
                     }
-                } else if self.avatarVerticalPosition == "bottom" {
+                } else if context.avatarVerticalPosition == "bottom" {
                     tailed = !(presentation.displayOutgoing == nextPresentation.displayOutgoing)
                     if isDateChange(from: presentation.visibleDate, to: nextPresentation.visibleDate) {
                         tailed = true
                     }
                 }
-            } else if self.conversationType == .group {
+            } else if context.conversationType == .group {
                 withAvatar = true
             }
             var attributedAuthor: NSAttributedString? = nil
@@ -9118,16 +9266,13 @@ extension ChatViewController {
             }
           
             if item.editDate != nil {
-                let primary = item.primary
-                DispatchQueue.main.async {
-                    (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.invalidateLastMessageCachedSize(primary: primary)
-                }
+                editedMessagePrimariesNeedingLayoutInvalidation.append(item.primary)
             }
             var searchString: String? = nil
             
-            if self.inSearchMode.value,
+            if context.inSearchMode,
                item.displayAs == .text,
-               let str = self.searchTextObserver.value,
+               let str = context.searchText,
                str.isNotEmpty,
                presentation.visibleBody.contains(str) {
                 searchString = str
@@ -9141,7 +9286,7 @@ extension ChatViewController {
                 displayAuthorJid: presentation.displayAuthorJid,
                 isSavedForward: presentation.isSavedForward,
                 isDirectSavedNote: presentation.isDirectSavedNote,
-                currentUserJid: self.owner
+                currentUserJid: context.owner
             )
             let effectiveState = statePresentation.effectiveState
             let indicator = Self.messageIndicator(
@@ -9151,18 +9296,18 @@ extension ChatViewController {
             let timeMarkerString = cachedDisplayModel.timeMarkerText
             if presentation.displayOutgoing {
                 withAuthor = false
-                if presentation.isSavedMessage || self.conversationType == .group {
+                if presentation.isSavedMessage || context.conversationType == .group {
                     withAvatar = false
                 }
             }
             reservesAvatarSpace = withAvatar
-            if self.conversationType == .group {
+            if context.conversationType == .group {
                 reservesAvatarSpace = !presentation.displayOutgoing
             }
             out.append(Datasource(
                 primary: item.primary,
-                jid: self.jid,
-                owner: self.owner,
+                jid: context.jid,
+                owner: context.owner,
                 outgoing: presentation.displayOutgoing,
                 sender: displaySender,
                 messageId: item.messageId,
@@ -9174,7 +9319,7 @@ extension ChatViewController {
                 reservesAvatarSpace: reservesAvatarSpace,
                 error: effectiveState == .error,
                 errorType: item.messageError ?? "",
-                canPinMessage: [.system, .sticker].contains(item.displayAs) ? false : self.canUnpinMessage.value,
+                canPinMessage: [.system, .sticker].contains(item.displayAs) ? false : context.canUnpinMessage,
                 canEditMessage: item.archivedId.isNotEmpty ? item.displayAs == .text && presentation.displayOutgoing : false,
                 canDeleteMessage: [MessageStorageItem.MessageSendingState.deliver, MessageStorageItem.MessageSendingState.read].contains(effectiveState),
                 forwards: forwards,
@@ -9210,7 +9355,10 @@ extension ChatViewController {
                 attributedAuthor: attributedAuthor
             ))
         }
-        return out
+        return ChatDatasourceMappingResult(
+            datasource: out,
+            editedMessagePrimariesNeedingLayoutInvalidation: editedMessagePrimariesNeedingLayoutInvalidation
+        )
     }
     
     private final func convertChangeset(changes: [Change<Datasource>]) -> ChangesWithIndexSet {
@@ -10425,6 +10573,7 @@ extension ChatViewController {
         )
         let previousOldestArchivedId = virtualTimelineState.oldest?.archivedId
         let previousNewestArchivedId = virtualTimelineState.newest?.archivedId
+        let mappingContext = self.captureDatasourceMappingContext()
         DDLogDebug(
             "ChatViewController.remoteHistoryApplyStart queryId=\(queryId) direction=\(refetchDirection) visibleRows=\(visibleRows) count=\(resultCount) oldest=\(previousOldestArchivedId ?? "-") newest=\(previousNewestArchivedId ?? "-")"
         )
@@ -10463,6 +10612,10 @@ extension ChatViewController {
                 let refetchMs = ChatArchiveDebugTrace.milliseconds(since: refetchStartedAt)
                 let frozenItems = snapshot.items.map { $0.freeze() }
                 let nextVirtualState = snapshot.state
+                let mapStartedAt = Date()
+                let mappingResult = self.mapDataset(dataset: frozenItems, context: mappingContext)
+                let mapDurationMs = ChatArchiveDebugTrace.milliseconds(since: mapStartedAt)
+                let workerDurationMs = ChatArchiveDebugTrace.milliseconds(since: startedAt)
                 ChatArchiveDebugTrace.log("remoteHistoryApplyRefetchDone", [
                     ("owner", requestOwner),
                     ("jid", requestJid),
@@ -10507,10 +10660,7 @@ extension ChatViewController {
                         return
                     }
 
-                    let mapStartedAt = Date()
-                    let mappedDatasource = self.mapDataset(dataset: frozenItems)
-                    let mapDurationMs = ChatArchiveDebugTrace.milliseconds(since: mapStartedAt)
-                    let workerDurationMs = ChatArchiveDebugTrace.milliseconds(since: startedAt)
+                    let mappedDatasource = mappingResult.datasource
                     let applyResult = ChatRemoteHistoryApplyResult(
                         queryId: queryId,
                         direction: refetchDirection,
@@ -10539,6 +10689,9 @@ extension ChatViewController {
                     self.virtualTimelineState = nextVirtualState
                     self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
                     self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
+                    self.invalidateEditedMessageLayoutCache(
+                        primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
+                    )
                     ChatArchiveDebugTrace.log("remoteHistoryApplyStateAssigned", [
                         ("owner", requestOwner),
                         ("jid", requestJid),
