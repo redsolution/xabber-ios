@@ -3681,7 +3681,7 @@ enum ChatBootstrapViewState: Equatable {
             return .skeleton
         }
         if isInitialBootstrapInFlight {
-            return messageCount > 0 ? .content : .skeleton
+            return isSynced && isInitialArchiveLoaded && messageCount > 0 ? .content : .skeleton
         }
         if allowsStaleLocalHistory && messageCount > 0 {
             return .content

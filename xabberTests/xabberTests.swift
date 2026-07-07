@@ -10804,7 +10804,7 @@ final class ChatBootstrapStateTests: XCTestCase {
         )
     }
 
-    func testBootstrapStateShowsContentForUnsyncedBootstrapRowsWithoutWaitingForMamFin() {
+    func testBootstrapStateKeepsSkeletonForUnsyncedBootstrapRowsUntilMamFin() {
         XCTAssertEqual(
             ChatBootstrapViewState.resolve(
                 messageCount: 2,
@@ -10813,7 +10813,7 @@ final class ChatBootstrapStateTests: XCTestCase {
                 isInitialBootstrapInFlight: true,
                 hasPendingInitialAnchorRequest: false
             ),
-            .content
+            .skeleton
         )
     }
 
@@ -10858,12 +10858,25 @@ final class ChatBootstrapStateTests: XCTestCase {
         )
     }
 
-    func testBootstrapStateShowsContentForUnsyncedBootstrapRowsWhenFallbackIsAllowed() {
+    func testBootstrapStateKeepsSkeletonForUnsyncedBootstrapRowsWhenRequiredBootstrapIsActive() {
         XCTAssertEqual(
             ChatBootstrapViewState.resolve(
                 messageCount: 2,
                 isSynced: false,
                 isInitialBootstrapInFlight: true,
+                hasPendingInitialAnchorRequest: false,
+                allowsStaleLocalHistory: true
+            ),
+            .skeleton
+        )
+    }
+
+    func testBootstrapStateShowsContentForUnsyncedRowsWhenFallbackIsAllowedAfterRequiredBootstrap() {
+        XCTAssertEqual(
+            ChatBootstrapViewState.resolve(
+                messageCount: 2,
+                isSynced: false,
+                isInitialBootstrapInFlight: false,
                 hasPendingInitialAnchorRequest: false,
                 allowsStaleLocalHistory: true
             ),
