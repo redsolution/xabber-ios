@@ -333,6 +333,10 @@ extension LastChatsViewController: UITableViewDelegate {
         openMessageRequest: ChatOpenMessageRequest? = nil,
         configure configureCallback: ((ChatViewController?) -> Void)? = nil
     ) {
+        ChatUIResponsivenessGate.shared.activate(
+            reason: .chatOpen,
+            duration: ChatUIResponsivenessGate.chatOpenHoldDuration
+        )
         let route = stackedNavigationRoute(for: self)
         let usesSplitDetailColumn = route == .splitDetailReplacement
         setSelectedChat(

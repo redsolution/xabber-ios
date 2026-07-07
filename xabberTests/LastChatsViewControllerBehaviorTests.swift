@@ -30,9 +30,11 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "LastChatsViewControllerBehaviorTests-\(name)-\(UUID().uuidString)"
         )
+        ChatUIResponsivenessGate.shared.resetForTesting()
     }
 
     override func tearDown() {
+        ChatUIResponsivenessGate.shared.resetForTesting()
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
         previousRealmConfiguration = nil
         super.tearDown()

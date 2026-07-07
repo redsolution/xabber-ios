@@ -24474,6 +24474,14 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         XCTFail("Condition was not met before timeout", file: file, line: line)
     }
 
+    private func waitForChatUIResponsivenessGateToExpire(
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        ChatUIResponsivenessGate.shared.resetForTesting()
+        XCTAssertFalse(ChatUIResponsivenessGate.shared.isActive, file: file, line: line)
+    }
+
     private func makeDatasource(hasUnreadMention: Bool) -> LastChatsViewController.Datasource {
         LastChatsViewController.Datasource(
             jid: "group@example.com",
@@ -25025,6 +25033,26 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         XCTAssertTrue(chat.pendingForceLatestOpen)
         XCTAssertNil(chat.pendingOpenMessageRequest)
         XCTAssertNil(chat.activeAnchorExecutionState)
+    }
+
+    @MainActor
+    func testStackNewChatActivatesChatOpenResponsivenessGateBeforeConfiguringChat() throws {
+        waitForChatUIResponsivenessGateToExpire()
+
+        let controller = LastChatsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        navigationController.loadViewIfNeeded()
+        var wasGateActiveDuringConfigure = false
+
+        controller.stackNewChat(
+            owner: owner,
+            jid: "romeo@example.com",
+            conversationType: .regular
+        ) { _ in
+            wasGateActiveDuringConfigure = ChatUIResponsivenessGate.shared.isActive
+        }
+
+        XCTAssertTrue(wasGateActiveDuringConfigure)
     }
 
     @MainActor

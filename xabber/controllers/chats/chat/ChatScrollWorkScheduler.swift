@@ -27,6 +27,7 @@ final class ChatUIResponsivenessGate {
 
     static let shared = ChatUIResponsivenessGate()
     static let defaultHoldDuration: TimeInterval = 0.22
+    static let chatOpenHoldDuration: TimeInterval = 0.45
     static let keyboardFrameHoldPadding: TimeInterval = 0.05
 
     private let now: () -> Date
@@ -69,6 +70,13 @@ final class ChatUIResponsivenessGate {
         schedule(delay) { [weak self] in
             self?.expireIfNeeded(generation: scheduledGeneration)
         }
+    }
+
+    func resetForTesting() {
+        activeUntil = nil
+        generation += 1
+        pendingDeferredWork.removeAll()
+        isDeferredFlushScheduled = false
     }
 
     static func shouldDefer(
