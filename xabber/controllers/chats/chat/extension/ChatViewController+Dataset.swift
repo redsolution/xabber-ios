@@ -989,22 +989,68 @@ enum ChatBoundedTimelineWindowPolicy {
     }
 }
 
+final class ChatLocalHistoryPageProviderDiagnostics {
+    struct Record: Equatable {
+        let operation: String
+        let candidateCount: Int
+    }
+
+    private let lock = NSLock()
+    private var storedRecords: [Record] = []
+    private var storedFullScanCount = 0
+
+    var records: [Record] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedRecords
+    }
+
+    var fullScanCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedFullScanCount
+    }
+
+    var maxCandidateCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedRecords.map(\.candidateCount).max() ?? 0
+    }
+
+    func record(operation: String, candidateCount: Int) {
+        lock.lock()
+        storedRecords.append(Record(operation: operation, candidateCount: candidateCount))
+        lock.unlock()
+    }
+
+    func recordFullScan() {
+        lock.lock()
+        storedFullScanCount += 1
+        lock.unlock()
+    }
+}
+
 final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
+    private static let candidateMultiplier = 2
+
     private let realm: Realm
     private let owner: String
     private let jid: String
     private let conversationType: ClientSynchronizationManager.ConversationType
+    private let diagnostics: ChatLocalHistoryPageProviderDiagnostics?
 
     init(
         realm: Realm,
         owner: String,
         jid: String,
-        conversationType: ClientSynchronizationManager.ConversationType
+        conversationType: ClientSynchronizationManager.ConversationType,
+        diagnostics: ChatLocalHistoryPageProviderDiagnostics? = nil
     ) {
         self.realm = realm
         self.owner = owner
         self.jid = jid
         self.conversationType = conversationType
+        self.diagnostics = diagnostics
     }
 
     var totalCount: Int {
@@ -1013,45 +1059,80 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
 
     func latest(limit: Int) -> [MessageStorageItem] {
         guard limit > 0 else { return [] }
-        return Array(scopedChronologicalItems().suffix(limit))
+        return boundedCandidateWindow(
+            operation: "latest",
+            scoped: baseQuery(),
+            sortedAscending: false,
+            requestedLimit: limit
+        ) { candidates in
+            Array(Self.deduplicatedChronologicalItems(candidates).suffix(limit))
+        }
     }
 
     func older(before boundary: ChatTimelineBoundary, limit: Int) -> [MessageStorageItem] {
         guard limit > 0 else { return [] }
         let boundaryKey = ChatTimelinePositionKey(boundary: boundary)
-        return Array(
-            scopedChronologicalItems()
+        let scoped = baseQuery()
+            .filter("date <= %@", boundary.date)
+        return boundedCandidateWindow(
+            operation: "older",
+            scoped: scoped,
+            sortedAscending: false,
+            requestedLimit: limit
+        ) { candidates in
+            Array(
+                Self.deduplicatedChronologicalItems(candidates)
                 .filter { ChatTimelinePositionKey(message: $0) < boundaryKey }
                 .suffix(limit)
-        )
+            )
+        }
     }
 
     func newer(after boundary: ChatTimelineBoundary, limit: Int) -> [MessageStorageItem] {
         guard limit > 0 else { return [] }
         let boundaryKey = ChatTimelinePositionKey(boundary: boundary)
-        return Array(
-            scopedChronologicalItems()
+        let scoped = baseQuery()
+            .filter("date >= %@", boundary.date)
+        return boundedCandidateWindow(
+            operation: "newer",
+            scoped: scoped,
+            sortedAscending: true,
+            requestedLimit: limit
+        ) { candidates in
+            Array(
+                Self.deduplicatedChronologicalItems(candidates)
                 .filter { ChatTimelinePositionKey(message: $0) > boundaryKey }
                 .prefix(limit)
-        )
+            )
+        }
     }
 
     func around(anchor: MessageStorageItem, before: Int, after: Int) -> [MessageStorageItem] {
-        let items = scopedChronologicalItems()
-        guard let anchorIndex = items.firstIndex(where: { $0.primary == anchor.primary }) else {
+        guard anchor.owner == owner,
+              anchor.opponent == jid,
+              anchor.conversationType == conversationType,
+              !anchor.isDeleted else {
             return []
         }
 
-        let lowerBound = max(0, anchorIndex - max(0, before))
-        let upperBound = min(items.count, anchorIndex + max(0, after) + 1)
-        return Array(items[lowerBound..<upperBound])
+        let boundary = ChatTimelineBoundary(message: anchor)
+        let olderItems = older(before: boundary, limit: max(0, before))
+        let newerItems = newer(after: boundary, limit: max(0, after))
+        let items = olderItems + [anchor] + newerItems
+        diagnostics?.record(operation: "around", candidateCount: items.count)
+        let deduplicated = Self.deduplicatedChronologicalItems(items)
+        guard deduplicated.contains(where: { $0.primary == anchor.primary }) else {
+            return []
+        }
+        return deduplicated
     }
 
     func item(at index: Int) -> MessageStorageItem? {
-        let results = scopedChronologicalItems()
+        let results = baseQuery().sorted(byKeyPath: "date", ascending: true)
         guard index >= 0, index < results.count else {
             return nil
         }
+        diagnostics?.record(operation: "item", candidateCount: 1)
         return results[index]
     }
 
@@ -1061,7 +1142,15 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
 
     func index(of boundary: ChatTimelineBoundary) -> Int {
         let boundaryKey = ChatTimelinePositionKey(boundary: boundary)
-        return scopedChronologicalItems()
+        let earlierCount = baseQuery()
+            .filter("date < %@", boundary.date)
+            .count
+        let sameDateItems = Array(
+            baseQuery()
+                .filter("date == %@", boundary.date)
+        )
+        diagnostics?.record(operation: "indexSameDate", candidateCount: sameDateItems.count)
+        return earlierCount + Self.deduplicatedChronologicalItems(sameDateItems)
             .filter { ChatTimelinePositionKey(message: $0) < boundaryKey }
             .count
     }
@@ -1108,11 +1197,20 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
             date: boundaryDate
         )
         let boundaryKey = ChatTimelinePositionKey(boundary: boundary)
-        return scopedChronologicalItems()
-            .first {
+        return boundedCandidateWindow(
+            operation: "firstIncoming",
+            scoped: baseQuery()
+                .filter("date >= %@ AND outgoing == false", boundary.date),
+            sortedAscending: true,
+            requestedLimit: 1
+        ) { candidates in
+            Array(Self.deduplicatedChronologicalItems(candidates)
+                .filter {
                 $0.outgoing == false &&
                     ChatTimelinePositionKey(message: $0) > boundaryKey
-            }
+                }
+                .prefix(1))
+        }.first
     }
 
     func items(primaryKeys: [String]) -> [MessageStorageItem] {
@@ -1133,8 +1231,49 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
             )
     }
 
+    private func boundedCandidateWindow(
+        operation: String,
+        scoped: Results<MessageStorageItem>,
+        sortedAscending: Bool,
+        requestedLimit: Int,
+        transform: ([MessageStorageItem]) -> [MessageStorageItem]
+    ) -> [MessageStorageItem] {
+        let totalCount = scoped.count
+        guard totalCount > 0 else {
+            diagnostics?.record(operation: operation, candidateCount: 0)
+            return []
+        }
+
+        var candidateLimit = min(totalCount, max(requestedLimit, requestedLimit * Self.candidateMultiplier))
+        var lastResult: [MessageStorageItem] = []
+
+        while candidateLimit > 0 {
+            let candidates = Array(
+                scoped
+                    .sorted(byKeyPath: "date", ascending: sortedAscending)
+                    .prefix(candidateLimit)
+            )
+            diagnostics?.record(operation: operation, candidateCount: candidates.count)
+            let result = transform(candidates)
+            lastResult = result
+
+            if result.count >= requestedLimit || candidates.count >= totalCount {
+                return result
+            }
+
+            let nextLimit = min(totalCount, max(candidateLimit + 1, candidateLimit * 2))
+            guard nextLimit > candidateLimit else {
+                return result
+            }
+            candidateLimit = nextLimit
+        }
+
+        return lastResult
+    }
+
     private func scopedChronologicalItems() -> [MessageStorageItem] {
-        Self.deduplicatedChronologicalItems(Array(baseQuery()))
+        diagnostics?.recordFullScan()
+        return Self.deduplicatedChronologicalItems(Array(baseQuery()))
     }
 
     private static func deduplicatedChronologicalItems(_ items: [MessageStorageItem]) -> [MessageStorageItem] {
