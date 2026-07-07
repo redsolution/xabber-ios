@@ -596,9 +596,12 @@ extension ChatViewController {
             .observe(on: MainScheduler.asyncInstance)
             .subscribe { results in
                 self.contactWithSigningCertificate = !results.isEmpty
-                self.titleLabel.attributedText = self.updateTitle()
+                self.runOrDeferChatPresentationRefresh(keySuffix: "signingCertificate") { [weak self] in
+                    guard let self else { return }
+                    self.titleLabel.attributedText = self.updateTitle()
                     self.titleLabel.sizeToFit()
                     self.titleLabel.layoutIfNeeded()
+                }
                 } onError: { error in
                     
                 } onCompleted: {
@@ -655,9 +658,12 @@ extension ChatViewController {
             .observe(on: MainScheduler.asyncInstance)
             .subscribe { _ in
                 self.refreshOmemoSendAvailability()
-                self.titleLabel.attributedText = self.updateTitle()
-                self.titleLabel.sizeToFit()
-                self.titleLabel.layoutIfNeeded()
+                self.runOrDeferChatPresentationRefresh(keySuffix: "contactDevices") { [weak self] in
+                    guard let self else { return }
+                    self.titleLabel.attributedText = self.updateTitle()
+                    self.titleLabel.sizeToFit()
+                    self.titleLabel.layoutIfNeeded()
+                }
             }.disposed(by: self.bag)
 
         self.refreshOmemoSendAvailability()

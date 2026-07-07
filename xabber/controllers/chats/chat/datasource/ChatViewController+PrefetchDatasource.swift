@@ -257,8 +257,11 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         defer {
             scrollSignpost.end()
         }
+        let effectiveWork = request.effectiveWork(
+            isInteractionGateActive: ChatUIResponsivenessGate.shared.isActive
+        )
 
-        if request.work.contains(.updateScrollPosition) {
+        if effectiveWork.contains(.updateScrollPosition) {
             if self.currentPage.isUnlocked {
                 if request.contentOffsetY > self.previousContentOffsetY {
                     self.chatScrollDirection = .down
@@ -270,12 +273,13 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             self.previousContentOffsetY = request.contentOffsetY
         }
 
-        if request.work.contains(.evaluateBoundaryPaging),
+        if effectiveWork.contains(.evaluateBoundaryPaging),
+           request.isUserScrolling,
            self.currentPage.isUnlocked {
             self.triggerInteractiveBoundaryPagingIfNeeded(request)
         }
 
-        if request.work.contains(.updateFloatingDate) {
+        if effectiveWork.contains(.updateFloatingDate) {
             if !self.preventHidingDate {
                 self.pinnedDateView.hide()
             }
@@ -283,11 +287,11 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             self.willUpdateFloatingDate()
         }
 
-        if request.work.contains(.advanceReadBoundary) {
+        if effectiveWork.contains(.advanceReadBoundary) {
             self.advanceReadBoundaryFromVisibleMessages(indexPaths: request.visibleIndexPaths)
         }
 
-        if request.work.contains(.updateVoiceQueue) {
+        if effectiveWork.contains(.updateVoiceQueue) {
             self.updateVisibleVoiceMessageQueue()
         }
     }

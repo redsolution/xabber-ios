@@ -55,7 +55,9 @@ struct ChatComposerFrameUpdatePlanner {
         case .none:
             break
         case .bottom:
-            actions.append(.scrollToBottom)
+            if request.source != .keyboardFrame {
+                actions.append(.scrollToBottom)
+            }
         case .visibleAnchor:
             actions.append(.restoreVisibleAnchor)
         }

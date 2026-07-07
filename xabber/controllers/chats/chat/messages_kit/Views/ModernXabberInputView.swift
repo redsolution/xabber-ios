@@ -38,6 +38,59 @@ protocol XabberInputBarDelegate: AnyObject {
     func didSetAudioPositionBar(percentage: Float) -> TimeInterval
 }
 
+struct ComposerTypingVisualState: Equatable {
+    let sendButtonState: ModernXabberInputView.SendButtonState
+    let timerHidden: Bool
+    let scheduledMessagesVisible: Bool
+}
+
+struct ComposerTypingUpdateDecision: Equatable {
+    let shouldInvalidateIntrinsicContentSize: Bool
+    let shouldUpdateControls: Bool
+}
+
+enum ComposerTypingUpdatePolicy {
+    static func visualState(
+        inputState: ModernXabberInputView.InputBarState,
+        rawText: String,
+        trimmedText: String,
+        shouldHideTimer: Bool,
+        hasScheduledMessages: Bool
+    ) -> ComposerTypingVisualState {
+        let sendButtonState: ModernXabberInputView.SendButtonState = trimmedText.isNotEmpty ? .send : .record
+        let timerHidden: Bool
+        if inputState == .normal {
+            timerHidden = rawText.isEmpty ? shouldHideTimer : true
+        } else {
+            timerHidden = true
+        }
+        let scheduledMessagesVisible = ScheduledMessagesComposerButtonPolicy.shouldShow(
+            inputState: inputState,
+            body: rawText,
+            hasScheduledMessages: hasScheduledMessages
+        )
+
+        return ComposerTypingVisualState(
+            sendButtonState: sendButtonState,
+            timerHidden: timerHidden,
+            scheduledMessagesVisible: scheduledMessagesVisible
+        )
+    }
+
+    static func decision(
+        force: Bool,
+        requiredContentHeight: CGFloat,
+        currentContentHeight: CGFloat,
+        previousVisualState: ComposerTypingVisualState,
+        nextVisualState: ComposerTypingVisualState
+    ) -> ComposerTypingUpdateDecision {
+        ComposerTypingUpdateDecision(
+            shouldInvalidateIntrinsicContentSize: force || abs(requiredContentHeight - currentContentHeight) > 0.5,
+            shouldUpdateControls: force || previousVisualState != nextVisualState
+        )
+    }
+}
+
 class ModernXabberInputView: UIView {
     static let edgeHorizontalInset: CGFloat = NativeGlassBarStyle.horizontalInset
     static let minimumComposerHeight: CGFloat = NativeGlassBarStyle.minimumHeight
@@ -1948,7 +2001,13 @@ class ModernXabberInputView: UIView {
     }()
     
     internal let selectionPanel: SelectionPanel = {
-        let view = SelectionPanel(frame: .zero)
+        let width = NativeGlassBarStyle.buttonSize * 5 + NativeGlassBarStyle.contentInset * 2
+        let view = SelectionPanel(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: width,
+            height: NativeGlassBarStyle.minimumHeight
+        ))
         
         view.isHidden = true
         
@@ -1972,7 +2031,7 @@ class ModernXabberInputView: UIView {
     }()
     
     internal let searchPanel: SearchPanel = {
-        let view = SearchPanel(frame: .zero)
+        let view = SearchPanel(frame: CGRect(x: 0, y: 0, width: 220, height: 38))
         
         view.isHidden = true
         
@@ -1980,7 +2039,7 @@ class ModernXabberInputView: UIView {
     }()
 
     internal let mentionPanel: MentionSuggestionsPanel = {
-        let view = MentionSuggestionsPanel(frame: .zero)
+        let view = MentionSuggestionsPanel(frame: CGRect(x: 0, y: 0, width: 220, height: 84))
         view.isHidden = true
         return view
     }()
@@ -2040,7 +2099,6 @@ class ModernXabberInputView: UIView {
             self.mentionPanel.removeFromSuperview()
             return
         }
-        self.attachMentionPanelIfNeeded()
     }
 
     private func mentionPanelHitView(for point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -2486,18 +2544,23 @@ class ModernXabberInputView: UIView {
     }
     
     public final func updateBottomPanels(withOffset offset: CGFloat) {
+        let selectionWidth = max(
+            NativeGlassBarStyle.buttonSize,
+            self.bounds.width - NativeGlassBarStyle.horizontalInset * 2
+        )
         selectionPanel.frame = CGRect(
             origin: CGPoint(x: NativeGlassBarStyle.horizontalInset, y: offset),
             size: CGSize(
-                width: self.bounds.width - NativeGlassBarStyle.horizontalInset * 2,
+                width: selectionWidth,
                 height: NativeGlassBarStyle.minimumHeight
             )
         )
         selectionPanel.update()
         self.layoutComposerRecordingPanels()
+        let searchWidth = max(NativeGlassBarStyle.buttonSize, self.bounds.width - 32)
         searchPanel.frame = CGRect(
             origin: CGPoint(x: 16, y: offset + 6),
-            size: CGSize(width: self.bounds.width - 32, height: 38)
+            size: CGSize(width: searchWidth, height: 38)
         )
         self.layoutMentionPanel()
     }
@@ -2824,33 +2887,42 @@ class ModernXabberInputView: UIView {
         if !self.isApplyingComposerMutation {
             self.normalizeTypingAttributesAtCursor()
         }
-        let trimmedText = textField.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if self.textField.isFirstResponder {
+            ChatUIResponsivenessGate.shared.activate(reason: .typing)
+        }
+        let rawText = textField.text ?? ""
+        let trimmedText = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let previousVisualState = self.currentComposerTypingVisualState()
         
-        self.textField.placeholderLabel.isHidden = !self.textField.text.isEmpty
+        self.textField.placeholderLabel.isHidden = !rawText.isEmpty
         self.message = trimmedText
         
         let currentContentHeight = self.contentView.bounds.height > 0
             ? self.contentView.bounds.height
             : self.currentComposerContentHeight()
-        if force || abs(requiredInputTextViewHeight - currentContentHeight) > 0.5 {
+        let nextVisualState = ComposerTypingUpdatePolicy.visualState(
+            inputState: self.state,
+            rawText: rawText,
+            trimmedText: trimmedText,
+            shouldHideTimer: self.shouldHideTimer,
+            hasScheduledMessages: self.hasScheduledMessagesForCurrentChat
+        )
+        let decision = ComposerTypingUpdatePolicy.decision(
+            force: force,
+            requiredContentHeight: self.requiredInputTextViewHeight,
+            currentContentHeight: currentContentHeight,
+            previousVisualState: previousVisualState,
+            nextVisualState: nextVisualState
+        )
+        if decision.shouldInvalidateIntrinsicContentSize {
             invalidateIntrinsicContentSize()
         }
 
-        UIView.animate(withDuration: 0.16, delay: 0.0, options: [.showHideTransitionViews]) {
-            if self.state == .normal {
-                if self.textField.text.isEmpty {
-                    self.timerButton.isHidden = self.shouldHideTimer
-                } else {
-                    self.timerButton.isHidden = true
-                }
+        if decision.shouldUpdateControls {
+            UIView.animate(withDuration: 0.16, delay: 0.0, options: [.showHideTransitionViews]) {
+                self.applyComposerTypingVisualState(nextVisualState, force: force)
+                self.updateComposerControlLayout()
             }
-            if trimmedText.isNotEmpty {
-                self.changeSendButtonState(to: .send)
-            } else {
-                self.changeSendButtonState(to: .record)
-            }
-            self.updateScheduledMessagesButtonVisibility()
-            self.updateComposerControlLayout()
         }
         self.delegate?.onTextDidChange(to: trimmedText.isEmpty ? nil : trimmedText)
         self.updateMentionSuggestions()
@@ -2920,6 +2992,27 @@ class ModernXabberInputView: UIView {
         self.updateScheduledMessagesButtonVisibility()
     }
 
+    private func currentComposerTypingVisualState() -> ComposerTypingVisualState {
+        ComposerTypingVisualState(
+            sendButtonState: self.sendButtonState,
+            timerHidden: self.timerButton.isHidden,
+            scheduledMessagesVisible: !self.scheduledMessagesButton.isHidden
+        )
+    }
+
+    private func applyComposerTypingVisualState(
+        _ visualState: ComposerTypingVisualState,
+        force: Bool
+    ) {
+        if self.state == .normal {
+            self.timerButton.isHidden = visualState.timerHidden
+        }
+        if force || self.sendButtonState != visualState.sendButtonState {
+            self.changeSendButtonState(to: visualState.sendButtonState)
+        }
+        self.applyScheduledMessagesButtonVisibility(visualState.scheduledMessagesVisible)
+    }
+
     private func updateScheduledMessagesButtonVisibility() {
         self.restoreScheduledMessagesButtonGlyph()
         let shouldShow = ScheduledMessagesComposerButtonPolicy.shouldShow(
@@ -2927,6 +3020,18 @@ class ModernXabberInputView: UIView {
             body: self.textField.text ?? "",
             hasScheduledMessages: self.hasScheduledMessagesForCurrentChat
         )
+        self.applyScheduledMessagesButtonVisibility(shouldShow)
+    }
+
+    private func applyScheduledMessagesButtonVisibility(_ shouldShow: Bool) {
+        let didChange = self.scheduledMessagesButton.isHidden == shouldShow
+            || self.scheduledMessagesButton.isEnabled != shouldShow
+            || self.scheduledMessagesButton.isUserInteractionEnabled != shouldShow
+            || self.scheduledMessagesButton.accessibilityElementsHidden == shouldShow
+        guard didChange else {
+            return
+        }
+
         self.scheduledMessagesButton.isHidden = !shouldShow
         self.scheduledMessagesButton.isEnabled = shouldShow
         self.scheduledMessagesButton.isUserInteractionEnabled = shouldShow
@@ -2965,6 +3070,7 @@ class ModernXabberInputView: UIView {
         self.currentMentionQuery = nil
         self.isMentionUsersReloadInFlight = false
         self.mentionPanel.isHidden = true
+        self.mentionPanel.removeFromSuperview()
     }
 
     private func updateMentionSuggestions() {

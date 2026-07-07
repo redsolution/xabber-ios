@@ -159,7 +159,10 @@ extension ChatViewController {
         }
 
         override init(frame: CGRect) {
-            super.init(frame: frame)
+            let initialFrame = frame.size == .zero
+                ? CGRect(origin: frame.origin, size: CGSize(square: Metrics.size))
+                : frame
+            super.init(frame: initialFrame)
             self.setupSubviews()
         }
 

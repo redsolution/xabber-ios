@@ -11,12 +11,139 @@ struct ChatScrollWorkOptions: OptionSet, Equatable {
     static let evaluateBoundaryPaging = ChatScrollWorkOptions(rawValue: 1 << 4)
 }
 
+final class ChatUIResponsivenessGate {
+    enum Reason: Equatable {
+        case chatOpen
+        case keyboardFrame
+        case typing
+    }
+
+    enum WorkKind: Equatable {
+        case presentationRefresh
+        case criticalUserAction
+    }
+
+    typealias Schedule = (_ delay: TimeInterval, _ work: @escaping () -> Void) -> Void
+
+    static let shared = ChatUIResponsivenessGate()
+    static let defaultHoldDuration: TimeInterval = 0.22
+
+    private let now: () -> Date
+    private let schedule: Schedule
+    private var activeUntil: Date?
+    private var generation = 0
+    private var pendingDeferredWork: [String: () -> Void] = [:]
+    private var isDeferredFlushScheduled = false
+
+    init(
+        now: @escaping () -> Date = Date.init,
+        schedule: Schedule? = nil
+    ) {
+        self.now = now
+        self.schedule = schedule ?? { delay, work in
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        }
+    }
+
+    var isActive: Bool {
+        expireIfNeeded()
+        guard let activeUntil else {
+            return false
+        }
+        return now() < activeUntil
+    }
+
+    func activate(
+        reason: Reason,
+        duration: TimeInterval = ChatUIResponsivenessGate.defaultHoldDuration
+    ) {
+        let expiration = now().addingTimeInterval(max(0, duration))
+        if activeUntil.map({ $0 < expiration }) ?? true {
+            activeUntil = expiration
+        }
+
+        generation += 1
+        let scheduledGeneration = generation
+        let delay = max(0, expiration.timeIntervalSince(now()))
+        schedule(delay) { [weak self] in
+            self?.expireIfNeeded(generation: scheduledGeneration)
+        }
+    }
+
+    static func shouldDefer(
+        workKind: WorkKind,
+        isActive: Bool
+    ) -> Bool {
+        isActive && workKind == .presentationRefresh
+    }
+
+    func runOrDefer(
+        workKind: WorkKind,
+        key: String,
+        work: @escaping () -> Void
+    ) {
+        guard Self.shouldDefer(workKind: workKind, isActive: isActive) else {
+            work()
+            return
+        }
+
+        pendingDeferredWork[key] = work
+        scheduleDeferredFlushIfNeeded()
+    }
+
+    private func expireIfNeeded(generation scheduledGeneration: Int? = nil) {
+        if let scheduledGeneration, scheduledGeneration != generation {
+            return
+        }
+        guard let activeUntil,
+              now() >= activeUntil else {
+            return
+        }
+        self.activeUntil = nil
+    }
+
+    private func scheduleDeferredFlushIfNeeded() {
+        guard !isDeferredFlushScheduled else {
+            return
+        }
+
+        isDeferredFlushScheduled = true
+        schedule(Self.defaultHoldDuration) { [weak self] in
+            self?.flushDeferredWorkIfReady()
+        }
+    }
+
+    private func flushDeferredWorkIfReady() {
+        isDeferredFlushScheduled = false
+        guard !isActive else {
+            scheduleDeferredFlushIfNeeded()
+            return
+        }
+
+        let workItems = Array(pendingDeferredWork.values)
+        pendingDeferredWork.removeAll()
+        workItems.forEach { $0() }
+    }
+}
+
 struct ChatScrollWorkRequest: Equatable {
     let contentOffsetY: CGFloat
     let gestureTranslationY: CGFloat
     let isUserScrolling: Bool
     let visibleIndexPaths: [IndexPath]
     let work: ChatScrollWorkOptions
+
+    func effectiveWork(isInteractionGateActive: Bool) -> ChatScrollWorkOptions {
+        var effectiveWork = work
+        if !isUserScrolling {
+            effectiveWork.remove(.evaluateBoundaryPaging)
+        }
+        if isInteractionGateActive && !isUserScrolling {
+            effectiveWork.remove(.updateFloatingDate)
+            effectiveWork.remove(.updateVoiceQueue)
+        }
+        return effectiveWork
+    }
 
     func merging(with newer: ChatScrollWorkRequest) -> ChatScrollWorkRequest {
         ChatScrollWorkRequest(

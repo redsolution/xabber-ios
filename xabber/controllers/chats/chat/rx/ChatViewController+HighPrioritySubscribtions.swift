@@ -28,6 +28,20 @@ import CocoaLumberjack
 import XMPPFramework.XMPPJID
 
 extension ChatViewController {
+    private var chatPresentationRefreshKey: String {
+        "chat.presentation.\(owner).\(jid).\(conversationType.rawValue)"
+    }
+
+    final func runOrDeferChatPresentationRefresh(
+        keySuffix: String,
+        work: @escaping () -> Void
+    ) {
+        ChatUIResponsivenessGate.shared.runOrDefer(
+            workKind: .presentationRefresh,
+            key: "\(chatPresentationRefreshKey).\(keySuffix)",
+            work: work
+        )
+    }
 
     public func updateSearchResults(value: String?) {
         if (value ?? "").isEmpty {
@@ -447,18 +461,21 @@ extension ChatViewController {
                 let offlineStatus = "last seen recently".localizeString(id: "last_seen_recently", arguments: [])
                 let status = (results.first?.statusMessage.isEmpty ?? true) ? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus) : results.first?.statusMessage ?? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
 //                    self.contactUsename = nickname
-                self.titleLabel.attributedText = self.updateTitle()
                 let statusStr = self.connectionAwareStatusText(fallbackStatus: status)
-                if self.statusLabel.text == " " && self.conversationType != .saved {
-                    self.statusLabel.text = statusStr
+                self.runOrDeferChatPresentationRefresh(keySuffix: "presence") { [weak self] in
+                    guard let self else { return }
+                    self.titleLabel.attributedText = self.updateTitle()
+                    if self.statusLabel.text == " " && self.conversationType != .saved {
+                        self.statusLabel.text = statusStr
+                    }
+                    if self.shouldShowNormalStatus {
+                        self.setStatusText(statusStr)
+                        self.contactStatus = status
+                        self.statusLabel.layoutIfNeeded()
+                    }
+                    self.titleLabel.sizeToFit()
+                    self.titleLabel.layoutIfNeeded()
                 }
-                if self.shouldShowNormalStatus {
-                    self.setStatusText(statusStr)
-                    self.contactStatus = status
-                    self.statusLabel.layoutIfNeeded()
-                }
-                self.titleLabel.sizeToFit()
-                self.titleLabel.layoutIfNeeded()
                 
             })
             .disposed(by: bag)
@@ -518,9 +535,12 @@ extension ChatViewController {
                     rosterItem: results.first,
                     realm: realm
                 )
-                self.applyChatSubscriptionPresentation(presentation)
-                if presentation.showsNormalPresenceStatus {
-                    self.applyNormalPresenceStatus(realm: realm)
+                self.runOrDeferChatPresentationRefresh(keySuffix: "subscription") { [weak self] in
+                    guard let self else { return }
+                    self.applyChatSubscriptionPresentation(presentation)
+                    if presentation.showsNormalPresenceStatus {
+                        self.applyNormalPresenceStatus(realm: realm)
+                    }
                 }
             }).disposed(by: bag)
 
@@ -545,9 +565,12 @@ extension ChatViewController {
                     rosterItem: rosterItem,
                     realm: realm
                 )
-                self.applyChatSubscriptionPresentation(presentation)
-                if presentation.showsNormalPresenceStatus {
-                    self.applyNormalPresenceStatus(realm: realm)
+                self.runOrDeferChatPresentationRefresh(keySuffix: "block") { [weak self] in
+                    guard let self else { return }
+                    self.applyChatSubscriptionPresentation(presentation)
+                    if presentation.showsNormalPresenceStatus {
+                        self.applyNormalPresenceStatus(realm: realm)
+                    }
                 }
             }).disposed(by: bag)
 
@@ -559,8 +582,11 @@ extension ChatViewController {
             .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
             .observe(on: MainScheduler.asyncInstance)
             .subscribe { (value) in
-                self.statusLabel.text = value
-                self.statusLabel.layoutIfNeeded()
+                self.runOrDeferChatPresentationRefresh(keySuffix: "statusText") { [weak self] in
+                    guard let self else { return }
+                    self.statusLabel.text = value
+                    self.statusLabel.layoutIfNeeded()
+                }
             } onError: { (error) in
                 DDLogDebug("\(#function). \(error.localizedDescription)")
             } onCompleted: {

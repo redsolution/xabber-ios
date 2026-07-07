@@ -1870,6 +1870,7 @@ class ChatViewController: MessagesViewController {
             trigger: trigger,
             startedAt: now
         )
+        ChatUIResponsivenessGate.shared.activate(reason: .chatOpen)
         self.chatOpenTimingSession = session
         self.chatOpenFirstFrameSignpost = ChatPerformanceSignposts.begin(.chatOpenToFirstFrame)
         var fields = self.chatOpenTimingBaseFields(session: session, now: now)

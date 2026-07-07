@@ -72,6 +72,7 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
         XCTAssertFalse(actions.contains(.reloadData))
         XCTAssertFalse(actions.contains(.invalidateLayoutCache))
         XCTAssertFalse(actions.contains(.invalidateLayout))
+        XCTAssertFalse(actions.contains(.scrollToBottom))
         XCTAssertEqual(actions.filter { $0 == .layoutIfNeeded }.count, 1)
         XCTAssertEqual(actions.filter { $0 == .updateInsets(280) }.count, 2)
     }

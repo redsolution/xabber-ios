@@ -33652,6 +33652,7 @@ final class ChatUnreadMentionsTests: XCTestCase {
         view.update(mode: .indicator, unreadCount: 1, accentColor: .systemBlue)
 
         XCTAssertEqual(view.preferredSize, CGSize(square: NativeGlassBarStyle.buttonSize))
+        XCTAssertEqual(view.bounds.size, CGSize(square: NativeGlassBarStyle.buttonSize))
         XCTAssertFalse(view.showsDirectionalButtons)
         XCTAssertEqual(view.currentUnreadCountText, "1")
     }

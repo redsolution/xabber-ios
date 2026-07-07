@@ -58,9 +58,10 @@ enum LastChatsBootstrapDatasetUpdatePolicy {
 
     static func isDatasetUpdatePressureActive(
         isAccountSyncBootstrapActive: Bool,
-        isChatHistoryLoadActive: Bool
+        isChatHistoryLoadActive: Bool,
+        isChatUIResponsivenessGateActive: Bool = false
     ) -> Bool {
-        isAccountSyncBootstrapActive || isChatHistoryLoadActive
+        isAccountSyncBootstrapActive || isChatHistoryLoadActive || isChatUIResponsivenessGateActive
     }
 
     static func shouldDeferDatasetUpdateForNavigationTransition(
@@ -1769,7 +1770,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal var hasVisibleDatasetUpdatePressureInProgress: Bool {
         LastChatsBootstrapDatasetUpdatePolicy.isDatasetUpdatePressureActive(
             isAccountSyncBootstrapActive: self.hasVisibleAccountSyncBootstrapInProgress,
-            isChatHistoryLoadActive: ChatHistoryLoadActivityRegistry.hasActiveHistoryLoad
+            isChatHistoryLoadActive: ChatHistoryLoadActivityRegistry.hasActiveHistoryLoad,
+            isChatUIResponsivenessGateActive: ChatUIResponsivenessGate.shared.isActive
         )
     }
 
@@ -2461,6 +2463,14 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.bootstrapDatasetUpdateWorkItem = nil
+            if ChatUIResponsivenessGate.shouldDefer(
+                workKind: .presentationRefresh,
+                isActive: ChatUIResponsivenessGate.shared.isActive
+            ) {
+                self.pendingDatasetUpdateAfterBootstrapCoalescing = true
+                _ = self.scheduleBootstrapDatasetUpdateIfNeeded()
+                return
+            }
             self.pendingDatasetUpdateAfterBootstrapCoalescing = false
             self.isExecutingBootstrapCoalescedDatasetUpdate = true
             self.runDatasetUpdateTask()

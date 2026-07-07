@@ -648,19 +648,22 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         XCTAssertTrue(
             LastChatsBootstrapDatasetUpdatePolicy.isDatasetUpdatePressureActive(
                 isAccountSyncBootstrapActive: false,
-                isChatHistoryLoadActive: true
+                isChatHistoryLoadActive: true,
+                isChatUIResponsivenessGateActive: false
             )
         )
         XCTAssertTrue(
             LastChatsBootstrapDatasetUpdatePolicy.isDatasetUpdatePressureActive(
                 isAccountSyncBootstrapActive: true,
-                isChatHistoryLoadActive: false
+                isChatHistoryLoadActive: false,
+                isChatUIResponsivenessGateActive: false
             )
         )
         XCTAssertFalse(
             LastChatsBootstrapDatasetUpdatePolicy.isDatasetUpdatePressureActive(
                 isAccountSyncBootstrapActive: false,
-                isChatHistoryLoadActive: false
+                isChatHistoryLoadActive: false,
+                isChatUIResponsivenessGateActive: false
             )
         )
 
@@ -679,6 +682,33 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
             LastChatsBootstrapDatasetUpdatePolicy.shouldCoalesceDatasetUpdate(
                 isDatasetUpdatePressureActive: true,
                 hasScheduledUpdate: false
+            )
+        )
+    }
+
+    func testBootstrapDatasetUpdatePolicyTreatsActiveChatInteractionGateAsPresentationPressure() {
+        XCTAssertTrue(
+            LastChatsBootstrapDatasetUpdatePolicy.isDatasetUpdatePressureActive(
+                isAccountSyncBootstrapActive: false,
+                isChatHistoryLoadActive: false,
+                isChatUIResponsivenessGateActive: true
+            )
+        )
+        XCTAssertTrue(
+            LastChatsBootstrapDatasetUpdatePolicy.shouldCoalesceDatasetUpdate(
+                isDatasetUpdatePressureActive: true,
+                hasScheduledUpdate: false
+            )
+        )
+        XCTAssertFalse(
+            LastChatsBootstrapDatasetUpdatePolicy.shouldAnimateDatasetMutation(
+                requestedAnimated: true,
+                isDatasetUpdatePressureActive: true
+            )
+        )
+        XCTAssertTrue(
+            LastChatsBootstrapDatasetUpdatePolicy.shouldSkipVisibleRowReconfigure(
+                isDatasetUpdatePressureActive: true
             )
         )
     }
