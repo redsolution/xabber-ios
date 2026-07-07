@@ -30,6 +30,12 @@ enum ChatPerformanceSignpostPhase: String, CaseIterable {
     case layoutApply = "chat.layout_apply"
     case scrollProcessing = "chat.scroll_processing"
     case sendToLocalRow = "chat.send_to_local_row"
+    case localHistoryQuery = "chat.local_history_query"
+    case displayModelCache = "chat.display_model_cache"
+    case observerRefresh = "chat.observer_refresh"
+    case referencePrepare = "chat.reference_prepare"
+    case mediaPrefetch = "chat.media_prefetch"
+    case messagePersistence = "chat.message_persistence"
 
     var signpostName: StaticString {
         switch self {
@@ -47,7 +53,86 @@ enum ChatPerformanceSignpostPhase: String, CaseIterable {
             return "chat.scroll_processing"
         case .sendToLocalRow:
             return "chat.send_to_local_row"
+        case .localHistoryQuery:
+            return "chat.local_history_query"
+        case .displayModelCache:
+            return "chat.display_model_cache"
+        case .observerRefresh:
+            return "chat.observer_refresh"
+        case .referencePrepare:
+            return "chat.reference_prepare"
+        case .mediaPrefetch:
+            return "chat.media_prefetch"
+        case .messagePersistence:
+            return "chat.message_persistence"
         }
+    }
+}
+
+struct ChatPerformanceMetricSnapshot: Equatable {
+    static let privateTokenFragments: [String] = [
+        "owner",
+        "jid",
+        "body",
+        "account",
+        "token",
+        "private",
+        "text",
+        "url",
+        "path",
+        "xml",
+        "stanza",
+        "messageid",
+        "archiveid",
+        "opponent"
+    ]
+
+    let phase: ChatPerformanceSignpostPhase
+    private let counters: [String: Int]
+
+    init(phase: ChatPerformanceSignpostPhase, counters: [String: Int]) {
+        self.phase = phase
+        self.counters = counters
+    }
+
+    var sortedCounterNames: [String] {
+        counters.keys.sorted()
+    }
+
+    var unsafeFieldNames: [String] {
+        sortedCounterNames.filter { fieldName in
+            let normalized = fieldName
+                .lowercased()
+                .filter { $0.isLetter || $0.isNumber }
+            return Self.privateTokenFragments.contains { token in
+                normalized.contains(token)
+            }
+        }
+    }
+
+    var isPrivacySafe: Bool {
+        unsafeFieldNames.isEmpty
+    }
+
+    func counter(_ name: String) -> Int {
+        counters[name] ?? 0
+    }
+}
+
+struct ChatReferencePrepareMetrics: Equatable {
+    let referenceCount: Int
+    let durationMs: Int
+    let slowReferenceCount: Int
+
+    var snapshot: ChatPerformanceMetricSnapshot {
+        ChatPerformanceMetricSnapshot(
+            phase: .referencePrepare,
+            counters: [
+                "referenceCount": referenceCount,
+                "durationMs": durationMs,
+                "slowReferenceCount": slowReferenceCount
+            ]
+        )
     }
 }
 

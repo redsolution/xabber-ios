@@ -574,6 +574,18 @@ final class ChatDisplayModelCache {
         let misses: Int
         let stores: Int
         let evictions: Int
+
+        var performanceSnapshot: ChatPerformanceMetricSnapshot {
+            ChatPerformanceMetricSnapshot(
+                phase: .displayModelCache,
+                counters: [
+                    "hits": hits,
+                    "misses": misses,
+                    "stores": stores,
+                    "evictions": evictions
+                ]
+            )
+        }
     }
 
     private let capacity: Int
@@ -604,34 +616,36 @@ final class ChatDisplayModelCache {
         for key: ChatDisplayModelCacheKey,
         build: () -> ChatCachedDisplayModel
     ) -> ChatCachedDisplayModel {
-        lock.lock()
-        if let cached = models[key] {
-            hitCount += 1
-            markRecentlyUsed(key)
+        ChatPerformanceSignposts.measure(.displayModelCache) {
+            lock.lock()
+            if let cached = models[key] {
+                hitCount += 1
+                markRecentlyUsed(key)
+                lock.unlock()
+                return cached
+            }
+            missCount += 1
             lock.unlock()
-            return cached
-        }
-        missCount += 1
-        lock.unlock()
 
-        let built = build()
-        guard capacity > 0 else {
+            let built = build()
+            guard capacity > 0 else {
+                return built
+            }
+
+            lock.lock()
+            if let cached = models[key] {
+                hitCount += 1
+                markRecentlyUsed(key)
+                lock.unlock()
+                return cached
+            }
+            models[key] = built
+            keysByRecency.append(key)
+            storeCount += 1
+            evictIfNeeded()
+            lock.unlock()
             return built
         }
-
-        lock.lock()
-        if let cached = models[key] {
-            hitCount += 1
-            markRecentlyUsed(key)
-            lock.unlock()
-            return cached
-        }
-        models[key] = built
-        keysByRecency.append(key)
-        storeCount += 1
-        evictIfNeeded()
-        lock.unlock()
-        return built
     }
 
     func removeAll() {
@@ -1017,6 +1031,22 @@ final class ChatLocalHistoryPageProviderDiagnostics {
         return storedRecords.map(\.candidateCount).max() ?? 0
     }
 
+    var performanceSnapshot: ChatPerformanceMetricSnapshot {
+        lock.lock()
+        let recordCount = storedRecords.count
+        let fullScanCount = storedFullScanCount
+        let maxCandidateCount = storedRecords.map(\.candidateCount).max() ?? 0
+        lock.unlock()
+        return ChatPerformanceMetricSnapshot(
+            phase: .localHistoryQuery,
+            counters: [
+                "recordCount": recordCount,
+                "fullScanCount": fullScanCount,
+                "maxCandidateCount": maxCandidateCount
+            ]
+        )
+    }
+
     func record(operation: String, candidateCount: Int) {
         lock.lock()
         storedRecords.append(Record(operation: operation, candidateCount: candidateCount))
@@ -1238,37 +1268,39 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
         requestedLimit: Int,
         transform: ([MessageStorageItem]) -> [MessageStorageItem]
     ) -> [MessageStorageItem] {
-        let totalCount = scoped.count
-        guard totalCount > 0 else {
-            diagnostics?.record(operation: operation, candidateCount: 0)
-            return []
-        }
-
-        var candidateLimit = min(totalCount, max(requestedLimit, requestedLimit * Self.candidateMultiplier))
-        var lastResult: [MessageStorageItem] = []
-
-        while candidateLimit > 0 {
-            let candidates = Array(
-                scoped
-                    .sorted(byKeyPath: "date", ascending: sortedAscending)
-                    .prefix(candidateLimit)
-            )
-            diagnostics?.record(operation: operation, candidateCount: candidates.count)
-            let result = transform(candidates)
-            lastResult = result
-
-            if result.count >= requestedLimit || candidates.count >= totalCount {
-                return result
+        ChatPerformanceSignposts.measure(.localHistoryQuery) {
+            let totalCount = scoped.count
+            guard totalCount > 0 else {
+                diagnostics?.record(operation: operation, candidateCount: 0)
+                return []
             }
 
-            let nextLimit = min(totalCount, max(candidateLimit + 1, candidateLimit * 2))
-            guard nextLimit > candidateLimit else {
-                return result
-            }
-            candidateLimit = nextLimit
-        }
+            var candidateLimit = min(totalCount, max(requestedLimit, requestedLimit * Self.candidateMultiplier))
+            var lastResult: [MessageStorageItem] = []
 
-        return lastResult
+            while candidateLimit > 0 {
+                let candidates = Array(
+                    scoped
+                        .sorted(byKeyPath: "date", ascending: sortedAscending)
+                        .prefix(candidateLimit)
+                )
+                diagnostics?.record(operation: operation, candidateCount: candidates.count)
+                let result = transform(candidates)
+                lastResult = result
+
+                if result.count >= requestedLimit || candidates.count >= totalCount {
+                    return result
+                }
+
+                let nextLimit = min(totalCount, max(candidateLimit + 1, candidateLimit * 2))
+                guard nextLimit > candidateLimit else {
+                    return result
+                }
+                candidateLimit = nextLimit
+            }
+
+            return lastResult
+        }
     }
 
     private func scopedChronologicalItems() -> [MessageStorageItem] {
@@ -11518,6 +11550,10 @@ extension ChatViewController {
     
     
     func didReceiveChangeset() {
+        var observerRefreshSignpost = ChatPerformanceSignposts.begin(.observerRefresh)
+        defer {
+            observerRefreshSignpost.end()
+        }
         let startedAt = Date()
         if self.datasource.isNotEmpty {
             self.setShouldShowInitialMessage(false)

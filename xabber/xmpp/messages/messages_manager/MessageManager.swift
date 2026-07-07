@@ -179,6 +179,14 @@ class MessageManager: AbstractXMPPManager {
             savedNew + updatedExisting + skipped + failed
         }
 
+        var visibleRowCount: Int {
+            visibleRowsByConversationKey.values.reduce(0, +)
+        }
+
+        var visibleConversationCount: Int {
+            visibleRowsByConversationKey.count
+        }
+
         var isEmpty: Bool {
             received == 0 &&
             queued == 0 &&
@@ -220,6 +228,31 @@ class MessageManager: AbstractXMPPManager {
             visibleRowsByConversationKey[
                 Self.conversationKey(owner: owner, jid: jid, conversationType: conversationType)
             ] ?? 0
+        }
+
+        func performanceSnapshot(
+            durationMs: Int = 0,
+            referencePrepareMs: Int = 0,
+            referenceCount: Int = 0
+        ) -> ChatPerformanceMetricSnapshot {
+            ChatPerformanceMetricSnapshot(
+                phase: .messagePersistence,
+                counters: [
+                    "received": received,
+                    "queued": queued,
+                    "savedNew": savedNew,
+                    "updatedExisting": updatedExisting,
+                    "skipped": skipped,
+                    "failed": failed,
+                    "persistedRows": persistedRows,
+                    "processedRows": processedRows,
+                    "visibleRows": visibleRowCount,
+                    "visibleConversationCount": visibleConversationCount,
+                    "durationMs": durationMs,
+                    "referencePrepareMs": referencePrepareMs,
+                    "referenceCount": referenceCount
+                ]
+            )
         }
 
         private static func conversationKey(

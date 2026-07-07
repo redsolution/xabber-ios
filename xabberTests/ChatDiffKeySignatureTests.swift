@@ -52,6 +52,33 @@ final class ChatDiffKeySignatureTests: XCTestCase {
         XCTAssertTrue(ChatMessageUpdatePolicy.shouldUpdateContent(old: sending, new: read))
     }
 
+    func testSimpleStateReadAndDownloadChangesUseContentOnlyDiff() {
+        let old = makeDatasource(
+            state: .sending,
+            indicator: .sending,
+            isRead: false,
+            isDownloaded: false
+        )
+        let new = makeDatasource(
+            state: .read,
+            indicator: .read,
+            isRead: true,
+            isDownloaded: true
+        )
+        let diff = ChatDatasourceCoordinator.diff(
+            old: .init(items: [old]),
+            new: .init(items: [new]),
+            oldSizeProvider: { _ in CGSize(width: 220, height: 72) },
+            newSizeProvider: { _ in CGSize(width: 220, height: 72) }
+        )
+
+        XCTAssertEqual(diff.contentOnlyUpdates, [
+            ChatMessageContentUpdate(primary: "message-1", indexPath: IndexPath(row: 0, section: 0))
+        ])
+        XCTAssertTrue(diff.reloads.isEmpty)
+        XCTAssertFalse(diff.hasCollectionUpdates)
+    }
+
     func testLargeVoicePCMUsesStableHashWithoutFullArrayString() {
         let pcm = (0..<4_096).map { Float($0) / 1_000 }
         let original = makeDatasource(audios: [makeAudio(primary: "voice-1", pcm: pcm)])
@@ -96,7 +123,9 @@ final class ChatDiffKeySignatureTests: XCTestCase {
         contacts: [ContactAttachment] = [],
         files: [FileAttachment] = [],
         audios: [AudioAttachment] = [],
-        forwards: [MessageAttachment] = []
+        forwards: [MessageAttachment] = [],
+        isRead: Bool = true,
+        isDownloaded: Bool = true
     ) -> ChatViewController.Datasource {
         ChatViewController.Datasource(
             primary: primary,
@@ -123,7 +152,7 @@ final class ChatDiffKeySignatureTests: XCTestCase {
             groupchatAuthorNickname: "",
             groupchatAuthorBadge: "",
             isHasAttachedMessages: false,
-            isDownloaded: true,
+            isDownloaded: isDownloaded,
             state: state,
             searchString: nil,
             errorMetadata: nil,
@@ -131,7 +160,7 @@ final class ChatDiffKeySignatureTests: XCTestCase {
             afterburnInterval: -1,
             archivedId: "archived-1",
             queryIds: nil,
-            isRead: true,
+            isRead: isRead,
             selectedSearchResultId: nil,
             isHadHistoryGap: false,
             tailed: false,

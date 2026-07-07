@@ -21,6 +21,10 @@ final class ChatDisplayModelCacheTests: XCTestCase {
         XCTAssertEqual(buildCount, 1)
         XCTAssertEqual(cache.statistics.hits, 1)
         XCTAssertEqual(cache.statistics.misses, 1)
+        XCTAssertEqual(cache.statistics.performanceSnapshot.phase, .displayModelCache)
+        XCTAssertEqual(cache.statistics.performanceSnapshot.counter("hits"), 1)
+        XCTAssertEqual(cache.statistics.performanceSnapshot.counter("misses"), 1)
+        XCTAssertTrue(cache.statistics.performanceSnapshot.isPrivacySafe)
     }
 
     func testMessageEditInvalidatesCachedBody() {

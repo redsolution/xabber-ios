@@ -12,11 +12,17 @@ final class ChatPerformanceSignpostTests: XCTestCase {
                 "chat.datasource_apply",
                 "chat.layout_apply",
                 "chat.scroll_processing",
-                "chat.send_to_local_row"
+                "chat.send_to_local_row",
+                "chat.local_history_query",
+                "chat.display_model_cache",
+                "chat.observer_refresh",
+                "chat.reference_prepare",
+                "chat.media_prefetch",
+                "chat.message_persistence"
             ]
         )
 
-        let privateTokens = ["owner", "jid", "body", "account", "token", "private", "text"]
+        let privateTokens = ChatPerformanceMetricSnapshot.privateTokenFragments
         for name in ChatPerformanceSignpostPhase.allCases.map(\.rawValue) {
             for token in privateTokens {
                 XCTAssertFalse(name.localizedCaseInsensitiveContains(token), "\(name) contains private token \(token)")
@@ -51,5 +57,40 @@ final class ChatPerformanceSignpostTests: XCTestCase {
         XCTAssertTrue(interval.end())
         XCTAssertFalse(interval.isActive)
         XCTAssertFalse(interval.end())
+    }
+
+    func testMetricSnapshotsExposeOnlyPrivacySafeCounterFields() {
+        let snapshot = ChatPerformanceMetricSnapshot(
+            phase: .referencePrepare,
+            counters: [
+                "referenceCount": 3,
+                "durationMs": 42,
+                "slowReferenceCount": 1
+            ]
+        )
+
+        XCTAssertEqual(snapshot.counter("referenceCount"), 3)
+        XCTAssertTrue(snapshot.isPrivacySafe)
+        XCTAssertTrue(snapshot.unsafeFieldNames.isEmpty)
+        XCTAssertEqual(snapshot.sortedCounterNames, ["durationMs", "referenceCount", "slowReferenceCount"])
+    }
+
+    func testReferencePrepareMetricsDoNotStoreIdentifiersOrPaths() {
+        let metrics = ChatReferencePrepareMetrics(
+            referenceCount: 2,
+            durationMs: 17,
+            slowReferenceCount: 1
+        )
+        let snapshot = metrics.snapshot
+
+        XCTAssertEqual(snapshot.phase, .referencePrepare)
+        XCTAssertEqual(snapshot.counter("referenceCount"), 2)
+        XCTAssertEqual(snapshot.counter("durationMs"), 17)
+        XCTAssertEqual(snapshot.counter("slowReferenceCount"), 1)
+        XCTAssertTrue(snapshot.isPrivacySafe)
+        XCTAssertFalse(snapshot.sortedCounterNames.contains("url"))
+        XCTAssertFalse(snapshot.sortedCounterNames.contains("path"))
+        XCTAssertFalse(snapshot.sortedCounterNames.contains("body"))
+        XCTAssertFalse(snapshot.sortedCounterNames.contains("token"))
     }
 }

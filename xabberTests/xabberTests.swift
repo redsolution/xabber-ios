@@ -22559,6 +22559,32 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertTrue(stored.queryIds?.contains("duplicate-query") == true)
     }
 
+    func testArchivePersistenceSummaryPerformanceSnapshotIsPrivacySafe() throws {
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == "metrics-query" }
+
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: "metrics-query"))
+        let summary = manager.storeMessagesNowSummary(forQueryId: "metrics-query")
+        let snapshot = summary.performanceSnapshot(
+            durationMs: 11,
+            referencePrepareMs: 3,
+            referenceCount: 0
+        )
+
+        XCTAssertEqual(snapshot.phase, .messagePersistence)
+        XCTAssertEqual(snapshot.counter("received"), 1)
+        XCTAssertEqual(snapshot.counter("queued"), 1)
+        XCTAssertEqual(snapshot.counter("savedNew"), 1)
+        XCTAssertEqual(snapshot.counter("visibleRows"), 1)
+        XCTAssertEqual(snapshot.counter("visibleConversationCount"), 1)
+        XCTAssertEqual(snapshot.counter("durationMs"), 11)
+        XCTAssertTrue(snapshot.isPrivacySafe)
+        XCTAssertFalse(snapshot.sortedCounterNames.contains("owner"))
+        XCTAssertFalse(snapshot.sortedCounterNames.contains("jid"))
+        XCTAssertFalse(snapshot.sortedCounterNames.contains("messageId"))
+    }
+
     func testArchiveBatchSaveFailureFallsBackToIndividualMessages() throws {
         struct InjectedBatchFailure: Error {}
 

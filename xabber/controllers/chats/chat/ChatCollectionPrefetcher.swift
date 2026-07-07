@@ -643,20 +643,22 @@ final class ChatCollectionContentPrefetcher: ChatCollectionContentPrefetching {
     }
 
     func prefetch(_ resources: Set<ChatCollectionPrefetchResource>) {
-        resources.forEach { resource in
-            switch resource {
-            case .image(_, let request),
-                 .videoPreview(_, let request),
-                 .avatar(_, let request):
-                startImagePrefetch(for: resource, request: request)
-            case .locationSnapshot(_, let location, let size):
-                startLocationSnapshotPrefetch(for: resource, location: location, size: size)
-            case .pageWarmup(let request):
-                guard pageWarmupTasks[resource] == nil else { return }
-                pageWarmupTasks[resource] = pageWarmupProvider.warmup(
-                    request,
-                    limit: pageWarmupLimit
-                )
+        ChatPerformanceSignposts.measure(.mediaPrefetch) {
+            resources.forEach { resource in
+                switch resource {
+                case .image(_, let request),
+                     .videoPreview(_, let request),
+                     .avatar(_, let request):
+                    startImagePrefetch(for: resource, request: request)
+                case .locationSnapshot(_, let location, let size):
+                    startLocationSnapshotPrefetch(for: resource, location: location, size: size)
+                case .pageWarmup(let request):
+                    guard pageWarmupTasks[resource] == nil else { return }
+                    pageWarmupTasks[resource] = pageWarmupProvider.warmup(
+                        request,
+                        limit: pageWarmupLimit
+                    )
+                }
             }
         }
     }

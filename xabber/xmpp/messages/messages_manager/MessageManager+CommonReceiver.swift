@@ -1103,7 +1103,9 @@ extension MessageManager {
                 }
                 message.references.forEach { reference in
                     let referenceStartedAt = Date()
-                    reference.prepare()
+                    ChatPerformanceSignposts.measure(.referencePrepare) {
+                        reference.prepare()
+                    }
                     let durationMs = ChatArchiveDebugTrace.milliseconds(since: referenceStartedAt)
                     referencePrepareMs += durationMs
                     referenceCount += 1
@@ -1156,6 +1158,7 @@ extension MessageManager {
 
     @discardableResult
     func save(_ batch: ProcessedQueueBatch, silentNotifications: Bool = false) -> ArchivePersistenceSummary {
+        return ChatPerformanceSignposts.measure(.messagePersistence) {
         let startedAt = Date()
         let batchQueryIds = Set(batch.archiveQueryIdsByPrimary.values.flatMap { $0 })
             .sorted()
@@ -1236,7 +1239,9 @@ extension MessageManager {
                 message.references.forEach {
                     reference in
                     let referenceStartedAt = Date()
-                    reference.prepare()
+                    ChatPerformanceSignposts.measure(.referencePrepare) {
+                        reference.prepare()
+                    }
                     let durationMs = ChatArchiveDebugTrace.milliseconds(since: referenceStartedAt)
                     referenceCount += 1
                     if durationMs > 100 {
@@ -1276,6 +1281,7 @@ extension MessageManager {
         } catch {
             DDLogDebug("MessageManager.save batch failed count=\(batch.messages.count) error=\(error.localizedDescription)")
             return self.saveIndividuallyAfterBatchFailure(batch, silentNotifications: silentNotifications)
+        }
         }
     }
 
