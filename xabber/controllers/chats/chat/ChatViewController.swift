@@ -261,6 +261,7 @@ enum ChatScrollDownTargetPolicy {
 
     struct ChatState: Equatable {
         let unread: Int
+        let syncUnreadCount: Int
         let syncUnreadAfterId: String?
         let lastReadId: String?
     }
@@ -276,6 +277,7 @@ enum ChatScrollDownTargetPolicy {
         visibleMessages: [VisibleMessage]
     ) -> Target {
         guard chat.unread > 0,
+              chat.syncUnreadCount > 0,
               let boundaryId = normalizedPositiveNumericBoundary(chat.syncUnreadAfterId)
                 ?? normalizedPositiveNumericBoundary(chat.lastReadId),
               let boundaryValue = Double(boundaryId) else {
@@ -3047,12 +3049,14 @@ class ChatViewController: MessagesViewController {
             guard let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary) else {
                 return ChatScrollDownTargetPolicy.ChatState(
                     unread: 0,
+                    syncUnreadCount: 0,
                     syncUnreadAfterId: nil,
                     lastReadId: nil
                 )
             }
             return ChatScrollDownTargetPolicy.ChatState(
                 unread: chat.unread,
+                syncUnreadCount: chat.syncUnreadCount,
                 syncUnreadAfterId: chat.syncUnreadAfterId,
                 lastReadId: chat.lastReadId
             )
@@ -3060,6 +3064,7 @@ class ChatViewController: MessagesViewController {
             DDLogDebug("ChatViewController.scrollDownButtonChatState: \(error.localizedDescription)")
             return ChatScrollDownTargetPolicy.ChatState(
                 unread: 0,
+                syncUnreadCount: 0,
                 syncUnreadAfterId: nil,
                 lastReadId: nil
             )

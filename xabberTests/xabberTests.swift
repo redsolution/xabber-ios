@@ -19764,6 +19764,114 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
     }
 }
 
+final class ChatInitialOpenTargetPolicyTests: XCTestCase {
+
+    private let owner = "owner@example.com"
+    private let jid = "romeo@example.com"
+    private let sourceDate = Date(timeIntervalSince1970: 1_711_283_200)
+
+    private func makeState(
+        unread: Int = 0,
+        syncUnreadCount: Int = 0,
+        syncUnreadAfterId: String? = nil,
+        lastReadId: String? = nil,
+        savedPosition: ChatSavedVisiblePosition? = nil,
+        savedAtLastMessageId: String? = nil,
+        savedAtSnapshotLastArchiveId: String? = nil
+    ) -> ChatInitialPositionPolicy.ChatState {
+        ChatInitialPositionPolicy.ChatState(
+            owner: owner,
+            jid: jid,
+            conversationType: .regular,
+            unread: unread,
+            syncUnreadCount: syncUnreadCount,
+            syncUnreadAfterId: syncUnreadAfterId,
+            lastReadId: lastReadId,
+            lastMessageId: "last-message",
+            syncSnapshotLastArchiveId: "snapshot-last",
+            messageDate: sourceDate,
+            savedPosition: savedPosition,
+            savedAtLastMessageId: savedAtLastMessageId,
+            savedAtSnapshotLastArchiveId: savedAtSnapshotLastArchiveId
+        )
+    }
+
+    private func makeSearchRequest() -> ChatOpenMessageRequest {
+        ChatOpenMessageRequest(
+            chatJid: jid,
+            owner: owner,
+            conversationType: .regular,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: "1711283300000000",
+                messageId: nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: sourceDate
+            ),
+            highlight: true,
+            markReadOnVisible: false,
+            source: .search
+        )
+    }
+
+    func testZeroSyncUnreadIgnoresUnreadAfterAndSavedPositionForLatestOpen() {
+        let savedPosition = ChatSavedVisiblePosition(
+            messagePrimary: "saved-primary",
+            archivedId: "1711283294000000",
+            messageId: "saved-message",
+            sourceDate: sourceDate
+        )
+        let state = makeState(
+            unread: 3,
+            syncUnreadCount: 0,
+            syncUnreadAfterId: "1711283295000000",
+            lastReadId: "1711283294000000",
+            savedPosition: savedPosition,
+            savedAtLastMessageId: "last-message",
+            savedAtSnapshotLastArchiveId: "snapshot-last"
+        )
+
+        XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
+    }
+
+    func testPositiveSyncUnreadUsesUnreadAfterBoundaryWithoutReadSideEffect() {
+        let state = makeState(
+            unread: 5,
+            syncUnreadCount: 2,
+            syncUnreadAfterId: "1711283295000000",
+            lastReadId: "1711283294000000"
+        )
+
+        let decision = ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil)
+        guard case .open(let request) = decision else {
+            return XCTFail("Expected initial unread boundary request, got \(decision)")
+        }
+
+        XCTAssertEqual(request.source, .initialUnreadBoundary)
+        XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
+        XCTAssertEqual(request.targetResolution, .firstIncomingAfterBoundary("1711283295000000"))
+        XCTAssertFalse(request.markReadOnVisible)
+        XCTAssertFalse(ChatOpenReadMarkingPolicy.shouldReadLastMessageOnOpen(isSynced: true, unread: state.unread))
+    }
+
+    func testSearchRequestOverridesUnreadBoundaryAndKeepsAnchorContract() {
+        let state = makeState(
+            unread: 5,
+            syncUnreadCount: 2,
+            syncUnreadAfterId: "1711283295000000"
+        )
+        let searchRequest = makeSearchRequest()
+
+        XCTAssertEqual(
+            ChatInitialPositionPolicy.decision(for: state, explicitRequest: searchRequest),
+            .open(searchRequest)
+        )
+        XCTAssertTrue(ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: .search))
+        XCTAssertFalse(ChatOpenReadMarkingPolicy.shouldReadLastMessageOnOpen(isSynced: false, unread: state.unread))
+    }
+}
+
 final class ChatOpenAtMessageRequestBuilderTests: XCTestCase {
     func testBuilderStoresStanzaIdAsArchivedId() throws {
         let sourceDate = Date(timeIntervalSince1970: 1_711_283_200)
@@ -32395,11 +32503,13 @@ final class ChatScrollDownButtonPolicyTests: XCTestCase {
 
     private func chatState(
         unread: Int = 1,
+        syncUnreadCount: Int = 1,
         syncUnreadAfterId: String? = "300",
         lastReadId: String? = nil
     ) -> ChatScrollDownTargetPolicy.ChatState {
         ChatScrollDownTargetPolicy.ChatState(
             unread: unread,
+            syncUnreadCount: syncUnreadCount,
             syncUnreadAfterId: syncUnreadAfterId,
             lastReadId: lastReadId
         )
@@ -32501,6 +32611,20 @@ final class ChatScrollDownButtonPolicyTests: XCTestCase {
         let target = ChatScrollDownTargetPolicy.target(
             chat: chatState(unread: 0, syncUnreadAfterId: "300"),
             visibleMessages: []
+        )
+
+        XCTAssertEqual(target, .latest)
+    }
+
+    func testTargetPolicyFallsBackToLatestWhenSyncUnreadCountIsZero() {
+        let target = ChatScrollDownTargetPolicy.target(
+            chat: chatState(
+                unread: 3,
+                syncUnreadCount: 0,
+                syncUnreadAfterId: "300",
+                lastReadId: "250"
+            ),
+            visibleMessages: [visibleMessage(archivedId: "100")]
         )
 
         XCTAssertEqual(target, .latest)
