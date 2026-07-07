@@ -27,6 +27,7 @@ final class ChatUIResponsivenessGate {
 
     static let shared = ChatUIResponsivenessGate()
     static let defaultHoldDuration: TimeInterval = 0.22
+    static let keyboardFrameHoldPadding: TimeInterval = 0.05
 
     private let now: () -> Date
     private let schedule: Schedule
@@ -75,6 +76,10 @@ final class ChatUIResponsivenessGate {
         isActive: Bool
     ) -> Bool {
         isActive && workKind == .presentationRefresh
+    }
+
+    static func holdDuration(keyboardAnimationDuration: TimeInterval) -> TimeInterval {
+        max(defaultHoldDuration, max(0, keyboardAnimationDuration) + keyboardFrameHoldPadding)
     }
 
     func runOrDefer(

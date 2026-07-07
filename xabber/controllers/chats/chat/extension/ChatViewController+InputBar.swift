@@ -177,7 +177,10 @@ extension ChatViewController {
             ?? [.beginFromCurrentState, .curveEaseInOut]
         let wasNearBottom = self.isNearBottom()
         let visibleAnchor = wasNearBottom ? nil : self.capturePagingAnchorIfNeeded(direction: .older)
-        ChatUIResponsivenessGate.shared.activate(reason: .keyboardFrame)
+        ChatUIResponsivenessGate.shared.activate(
+            reason: .keyboardFrame,
+            duration: ChatUIResponsivenessGate.holdDuration(keyboardAnimationDuration: duration)
+        )
 
         let updates = {
             inputView.update(screenHeight: self.view.bounds.height, keyboardHeight: keyboardVisibleHeight)

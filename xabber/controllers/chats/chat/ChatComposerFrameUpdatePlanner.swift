@@ -48,8 +48,11 @@ struct ChatComposerFrameUpdatePlanner {
             actions.append(.invalidateLayout)
         }
 
-        actions.append(.layoutIfNeeded)
-        actions.append(.updateInsets(request.inputHeight))
+        let shouldForceLayout = request.source != .keyboardFrame || request.anchorRestoration == .visibleAnchor
+        if shouldForceLayout {
+            actions.append(.layoutIfNeeded)
+            actions.append(.updateInsets(request.inputHeight))
+        }
 
         switch request.anchorRestoration {
         case .none:

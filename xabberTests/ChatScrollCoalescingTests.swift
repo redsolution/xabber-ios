@@ -50,6 +50,18 @@ final class ChatScrollCoalescingTests: XCTestCase {
         XCTAssertFalse(gate.isActive)
     }
 
+    func testKeyboardFrameHoldDurationCoversAnimationDuration() {
+        XCTAssertEqual(
+            ChatUIResponsivenessGate.holdDuration(keyboardAnimationDuration: 0),
+            ChatUIResponsivenessGate.defaultHoldDuration
+        )
+        XCTAssertEqual(
+            ChatUIResponsivenessGate.holdDuration(keyboardAnimationDuration: 0.35),
+            0.40,
+            accuracy: 0.001
+        )
+    }
+
     func testInteractionGateCoalescesPresentationRefreshUntilInactive() {
         var now = Date(timeIntervalSince1970: 100)
         var scheduled: [(TimeInterval, () -> Void)] = []

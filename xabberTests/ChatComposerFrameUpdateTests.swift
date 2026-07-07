@@ -58,7 +58,7 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
         )
     }
 
-    func testKeyboardFrameChangeUsesSingleLayoutPassWithoutInvalidatingMessages() {
+    func testKeyboardFrameChangeAtBottomAvoidsSynchronousMessageLayout() {
         let actions = ChatComposerFrameUpdatePlanner.actions(
             for: ChatComposerFrameUpdateRequest(
                 source: .keyboardFrame,
@@ -73,7 +73,28 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
         XCTAssertFalse(actions.contains(.invalidateLayoutCache))
         XCTAssertFalse(actions.contains(.invalidateLayout))
         XCTAssertFalse(actions.contains(.scrollToBottom))
-        XCTAssertEqual(actions.filter { $0 == .layoutIfNeeded }.count, 1)
+        XCTAssertFalse(actions.contains(.layoutIfNeeded))
+        XCTAssertEqual(actions.filter { $0 == .updateInsets(280) }.count, 1)
+    }
+
+    func testKeyboardFrameChangeKeepsLayoutBeforeVisibleAnchorRestore() throws {
+        let actions = ChatComposerFrameUpdatePlanner.actions(
+            for: ChatComposerFrameUpdateRequest(
+                source: .keyboardFrame,
+                hasMessages: true,
+                previousInputHeight: 88,
+                inputHeight: 280,
+                anchorRestoration: .visibleAnchor
+            )
+        )
+
+        XCTAssertFalse(actions.contains(.reloadData))
+        XCTAssertFalse(actions.contains(.invalidateLayoutCache))
+        XCTAssertFalse(actions.contains(.invalidateLayout))
+        XCTAssertLessThan(
+            try XCTUnwrap(actions.firstIndex(of: .layoutIfNeeded)),
+            try XCTUnwrap(actions.firstIndex(of: .restoreVisibleAnchor))
+        )
         XCTAssertEqual(actions.filter { $0 == .updateInsets(280) }.count, 2)
     }
 }
