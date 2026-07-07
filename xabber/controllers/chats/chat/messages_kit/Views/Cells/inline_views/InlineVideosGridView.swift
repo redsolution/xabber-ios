@@ -306,6 +306,15 @@ class InlineVideosGridView: InlineAttachmentView {
     
     var views: [InlineMessageVideoView] = []
 
+    func resetState() {
+        views.forEach {
+            $0.kf.cancelDownloadTask()
+            $0.removeFromSuperview()
+        }
+        views = []
+        contentViews.removeAll()
+    }
+
     public func prepareGrid(_ attachments: [VideoAttachment]) -> [CGRect] {
         var rects: [CGRect] = []
         let halfPadding: CGFloat = 2
@@ -393,9 +402,7 @@ class InlineVideosGridView: InlineAttachmentView {
     }
     
     func configure(_ attachments: [VideoAttachment]) {
-        self.views.forEach { $0.removeFromSuperview() }
-        self.views = []
-        self.contentViews.removeAll()
+        resetState()
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
             let view = InlineMessageVideoView(

@@ -846,6 +846,8 @@ public class TextMessageCell: MessageContentCell {
     }
 
     private func resetReusableAttachmentState() {
+        imagesView.resetState()
+        videosView.resetState()
         audiosView.views.forEach { view in
             view.resetWaveform()
             view.resetState()

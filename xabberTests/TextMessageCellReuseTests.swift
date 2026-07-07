@@ -90,6 +90,33 @@ final class TextMessageCellReuseTests: XCTestCase {
         XCTAssertEqual(reusedView.sizeLabel.text, "2 KB")
     }
 
+    func testPrepareForReuseClearsInlineMediaViews() throws {
+        let loader = FakeAvatarLoader()
+        let cell = makeCell(loader: loader)
+        let imageURL = URL(fileURLWithPath: "/tmp/old-image.jpg")
+        let videoURL = URL(fileURLWithPath: "/tmp/old-video.mov")
+        let previewURL = URL(fileURLWithPath: "/tmp/old-video-preview.jpg")
+        cell.imagesView.frame = CGRect(x: 0, y: 0, width: 220, height: 220)
+        cell.videosView.frame = CGRect(x: 0, y: 0, width: 220, height: 220)
+
+        configure(
+            cell,
+            with: makeMessage(
+                primary: "message",
+                images: [ImageAttachment(primary: "image-1", url: imageURL, size: CGSize(width: 1024, height: 768))],
+                videos: [VideoAttachment(primary: "video-1", url: videoURL, size: CGSize(width: 1024, height: 768), previewUrl: previewURL, duration: 1, downloaded: true)]
+            )
+        )
+
+        XCTAssertEqual(cell.imagesView.views.map(\.primary), ["image-1"])
+        XCTAssertEqual(cell.videosView.views.map(\.primary), ["video-1"])
+
+        cell.prepareForReuse()
+
+        XCTAssertTrue(cell.imagesView.views.isEmpty)
+        XCTAssertTrue(cell.videosView.views.isEmpty)
+    }
+
     private func makeCell(loader: FakeAvatarLoader) -> TextMessageCell {
         let cell = TextMessageCell(frame: CGRect(x: 0, y: 0, width: 390, height: 180))
         cell.avatarLoader = loader
@@ -106,6 +133,8 @@ final class TextMessageCellReuseTests: XCTestCase {
     private func makeMessage(
         primary: String,
         avatarUrl: String? = nil,
+        images: [ImageAttachment] = [],
+        videos: [VideoAttachment] = [],
         files: [FileAttachment] = []
     ) -> ReuseTestMessage {
         ReuseTestMessage(
@@ -115,6 +144,8 @@ final class TextMessageCellReuseTests: XCTestCase {
             withAvatar: avatarUrl != nil,
             groupchatAuthorNickname: "Alexey",
             groupchatAuthorId: "alexey@example.com",
+            imageAttachments: images,
+            videoAttachments: videos,
             files: files,
             avatarUrl: avatarUrl
         )
@@ -221,8 +252,10 @@ private struct ReuseTestMessage: MessageType {
     var isHasAttachedMessages: Bool { false }
     var afterburnInterval: Double { 0 }
     var tailed: Bool { false }
-    var images: [ImageAttachment] { [] }
-    var videos: [VideoAttachment] { [] }
+    let imageAttachments: [ImageAttachment]
+    let videoAttachments: [VideoAttachment]
+    var images: [ImageAttachment] { imageAttachments }
+    var videos: [VideoAttachment] { videoAttachments }
     var locations: [LocationAttachment] { [] }
     var contacts: [ContactAttachment] { [] }
     let files: [FileAttachment]

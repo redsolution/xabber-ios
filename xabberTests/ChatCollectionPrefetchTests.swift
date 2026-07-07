@@ -7,6 +7,10 @@ final class ChatCollectionPrefetchTests: XCTestCase {
         let videoPreviewURL = URL(string: "https://cdn.example.com/video-preview.jpg")!
         let avatarURL = URL(string: "https://cdn.example.com/avatar.png")!
         let contactAvatarURL = URL(string: "https://cdn.example.com/contact-avatar.png")!
+        let mediaSize = ChatCollectionPrefetchSize(width: 240, height: 240)
+        let avatarSize = ChatCollectionPrefetchSize(width: 32, height: 32)
+        let contactAvatarSize = ChatCollectionPrefetchSize(width: 40, height: 40)
+        let screenScale = 3.0
         let key = conversationKey()
         let oldest = boundary(primary: "oldest", archivedId: "1")
         let newest = boundary(primary: "newest", archivedId: "10")
@@ -48,7 +52,11 @@ final class ChatCollectionPrefetchTests: XCTestCase {
                     newestBoundary: newest,
                     firstRealSection: 0,
                     lastRealSection: 1,
-                    locationSnapshotSize: ChatCollectionPrefetchSize(width: 220, height: 220)
+                    locationSnapshotSize: ChatCollectionPrefetchSize(width: 220, height: 220),
+                    mediaContainerSize: mediaSize,
+                    avatarSize: avatarSize,
+                    contactAvatarSize: contactAvatarSize,
+                    screenScale: screenScale
                 )
             },
             prefetcher: prefetcher
@@ -60,11 +68,11 @@ final class ChatCollectionPrefetchTests: XCTestCase {
         ])
 
         let resources = prefetcher.prefetchedResources()
-        XCTAssertTrue(resources.contains(.image(identity: identity(.image, message: "m1", reference: "img1"), url: imageURL)))
-        XCTAssertTrue(resources.contains(.image(identity: identity(.image, message: "m2", reference: "img2"), url: imageURL)))
-        XCTAssertTrue(resources.contains(.videoPreview(identity: identity(.videoPreview, message: "m1", reference: "vid1"), url: videoPreviewURL)))
-        XCTAssertTrue(resources.contains(.avatar(identity: identity(.avatar, message: "m1", reference: "m1"), url: avatarURL)))
-        XCTAssertTrue(resources.contains(.avatar(identity: identity(.contactAvatar, message: "m1", reference: "contact1"), url: contactAvatarURL)))
+        XCTAssertTrue(resources.contains(.image(identity: identity(.image, message: "m1", reference: "img1"), request: mediaRequest(url: imageURL, size: mediaSize, scale: screenScale))))
+        XCTAssertTrue(resources.contains(.image(identity: identity(.image, message: "m2", reference: "img2"), request: mediaRequest(url: imageURL, size: mediaSize, scale: screenScale))))
+        XCTAssertTrue(resources.contains(.videoPreview(identity: identity(.videoPreview, message: "m1", reference: "vid1"), request: mediaRequest(url: videoPreviewURL, size: mediaSize, scale: screenScale))))
+        XCTAssertTrue(resources.contains(.avatar(identity: identity(.avatar, message: "m1", reference: "m1"), request: mediaRequest(url: avatarURL, size: avatarSize, scale: screenScale))))
+        XCTAssertTrue(resources.contains(.avatar(identity: identity(.contactAvatar, message: "m1", reference: "contact1"), request: mediaRequest(url: contactAvatarURL, size: contactAvatarSize, scale: screenScale))))
         XCTAssertTrue(resources.contains(.locationSnapshot(
             identity: identity(.locationSnapshot, message: "m1", reference: "loc1"),
             location: ChatCollectionPrefetchLocation(latitude: 51.5, longitude: -0.12, address: "London", geoURI: "geo:51.5,-0.12"),
@@ -94,8 +102,127 @@ final class ChatCollectionPrefetchTests: XCTestCase {
         coordinator.cancelPrefetchingForItems(at: [indexPath])
 
         let cancelled = prefetcher.cancelledResources()
-        XCTAssertTrue(cancelled.contains(.image(identity: identity(.image, message: "old-message", reference: "old-image"), url: oldURL)))
-        XCTAssertFalse(cancelled.contains(.image(identity: identity(.image, message: "new-message", reference: "new-image"), url: newURL)))
+        XCTAssertTrue(cancelled.contains(.image(identity: identity(.image, message: "old-message", reference: "old-image"), request: mediaRequest(url: oldURL))))
+        XCTAssertFalse(cancelled.contains(.image(identity: identity(.image, message: "new-message", reference: "new-image"), request: mediaRequest(url: newURL))))
+    }
+
+    func testPrefetchRequestsIncludeDownsamplingCacheKeysForRenderedSize() throws {
+        let imageURL = URL(string: "https://cdn.example.com/full-resolution.jpg")!
+        let resources = ChatCollectionPrefetchPlanner.resources(
+            for: item(
+                primary: "message",
+                images: [.init(primary: "image", url: imageURL)]
+            ),
+            indexPath: IndexPath(item: 0, section: 0),
+            context: .empty(
+                conversationKey: conversationKey(),
+                mediaContainerSize: ChatCollectionPrefetchSize(width: 180, height: 120),
+                screenScale: 3
+            )
+        )
+
+        let request = try XCTUnwrap(resources.compactMap { resource -> ChatCollectionPrefetchImageRequest? in
+            if case .image(_, let request) = resource {
+                return request
+            }
+            return nil
+        }.first)
+        XCTAssertEqual(request.displaySize, ChatCollectionPrefetchSize(width: 180, height: 120))
+        XCTAssertEqual(request.pixelSize, ChatCollectionPrefetchSize(width: 540, height: 360))
+        XCTAssertEqual(request.scale, 3)
+        XCTAssertTrue(request.cacheKey.contains("540x360@3"))
+    }
+
+    func testContentPrefetcherDoesNotStartDuplicateImageWork() {
+        let imageURL = URL(string: "https://cdn.example.com/duplicate.jpg")!
+        let factory = FakeChatImagePrefetchTaskFactory()
+        let prefetcher = ChatCollectionContentPrefetcher(
+            locationSnapshotProvider: FakeChatLocationSnapshotProvider(),
+            pageWarmupProvider: FakeChatCollectionPageWarmupProvider(),
+            pageWarmupLimit: 20,
+            imagePrefetchTaskFactory: factory
+        )
+        let resource = ChatCollectionPrefetchResource.image(
+            identity: identity(.image, message: "message", reference: "image"),
+            request: mediaRequest(url: imageURL)
+        )
+
+        prefetcher.prefetch([resource])
+        prefetcher.prefetch([resource])
+
+        XCTAssertEqual(factory.tasks.count, 1)
+        XCTAssertEqual(factory.tasks.first?.startCount, 1)
+        XCTAssertEqual(prefetcher.activeImagePrefetchCount, 1)
+    }
+
+    func testCoordinatorCancelAllClearsImageWarmupAndLocationWork() {
+        let imageURL = URL(string: "https://cdn.example.com/image.jpg")!
+        let snapshotProvider = FakeChatLocationSnapshotProvider()
+        let warmupProvider = FakeChatCollectionPageWarmupProvider()
+        let imageFactory = FakeChatImagePrefetchTaskFactory()
+        let contentPrefetcher = ChatCollectionContentPrefetcher(
+            locationSnapshotProvider: snapshotProvider,
+            pageWarmupProvider: warmupProvider,
+            pageWarmupLimit: 20,
+            imagePrefetchTaskFactory: imageFactory
+        )
+        let key = conversationKey()
+        let oldest = boundary(primary: "oldest", archivedId: "1")
+        let coordinator = ChatCollectionPrefetchCoordinator(
+            itemProvider: { _ in
+                self.item(
+                    primary: "message",
+                    images: [.init(primary: "image", url: imageURL)],
+                    locations: [.init(primary: "loc", latitude: 51.5, longitude: -0.12, address: "London", geoURI: "geo:51.5,-0.12", snapshotURL: nil)]
+                )
+            },
+            contextProvider: {
+                ChatCollectionPrefetchContext(
+                    conversationKey: key,
+                    availability: ChatScrollBoundaryAvailability(
+                        hasLocalOlderPage: true,
+                        hasLocalNewerPage: false,
+                        hasKnownArchiveGapAbove: false,
+                        hasKnownArchiveGapBelow: false,
+                        hasRemoteOlderPage: false,
+                        hasRemoteNewerPage: false,
+                        isRemotePageInFlight: false
+                    ),
+                    oldestBoundary: oldest,
+                    newestBoundary: nil,
+                    firstRealSection: 0,
+                    lastRealSection: 0,
+                    locationSnapshotSize: ChatCollectionPrefetchSize(width: 220, height: 220)
+                )
+            },
+            prefetcher: contentPrefetcher
+        )
+
+        coordinator.prefetchItems(at: [IndexPath(item: 0, section: 0)])
+        XCTAssertEqual(contentPrefetcher.activeImagePrefetchCount, 1)
+        XCTAssertEqual(contentPrefetcher.activePageWarmupTaskCount, 1)
+        XCTAssertEqual(contentPrefetcher.activeLocationSnapshotCount, 1)
+
+        coordinator.cancelAll()
+
+        XCTAssertEqual(imageFactory.tasks.first?.stopCount, 1)
+        XCTAssertEqual(warmupProvider.tasks.first?.cancelCount, 1)
+        XCTAssertEqual(contentPrefetcher.activeImagePrefetchCount, 0)
+        XCTAssertEqual(contentPrefetcher.activePageWarmupTaskCount, 0)
+        XCTAssertEqual(contentPrefetcher.activeLocationSnapshotCount, 0)
+
+        snapshotProvider.completeAll(with: .success(URL(fileURLWithPath: "/tmp/location.png")))
+        XCTAssertEqual(contentPrefetcher.activeLocationSnapshotCount, 0)
+    }
+
+    func testUploadingImagePrefetchUsesLocalFileURLUntilRemoteExists() throws {
+        let localURL = URL(fileURLWithPath: "/tmp/uploading-local-image.jpg")
+        let remoteURL = try XCTUnwrap(URL(string: "https://cdn.example.com/uploaded-image.jpg"))
+        let uploading = mediaReference(primary: "uploading", localURL: localURL, remoteURL: nil)
+        let uploaded = mediaReference(primary: "uploaded", localURL: localURL, remoteURL: remoteURL)
+
+        XCTAssertEqual(ChatViewController.mapReferenceAttachments([uploading]).images.first?.url, localURL)
+        XCTAssertEqual(ChatViewController.mapReferenceAttachments([uploaded]).images.first?.url, remoteURL)
     }
 
     func testStaleIndexPathsAfterDatasetShrinkDoNotPrefetchWrongContent() {
@@ -261,6 +388,25 @@ final class ChatCollectionPrefetchTests: XCTestCase {
             timestamp: 100
         )
     }
+
+    private func mediaRequest(
+        url: URL,
+        size: ChatCollectionPrefetchSize = ChatCollectionPrefetchSize(width: 220, height: 220),
+        scale: Double = 2
+    ) -> ChatCollectionPrefetchImageRequest {
+        ChatCollectionPrefetchImageRequest(url: url, displaySize: size, scale: scale)
+    }
+
+    private func mediaReference(primary: String, localURL: URL, remoteURL: URL?) -> MessageReferenceStorageItem {
+        let reference = MessageReferenceStorageItem()
+        reference.primary = primary
+        reference.kind = .media
+        reference.mimeType = "image/jpeg"
+        reference.metadata = ["media-type": "image/jpeg"]
+        reference.localFileUrl = localURL
+        reference.downloadUrl = remoteURL
+        return reference
+    }
 }
 
 private final class FakeChatCollectionContentPrefetcher: ChatCollectionContentPrefetching {
@@ -285,5 +431,69 @@ private final class FakeChatCollectionContentPrefetcher: ChatCollectionContentPr
         cancelled.reduce(into: Set<ChatCollectionPrefetchResource>()) { partialResult, resources in
             partialResult.formUnion(resources)
         }
+    }
+}
+
+private final class FakeChatImagePrefetchTaskFactory: ChatCollectionImagePrefetchTaskMaking {
+    private(set) var tasks: [FakeChatImagePrefetchTask] = []
+
+    func makeTask(for request: ChatCollectionPrefetchImageRequest) -> ChatCollectionImagePrefetchTask {
+        let task = FakeChatImagePrefetchTask(request: request)
+        tasks.append(task)
+        return task
+    }
+}
+
+private final class FakeChatImagePrefetchTask: ChatCollectionImagePrefetchTask {
+    let request: ChatCollectionPrefetchImageRequest
+    private(set) var startCount = 0
+    private(set) var stopCount = 0
+
+    init(request: ChatCollectionPrefetchImageRequest) {
+        self.request = request
+    }
+
+    func start() {
+        startCount += 1
+    }
+
+    func stop() {
+        stopCount += 1
+    }
+}
+
+private final class FakeChatCollectionPageWarmupProvider: ChatCollectionPageWarmupProviding {
+    private(set) var tasks: [FakeChatCollectionPageWarmupTask] = []
+
+    func warmup(_ request: ChatCollectionPrefetchPageWarmup, limit: Int) -> ChatCollectionPageWarmupTask {
+        let task = FakeChatCollectionPageWarmupTask()
+        tasks.append(task)
+        return task
+    }
+}
+
+private final class FakeChatCollectionPageWarmupTask: ChatCollectionPageWarmupTask {
+    private(set) var cancelCount = 0
+
+    func cancel() {
+        cancelCount += 1
+    }
+}
+
+private final class FakeChatLocationSnapshotProvider: ChatLocationSnapshotProviding {
+    private var completions: [(Result<URL, Error>) -> Void] = []
+
+    func makeSnapshot(
+        for location: ChatAttachmentResolvedLocation,
+        size: CGSize,
+        completion: @escaping (Result<URL, Error>) -> Void
+    ) {
+        completions.append(completion)
+    }
+
+    func completeAll(with result: Result<URL, Error>) {
+        let completions = completions
+        self.completions.removeAll()
+        completions.forEach { $0(result) }
     }
 }

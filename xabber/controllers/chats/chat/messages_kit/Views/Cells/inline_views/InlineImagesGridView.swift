@@ -73,6 +73,15 @@ class InlineImagesGridView: InlineAttachmentView {
     
     var views: [InlineMessageImageView] = []
 
+    func resetState() {
+        views.forEach {
+            $0.kf.cancelDownloadTask()
+            $0.removeFromSuperview()
+        }
+        views = []
+        contentViews.removeAll()
+    }
+
     public func prepareGrid(_ attachments: [ImageAttachment]) -> [CGRect] {
         var rects: [CGRect] = []
         let halfPadding: CGFloat = 2
@@ -161,9 +170,7 @@ class InlineImagesGridView: InlineAttachmentView {
     
     func configure(_ attachments: [ImageAttachment]) {
 //        subviews.forEach { $0.removeFromSuperview() }
-        self.views.forEach { $0.removeFromSuperview() }
-        self.views = []
-        self.contentViews.removeAll()
+        resetState()
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
             if let url = attachments[index].url {
