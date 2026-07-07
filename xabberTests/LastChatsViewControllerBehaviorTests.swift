@@ -316,6 +316,47 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         XCTAssertEqual(controller.tableView.indexPathForSelectedRow, indexPath)
     }
 
+    func testCompactChatReturnClearsSelectedChatRow() throws {
+        let controller = LastChatsViewController()
+        let item = makeDatasource(jid: "romeo@example.com", owner: "owner@example.com")
+        let sections = LastChatsViewController.makeDatasourceSections(from: [item], showsSkeleton: false)
+        let indexPath = IndexPath(row: 0, section: 0)
+        controller.loadViewIfNeeded()
+        controller.showSkeleton.accept(false)
+        controller.setDatasource([item], sections: sections, showsSkeleton: false)
+        controller.tableView.reloadData()
+        controller.view.layoutIfNeeded()
+        controller.setSelectedChat(jid: item.jid, owner: item.owner, conversationType: item.conversationType, animated: false)
+
+        XCTAssertEqual(controller.tableView.indexPathForSelectedRow, indexPath)
+        XCTAssertTrue(controller.isSelectedChat(item))
+
+        controller.clearSelectedChatSelectionOnReturnIfNeeded(route: .currentNavigationPush, animated: false)
+
+        XCTAssertNil(controller.tableView.indexPathForSelectedRow)
+        XCTAssertFalse(controller.isSelectedChat(item))
+        let cell = try XCTUnwrap(controller.tableView.cellForRow(at: indexPath) as? ChatListTableViewCell)
+        XCTAssertEqual(cell.backgroundColor, .systemBackground)
+    }
+
+    func testSplitDetailChatReturnKeepsSelectedChatRow() {
+        let controller = LastChatsViewController()
+        let item = makeDatasource(jid: "romeo@example.com", owner: "owner@example.com")
+        let sections = LastChatsViewController.makeDatasourceSections(from: [item], showsSkeleton: false)
+        let indexPath = IndexPath(row: 0, section: 0)
+        controller.loadViewIfNeeded()
+        controller.showSkeleton.accept(false)
+        controller.setDatasource([item], sections: sections, showsSkeleton: false)
+        controller.tableView.reloadData()
+        controller.view.layoutIfNeeded()
+        controller.setSelectedChat(jid: item.jid, owner: item.owner, conversationType: item.conversationType, animated: false)
+
+        controller.clearSelectedChatSelectionOnReturnIfNeeded(route: .splitDetailReplacement, animated: false)
+
+        XCTAssertEqual(controller.tableView.indexPathForSelectedRow, indexPath)
+        XCTAssertTrue(controller.isSelectedChat(item))
+    }
+
     func testApplyReplacementUpdatesExecutesImmediately() {
         let controller = LastChatsViewController()
         let item = makeDatasource(jid: "romeo@example.com", owner: "owner@example.com")

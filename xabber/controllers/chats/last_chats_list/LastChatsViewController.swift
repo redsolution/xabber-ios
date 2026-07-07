@@ -130,6 +130,12 @@ enum LastChatsTableStylePolicy {
     }
 }
 
+enum LastChatsSelectionReturnPolicy {
+    static func shouldClearSelectedChat(route: StackedNavigationRoute) -> Bool {
+        route == .currentNavigationPush
+    }
+}
+
 public final class ChangesWithIndexPath {
     public let insertedSections: IndexSet
     public let deletedSections: IndexSet
@@ -1562,6 +1568,56 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
         tableView.selectRow(at: selectedIndexPath, animated: animated, scrollPosition: scrollPosition)
         reconfigureVisibleRow(at: selectedIndexPath)
+    }
+
+    internal final func clearSelectedChatSelectionOnReturnIfNeeded(
+        route: StackedNavigationRoute,
+        animated: Bool
+    ) {
+        guard LastChatsSelectionReturnPolicy.shouldClearSelectedChat(route: route) else {
+            return
+        }
+
+        let selectedIndexPath = selectedChatIdentity.flatMap {
+            Self.indexPathForChat($0, in: datasourceSections)
+        } ?? tableView.indexPathForSelectedRow
+
+        selectedChatIdentity = nil
+
+        if let tableSelectedIndexPath = tableView.indexPathForSelectedRow {
+            tableView.deselectRow(at: tableSelectedIndexPath, animated: animated)
+        } else if let selectedIndexPath {
+            tableView.deselectRow(at: selectedIndexPath, animated: animated)
+        }
+
+        guard let selectedIndexPath else {
+            return
+        }
+        reconfigureVisibleSelectionRow(at: selectedIndexPath, animated: animated)
+    }
+
+    private final func reconfigureVisibleSelectionRow(at indexPath: IndexPath, animated: Bool) {
+        guard !showSkeleton.value,
+              let item = item(at: indexPath),
+              let cell = tableView.cellForRow(at: indexPath) as? ChatListTableViewCell else {
+            return
+        }
+
+        let update = {
+            self.configureChatCell(cell, with: item)
+        }
+
+        guard animated else {
+            UIView.performWithoutAnimation(update)
+            return
+        }
+
+        UIView.transition(
+            with: cell,
+            duration: 0.25,
+            options: [.transitionCrossDissolve, .allowUserInteraction, .beginFromCurrentState],
+            animations: update
+        )
     }
 
     private final func updateVisibleSelectionRows(
@@ -3353,6 +3409,10 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         UIView.performWithoutAnimation {
             syncSelectedChatSelection()
         }
+        clearSelectedChatSelectionOnReturnIfNeeded(
+            route: stackedNavigationRoute(for: self),
+            animated: true
+        )
         NotifyManager.shared.setLastChats(displayed: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             let center = UNUserNotificationCenter.current()
