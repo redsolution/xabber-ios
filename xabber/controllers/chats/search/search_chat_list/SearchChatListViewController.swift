@@ -141,108 +141,37 @@ class SearchChatListViewController: SimpleBaseViewController {
         
         return panel
     }()
-    
-    
-    override func addObservers() {
-        super.addObservers()
-//        NotificationCenter.default.addObserver(
-//            self,
-//            selector: #selector(self.keyboardWillShowNotification(_:)),
-//            name: UIWindow.keyboardWillShowNotification,
-//            object: nil
-//        )
-//        NotificationCenter.default.addObserver(
-//            self,
-//            selector: #selector(self.keyboardWillHideNotification(_:)),
-//            name: UIWindow.keyboardWillHideNotification,
-//            object: nil
-//        )
-//        NotificationCenter.default.addObserver(
-//            self,
-//            selector: #selector(self.keyboardWillChangeFrameNotification(_:)),
-//            name: UIWindow.keyboardWillChangeFrameNotification,
-//            object: nil
-//        )
-    }
-    
-    @objc
-    func keyboardWillShowNotification(_ notification: Notification) {
-        if let userInfo = notification.userInfo {
-            if let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
-                let frame = frameValue.cgRectValue
-                let keyboardVisibleHeight = frame.size.height
-//                print("keyboardVisibleHeight", keyboardVisibleHeight)
-                switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
-                case let (.some(duration), .some(curve)):
-                    let options = UIView.AnimationOptions(rawValue: curve.uintValue)
-                    UIView.animate(
-                        withDuration: TimeInterval(duration.doubleValue),
-                        delay: 0,
-                        options: options,
-                        animations: {
-                            var inputHeight: CGFloat = 49 + keyboardVisibleHeight
-                            let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
-                            self.bottomBar.frame = frame
-                            return
-                        }, completion: { finished in
-                    })
-                default:
-                    
-                    break
-                }
-            }
-        }
-    }
-    
-    @objc
-    func keyboardWillHideNotification(_ notification: Notification) {
-        if let userInfo = notification.userInfo {
-            if let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
-                let frame = frameValue.cgRectValue
-                let keyboardVisibleHeight = frame.size.height
-                switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
-                case let (.some(duration), .some(curve)):
-                    let options = UIView.AnimationOptions(rawValue: curve.uintValue)
-                    UIView.animate(
-                        withDuration: TimeInterval(duration.doubleValue),
-                        delay: 0,
-                        options: options,
-                        animations: {
-                            var inputHeight: CGFloat = 49
-                            if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                                inputHeight += bottomInset
-                            }
-                            
-                            let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
-                            self.bottomBar.frame = frame
-                            return
-                        }, completion: { finished in
-                    })
-                default:
-                    
-                    break
-                }
-            }
-        }
-    }
-    
-    @objc
-    func keyboardWillChangeFrameNotification(_ notification: Notification) {
-        
-    }
+
+    internal private(set) var bottomBarBottomConstraint: NSLayoutConstraint?
+    internal private(set) var bottomBarHeightConstraint: NSLayoutConstraint?
     
     override func activateConstraints() {
         super.activateConstraints()
         self.tableView.fillSuperview()
         self.emptyView.fillSuperview()
-        var inputHeight: CGFloat = 49
-        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
-        }
-        
-        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
-        self.bottomBar.frame = frame
+        self.installBottomBarKeyboardConstraintsIfNeeded()
         self.searchPanel.fillSuperviewWithOffset(top: 6, bottom: 6, left: 12, right: 12)
+    }
+
+    private func installBottomBarKeyboardConstraintsIfNeeded() {
+        guard self.bottomBar.superview === self.view,
+              self.bottomBarBottomConstraint == nil else {
+            return
+        }
+
+        self.bottomBar.translatesAutoresizingMaskIntoConstraints = false
+        let bottomConstraint = self.bottomBar.bottomAnchor.constraint(equalTo: self.view.keyboardLayoutGuide.topAnchor)
+        let heightConstraint = self.bottomBar.heightAnchor.constraint(equalToConstant: ModernXabberInputView.defaultBarHeight)
+
+        NSLayoutConstraint.activate([
+            self.bottomBar.leadingAnchor.constraint(equalTo: self.view.leadingAnchor),
+            self.bottomBar.trailingAnchor.constraint(equalTo: self.view.trailingAnchor),
+            bottomConstraint,
+            heightConstraint
+        ])
+
+        self.bottomBarBottomConstraint = bottomConstraint
+        self.bottomBarHeightConstraint = heightConstraint
     }
     
     override func setupSubviews() {

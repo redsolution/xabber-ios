@@ -44,6 +44,7 @@
 		4E7800022FC600000ABC001 /* ChatDatasourceMappingThreadingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7800012FC600000ABC001 /* ChatDatasourceMappingThreadingTests.swift */; };
 		4E7900022FC700000ABC001 /* ChatLocalHistoryPageProviderWindowingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7900012FC700000ABC001 /* ChatLocalHistoryPageProviderWindowingTests.swift */; };
 		4E7A00022FC800000ABC001 /* ChatReloadInvalidationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7A00012FC800000ABC001 /* ChatReloadInvalidationPolicyTests.swift */; };
+		4E8100022FD000000ABC001 /* SearchChatListKeyboardLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8100012FD000000ABC001 /* SearchChatListKeyboardLayoutTests.swift */; };
 		4E7000022FAF00000ABC001 /* TextMessageCellReuseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7000012FAF00000ABC001 /* TextMessageCellReuseTests.swift */; };
 		4E7100022FB000000ABC001 /* ChatComposerSendButtonIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7100012FB000000ABC001 /* ChatComposerSendButtonIconTests.swift */; };
 		4E5300082F71000000ABC001 /* GroupchatInviteV3Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5300072F71000000ABC001 /* GroupchatInviteV3Tests.swift */; };
@@ -1219,6 +1220,7 @@
 		4E1000032F66000000ABC001 /* FloatingBottomBarViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingBottomBarViewTests.swift; sourceTree = "<group>"; };
 		4E1000052F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuSurfaceEffectFactoryTests.swift; sourceTree = "<group>"; };
 		4E5600012F74000000ABC001 /* LeftMenuSelectionPresentationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuSelectionPresentationPolicyTests.swift; sourceTree = "<group>"; };
+		4E8100012FD000000ABC001 /* SearchChatListKeyboardLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchChatListKeyboardLayoutTests.swift; sourceTree = "<group>"; };
 		4E2000012F67000000ABC001 /* VoiceRecordingInteractionStateMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecordingInteractionStateMachine.swift; sourceTree = "<group>"; };
 		4E2000032F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecordingInteractionStateMachineTests.swift; sourceTree = "<group>"; };
 		4E3000012F68000000ABC001 /* VoiceMessagePlaybackCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMessagePlaybackCoordinator.swift; sourceTree = "<group>"; };
@@ -3914,6 +3916,7 @@
 					4E7800012FC600000ABC001 /* ChatDatasourceMappingThreadingTests.swift */,
 					4E7900012FC700000ABC001 /* ChatLocalHistoryPageProviderWindowingTests.swift */,
 					4E7A00012FC800000ABC001 /* ChatReloadInvalidationPolicyTests.swift */,
+					4E8100012FD000000ABC001 /* SearchChatListKeyboardLayoutTests.swift */,
 					4E7000012FAF00000ABC001 /* TextMessageCellReuseTests.swift */,
 					4E7100012FB000000ABC001 /* ChatComposerSendButtonIconTests.swift */,
 					4E5300072F71000000ABC001 /* GroupchatInviteV3Tests.swift */,
@@ -5912,6 +5915,7 @@
 					4E7800022FC600000ABC001 /* ChatDatasourceMappingThreadingTests.swift in Sources */,
 					4E7900022FC700000ABC001 /* ChatLocalHistoryPageProviderWindowingTests.swift in Sources */,
 					4E7A00022FC800000ABC001 /* ChatReloadInvalidationPolicyTests.swift in Sources */,
+					4E8100022FD000000ABC001 /* SearchChatListKeyboardLayoutTests.swift in Sources */,
 					4E7000022FAF00000ABC001 /* TextMessageCellReuseTests.swift in Sources */,
 					4E7100022FB000000ABC001 /* ChatComposerSendButtonIconTests.swift in Sources */,
 					4E5300082F71000000ABC001 /* GroupchatInviteV3Tests.swift in Sources */,
