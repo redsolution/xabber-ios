@@ -22610,6 +22610,160 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 2)
     }
 
+    func testStoreMessagesNowPersistsLargeArchiveQueryInConfiguredChunks() throws {
+        let queryId = "chunk-query"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.messagePersistenceChunkSize = 2
+
+        for index in 1...5 {
+            manager.receiveArchived(try makeArchivedMessage(index: index, queryId: queryId))
+        }
+
+        var pendingDuringChunks: [Bool] = []
+        manager.messagePersistenceChunkObserver = { _, _ in
+            pendingDuringChunks.append(manager.hasPendingMessages(forQueryId: queryId))
+        }
+
+        let summary = manager.storeMessagesNowSummary(forQueryId: queryId)
+
+        XCTAssertEqual(manager.messagePersistenceChunkSizes, [2, 2, 1])
+        XCTAssertEqual(pendingDuringChunks, [true, true, true])
+        XCTAssertEqual(summary.received, 5)
+        XCTAssertEqual(summary.queued, 5)
+        XCTAssertEqual(summary.savedNew, 5)
+        XCTAssertEqual(summary.updatedExisting, 0)
+        XCTAssertEqual(summary.failed, 0)
+        XCTAssertEqual(summary.visibleRows(owner: "owner@example.com", jid: "romeo@example.com", conversationType: .regular), 5)
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 5)
+    }
+
+    func testStoreMessagesNowChunkingDrainsOnlyRequestedQuery() throws {
+        let requestedQueryId = "requested-chunk-query"
+        let unrelatedQueryId = "unrelated-chunk-query"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == requestedQueryId || $0 == unrelatedQueryId }
+        manager.messagePersistenceChunkSize = 2
+
+        for index in 1...3 {
+            manager.receiveArchived(try makeArchivedMessage(index: index, queryId: requestedQueryId))
+        }
+        for index in 4...5 {
+            manager.receiveArchived(try makeArchivedMessage(index: index, queryId: unrelatedQueryId))
+        }
+
+        let summary = manager.storeMessagesNowSummary(forQueryId: requestedQueryId)
+
+        XCTAssertEqual(manager.messagePersistenceChunkSizes, [2, 1])
+        XCTAssertEqual(summary.received, 3)
+        XCTAssertEqual(summary.queued, 3)
+        XCTAssertEqual(summary.savedNew, 3)
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: requestedQueryId))
+        XCTAssertTrue(manager.hasPendingMessages(forQueryId: unrelatedQueryId))
+        XCTAssertEqual(manager.performMessageQueueSync { manager.queuedMessages.count }, 2)
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 3)
+    }
+
+    func testChunkFallbackDoesNotPoisonLaterChunks() throws {
+        struct InjectedFirstChunkFailure: Error {}
+
+        let queryId = "chunk-fallback-query"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.messagePersistenceChunkSize = 2
+        var injectorCalls = 0
+        manager.archiveBatchSaveFailureInjector = {
+            injectorCalls += 1
+            if injectorCalls == 1 {
+                throw InjectedFirstChunkFailure()
+            }
+        }
+
+        for index in 1...5 {
+            manager.receiveArchived(try makeArchivedMessage(index: index, queryId: queryId))
+        }
+
+        let summary = manager.storeMessagesNowSummary(forQueryId: queryId)
+
+        XCTAssertEqual(manager.messagePersistenceChunkSizes, [2, 2, 1])
+        XCTAssertEqual(injectorCalls, 3)
+        XCTAssertEqual(summary.received, 5)
+        XCTAssertEqual(summary.queued, 5)
+        XCTAssertEqual(summary.savedNew, 5)
+        XCTAssertEqual(summary.failed, 0)
+        XCTAssertEqual(summary.visibleRows(owner: "owner@example.com", jid: "romeo@example.com", conversationType: .regular), 5)
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 5)
+    }
+
+    func testChunkedPersistencePreservesChronologicalOrder() throws {
+        let queryId = "chunk-order-query"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.messagePersistenceChunkSize = 2
+
+        for index in [5, 1, 3, 2, 4] {
+            manager.enqueue(try makeQueueItem(
+                index: index,
+                queryId: queryId,
+                shouldPersistArchiveQueryId: true
+            ))
+        }
+
+        _ = manager.storeMessagesNowSummary(forQueryId: queryId)
+
+        let storedMessageIds = try WRealm.safe()
+            .objects(MessageStorageItem.self)
+            .sorted(byKeyPath: "date", ascending: true)
+            .map(\.messageId)
+        XCTAssertEqual(manager.messagePersistenceChunkSizes, [2, 2, 1])
+        XCTAssertEqual(Array(storedMessageIds), ["message-1", "message-2", "message-3", "message-4", "message-5"])
+    }
+
+    func testRemoteCompletionFlushesChunkedQueryBeforeArchiveCoverageApply() throws {
+        let queryId = "chunked-ui-action-query"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.messagePersistenceChunkSize = 2
+
+        for index in 1...5 {
+            manager.receiveArchived(try makeArchivedMessage(index: index, queryId: queryId))
+        }
+
+        ChatRemoteHistoryCompletionCoordinator.registerPersistenceSource(
+            manager,
+            owner: "owner@example.com",
+            queryId: queryId
+        )
+        defer {
+            ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+                owner: "owner@example.com",
+                queryId: queryId
+            )
+        }
+
+        let result = ChatRemoteHistoryCompletionCoordinator.flushQueryMessages(
+            owner: "owner@example.com",
+            queryId: queryId,
+            state: MessageArchivePageEndState(queryExhausted: false, archiveEnded: false, persistedMessageCount: 0),
+            conversationJid: "romeo@example.com",
+            conversationType: .regular
+        )
+
+        XCTAssertEqual(manager.messagePersistenceChunkSizes, [2, 2, 1])
+        XCTAssertEqual(result.flushedMessageCount, 5)
+        XCTAssertEqual(result.state.persistedMessageCount, 5)
+        XCTAssertEqual(result.persistenceSummary.received, 5)
+        XCTAssertEqual(result.persistenceSummary.queued, 5)
+        XCTAssertEqual(result.persistenceSummary.savedNew, 5)
+        XCTAssertEqual(result.persistenceSummary.visibleRows(owner: "owner@example.com", jid: "romeo@example.com", conversationType: .regular), 5)
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
+    }
+
     func testRemoteCompletionFlushesRegisteredPersistenceSource() throws {
         let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
         manager.unsubscribeReceiver()

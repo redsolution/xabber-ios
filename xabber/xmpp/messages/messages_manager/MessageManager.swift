@@ -283,6 +283,9 @@ class MessageManager: AbstractXMPPManager {
     internal var archivePersistenceSummariesByQueryId: [String: ArchivePersistenceSummary] = [:]
     internal var archiveQueryIdPersistenceResolver: ((String?) -> Bool)?
     internal var archiveBatchSaveFailureInjector: (() throws -> Void)?
+    internal var messagePersistenceChunkSize: Int = 100
+    internal var messagePersistenceChunkSizes: [Int] = []
+    internal var messagePersistenceChunkObserver: ((Int, Int) -> Void)?
     
     internal var senderBag: DisposeBag = DisposeBag()
     

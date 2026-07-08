@@ -290,6 +290,33 @@ extension MessageManager {
             self.readStateRequests = readStateRequests
             self.archiveQueryIdsByPrimary = archiveQueryIdsByPrimary
         }
+
+        func chunks(maxSize: Int) -> [ProcessedQueueBatch] {
+            let chunkSize = max(1, maxSize)
+            guard messages.count > chunkSize else {
+                return [self]
+            }
+
+            return stride(from: 0, to: messages.count, by: chunkSize).map { startIndex in
+                let endIndex = min(startIndex + chunkSize, messages.count)
+                let messageChunk = Array(messages[startIndex..<endIndex])
+                let chunkPrimaries = Set(messageChunk.map(\.primary))
+                let chunkArchiveQueryIds = archiveQueryIdsByPrimary.filter { primary, _ in
+                    chunkPrimaries.contains(primary)
+                }
+                let readStateChunk: [ReadStateReconciliationRequest]
+                if readStateRequests.count == messages.count {
+                    readStateChunk = Array(readStateRequests[startIndex..<endIndex])
+                } else {
+                    readStateChunk = startIndex == 0 ? readStateRequests : []
+                }
+                return ProcessedQueueBatch(
+                    messages: messageChunk,
+                    readStateRequests: readStateChunk,
+                    archiveQueryIdsByPrimary: chunkArchiveQueryIds
+                )
+            }
+        }
     }
     
 //    public func resetQueue() {
@@ -1158,6 +1185,25 @@ extension MessageManager {
 
     @discardableResult
     func save(_ batch: ProcessedQueueBatch, silentNotifications: Bool = false) -> ArchivePersistenceSummary {
+        self.messagePersistenceChunkSizes.removeAll(keepingCapacity: true)
+        guard !batch.messages.isEmpty else {
+            return ArchivePersistenceSummary()
+        }
+
+        let chunks = batch.chunks(maxSize: self.messagePersistenceChunkSize)
+        var summary = ArchivePersistenceSummary()
+        chunks.enumerated().forEach { index, chunk in
+            self.messagePersistenceChunkSizes.append(chunk.messages.count)
+            self.messagePersistenceChunkObserver?(chunk.messages.count, index)
+            summary.merge(self.saveSingleBatch(chunk, silentNotifications: silentNotifications))
+        }
+        return summary
+    }
+
+    private func saveSingleBatch(
+        _ batch: ProcessedQueueBatch,
+        silentNotifications: Bool
+    ) -> ArchivePersistenceSummary {
         return ChatPerformanceSignposts.measure(.messagePersistence) {
         let startedAt = Date()
         let batchQueryIds = Set(batch.archiveQueryIdsByPrimary.values.flatMap { $0 })
