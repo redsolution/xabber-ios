@@ -378,6 +378,655 @@ struct SavedMessageDisplayPolicy {
     }
 }
 
+struct ChatMessageReferenceSnapshot {
+    let primary: String
+    let owner: String
+    let jid: String
+    let messageId: String
+    let kindRaw: String
+    let mimeType: String
+    let begin: Int
+    let end: Int
+    let url: String?
+    let downloadURLRaw: String?
+    let localFileURLRaw: String?
+    let decodedURLRaw: String?
+    let videoPreviewURLRaw: String?
+    let sizeInPx: CGSize?
+    let sizeInBytesRaw: Int
+    let filename: String?
+    let name: String?
+    let duration: Int?
+    let isDownloaded: Bool
+    let isSensitive: Bool
+    let isSensitiveChecked: Bool
+    let isLocallyHiddenByReport: Bool
+    let metadata: [String: Any]?
+    let meteringLevels: [Float]
+    let resolvedContactEntity: MessageContactEntityKind?
+
+    var kind: MessageReferenceStorageItem.Kind {
+        MessageReferenceStorageItem.Kind(rawValue: kindRaw) ?? .none
+    }
+
+    var range: NSRange {
+        NSRange(location: begin, length: max(0, end - begin))
+    }
+
+    var downloadUrl: URL? {
+        Self.encodedURL(from: downloadURLRaw)
+    }
+
+    var localFileUrl: URL? {
+        Self.encodedURL(from: localFileURLRaw)
+    }
+
+    var decodedUrl: URL? {
+        Self.encodedURL(from: decodedURLRaw)
+    }
+
+    var videoPreviewUrl: URL? {
+        guard let videoPreviewURLRaw else { return nil }
+        return URL(string: videoPreviewURLRaw)
+    }
+
+    init(_ reference: MessageReferenceStorageItem) {
+        let metadata = reference.metadata
+        let kind = reference.kind
+        let contactJid = Self.contactJid(metadata: metadata, url: reference.url)
+
+        self.primary = reference.primary
+        self.owner = reference.owner
+        self.jid = reference.jid
+        self.messageId = reference.messageId
+        self.kindRaw = reference.kind_
+        self.mimeType = reference.mimeType
+        self.begin = reference.begin
+        self.end = reference.end
+        self.url = reference.url
+        self.downloadURLRaw = [MessageReferenceStorageItem.Kind.geoloc, .contact].contains(kind) ? nil : reference.url
+        self.localFileURLRaw = metadata?["localFileUri"] as? String
+        self.decodedURLRaw = metadata?["decodedUrl"] as? String
+        self.videoPreviewURLRaw = metadata?["thumbnail"] as? String
+        if let height = metadata?["height"] as? Int,
+           let width = metadata?["width"] as? Int {
+            self.sizeInPx = CGSize(width: width, height: height)
+        } else {
+            self.sizeInPx = nil
+        }
+        self.sizeInBytesRaw = metadata?["size"] as? Int ?? 0
+        self.filename = metadata?["filename"] as? String
+        self.name = metadata?["name"] as? String
+        if let duration = metadata?["duration"] as? Int {
+            self.duration = duration
+        } else if let duration = metadata?["duration"] as? String {
+            self.duration = Int(duration)
+        } else {
+            self.duration = nil
+        }
+        self.isDownloaded = reference.isDownloaded
+        self.isSensitive = reference.isSensitive
+        self.isSensitiveChecked = reference.isSensitiveChecked
+        self.isLocallyHiddenByReport = reference.isLocallyHiddenByReport
+        self.metadata = metadata
+        if let metersString = metadata?["pcm"] as? String {
+            self.meteringLevels = metersString.split(separator: " ").compactMap { Float($0) }
+        } else {
+            self.meteringLevels = []
+        }
+        if kind == .contact,
+           let contactJid {
+            self.resolvedContactEntity = MessageContactEntityKind.resolved(
+                metadata: metadata,
+                owner: reference.owner,
+                jid: contactJid
+            )
+        } else {
+            self.resolvedContactEntity = nil
+        }
+    }
+
+    private static func encodedURL(from raw: String?) -> URL? {
+        guard let raw else { return nil }
+        return URL(string: raw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")
+    }
+
+    private static func contactJid(metadata: [String: Any]?, url: String?) -> String? {
+        if let value = metadata?["contact_jid"] as? String,
+           value.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty {
+            return value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return url?
+            .replacingOccurrences(of: "xmpp:", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+struct ChatMessageForwardSnapshot {
+    let primary: String
+    let messageId: String
+    let owner: String
+    let opponent: String
+    let jid: String
+    let parentId: String
+    let body: String
+    let forwardJid: String
+    let forwardNickname: String
+    let authorName: String
+    let isOutgoing: Bool
+    let originalDate: Date?
+    let references: [ChatMessageReferenceSnapshot]
+    let subforwards: [ChatMessageForwardSnapshot]
+
+    init(_ forward: MessageForwardsInlineStorageItem) {
+        self.primary = forward.primary
+        self.messageId = forward.messageId
+        self.owner = forward.owner
+        self.opponent = forward.opponent
+        self.jid = forward.jid
+        self.parentId = forward.parentId
+        self.body = forward.body
+        self.forwardJid = forward.forwardJid
+        self.forwardNickname = forward.forwardNickname
+        self.authorName = forward.tryToLoadNickname()
+        self.isOutgoing = forward.isOutgoing
+        self.originalDate = forward.originalDate
+        self.references = forward.references.map(ChatMessageReferenceSnapshot.init)
+        self.subforwards = forward.subforwards.map(ChatMessageForwardSnapshot.init)
+    }
+}
+
+struct ChatMessageDisplaySnapshot {
+    struct Presentation {
+        let isSavedMessage: Bool
+        let isSavedForward: Bool
+        let isDirectSavedNote: Bool
+        let displayAuthorJid: String
+        let displayAuthorName: String
+        let displayAvatarSource: String?
+        let displayOutgoing: Bool
+        let visibleBody: String
+        let visibleReferences: [ChatMessageReferenceSnapshot]
+        let visibleForwards: [ChatMessageForwardSnapshot]
+        let visibleReferencesRevision: String
+        let visibleForwardsRevision: String
+        let visibleDate: Date
+        let groupchatAuthorRole: String
+        let groupchatAuthorId: String
+        let groupchatAuthorNickname: String
+        let groupchatAuthorBadge: String
+        let isDeleted: Bool
+        let deleteState: MessageStorageItem.DeleteState
+        let authorColorKey: String
+    }
+
+    let primary: String
+    let owner: String
+    let opponent: String
+    let conversationType: ClientSynchronizationManager.ConversationType
+    let outgoing: Bool
+    let messageId: String
+    let archivedId: String
+    let queryIds: String?
+    let displayAs: MessageStorageItem.MessageDisplayType
+    let state: MessageStorageItem.MessageSendingState
+    let body: String
+    let legacyBody: String
+    let bodyForAttachmentRendering: String
+    let localReportPlaceholderText: String?
+    let date: Date
+    let sentDate: Date
+    let editDate: Date?
+    let afterburnInterval: Double
+    let burnDate: Double
+    let deleteState: MessageStorageItem.DeleteState
+    let isDeleted: Bool
+    let isLocallyHiddenByReport: Bool
+    let messageWarningText: String?
+    let messageError: String?
+    let groupchatAuthorId: String?
+    let groupchatAuthorNickname: String?
+    let groupchatAuthorBadge: String?
+    let groupchatMetadata: [String: Any]?
+    let errorMetadata: [String: Any]?
+    let isHasAttachedMessages: Bool
+    let isRead: Bool
+    let presentation: Presentation
+
+    init(item: MessageStorageItem, presentation: SavedMessageDisplayPolicy.Presentation) {
+        self.primary = item.primary
+        self.owner = item.owner
+        self.opponent = item.opponent
+        self.conversationType = item.conversationType
+        self.outgoing = item.outgoing
+        self.messageId = item.messageId
+        self.archivedId = item.archivedId
+        self.queryIds = item.queryIds
+        self.displayAs = item.displayAs
+        self.state = item.state
+        self.body = item.body
+        self.legacyBody = item.legacyBody
+        self.bodyForAttachmentRendering = item.bodyForAttachmentRendering
+        self.localReportPlaceholderText = item.localReportPlaceholderText
+        self.date = item.date
+        self.sentDate = item.sentDate
+        self.editDate = item.editDate
+        self.afterburnInterval = item.afterburnInterval
+        self.burnDate = item.burnDate
+        self.deleteState = item.deleteState
+        self.isDeleted = item.isDeleted
+        self.isLocallyHiddenByReport = item.isLocallyHiddenByReport
+        self.messageWarningText = item.messageWarningText
+        self.messageError = item.messageError
+        self.groupchatAuthorId = item.groupchatAuthorId
+        self.groupchatAuthorNickname = item.groupchatAuthorNickname
+        self.groupchatAuthorBadge = item.groupchatAuthorBadge
+        self.groupchatMetadata = item.groupchatMetadata
+        self.errorMetadata = item.errorMetadata
+        self.isHasAttachedMessages = item.isHasAttachedMessages
+        self.isRead = item.isRead
+        let visibleReferences = presentation.visibleReferences.map(ChatMessageReferenceSnapshot.init)
+        let visibleForwards = presentation.visibleForwards.map(ChatMessageForwardSnapshot.init)
+        self.presentation = Presentation(
+            isSavedMessage: presentation.isSavedMessage,
+            isSavedForward: presentation.isSavedForward,
+            isDirectSavedNote: presentation.isDirectSavedNote,
+            displayAuthorJid: presentation.displayAuthorJid,
+            displayAuthorName: presentation.displayAuthorName,
+            displayAvatarSource: presentation.displayAvatarSource,
+            displayOutgoing: presentation.displayOutgoing,
+            visibleBody: presentation.visibleBody,
+            visibleReferences: visibleReferences,
+            visibleForwards: visibleForwards,
+            visibleReferencesRevision: Self.referenceRevision(visibleReferences),
+            visibleForwardsRevision: Self.forwardRevision(visibleForwards),
+            visibleDate: presentation.visibleDate,
+            groupchatAuthorRole: presentation.groupchatAuthorRole,
+            groupchatAuthorId: presentation.groupchatAuthorId,
+            groupchatAuthorNickname: presentation.groupchatAuthorNickname,
+            groupchatAuthorBadge: presentation.groupchatAuthorBadge,
+            isDeleted: presentation.isDeleted,
+            deleteState: presentation.deleteState,
+            authorColorKey: presentation.authorColorKey
+        )
+    }
+
+    func displayModelCacheKey(
+        context: ChatDisplayModelCacheContext,
+        revealedSensitiveMediaPrimaries: Set<String>
+    ) -> ChatDisplayModelCacheKey {
+        var hasher = ChatDisplayModelRevisionHasher()
+        hasher.combine(messageId)
+        hasher.combine(archivedId)
+        hasher.combine(queryIds)
+        hasher.combine(displayAs.rawValue)
+        hasher.combine(state.rawValue)
+        hasher.combine(body)
+        hasher.combine(legacyBody)
+        hasher.combine(bodyForAttachmentRendering)
+        hasher.combine(localReportPlaceholderText)
+        hasher.combine(date.timeIntervalSinceReferenceDate)
+        hasher.combine(sentDate.timeIntervalSinceReferenceDate)
+        hasher.combine(editDate?.timeIntervalSinceReferenceDate)
+        hasher.combine(afterburnInterval)
+        hasher.combine(burnDate)
+        hasher.combine(deleteState.rawValue)
+        hasher.combine(isDeleted)
+        hasher.combine(isLocallyHiddenByReport)
+        hasher.combine(messageWarningText)
+        hasher.combine(messageError)
+        hasher.combine(groupchatAuthorId)
+        hasher.combine(groupchatAuthorNickname)
+        hasher.combine(groupchatAuthorBadge)
+        Self.combineMetadata(groupchatMetadata, into: &hasher)
+        Self.combineMetadata(errorMetadata, into: &hasher)
+
+        hasher.combine(presentation.isSavedMessage)
+        hasher.combine(presentation.isSavedForward)
+        hasher.combine(presentation.isDirectSavedNote)
+        hasher.combine(presentation.displayAuthorJid)
+        hasher.combine(presentation.displayAuthorName)
+        hasher.combine(presentation.displayAvatarSource)
+        hasher.combine(presentation.displayOutgoing)
+        hasher.combine(presentation.visibleBody)
+        hasher.combine(presentation.visibleDate.timeIntervalSinceReferenceDate)
+        hasher.combine(presentation.groupchatAuthorRole)
+        hasher.combine(presentation.groupchatAuthorId)
+        hasher.combine(presentation.groupchatAuthorNickname)
+        hasher.combine(presentation.groupchatAuthorBadge)
+        hasher.combine(presentation.isDeleted)
+        hasher.combine(presentation.deleteState.rawValue)
+        hasher.combine(presentation.authorColorKey)
+
+        hasher.combine(presentation.visibleReferences.count)
+        hasher.combine(presentation.visibleReferencesRevision)
+        hasher.combine(presentation.visibleForwards.count)
+        hasher.combine(presentation.visibleForwardsRevision)
+        revealedSensitiveMediaPrimaries.sorted().forEach { hasher.combine($0) }
+
+        return ChatDisplayModelCacheKey(
+            messagePrimary: primary,
+            displayRevision: hasher.revision,
+            context: context
+        )
+    }
+
+    func forwardDisplayRevision(
+        revealedSensitiveMediaPrimaries: Set<String>,
+        context: ChatDisplayModelCacheContext
+    ) -> String {
+        var hasher = ChatDisplayModelRevisionHasher()
+        hasher.combine(presentation.visibleForwards.count)
+        hasher.combine(presentation.visibleForwardsRevision)
+        revealedSensitiveMediaPrimaries.sorted().forEach { hasher.combine($0) }
+        hasher.combine(context.searchText)
+        hasher.combine(context.localeIdentifier)
+        hasher.combine(context.contentSizeCategory)
+        hasher.combine(context.bodyFontName)
+        hasher.combine(Double(context.bodyFontPointSize))
+        hasher.combine(context.interfaceStyleRawValue)
+        return hasher.revision
+    }
+
+    func statePresentation(currentUserJid: String) -> SavedMessageStatePolicy.Presentation {
+        guard conversationType == .saved else {
+            return SavedMessageStatePolicy.Presentation(
+                effectiveState: state,
+                showsDeliveryIndicator: outgoing,
+                shouldSendDisplayedMarker: conversationType != .saved
+            )
+        }
+
+        let authoredByCurrentUser = presentation.isDirectSavedNote || Self.isSameBareJid(presentation.displayAuthorJid, currentUserJid)
+        let hasProof = archivedId.isNotEmpty ||
+            state == .none ||
+            state == .sended ||
+            state == .deliver ||
+            state == .read
+        if !authoredByCurrentUser && hasProof {
+            return SavedMessageStatePolicy.Presentation(
+                effectiveState: .none,
+                showsDeliveryIndicator: false,
+                shouldSendDisplayedMarker: false
+            )
+        }
+
+        let effectiveState: MessageStorageItem.MessageSendingState = hasProof
+            ? .read
+            : (state == .notSended || state == .none ? .sending : state)
+        return SavedMessageStatePolicy.Presentation(
+            effectiveState: effectiveState,
+            showsDeliveryIndicator: authoredByCurrentUser || [.sending, .uploading, .notSended].contains(effectiveState),
+            shouldSendDisplayedMarker: false
+        )
+    }
+
+    func attributedAuthor() -> NSAttributedString? {
+        guard presentation.displayAuthorName.isNotEmpty else { return nil }
+        return NSAttributedString(string: presentation.displayAuthorName, attributes: [
+            .font: UIFont.systemFont(ofSize: 14, weight: .medium),
+            .foregroundColor: ChatViewController.getUsernamePalette(for: presentation.authorColorKey).tint500
+        ])
+    }
+
+    private static func referenceRevision(_ references: [ChatMessageReferenceSnapshot]) -> String {
+        var hasher = ChatDisplayModelRevisionHasher()
+        hasher.combine(references.count)
+        references.forEach { combineReference($0, into: &hasher) }
+        return hasher.revision
+    }
+
+    private static func forwardRevision(_ forwards: [ChatMessageForwardSnapshot]) -> String {
+        var hasher = ChatDisplayModelRevisionHasher()
+        hasher.combine(forwards.count)
+        forwards.forEach { combineForward($0, into: &hasher) }
+        return hasher.revision
+    }
+
+    func attributedBody(
+        attributes: [NSAttributedString.Key: Any],
+        searchedText: String? = nil,
+        searchedTextColor: UIColor? = nil
+    ) -> NSAttributedString {
+        if presentation.isSavedMessage || presentation.visibleBody != body {
+            return Self.attributedBody(
+                body: presentation.visibleBody,
+                references: presentation.visibleReferences,
+                authorJid: presentation.displayAuthorJid,
+                attributes: attributes,
+                searchedText: searchedText,
+                searchedTextColor: searchedTextColor,
+                skipsHiddenReferences: true
+            )
+        }
+        if let localReportPlaceholderText {
+            let string = NSMutableAttributedString(string: localReportPlaceholderText)
+            string.addAttributes(attributes, range: NSRange(location: 0, length: string.length))
+            string.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: NSRange(location: 0, length: string.length))
+            string.addAttribute(.font, value: UIFont.preferredFont(forTextStyle: .body).italic(), range: NSRange(location: 0, length: string.length))
+            return string
+        }
+        return Self.attributedBody(
+            body: body,
+            references: presentation.visibleReferences,
+            authorJid: owner,
+            attributes: attributes,
+            searchedText: searchedText,
+            searchedTextColor: searchedTextColor,
+            skipsHiddenReferences: true
+        )
+    }
+
+    static func attributedForwardBody(
+        body: String,
+        references: [ChatMessageReferenceSnapshot],
+        attributes: [NSAttributedString.Key: Any],
+        authorJid: String,
+        searchedText: String? = nil,
+        searchedTextColor: UIColor? = nil
+    ) -> NSAttributedString {
+        attributedBody(
+            body: body,
+            references: references,
+            authorJid: authorJid,
+            attributes: attributes,
+            searchedText: searchedText,
+            searchedTextColor: searchedTextColor,
+            skipsHiddenReferences: false
+        )
+    }
+
+    private static func attributedBody(
+        body: String,
+        references: [ChatMessageReferenceSnapshot],
+        authorJid: String,
+        attributes: [NSAttributedString.Key: Any],
+        searchedText: String?,
+        searchedTextColor: UIColor?,
+        skipsHiddenReferences: Bool
+    ) -> NSAttributedString {
+        let string = NSMutableAttributedString(string: body.trimmingCharacters(in: .newlines))
+        if string.length > 0 {
+            string.addAttributes(attributes, range: NSRange(location: 0, length: string.length))
+        }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineSpacing = 1.5
+        paragraph.allowsDefaultTighteningForTruncation = true
+
+        for reference in references {
+            if skipsHiddenReferences && reference.isLocallyHiddenByReport { continue }
+            if reference.end <= reference.begin { continue }
+            if reference.end > body.count { continue }
+            switch reference.kind {
+            case .markup:
+                applyMarkup(reference, to: string)
+            case .mention:
+                string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .semibold), range: reference.range)
+                string.addAttribute(.foregroundColor, value: AccountColorManager.shared.palette(for: authorJid).tint700, range: reference.range)
+                if let url = reference.metadata?["uri"] as? String ?? reference.url {
+                    string.addAttribute(.link, value: url, range: reference.range)
+                }
+            default:
+                break
+            }
+        }
+        if let searchedText, searchedText.isNotEmpty {
+            let range = (string.string as NSString).range(of: searchedText, options: [.caseInsensitive, .diacriticInsensitive])
+            if range.location != NSNotFound {
+                string.addAttribute(.backgroundColor, value: searchedTextColor ?? MDCPalette.blue.tint200, range: range)
+            }
+        }
+        if string.length > 0 {
+            string.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: string.length))
+        }
+        if string.string.starts(with: "\n") {
+            string.deleteCharacters(in: NSRange(0..<"\n".count))
+        }
+        return string
+    }
+
+    private static func applyMarkup(_ reference: ChatMessageReferenceSnapshot, to string: NSMutableAttributedString) {
+        guard let styles = reference.metadata?["styles"] as? [String] else { return }
+        for style in styles {
+            if style == "bold" {
+                string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).bold(), range: reference.range)
+            }
+            if style == "italic" {
+                if styles.contains("bold") {
+                    string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).boldItalic(), range: reference.range)
+                } else {
+                    string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).italic(), range: reference.range)
+                }
+            }
+            if style == "underline" {
+                string.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: reference.range)
+            }
+            if style == "strike" {
+                string.addAttribute(.strikethroughStyle, value: 1, range: reference.range)
+            }
+            if style == "uri",
+               let url = reference.metadata?["uri"] as? String {
+                string.addAttribute(.link, value: url, range: reference.range)
+            }
+        }
+    }
+
+    private static func combineReference(
+        _ reference: ChatMessageReferenceSnapshot,
+        into hasher: inout ChatDisplayModelRevisionHasher
+    ) {
+        hasher.combine(reference.primary)
+        hasher.combine(reference.owner)
+        hasher.combine(reference.jid)
+        hasher.combine(reference.kindRaw)
+        hasher.combine(reference.mimeType)
+        hasher.combine(reference.begin)
+        hasher.combine(reference.end)
+        hasher.combine(reference.url)
+        hasher.combine(reference.downloadUrl?.absoluteString)
+        hasher.combine(reference.localFileUrl?.absoluteString)
+        hasher.combine(reference.decodedUrl?.absoluteString)
+        hasher.combine(reference.videoPreviewUrl?.absoluteString)
+        hasher.combine(reference.sizeInPx.map { Double($0.width) })
+        hasher.combine(reference.sizeInPx.map { Double($0.height) })
+        hasher.combine(reference.sizeInBytesRaw)
+        hasher.combine(reference.filename)
+        hasher.combine(reference.name)
+        hasher.combine(String(describing: reference.duration))
+        hasher.combine(reference.isDownloaded)
+        hasher.combine(reference.isSensitive)
+        hasher.combine(reference.isSensitiveChecked)
+        hasher.combine(reference.isLocallyHiddenByReport)
+        combineMetadata(reference.metadata, into: &hasher)
+        hasher.combine(reference.meteringLevels.count)
+        reference.meteringLevels.forEach { hasher.combine(Double($0)) }
+    }
+
+    private static func combineForward(
+        _ forward: ChatMessageForwardSnapshot,
+        into hasher: inout ChatDisplayModelRevisionHasher
+    ) {
+        hasher.combine(forward.primary)
+        hasher.combine(forward.messageId)
+        hasher.combine(forward.owner)
+        hasher.combine(forward.opponent)
+        hasher.combine(forward.jid)
+        hasher.combine(forward.parentId)
+        hasher.combine(forward.body)
+        hasher.combine(forward.forwardJid)
+        hasher.combine(forward.forwardNickname)
+        hasher.combine(forward.isOutgoing)
+        hasher.combine(forward.originalDate?.timeIntervalSinceReferenceDate)
+        hasher.combine(forward.references.count)
+        forward.references.forEach { combineReference($0, into: &hasher) }
+        hasher.combine(forward.subforwards.count)
+        forward.subforwards.forEach { combineForward($0, into: &hasher) }
+    }
+
+    private static func combineMetadata(
+        _ metadata: [String: Any]?,
+        into hasher: inout ChatDisplayModelRevisionHasher
+    ) {
+        guard let metadata else {
+            hasher.combine("metadata:nil")
+            return
+        }
+        hasher.combine(metadata.count)
+        for key in metadata.keys.sorted() {
+            hasher.combine(key)
+            combineMetadataValue(metadata[key], into: &hasher)
+        }
+    }
+
+    private static func combineMetadataValue(
+        _ value: Any?,
+        into hasher: inout ChatDisplayModelRevisionHasher
+    ) {
+        switch value {
+        case let value as String:
+            hasher.combine(value)
+        case let value as Bool:
+            hasher.combine(value)
+        case let value as Int:
+            hasher.combine(value)
+        case let value as Int64:
+            hasher.combine(UInt64(bitPattern: value))
+        case let value as Double:
+            hasher.combine(value)
+        case let value as Float:
+            hasher.combine(Double(value))
+        case let value as [String]:
+            hasher.combine(value.count)
+            value.forEach { hasher.combine($0) }
+        case let value as [String: String]:
+            hasher.combine(value.count)
+            for key in value.keys.sorted() {
+                hasher.combine(key)
+                hasher.combine(value[key])
+            }
+        case let value as [String: Any]:
+            combineMetadata(value, into: &hasher)
+        case let value as [Any]:
+            hasher.combine(value.count)
+            value.forEach { combineMetadataValue($0, into: &hasher) }
+        case .none:
+            hasher.combine("nil")
+        default:
+            hasher.combine(String(describing: value))
+        }
+    }
+
+    private static func isSameBareJid(_ lhs: String, _ rhs: String) -> Bool {
+        normalizedBareJid(lhs).caseInsensitiveCompare(normalizedBareJid(rhs)) == .orderedSame
+    }
+
+    private static func normalizedBareJid(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return XMPPJID(string: trimmed)?.bare ?? trimmed
+    }
+}
+
 struct ChatDisplayModelCacheContext: Hashable {
     let searchText: String?
     let localeIdentifier: String
@@ -5423,6 +6072,16 @@ extension ChatViewController {
         _ references: [MessageReferenceStorageItem],
         revealedSensitiveMediaPrimaries: Set<String> = Set<String>()
     ) -> (images: [ImageAttachment], videos: [VideoAttachment], locations: [LocationAttachment], contacts: [ContactAttachment], audio: [AudioAttachment], files: [FileAttachment]) {
+        mapReferenceAttachments(
+            references.map(ChatMessageReferenceSnapshot.init),
+            revealedSensitiveMediaPrimaries: revealedSensitiveMediaPrimaries
+        )
+    }
+
+    private static func mapReferenceAttachments(
+        _ references: [ChatMessageReferenceSnapshot],
+        revealedSensitiveMediaPrimaries: Set<String> = Set<String>()
+    ) -> (images: [ImageAttachment], videos: [VideoAttachment], locations: [LocationAttachment], contacts: [ContactAttachment], audio: [AudioAttachment], files: [FileAttachment]) {
         var images: [ImageAttachment] = []
         var videos: [VideoAttachment] = []
         var locations: [LocationAttachment] = []
@@ -5470,9 +6129,9 @@ extension ChatViewController {
                     isSensitiveRevealed: revealedSensitiveMediaPrimaries.contains(item.primary)
                 ))
             case .unsupported:
-                if item.kind_ == "voice" {
-                    audio.append(AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels ?? []))
-                } else if item.kind == .media && MimeIcon(item.mimeType).value != .audio && item.kind_ != "groupchat" {
+                if item.kindRaw == "voice" {
+                    audio.append(AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels))
+                } else if item.kind == .media && MimeIcon(item.mimeType).value != .audio && item.kindRaw != "groupchat" {
                     files.append(FileAttachment(primary: item.primary, url: item.downloadUrl, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded))
                 }
             }
@@ -5481,7 +6140,7 @@ extension ChatViewController {
         return (images, videos, locations, contacts, audio, files)
     }
 
-    private static func imageDisplayURL(for reference: MessageReferenceStorageItem) -> URL? {
+    private static func imageDisplayURL(for reference: ChatMessageReferenceSnapshot) -> URL? {
         if let downloadUrl = reference.downloadUrl {
             return downloadUrl
         }
@@ -5492,7 +6151,7 @@ extension ChatViewController {
         return reference.videoPreviewUrl
     }
 
-    private static func locationAttachment(for reference: MessageReferenceStorageItem) -> LocationAttachment? {
+    private static func locationAttachment(for reference: ChatMessageReferenceSnapshot) -> LocationAttachment? {
         guard let metadata = reference.metadata,
               let latitude = geolocCoordinateValue(metadata["lat"]),
               let longitude = geolocCoordinateValue(metadata["lon"]),
@@ -5516,7 +6175,7 @@ extension ChatViewController {
         )
     }
 
-    private static func contactAttachment(for reference: MessageReferenceStorageItem) -> ContactAttachment? {
+    private static func contactAttachment(for reference: ChatMessageReferenceSnapshot) -> ContactAttachment? {
         guard let metadata = reference.metadata else {
             return nil
         }
@@ -5530,11 +6189,7 @@ extension ChatViewController {
         let nickname = Self.contactNonEmpty(metadata["nickname"] as? String)
         let given = Self.contactNonEmpty(metadata["given"] as? String)
         let family = Self.contactNonEmpty(metadata["family"] as? String)
-        let entity = MessageContactEntityKind.resolved(
-            metadata: metadata,
-            owner: reference.owner,
-            jid: jid
-        )
+        let entity = reference.resolvedContactEntity ?? MessageContactEntityKind.resolved(metadata: metadata, owner: reference.owner, jid: jid)
         let title = contactDisplayTitle(
             displayTitle: Self.contactNonEmpty(metadata["display_title"] as? String),
             nickname: nickname,
@@ -5606,7 +6261,7 @@ extension ChatViewController {
     }
 
     private static func mappedReferenceAttachments(
-        _ references: [MessageReferenceStorageItem],
+        _ references: [ChatMessageReferenceSnapshot],
         revealedSensitiveMediaPrimaries: Set<String>
     ) -> ChatMappedReferenceAttachments {
         let mapped = Self.mapReferenceAttachments(
@@ -5623,192 +6278,6 @@ extension ChatViewController {
         )
     }
 
-    private static func displayModelCacheKey(
-        for item: MessageStorageItem,
-        presentation: SavedMessageDisplayPolicy.Presentation,
-        revealedSensitiveMediaPrimaries: Set<String>,
-        context: ChatDisplayModelCacheContext
-    ) -> ChatDisplayModelCacheKey {
-        var hasher = ChatDisplayModelRevisionHasher()
-        hasher.combine(item.messageId)
-        hasher.combine(item.archivedId)
-        hasher.combine(item.queryIds)
-        hasher.combine(item.displayAs.rawValue)
-        hasher.combine(item.state.rawValue)
-        hasher.combine(item.body)
-        hasher.combine(item.legacyBody)
-        hasher.combine(item.bodyForAttachmentRendering)
-        hasher.combine(item.localReportPlaceholderText)
-        hasher.combine(item.date.timeIntervalSinceReferenceDate)
-        hasher.combine(item.sentDate.timeIntervalSinceReferenceDate)
-        hasher.combine(item.editDate?.timeIntervalSinceReferenceDate)
-        hasher.combine(item.afterburnInterval)
-        hasher.combine(item.burnDate)
-        hasher.combine(item.deleteState.rawValue)
-        hasher.combine(item.isDeleted)
-        hasher.combine(item.isLocallyHiddenByReport)
-        hasher.combine(item.messageWarningText)
-        hasher.combine(item.messageError)
-        hasher.combine(item.groupchatAuthorId)
-        hasher.combine(item.groupchatAuthorNickname)
-        hasher.combine(item.groupchatAuthorBadge)
-        combineMetadata(item.groupchatMetadata, into: &hasher)
-        combineMetadata(item.errorMetadata, into: &hasher)
-
-        hasher.combine(presentation.isSavedMessage)
-        hasher.combine(presentation.isSavedForward)
-        hasher.combine(presentation.isDirectSavedNote)
-        hasher.combine(presentation.displayAuthorJid)
-        hasher.combine(presentation.displayAuthorName)
-        hasher.combine(presentation.displayAvatarSource)
-        hasher.combine(presentation.displayOutgoing)
-        hasher.combine(presentation.visibleBody)
-        hasher.combine(presentation.visibleDate.timeIntervalSinceReferenceDate)
-        hasher.combine(presentation.groupchatAuthorRole)
-        hasher.combine(presentation.groupchatAuthorId)
-        hasher.combine(presentation.groupchatAuthorNickname)
-        hasher.combine(presentation.groupchatAuthorBadge)
-        hasher.combine(presentation.isDeleted)
-        hasher.combine(presentation.deleteState.rawValue)
-        hasher.combine(presentation.authorColorKey)
-
-        hasher.combine(presentation.visibleReferences.count)
-        presentation.visibleReferences.forEach { combineReference($0, into: &hasher) }
-        hasher.combine(presentation.visibleForwards.count)
-        presentation.visibleForwards.forEach { combineForward($0, into: &hasher) }
-        revealedSensitiveMediaPrimaries.sorted().forEach { hasher.combine($0) }
-
-        return ChatDisplayModelCacheKey(
-            messagePrimary: item.primary,
-            displayRevision: hasher.revision,
-            context: context
-        )
-    }
-
-    private static func forwardDisplayRevision(
-        _ forwards: [MessageForwardsInlineStorageItem],
-        revealedSensitiveMediaPrimaries: Set<String>,
-        context: ChatDisplayModelCacheContext
-    ) -> String {
-        var hasher = ChatDisplayModelRevisionHasher()
-        hasher.combine(forwards.count)
-        forwards.forEach { combineForward($0, into: &hasher) }
-        revealedSensitiveMediaPrimaries.sorted().forEach { hasher.combine($0) }
-        hasher.combine(context.searchText)
-        hasher.combine(context.localeIdentifier)
-        hasher.combine(context.contentSizeCategory)
-        hasher.combine(context.bodyFontName)
-        hasher.combine(Double(context.bodyFontPointSize))
-        hasher.combine(context.interfaceStyleRawValue)
-        return hasher.revision
-    }
-
-    private static func combineReference(
-        _ reference: MessageReferenceStorageItem,
-        into hasher: inout ChatDisplayModelRevisionHasher
-    ) {
-        hasher.combine(reference.primary)
-        hasher.combine(reference.owner)
-        hasher.combine(reference.jid)
-        hasher.combine(reference.kind_)
-        hasher.combine(reference.mimeType)
-        hasher.combine(reference.begin)
-        hasher.combine(reference.end)
-        hasher.combine(reference.url)
-        hasher.combine(reference.downloadUrl?.absoluteString)
-        hasher.combine(reference.localFileUrl?.absoluteString)
-        hasher.combine(reference.decodedUrl?.absoluteString)
-        hasher.combine(reference.videoPreviewUrl?.absoluteString)
-        hasher.combine(reference.sizeInPx.map { Double($0.width) })
-        hasher.combine(reference.sizeInPx.map { Double($0.height) })
-        hasher.combine(reference.sizeInBytesRaw)
-        hasher.combine(reference.filename)
-        hasher.combine(reference.name)
-        hasher.combine(String(describing: reference.duration))
-        hasher.combine(reference.isDownloaded)
-        hasher.combine(reference.isSensitive)
-        hasher.combine(reference.isSensitiveChecked)
-        hasher.combine(reference.isLocallyHiddenByReport)
-        combineMetadata(reference.metadata, into: &hasher)
-        let levels = reference.meteringLevels ?? []
-        hasher.combine(levels.count)
-        levels.forEach { hasher.combine(Double($0)) }
-    }
-
-    private static func combineForward(
-        _ forward: MessageForwardsInlineStorageItem,
-        into hasher: inout ChatDisplayModelRevisionHasher
-    ) {
-        hasher.combine(forward.primary)
-        hasher.combine(forward.messageId)
-        hasher.combine(forward.owner)
-        hasher.combine(forward.opponent)
-        hasher.combine(forward.jid)
-        hasher.combine(forward.parentId)
-        hasher.combine(forward.body)
-        hasher.combine(forward.forwardJid)
-        hasher.combine(forward.forwardNickname)
-        hasher.combine(forward.isOutgoing)
-        hasher.combine(forward.originalDate?.timeIntervalSinceReferenceDate)
-        hasher.combine(forward.references.count)
-        forward.references.forEach { combineReference($0, into: &hasher) }
-        hasher.combine(forward.subforwards.count)
-        forward.subforwards.forEach { combineForward($0, into: &hasher) }
-    }
-
-    private static func combineMetadata(
-        _ metadata: [String: Any]?,
-        into hasher: inout ChatDisplayModelRevisionHasher
-    ) {
-        guard let metadata else {
-            hasher.combine("metadata:nil")
-            return
-        }
-        hasher.combine(metadata.count)
-        for key in metadata.keys.sorted() {
-            hasher.combine(key)
-            combineMetadataValue(metadata[key], into: &hasher)
-        }
-    }
-
-    private static func combineMetadataValue(
-        _ value: Any?,
-        into hasher: inout ChatDisplayModelRevisionHasher
-    ) {
-        switch value {
-        case let value as String:
-            hasher.combine(value)
-        case let value as Bool:
-            hasher.combine(value)
-        case let value as Int:
-            hasher.combine(value)
-        case let value as Int64:
-            hasher.combine(UInt64(bitPattern: value))
-        case let value as Double:
-            hasher.combine(value)
-        case let value as Float:
-            hasher.combine(Double(value))
-        case let value as [String]:
-            hasher.combine(value.count)
-            value.forEach { hasher.combine($0) }
-        case let value as [String: String]:
-            hasher.combine(value.count)
-            for key in value.keys.sorted() {
-                hasher.combine(key)
-                hasher.combine(value[key])
-            }
-        case let value as [String: Any]:
-            combineMetadata(value, into: &hasher)
-        case let value as [Any]:
-            hasher.combine(value.count)
-            value.forEach { combineMetadataValue($0, into: &hasher) }
-        case .none:
-            hasher.combine("nil")
-        default:
-            hasher.combine(String(describing: value))
-        }
-    }
-    
     internal func willUpdateFloatingDate() {
         self.updateFloatingDateObserverSignal.accept(true)
     }
@@ -5858,20 +6327,19 @@ extension ChatViewController {
     
     internal func mapAttachment(_ attachment: MessageForwardsInlineStorageItem) -> MessageAttachment {
         mapAttachment(
-            attachment,
+            ChatMessageForwardSnapshot(attachment),
             context: captureDatasourceMappingContext(),
             formatters: ChatDatasourceMappingDateFormatters()
         )
     }
 
     private func mapAttachment(
-        _ attachment: MessageForwardsInlineStorageItem,
+        _ attachment: ChatMessageForwardSnapshot,
         context: ChatDatasourceMappingContext,
         formatters: ChatDatasourceMappingDateFormatters
     ) -> MessageAttachment {
-        let references = attachment.references.toArray()
         let mappedReferences = Self.mapReferenceAttachments(
-            references,
+            attachment.references,
             revealedSensitiveMediaPrimaries: context.revealedSensitiveMediaPrimaries
         )
         let timeString = formatters.attachmentTimeFormatter.string(from: attachment.originalDate ?? Date())
@@ -5881,11 +6349,14 @@ extension ChatViewController {
         )
         return MessageAttachment(
             primary: attachment.primary,
-            author: attachment.tryToLoadNickname(),
+            author: attachment.authorName,
             jid: attachment.forwardJid,
             outgoing: attachment.isOutgoing,
-            textMessage: attachment.createRefBody(
-                context.bodyTextAttributes,
+            textMessage: ChatMessageDisplaySnapshot.attributedForwardBody(
+                body: attachment.body,
+                references: attachment.references,
+                attributes: context.bodyTextAttributes,
+                authorJid: attachment.forwardJid,
                 searchedText: context.searchText,
                 searchedTextColor: context.searchHighlightColor
             ),
@@ -5896,48 +6367,43 @@ extension ChatViewController {
             files: mappedReferences.files,
             audios: mappedReferences.audio,
             timeMarker: timeMarkerString,
-            subforwards: attachment.subforwards.toArray().compactMap {
+            subforwards: attachment.subforwards.compactMap {
                 return mapAttachment($0, context: context, formatters: formatters)
             }
         )
     }
 
     private func cachedDisplayModel(
-        for item: MessageStorageItem,
-        presentation: SavedMessageDisplayPolicy.Presentation,
+        for snapshot: ChatMessageDisplaySnapshot,
         context: ChatDatasourceMappingContext,
         formatters: ChatDatasourceMappingDateFormatters
     ) -> ChatCachedDisplayModel {
-        let key = Self.displayModelCacheKey(
-            for: item,
-            presentation: presentation,
-            revealedSensitiveMediaPrimaries: context.revealedSensitiveMediaPrimaries,
-            context: context.displayCacheContext
+        let key = snapshot.displayModelCacheKey(
+            context: context.displayCacheContext,
+            revealedSensitiveMediaPrimaries: context.revealedSensitiveMediaPrimaries
         )
         return displayModelCache.model(for: key) {
             let kind = self.displayKind(
-                for: item,
-                presentation: presentation,
+                for: snapshot,
                 context: context
             )
             let mappedReferences = Self.mappedReferenceAttachments(
-                presentation.visibleReferences,
+                snapshot.presentation.visibleReferences,
                 revealedSensitiveMediaPrimaries: context.revealedSensitiveMediaPrimaries
             )
-            let forwardSignature = Self.forwardDisplayRevision(
-                presentation.visibleForwards,
+            let forwardSignature = snapshot.forwardDisplayRevision(
                 revealedSensitiveMediaPrimaries: context.revealedSensitiveMediaPrimaries,
                 context: context.displayCacheContext
             )
+            let visibleForwards = snapshot.presentation.visibleForwards
             let lazyForwards = ChatLazyForwardDisplayModel(signature: forwardSignature) { [weak self] in
                 guard let self else { return [] }
-                return presentation.visibleForwards.compactMap {
+                return visibleForwards.compactMap {
                     self.mapAttachment($0, context: context, formatters: formatters)
                 }
             }
             let timeMarkerString = self.timeMarkerText(
-                for: item,
-                presentation: presentation,
+                for: snapshot,
                 context: context,
                 formatters: formatters
             )
@@ -5945,47 +6411,35 @@ extension ChatViewController {
                 kind: kind,
                 mappedReferences: mappedReferences,
                 lazyForwards: lazyForwards,
-                isDownloaded: presentation.visibleReferences.contains(where: \.isDownloaded),
+                isDownloaded: snapshot.presentation.visibleReferences.contains(where: \.isDownloaded),
                 timeMarkerText: timeMarkerString
             )
         }
     }
 
     private func displayKind(
-        for item: MessageStorageItem,
-        presentation: SavedMessageDisplayPolicy.Presentation,
+        for snapshot: ChatMessageDisplaySnapshot,
         context: ChatDatasourceMappingContext
     ) -> MessageKind {
-        switch item.displayAs {
+        switch snapshot.displayAs {
         case .text:
-            if presentation.isSavedMessage || presentation.visibleBody != item.body {
-                return .attributedText(
-                    SavedMessageDisplayPolicy.attributedBody(
-                        for: presentation,
-                        attributes: context.bodyTextAttributes,
-                        searchedText: context.searchText,
-                        searchedTextColor: context.searchHighlightColor
-                    )
+            return .attributedText(
+                snapshot.attributedBody(
+                    attributes: context.bodyTextAttributes,
+                    searchedText: context.searchText,
+                    searchedTextColor: context.searchHighlightColor
                 )
-            } else {
-                return .attributedText(
-                    item.createRefBody(
-                        context.bodyTextAttributes,
-                        searchedText: context.searchText,
-                        searchedTextColor: context.searchHighlightColor
-                    )
-                )
-            }
+            )
         case .call:
             return .call(CallAttachment(
-                primary: item.primary,
-                incoming: !presentation.displayOutgoing,
-                missed: presentation.visibleReferences.first?.metadata?["callState"] as? String == "missed"
+                primary: snapshot.primary,
+                incoming: !snapshot.presentation.displayOutgoing,
+                missed: snapshot.presentation.visibleReferences.first?.metadata?["callState"] as? String == "missed"
             ))
         case .system:
             return .system(
                 NSAttributedString(
-                    string: presentation.visibleBody,
+                    string: snapshot.presentation.visibleBody,
                     attributes: context.systemTextAttributes
                 )
             )
@@ -5995,16 +6449,15 @@ extension ChatViewController {
     }
 
     private func timeMarkerText(
-        for item: MessageStorageItem,
-        presentation: SavedMessageDisplayPolicy.Presentation,
+        for snapshot: ChatMessageDisplaySnapshot,
         context: ChatDatasourceMappingContext,
         formatters: ChatDatasourceMappingDateFormatters
     ) -> NSAttributedString {
-        var timeString = formatters.attachmentTimeFormatter.string(from: presentation.visibleDate)
-        if item.afterburnInterval > 0 {
-            timeString = "\(timeString) ⦁ \(item.afterburnInterval.prettyMinuteFormatedString)"
+        var timeString = formatters.attachmentTimeFormatter.string(from: snapshot.presentation.visibleDate)
+        if snapshot.afterburnInterval > 0 {
+            timeString = "\(timeString) ⦁ \(snapshot.afterburnInterval.prettyMinuteFormatedString)"
         }
-        if item.editDate != nil {
+        if snapshot.editDate != nil {
             timeString = "\(timeString) (edited)"
         }
         return NSAttributedString(
@@ -9296,9 +9749,9 @@ extension ChatViewController {
             ))
         }
 
-        var displayPresentationCache: [String: SavedMessageDisplayPolicy.Presentation] = [:]
-        func displayPresentation(for item: MessageStorageItem) -> SavedMessageDisplayPolicy.Presentation {
-            if let cached = displayPresentationCache[item.primary] {
+        var displaySnapshotCache: [String: ChatMessageDisplaySnapshot] = [:]
+        func displaySnapshot(for item: MessageStorageItem) -> ChatMessageDisplaySnapshot {
+            if let cached = displaySnapshotCache[item.primary] {
                 return cached
             }
             let presentation = SavedMessageDisplayPolicy.presentation(
@@ -9306,8 +9759,9 @@ extension ChatViewController {
                 currentUserJid: context.owner,
                 currentUserName: context.ownerSender.displayName
             )
-            displayPresentationCache[item.primary] = presentation
-            return presentation
+            let snapshot = ChatMessageDisplaySnapshot(item: item, presentation: presentation)
+            displaySnapshotCache[item.primary] = snapshot
+            return snapshot
         }
 
         func nonEmptyGroupAuthorValue(_ value: String?) -> String? {
@@ -9318,33 +9772,28 @@ extension ChatViewController {
             return value
         }
 
-        func groupAuthorKey(
-            for item: MessageStorageItem,
-            presentation: SavedMessageDisplayPolicy.Presentation
-        ) -> String {
-            if let authorId = nonEmptyGroupAuthorValue(presentation.groupchatAuthorId) {
+        func groupAuthorKey(for snapshot: ChatMessageDisplaySnapshot) -> String {
+            if let authorId = nonEmptyGroupAuthorValue(snapshot.presentation.groupchatAuthorId) {
                 return "id:\(authorId)"
             }
-            if let authorJid = nonEmptyGroupAuthorValue(item.groupchatMetadata?["jid"] as? String) {
+            if let authorJid = nonEmptyGroupAuthorValue(snapshot.groupchatMetadata?["jid"] as? String) {
                 return "jid:\(authorJid.lowercased())"
             }
-            if let nickname = nonEmptyGroupAuthorValue(presentation.groupchatAuthorNickname) {
+            if let nickname = nonEmptyGroupAuthorValue(snapshot.presentation.groupchatAuthorNickname) {
                 return "nickname:\(nickname)"
             }
-            return "unknown:\(item.primary)"
+            return "unknown:\(snapshot.primary)"
         }
 
         func isSameIncomingGroupAuthor(
-            _ lhs: MessageStorageItem,
-            _ lhsPresentation: SavedMessageDisplayPolicy.Presentation,
-            _ rhs: MessageStorageItem,
-            _ rhsPresentation: SavedMessageDisplayPolicy.Presentation
+            _ lhs: ChatMessageDisplaySnapshot,
+            _ rhs: ChatMessageDisplaySnapshot
         ) -> Bool {
-            guard !lhsPresentation.displayOutgoing,
-                  !rhsPresentation.displayOutgoing else {
+            guard !lhs.presentation.displayOutgoing,
+                  !rhs.presentation.displayOutgoing else {
                 return false
             }
-            return groupAuthorKey(for: lhs, presentation: lhsPresentation) == groupAuthorKey(for: rhs, presentation: rhsPresentation)
+            return groupAuthorKey(for: lhs) == groupAuthorKey(for: rhs)
         }
                 
         dataset.enumerated().forEach {
@@ -9353,13 +9802,13 @@ extension ChatViewController {
 //            let references = Array(item.references.toArray().compactMap { $0.loadModel() })
 //            let inlineForwards = Array(item.inlineForwards.sorted(byKeyPath: "originalDate", ascending: true).toArray().compactMap { $0.loadModel() })
             
-            let presentation = displayPresentation(for: item)
+            let snapshot = displaySnapshot(for: item)
+            let presentation = snapshot.presentation
             let displaySender = presentation.isSavedMessage
                 ? Sender(id: presentation.displayAuthorJid, displayName: presentation.displayAuthorName)
-                : (item.outgoing ? context.ownerSender : context.opponentSender)
+                : (snapshot.outgoing ? context.ownerSender : context.opponentSender)
             let cachedDisplayModel = self.cachedDisplayModel(
-                for: item,
-                presentation: presentation,
+                for: snapshot,
                 context: context,
                 formatters: formatters
             )
@@ -9377,9 +9826,10 @@ extension ChatViewController {
             if context.avatarVerticalPosition == "top" {
                 if prevMessage >= 0 {
                     let prevItem = dataset[prevMessage]
-                    let prevPresentation = displayPresentation(for: prevItem)
+                    let prevSnapshot = displaySnapshot(for: prevItem)
+                    let prevPresentation = prevSnapshot.presentation
                     if context.conversationType == .group {
-                        tailed = !isSameIncomingGroupAuthor(prevItem, prevPresentation, item, presentation)
+                        tailed = !isSameIncomingGroupAuthor(prevSnapshot, snapshot)
                         
                     } else {
                         tailed = !(presentation.displayOutgoing == prevPresentation.displayOutgoing)
@@ -9391,9 +9841,10 @@ extension ChatViewController {
             }
             if prevMessage >= 0 {
                 let prevItem = dataset[prevMessage]
-                let prevPresentation = displayPresentation(for: prevItem)
+                let prevSnapshot = displaySnapshot(for: prevItem)
+                let prevPresentation = prevSnapshot.presentation
                 if context.conversationType == .group {
-                    withAuthor = !isSameIncomingGroupAuthor(prevItem, prevPresentation, item, presentation)
+                    withAuthor = !isSameIncomingGroupAuthor(prevSnapshot, snapshot)
                     if isDateChange(from: presentation.visibleDate, to: prevPresentation.visibleDate) {
                         withAuthor = true
                     }
@@ -9404,10 +9855,11 @@ extension ChatViewController {
 
             if nextMessage < dataset.count {
                 let nextItem = dataset[nextMessage]
-                let nextPresentation = displayPresentation(for: nextItem)
+                let nextSnapshot = displaySnapshot(for: nextItem)
+                let nextPresentation = nextSnapshot.presentation
                 
                 if context.conversationType == .group {
-                    let isSameNextAuthor = isSameIncomingGroupAuthor(item, presentation, nextItem, nextPresentation)
+                    let isSameNextAuthor = isSameIncomingGroupAuthor(snapshot, nextSnapshot)
                     withAvatar = !isSameNextAuthor
                     if context.avatarVerticalPosition == "bottom" {
                         tailed = !isSameNextAuthor
@@ -9431,18 +9883,18 @@ extension ChatViewController {
             if presentation.isSavedForward {
                 withAuthor = !presentation.displayOutgoing
                 withAvatar = !presentation.displayOutgoing
-                attributedAuthor = withAuthor ? SavedMessageDisplayPolicy.attributedAuthor(for: presentation) : nil
+                attributedAuthor = withAuthor ? snapshot.attributedAuthor() : nil
             } else if withAuthor && !presentation.displayOutgoing {
-                attributedAuthor = SavedMessageDisplayPolicy.attributedAuthor(for: presentation)
+                attributedAuthor = snapshot.attributedAuthor()
             }
           
-            if item.editDate != nil {
-                editedMessagePrimariesNeedingLayoutInvalidation.append(item.primary)
+            if snapshot.editDate != nil {
+                editedMessagePrimariesNeedingLayoutInvalidation.append(snapshot.primary)
             }
             var searchString: String? = nil
             
             if context.inSearchMode,
-               item.displayAs == .text,
+               snapshot.displayAs == .text,
                let str = context.searchText,
                str.isNotEmpty,
                presentation.visibleBody.contains(str) {
@@ -9452,13 +9904,7 @@ extension ChatViewController {
             
             let mappedReferences = cachedDisplayModel.mappedReferences
             let forwards = cachedDisplayModel.forwards
-            let statePresentation = SavedMessageStatePolicy.presentation(
-                for: item,
-                displayAuthorJid: presentation.displayAuthorJid,
-                isSavedForward: presentation.isSavedForward,
-                isDirectSavedNote: presentation.isDirectSavedNote,
-                currentUserJid: context.owner
-            )
+            let statePresentation = snapshot.statePresentation(currentUserJid: context.owner)
             let effectiveState = statePresentation.effectiveState
             let indicator = Self.messageIndicator(
                 for: effectiveState,
@@ -9476,41 +9922,41 @@ extension ChatViewController {
                 reservesAvatarSpace = !presentation.displayOutgoing
             }
             out.append(Datasource(
-                primary: item.primary,
+                primary: snapshot.primary,
                 jid: context.jid,
                 owner: context.owner,
                 outgoing: presentation.displayOutgoing,
                 sender: displaySender,
-                messageId: item.messageId,
+                messageId: snapshot.messageId,
                 sentDate: date,
-                editDate: item.editDate,
+                editDate: snapshot.editDate,
                 kind: kind,
                 withAuthor: withAuthor,
                 withAvatar: withAvatar,
                 reservesAvatarSpace: reservesAvatarSpace,
                 error: effectiveState == .error,
-                errorType: item.messageError ?? "",
-                canPinMessage: [.system, .sticker].contains(item.displayAs) ? false : context.canUnpinMessage,
-                canEditMessage: item.archivedId.isNotEmpty ? item.displayAs == .text && presentation.displayOutgoing : false,
+                errorType: snapshot.messageError ?? "",
+                canPinMessage: [.system, .sticker].contains(snapshot.displayAs) ? false : context.canUnpinMessage,
+                canEditMessage: snapshot.archivedId.isNotEmpty ? snapshot.displayAs == .text && presentation.displayOutgoing : false,
                 canDeleteMessage: [MessageStorageItem.MessageSendingState.deliver, MessageStorageItem.MessageSendingState.read].contains(effectiveState),
                 forwards: forwards,
                 isOutgoing: presentation.displayOutgoing,
-                isEdited: item.editDate != nil,
+                isEdited: snapshot.editDate != nil,
                 groupchatAuthorRole: presentation.groupchatAuthorRole,
                 groupchatAuthorId: presentation.groupchatAuthorId,
                 groupchatAuthorNickname: presentation.groupchatAuthorNickname,
                 groupchatAuthorBadge: presentation.groupchatAuthorBadge,
-                isHasAttachedMessages: item.isHasAttachedMessages,
+                isHasAttachedMessages: snapshot.isHasAttachedMessages,
                 isDownloaded: isDownloaded,
-                state: item.displayAs == .call ? .none : effectiveState,
+                state: snapshot.displayAs == .call ? .none : effectiveState,
                 searchString:  searchString,
-                errorMetadata: item.errorMetadata,
-                messageWarningText: item.messageWarningText,
-                burnDate: item.burnDate,
-                afterburnInterval: item.afterburnInterval,
-                archivedId: item.archivedId,
-                queryIds: item.queryIds,
-                isRead: item.isRead,
+                errorMetadata: snapshot.errorMetadata,
+                messageWarningText: snapshot.messageWarningText,
+                burnDate: snapshot.burnDate,
+                afterburnInterval: snapshot.afterburnInterval,
+                archivedId: snapshot.archivedId,
+                queryIds: snapshot.queryIds,
+                isRead: snapshot.isRead,
                 selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
                 isHadHistoryGap: false,
                 tailed: tailed,

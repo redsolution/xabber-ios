@@ -139,6 +139,92 @@ final class ChatDatasourceMappingThreadingTests: XCTestCase {
         XCTAssertEqual(revealedRow.images.first?.isSensitiveRevealed, true)
     }
 
+    func testDisplaySnapshotFreezesReferenceAndForwardValuesAwayFromRealmMutations() throws {
+        let message = try seedMessage(
+            primary: "snapshot-message",
+            body: "Snapshot body",
+            reference: imageReference(primary: "snapshot-image", url: "https://files.example.com/original.jpg", width: 120, height: 80)
+        )
+        let forward = makeForward(primary: "snapshot-forward", body: "Original forward")
+        let realm = try WRealm.safe()
+        try realm.write {
+            message.inlineForwards.append(forward)
+        }
+        let presentation = SavedMessageDisplayPolicy.presentation(
+            for: message,
+            currentUserJid: owner,
+            currentUserName: "Owner"
+        )
+
+        let snapshot = ChatMessageDisplaySnapshot(item: message, presentation: presentation)
+
+        try realm.write {
+            message.body = "Edited body"
+            message.references.first?.url = "https://files.example.com/edited.jpg"
+            message.references.first?.metadata = [
+                "media-type": "image/jpeg",
+                "width": 300,
+                "height": 180
+            ]
+            message.inlineForwards.first?.body = "Edited forward"
+        }
+
+        XCTAssertEqual(snapshot.body, "Snapshot body")
+        XCTAssertEqual(snapshot.presentation.visibleBody, "Snapshot body")
+        XCTAssertEqual(snapshot.presentation.visibleReferences.first?.downloadUrl?.absoluteString, "https://files.example.com/original.jpg")
+        XCTAssertEqual(snapshot.presentation.visibleReferences.first?.sizeInPx, CGSize(width: 120, height: 80))
+        XCTAssertEqual(snapshot.presentation.visibleForwards.first?.body, "Original forward")
+    }
+
+    func testDisplaySnapshotRevisionTracksReferenceForwardAndRevealInputs() throws {
+        let controller = makeController()
+        let context = controller.captureDatasourceMappingContext()
+        let message = try seedMessage(
+            primary: "revision-message",
+            body: "Revision body",
+            reference: imageReference(primary: "revision-image", url: "https://files.example.com/original.jpg", width: 120, height: 80)
+        )
+        let forward = makeForward(primary: "revision-forward", body: "Original forward")
+        let realm = try WRealm.safe()
+        try realm.write {
+            message.inlineForwards.append(forward)
+        }
+        let originalPresentation = SavedMessageDisplayPolicy.presentation(
+            for: message,
+            currentUserJid: owner,
+            currentUserName: "Owner"
+        )
+        let original = ChatMessageDisplaySnapshot(item: message, presentation: originalPresentation)
+        let originalKey = original.displayModelCacheKey(
+            context: context.displayCacheContext,
+            revealedSensitiveMediaPrimaries: []
+        )
+        let revealedKey = original.displayModelCacheKey(
+            context: context.displayCacheContext,
+            revealedSensitiveMediaPrimaries: ["revision-image"]
+        )
+
+        try realm.write {
+            message.references.first?.url = "https://files.example.com/edited.jpg"
+            message.inlineForwards.first?.body = "Edited forward"
+        }
+        let editedPresentation = SavedMessageDisplayPolicy.presentation(
+            for: message,
+            currentUserJid: owner,
+            currentUserName: "Owner"
+        )
+        let edited = ChatMessageDisplaySnapshot(item: message, presentation: editedPresentation)
+        let editedKey = edited.displayModelCacheKey(
+            context: context.displayCacheContext,
+            revealedSensitiveMediaPrimaries: []
+        )
+
+        XCTAssertNotEqual(original.presentation.visibleReferencesRevision, edited.presentation.visibleReferencesRevision)
+        XCTAssertNotEqual(original.presentation.visibleForwardsRevision, edited.presentation.visibleForwardsRevision)
+        XCTAssertNotEqual(originalKey.displayRevision, revealedKey.displayRevision)
+        XCTAssertNotEqual(originalKey.displayRevision, editedKey.displayRevision)
+    }
+
     private func makeController() -> ChatViewController {
         let controller = ChatViewController()
         controller.owner = owner
@@ -197,5 +283,40 @@ final class ChatDatasourceMappingThreadingTests: XCTestCase {
         reference.isSensitive = true
         reference.isSensitiveChecked = true
         return reference
+    }
+
+    private func imageReference(
+        primary: String,
+        url: String,
+        width: Int,
+        height: Int
+    ) -> MessageReferenceStorageItem {
+        let reference = MessageReferenceStorageItem()
+        reference.primary = primary
+        reference.kind = .media
+        reference.mimeType = "image/jpeg"
+        reference.metadata = [
+            "media-type": "image/jpeg",
+            "width": width,
+            "height": height
+        ]
+        reference.url = url
+        return reference
+    }
+
+    private func makeForward(primary: String, body: String) -> MessageForwardsInlineStorageItem {
+        let forward = MessageForwardsInlineStorageItem()
+        forward.primary = primary
+        forward.messageId = "\(primary)-message-id"
+        forward.owner = owner
+        forward.opponent = jid
+        forward.jid = jid
+        forward.parentId = "parent-\(primary)"
+        forward.body = body
+        forward.forwardJid = jid
+        forward.forwardNickname = "Juliet"
+        forward.isOutgoing = false
+        forward.originalDate = Date(timeIntervalSince1970: 1_700_000_050)
+        return forward
     }
 }
