@@ -102,7 +102,7 @@ enum ChatSearchResultNavigationState: Equatable {
     case idle
     case positioning(index: Int)
     case loadingContext(index: Int)
-    case pending(index: Int)
+    case pending(index: Int, scrollDirection: ChatViewController.ChatDirection)
 
     var currentIndex: Int? {
         switch self {
@@ -110,7 +110,7 @@ enum ChatSearchResultNavigationState: Equatable {
             return nil
         case .positioning(let index),
              .loadingContext(let index),
-             .pending(let index):
+             .pending(let index, _):
             return index
         }
     }
@@ -123,6 +123,11 @@ enum ChatSearchResultNavigationState: Equatable {
             return true
         }
     }
+}
+
+struct ChatSearchPendingNavigation: Equatable {
+    let index: Int
+    let scrollDirection: ChatViewController.ChatDirection
 }
 
 final class ChatSearchInputBarView: UIView, UITextViewDelegate {
@@ -1592,7 +1597,7 @@ class ChatViewController: MessagesViewController {
         let moves: [(from: IndexPath, to: IndexPath)]
     }
     
-    enum ChatDirection {
+    enum ChatDirection: Equatable {
         case up
         case down
     }

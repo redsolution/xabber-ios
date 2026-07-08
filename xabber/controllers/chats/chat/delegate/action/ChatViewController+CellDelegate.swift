@@ -639,10 +639,10 @@ extension ChatViewController: MessageCellDelegate {
     
     func isSelected(primary: String) -> Bool {
         if self.inSearchMode.value {
-            if self.searchMessagesQueue.contains(where: { $0.primary == primary }) {
-                return true
+            return self.searchMessagesQueue.contains {
+                $0.primary == primary &&
+                self.searchResultItem($0, matchesSelection: self.selectedSearchResultId)
             }
-            return false
         }
         if !self.isInSelectionMode.value {
             return false

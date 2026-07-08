@@ -1099,10 +1099,13 @@ extension ChatViewController {
         }
         currentSearchQueryId = nil
         currentInChatSearchQueryContext = nil
-        selectedSearchResultId = nil
         if clearResults {
+            selectedSearchResultId = nil
             searchMessagesQueue = []
+        } else if searchMessagesQueue.isEmpty {
+            selectedSearchResultId = nil
         }
+        refreshVisibleSearchSelection()
         cancelSearchResultNavigation()
         setLoadingIndicatorVisible(false)
         guard isViewLoaded else {
@@ -1143,6 +1146,70 @@ extension ChatViewController {
         }
         searchMessagesQueue.append(item)
         return true
+    }
+
+    internal func searchResultSelectionIdentity(for item: MessageStorageItem) -> String? {
+        if item.archivedId.isNotEmpty {
+            return item.archivedId
+        }
+        return item.primary.isNotEmpty ? item.primary : nil
+    }
+
+    internal func searchResultItem(
+        _ item: MessageStorageItem,
+        matchesSelection selectedId: String?
+    ) -> Bool {
+        guard let selectedId,
+              selectedId.isNotEmpty else {
+            return false
+        }
+        if item.archivedId.isNotEmpty,
+           item.archivedId == selectedId {
+            return true
+        }
+        return item.primary == selectedId
+    }
+
+    internal func chatDatasourceItem(
+        _ item: Datasource,
+        matchesSearchSelection selectedId: String?
+    ) -> Bool {
+        guard let selectedId,
+              selectedId.isNotEmpty else {
+            return false
+        }
+
+        if let archivedId = item.archivedId,
+           archivedId.isNotEmpty,
+           archivedId == selectedId {
+            return true
+        }
+        return item.primary == selectedId
+    }
+
+    internal func refreshVisibleSearchSelection() {
+        guard isViewLoaded else {
+            return
+        }
+
+        let selectedId = (inSearchMode.value || xabberInputView.state == .search)
+            ? selectedSearchResultId
+            : nil
+        messagesCollectionView.visibleCells
+            .compactMap { $0 as? MessageContentCell }
+            .forEach { cell in
+                guard let indexPath = messagesCollectionView.indexPath(for: cell),
+                      let item = datasourceItem(at: indexPath) else {
+                    cell.setSelected(state: false)
+                    return
+                }
+                cell.setSelected(
+                    state: chatDatasourceItem(
+                        item,
+                        matchesSearchSelection: selectedId
+                    )
+                )
+            }
     }
 
     @discardableResult
@@ -1201,7 +1268,9 @@ extension ChatViewController {
 
     private func currentSearchResultIndexForPanel() -> Int {
         if let selectedSearchResultId,
-           let selectedIndex = searchMessagesQueue.firstIndex(where: { $0.archivedId == selectedSearchResultId }) {
+           let selectedIndex = searchMessagesQueue.firstIndex(where: {
+               searchResultItem($0, matchesSelection: selectedSearchResultId)
+           }) {
             return selectedIndex
         }
 
@@ -1244,8 +1313,26 @@ extension ChatViewController {
         }
     }
 
-    internal func consumePendingSearchResultNavigationIndex(finishedIndex: Int) -> Int? {
-        guard case .pending(let pendingIndex) = searchResultNavigationState else {
+    internal func scrollDirectionForSearchNavigation(
+        from currentIndex: Int,
+        to nextIndex: Int,
+        requestedDirection: ChatDirection
+    ) -> ChatDirection {
+        guard searchMessagesQueue.count > 1 else {
+            return requestedDirection
+        }
+
+        let lastIndex = searchMessagesQueue.count - 1
+        switch requestedDirection {
+        case .up:
+            return currentIndex == lastIndex && nextIndex == 0 ? .down : .up
+        case .down:
+            return currentIndex == 0 && nextIndex == lastIndex ? .up : .down
+        }
+    }
+
+    internal func consumePendingSearchResultNavigation(finishedIndex: Int) -> ChatSearchPendingNavigation? {
+        guard case .pending(let pendingIndex, let scrollDirection) = searchResultNavigationState else {
             searchResultNavigationState = .idle
             return nil
         }
@@ -1255,11 +1342,11 @@ extension ChatViewController {
               searchMessagesQueue.indices.contains(pendingIndex) else {
             return nil
         }
-        return pendingIndex
+        return ChatSearchPendingNavigation(index: pendingIndex, scrollDirection: scrollDirection)
     }
 
     private func currentSearchResultNavigationBaseIndex() -> Int? {
-        if case .pending(let index) = searchResultNavigationState,
+        if case .pending(let index, _) = searchResultNavigationState,
            searchMessagesQueue.indices.contains(index) {
             return index
         }
@@ -1270,7 +1357,9 @@ extension ChatViewController {
         }
 
         if let selectedSearchResultId,
-           let selectedIndex = searchMessagesQueue.firstIndex(where: { $0.archivedId == selectedSearchResultId }) {
+           let selectedIndex = searchMessagesQueue.firstIndex(where: {
+               searchResultItem($0, matchesSelection: selectedSearchResultId)
+           }) {
             return selectedIndex
         }
 
@@ -1285,7 +1374,8 @@ extension ChatViewController {
             return
         }
 
-        selectedSearchResultId = searchMessagesQueue[index].archivedId
+        selectedSearchResultId = searchResultSelectionIdentity(for: searchMessagesQueue[index])
+        refreshVisibleSearchSelection()
         guard isViewLoaded else {
             return
         }
@@ -1300,14 +1390,14 @@ extension ChatViewController {
 
     private func recordPendingSearchResultNavigation(
         index: Int,
-        direction: ChatDirection
+        scrollDirection: ChatDirection
     ) {
         guard searchMessagesQueue.indices.contains(index) else {
             return
         }
 
-        chatScrollDirection = direction
-        searchResultNavigationState = .pending(index: index)
+        chatScrollDirection = scrollDirection
+        searchResultNavigationState = .pending(index: index, scrollDirection: scrollDirection)
         setSelectedSearchResultNavigationIndex(index, isLoadingContext: true)
     }
 
@@ -1324,16 +1414,17 @@ extension ChatViewController {
         switch searchResultNavigationState {
         case .positioning:
             searchResultNavigationState = .loadingContext(index: index)
-        case .loadingContext, .pending, .idle:
+        case .loadingContext, .pending(_, _), .idle:
             return
         }
     }
 
     internal func completeSearchResultNavigation(index: Int) {
-        let pendingIndex = consumePendingSearchResultNavigationIndex(finishedIndex: index)
+        let pendingNavigation = consumePendingSearchResultNavigation(finishedIndex: index)
         setSearchResultsPanelContextLoading(false)
+        refreshVisibleSearchSelection()
 
-        guard let pendingIndex else {
+        guard let pendingNavigation else {
             return
         }
 
@@ -1341,7 +1432,10 @@ extension ChatViewController {
             guard let self else {
                 return
             }
-            self.openSearchResult(at: pendingIndex, direction: self.chatScrollDirection ?? .up)
+            self.openSearchResult(
+                at: pendingNavigation.index,
+                direction: pendingNavigation.scrollDirection
+            )
         }
     }
 
@@ -1365,8 +1459,8 @@ extension ChatViewController {
                 owner: owner,
                 conversationType: conversationType,
                 anchor: ChatMessageAnchorRef(
-                    messagePrimary: nil,
-                    archivedId: item.archivedId,
+                    messagePrimary: item.primary,
+                    archivedId: item.archivedId.isNotEmpty ? item.archivedId : nil,
                     messageId: nil,
                     authorId: nil,
                     bodyFingerprint: nil,
@@ -1394,15 +1488,20 @@ extension ChatViewController {
               let nextIndex = nextSearchResultIndex(from: baseIndex, direction: direction) else {
             return
         }
+        let scrollDirection = scrollDirectionForSearchNavigation(
+            from: baseIndex,
+            to: nextIndex,
+            requestedDirection: direction
+        )
 
         FeedbackManager.shared.generate(feedback: .success)
 
         if currentPage.locked || searchResultNavigationState.isBusy {
-            recordPendingSearchResultNavigation(index: nextIndex, direction: direction)
+            recordPendingSearchResultNavigation(index: nextIndex, scrollDirection: scrollDirection)
             return
         }
 
-        openSearchResult(at: nextIndex, direction: direction)
+        openSearchResult(at: nextIndex, direction: scrollDirection)
     }
 
     private struct ResolvedJumpTarget {
@@ -2928,6 +3027,9 @@ extension ChatViewController {
             if let cell = self.messagesCollectionView.cellForItem(at: indexPath) as? MessageContentCell {
                 cell.setSelected(state: highlight)
             }
+            if self.inSearchMode.value || self.xabberInputView.state == .search {
+                self.refreshVisibleSearchSelection()
+            }
             self.preventHidingDate = false
             self.currentPage.unlock()
             self.setFloatingDateVisible(true)
@@ -3665,7 +3767,8 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
         }
 
         let item = self.searchMessagesQueue[index]
-        self.selectedSearchResultId = item.archivedId
+        self.selectedSearchResultId = self.searchResultSelectionIdentity(for: item)
+        self.refreshVisibleSearchSelection()
         self.queueOpenMessageRequest(
             ChatOpenMessageRequest(
                 chatJid: self.jid,
@@ -3699,7 +3802,8 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
         let newIndex = 0
         self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchMessagesQueue.count)
         if self.searchMessagesQueue.isNotEmpty {
-            self.selectedSearchResultId = self.searchMessagesQueue[newIndex].archivedId
+            self.selectedSearchResultId = self.searchResultSelectionIdentity(for: self.searchMessagesQueue[newIndex])
+            self.refreshVisibleSearchSelection()
             self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchMessagesQueue.count)
             let archivedId = searchMessagesQueue[newIndex].archivedId
             let date = searchMessagesQueue[newIndex].date
@@ -3710,8 +3814,8 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                     owner: self.owner,
                     conversationType: self.conversationType,
                     anchor: ChatMessageAnchorRef(
-                        messagePrimary: nil,
-                        archivedId: archivedId,
+                        messagePrimary: searchMessagesQueue[newIndex].primary,
+                        archivedId: archivedId.isNotEmpty ? archivedId : nil,
                         messageId: nil,
                         authorId: nil,
                         bodyFingerprint: nil,
@@ -3732,6 +3836,9 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                     }
                 )
             )
+        } else {
+            self.selectedSearchResultId = nil
+            self.refreshVisibleSearchSelection()
         }
         self.setFloatingDateVisible(true)
     }
