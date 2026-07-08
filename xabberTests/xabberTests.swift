@@ -1010,6 +1010,104 @@ final class ChatSearchModeActivationTests: XCTestCase {
     }
 }
 
+@MainActor
+final class ChatSearchInputBarViewTests: XCTestCase {
+    func testStructureUsesSingleGlassSurfaceWithTransparentInputAndIconButtons() throws {
+        let bar = ChatSearchInputBarView(frame: CGRect(x: 0, y: 0, width: 358, height: NativeGlassBarStyle.minimumHeight))
+        bar.layoutIfNeeded()
+
+        let effectViews = visualEffectViews(in: bar)
+        XCTAssertEqual(effectViews.count, 1)
+        XCTAssertTrue(effectViews.first === bar.surfaceView)
+        XCTAssertEqual(bar.surfaceView.layer.cornerRadius, NativeGlassBarStyle.cornerRadius, accuracy: 0.001)
+        XCTAssertEqual(bar.textField.accessibilityIdentifier, "chat_search_input")
+        XCTAssertEqual(bar.submitButton.accessibilityIdentifier, "chat_search_submit")
+        XCTAssertEqual(bar.cancelButton.accessibilityIdentifier, "chat_search_cancel")
+        XCTAssertEqual(bar.textField.backgroundColor ?? .clear, .clear)
+        XCTAssertEqual(bar.textField.borderStyle, .none)
+        XCTAssertTrue((bar.submitButton.title(for: .normal) ?? "").isEmpty)
+        XCTAssertTrue((bar.cancelButton.title(for: .normal) ?? "").isEmpty)
+        XCTAssertNotNil(bar.submitButton.image(for: .normal))
+        XCTAssertNotNil(bar.cancelButton.image(for: .normal))
+        XCTAssertEqual(bar.submitButton.bounds.size, CGSize(width: NativeGlassBarStyle.buttonSize, height: NativeGlassBarStyle.buttonSize))
+        XCTAssertEqual(bar.cancelButton.bounds.size, CGSize(width: NativeGlassBarStyle.buttonSize, height: NativeGlassBarStyle.buttonSize))
+
+        if #available(iOS 26.0, *) {
+            let glassEffect = try XCTUnwrap(bar.surfaceView.effect as? UIGlassEffect)
+            XCTAssertTrue(glassEffect.isInteractive)
+            XCTAssertEqual(glassEffect.tintColor, XabberGlassStyle.nativeGlassTintColor)
+        } else {
+            XCTAssertTrue(bar.surfaceView.effect is UIBlurEffect)
+        }
+    }
+
+    func testIPhone16eWidthKeepsStableHeightAndNonOverlappingControls() {
+        let bar = ChatSearchInputBarView(frame: CGRect(x: 0, y: 0, width: 358, height: NativeGlassBarStyle.minimumHeight))
+
+        bar.textField.text = "A long search query that should remain inside the input field"
+        bar.layoutIfNeeded()
+
+        XCTAssertEqual(bar.intrinsicContentSize.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertEqual(bar.bounds.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(bar.textField.frame.minX, bar.cancelButton.frame.maxX - 0.001)
+        XCTAssertLessThanOrEqual(bar.textField.frame.maxX, bar.submitButton.frame.minX + 0.001)
+        XCTAssertLessThanOrEqual(bar.submitButton.frame.maxX, bar.bounds.maxX + 0.001)
+        XCTAssertEqual(bar.submitButton.frame.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(bar.cancelButton.frame.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+    }
+
+    func testSubmitButtonAndReturnSubmitCurrentText() {
+        let bar = ChatSearchInputBarView(frame: CGRect(x: 0, y: 0, width: 358, height: NativeGlassBarStyle.minimumHeight))
+        var submittedTexts: [String?] = []
+        bar.onSubmit = { submittedTexts.append($0) }
+
+        bar.text = "needle"
+        bar.submitButton.sendActions(for: .touchUpInside)
+        bar.text = "return needle"
+        _ = bar.textField.delegate?.textFieldShouldReturn?(bar.textField)
+
+        XCTAssertEqual(submittedTexts, ["needle", "return needle"])
+    }
+
+    func testWhitespaceSubmitClearsControllerSearchStateWithoutStartingQuery() {
+        let controller = ChatViewController()
+        controller.searchTextObserver.accept("old")
+        controller.currentSearchQueryId = "query-1"
+
+        controller.submitSearchTextFromSearchInput("  \n\t  ")
+
+        XCTAssertNil(controller.searchTextObserver.value)
+        XCTAssertNil(controller.currentSearchQueryId)
+    }
+
+    func testSearchModeInstallsGlassInputBarAndClearsStaleNavbarItems() throws {
+        let controller = ChatViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let staleRight = UIBarButtonItem(title: "stale", style: .plain, target: nil, action: nil)
+        controller.navigationItem.rightBarButtonItem = staleRight
+
+        navigationController.loadViewIfNeeded()
+        controller.loadViewIfNeeded()
+        controller.activateSearchModeFromExternalRoute(activateKeyboard: false, animated: false)
+
+        let bar = try XCTUnwrap(controller.navigationItem.titleView as? ChatSearchInputBarView)
+        XCTAssertNil(controller.navigationItem.leftBarButtonItem)
+        XCTAssertNil(controller.navigationItem.rightBarButtonItem)
+        XCTAssertNil(controller.navigationItem.rightBarButtonItems)
+        XCTAssertFalse(controller.navigationItem.rightBarButtonItems?.contains(where: { $0 === staleRight }) ?? false)
+        XCTAssertTrue(controller.navigationItem.hidesBackButton)
+        XCTAssertEqual(bar.textField.accessibilityIdentifier, "chat_search_input")
+        XCTAssertEqual(bar.submitButton.accessibilityIdentifier, "chat_search_submit")
+        XCTAssertEqual(bar.cancelButton.accessibilityIdentifier, "chat_search_cancel")
+    }
+
+    private func visualEffectViews(in view: UIView) -> [UIVisualEffectView] {
+        view.subviews.reduce(view is UIVisualEffectView ? [view as! UIVisualEffectView] : []) { result, subview in
+            result + visualEffectViews(in: subview)
+        }
+    }
+}
+
 final class NotificationsNavigationTests: XCTestCase {
     func testBackPolicyPreservesModalDismiss() {
         let action = NotificationsBackPolicy.action(

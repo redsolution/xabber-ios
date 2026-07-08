@@ -975,6 +975,7 @@ extension ChatViewController {
 
         if let initialQuery = request?.initialQuery {
             searchBar.text = initialQuery
+            searchInputBar.text = initialQuery
         }
 
         configureSearchBar(
@@ -987,6 +988,26 @@ extension ChatViewController {
         }
     }
 
+    internal func submitSearchTextFromSearchInput(_ text: String?) {
+        let normalizedText = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        searchBar.text = text
+        searchInputBar.text = text
+        searchBar.resignFirstResponder()
+        searchInputBar.endEditing(true)
+
+        if normalizedText.isEmpty {
+            currentSearchQueryId = nil
+            searchTextObserver.accept(nil)
+            return
+        }
+
+        if showSkeletonObserver.value {
+            return
+        }
+
+        searchTextObserver.accept(normalizedText)
+    }
+
     internal func cancelSearchModeFromSearchUI() {
         if isViewLoaded && showSkeletonObserver.value {
             return
@@ -994,7 +1015,10 @@ extension ChatViewController {
 
         currentSearchQueryId = nil
         pendingSearchActivationRequest = nil
+        searchBar.text = nil
+        searchInputBar.text = nil
         searchBar.endEditing(true)
+        searchInputBar.endEditing(true)
         inSearchMode.accept(false)
         becomeFirstResponder()
         searchTextObserver.accept(nil)

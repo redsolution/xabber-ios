@@ -56,6 +56,149 @@ struct ChatSearchActivationRequest: Equatable {
     }
 }
 
+final class ChatSearchInputBarView: UIView, UITextFieldDelegate {
+    static let inputAccessibilityIdentifier = "chat_search_input"
+    static let submitAccessibilityIdentifier = "chat_search_submit"
+    static let cancelAccessibilityIdentifier = "chat_search_cancel"
+
+    var onSubmit: ((String?) -> Void)?
+    var onCancel: (() -> Void)?
+
+    let surfaceView: UIVisualEffectView = {
+        let view = UIVisualEffectView(effect: NativeGlassBarStyle.makeEffect(interactive: true))
+        view.translatesAutoresizingMaskIntoConstraints = false
+        NativeGlassBarStyle.applySurface(to: view, cornerStyle: .capsule, interactive: true)
+        return view
+    }()
+
+    let textField: UITextField = {
+        let field = UITextField()
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.accessibilityIdentifier = inputAccessibilityIdentifier
+        field.placeholder = "Search this chat".localizeString(id: "search_this_chat_hint", arguments: [])
+        field.backgroundColor = .clear
+        field.borderStyle = .none
+        field.clearButtonMode = .whileEditing
+        field.returnKeyType = .search
+        field.enablesReturnKeyAutomatically = false
+        field.font = .preferredFont(forTextStyle: .body)
+        field.adjustsFontForContentSizeCategory = true
+        field.textColor = .label
+        field.tintColor = .systemBlue
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return field
+    }()
+
+    let submitButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.accessibilityIdentifier = submitAccessibilityIdentifier
+        button.accessibilityLabel = "Search".localizeString(id: "search", arguments: [])
+        NativeGlassBarStyle.applyIconButtonStyle(
+            to: button,
+            tintColor: NativeGlassBarStyle.iconTintColor,
+            image: imageLiteral("magnifyingglass", dimension: NativeGlassBarStyle.iconSize),
+            prefersNativeGlass: false
+        )
+        return button
+    }()
+
+    let cancelButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.accessibilityIdentifier = cancelAccessibilityIdentifier
+        button.accessibilityLabel = "Cancel".localizeString(id: "cancel", arguments: [])
+        NativeGlassBarStyle.applyIconButtonStyle(
+            to: button,
+            tintColor: NativeGlassBarStyle.iconTintColor,
+            image: imageLiteral("xmark", dimension: NativeGlassBarStyle.iconSize),
+            prefersNativeGlass: false
+        )
+        return button
+    }()
+
+    var text: String? {
+        get { textField.text }
+        set { textField.text = newValue }
+    }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: NativeGlassBarStyle.minimumHeight)
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    @discardableResult
+    func becomeInputFirstResponder() -> Bool {
+        textField.becomeFirstResponder()
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        submitCurrentText()
+        return true
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        isOpaque = false
+        translatesAutoresizingMaskIntoConstraints = false
+        textField.delegate = self
+
+        addSubview(surfaceView)
+        surfaceView.contentView.addSubview(cancelButton)
+        surfaceView.contentView.addSubview(textField)
+        surfaceView.contentView.addSubview(submitButton)
+
+        submitButton.addTarget(self, action: #selector(onSubmitButtonTouchUp), for: .touchUpInside)
+        cancelButton.addTarget(self, action: #selector(onCancelButtonTouchUp), for: .touchUpInside)
+
+        NSLayoutConstraint.activate([
+            surfaceView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            surfaceView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            surfaceView.topAnchor.constraint(equalTo: topAnchor),
+            surfaceView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            cancelButton.leadingAnchor.constraint(equalTo: surfaceView.contentView.leadingAnchor),
+            cancelButton.topAnchor.constraint(equalTo: surfaceView.contentView.topAnchor),
+            cancelButton.bottomAnchor.constraint(equalTo: surfaceView.contentView.bottomAnchor),
+            cancelButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+            cancelButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+
+            submitButton.trailingAnchor.constraint(equalTo: surfaceView.contentView.trailingAnchor),
+            submitButton.topAnchor.constraint(equalTo: surfaceView.contentView.topAnchor),
+            submitButton.bottomAnchor.constraint(equalTo: surfaceView.contentView.bottomAnchor),
+            submitButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+            submitButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+
+            textField.leadingAnchor.constraint(equalTo: cancelButton.trailingAnchor),
+            textField.trailingAnchor.constraint(equalTo: submitButton.leadingAnchor),
+            textField.topAnchor.constraint(equalTo: surfaceView.contentView.topAnchor),
+            textField.bottomAnchor.constraint(equalTo: surfaceView.contentView.bottomAnchor)
+        ])
+    }
+
+    @objc
+    private func onSubmitButtonTouchUp() {
+        submitCurrentText()
+    }
+
+    @objc
+    private func onCancelButtonTouchUp() {
+        onCancel?()
+    }
+
+    private func submitCurrentText() {
+        textField.resignFirstResponder()
+        onSubmit?(textField.text)
+    }
+}
+
 enum ChatConnectionStatusTextPolicy {
     static var waitingForNetworkText: String {
         "Waiting for network...".localizeString(id: "waiting_for_network", arguments: [])
@@ -2603,23 +2746,20 @@ class ChatViewController: MessagesViewController {
         return label
     }()
     
-//    internal var searchBar: UISearchBar = {
-//        let bar = UISearchBar()
-//        
-//        bar.placeholder = "Search this chat".localizeString(id: "search_this_chat_hint", arguments: [])
-//        bar.showsCancelButton = true
-//        
-//        return bar
-//    }()
+    internal lazy var searchInputBar: ChatSearchInputBarView = {
+        let view = ChatSearchInputBarView()
+        view.onSubmit = { [weak self] text in
+            self?.submitSearchTextFromSearchInput(text)
+        }
+        view.onCancel = { [weak self] in
+            self?.cancelSearchModeFromSearchUI()
+        }
+        return view
+    }()
+
     internal var searchBar: UISearchBar = {
         let bar = UISearchBar()
         bar.placeholder = "Search this chat".localizeString(id: "search_this_chat_hint", arguments: [])
-        // iOS 26+ : Align with Liquid Glass (translucent, fluid styling)
-        if #available(iOS 26.0, iPadOS 26.0, *) {
-            bar.tintColor = UIColor.systemBlue  // Matches iOS 26's vibrant accents; adjust for theme
-            bar.overrideUserInterfaceStyle = .unspecified  // Ensures adaptation to system translucency
-            bar.backgroundImage = UIImage()  // Optional: Makes background more transparent for Liquid Glass effect
-        }
         return bar
     }()
     
@@ -3541,157 +3681,48 @@ class ChatViewController: MessagesViewController {
             isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
         )
         self.invalidateNavigationAvatarItem()
-        if #available(iOS 26.0, *) {
-            self.cancelSearchBarButton.action = #selector(self.pnCancelButtonTouchUp)
-            self.cancelSearchBarButton.target = self
-            if UIDevice.current.userInterfaceIdiom == .pad {
-                self.searchBar.frame = CGRect(width: self.view.bounds.width - 150, height: 44)
-                self.cancelSearchBarButton.hidesSharedBackground = true
-//                self.searchBar.searchBarStyle = .minimal
-                searchBar.backgroundImage = UIImage()  // Strips default background/borders
-                searchBar.layer.shadowOpacity = 0      // Removes outer shadow
-                searchBar.layer.shadowRadius = 0
-                searchBar.layer.shadowOffset = .zero
-                searchBar.layer.shadowColor = UIColor.clear.cgColor
 
-                // For iOS 13+ (your case), minimal style enhances clean look
-                
-                searchBar.searchBarStyle = .default
-                searchBar.showsCancelButton = true
-                searchBar.searchTextField.layer.shadowOpacity = 0
-                searchBar.searchTextField.layer.shadowRadius = 0
-                searchBar.searchTextField.layer.shadowOffset = .zero
-                searchBar.searchTextField.layer.shadowColor = UIColor.clear.cgColor
-                searchBar.searchTextField.backgroundColor = .clear
-                searchBar.searchTextField.borderStyle = .roundedRect
-                let panel = UIBarButtonItem(customView: searchBar)
-                panel.hidesSharedBackground = true
-                NavigationBarItemOwnership.apply(
-                    to: self.navigationItem,
-                    left: NavigationBarItemOwnership.Assignment.none,
-                    right: .items([self.cancelSearchBarButton, panel]),
-                    animated: shouldAnimate
-                )
-//                self.navigationItem.setRightBarButton(self.cancelSearchBarButton, animated: true)
-            } else {
-                self.searchBar.sizeToFit()
-                let panel = UIBarButtonItem(customView: searchBar)
-                panel.hidesSharedBackground = true
-                NavigationBarItemOwnership.apply(
-                    to: self.navigationItem,
-                    left: NavigationBarItemOwnership.Assignment.none,
-                    right: .item(panel),
-                    animated: shouldAnimate
-                )
-            }
-            self.navigationItem.titleView = nil
-            self.searchBar.delegate = self
-            self.navigationItem.setHidesBackButton(true, animated: shouldAnimate)
-            if activateKeyboard {
-                self.searchBar.becomeFirstResponder()
-                self.searchBar.searchTextField.becomeFirstResponder()
-            }
-            if self.searchMessagesQueue.isEmpty {
-                self.xabberInputView.searchPanel.changeState(to: .empty)
-            } else {
-                self.xabberInputView.searchPanel.changeState(to: .withResults)
-            }
-            self.xabberInputView.changeState(to: .search)
-            self.searchBar.setShowsCancelButton(true, animated: shouldAnimate)
-        } else {
-            self.cancelSearchBarButton.action = #selector(self.pnCancelButtonTouchUp)
-            self.cancelSearchBarButton.target = self
-            if UIDevice.current.userInterfaceIdiom == .pad {
-                self.searchBar.frame = CGRect(width: self.view.bounds.width - 150, height: 44)
-                NavigationBarItemOwnership.apply(
-                    to: self.navigationItem,
-                    left: .item(UIBarButtonItem(customView: searchBar)),
-                    right: .item(self.cancelSearchBarButton),
-                    animated: shouldAnimate
-                )
-            } else {
-                self.searchBar.sizeToFit()
-                NavigationBarItemOwnership.apply(
-                    to: self.navigationItem,
-                    left: NavigationBarItemOwnership.Assignment.none,
-                    right: .item(UIBarButtonItem(customView: searchBar)),
-                    animated: shouldAnimate
-                )
-            }
-            self.navigationItem.titleView = nil
-            self.searchBar.delegate = self
-            self.navigationItem.setHidesBackButton(true, animated: shouldAnimate)
-            if activateKeyboard {
-                self.searchBar.becomeFirstResponder()
-                self.searchBar.searchTextField.becomeFirstResponder()
-            }
-            if self.searchMessagesQueue.isEmpty {
-                self.xabberInputView.searchPanel.changeState(to: .empty)
-            } else {
-                self.xabberInputView.searchPanel.changeState(to: .withResults)
-            }
-            self.xabberInputView.changeState(to: .search)
-            self.searchBar.setShowsCancelButton(true, animated: shouldAnimate)
-        }
-        
-    }
-    
-    func configureSearchBarT() {
-        // Configure cancel button action
-        self.cancelSearchBarButton.action = #selector(self.pnCancelButtonTouchUp)
-        self.cancelSearchBarButton.target = self
-        self.invalidateNavigationAvatarItem()
-        
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            // iPad: Dynamic width based on nav bar (handles iPadOS 26 multitasking/menu bar)
-            let navBarWidth = self.navigationController?.navigationBar.frame.width ?? self.view.bounds.width
-            self.searchBar.frame = CGRect(x: 0, y: 0, width: navBarWidth - 150, height: 44)
-//            self.navigationItem.setLeftBarButton(UIBarButtonItem(customView: searchBar), animated: true)
-            
-            let searchItem: UIBarButtonItem
-            if #available(iOS 26.0, *) {
-                let barButtonItem = UIBarButtonItem(customView: searchBar)
-                barButtonItem.sharesBackground = false  // Prevents merging with adjacent buttons
-                searchItem = barButtonItem
-            } else {
-                searchItem = UIBarButtonItem(customView: searchBar)
-            }
-            
-            NavigationBarItemOwnership.apply(
-                to: self.navigationItem,
-                left: .item(searchItem),
-                right: .item(self.cancelSearchBarButton),
-                animated: false
-            )
-        } else {
-            // iPhone: Auto-size; iOS 26 keeps nav search top by default
-            self.searchBar.sizeToFit()
-            NavigationBarItemOwnership.apply(
-                to: self.navigationItem,
-                left: NavigationBarItemOwnership.Assignment.none,
-                right: .item(UIBarButtonItem(customView: searchBar)),
-                animated: false
-            )
-        }
-        
-        // Standard search mode setup
-        self.navigationItem.titleView = nil
+        let inputBar = self.searchInputBar
+        inputBar.text = self.searchBar.text
+        inputBar.frame = CGRect(
+            x: 0,
+            y: 0,
+            width: self.resolvedSearchInputBarWidth(),
+            height: NativeGlassBarStyle.minimumHeight
+        )
+        inputBar.setNeedsLayout()
+        inputBar.layoutIfNeeded()
+
+        NavigationBarItemOwnership.apply(
+            to: self.navigationItem,
+            left: NavigationBarItemOwnership.Assignment.none,
+            right: NavigationBarItemOwnership.Assignment.none,
+            animated: shouldAnimate
+        )
+        self.navigationItem.titleView = inputBar
         self.searchBar.delegate = self
-        self.navigationItem.setHidesBackButton(true, animated: false)
-        
-        // Focus the search bar (single call suffices)
-        self.searchBar.becomeFirstResponder()
-        
-        // Update input view state based on search results
+        self.navigationItem.setHidesBackButton(true, animated: shouldAnimate)
+
+        if activateKeyboard {
+            inputBar.becomeInputFirstResponder()
+        }
+
         if self.searchMessagesQueue.isEmpty {
             self.xabberInputView.searchPanel.changeState(to: .empty)
         } else {
             self.xabberInputView.searchPanel.changeState(to: .withResults)
         }
         self.xabberInputView.changeState(to: .search)
-        
-        // Animate cancel button visibility (iOS 26 enhances fluid animations automatically)
-        self.searchBar.setShowsCancelButton(true, animated: false)
+    }
+
+    private func resolvedSearchInputBarWidth() -> CGFloat {
+        let navigationWidth = self.navigationController?.navigationBar.bounds.width ?? 0
+        let viewWidth = self.view.bounds.width
+        let availableWidth = max(navigationWidth, viewWidth, UIScreen.main.bounds.width)
+        let horizontalInset = NativeGlassBarStyle.horizontalInset
+        let minimumWidth = NativeGlassBarStyle.buttonSize * 3 + NativeGlassBarStyle.contentInset * 2
+
+        return max(minimumWidth, availableWidth - horizontalInset * 2)
     }
     
     public func onSearchPanelChangeConversationType(_ oldConversationType: ClientSynchronizationManager.ConversationType) {

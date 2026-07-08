@@ -23,16 +23,7 @@ import UIKit
 
 extension ChatViewController: UISearchBarDelegate {
     func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
-        searchBar.resignFirstResponder()
-        print("done")
-        if self.showSkeletonObserver.value {
-            return
-        }
-        guard let searchText = searchBar.text else {
-            return
-        }
-        print(searchText)
-        searchTextObserver.accept(searchText.isEmpty ? nil : searchText)
+        self.submitSearchTextFromSearchInput(searchBar.text)
     }
     
     fileprivate func cancelSearch() {
