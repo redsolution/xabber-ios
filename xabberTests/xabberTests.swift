@@ -1011,6 +1011,198 @@ final class ChatSearchModeActivationTests: XCTestCase {
 }
 
 @MainActor
+final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
+    func testQueryGenerationSupersedesOlderCallbacks() throws {
+        let controller = makeController()
+
+        let first = try XCTUnwrap(
+            controller.beginInChatSearchQueryIfNeeded(text: "first", queryId: "query-a")
+        )
+        XCTAssertEqual(first.queryId, "query-a")
+
+        let second = try XCTUnwrap(
+            controller.beginInChatSearchQueryIfNeeded(text: "second", queryId: "query-b")
+        )
+
+        XCTAssertEqual(second.queryId, "query-b")
+        XCTAssertEqual(controller.currentSearchQueryId, "query-b")
+        XCTAssertFalse(controller.isCurrentInChatSearchQuery(queryId: "query-a"))
+        XCTAssertTrue(controller.isCurrentInChatSearchQuery(queryId: "query-b"))
+        XCTAssertFalse(
+            controller.appendInChatSearchResultIfCurrent(
+                makeMessage(owner: controller.owner, jid: controller.jid, conversationType: controller.conversationType),
+                queryId: "query-a"
+            )
+        )
+        XCTAssertTrue(
+            controller.appendInChatSearchResultIfCurrent(
+                makeMessage(owner: controller.owner, jid: controller.jid, conversationType: controller.conversationType),
+                queryId: "query-b"
+            )
+        )
+        XCTAssertEqual(controller.searchMessagesQueue.count, 1)
+    }
+
+    func testCancelClearsCurrentQueryAndIgnoresLateCallbacks() throws {
+        let controller = makeController()
+        _ = try XCTUnwrap(controller.beginInChatSearchQueryIfNeeded(text: "needle", queryId: "query-1"))
+
+        controller.clearInChatSearchQuery(clearResults: true)
+
+        XCTAssertNil(controller.currentSearchQueryId)
+        XCTAssertNil(controller.currentInChatSearchQueryContext)
+        XCTAssertFalse(
+            controller.appendInChatSearchResultIfCurrent(
+                makeMessage(owner: controller.owner, jid: controller.jid, conversationType: controller.conversationType),
+                queryId: "query-1"
+            )
+        )
+        XCTAssertTrue(controller.searchMessagesQueue.isEmpty)
+    }
+
+    func testEmptySubmitClearsResultsAndLoadingState() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.searchTextObserver.accept("needle")
+        _ = try XCTUnwrap(controller.beginInChatSearchQueryIfNeeded(text: "needle", queryId: "query-1"))
+        controller.searchMessagesQueue = [
+            makeMessage(owner: controller.owner, jid: controller.jid, conversationType: controller.conversationType)
+        ]
+        controller.xabberInputView.searchPanel.applyRenderState(.loading)
+
+        controller.submitSearchTextFromSearchInput("  \n\t  ")
+
+        XCTAssertNil(controller.currentSearchQueryId)
+        XCTAssertNil(controller.currentInChatSearchQueryContext)
+        XCTAssertNil(controller.searchTextObserver.value)
+        XCTAssertTrue(controller.searchMessagesQueue.isEmpty)
+        XCTAssertEqual(controller.xabberInputView.searchPanel.renderState, .idle)
+    }
+
+    func testSameQueryTextIsDedupedWithinCurrentChatScope() throws {
+        let controller = makeController()
+
+        let first = try XCTUnwrap(
+            controller.beginInChatSearchQueryIfNeeded(text: "  Needle  ", queryId: "query-1")
+        )
+        let duplicate = controller.beginInChatSearchQueryIfNeeded(text: "Needle", queryId: "query-2")
+
+        XCTAssertEqual(first.queryId, "query-1")
+        XCTAssertNil(duplicate)
+        XCTAssertEqual(controller.currentSearchQueryId, "query-1")
+        XCTAssertEqual(controller.currentInChatSearchQueryContext?.text, "Needle")
+    }
+
+    func testRegularAndGroupRemoteQueryContextsUseCurrentChatScope() throws {
+        let regular = makeController(jid: "contact@example.com", conversationType: .regular)
+        let group = makeController(jid: "room@conference.example.com", conversationType: .group)
+
+        let regularContext = try XCTUnwrap(
+            regular.beginInChatSearchQueryIfNeeded(text: "needle", queryId: "regular-query")
+        )
+        let groupContext = try XCTUnwrap(
+            group.beginInChatSearchQueryIfNeeded(text: "needle", queryId: "group-query")
+        )
+
+        XCTAssertEqual(regularContext.owner, regular.owner)
+        XCTAssertEqual(regularContext.jid, "contact@example.com")
+        XCTAssertEqual(regularContext.conversationType, .regular)
+        XCTAssertTrue(regularContext.requiresRemoteArchiveSearch)
+        XCTAssertEqual(groupContext.owner, group.owner)
+        XCTAssertEqual(groupContext.jid, "room@conference.example.com")
+        XCTAssertEqual(groupContext.conversationType, .group)
+        XCTAssertTrue(groupContext.requiresRemoteArchiveSearch)
+    }
+
+    func testEncryptedSearchContextIsLocalOnly() throws {
+        let controller = makeController(conversationType: .omemo)
+
+        let context = try XCTUnwrap(
+            controller.beginInChatSearchQueryIfNeeded(text: "needle", queryId: "omemo-query")
+        )
+
+        XCTAssertEqual(context.conversationType, .omemo)
+        XCTAssertFalse(context.requiresRemoteArchiveSearch)
+        XCTAssertFalse(ChatInChatSearchQueryContext.requiresRemoteArchiveSearch(conversationType: .omemo))
+    }
+
+    func testResultAcceptanceRequiresCurrentOwnerJidAndConversationType() throws {
+        let controller = makeController()
+        _ = try XCTUnwrap(controller.beginInChatSearchQueryIfNeeded(text: "needle", queryId: "query-1"))
+
+        XCTAssertTrue(
+            controller.acceptsInChatSearchResult(
+                makeMessage(owner: controller.owner, jid: controller.jid, conversationType: controller.conversationType),
+                queryId: "query-1"
+            )
+        )
+        XCTAssertFalse(
+            controller.acceptsInChatSearchResult(
+                makeMessage(owner: "other@example.com", jid: controller.jid, conversationType: controller.conversationType),
+                queryId: "query-1"
+            )
+        )
+        XCTAssertFalse(
+            controller.acceptsInChatSearchResult(
+                makeMessage(owner: controller.owner, jid: "other-contact@example.com", conversationType: controller.conversationType),
+                queryId: "query-1"
+            )
+        )
+        XCTAssertFalse(
+            controller.acceptsInChatSearchResult(
+                makeMessage(owner: controller.owner, jid: controller.jid, conversationType: .group),
+                queryId: "query-1"
+            )
+        )
+    }
+
+    func testCurrentQueryFailureStopsLoadingAndShowsEmptyResults() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.searchTextObserver.accept("needle")
+        _ = try XCTUnwrap(controller.beginInChatSearchQueryIfNeeded(text: "needle", queryId: "query-1"))
+        controller.xabberInputView.searchPanel.applyRenderState(.loading)
+
+        XCTAssertTrue(controller.handleInChatSearchQueryFailure(queryId: "query-1"))
+
+        XCTAssertNil(controller.currentSearchQueryId)
+        XCTAssertNil(controller.currentInChatSearchQueryContext)
+        XCTAssertTrue(controller.searchMessagesQueue.isEmpty)
+        XCTAssertEqual(controller.xabberInputView.searchPanel.renderState, .emptyResults)
+    }
+
+    private func makeController(
+        owner: String = "owner@example.com",
+        jid: String = "contact@example.com",
+        conversationType: ClientSynchronizationManager.ConversationType = .regular
+    ) -> ChatViewController {
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = conversationType
+        return controller
+    }
+
+    private func makeMessage(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        primary: String = UUID().uuidString
+    ) -> MessageStorageItem {
+        let message = MessageStorageItem()
+        message.primary = primary
+        message.owner = owner
+        message.opponent = jid
+        message.conversationType = conversationType
+        message.messageType = MessageStorageItem.MessageDisplayType.text.rawValue
+        message.archivedId = "archive-\(primary)"
+        message.messageId = "message-\(primary)"
+        message.date = Date(timeIntervalSince1970: 1_711_283_200)
+        return message
+    }
+}
+
+@MainActor
 final class ChatSearchInputBarViewTests: XCTestCase {
     func testStructureUsesSingleGlassSurfaceWithTransparentInputAndIconButtons() throws {
         let bar = ChatSearchInputBarView(frame: CGRect(x: 0, y: 0, width: 358, height: NativeGlassBarStyle.minimumHeight))

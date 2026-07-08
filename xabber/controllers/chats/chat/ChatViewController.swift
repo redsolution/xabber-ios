@@ -56,6 +56,48 @@ struct ChatSearchActivationRequest: Equatable {
     }
 }
 
+struct ChatInChatSearchQueryContext: Equatable {
+    let queryId: String
+    let owner: String
+    let jid: String
+    let conversationType: ClientSynchronizationManager.ConversationType
+    let text: String
+
+    var requiresRemoteArchiveSearch: Bool {
+        Self.requiresRemoteArchiveSearch(conversationType: conversationType)
+    }
+
+    static func normalizedText(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func requiresRemoteArchiveSearch(
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> Bool {
+        !conversationType.isEncrypted
+    }
+
+    func matchesSearchScope(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        text: String
+    ) -> Bool {
+        self.owner == owner &&
+        self.jid == jid &&
+        self.conversationType == conversationType &&
+        self.text == Self.normalizedText(text)
+    }
+
+    func accepts(_ item: MessageStorageItem) -> Bool {
+        item.owner == owner &&
+        item.opponent == jid &&
+        item.conversationType == conversationType &&
+        !item.isDeleted &&
+        item.messageType != MessageStorageItem.MessageDisplayType.system.rawValue
+    }
+}
+
 final class ChatSearchInputBarView: UIView, UITextFieldDelegate {
     static let inputAccessibilityIdentifier = "chat_search_input"
     static let submitAccessibilityIdentifier = "chat_search_submit"
@@ -1735,6 +1777,7 @@ class ChatViewController: MessagesViewController {
     var searchMessagesQueue: [MessageStorageItem] = []
     var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var currentSearchQueryId: String? = nil
+    var currentInChatSearchQueryContext: ChatInChatSearchQueryContext? = nil
     var pendingOpenMessageRequest: ChatOpenMessageRequest? = nil
     internal var backgroundPresentationMode: ChatBackgroundPresentationMode = .automatic
     internal var isNavigationTransitionActive: Bool = false

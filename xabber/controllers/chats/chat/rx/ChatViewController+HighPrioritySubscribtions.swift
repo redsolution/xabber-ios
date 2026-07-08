@@ -44,82 +44,87 @@ extension ChatViewController {
     }
 
     public func updateSearchResults(value: String?) {
-        if (value ?? "").isEmpty {
-            self.xabberInputView.searchPanel.applyRenderState(.idle)
+        let normalizedValue = ChatInChatSearchQueryContext.normalizedText(value ?? "")
+        if normalizedValue.isEmpty {
+            self.clearInChatSearchQuery(clearResults: true, panelState: .idle)
             return
         }
         if self.conversationType.isEncrypted {
-            if let value = value, value.isNotEmpty {
-                do {
-                    self.searchMessagesQueue = []
-                    let realm = try WRealm.safe()
-                    realm
-                        .objects(MessageStorageItem.self)
-                        .filter(
-                            "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND body CONTAINS[cd] %@",
-                            self.owner,
-                            self.jid,
-                            self.conversationType.rawValue,
-                            MessageStorageItem.MessageDisplayType.system.rawValue,
-                            value
-                        )
-                        .sorted(byKeyPath: "date", ascending: false)
-                        .toArray()
-                        .forEach {
-                            item in
-                            self.searchMessagesQueue.append(item)
-                        }
-                    self.setLoadingIndicatorVisible(false)
-                    self.applySearchResults()
-                } catch {
-                    DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            guard let context = self.beginInChatSearchQueryIfNeeded(text: normalizedValue) else {
+                return
+            }
+            do {
+                self.searchMessagesQueue = []
+                let realm = try WRealm.safe()
+                realm
+                    .objects(MessageStorageItem.self)
+                    .filter(
+                        "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND body CONTAINS[cd] %@",
+                        self.owner,
+                        self.jid,
+                        self.conversationType.rawValue,
+                        MessageStorageItem.MessageDisplayType.system.rawValue,
+                        normalizedValue
+                    )
+                    .sorted(byKeyPath: "date", ascending: false)
+                    .toArray()
+                    .forEach { item in
+                        self.appendInChatSearchResultIfCurrent(item, queryId: context.queryId)
+                    }
+                self.applySearchResults()
+                if self.currentSearchQueryId != nil {
+                    self.clearInChatSearchQuery(clearResults: false, panelState: nil)
+                }
+            } catch {
+                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                if let queryId = self.currentSearchQueryId {
+                    self.handleInChatSearchQueryFailure(queryId: queryId)
                 }
             }
         } else {
-            if let value = value, value.isNotEmpty {
-                self.searchMessagesQueue = []
-                self.xabberInputView.searchPanel.applyRenderState(.loading)
-                let requestCallbacks = MessageArchiveManager.RequestCallbacks(
-                    onMessage: { [weak self] item, queryId in
-                        self?.didReceiveMessage(item, queryId: queryId)
-                    },
-                    onEndPage: { [weak self] queryId, state, first, last, count in
-                        self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
-                    }
+            guard let context = self.beginInChatSearchQueryIfNeeded(text: normalizedValue) else {
+                return
+            }
+            self.xabberInputView.searchPanel.applyRenderState(.loading)
+            self.registerRemoteHistoryFailureDispatcher(queryId: context.queryId)
+            let requestCallbacks = MessageArchiveManager.RequestCallbacks(
+                onMessage: { [weak self] item, queryId in
+                    self?.didReceiveMessage(item, queryId: queryId)
+                },
+                onEndPage: { [weak self] queryId, state, first, last, count in
+                    self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
+                }
+            )
+            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                let queryId = session.mam?.searchText(
+                    stream,
+                    jid: context.jid,
+                    conversationType: context.conversationType,
+                    text: context.text,
+                    queryId: context.queryId,
+                    requestCallbacks: requestCallbacks
                 )
-                let searchQueryId = "MAM search: \(NanoID.new(8))"
-                self.currentSearchQueryId = searchQueryId
-                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                    let queryId = session.mam?.searchText(
+                if let queryId {
+                    self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
+                } else {
+                    self.handleInChatSearchQueryFailure(queryId: context.queryId)
+                }
+            } fail: {
+                guard let account = AccountManager.shared.find(for: self.owner) else {
+                    self.handleInChatSearchQueryFailure(queryId: context.queryId)
+                    return
+                }
+                account.action({ user, stream in
+                    let queryId = user.mam.searchText(
                         stream,
-                        jid: self.jid,
-                        conversationType: self.conversationType,
-                        text: value,
-                        queryId: searchQueryId,
+                        jid: context.jid,
+                        conversationType: context.conversationType,
+                        text: context.text,
+                        queryId: context.queryId,
                         requestCallbacks: requestCallbacks
                     )
-                    if let queryId {
-                        self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
-                    }
-                } fail: {
-                    guard let account = AccountManager.shared.find(for: self.owner) else {
-                        return
-                    }
-                    account.action({ user, stream in
-                        let queryId = user.mam.searchText(
-                            stream,
-                            jid: self.jid,
-                            conversationType: self.conversationType,
-                            text: value,
-                            queryId: searchQueryId,
-                            requestCallbacks: requestCallbacks
-                        )
-                        self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
-                    })
-                }
-            } else {
-                self.searchMessagesQueue = []
-                self.xabberInputView.searchPanel.applyRenderState(.idle)
+                    self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
+                })
             }
         }
     }

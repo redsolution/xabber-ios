@@ -996,10 +996,7 @@ extension ChatViewController {
         searchInputBar.endEditing(true)
 
         if normalizedText.isEmpty {
-            currentSearchQueryId = nil
-            if isViewLoaded {
-                xabberInputView.searchPanel.applyRenderState(.idle)
-            }
+            clearInChatSearchQuery(clearResults: true, panelState: .idle)
             searchTextObserver.accept(nil)
             return
         }
@@ -1016,13 +1013,10 @@ extension ChatViewController {
             return
         }
 
-        currentSearchQueryId = nil
+        clearInChatSearchQuery(clearResults: true, panelState: .idle)
         pendingSearchActivationRequest = nil
         searchBar.text = nil
         searchInputBar.text = nil
-        if isViewLoaded {
-            xabberInputView.searchPanel.applyRenderState(.idle)
-        }
         searchBar.endEditing(true)
         searchInputBar.endEditing(true)
         inSearchMode.accept(false)
@@ -1038,6 +1032,119 @@ extension ChatViewController {
         UIView.performWithoutAnimation {
             configureNavbar()
         }
+    }
+
+    @discardableResult
+    internal func beginInChatSearchQueryIfNeeded(
+        text: String,
+        queryId: String? = nil
+    ) -> ChatInChatSearchQueryContext? {
+        let normalizedText = ChatInChatSearchQueryContext.normalizedText(text)
+        guard normalizedText.isNotEmpty else {
+            clearInChatSearchQuery(clearResults: true, panelState: .idle)
+            return nil
+        }
+
+        if let currentInChatSearchQueryContext,
+           currentInChatSearchQueryContext.matchesSearchScope(
+               owner: owner,
+               jid: jid,
+               conversationType: conversationType,
+               text: normalizedText
+           ) {
+            return nil
+        }
+
+        clearInChatSearchQuery(clearResults: true, panelState: nil)
+
+        let resolvedQueryId = queryId ?? "MAM search: \(NanoID.new(8))"
+        let context = ChatInChatSearchQueryContext(
+            queryId: resolvedQueryId,
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType,
+            text: normalizedText
+        )
+        currentSearchQueryId = context.queryId
+        currentInChatSearchQueryContext = context
+        selectedSearchResultId = nil
+        return context
+    }
+
+    internal func clearInChatSearchQuery(
+        clearResults: Bool,
+        panelState: ModernXabberInputView.SearchPanel.RenderState? = nil
+    ) {
+        if let currentSearchQueryId {
+            unregisterRemoteHistoryPersistenceSource(queryId: currentSearchQueryId)
+        }
+        currentSearchQueryId = nil
+        currentInChatSearchQueryContext = nil
+        selectedSearchResultId = nil
+        if clearResults {
+            searchMessagesQueue = []
+        }
+        setLoadingIndicatorVisible(false)
+        guard isViewLoaded else {
+            return
+        }
+        if let panelState {
+            xabberInputView.searchPanel.applyRenderState(panelState)
+        }
+    }
+
+    internal func isCurrentInChatSearchQuery(queryId: String) -> Bool {
+        currentInChatSearchQueryContext?.queryId == queryId &&
+        currentSearchQueryId == queryId &&
+        currentInChatSearchQueryContext?.owner == owner &&
+        currentInChatSearchQueryContext?.jid == jid &&
+        currentInChatSearchQueryContext?.conversationType == conversationType
+    }
+
+    internal func acceptsInChatSearchResult(_ item: MessageStorageItem, queryId: String) -> Bool {
+        guard isCurrentInChatSearchQuery(queryId: queryId),
+              let currentInChatSearchQueryContext else {
+            return false
+        }
+        return currentInChatSearchQueryContext.accepts(item)
+    }
+
+    @discardableResult
+    internal func appendInChatSearchResultIfCurrent(_ item: MessageStorageItem, queryId: String) -> Bool {
+        guard acceptsInChatSearchResult(item, queryId: queryId) else {
+            return false
+        }
+        let isDuplicate = searchMessagesQueue.contains { existing in
+            existing.primary == item.primary ||
+            (existing.archivedId.isNotEmpty && existing.archivedId == item.archivedId)
+        }
+        guard !isDuplicate else {
+            return false
+        }
+        searchMessagesQueue.append(item)
+        return true
+    }
+
+    @discardableResult
+    internal func finishInChatSearchQueryIfCurrent(
+        queryId: String,
+        emptyList: Bool
+    ) -> Bool {
+        guard isCurrentInChatSearchQuery(queryId: queryId) else {
+            return false
+        }
+        applySearchResults(emptyList: emptyList)
+        clearInChatSearchQuery(clearResults: false, panelState: nil)
+        return true
+    }
+
+    @discardableResult
+    internal func handleInChatSearchQueryFailure(queryId: String) -> Bool {
+        guard isCurrentInChatSearchQuery(queryId: queryId) else {
+            return false
+        }
+        clearInChatSearchQuery(clearResults: true, panelState: .emptyResults)
+        return true
     }
 
     internal func applySearchResultsPanelState(isLoadingContext: Bool? = nil) {
@@ -3461,6 +3568,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
     
     internal final func applySearchResults(emptyList: Bool = false) {
         self.preventHidingDate = true
+        self.setLoadingIndicatorVisible(false)
         self.searchMessagesQueue = self.searchMessagesQueue.sorted(by: { $0.date > $1.date })
         let newIndex = 0
         self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchMessagesQueue.count)
@@ -3498,9 +3606,6 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                     }
                 )
             )
-        }
-        if emptyList {
-            self.setLoadingIndicatorVisible(false)
         }
         self.setFloatingDateVisible(true)
     }
@@ -3626,9 +3731,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 ])
                 return
             }
-            if queryId == self.currentSearchQueryId {
-                self.applySearchResults(emptyList: first == last)
-                self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+            if self.finishInChatSearchQueryIfCurrent(queryId: queryId, emptyList: first == last) {
                 ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
                     ("queryId", queryId),
                     ("handler", "search")
@@ -3645,9 +3748,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
     
     func didReceiveMessage(_ item: MessageStorageItem, queryId: String) {
         DispatchQueue.main.async {
-            if queryId == self.currentSearchQueryId {
-                self.searchMessagesQueue.append(item)
-            }
+            self.appendInChatSearchResultIfCurrent(item, queryId: queryId)
         }
     }
     

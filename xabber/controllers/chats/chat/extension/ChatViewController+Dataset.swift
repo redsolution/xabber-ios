@@ -10756,6 +10756,9 @@ extension ChatViewController {
             guard let self else {
                 return
             }
+            if self.handleInChatSearchQueryFailure(queryId: event.queryId) {
+                return
+            }
             if self.initialBootstrapQueryId == event.queryId {
                 self.handleInitialBootstrapRemoteArchiveFailure(
                     queryId: event.queryId,
