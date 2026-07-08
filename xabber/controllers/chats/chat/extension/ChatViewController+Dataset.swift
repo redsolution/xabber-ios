@@ -3553,7 +3553,7 @@ enum ChatArchiveCoverageCommitPolicy {
         canMutateOlderArchiveEnd: Bool,
         coverageUpdateKind: RegularArchiveCoverageUpdateKind
     ) -> ChatArchiveCoverageCommitDecision {
-        let hasPersistenceProof = persistedRowsForQuery > 0 || visibleRowsForConversation > 0
+        let hasPersistenceProof = persistedRowsForQuery > 0
         let hasTransportRange = resultCount > 0 && (transportFirst.isNotEmpty || transportLast.isNotEmpty)
         let hasTerminalProof = queryExhausted && (resultCount == 0 || hasPersistenceProof)
         let shouldCommitCoverage = coverageUpdateKind.shouldMutateCoverage &&

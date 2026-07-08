@@ -682,6 +682,21 @@ enum ChatAnchorLoadingPresentationPolicy {
     }
 }
 
+struct ChatAnchorDatasourceApplyPlan {
+    let mode: ChatDatasourceApplyMode
+    let invalidateLayout: Bool
+}
+
+enum ChatAnchorDatasourceApplyPolicy {
+    static func plan(for source: ChatOpenMessageRequestSource) -> ChatAnchorDatasourceApplyPlan {
+        if source == .search {
+            return ChatAnchorDatasourceApplyPlan(mode: .targetedDiff, invalidateLayout: false)
+        }
+
+        return ChatAnchorDatasourceApplyPlan(mode: .fullReload(), invalidateLayout: true)
+    }
+}
+
 enum ChatAnchorFailureRecoveryPolicy {
     static func shouldReapplyBootstrapState(usesBootstrapLoading: Bool) -> Bool {
         usesBootstrapLoading
@@ -1310,7 +1325,7 @@ extension ChatViewController {
         }
     }
 
-    private func completeSearchResultNavigation(index: Int) {
+    internal func completeSearchResultNavigation(index: Int) {
         let pendingIndex = consumePendingSearchResultNavigationIndex(finishedIndex: index)
         setSearchResultsPanelContextLoading(false)
 
@@ -3251,6 +3266,7 @@ extension ChatViewController {
                 for: request,
                 fallback: resolved
             )
+            let applyPlan = ChatAnchorDatasourceApplyPolicy.plan(for: request.source)
             resolvedExecutionState.isPositioning = true
             self.activeAnchorExecutionState = resolvedExecutionState
             self.syncAnchorExecutionFlags()
@@ -3266,9 +3282,9 @@ extension ChatViewController {
             )
             self.mapAndApplyTimelineAnchor(
                 timelineAnchor,
-                mode: .fullReload(),
+                mode: applyPlan.mode,
                 animated: false,
-                invalidateLayout: true,
+                invalidateLayout: applyPlan.invalidateLayout,
                 completion: {
                 let usesTransientHighlight = request.source.usesTransientHighlight && request.highlight
                 self.positionMessage(
@@ -3428,7 +3444,7 @@ extension ChatViewController {
                     sourceDate: date
                 ),
                 highlight: true,
-                markReadOnVisible: true,
+                markReadOnVisible: false,
                 source: .search
             ),
             hooks: ChatAnchorExecutionHooks(

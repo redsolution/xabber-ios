@@ -1359,6 +1359,319 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
 }
 
 @MainActor
+final class ChatSearchArchiveGapRepairTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ChatSearchArchiveGapRepairTests-\(name)"
+        )
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+        MessageArchiveEndPageDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
+    }
+
+    func testSearchAnchorFetchUsesExactArchivedIdBeforeDateWindowFallback() {
+        let request = makeSearchRequest(archivedId: "archive-42")
+        var state = ChatAnchorExecutionState(request: request)
+
+        XCTAssertEqual(
+            ChatAnchorExecutionPolicy.resumeAction(
+                state: state,
+                hasLocalMatch: false,
+                trigger: .manual,
+                pageSize: ChatHistoryPagingConfiguration.pageSize
+            ),
+            .startRemoteFetch(.exactArchivedId("archive-42"))
+        )
+
+        state.lastAttemptedRemotePlan = .exactArchivedId("archive-42")
+
+        XCTAssertEqual(
+            ChatAnchorExecutionPolicy.remoteCompletionAction(
+                state: state,
+                hasLocalMatch: false,
+                persistedMessageCount: 0,
+                remoteResultCount: 0,
+                pageSize: ChatHistoryPagingConfiguration.pageSize
+            ),
+            .startRemoteFetch(.dateWindow(
+                start: request.anchor.sourceDate.addingTimeInterval(-60),
+                end: request.anchor.sourceDate.addingTimeInterval(60),
+                max: ChatHistoryPagingConfiguration.pageSize
+            ))
+        )
+    }
+
+    func testSearchAnchorUsesTargetedDatasourceApplyWithoutLayoutInvalidation() {
+        let plan = ChatAnchorDatasourceApplyPolicy.plan(for: .search)
+
+        assertTargetedDiff(plan.mode)
+        XCTAssertFalse(plan.invalidateLayout)
+    }
+
+    func testKnownGapRepairUsesServerCursorAndCurrentConversationType() {
+        let gap = RegularChatArchiveGap(
+            olderRangeNewestArchiveId: "200",
+            newerRangeOldestArchiveId: "400"
+        )
+
+        XCTAssertEqual(
+            ChatArchiveGapPagingPolicy.loadDecision(
+                direction: .older,
+                currentWindow: ChatDatasetWindow(minIndex: 2, maxIndex: 4),
+                requestedWindow: ChatDatasetWindow(minIndex: 0, maxIndex: 4),
+                archivedIdsByIndex: ["150", "180", "420", "500"],
+                knownGaps: [gap]
+            ),
+            .remoteGapRepairOlder(gap)
+        )
+
+        let request = MessageArchiveManager.archiveGapRepairRequestPlan(
+            jid: "room@example.com",
+            conversationType: .group,
+            gap: gap,
+            direction: .older,
+            pageSize: 100
+        )
+
+        XCTAssertEqual(request.kind, .gapRepair)
+        XCTAssertEqual(request.purpose, .gapRepair)
+        XCTAssertEqual(request.conversationType, .group)
+        XCTAssertEqual(request.nextPage, "400")
+        XCTAssertNil(request.prevPage)
+        XCTAssertTrue(request.usesServerArchiveId)
+    }
+
+    func testGapRepairPlanKeepsLoadingOverlayUntilRemoteContextApplyCompletes() {
+        let gap = RegularChatArchiveGap(
+            olderRangeNewestArchiveId: "200",
+            newerRangeOldestArchiveId: "400"
+        )
+        let plan = ChatInteractiveHistoryPagingPlanPolicy.plan(for: .remoteGapRepairOlder(gap))
+
+        XCTAssertEqual(plan, .remote(.remoteGapRepairOlder(gap)))
+        XCTAssertTrue(plan.shouldShowOverlay)
+        XCTAssertTrue(plan.shouldCreateRemoteContext)
+        XCTAssertTrue(plan.shouldShowBoundaryPlaceholder)
+    }
+
+    func testSearchAnchorFinalIQFlushesQueryMessagesBeforePositionPolicyCanResolveLocalMatch() throws {
+        let queryId = "search-anchor-final-iq"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.receiveArchived(try makeArchivedMessage(index: 42, queryId: queryId))
+
+        XCTAssertNil(storedMessage(archivedId: "archive-42"))
+
+        ChatRemoteHistoryCompletionCoordinator.registerPersistenceSource(
+            manager,
+            owner: "owner@example.com",
+            queryId: queryId
+        )
+        defer {
+            ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+                owner: "owner@example.com",
+                queryId: queryId
+            )
+        }
+
+        let result = ChatRemoteHistoryCompletionCoordinator.flushQueryMessages(
+            owner: "owner@example.com",
+            queryId: queryId,
+            state: MessageArchivePageEndState(
+                queryExhausted: false,
+                archiveEnded: false,
+                persistedMessageCount: 0
+            ),
+            conversationJid: "contact@example.com",
+            conversationType: .regular
+        )
+        let stored = storedMessage(archivedId: "archive-42")
+        var state = ChatAnchorExecutionState(request: makeSearchRequest(archivedId: "archive-42"))
+        state.lastAttemptedRemotePlan = .exactArchivedId("archive-42")
+
+        XCTAssertEqual(result.flushedMessageCount, 1)
+        XCTAssertEqual(result.state.persistedMessageCount, 1)
+        XCTAssertNotNil(stored)
+        XCTAssertEqual(
+            ChatAnchorExecutionPolicy.remoteCompletionAction(
+                state: state,
+                hasLocalMatch: stored != nil,
+                persistedMessageCount: result.state.persistedMessageCount,
+                remoteResultCount: 1,
+                pageSize: ChatHistoryPagingConfiguration.pageSize
+            ),
+            .resolveLocally
+        )
+    }
+
+    func testCoverageCommitRequiresQueryScopedPersistenceProof() {
+        let snapshot = ChatArchiveStateSnapshot(
+            primaryKey: "chat",
+            persistedCursorId: "100",
+            fullArchiveLoaded: false,
+            newerLiveEdgeReached: true,
+            knownGaps: []
+        )
+
+        let decision = ChatArchiveCoverageCommitPolicy.resolve(
+            direction: .older,
+            snapshot: snapshot,
+            requestedCursorId: "400",
+            observedCursorId: "300",
+            transportFirst: "300",
+            transportLast: "399",
+            resultCount: 10,
+            persistedRowsForQuery: 0,
+            visibleRowsForConversation: 10,
+            queryExhausted: false,
+            canMutateOlderArchiveEnd: false,
+            coverageUpdateKind: .pageOlder(cursorArchiveId: "400")
+        )
+
+        XCTAssertFalse(decision.hasPersistenceProof)
+        XCTAssertFalse(decision.shouldCommitCoverage)
+    }
+
+    func testSearchResultFailureKeepsResultsAndDrainsPendingIntent() {
+        let controller = makeControllerWithSearchResults(count: 3, selectedIndex: 0)
+        controller.loadViewIfNeeded()
+        controller.inSearchMode.accept(true)
+        controller.searchResultNavigationState = .pending(index: 2)
+        controller.xabberInputView.searchPanel.applyRenderState(
+            .results(current: 2, total: 3, isLoadingContext: true)
+        )
+
+        controller.completeSearchResultNavigation(index: 0)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(controller.searchMessagesQueue.count, 3)
+        XCTAssertEqual(controller.selectedSearchResultId, "archive-2")
+        XCTAssertEqual(controller.searchResultNavigationState, .loadingContext(index: 2))
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: 2, total: 3, isLoadingContext: true)
+        )
+    }
+
+    func testExternalSearchResultRequestDoesNotMarkReadOnVisible() {
+        let controller = ChatViewController()
+        controller.owner = "owner@example.com"
+        controller.jid = "contact@example.com"
+        controller.conversationType = .regular
+
+        controller.showSearchResultFromExternalSource(
+            message: "archive-42",
+            date: Date(timeIntervalSince1970: 1_711_283_200)
+        )
+
+        XCTAssertEqual(controller.pendingOpenMessageRequest?.source, .search)
+        XCTAssertFalse(controller.pendingOpenMessageRequest?.markReadOnVisible ?? true)
+        XCTAssertFalse(ChatOpenReadMarkingPolicy.shouldReadLastMessageOnOpen(isSynced: true, unread: 4))
+    }
+
+    private func assertTargetedDiff(
+        _ mode: ChatDatasourceApplyMode,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard case .targetedDiff = mode else {
+            XCTFail("Expected targeted diff mode, got \(mode)", file: file, line: line)
+            return
+        }
+    }
+
+    private func makeSearchRequest(
+        archivedId: String,
+        sourceDate: Date = Date(timeIntervalSince1970: 1_711_283_200)
+    ) -> ChatOpenMessageRequest {
+        ChatOpenMessageRequest(
+            chatJid: "contact@example.com",
+            owner: "owner@example.com",
+            conversationType: .regular,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: archivedId,
+                messageId: nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: sourceDate
+            ),
+            highlight: true,
+            markReadOnVisible: false,
+            source: .search
+        )
+    }
+
+    private func makeControllerWithSearchResults(
+        count: Int,
+        selectedIndex: Int
+    ) -> ChatViewController {
+        let controller = ChatViewController()
+        controller.owner = "owner@example.com"
+        controller.jid = "contact@example.com"
+        controller.conversationType = .regular
+        controller.searchTextObserver.accept("needle")
+        controller.currentSearchQueryId = "query"
+        controller.searchMessagesQueue = (0..<count).map { index in
+            makeMessage(index: index)
+        }
+        controller.selectedSearchResultId = controller.searchMessagesQueue[selectedIndex].archivedId
+        return controller
+    }
+
+    private func makeMessage(index: Int) -> MessageStorageItem {
+        let message = MessageStorageItem()
+        message.primary = "primary-\(index)"
+        message.owner = "owner@example.com"
+        message.opponent = "contact@example.com"
+        message.conversationType = .regular
+        message.messageType = MessageStorageItem.MessageDisplayType.text.rawValue
+        message.archivedId = "archive-\(index)"
+        message.messageId = "message-\(index)"
+        message.date = Date(timeIntervalSince1970: TimeInterval(1_711_283_200 + index))
+        return message
+    }
+
+    private func storedMessage(archivedId: String) -> MessageStorageItem? {
+        try? WRealm.safe()
+            .objects(MessageStorageItem.self)
+            .filter("archivedId == %@", archivedId)
+            .first
+    }
+
+    private func makeElement(xml: String) throws -> DDXMLElement {
+        let document = try DDXMLDocument(xmlString: xml, options: 0)
+        guard let root = document.rootElement() else {
+            throw NSError(domain: "ChatSearchArchiveGapRepairTests", code: 1)
+        }
+        return root
+    }
+
+    private func makeArchivedMessage(index: Int, queryId: String) throws -> XMPPMessage {
+        try XMPPMessage(from: makeElement(xml: """
+        <message to='owner@example.com' from='owner@example.com'>
+          <result xmlns='urn:xmpp:mam:2' queryid='\(queryId)' id='archive-\(index)'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message xmlns='jabber:client' from='contact@example.com' to='owner@example.com' type='chat' id='message-\(index)'>
+                <archived xmlns='urn:xmpp:mam:tmp' by='owner@example.com' id='archive-\(index)'/>
+                <stanza-id xmlns='urn:xmpp:sid:0' by='owner@example.com' id='archive-\(index)'/>
+                <origin-id xmlns='urn:xmpp:sid:0' id='message-\(index)'/>
+                <body>\(index)</body>
+              </message>
+              <delay xmlns='urn:xmpp:delay' from='example.com' stamp='2026-06-04T10:00:00Z'/>
+            </forwarded>
+          </result>
+        </message>
+        """))
+    }
+}
+
+@MainActor
 final class ChatSearchInputBarViewTests: XCTestCase {
     func testStructureUsesSingleGlassSurfaceWithTransparentInputAndIconButtons() throws {
         let bar = ChatSearchInputBarView(frame: CGRect(x: 0, y: 0, width: 358, height: NativeGlassBarStyle.minimumHeight))
