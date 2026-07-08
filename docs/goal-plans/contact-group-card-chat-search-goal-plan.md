@@ -1009,3 +1009,54 @@ Commit:
 git commit -m "docs(chat): record card search implementation"
 ```
 
+## Completion Record
+
+Completed on 2026-07-08 through Task 10.
+
+Implementation commits:
+
+- `c7f281c7` - `fix(chat): route info card search to chat search mode`
+- `f92a01ea` - `refactor(chat): add durable search activation`
+- `8381f108` - `feat(chat): add native glass search input`
+- `00233af3` - `feat(chat): show search loading in results panel`
+- `d6e2a0a0` - `fix(chat): stabilize scoped search queries`
+- `970f7ee9` - `fix(chat): smooth search result navigation`
+- `989a85b3` - `fix(chat): keep search anchors archive-safe`
+- `65c5062c` - `fix(chat): avoid unloaded search input crash`
+- `af48745c` - `test(chat): add card search automation hooks`
+- `4dd4468a` - `test(chat): verify card search flow on simulator`
+
+Final runtime QA:
+
+- Simulator: `iPhone 16e`, iOS 26.0.
+- Contact dialog: Alexey Boldin.
+- Contact-card search: passed. The Contact Info modal dismissed and the already-open Alexey Boldin chat entered in-chat search mode instead of presenting another modal route.
+- Query used: `Тест`; result panel showed `1 of 18`; next/previous navigation moved through results and cancel restored normal chat chrome.
+- Group-card smoke: `xabber developers` Group Info search dismissed the card and entered search mode in the current group chat.
+- Loading limitation: the live server query completed too quickly to capture a visible loading frame during manual QA; the `chat_search_loading` state remains covered by XCTest.
+
+Final verification:
+
+```bash
+tools/xcodebuild_cached.sh test \
+  -destination 'platform=iOS Simulator,name=iPhone 16e,OS=26.0' \
+  -only-testing:xabberTests/InfoCardChatSearchRoutingTests \
+  -only-testing:xabberTests/ChatSearchModeActivationTests \
+  -only-testing:xabberTests/ChatSearchInputBarViewTests \
+  -only-testing:xabberTests/ChatSearchBottomPanelTests \
+  -only-testing:xabberTests/ChatInChatSearchQueryLifecycleTests \
+  -only-testing:xabberTests/ChatSearchResultNavigationStateTests \
+  -only-testing:xabberTests/ChatSearchArchiveGapRepairTests \
+  -only-testing:xabberTests/InfoCardSearchAccessibilityTests \
+  -only-testing:xabberTests/ChatSearchServerHistoryStabilizationTests \
+  -only-testing:xabberTests/ChatOpenMessageRequestHandlingPolicyTests \
+  ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO
+```
+
+Result: `50` tests passed with `0` failures.
+
+Additional final verification also passed:
+
+- `git diff --check`
+- cached simulator Debug build for `iPhone 16e`, iOS 26.0
+- XcodeBuildMCP build/run on the booted `iPhone 16e`
