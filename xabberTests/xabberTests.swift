@@ -1108,6 +1108,160 @@ final class ChatSearchInputBarViewTests: XCTestCase {
     }
 }
 
+@MainActor
+final class ChatSearchBottomPanelTests: XCTestCase {
+    func testIdleStateHidesCountNavigationAndSpinner() {
+        let harness = makePanelHarness()
+        let panel = harness.panel
+
+        panel.applyRenderState(.idle)
+        harness.layout()
+
+        XCTAssertEqual(panel.accessibilityIdentifier, "chat_search_results_panel")
+        XCTAssertTrue(panel.counterLabel.isHidden)
+        XCTAssertTrue(panel.seekUpButton.isHidden)
+        XCTAssertTrue(panel.seekDownButton.isHidden)
+        XCTAssertTrue(panel.activityIndicator.isHidden)
+        XCTAssertFalse(panel.activityIndicator.isAnimating)
+    }
+
+    func testLoadingStateShowsSpinnerWithoutResultControls() {
+        let harness = makePanelHarness()
+        let panel = harness.panel
+
+        panel.applyRenderState(.loading)
+        harness.layout()
+
+        XCTAssertTrue(panel.counterLabel.isHidden)
+        XCTAssertTrue(panel.seekUpButton.isHidden)
+        XCTAssertTrue(panel.seekDownButton.isHidden)
+        XCTAssertFalse(panel.activityIndicator.isHidden)
+        XCTAssertTrue(panel.activityIndicator.isAnimating)
+    }
+
+    func testResultsStateShowsCountAndNavigationWithoutSpinner() {
+        let harness = makePanelHarness()
+        let panel = harness.panel
+
+        panel.applyRenderState(.results(current: 1, total: 3, isLoadingContext: false))
+        harness.layout()
+
+        XCTAssertEqual(panel.counterLabel.text, "2 of 3")
+        XCTAssertFalse(panel.counterLabel.isHidden)
+        XCTAssertFalse(panel.seekUpButton.isHidden)
+        XCTAssertFalse(panel.seekDownButton.isHidden)
+        XCTAssertTrue(panel.seekUpButton.isEnabled)
+        XCTAssertTrue(panel.seekDownButton.isEnabled)
+        XCTAssertTrue(panel.activityIndicator.isHidden)
+        XCTAssertFalse(panel.activityIndicator.isAnimating)
+    }
+
+    func testContextLoadingKeepsCountVisibleAndDisablesNavigationWhileShowingSpinner() {
+        let harness = makePanelHarness()
+        let panel = harness.panel
+
+        panel.applyRenderState(.results(current: 1, total: 3, isLoadingContext: true))
+        harness.layout()
+
+        XCTAssertEqual(panel.counterLabel.text, "2 of 3")
+        XCTAssertFalse(panel.counterLabel.isHidden)
+        XCTAssertFalse(panel.seekUpButton.isHidden)
+        XCTAssertFalse(panel.seekDownButton.isHidden)
+        XCTAssertFalse(panel.seekUpButton.isEnabled)
+        XCTAssertFalse(panel.seekDownButton.isEnabled)
+        XCTAssertFalse(panel.activityIndicator.isHidden)
+        XCTAssertTrue(panel.activityIndicator.isAnimating)
+    }
+
+    func testEmptyResultsStateShowsZeroFoundWithoutNavigationOrSpinner() {
+        let harness = makePanelHarness()
+        let panel = harness.panel
+
+        panel.applyRenderState(.emptyResults)
+        harness.layout()
+
+        XCTAssertEqual(panel.counterLabel.text, "0 found")
+        XCTAssertFalse(panel.counterLabel.isHidden)
+        XCTAssertTrue(panel.seekUpButton.isHidden)
+        XCTAssertTrue(panel.seekDownButton.isHidden)
+        XCTAssertTrue(panel.activityIndicator.isHidden)
+        XCTAssertFalse(panel.activityIndicator.isAnimating)
+    }
+
+    func testPanelUsesGlassSurfaceAccessibilityAndStableMetricsAtIPhone16eWidth() throws {
+        let harness = makePanelHarness()
+        let panel = harness.panel
+
+        panel.applyRenderState(.results(current: 0, total: 12, isLoadingContext: false))
+        harness.layout()
+
+        let effectViews = visualEffectViews(in: panel)
+        XCTAssertEqual(effectViews.count, 1)
+        XCTAssertTrue(effectViews.first === panel.surfaceView)
+        XCTAssertEqual(panel.surfaceView.layer.cornerRadius, NativeGlassBarStyle.cornerRadius, accuracy: 0.001)
+        XCTAssertEqual(panel.counterLabel.accessibilityIdentifier, "chat_search_results_count")
+        XCTAssertEqual(panel.seekUpButton.accessibilityIdentifier, "chat_search_previous_result")
+        XCTAssertEqual(panel.seekDownButton.accessibilityIdentifier, "chat_search_next_result")
+        XCTAssertEqual(panel.activityIndicator.accessibilityIdentifier, "chat_search_loading")
+        XCTAssertEqual(panel.intrinsicContentSize.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertEqual(panel.bounds.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertEqual(panel.seekUpButton.frame.size, CGSize(width: NativeGlassBarStyle.buttonSize, height: NativeGlassBarStyle.buttonSize))
+        XCTAssertEqual(panel.seekDownButton.frame.size, CGSize(width: NativeGlassBarStyle.buttonSize, height: NativeGlassBarStyle.buttonSize))
+        let counterFrame = panel.convert(panel.counterLabel.bounds, from: panel.counterLabel)
+        let seekUpFrame = panel.convert(panel.seekUpButton.bounds, from: panel.seekUpButton)
+        let seekDownFrame = panel.convert(panel.seekDownButton.bounds, from: panel.seekDownButton)
+        XCTAssertLessThanOrEqual(counterFrame.maxX, seekUpFrame.minX + 0.001)
+        XCTAssertLessThanOrEqual(seekDownFrame.maxX, panel.bounds.maxX + 0.001)
+
+        if #available(iOS 26.0, *) {
+            let glassEffect = try XCTUnwrap(panel.surfaceView.effect as? UIGlassEffect)
+            XCTAssertTrue(glassEffect.isInteractive)
+            XCTAssertEqual(glassEffect.tintColor, XabberGlassStyle.nativeGlassTintColor)
+        } else {
+            XCTAssertTrue(panel.surfaceView.effect is UIBlurEffect)
+        }
+    }
+
+    private func makePanelHarness() -> PanelHarness {
+        PanelHarness(
+            width: 358,
+            height: NativeGlassBarStyle.minimumHeight
+        )
+    }
+
+    private func visualEffectViews(in view: UIView) -> [UIVisualEffectView] {
+        view.subviews.reduce(view is UIVisualEffectView ? [view as! UIVisualEffectView] : []) { result, subview in
+            result + visualEffectViews(in: subview)
+        }
+    }
+
+    private final class PanelHarness {
+        let container: UIView
+        let panel: ModernXabberInputView.SearchPanel
+
+        init(width: CGFloat, height: CGFloat) {
+            self.container = UIView(frame: CGRect(x: 0, y: 0, width: width, height: height))
+            self.panel = ModernXabberInputView.SearchPanel(frame: .zero)
+            self.panel.translatesAutoresizingMaskIntoConstraints = false
+            self.container.addSubview(self.panel)
+            NSLayoutConstraint.activate([
+                self.panel.leadingAnchor.constraint(equalTo: self.container.leadingAnchor),
+                self.panel.trailingAnchor.constraint(equalTo: self.container.trailingAnchor),
+                self.panel.topAnchor.constraint(equalTo: self.container.topAnchor),
+                self.panel.bottomAnchor.constraint(equalTo: self.container.bottomAnchor)
+            ])
+            self.layout()
+        }
+
+        func layout() {
+            self.container.setNeedsLayout()
+            self.container.layoutIfNeeded()
+            self.panel.setNeedsLayout()
+            self.panel.layoutIfNeeded()
+        }
+    }
+}
+
 final class NotificationsNavigationTests: XCTestCase {
     func testBackPolicyPreservesModalDismiss() {
         let action = NotificationsBackPolicy.action(

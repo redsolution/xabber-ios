@@ -45,10 +45,8 @@ extension ChatViewController {
 
     public func updateSearchResults(value: String?) {
         if (value ?? "").isEmpty {
-            self.xabberInputView.searchPanel.changeState(to: .empty)
+            self.xabberInputView.searchPanel.applyRenderState(.idle)
             return
-        } else {
-            self.xabberInputView.searchPanel.changeState(to: .withResults)
         }
         if self.conversationType.isEncrypted {
             if let value = value, value.isNotEmpty {
@@ -80,6 +78,7 @@ extension ChatViewController {
         } else {
             if let value = value, value.isNotEmpty {
                 self.searchMessagesQueue = []
+                self.xabberInputView.searchPanel.applyRenderState(.loading)
                 let requestCallbacks = MessageArchiveManager.RequestCallbacks(
                     onMessage: { [weak self] item, queryId in
                         self?.didReceiveMessage(item, queryId: queryId)
@@ -120,6 +119,7 @@ extension ChatViewController {
                 }
             } else {
                 self.searchMessagesQueue = []
+                self.xabberInputView.searchPanel.applyRenderState(.idle)
             }
         }
     }

@@ -997,6 +997,9 @@ extension ChatViewController {
 
         if normalizedText.isEmpty {
             currentSearchQueryId = nil
+            if isViewLoaded {
+                xabberInputView.searchPanel.applyRenderState(.idle)
+            }
             searchTextObserver.accept(nil)
             return
         }
@@ -1017,6 +1020,9 @@ extension ChatViewController {
         pendingSearchActivationRequest = nil
         searchBar.text = nil
         searchInputBar.text = nil
+        if isViewLoaded {
+            xabberInputView.searchPanel.applyRenderState(.idle)
+        }
         searchBar.endEditing(true)
         searchInputBar.endEditing(true)
         inSearchMode.accept(false)
@@ -1032,6 +1038,56 @@ extension ChatViewController {
         UIView.performWithoutAnimation {
             configureNavbar()
         }
+    }
+
+    internal func applySearchResultsPanelState(isLoadingContext: Bool? = nil) {
+        guard isViewLoaded else {
+            return
+        }
+
+        let queryText = searchTextObserver.value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let hasActiveQuery = queryText.isNotEmpty || currentSearchQueryId != nil
+
+        guard hasActiveQuery else {
+            xabberInputView.searchPanel.applyRenderState(.idle)
+            return
+        }
+
+        guard searchMessagesQueue.isNotEmpty else {
+            if xabberInputView.searchPanel.isInLoadingState {
+                xabberInputView.searchPanel.applyRenderState(.loading)
+            } else {
+                xabberInputView.searchPanel.applyRenderState(.emptyResults)
+            }
+            return
+        }
+
+        let currentIndex = currentSearchResultIndexForPanel()
+        xabberInputView.searchPanel.applyRenderState(
+            .results(
+                current: currentIndex,
+                total: searchMessagesQueue.count,
+                isLoadingContext: isLoadingContext ?? xabberInputView.searchPanel.renderState.isLoadingContext
+            )
+        )
+    }
+
+    private func currentSearchResultIndexForPanel() -> Int {
+        if let selectedSearchResultId,
+           let selectedIndex = searchMessagesQueue.firstIndex(where: { $0.archivedId == selectedSearchResultId }) {
+            return selectedIndex
+        }
+
+        return searchMessagesQueue.isEmpty ? -1 : 0
+    }
+
+    private func setSearchResultsPanelContextLoading(_ isLoadingContext: Bool) {
+        guard isViewLoaded,
+              inSearchMode.value || xabberInputView.state == .search else {
+            return
+        }
+
+        applySearchResultsPanelState(isLoadingContext: isLoadingContext)
     }
 
     private struct ResolvedJumpTarget {
@@ -1050,6 +1106,9 @@ extension ChatViewController {
 
         if self.performLoadedOpenMessageRequestIfPossible(request, hooks: hooks) {
             return
+        }
+        if request.source == .search {
+            self.setSearchResultsPanelContextLoading(true)
         }
         if self.activeAnchorExecutionState?.request != request {
             self.activeAnchorExecutionState = nil
@@ -1383,6 +1442,9 @@ extension ChatViewController {
             self.activeAnchorExecutionHooks = activeHooks
             self.syncAnchorExecutionFlags()
             if self.prepareContextPrefetchIfNeeded(around: resolvedTarget, request: request) {
+                if request.source == .search {
+                    self.setSearchResultsPanelContextLoading(true)
+                }
                 return true
             }
         }
@@ -1911,6 +1973,7 @@ extension ChatViewController {
         self.setSearchAnchorNavigationScrollLocked(false)
         self.setLoadingIndicatorVisible(false)
         self.setDatasourceLoadingEnabled(true)
+        self.setSearchResultsPanelContextLoading(false)
     }
 
     private func failActiveAnchorExecution() {

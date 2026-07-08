@@ -416,6 +416,40 @@ class ModernXabberInputView: UIView {
             case empty
             case withResults
         }
+
+        enum RenderState: Equatable {
+            case idle
+            case loading
+            case emptyResults
+            case results(current: Int, total: Int, isLoadingContext: Bool)
+
+            var legacyState: State {
+                switch self {
+                case .idle:
+                    return .empty
+                case .loading, .emptyResults, .results:
+                    return .withResults
+                }
+            }
+
+            var isServerLoading: Bool {
+                switch self {
+                case .loading:
+                    return true
+                case .idle, .emptyResults, .results:
+                    return false
+                }
+            }
+
+            var isLoadingContext: Bool {
+                switch self {
+                case .results(_, _, let isLoadingContext):
+                    return isLoadingContext
+                case .idle, .loading, .emptyResults:
+                    return false
+                }
+            }
+        }
         
         var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular {
             didSet {
@@ -428,6 +462,10 @@ class ModernXabberInputView: UIView {
         }
         
         var state: State = .empty
+        private(set) var renderState: RenderState = .idle
+        private var isApplyingRenderState = false
+        private var lastCurrentResultIndex: Int = -1
+        private var lastTotalResults: Int = 0
         
         var shouldShowSeekUpDownButtons: Bool = true
         
@@ -435,6 +473,12 @@ class ModernXabberInputView: UIView {
         open var onSeekUpCallback: (() -> Void)? = nil
         open var onSeekDownCallback: (() -> Void)? = nil
         open var onChangeViewStateCallback: (() -> Void)? = nil
+
+        let surfaceView: UIVisualEffectView = {
+            let view = UIVisualEffectView()
+            NativeGlassBarStyle.applySurface(to: view, cornerStyle: .capsule, interactive: true)
+            return view
+        }()
         
         let listButton: UIButton = {
             let button = UIButton()
@@ -458,8 +502,9 @@ class ModernXabberInputView: UIView {
         let activityIndicator: UIActivityIndicatorView = {
             let view = UIActivityIndicatorView(style: .medium)
             
-            view.startAnimating()
             view.isHidden = true
+            view.hidesWhenStopped = false
+            view.accessibilityIdentifier = "chat_search_loading"
             
             return view
         }()
@@ -471,6 +516,9 @@ class ModernXabberInputView: UIView {
             label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             label.textAlignment = .center
             label.textColor = .tintColor
+            label.adjustsFontSizeToFitWidth = true
+            label.minimumScaleFactor = 0.85
+            label.accessibilityIdentifier = "chat_search_results_count"
             
             return label
         }()
@@ -481,6 +529,7 @@ class ModernXabberInputView: UIView {
             button.setImage(imageLiteral("chevron.up", dimension: 24), for: .normal)
             button.tintColor = .tintColor
             button.isHidden = true
+            button.accessibilityIdentifier = "chat_search_previous_result"
             
             return button
         }()
@@ -491,6 +540,7 @@ class ModernXabberInputView: UIView {
             button.setImage(imageLiteral("chevron.down", dimension: 24), for: .normal)
             button.tintColor = .tintColor
             button.isHidden = true
+            button.accessibilityIdentifier = "chat_search_next_result"
             
             return button
         }()
@@ -523,66 +573,160 @@ class ModernXabberInputView: UIView {
             super.init(coder: coder)
             self.setup()
         }
+
+        override var intrinsicContentSize: CGSize {
+            CGSize(width: UIView.noIntrinsicMetric, height: NativeGlassBarStyle.minimumHeight)
+        }
         
         func activateConstraints() {
             NSLayoutConstraint.activate([
+                self.surfaceView.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+                self.surfaceView.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+                self.surfaceView.topAnchor.constraint(equalTo: self.topAnchor),
+                self.surfaceView.bottomAnchor.constraint(equalTo: self.bottomAnchor),
                 self.listButton.leadingAnchor.constraint(equalTo: self.leadingAnchor),
                 self.listButton.centerYAnchor.constraint(equalTo: self.centerYAnchor),
-                self.listButton.widthAnchor.constraint(equalToConstant: 36),
-                self.listButton.heightAnchor.constraint(equalToConstant: 36),
-                self.stack.leadingAnchor.constraint(equalTo: self.listButton.trailingAnchor, constant: 8),
-                self.stack.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+                self.listButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+                self.listButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+                self.stack.leadingAnchor.constraint(
+                    equalTo: self.leadingAnchor,
+                    constant: NativeGlassBarStyle.contentInset
+                ),
+                self.stack.trailingAnchor.constraint(
+                    equalTo: self.trailingAnchor,
+                    constant: -NativeGlassBarStyle.contentInset
+                ),
                 self.stack.topAnchor.constraint(equalTo: self.topAnchor),
                 self.stack.bottomAnchor.constraint(equalTo: self.bottomAnchor),
-                self.seekUpButton.widthAnchor.constraint(equalToConstant: 44),
-                self.seekDownButton.widthAnchor.constraint(equalToConstant: 44),
-                self.counterLabel.heightAnchor.constraint(equalToConstant: 36),
-                self.seekUpButton.heightAnchor.constraint(equalToConstant: 36),
-                self.seekDownButton.heightAnchor.constraint(equalToConstant: 36),
+                self.seekUpButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+                self.seekDownButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+                self.counterLabel.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.minimumHeight),
+                self.seekUpButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+                self.seekDownButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
                 self.activityIndicator.centerXAnchor.constraint(equalTo: self.centerXAnchor),
                 self.activityIndicator.centerYAnchor.constraint(equalTo: self.centerYAnchor),
-                self.activityIndicator.widthAnchor.constraint(equalToConstant: 36),
-                self.activityIndicator.heightAnchor.constraint(equalToConstant: 36)
+                self.activityIndicator.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+                self.activityIndicator.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize)
             ])
         }
         
         open var isInLoadingState: Bool = false {
             didSet {
-                self.changeState(to: self.state)
+                guard !self.isApplyingRenderState else { return }
+                if self.isInLoadingState {
+                    self.applyRenderState(.loading)
+                } else {
+                    self.changeState(to: self.state)
+                }
             }
         }
         
         open func changeState(to newState: State) {
-            self.state = newState
-            self.activityIndicator.frame = CGRect(origin: CGPoint(x: self.frame.midX - 36, y: 0), size: CGSize(square: 36))
             switch newState {
-                case .empty:
-//                    self.changeChatButton.isHidden  = true
-                    self.listButton.isHidden        = true
-                    self.counterLabel.isHidden      = true
-                    self.seekUpButton.isHidden      = true
-                    self.seekDownButton.isHidden    = true
-                    self.activityIndicator.isHidden = true
-                case .withResults:
-//                    self.changeChatButton.isHidden  = true
-                    self.listButton.isHidden        = self.isInLoadingState
-                    self.counterLabel.isHidden      = self.isInLoadingState ? true : false
-                    self.seekUpButton.isHidden      = self.isInLoadingState ? true : !self.shouldShowSeekUpDownButtons
-                    self.seekDownButton.isHidden    = self.isInLoadingState ? true : !self.shouldShowSeekUpDownButtons
-                    self.activityIndicator.isHidden = !self.isInLoadingState
+            case .empty:
+                self.applyRenderState(.idle)
+            case .withResults:
+                if self.isInLoadingState {
+                    self.applyRenderState(.loading)
+                } else if self.lastTotalResults == 0 {
+                    self.applyRenderState(.emptyResults)
+                } else {
+                    self.applyRenderState(
+                        .results(
+                            current: self.lastCurrentResultIndex,
+                            total: self.lastTotalResults,
+                            isLoadingContext: self.renderState.isLoadingContext
+                        )
+                    )
+                }
             }
         }
         
         open func updateResults(current: Int, total: Int) {
+            self.lastCurrentResultIndex = current
+            self.lastTotalResults = total
             if total == 0 {
+                self.applyRenderState(.emptyResults)
+            } else {
+                self.applyRenderState(
+                    .results(
+                        current: current,
+                        total: total,
+                        isLoadingContext: self.renderState.isLoadingContext
+                    )
+                )
+            }
+        }
+
+        open func applyRenderState(_ newState: RenderState) {
+            self.renderState = newState
+            self.state = newState.legacyState
+            self.setLegacyLoadingFlag(newState.isServerLoading)
+
+            switch newState {
+            case .idle:
+                self.counterLabel.text = nil
+                self.listButton.isHidden = true
+                self.counterLabel.isHidden = true
+                self.seekUpButton.isHidden = true
+                self.seekDownButton.isHidden = true
+                self.seekUpButton.isEnabled = true
+                self.seekDownButton.isEnabled = true
+                self.stopLoadingIndicator()
+            case .loading:
+                self.listButton.isHidden = true
+                self.counterLabel.isHidden = true
+                self.seekUpButton.isHidden = true
+                self.seekDownButton.isHidden = true
+                self.seekUpButton.isEnabled = false
+                self.seekDownButton.isEnabled = false
+                self.startLoadingIndicator()
+            case .emptyResults:
                 self.counterLabel.text = "0 found"
-                return
+                self.listButton.isHidden = true
+                self.counterLabel.isHidden = false
+                self.seekUpButton.isHidden = true
+                self.seekDownButton.isHidden = true
+                self.seekUpButton.isEnabled = true
+                self.seekDownButton.isEnabled = true
+                self.stopLoadingIndicator()
+            case .results(let current, let total, let isLoadingContext):
+                self.lastCurrentResultIndex = current
+                self.lastTotalResults = total
+                if current < 0 {
+                    self.counterLabel.text = "\(total) found"
+                } else {
+                    self.counterLabel.text = "\(current + 1) of \(total)"
+                }
+                self.listButton.isHidden = true
+                self.counterLabel.isHidden = false
+                self.seekUpButton.isHidden = !self.shouldShowSeekUpDownButtons
+                self.seekDownButton.isHidden = !self.shouldShowSeekUpDownButtons
+                self.seekUpButton.isEnabled = !isLoadingContext
+                self.seekDownButton.isEnabled = !isLoadingContext
+                if isLoadingContext {
+                    self.startLoadingIndicator()
+                } else {
+                    self.stopLoadingIndicator()
+                }
             }
-            if current < 0 {
-                self.counterLabel.text = "\(total) found"
-                return
-            }
-            self.counterLabel.text = "\(current + 1) of \(total)"
+        }
+
+        private func setLegacyLoadingFlag(_ loading: Bool) {
+            guard self.isInLoadingState != loading else { return }
+            self.isApplyingRenderState = true
+            self.isInLoadingState = loading
+            self.isApplyingRenderState = false
+        }
+
+        private func startLoadingIndicator() {
+            self.activityIndicator.isHidden = false
+            self.activityIndicator.startAnimating()
+        }
+
+        private func stopLoadingIndicator() {
+            self.activityIndicator.stopAnimating()
+            self.activityIndicator.isHidden = true
         }
         
         @objc
@@ -606,6 +750,10 @@ class ModernXabberInputView: UIView {
         }
         
         func setup() {
+            self.accessibilityIdentifier = "chat_search_results_panel"
+            self.backgroundColor = .clear
+            self.isOpaque = false
+            self.surfaceView.translatesAutoresizingMaskIntoConstraints = false
             self.stack.translatesAutoresizingMaskIntoConstraints = false
             self.listButton.translatesAutoresizingMaskIntoConstraints = false
             self.activityIndicator.translatesAutoresizingMaskIntoConstraints = false
@@ -613,6 +761,7 @@ class ModernXabberInputView: UIView {
             self.seekUpButton.translatesAutoresizingMaskIntoConstraints = false
             self.seekDownButton.translatesAutoresizingMaskIntoConstraints = false
             self.spacerView.translatesAutoresizingMaskIntoConstraints = false
+            self.addSubview(self.surfaceView)
             self.addSubview(self.stack)
             self.addSubview(self.listButton)
             self.addSubview(self.activityIndicator)
@@ -621,10 +770,26 @@ class ModernXabberInputView: UIView {
             self.stack.addArrangedSubview(self.seekUpButton)
             self.stack.addArrangedSubview(self.seekDownButton)
             self.activateConstraints()
+            NativeGlassBarStyle.applyIconButtonStyle(
+                to: self.listButton,
+                tintColor: NativeGlassBarStyle.iconTintColor,
+                prefersNativeGlass: false
+            )
+            NativeGlassBarStyle.applyIconButtonStyle(
+                to: self.seekUpButton,
+                tintColor: NativeGlassBarStyle.iconTintColor,
+                prefersNativeGlass: false
+            )
+            NativeGlassBarStyle.applyIconButtonStyle(
+                to: self.seekDownButton,
+                tintColor: NativeGlassBarStyle.iconTintColor,
+                prefersNativeGlass: false
+            )
             self.changeChatButton.addTarget(self, action: #selector(onChangeConversationTypeButtonTouchUp), for: .touchUpInside)
             self.seekUpButton.addTarget(self, action: #selector(onSeekUpButtonTouchUp), for: .touchUpInside)
             self.seekDownButton.addTarget(self, action: #selector(onSeekDownButtonTouchUp), for: .touchUpInside)
             self.listButton.addTarget(self, action: #selector(onChangeViewStateTouchUp), for: .touchUpInside)
+            self.applyRenderState(.idle)
         }
     }
 

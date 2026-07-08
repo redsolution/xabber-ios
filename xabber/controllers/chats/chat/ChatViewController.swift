@@ -3707,11 +3707,7 @@ class ChatViewController: MessagesViewController {
             inputBar.becomeInputFirstResponder()
         }
 
-        if self.searchMessagesQueue.isEmpty {
-            self.xabberInputView.searchPanel.changeState(to: .empty)
-        } else {
-            self.xabberInputView.searchPanel.changeState(to: .withResults)
-        }
+        self.applySearchResultsPanelState()
         self.xabberInputView.changeState(to: .search)
     }
 
