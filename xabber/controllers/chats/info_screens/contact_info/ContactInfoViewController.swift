@@ -132,6 +132,44 @@ enum InfoCardChatSearchRouting {
         }
     }
 
+    static func matchingCurrentChat(
+        in routePresenter: UIViewController,
+        route: InfoCardChatSearchRoute
+    ) -> ChatViewController? {
+        matchingCurrentChat(in: routePresenter, route: route, visited: [])
+    }
+
+    private static func matchingCurrentChat(
+        in routePresenter: UIViewController,
+        route: InfoCardChatSearchRoute,
+        visited: Set<ObjectIdentifier>
+    ) -> ChatViewController? {
+        let identifier = ObjectIdentifier(routePresenter)
+        guard !visited.contains(identifier) else {
+            return nil
+        }
+        let visited = visited.union([identifier])
+
+        if let chatViewController = routePresenter as? ChatViewController,
+           matches(chatViewController, route: route) {
+            return chatViewController
+        }
+
+        for child in currentChatSearchCandidates(for: routePresenter) {
+            if let matchingChat = matchingCurrentChat(
+                in: child,
+                route: route,
+                visited: visited
+            ) {
+                return matchingChat
+            }
+        }
+
+        return routePresenter.children.lazy.compactMap {
+            matchingCurrentChat(in: $0, route: route, visited: visited)
+        }.first
+    }
+
     static func makeChatViewController(
         for route: InfoCardChatSearchRoute,
         configure: ((ChatViewController?) -> Void)?
@@ -142,6 +180,43 @@ enum InfoCardChatSearchRouting {
         chatViewController.conversationType = route.conversationType
         configure?(chatViewController)
         return chatViewController
+    }
+
+    private static func matches(
+        _ chatViewController: ChatViewController,
+        route: InfoCardChatSearchRoute
+    ) -> Bool {
+        chatViewController.owner == route.owner
+            && chatViewController.jid == route.jid
+            && chatViewController.conversationType == route.conversationType
+    }
+
+    private static func currentChatSearchCandidates(
+        for routePresenter: UIViewController
+    ) -> [UIViewController] {
+        if let navigationController = routePresenter as? UINavigationController {
+            var candidates: [UIViewController] = []
+            if let visibleViewController = navigationController.visibleViewController {
+                candidates.append(visibleViewController)
+            }
+            if let topViewController = navigationController.topViewController,
+               topViewController !== navigationController.visibleViewController {
+                candidates.append(topViewController)
+            }
+            candidates.append(contentsOf: navigationController.viewControllers.reversed())
+            return candidates
+        }
+
+        if let splitViewController = routePresenter as? UISplitViewController {
+            return splitViewController.viewControllers.reversed()
+        }
+
+        if let tabBarController = routePresenter as? UITabBarController,
+           let selectedViewController = tabBarController.selectedViewController {
+            return [selectedViewController]
+        }
+
+        return []
     }
 }
 

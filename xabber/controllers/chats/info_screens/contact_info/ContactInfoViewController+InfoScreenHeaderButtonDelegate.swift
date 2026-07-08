@@ -162,6 +162,14 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
         performAfterResolvedContactInfoExit { [weak self] routePresenter in
             guard let self else { return }
 
+            if let currentChat = InfoCardChatSearchRouting.matchingCurrentChat(
+                in: routePresenter,
+                route: route
+            ) {
+                configure?(currentChat)
+                return
+            }
+
             if let leftMenuDelegate = self.leftMenuDelegate {
                 leftMenuDelegate.openChatlistWithChat(
                     owner: route.owner,

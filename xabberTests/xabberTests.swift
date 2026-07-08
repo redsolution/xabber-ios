@@ -902,6 +902,88 @@ final class InfoCardChatSearchRoutingTests: XCTestCase {
         XCTAssertTrue(chatController.inSearchMode.value)
     }
 
+    func testMatchingCurrentChatReceivesSearchConfigurationWithoutReRouting() throws {
+        let chatController = ChatViewController()
+        chatController.owner = "alice@example.com"
+        chatController.jid = "bob@example.com"
+        chatController.conversationType = .regular
+        let navigationController = UINavigationController(rootViewController: chatController)
+        let route = InfoCardChatSearchRouting.route(
+            owner: "alice@example.com",
+            jid: "bob@example.com",
+            conversationType: .regular
+        )
+
+        let matchedChat = try XCTUnwrap(
+            InfoCardChatSearchRouting.matchingCurrentChat(
+                in: navigationController,
+                route: route
+            )
+        )
+
+        XCTAssertIdentical(matchedChat, chatController)
+        XCTAssertFalse(matchedChat.inSearchMode.value)
+        InfoCardChatSearchRouting.searchModeConfigurator()(matchedChat)
+        XCTAssertTrue(matchedChat.inSearchMode.value)
+        XCTAssertNil(
+            InfoCardChatSearchRouting.matchingCurrentChat(
+                in: navigationController,
+                route: InfoCardChatSearchRouting.route(
+                    owner: "alice@example.com",
+                    jid: "other@example.com",
+                    conversationType: .regular
+                )
+            )
+        )
+
+        let groupChatController = ChatViewController()
+        groupChatController.owner = "alice@example.com"
+        groupChatController.jid = "team@conference.example.com"
+        groupChatController.conversationType = .group
+        let groupRoute = InfoCardChatSearchRouting.route(
+            owner: "alice@example.com",
+            jid: "team@conference.example.com",
+            conversationType: .group
+        )
+
+        XCTAssertIdentical(
+            InfoCardChatSearchRouting.matchingCurrentChat(
+                in: groupChatController,
+                route: groupRoute
+            ),
+            groupChatController
+        )
+    }
+
+    func testMatchingCurrentChatFindsChatInsidePresenterContainerAfterModalDismiss() throws {
+        let presenter = UIViewController()
+        let unrelatedController = UIViewController()
+        let chatController = ChatViewController()
+        chatController.owner = "alice@example.com"
+        chatController.jid = "bob@example.com"
+        chatController.conversationType = .regular
+
+        let unrelatedNavigation = UINavigationController(rootViewController: unrelatedController)
+        let chatNavigation = UINavigationController(rootViewController: chatController)
+        presenter.addChild(unrelatedNavigation)
+        unrelatedNavigation.didMove(toParent: presenter)
+        presenter.addChild(chatNavigation)
+        chatNavigation.didMove(toParent: presenter)
+
+        let matchedChat = try XCTUnwrap(
+            InfoCardChatSearchRouting.matchingCurrentChat(
+                in: presenter,
+                route: InfoCardChatSearchRouting.route(
+                    owner: "alice@example.com",
+                    jid: "bob@example.com",
+                    conversationType: .regular
+                )
+            )
+        )
+
+        XCTAssertIdentical(matchedChat, chatController)
+    }
+
     func testModalGroupInfoSearchResolvesDismissBeforeRoutingFromPresenter() {
         let currentController = UIViewController()
         let presenter = UIViewController()
