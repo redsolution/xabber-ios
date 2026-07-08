@@ -1047,8 +1047,9 @@ final class InfoCardSearchAccessibilityTests: XCTestCase {
         controller.loadViewIfNeeded()
         controller.activateSearchModeFromExternalRoute(activateKeyboard: false, animated: false)
 
-        let searchBar = try XCTUnwrap(controller.navigationItem.titleView as? ChatSearchInputBarView)
+        let searchBar = controller.searchInputBar
         let searchPanel = controller.xabberInputView.searchPanel
+        XCTAssertNil(controller.navigationItem.titleView)
         assertSearchInputIdentifiers(searchBar)
         assertSearchPanelIdentifiers(searchPanel)
 
@@ -1068,7 +1069,11 @@ final class InfoCardSearchAccessibilityTests: XCTestCase {
         controller.applySearchResultsPanelState(isLoadingContext: true)
         assertSearchPanelIdentifiers(searchPanel)
 
-        controller.cancelSearchModeFromSearchUI()
+        controller.showSkeletonObserver.accept(false)
+        searchPanel.cancelButton.sendActions(for: .touchUpInside)
+        XCTAssertFalse(controller.inSearchMode.value)
+        XCTAssertEqual(controller.xabberInputView.state, .normal)
+        XCTAssertTrue(searchPanel.isHidden)
         assertSearchInputIdentifiers(searchBar)
         assertSearchPanelIdentifiers(searchPanel)
     }
@@ -1089,7 +1094,7 @@ final class InfoCardSearchAccessibilityTests: XCTestCase {
         line: UInt = #line
     ) {
         XCTAssertEqual(
-            searchBar.textField.accessibilityIdentifier,
+            searchBar.textView.accessibilityIdentifier,
             "chat_search_input",
             file: file,
             line: line
@@ -1100,9 +1105,8 @@ final class InfoCardSearchAccessibilityTests: XCTestCase {
             file: file,
             line: line
         )
-        XCTAssertEqual(
-            searchBar.cancelButton.accessibilityIdentifier,
-            "chat_search_cancel",
+        XCTAssertNil(
+            findView(withAccessibilityIdentifier: "chat_search_cancel", in: searchBar),
             file: file,
             line: line
         )
@@ -1116,6 +1120,12 @@ final class InfoCardSearchAccessibilityTests: XCTestCase {
         XCTAssertEqual(
             searchPanel.accessibilityIdentifier,
             "chat_search_results_panel",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            searchPanel.cancelButton.accessibilityIdentifier,
+            "chat_search_cancel",
             file: file,
             line: line
         )
@@ -1156,6 +1166,20 @@ final class InfoCardSearchAccessibilityTests: XCTestCase {
         message.messageId = "message-\(index)"
         message.date = Date(timeIntervalSince1970: TimeInterval(1_711_283_200 + index))
         return message
+    }
+
+    private func findView(withAccessibilityIdentifier identifier: String, in view: UIView) -> UIView? {
+        if view.accessibilityIdentifier == identifier {
+            return view
+        }
+
+        for subview in view.subviews {
+            if let match = findView(withAccessibilityIdentifier: identifier, in: subview) {
+                return match
+            }
+        }
+
+        return nil
     }
 }
 
@@ -1890,25 +1914,26 @@ final class ChatSearchArchiveGapRepairTests: XCTestCase {
 
 @MainActor
 final class ChatSearchInputBarViewTests: XCTestCase {
-    func testStructureUsesSingleGlassSurfaceWithTransparentInputAndIconButtons() throws {
+    func testStructureUsesGlassInputSurfaceWithDetachedSearchButtonAndNoTopCancel() throws {
         let bar = ChatSearchInputBarView(frame: CGRect(x: 0, y: 0, width: 358, height: NativeGlassBarStyle.minimumHeight))
         bar.layoutIfNeeded()
 
         let effectViews = visualEffectViews(in: bar)
-        XCTAssertEqual(effectViews.count, 1)
-        XCTAssertTrue(effectViews.first === bar.surfaceView)
+        XCTAssertTrue(effectViews.contains { $0 === bar.surfaceView })
         XCTAssertEqual(bar.surfaceView.layer.cornerRadius, NativeGlassBarStyle.cornerRadius, accuracy: 0.001)
-        XCTAssertEqual(bar.textField.accessibilityIdentifier, "chat_search_input")
+        XCTAssertEqual(bar.textView.accessibilityIdentifier, "chat_search_input")
         XCTAssertEqual(bar.submitButton.accessibilityIdentifier, "chat_search_submit")
-        XCTAssertEqual(bar.cancelButton.accessibilityIdentifier, "chat_search_cancel")
-        XCTAssertEqual(bar.textField.backgroundColor ?? .clear, .clear)
-        XCTAssertEqual(bar.textField.borderStyle, .none)
+        XCTAssertNil(findView(withAccessibilityIdentifier: "chat_search_cancel", in: bar))
+        XCTAssertEqual(bar.textView.backgroundColor ?? .clear, .clear)
+        XCTAssertEqual(bar.textView.layer.borderWidth, 0, accuracy: 0.001)
         XCTAssertTrue((bar.submitButton.title(for: .normal) ?? "").isEmpty)
-        XCTAssertTrue((bar.cancelButton.title(for: .normal) ?? "").isEmpty)
         XCTAssertNotNil(bar.submitButton.image(for: .normal))
-        XCTAssertNotNil(bar.cancelButton.image(for: .normal))
         XCTAssertEqual(bar.submitButton.bounds.size, CGSize(width: NativeGlassBarStyle.buttonSize, height: NativeGlassBarStyle.buttonSize))
-        XCTAssertEqual(bar.cancelButton.bounds.size, CGSize(width: NativeGlassBarStyle.buttonSize, height: NativeGlassBarStyle.buttonSize))
+        XCTAssertLessThanOrEqual(
+            bar.surfaceView.frame.maxX,
+            bar.submitButton.frame.minX - NativeGlassBarStyle.interItemSpacing + 0.001
+        )
+        XCTAssertLessThanOrEqual(bar.submitButton.frame.maxX, bar.bounds.maxX + 0.001)
 
         if #available(iOS 26.0, *) {
             let glassEffect = try XCTUnwrap(bar.surfaceView.effect as? UIGlassEffect)
@@ -1919,19 +1944,30 @@ final class ChatSearchInputBarViewTests: XCTestCase {
         }
     }
 
-    func testIPhone16eWidthKeepsStableHeightAndNonOverlappingControls() {
+    func testIPhone16eWidthKeepsNonOverlappingInputAndDetachedSearchButton() {
         let bar = ChatSearchInputBarView(frame: CGRect(x: 0, y: 0, width: 358, height: NativeGlassBarStyle.minimumHeight))
 
-        bar.textField.text = "A long search query that should remain inside the input field"
+        bar.text = "A long search query that should remain inside the input field"
         bar.layoutIfNeeded()
 
         XCTAssertEqual(bar.intrinsicContentSize.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
-        XCTAssertEqual(bar.bounds.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
-        XCTAssertGreaterThanOrEqual(bar.textField.frame.minX, bar.cancelButton.frame.maxX - 0.001)
-        XCTAssertLessThanOrEqual(bar.textField.frame.maxX, bar.submitButton.frame.minX + 0.001)
+        XCTAssertGreaterThanOrEqual(bar.textView.frame.minX, bar.surfaceView.bounds.minX + NativeGlassBarStyle.contentInset - 0.001)
+        XCTAssertLessThanOrEqual(bar.surfaceView.frame.maxX, bar.submitButton.frame.minX - NativeGlassBarStyle.interItemSpacing + 0.001)
         XCTAssertLessThanOrEqual(bar.submitButton.frame.maxX, bar.bounds.maxX + 0.001)
         XCTAssertEqual(bar.submitButton.frame.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
-        XCTAssertEqual(bar.cancelButton.frame.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+    }
+
+    func testLongTextIncreasesIntrinsicHeightDownwardUpToComposerMaximum() {
+        let bar = ChatSearchInputBarView(frame: CGRect(x: 0, y: 0, width: 358, height: NativeGlassBarStyle.minimumHeight))
+        bar.layoutIfNeeded()
+        let initialSurfaceMinY = bar.surfaceView.frame.minY
+
+        bar.text = Array(repeating: "long search query", count: 60).joined(separator: " ")
+        bar.layoutIfNeeded()
+
+        XCTAssertGreaterThan(bar.intrinsicContentSize.height, NativeGlassBarStyle.minimumHeight)
+        XCTAssertLessThanOrEqual(bar.intrinsicContentSize.height, ChatSearchInputBarView.maximumTextHeight)
+        XCTAssertEqual(bar.surfaceView.frame.minY, initialSurfaceMinY, accuracy: 0.001)
     }
 
     func testSubmitButtonAndReturnSubmitCurrentText() {
@@ -1942,9 +1978,14 @@ final class ChatSearchInputBarViewTests: XCTestCase {
         bar.text = "needle"
         bar.submitButton.sendActions(for: .touchUpInside)
         bar.text = "return needle"
-        _ = bar.textField.delegate?.textFieldShouldReturn?(bar.textField)
+        let shouldInsertReturn = bar.textView.delegate?.textView?(
+            bar.textView,
+            shouldChangeTextIn: NSRange(location: bar.textView.text.count, length: 0),
+            replacementText: "\n"
+        )
 
         XCTAssertEqual(submittedTexts, ["needle", "return needle"])
+        XCTAssertEqual(shouldInsertReturn, false)
     }
 
     func testWhitespaceSubmitClearsControllerSearchStateWithoutStartingQuery() {
@@ -1960,7 +2001,7 @@ final class ChatSearchInputBarViewTests: XCTestCase {
         XCTAssertNil(controller.currentSearchQueryId)
     }
 
-    func testSearchModeInstallsGlassInputBarAndClearsStaleNavbarItems() throws {
+    func testSearchModeInstallsFloatingGlassInputBarAndClearsStaleNavbarItems() throws {
         let controller = ChatViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         let staleRight = UIBarButtonItem(title: "stale", style: .plain, target: nil, action: nil)
@@ -1970,15 +2011,24 @@ final class ChatSearchInputBarViewTests: XCTestCase {
         controller.loadViewIfNeeded()
         controller.activateSearchModeFromExternalRoute(activateKeyboard: false, animated: false)
 
-        let bar = try XCTUnwrap(controller.navigationItem.titleView as? ChatSearchInputBarView)
+        let bar = controller.searchInputBar
         XCTAssertNil(controller.navigationItem.leftBarButtonItem)
         XCTAssertNil(controller.navigationItem.rightBarButtonItem)
         XCTAssertNil(controller.navigationItem.rightBarButtonItems)
+        XCTAssertNil(controller.navigationItem.titleView)
         XCTAssertFalse(controller.navigationItem.rightBarButtonItems?.contains(where: { $0 === staleRight }) ?? false)
         XCTAssertTrue(controller.navigationItem.hidesBackButton)
-        XCTAssertEqual(bar.textField.accessibilityIdentifier, "chat_search_input")
+        XCTAssertIdentical(bar.superview, controller.view)
+        XCTAssertFalse(bar.isHidden)
+        let topConstraint = try XCTUnwrap(controller.searchInputBarTopConstraint)
+        XCTAssertEqual(
+            topConstraint.constant,
+            -max(NativeGlassBarStyle.minimumHeight, navigationController.navigationBar.frame.height),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(bar.textView.accessibilityIdentifier, "chat_search_input")
         XCTAssertEqual(bar.submitButton.accessibilityIdentifier, "chat_search_submit")
-        XCTAssertEqual(bar.cancelButton.accessibilityIdentifier, "chat_search_cancel")
+        XCTAssertNil(findView(withAccessibilityIdentifier: "chat_search_cancel", in: bar))
     }
 
     private func visualEffectViews(in view: UIView) -> [UIVisualEffectView] {
@@ -1986,11 +2036,25 @@ final class ChatSearchInputBarViewTests: XCTestCase {
             result + visualEffectViews(in: subview)
         }
     }
+
+    private func findView(withAccessibilityIdentifier identifier: String, in view: UIView) -> UIView? {
+        if view.accessibilityIdentifier == identifier {
+            return view
+        }
+
+        for subview in view.subviews {
+            if let match = findView(withAccessibilityIdentifier: identifier, in: subview) {
+                return match
+            }
+        }
+
+        return nil
+    }
 }
 
 @MainActor
 final class ChatSearchBottomPanelTests: XCTestCase {
-    func testIdleStateHidesCountNavigationAndSpinner() {
+    func testIdleStateShowsNoResultsAndDisabledNavigationWithoutSpinner() {
         let harness = makePanelHarness()
         let panel = harness.panel
 
@@ -1998,11 +2062,17 @@ final class ChatSearchBottomPanelTests: XCTestCase {
         harness.layout()
 
         XCTAssertEqual(panel.accessibilityIdentifier, "chat_search_results_panel")
-        XCTAssertTrue(panel.counterLabel.isHidden)
-        XCTAssertTrue(panel.seekUpButton.isHidden)
-        XCTAssertTrue(panel.seekDownButton.isHidden)
+        XCTAssertEqual(panel.counterLabel.text, "no results")
+        XCTAssertEqual(panel.counterLabel.textAlignment, .center)
+        XCTAssertEqual(panel.counterLabel.textColor, .secondaryLabel)
+        XCTAssertFalse(panel.counterLabel.isHidden)
+        XCTAssertFalse(panel.seekUpButton.isHidden)
+        XCTAssertFalse(panel.seekDownButton.isHidden)
+        XCTAssertFalse(panel.seekUpButton.isEnabled)
+        XCTAssertFalse(panel.seekDownButton.isEnabled)
         XCTAssertTrue(panel.activityIndicator.isHidden)
         XCTAssertFalse(panel.activityIndicator.isAnimating)
+        XCTAssertFalse(panel.cancelButton.isHidden)
     }
 
     func testLoadingStateShowsSpinnerWithoutResultControls() {
@@ -2013,8 +2083,10 @@ final class ChatSearchBottomPanelTests: XCTestCase {
         harness.layout()
 
         XCTAssertTrue(panel.counterLabel.isHidden)
-        XCTAssertTrue(panel.seekUpButton.isHidden)
-        XCTAssertTrue(panel.seekDownButton.isHidden)
+        XCTAssertFalse(panel.seekUpButton.isHidden)
+        XCTAssertFalse(panel.seekDownButton.isHidden)
+        XCTAssertFalse(panel.seekUpButton.isEnabled)
+        XCTAssertFalse(panel.seekDownButton.isEnabled)
         XCTAssertFalse(panel.activityIndicator.isHidden)
         XCTAssertTrue(panel.activityIndicator.isAnimating)
     }
@@ -2053,22 +2125,24 @@ final class ChatSearchBottomPanelTests: XCTestCase {
         XCTAssertTrue(panel.activityIndicator.isAnimating)
     }
 
-    func testEmptyResultsStateShowsZeroFoundWithoutNavigationOrSpinner() {
+    func testEmptyResultsStateShowsNoResultsWithoutNavigationOrSpinner() {
         let harness = makePanelHarness()
         let panel = harness.panel
 
         panel.applyRenderState(.emptyResults)
         harness.layout()
 
-        XCTAssertEqual(panel.counterLabel.text, "0 found")
+        XCTAssertEqual(panel.counterLabel.text, "no results")
         XCTAssertFalse(panel.counterLabel.isHidden)
-        XCTAssertTrue(panel.seekUpButton.isHidden)
-        XCTAssertTrue(panel.seekDownButton.isHidden)
+        XCTAssertFalse(panel.seekUpButton.isHidden)
+        XCTAssertFalse(panel.seekDownButton.isHidden)
+        XCTAssertFalse(panel.seekUpButton.isEnabled)
+        XCTAssertFalse(panel.seekDownButton.isEnabled)
         XCTAssertTrue(panel.activityIndicator.isHidden)
         XCTAssertFalse(panel.activityIndicator.isAnimating)
     }
 
-    func testPanelUsesGlassSurfaceAccessibilityAndStableMetricsAtIPhone16eWidth() throws {
+    func testPanelUsesComposerLikeSeparatedControlsAndStableMetricsAtIPhone16eWidth() throws {
         let harness = makePanelHarness()
         let panel = harness.panel
 
@@ -2076,21 +2150,26 @@ final class ChatSearchBottomPanelTests: XCTestCase {
         harness.layout()
 
         let effectViews = visualEffectViews(in: panel)
-        XCTAssertEqual(effectViews.count, 1)
-        XCTAssertTrue(effectViews.first === panel.surfaceView)
+        XCTAssertTrue(effectViews.contains { $0 === panel.surfaceView })
         XCTAssertEqual(panel.surfaceView.layer.cornerRadius, NativeGlassBarStyle.cornerRadius, accuracy: 0.001)
+        XCTAssertEqual(panel.cancelButton.accessibilityIdentifier, "chat_search_cancel")
         XCTAssertEqual(panel.counterLabel.accessibilityIdentifier, "chat_search_results_count")
         XCTAssertEqual(panel.seekUpButton.accessibilityIdentifier, "chat_search_previous_result")
         XCTAssertEqual(panel.seekDownButton.accessibilityIdentifier, "chat_search_next_result")
         XCTAssertEqual(panel.activityIndicator.accessibilityIdentifier, "chat_search_loading")
         XCTAssertEqual(panel.intrinsicContentSize.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
         XCTAssertEqual(panel.bounds.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertEqual(panel.cancelButton.frame.size, CGSize(width: NativeGlassBarStyle.buttonSize, height: NativeGlassBarStyle.buttonSize))
         XCTAssertEqual(panel.seekUpButton.frame.size, CGSize(width: NativeGlassBarStyle.buttonSize, height: NativeGlassBarStyle.buttonSize))
         XCTAssertEqual(panel.seekDownButton.frame.size, CGSize(width: NativeGlassBarStyle.buttonSize, height: NativeGlassBarStyle.buttonSize))
+        let cancelFrame = panel.convert(panel.cancelButton.bounds, from: panel.cancelButton)
         let counterFrame = panel.convert(panel.counterLabel.bounds, from: panel.counterLabel)
         let seekUpFrame = panel.convert(panel.seekUpButton.bounds, from: panel.seekUpButton)
         let seekDownFrame = panel.convert(panel.seekDownButton.bounds, from: panel.seekDownButton)
+        XCTAssertLessThanOrEqual(cancelFrame.maxX, panel.surfaceView.frame.minX + 0.001)
+        XCTAssertLessThanOrEqual(panel.surfaceView.frame.maxX, seekUpFrame.minX + 0.001)
         XCTAssertLessThanOrEqual(counterFrame.maxX, seekUpFrame.minX + 0.001)
+        XCTAssertLessThanOrEqual(seekUpFrame.maxX, seekDownFrame.minX + 0.001)
         XCTAssertLessThanOrEqual(seekDownFrame.maxX, panel.bounds.maxX + 0.001)
 
         if #available(iOS 26.0, *) {
@@ -2100,6 +2179,34 @@ final class ChatSearchBottomPanelTests: XCTestCase {
         } else {
             XCTAssertTrue(panel.surfaceView.effect is UIBlurEffect)
         }
+    }
+
+    func testCancelButtonInvokesSearchCancelCallback() {
+        let harness = makePanelHarness()
+        let panel = harness.panel
+        var cancelCount = 0
+        panel.onCancelCallback = { cancelCount += 1 }
+
+        panel.cancelButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(cancelCount, 1)
+    }
+
+    func testSearchPanelFrameMatchesComposerRowBoundsWithoutExtraHorizontalInset() {
+        let inputView = ModernXabberInputView(
+            frame: CGRect(
+                x: 0,
+                y: 0,
+                width: 358,
+                height: ModernXabberInputView.defaultBarHeight
+            )
+        )
+
+        inputView.updateBottomPanels(withOffset: 0)
+
+        XCTAssertEqual(inputView.searchPanel.frame.minX, inputView.bounds.minX, accuracy: 0.001)
+        XCTAssertEqual(inputView.searchPanel.frame.maxX, inputView.bounds.maxX, accuracy: 0.001)
+        XCTAssertEqual(inputView.searchPanel.frame.width, inputView.bounds.width, accuracy: 0.001)
     }
 
     private func makePanelHarness() -> PanelHarness {
@@ -2115,6 +2222,7 @@ final class ChatSearchBottomPanelTests: XCTestCase {
         }
     }
 
+    @MainActor
     private final class PanelHarness {
         let container: UIView
         let panel: ModernXabberInputView.SearchPanel

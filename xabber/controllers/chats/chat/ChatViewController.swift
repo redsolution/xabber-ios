@@ -125,72 +125,75 @@ enum ChatSearchResultNavigationState: Equatable {
     }
 }
 
-final class ChatSearchInputBarView: UIView, UITextFieldDelegate {
+final class ChatSearchInputBarView: UIView, UITextViewDelegate {
     static let inputAccessibilityIdentifier = "chat_search_input"
     static let submitAccessibilityIdentifier = "chat_search_submit"
-    static let cancelAccessibilityIdentifier = "chat_search_cancel"
+    static let maximumTextHeight: CGFloat = 130
 
     var onSubmit: ((String?) -> Void)?
-    var onCancel: (() -> Void)?
+    var onHeightChanged: ((CGFloat) -> Void)?
+    private var measuredHeight: CGFloat = NativeGlassBarStyle.minimumHeight
 
     let surfaceView: UIVisualEffectView = {
         let view = UIVisualEffectView(effect: NativeGlassBarStyle.makeEffect(interactive: true))
         view.translatesAutoresizingMaskIntoConstraints = false
         NativeGlassBarStyle.applySurface(to: view, cornerStyle: .capsule, interactive: true)
+        view.isUserInteractionEnabled = true
+        view.contentView.isUserInteractionEnabled = true
         return view
     }()
 
-    let textField: UITextField = {
-        let field = UITextField()
-        field.translatesAutoresizingMaskIntoConstraints = false
-        field.accessibilityIdentifier = inputAccessibilityIdentifier
-        field.placeholder = "Search this chat".localizeString(id: "search_this_chat_hint", arguments: [])
-        field.backgroundColor = .clear
-        field.borderStyle = .none
-        field.clearButtonMode = .whileEditing
-        field.returnKeyType = .search
-        field.enablesReturnKeyAutomatically = false
-        field.font = .preferredFont(forTextStyle: .body)
-        field.adjustsFontForContentSizeCategory = true
-        field.textColor = .label
-        field.tintColor = .systemBlue
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return field
+    let textView: InputTextView = {
+        let view = InputTextView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.accessibilityIdentifier = inputAccessibilityIdentifier
+        view.placeholder = "Search this chat".localizeString(id: "search_this_chat_hint", arguments: [])
+        view.placeholderTextColor = .placeholderText
+        view.backgroundColor = .clear
+        view.layer.borderWidth = 0
+        view.textContainer.lineFragmentPadding = 0
+        view.textContainerInset = UIEdgeInsets(
+            top: 7,
+            left: 4,
+            bottom: 9,
+            right: 8
+        )
+        view.placeholderLabelInsets = view.textContainerInset
+        view.returnKeyType = .search
+        view.enablesReturnKeyAutomatically = false
+        view.font = .preferredFont(forTextStyle: .body)
+        view.adjustsFontForContentSizeCategory = true
+        view.textColor = .label
+        view.tintColor = .systemBlue
+        view.isScrollEnabled = false
+        view.isImagePasteEnabled = false
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return view
     }()
 
     let submitButton: UIButton = {
         let button = UIButton(type: .system)
         button.accessibilityIdentifier = submitAccessibilityIdentifier
         button.accessibilityLabel = "Search".localizeString(id: "search", arguments: [])
-        NativeGlassBarStyle.applyIconButtonStyle(
+        NativeGlassBarStyle.applyDetachedIconButtonStyle(
             to: button,
             tintColor: NativeGlassBarStyle.iconTintColor,
-            image: imageLiteral("magnifyingglass", dimension: NativeGlassBarStyle.iconSize),
-            prefersNativeGlass: false
-        )
-        return button
-    }()
-
-    let cancelButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.accessibilityIdentifier = cancelAccessibilityIdentifier
-        button.accessibilityLabel = "Cancel".localizeString(id: "cancel", arguments: [])
-        NativeGlassBarStyle.applyIconButtonStyle(
-            to: button,
-            tintColor: NativeGlassBarStyle.iconTintColor,
-            image: imageLiteral("xmark", dimension: NativeGlassBarStyle.iconSize),
-            prefersNativeGlass: false
+            image: imageLiteral("magnifyingglass", dimension: NativeGlassBarStyle.iconSize)
         )
         return button
     }()
 
     var text: String? {
-        get { textField.text }
-        set { textField.text = newValue }
+        get { textView.text }
+        set {
+            textView.text = newValue ?? ""
+            refreshPlaceholderVisibility()
+            updateMeasuredHeight(notify: true)
+        }
     }
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: NativeGlassBarStyle.minimumHeight)
+        CGSize(width: UIView.noIntrinsicMetric, height: measuredHeight)
     }
 
     override init(frame: CGRect) {
@@ -205,50 +208,68 @@ final class ChatSearchInputBarView: UIView, UITextFieldDelegate {
 
     @discardableResult
     func becomeInputFirstResponder() -> Bool {
-        textField.becomeFirstResponder()
+        textView.becomeFirstResponder()
     }
 
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        submitCurrentText()
+    func textViewDidChange(_ textView: UITextView) {
+        refreshPlaceholderVisibility()
+        updateMeasuredHeight(notify: true)
+    }
+
+    func textView(
+        _ textView: UITextView,
+        shouldChangeTextIn range: NSRange,
+        replacementText text: String
+    ) -> Bool {
+        if text == "\n" {
+            submitCurrentText()
+            return false
+        }
+
         return true
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateMeasuredHeight(notify: false)
     }
 
     private func setup() {
         backgroundColor = .clear
         isOpaque = false
         translatesAutoresizingMaskIntoConstraints = false
-        textField.delegate = self
+        textView.delegate = self
 
         addSubview(surfaceView)
-        surfaceView.contentView.addSubview(cancelButton)
-        surfaceView.contentView.addSubview(textField)
-        surfaceView.contentView.addSubview(submitButton)
+        surfaceView.contentView.addSubview(textView)
+        addSubview(submitButton)
 
         submitButton.addTarget(self, action: #selector(onSubmitButtonTouchUp), for: .touchUpInside)
-        cancelButton.addTarget(self, action: #selector(onCancelButtonTouchUp), for: .touchUpInside)
 
         NSLayoutConstraint.activate([
             surfaceView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            surfaceView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            surfaceView.trailingAnchor.constraint(
+                equalTo: submitButton.leadingAnchor,
+                constant: -NativeGlassBarStyle.interItemSpacing
+            ),
             surfaceView.topAnchor.constraint(equalTo: topAnchor),
             surfaceView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            cancelButton.leadingAnchor.constraint(equalTo: surfaceView.contentView.leadingAnchor),
-            cancelButton.topAnchor.constraint(equalTo: surfaceView.contentView.topAnchor),
-            cancelButton.bottomAnchor.constraint(equalTo: surfaceView.contentView.bottomAnchor),
-            cancelButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
-            cancelButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
-
-            submitButton.trailingAnchor.constraint(equalTo: surfaceView.contentView.trailingAnchor),
-            submitButton.topAnchor.constraint(equalTo: surfaceView.contentView.topAnchor),
-            submitButton.bottomAnchor.constraint(equalTo: surfaceView.contentView.bottomAnchor),
+            submitButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            submitButton.bottomAnchor.constraint(equalTo: bottomAnchor),
             submitButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
             submitButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
 
-            textField.leadingAnchor.constraint(equalTo: cancelButton.trailingAnchor),
-            textField.trailingAnchor.constraint(equalTo: submitButton.leadingAnchor),
-            textField.topAnchor.constraint(equalTo: surfaceView.contentView.topAnchor),
-            textField.bottomAnchor.constraint(equalTo: surfaceView.contentView.bottomAnchor)
+            textView.leadingAnchor.constraint(
+                equalTo: surfaceView.contentView.leadingAnchor,
+                constant: NativeGlassBarStyle.contentInset
+            ),
+            textView.trailingAnchor.constraint(
+                equalTo: surfaceView.contentView.trailingAnchor,
+                constant: -NativeGlassBarStyle.contentInset
+            ),
+            textView.topAnchor.constraint(equalTo: surfaceView.contentView.topAnchor, constant: 4),
+            textView.bottomAnchor.constraint(equalTo: surfaceView.contentView.bottomAnchor, constant: -4)
         ])
     }
 
@@ -257,14 +278,83 @@ final class ChatSearchInputBarView: UIView, UITextFieldDelegate {
         submitCurrentText()
     }
 
-    @objc
-    private func onCancelButtonTouchUp() {
-        onCancel?()
+    private func submitCurrentText() {
+        textView.resignFirstResponder()
+        onSubmit?(textView.text)
     }
 
-    private func submitCurrentText() {
-        textField.resignFirstResponder()
-        onSubmit?(textField.text)
+    private func updateMeasuredHeight(notify: Bool) {
+        let height = calculatedHeight()
+        guard abs(height - measuredHeight) > 0.5 else { return }
+
+        measuredHeight = height
+        invalidateIntrinsicContentSize()
+        textView.isScrollEnabled = height >= Self.maximumTextHeight
+        if notify {
+            onHeightChanged?(height)
+        }
+    }
+
+    private func calculatedHeight() -> CGFloat {
+        let fittingWidth = textView.bounds.width > 0
+            ? textView.bounds.width
+            : fallbackTextViewWidth
+        let fittingHeight = measuredTextHeight(forWidth: fittingWidth)
+        let rawHeight = fittingHeight + 8
+        if rawHeight <= NativeGlassBarStyle.minimumHeight + 4 {
+            return NativeGlassBarStyle.minimumHeight
+        }
+
+        return min(
+            max(NativeGlassBarStyle.minimumHeight, rawHeight),
+            Self.maximumTextHeight
+        )
+    }
+
+    private func measuredTextHeight(forWidth fittingWidth: CGFloat) -> CGFloat {
+        let font = textView.font ?? UIFont.preferredFont(forTextStyle: .body)
+        let inset = textView.textContainerInset
+        let textWidth = max(
+            1,
+            fittingWidth
+                - inset.left
+                - inset.right
+                - textView.textContainer.lineFragmentPadding * 2
+        )
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byWordWrapping
+        let rawText = textView.text ?? ""
+        let measuredTextHeight: CGFloat
+        if rawText.isEmpty {
+            measuredTextHeight = font.lineHeight
+        } else {
+            measuredTextHeight = (rawText as NSString).boundingRect(
+                with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [
+                    .font: font,
+                    .paragraphStyle: paragraphStyle
+                ],
+                context: nil
+            ).height
+        }
+
+        return ceil(measuredTextHeight + inset.top + inset.bottom)
+    }
+
+    private var fallbackTextViewWidth: CGFloat {
+        let width = bounds.width > 0 ? bounds.width : 358
+        return max(
+            NativeGlassBarStyle.buttonSize,
+            width
+                - NativeGlassBarStyle.buttonSize
+                - NativeGlassBarStyle.interItemSpacing
+                - NativeGlassBarStyle.contentInset * 2
+        )
+    }
+
+    private func refreshPlaceholderVisibility() {
+        textView.placeholderLabel.isHidden = !textView.text.isEmpty
     }
 }
 
@@ -2822,11 +2912,14 @@ class ChatViewController: MessagesViewController {
         view.onSubmit = { [weak self] text in
             self?.submitSearchTextFromSearchInput(text)
         }
-        view.onCancel = { [weak self] in
-            self?.cancelSearchModeFromSearchUI()
+        view.onHeightChanged = { [weak self] height in
+            self?.updateSearchInputOverlayHeight(height)
         }
         return view
     }()
+    internal var searchInputBarHeightConstraint: NSLayoutConstraint?
+    internal var searchInputBarTopConstraint: NSLayoutConstraint?
+    internal var searchInputBarConstraints: [NSLayoutConstraint] = []
 
     internal var searchBar: UISearchBar = {
         let bar = UISearchBar()
@@ -3755,14 +3848,8 @@ class ChatViewController: MessagesViewController {
 
         let inputBar = self.searchInputBar
         inputBar.text = self.searchBar.text
-        inputBar.frame = CGRect(
-            x: 0,
-            y: 0,
-            width: self.resolvedSearchInputBarWidth(),
-            height: NativeGlassBarStyle.minimumHeight
-        )
-        inputBar.setNeedsLayout()
-        inputBar.layoutIfNeeded()
+        self.installSearchInputOverlayIfNeeded()
+        self.updateSearchInputOverlayHeight(inputBar.intrinsicContentSize.height)
 
         NavigationBarItemOwnership.apply(
             to: self.navigationItem,
@@ -3770,7 +3857,7 @@ class ChatViewController: MessagesViewController {
             right: NavigationBarItemOwnership.Assignment.none,
             animated: shouldAnimate
         )
-        self.navigationItem.titleView = inputBar
+        self.navigationItem.titleView = nil
         self.searchBar.delegate = self
         self.navigationItem.setHidesBackButton(true, animated: shouldAnimate)
 
@@ -3782,14 +3869,69 @@ class ChatViewController: MessagesViewController {
         self.xabberInputView.changeState(to: .search)
     }
 
-    private func resolvedSearchInputBarWidth() -> CGFloat {
-        let navigationWidth = self.navigationController?.navigationBar.bounds.width ?? 0
-        let viewWidth = self.view.bounds.width
-        let availableWidth = max(navigationWidth, viewWidth, UIScreen.main.bounds.width)
-        let horizontalInset = NativeGlassBarStyle.horizontalInset
-        let minimumWidth = NativeGlassBarStyle.buttonSize * 3 + NativeGlassBarStyle.contentInset * 2
+    internal func installSearchInputOverlayIfNeeded() {
+        guard self.searchInputBar.superview == nil else {
+            self.searchInputBar.isHidden = false
+            self.bringSearchInputOverlayToFront()
+            return
+        }
 
-        return max(minimumWidth, availableWidth - horizontalInset * 2)
+        NSLayoutConstraint.deactivate(self.searchInputBarConstraints)
+        self.searchInputBarConstraints.removeAll()
+
+        let inputBar = self.searchInputBar
+        inputBar.translatesAutoresizingMaskIntoConstraints = false
+        inputBar.isHidden = false
+        self.view.addSubview(inputBar)
+
+        let heightConstraint = inputBar.heightAnchor.constraint(equalToConstant: inputBar.intrinsicContentSize.height)
+        let topConstraint = inputBar.topAnchor.constraint(
+            equalTo: self.view.safeAreaLayoutGuide.topAnchor,
+            constant: self.searchInputOverlayTopOffset()
+        )
+        self.searchInputBarHeightConstraint = heightConstraint
+        self.searchInputBarTopConstraint = topConstraint
+        let constraints = [
+            inputBar.leadingAnchor.constraint(
+                equalTo: self.view.safeAreaLayoutGuide.leadingAnchor,
+                constant: NativeGlassBarStyle.horizontalInset
+            ),
+            inputBar.trailingAnchor.constraint(
+                equalTo: self.view.safeAreaLayoutGuide.trailingAnchor,
+                constant: -NativeGlassBarStyle.horizontalInset
+            ),
+            topConstraint,
+            heightConstraint
+        ]
+        self.searchInputBarConstraints = constraints
+        NSLayoutConstraint.activate(constraints)
+        self.bringSearchInputOverlayToFront()
+    }
+
+    internal func updateSearchInputOverlayHeight(_ height: CGFloat) {
+        self.searchInputBarHeightConstraint?.constant = max(NativeGlassBarStyle.minimumHeight, height)
+        self.searchInputBarTopConstraint?.constant = self.searchInputOverlayTopOffset()
+        self.searchInputBar.setNeedsLayout()
+        self.view.setNeedsLayout()
+    }
+
+    internal func hideSearchInputOverlay() {
+        NSLayoutConstraint.deactivate(self.searchInputBarConstraints)
+        self.searchInputBarConstraints.removeAll()
+        self.searchInputBar.isHidden = true
+        self.searchInputBar.removeFromSuperview()
+        self.searchInputBarHeightConstraint = nil
+        self.searchInputBarTopConstraint = nil
+    }
+
+    internal func bringSearchInputOverlayToFront() {
+        guard self.searchInputBar.superview != nil else { return }
+        self.view.bringSubviewToFront(self.searchInputBar)
+    }
+
+    private func searchInputOverlayTopOffset() -> CGFloat {
+        let navBarHeight = self.navigationController?.navigationBar.frame.height ?? NativeGlassBarStyle.minimumHeight
+        return -max(NativeGlassBarStyle.minimumHeight, navBarHeight)
     }
     
     public func onSearchPanelChangeConversationType(_ oldConversationType: ClientSynchronizationManager.ConversationType) {
@@ -4046,6 +4188,9 @@ class ChatViewController: MessagesViewController {
         self.previousFrame = self.view.bounds
         self.view.addSubview(self.chatViewLoadingOverlay)
         self.chatViewLoadingOverlay.fillSuperview()
+        if self.inSearchMode.value {
+            self.bringSearchInputOverlayToFront()
+        }
 //        self.view.addSubview(self.navbarOverlayView)
 //        self.view.addSubview(floatingDateView)
         self.scrollDownButton.addTarget(self, action: #selector(self.onScrollDownChatButtonTouchUpInside), for: .touchUpInside)
@@ -4408,6 +4553,9 @@ class ChatViewController: MessagesViewController {
         self.xabberInputView.searchPanel.onSeekUpCallback = self.onSearchPanelSeekUp
         self.xabberInputView.searchPanel.onSeekDownCallback = self.onSearchPanelSeekDown
         self.xabberInputView.searchPanel.onChangeViewStateCallback = self.onSearchPanelChangeChatViewState
+        self.xabberInputView.searchPanel.onCancelCallback = { [weak self] in
+            self?.cancelSearchModeFromSearchUI()
+        }
         self.xabberInputView.mentionConversationType = self.conversationType
         self.xabberInputView.mentionCandidatesProvider = { [weak self] query in
             self?.mentionCandidates(for: query) ?? []

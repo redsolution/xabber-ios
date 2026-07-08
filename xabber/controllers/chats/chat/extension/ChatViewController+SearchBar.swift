@@ -1043,6 +1043,8 @@ extension ChatViewController {
         searchInputBar.text = nil
         searchBar.endEditing(true)
         searchInputBar.endEditing(true)
+        hideSearchInputOverlay()
+        xabberInputView.changeState(to: .normal)
         becomeFirstResponder()
         navigationItem.setHidesBackButton(false, animated: false)
         messagesCollectionView.reloadDataAndKeepOffset()

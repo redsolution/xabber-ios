@@ -473,11 +473,21 @@ class ModernXabberInputView: UIView {
         open var onSeekUpCallback: (() -> Void)? = nil
         open var onSeekDownCallback: (() -> Void)? = nil
         open var onChangeViewStateCallback: (() -> Void)? = nil
+        open var onCancelCallback: (() -> Void)? = nil
 
         let surfaceView: UIVisualEffectView = {
             let view = UIVisualEffectView()
             NativeGlassBarStyle.applySurface(to: view, cornerStyle: .capsule, interactive: true)
             return view
+        }()
+
+        let cancelButton: UIButton = {
+            let button = UIButton(type: .system)
+            button.setImage(imageLiteral("xmark", dimension: NativeGlassBarStyle.iconSize), for: .normal)
+            button.tintColor = NativeGlassBarStyle.iconTintColor
+            button.accessibilityIdentifier = "chat_search_cancel"
+            button.accessibilityLabel = "Cancel".localizeString(id: "cancel", arguments: [])
+            return button
         }()
         
         let listButton: UIButton = {
@@ -515,7 +525,7 @@ class ModernXabberInputView: UIView {
             label.setContentHuggingPriority(.defaultLow, for: .horizontal)
             label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             label.textAlignment = .center
-            label.textColor = .tintColor
+            label.textColor = .secondaryLabel
             label.adjustsFontSizeToFitWidth = true
             label.minimumScaleFactor = 0.85
             label.accessibilityIdentifier = "chat_search_results_count"
@@ -528,7 +538,6 @@ class ModernXabberInputView: UIView {
             
             button.setImage(imageLiteral("chevron.up", dimension: 24), for: .normal)
             button.tintColor = .tintColor
-            button.isHidden = true
             button.accessibilityIdentifier = "chat_search_previous_result"
             
             return button
@@ -539,7 +548,6 @@ class ModernXabberInputView: UIView {
             
             button.setImage(imageLiteral("chevron.down", dimension: 24), for: .normal)
             button.tintColor = .tintColor
-            button.isHidden = true
             button.accessibilityIdentifier = "chat_search_next_result"
             
             return button
@@ -551,7 +559,7 @@ class ModernXabberInputView: UIView {
             stack.axis = .horizontal
             stack.distribution = .fill
             stack.alignment = .center
-            stack.spacing = 0
+            stack.spacing = 6
             
             return stack
         }()
@@ -580,31 +588,47 @@ class ModernXabberInputView: UIView {
         
         func activateConstraints() {
             NSLayoutConstraint.activate([
-                self.surfaceView.leadingAnchor.constraint(equalTo: self.leadingAnchor),
-                self.surfaceView.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+                self.cancelButton.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+                self.cancelButton.centerYAnchor.constraint(equalTo: self.centerYAnchor),
+                self.cancelButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+                self.cancelButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+                self.surfaceView.leadingAnchor.constraint(
+                    equalTo: self.cancelButton.trailingAnchor,
+                    constant: NativeGlassBarStyle.interItemSpacing
+                ),
+                self.surfaceView.trailingAnchor.constraint(
+                    equalTo: self.seekUpButton.leadingAnchor,
+                    constant: -NativeGlassBarStyle.interItemSpacing
+                ),
                 self.surfaceView.topAnchor.constraint(equalTo: self.topAnchor),
                 self.surfaceView.bottomAnchor.constraint(equalTo: self.bottomAnchor),
                 self.listButton.leadingAnchor.constraint(equalTo: self.leadingAnchor),
                 self.listButton.centerYAnchor.constraint(equalTo: self.centerYAnchor),
                 self.listButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
                 self.listButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
+                self.stack.centerXAnchor.constraint(equalTo: self.surfaceView.contentView.centerXAnchor),
+                self.stack.centerYAnchor.constraint(equalTo: self.surfaceView.contentView.centerYAnchor),
                 self.stack.leadingAnchor.constraint(
-                    equalTo: self.leadingAnchor,
+                    greaterThanOrEqualTo: self.surfaceView.contentView.leadingAnchor,
                     constant: NativeGlassBarStyle.contentInset
                 ),
                 self.stack.trailingAnchor.constraint(
-                    equalTo: self.trailingAnchor,
+                    lessThanOrEqualTo: self.surfaceView.contentView.trailingAnchor,
                     constant: -NativeGlassBarStyle.contentInset
                 ),
-                self.stack.topAnchor.constraint(equalTo: self.topAnchor),
-                self.stack.bottomAnchor.constraint(equalTo: self.bottomAnchor),
+                self.stack.heightAnchor.constraint(lessThanOrEqualTo: self.surfaceView.heightAnchor),
+                self.seekUpButton.trailingAnchor.constraint(
+                    equalTo: self.seekDownButton.leadingAnchor,
+                    constant: -NativeGlassBarStyle.interItemSpacing
+                ),
+                self.seekUpButton.centerYAnchor.constraint(equalTo: self.centerYAnchor),
+                self.seekDownButton.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+                self.seekDownButton.centerYAnchor.constraint(equalTo: self.centerYAnchor),
                 self.seekUpButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
                 self.seekDownButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
                 self.counterLabel.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.minimumHeight),
                 self.seekUpButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
                 self.seekDownButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
-                self.activityIndicator.centerXAnchor.constraint(equalTo: self.centerXAnchor),
-                self.activityIndicator.centerYAnchor.constraint(equalTo: self.centerYAnchor),
                 self.activityIndicator.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
                 self.activityIndicator.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize)
             ])
@@ -665,30 +689,33 @@ class ModernXabberInputView: UIView {
 
             switch newState {
             case .idle:
-                self.counterLabel.text = nil
+                self.counterLabel.text = "no results"
                 self.listButton.isHidden = true
-                self.counterLabel.isHidden = true
-                self.seekUpButton.isHidden = true
-                self.seekDownButton.isHidden = true
-                self.seekUpButton.isEnabled = true
-                self.seekDownButton.isEnabled = true
+                self.cancelButton.isHidden = false
+                self.counterLabel.isHidden = false
+                self.seekUpButton.isHidden = false
+                self.seekDownButton.isHidden = false
+                self.seekUpButton.isEnabled = false
+                self.seekDownButton.isEnabled = false
                 self.stopLoadingIndicator()
             case .loading:
                 self.listButton.isHidden = true
+                self.cancelButton.isHidden = false
                 self.counterLabel.isHidden = true
-                self.seekUpButton.isHidden = true
-                self.seekDownButton.isHidden = true
+                self.seekUpButton.isHidden = false
+                self.seekDownButton.isHidden = false
                 self.seekUpButton.isEnabled = false
                 self.seekDownButton.isEnabled = false
                 self.startLoadingIndicator()
             case .emptyResults:
-                self.counterLabel.text = "0 found"
+                self.counterLabel.text = "no results"
                 self.listButton.isHidden = true
+                self.cancelButton.isHidden = false
                 self.counterLabel.isHidden = false
-                self.seekUpButton.isHidden = true
-                self.seekDownButton.isHidden = true
-                self.seekUpButton.isEnabled = true
-                self.seekDownButton.isEnabled = true
+                self.seekUpButton.isHidden = false
+                self.seekDownButton.isHidden = false
+                self.seekUpButton.isEnabled = false
+                self.seekDownButton.isEnabled = false
                 self.stopLoadingIndicator()
             case .results(let current, let total, let isLoadingContext):
                 self.lastCurrentResultIndex = current
@@ -699,9 +726,10 @@ class ModernXabberInputView: UIView {
                     self.counterLabel.text = "\(current + 1) of \(total)"
                 }
                 self.listButton.isHidden = true
+                self.cancelButton.isHidden = false
                 self.counterLabel.isHidden = false
-                self.seekUpButton.isHidden = !self.shouldShowSeekUpDownButtons
-                self.seekDownButton.isHidden = !self.shouldShowSeekUpDownButtons
+                self.seekUpButton.isHidden = false
+                self.seekDownButton.isHidden = false
                 self.seekUpButton.isEnabled = !isLoadingContext
                 self.seekDownButton.isEnabled = !isLoadingContext
                 if isLoadingContext {
@@ -733,6 +761,11 @@ class ModernXabberInputView: UIView {
         private func onChangeConversationTypeButtonTouchUp(_ sender: UIButton) {
             self.onChangeConversationTypeCallback?(self.conversationType)
         }
+
+        @objc
+        private func onCancelButtonTouchUp(_ sender: UIButton) {
+            self.onCancelCallback?()
+        }
         
         @objc
         private func onSeekUpButtonTouchUp(_ sender: UIButton) {
@@ -754,6 +787,7 @@ class ModernXabberInputView: UIView {
             self.backgroundColor = .clear
             self.isOpaque = false
             self.surfaceView.translatesAutoresizingMaskIntoConstraints = false
+            self.cancelButton.translatesAutoresizingMaskIntoConstraints = false
             self.stack.translatesAutoresizingMaskIntoConstraints = false
             self.listButton.translatesAutoresizingMaskIntoConstraints = false
             self.activityIndicator.translatesAutoresizingMaskIntoConstraints = false
@@ -762,30 +796,36 @@ class ModernXabberInputView: UIView {
             self.seekDownButton.translatesAutoresizingMaskIntoConstraints = false
             self.spacerView.translatesAutoresizingMaskIntoConstraints = false
             self.addSubview(self.surfaceView)
-            self.addSubview(self.stack)
+            self.addSubview(self.cancelButton)
             self.addSubview(self.listButton)
-            self.addSubview(self.activityIndicator)
+            self.addSubview(self.seekUpButton)
+            self.addSubview(self.seekDownButton)
+            self.surfaceView.contentView.addSubview(self.stack)
             self.stack.addArrangedSubview(self.counterLabel)
-            self.stack.addArrangedSubview(self.spacerView)
-            self.stack.addArrangedSubview(self.seekUpButton)
-            self.stack.addArrangedSubview(self.seekDownButton)
+            self.stack.addArrangedSubview(self.activityIndicator)
             self.activateConstraints()
             NativeGlassBarStyle.applyIconButtonStyle(
                 to: self.listButton,
                 tintColor: NativeGlassBarStyle.iconTintColor,
                 prefersNativeGlass: false
             )
-            NativeGlassBarStyle.applyIconButtonStyle(
+            NativeGlassBarStyle.applyDetachedIconButtonStyle(
+                to: self.cancelButton,
+                tintColor: NativeGlassBarStyle.iconTintColor,
+                image: imageLiteral("xmark", dimension: NativeGlassBarStyle.iconSize)
+            )
+            NativeGlassBarStyle.applyDetachedIconButtonStyle(
                 to: self.seekUpButton,
                 tintColor: NativeGlassBarStyle.iconTintColor,
-                prefersNativeGlass: false
+                image: imageLiteral("chevron.up", dimension: 24)
             )
-            NativeGlassBarStyle.applyIconButtonStyle(
+            NativeGlassBarStyle.applyDetachedIconButtonStyle(
                 to: self.seekDownButton,
                 tintColor: NativeGlassBarStyle.iconTintColor,
-                prefersNativeGlass: false
+                image: imageLiteral("chevron.down", dimension: 24)
             )
             self.changeChatButton.addTarget(self, action: #selector(onChangeConversationTypeButtonTouchUp), for: .touchUpInside)
+            self.cancelButton.addTarget(self, action: #selector(onCancelButtonTouchUp), for: .touchUpInside)
             self.seekUpButton.addTarget(self, action: #selector(onSeekUpButtonTouchUp), for: .touchUpInside)
             self.seekDownButton.addTarget(self, action: #selector(onSeekDownButtonTouchUp), for: .touchUpInside)
             self.listButton.addTarget(self, action: #selector(onChangeViewStateTouchUp), for: .touchUpInside)
@@ -2196,7 +2236,12 @@ class ModernXabberInputView: UIView {
     }()
     
     internal let searchPanel: SearchPanel = {
-        let view = SearchPanel(frame: CGRect(x: 0, y: 0, width: 220, height: 38))
+        let view = SearchPanel(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 220,
+            height: NativeGlassBarStyle.minimumHeight
+        ))
         
         view.isHidden = true
         
@@ -2722,10 +2767,16 @@ class ModernXabberInputView: UIView {
         )
         selectionPanel.update()
         self.layoutComposerRecordingPanels()
-        let searchWidth = max(NativeGlassBarStyle.buttonSize, self.bounds.width - 32)
+        let searchWidth = max(
+            NativeGlassBarStyle.buttonSize,
+            self.bounds.width
+        )
         searchPanel.frame = CGRect(
-            origin: CGPoint(x: 16, y: offset + 6),
-            size: CGSize(width: searchWidth, height: 38)
+            origin: CGPoint(x: 0, y: offset),
+            size: CGSize(
+                width: searchWidth,
+                height: NativeGlassBarStyle.minimumHeight
+            )
         )
         self.layoutMentionPanel()
     }
