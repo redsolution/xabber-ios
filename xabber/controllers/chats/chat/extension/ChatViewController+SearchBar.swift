@@ -1006,9 +1006,11 @@ extension ChatViewController {
     internal func submitSearchTextFromSearchInput(_ text: String?) {
         let normalizedText = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         searchBar.text = text
-        searchInputBar.text = text
-        searchBar.resignFirstResponder()
-        searchInputBar.endEditing(true)
+        if isViewLoaded {
+            searchInputBar.text = text
+            searchBar.resignFirstResponder()
+            searchInputBar.endEditing(true)
+        }
 
         if normalizedText.isEmpty {
             clearInChatSearchQuery(clearResults: true, panelState: .idle)
@@ -1031,18 +1033,18 @@ extension ChatViewController {
         clearInChatSearchQuery(clearResults: true, panelState: .idle)
         pendingSearchActivationRequest = nil
         searchBar.text = nil
-        searchInputBar.text = nil
-        searchBar.endEditing(true)
-        searchInputBar.endEditing(true)
         inSearchMode.accept(false)
-        becomeFirstResponder()
         searchTextObserver.accept(nil)
-        navigationItem.setHidesBackButton(false, animated: false)
 
         guard isViewLoaded else {
             return
         }
 
+        searchInputBar.text = nil
+        searchBar.endEditing(true)
+        searchInputBar.endEditing(true)
+        becomeFirstResponder()
+        navigationItem.setHidesBackButton(false, animated: false)
         messagesCollectionView.reloadDataAndKeepOffset()
         UIView.performWithoutAnimation {
             configureNavbar()

@@ -1735,8 +1735,10 @@ final class ChatSearchInputBarViewTests: XCTestCase {
         controller.searchTextObserver.accept("old")
         controller.currentSearchQueryId = "query-1"
 
+        XCTAssertFalse(controller.isViewLoaded)
         controller.submitSearchTextFromSearchInput("  \n\t  ")
 
+        XCTAssertFalse(controller.isViewLoaded)
         XCTAssertNil(controller.searchTextObserver.value)
         XCTAssertNil(controller.currentSearchQueryId)
     }
