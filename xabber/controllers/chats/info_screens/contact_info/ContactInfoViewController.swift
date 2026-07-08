@@ -42,6 +42,7 @@ struct ContactInfoNavigationBarConfiguration: Equatable {
 
 enum ContactInfoNavigationBarPolicy {
     static let devicesButtonAccessibilityIdentifier = "contact_info_devices_button"
+    static let searchButtonAccessibilityIdentifier = "contact_info_search_button"
     static let dismissButtonAccessibilityIdentifier = "contact_info_dismiss_button"
     static let revealSplitListButtonAccessibilityIdentifier = "contact_info_reveal_split_list_button"
 
@@ -225,6 +226,8 @@ class ContactInfoViewController: BaseViewController {
     
     internal let searchButton: UIBarButtonItem = {
         let button = UIBarButtonItem(image: imageLiteral("magnifyingglass"), style: .plain, target: nil, action: nil)
+        button.accessibilityIdentifier = ContactInfoNavigationBarPolicy.searchButtonAccessibilityIdentifier
+        button.accessibilityLabel = "Search".localizeString(id: "search", arguments: [])
         
         return button
     }()

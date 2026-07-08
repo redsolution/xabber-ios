@@ -52,6 +52,10 @@ enum GroupchatInfoActionExitPolicy {
     }
 }
 
+enum GroupchatInfoAccessibilityIdentifiers {
+    static let searchButton = "group_info_search_button"
+}
+
 class GroupchatInfoViewController: SimpleBaseViewController {
     
     class Datasource: DiffAware, Equatable, Hashable {
@@ -156,6 +160,8 @@ class GroupchatInfoViewController: SimpleBaseViewController {
     
     internal let searchButton: UIBarButtonItem = {
         let button = UIBarButtonItem(image: imageLiteral( "magnifyingglass"), style: .plain, target: nil, action: nil)
+        button.accessibilityIdentifier = GroupchatInfoAccessibilityIdentifiers.searchButton
+        button.accessibilityLabel = "Search".localizeString(id: "search", arguments: [])
         
         return button
     }()

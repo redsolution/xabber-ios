@@ -942,6 +942,141 @@ final class InfoCardChatSearchRoutingTests: XCTestCase {
     }
 }
 
+@MainActor
+final class InfoCardSearchAccessibilityTests: XCTestCase {
+    func testContactAndGroupInfoSearchButtonsExposeStableAutomationIdentifiersAndLabels() {
+        let contactInfo = ContactInfoViewController()
+        let groupInfo = GroupchatInfoViewController()
+
+        XCTAssertEqual(contactInfo.searchButton.accessibilityIdentifier, "contact_info_search_button")
+        XCTAssertEqual(groupInfo.searchButton.accessibilityIdentifier, "group_info_search_button")
+        assertMeaningfulAccessibilityLabel(contactInfo.searchButton)
+        assertMeaningfulAccessibilityLabel(groupInfo.searchButton)
+    }
+
+    func testChatSearchChromeIdentifiersSurviveSearchModeSubmitLoadingResultsAndCancel() throws {
+        let controller = ChatViewController()
+        controller.owner = "owner@example.com"
+        controller.jid = "alexey.boldin@example.com"
+        controller.conversationType = .regular
+        let navigationController = UINavigationController(rootViewController: controller)
+
+        navigationController.loadViewIfNeeded()
+        controller.loadViewIfNeeded()
+        controller.activateSearchModeFromExternalRoute(activateKeyboard: false, animated: false)
+
+        let searchBar = try XCTUnwrap(controller.navigationItem.titleView as? ChatSearchInputBarView)
+        let searchPanel = controller.xabberInputView.searchPanel
+        assertSearchInputIdentifiers(searchBar)
+        assertSearchPanelIdentifiers(searchPanel)
+
+        searchBar.text = "alexey"
+        controller.submitSearchTextFromSearchInput(searchBar.text)
+        assertSearchInputIdentifiers(searchBar)
+        assertSearchPanelIdentifiers(searchPanel)
+
+        searchPanel.applyRenderState(.loading)
+        assertSearchPanelIdentifiers(searchPanel)
+
+        controller.searchMessagesQueue = [
+            makeSearchMessage(index: 0),
+            makeSearchMessage(index: 1)
+        ]
+        controller.selectedSearchResultId = controller.searchMessagesQueue[1].archivedId
+        controller.applySearchResultsPanelState(isLoadingContext: true)
+        assertSearchPanelIdentifiers(searchPanel)
+
+        controller.cancelSearchModeFromSearchUI()
+        assertSearchInputIdentifiers(searchBar)
+        assertSearchPanelIdentifiers(searchPanel)
+    }
+
+    private func assertMeaningfulAccessibilityLabel(
+        _ item: UIBarButtonItem,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let label = item.accessibilityLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        XCTAssertFalse(label.isEmpty, file: file, line: line)
+    }
+
+    private func assertSearchInputIdentifiers(
+        _ searchBar: ChatSearchInputBarView,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(
+            searchBar.textField.accessibilityIdentifier,
+            "chat_search_input",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            searchBar.submitButton.accessibilityIdentifier,
+            "chat_search_submit",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            searchBar.cancelButton.accessibilityIdentifier,
+            "chat_search_cancel",
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertSearchPanelIdentifiers(
+        _ searchPanel: ModernXabberInputView.SearchPanel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(
+            searchPanel.accessibilityIdentifier,
+            "chat_search_results_panel",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            searchPanel.counterLabel.accessibilityIdentifier,
+            "chat_search_results_count",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            searchPanel.seekUpButton.accessibilityIdentifier,
+            "chat_search_previous_result",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            searchPanel.seekDownButton.accessibilityIdentifier,
+            "chat_search_next_result",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            searchPanel.activityIndicator.accessibilityIdentifier,
+            "chat_search_loading",
+            file: file,
+            line: line
+        )
+    }
+
+    private func makeSearchMessage(index: Int) -> MessageStorageItem {
+        let message = MessageStorageItem()
+        message.primary = "primary-\(index)"
+        message.owner = "owner@example.com"
+        message.opponent = "alexey.boldin@example.com"
+        message.conversationType = .regular
+        message.messageType = MessageStorageItem.MessageDisplayType.text.rawValue
+        message.archivedId = "archive-\(index)"
+        message.messageId = "message-\(index)"
+        message.date = Date(timeIntervalSince1970: TimeInterval(1_711_283_200 + index))
+        return message
+    }
+}
+
 final class ChatSearchModeActivationTests: XCTestCase {
     func testExternalActivationBeforeViewLoadRetainsRequestWithoutSubmittingQuery() {
         let controller = ChatViewController()
