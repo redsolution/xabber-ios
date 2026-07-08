@@ -4530,11 +4530,38 @@ class ChatViewController: MessagesViewController {
             }
         case .scrollToBottom:
             self.scrollToBottom(animated: false)
+        case .alignBottomToCurrentInsets:
+            self.alignChatBottomToCurrentInsets()
         case .restoreVisibleAnchor:
             if let visibleAnchor {
                 self.restorePagingAnchor(visibleAnchor)
             }
         }
+    }
+
+    private func alignChatBottomToCurrentInsets() {
+        guard self.datasource.isNotEmpty else {
+            return
+        }
+
+        let targetOffsetY = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+            targetMaxY: self.messagesCollectionView.contentSize.height,
+            contentHeight: self.messagesCollectionView.contentSize.height,
+            viewportHeight: self.messagesCollectionView.bounds.height,
+            contentInsets: self.messagesCollectionView.contentInset
+        )
+
+        guard !ChatBottomScrollAlignmentPolicy.isAligned(
+            currentOffsetY: self.messagesCollectionView.contentOffset.y,
+            targetOffsetY: targetOffsetY
+        ) else {
+            return
+        }
+
+        self.messagesCollectionView.setContentOffset(
+            CGPoint(x: self.messagesCollectionView.contentOffset.x, y: targetOffsetY),
+            animated: false
+        )
     }
     
     private func unsubscribe() {

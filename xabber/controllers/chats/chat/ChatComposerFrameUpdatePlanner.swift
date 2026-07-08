@@ -29,6 +29,7 @@ enum ChatComposerFrameUpdateAction: Equatable {
     case reloadData
     case layoutIfNeeded
     case scrollToBottom
+    case alignBottomToCurrentInsets
     case restoreVisibleAnchor
 }
 
@@ -58,7 +59,9 @@ struct ChatComposerFrameUpdatePlanner {
         case .none:
             break
         case .bottom:
-            if request.source != .keyboardFrame {
+            if request.source == .keyboardFrame {
+                actions.append(.alignBottomToCurrentInsets)
+            } else {
                 actions.append(.scrollToBottom)
             }
         case .visibleAnchor:

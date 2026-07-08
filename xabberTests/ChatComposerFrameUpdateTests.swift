@@ -58,7 +58,7 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
         )
     }
 
-    func testKeyboardFrameChangeAtBottomAvoidsSynchronousMessageLayout() {
+    func testKeyboardFrameChangeAtBottomRealignsWithoutSynchronousMessageLayout() throws {
         let actions = ChatComposerFrameUpdatePlanner.actions(
             for: ChatComposerFrameUpdateRequest(
                 source: .keyboardFrame,
@@ -74,6 +74,11 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
         XCTAssertFalse(actions.contains(.invalidateLayout))
         XCTAssertFalse(actions.contains(.scrollToBottom))
         XCTAssertFalse(actions.contains(.layoutIfNeeded))
+        XCTAssertTrue(actions.contains(.alignBottomToCurrentInsets))
+        XCTAssertLessThan(
+            try XCTUnwrap(actions.firstIndex(of: .updateInsets(280))),
+            try XCTUnwrap(actions.firstIndex(of: .alignBottomToCurrentInsets))
+        )
         XCTAssertEqual(actions.filter { $0 == .updateInsets(280) }.count, 1)
     }
 
