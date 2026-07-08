@@ -1084,6 +1084,7 @@ extension ChatViewController {
         if clearResults {
             searchMessagesQueue = []
         }
+        cancelSearchResultNavigation()
         setLoadingIndicatorVisible(false)
         guard isViewLoaded else {
             return
@@ -1197,6 +1198,194 @@ extension ChatViewController {
         applySearchResultsPanelState(isLoadingContext: isLoadingContext)
     }
 
+    internal func cancelSearchResultNavigation() {
+        searchResultNavigationState = .idle
+        guard isViewLoaded else {
+            return
+        }
+        applySearchResultsPanelState(isLoadingContext: false)
+    }
+
+    internal func nextSearchResultIndex(
+        from index: Int,
+        direction: ChatDirection
+    ) -> Int? {
+        guard searchMessagesQueue.count > 1,
+              searchMessagesQueue.indices.contains(index) else {
+            return nil
+        }
+
+        switch direction {
+        case .up:
+            let nextIndex = index + 1
+            return nextIndex >= searchMessagesQueue.count ? 0 : nextIndex
+        case .down:
+            let nextIndex = index - 1
+            return nextIndex < 0 ? searchMessagesQueue.count - 1 : nextIndex
+        }
+    }
+
+    internal func consumePendingSearchResultNavigationIndex(finishedIndex: Int) -> Int? {
+        guard case .pending(let pendingIndex) = searchResultNavigationState else {
+            searchResultNavigationState = .idle
+            return nil
+        }
+
+        searchResultNavigationState = .idle
+        guard pendingIndex != finishedIndex,
+              searchMessagesQueue.indices.contains(pendingIndex) else {
+            return nil
+        }
+        return pendingIndex
+    }
+
+    private func currentSearchResultNavigationBaseIndex() -> Int? {
+        if case .pending(let index) = searchResultNavigationState,
+           searchMessagesQueue.indices.contains(index) {
+            return index
+        }
+
+        if let index = searchResultNavigationState.currentIndex,
+           searchMessagesQueue.indices.contains(index) {
+            return index
+        }
+
+        if let selectedSearchResultId,
+           let selectedIndex = searchMessagesQueue.firstIndex(where: { $0.archivedId == selectedSearchResultId }) {
+            return selectedIndex
+        }
+
+        return searchMessagesQueue.isEmpty ? nil : 0
+    }
+
+    private func setSelectedSearchResultNavigationIndex(
+        _ index: Int,
+        isLoadingContext: Bool
+    ) {
+        guard searchMessagesQueue.indices.contains(index) else {
+            return
+        }
+
+        selectedSearchResultId = searchMessagesQueue[index].archivedId
+        guard isViewLoaded else {
+            return
+        }
+        xabberInputView.searchPanel.applyRenderState(
+            .results(
+                current: index,
+                total: searchMessagesQueue.count,
+                isLoadingContext: isLoadingContext
+            )
+        )
+    }
+
+    private func recordPendingSearchResultNavigation(
+        index: Int,
+        direction: ChatDirection
+    ) {
+        guard searchMessagesQueue.indices.contains(index) else {
+            return
+        }
+
+        chatScrollDirection = direction
+        searchResultNavigationState = .pending(index: index)
+        setSelectedSearchResultNavigationIndex(index, isLoadingContext: true)
+    }
+
+    internal func markSearchResultNavigationLoadingContext(for request: ChatOpenMessageRequest) {
+        guard request.source == .search,
+              let index = searchMessagesQueue.firstIndex(where: { item in
+                  item.archivedId == request.anchor.archivedId ||
+                  item.primary == request.anchor.messagePrimary ||
+                  (item.messageId.isNotEmpty && item.messageId == request.anchor.messageId)
+              }) else {
+            return
+        }
+
+        switch searchResultNavigationState {
+        case .positioning:
+            searchResultNavigationState = .loadingContext(index: index)
+        case .loadingContext, .pending, .idle:
+            return
+        }
+    }
+
+    private func completeSearchResultNavigation(index: Int) {
+        let pendingIndex = consumePendingSearchResultNavigationIndex(finishedIndex: index)
+        setSearchResultsPanelContextLoading(false)
+
+        guard let pendingIndex else {
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+            self.openSearchResult(at: pendingIndex, direction: self.chatScrollDirection ?? .up)
+        }
+    }
+
+    private func openSearchResult(
+        at index: Int,
+        direction: ChatDirection
+    ) {
+        guard searchMessagesQueue.indices.contains(index) else {
+            searchResultNavigationState = .idle
+            return
+        }
+
+        searchResultNavigationState = .positioning(index: index)
+        setSelectedSearchResultNavigationIndex(index, isLoadingContext: false)
+
+        let item = searchMessagesQueue[index]
+        chatScrollDirection = direction
+        queueOpenMessageRequest(
+            ChatOpenMessageRequest(
+                chatJid: jid,
+                owner: owner,
+                conversationType: conversationType,
+                anchor: ChatMessageAnchorRef(
+                    messagePrimary: nil,
+                    archivedId: item.archivedId,
+                    messageId: nil,
+                    authorId: nil,
+                    bodyFingerprint: nil,
+                    sourceDate: item.date
+                ),
+                highlight: true,
+                markReadOnVisible: false,
+                source: .search
+            ),
+            hooks: ChatAnchorExecutionHooks(
+                direction: direction,
+                animatedScroll: true,
+                onFailed: { [weak self] in
+                    self?.completeSearchResultNavigation(index: index)
+                },
+                onPositioned: { [weak self] in
+                    self?.completeSearchResultNavigation(index: index)
+                }
+            )
+        )
+    }
+
+    private func navigateSearchResult(direction: ChatDirection) {
+        guard let baseIndex = currentSearchResultNavigationBaseIndex(),
+              let nextIndex = nextSearchResultIndex(from: baseIndex, direction: direction) else {
+            return
+        }
+
+        FeedbackManager.shared.generate(feedback: .success)
+
+        if currentPage.locked || searchResultNavigationState.isBusy {
+            recordPendingSearchResultNavigation(index: nextIndex, direction: direction)
+            return
+        }
+
+        openSearchResult(at: nextIndex, direction: direction)
+    }
+
     private struct ResolvedJumpTarget {
         let primary: String
         let archivedId: String?
@@ -1215,6 +1404,7 @@ extension ChatViewController {
             return
         }
         if request.source == .search {
+            self.markSearchResultNavigationLoadingContext(for: request)
             self.setSearchResultsPanelContextLoading(true)
         }
         if self.activeAnchorExecutionState?.request != request {
@@ -1550,6 +1740,7 @@ extension ChatViewController {
             self.syncAnchorExecutionFlags()
             if self.prepareContextPrefetchIfNeeded(around: resolvedTarget, request: request) {
                 if request.source == .search {
+                    self.markSearchResultNavigationLoadingContext(for: request)
                     self.setSearchResultsPanelContextLoading(true)
                 }
                 return true
@@ -3250,96 +3441,11 @@ extension ChatViewController {
     }
     
     internal func onSearchPanelSeekUp() {
-        if self.currentPage.locked {
-            return
-        }
-        guard let currentIndex = self.searchMessagesQueue.firstIndex(where: { $0.archivedId == self.selectedSearchResultId }) else {
-            return
-        }
-        if self.searchMessagesQueue.count == 1 {
-            return
-        }
-        FeedbackManager.shared.generate(feedback: .success)
-        var newIndex = currentIndex + 1
-        if newIndex >= self.searchMessagesQueue.count {
-            newIndex = 0
-        }
-        self.selectedSearchResultId = self.searchMessagesQueue[newIndex].archivedId
-        self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchMessagesQueue.count)
-        let archivedId = searchMessagesQueue[newIndex].archivedId
-        let date = searchMessagesQueue[newIndex].date
-        self.chatScrollDirection = .up
-        self.queueOpenMessageRequest(
-            ChatOpenMessageRequest(
-                chatJid: self.jid,
-                owner: self.owner,
-                conversationType: self.conversationType,
-                anchor: ChatMessageAnchorRef(
-                    messagePrimary: nil,
-                    archivedId: archivedId,
-                    messageId: nil,
-                    authorId: nil,
-                    bodyFingerprint: nil,
-                    sourceDate: date
-                ),
-                highlight: true,
-                markReadOnVisible: false,
-                source: .search
-            ),
-            hooks: ChatAnchorExecutionHooks(
-                direction: .up,
-                animatedScroll: true,
-                onFailed: {},
-                onPositioned: nil
-            )
-        )
+        navigateSearchResult(direction: .up)
     }
     
     internal func onSearchPanelSeekDown() {
-        if self.currentPage.locked {
-            return
-        }
-        guard let currentIndex = self.searchMessagesQueue.firstIndex(where: { $0.archivedId == self.selectedSearchResultId }) else {
-            return
-        }
-        if self.searchMessagesQueue.count == 1 {
-            return
-        }
-        FeedbackManager.shared.generate(feedback: .success)
-        var newIndex = currentIndex - 1
-        self.chatScrollDirection = .down
-        if newIndex < 0 {
-            newIndex = self.searchMessagesQueue.count - 1
-            self.chatScrollDirection = .up
-        }
-        self.selectedSearchResultId = self.searchMessagesQueue[newIndex].archivedId
-        self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchMessagesQueue.count)
-        let archivedId = searchMessagesQueue[newIndex].archivedId
-        let date = searchMessagesQueue[newIndex].date
-        self.queueOpenMessageRequest(
-            ChatOpenMessageRequest(
-                chatJid: self.jid,
-                owner: self.owner,
-                conversationType: self.conversationType,
-                anchor: ChatMessageAnchorRef(
-                    messagePrimary: nil,
-                    archivedId: archivedId,
-                    messageId: nil,
-                    authorId: nil,
-                    bodyFingerprint: nil,
-                    sourceDate: date
-                ),
-                highlight: true,
-                markReadOnVisible: false,
-                source: .search
-            ),
-            hooks: ChatAnchorExecutionHooks(
-                direction: .down,
-                animatedScroll: true,
-                onFailed: {},
-                onPositioned: nil
-            )
-        )
+        navigateSearchResult(direction: .down)
     }
     
     internal func onSearchPanelChangeChatViewState() {

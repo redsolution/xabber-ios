@@ -98,6 +98,33 @@ struct ChatInChatSearchQueryContext: Equatable {
     }
 }
 
+enum ChatSearchResultNavigationState: Equatable {
+    case idle
+    case positioning(index: Int)
+    case loadingContext(index: Int)
+    case pending(index: Int)
+
+    var currentIndex: Int? {
+        switch self {
+        case .idle:
+            return nil
+        case .positioning(let index),
+             .loadingContext(let index),
+             .pending(let index):
+            return index
+        }
+    }
+
+    var isBusy: Bool {
+        switch self {
+        case .idle:
+            return false
+        case .positioning, .loadingContext, .pending:
+            return true
+        }
+    }
+}
+
 final class ChatSearchInputBarView: UIView, UITextFieldDelegate {
     static let inputAccessibilityIdentifier = "chat_search_input"
     static let submitAccessibilityIdentifier = "chat_search_submit"
@@ -1778,6 +1805,7 @@ class ChatViewController: MessagesViewController {
     var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var currentSearchQueryId: String? = nil
     var currentInChatSearchQueryContext: ChatInChatSearchQueryContext? = nil
+    var searchResultNavigationState: ChatSearchResultNavigationState = .idle
     var pendingOpenMessageRequest: ChatOpenMessageRequest? = nil
     internal var backgroundPresentationMode: ChatBackgroundPresentationMode = .automatic
     internal var isNavigationTransitionActive: Bool = false
