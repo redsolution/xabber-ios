@@ -437,7 +437,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
             chatVc.owner = self.owner
             chatVc.jid = self.jid
             chatVc.conversationType = .group
-            chatVc.inSearchMode.accept(true)
+            chatVc.activateSearchModeFromExternalRoute()
             navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
             navigationController?.navigationBar.shadowImage = nil
             if let rootVc = navigationController?.viewControllers.first {
@@ -447,7 +447,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
             }
         } else {
             self.leftMenuDelegate?.openChatlistWithChat(owner: self.owner, jid: self.jid, conversationType: .group, configure: { chatVc in
-                chatVc?.inSearchMode.accept(true)
+                chatVc?.activateSearchModeFromExternalRoute()
             })
             self.dismiss(animated: true)
         }

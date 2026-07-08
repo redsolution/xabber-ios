@@ -940,6 +940,76 @@ enum ChatEditPreviewNavigationPolicy {
 }
 
 extension ChatViewController {
+    internal func activateSearchModeFromExternalRoute(
+        activateKeyboard: Bool = true,
+        animated: Bool = true,
+        initialQuery: String? = nil
+    ) {
+        let request = ChatSearchActivationRequest(
+            activateKeyboard: activateKeyboard,
+            animated: animated,
+            initialQuery: initialQuery
+        )
+        pendingSearchActivationRequest = request
+
+        if !inSearchMode.value {
+            inSearchMode.accept(true)
+        }
+
+        guard isViewLoaded else {
+            return
+        }
+
+        configureSearchModeForCurrentActivation(
+            defaultActivateKeyboard: activateKeyboard,
+            defaultAnimated: animated
+        )
+    }
+
+    internal func configureSearchModeForCurrentActivation(
+        defaultActivateKeyboard: Bool,
+        defaultAnimated: Bool
+    ) {
+        let request = pendingSearchActivationRequest
+        pendingSearchActivationRequest = nil
+
+        if let initialQuery = request?.initialQuery {
+            searchBar.text = initialQuery
+        }
+
+        configureSearchBar(
+            activateKeyboard: request?.activateKeyboard ?? defaultActivateKeyboard,
+            animated: request?.animated ?? defaultAnimated
+        )
+
+        if let initialQuery = request?.initialQuery {
+            searchTextObserver.accept(initialQuery)
+        }
+    }
+
+    internal func cancelSearchModeFromSearchUI() {
+        if isViewLoaded && showSkeletonObserver.value {
+            return
+        }
+
+        currentSearchQueryId = nil
+        pendingSearchActivationRequest = nil
+        searchBar.endEditing(true)
+        inSearchMode.accept(false)
+        becomeFirstResponder()
+        searchTextObserver.accept(nil)
+        navigationItem.setHidesBackButton(false, animated: false)
+
+        guard isViewLoaded else {
+            return
+        }
+
+        messagesCollectionView.reloadDataAndKeepOffset()
+        UIView.performWithoutAnimation {
+            configureNavbar()
+        }
+    }
+
     private struct ResolvedJumpTarget {
         let primary: String
         let archivedId: String?

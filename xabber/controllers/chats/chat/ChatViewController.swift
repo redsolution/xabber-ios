@@ -39,6 +39,23 @@ enum ChatInitialFirstFrameHistoryConfiguration {
     static let pageSize: Int = 80
 }
 
+struct ChatSearchActivationRequest: Equatable {
+    let activateKeyboard: Bool
+    let animated: Bool
+    let initialQuery: String?
+
+    init(
+        activateKeyboard: Bool,
+        animated: Bool,
+        initialQuery: String?
+    ) {
+        self.activateKeyboard = activateKeyboard
+        self.animated = animated
+        let normalizedQuery = initialQuery?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.initialQuery = normalizedQuery?.isEmpty == false ? normalizedQuery : nil
+    }
+}
+
 enum ChatConnectionStatusTextPolicy {
     static var waitingForNetworkText: String {
         "Waiting for network...".localizeString(id: "waiting_for_network", arguments: [])
@@ -1653,6 +1670,7 @@ class ChatViewController: MessagesViewController {
     var hasConfirmedArchiveEndThisSession: Bool = false
     var hasUsedArchiveEndVerificationProbe: Bool = false
     var inSearchMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+    var pendingSearchActivationRequest: ChatSearchActivationRequest? = nil
     var searchSeekDirection: ChatDirection? = nil
     var selectedSearchResultId: String? = nil
 // floating date
@@ -3690,7 +3708,7 @@ class ChatViewController: MessagesViewController {
         } else {
             self.navigationController?.pushViewController(vc, animated: true)
         }
-        vc.inSearchMode.accept(true)
+        vc.activateSearchModeFromExternalRoute()
     }
     
     func initStatus() {
@@ -3911,9 +3929,9 @@ class ChatViewController: MessagesViewController {
         self.configureBackground()
         self.configureNavbar()
         if self.inSearchMode.value {
-            self.configureSearchBar(
-                activateKeyboard: !self.isPreparingStackedNavigationPresentation,
-                animated: ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+            self.configureSearchModeForCurrentActivation(
+                defaultActivateKeyboard: !self.isPreparingStackedNavigationPresentation,
+                defaultAnimated: ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
                     requestedAnimated: true,
                     isTransitionActive: self.isNavigationTransitionActive,
                     isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
@@ -4943,9 +4961,9 @@ class ChatViewController: MessagesViewController {
             self.configureNavbar()
         }
         if self.inSearchMode.value {
-            self.configureSearchBar(
-                activateKeyboard: !self.isNavigationTransitionActive,
-                animated: ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+            self.configureSearchModeForCurrentActivation(
+                defaultActivateKeyboard: !self.isNavigationTransitionActive,
+                defaultAnimated: ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
                     requestedAnimated: true,
                     isTransitionActive: self.isNavigationTransitionActive,
                     isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
@@ -5004,7 +5022,10 @@ class ChatViewController: MessagesViewController {
         self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = false
         self.flushPendingNavigationTransitionWork()
         if self.inSearchMode.value {
-            self.configureSearchBar(activateKeyboard: true, animated: false)
+            self.configureSearchModeForCurrentActivation(
+                defaultActivateKeyboard: true,
+                defaultAnimated: false
+            )
         } else {
             self.refreshNavigationAvatarImage()
         }

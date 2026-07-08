@@ -942,6 +942,74 @@ final class InfoCardChatSearchRoutingTests: XCTestCase {
     }
 }
 
+final class ChatSearchModeActivationTests: XCTestCase {
+    func testExternalActivationBeforeViewLoadRetainsRequestWithoutSubmittingQuery() {
+        let controller = ChatViewController()
+
+        controller.activateSearchModeFromExternalRoute(
+            activateKeyboard: true,
+            animated: false,
+            initialQuery: "needle"
+        )
+
+        XCTAssertTrue(controller.inSearchMode.value)
+        XCTAssertEqual(controller.pendingSearchActivationRequest?.activateKeyboard, true)
+        XCTAssertEqual(controller.pendingSearchActivationRequest?.animated, false)
+        XCTAssertEqual(controller.pendingSearchActivationRequest?.initialQuery, "needle")
+        XCTAssertNil(controller.searchTextObserver.value)
+    }
+
+    func testRepeatedExternalActivationIsIdempotentAndPreservesExistingQueryWhenNoInitialQueryIsProvided() {
+        let controller = ChatViewController()
+        controller.searchTextObserver.accept("existing")
+
+        controller.activateSearchModeFromExternalRoute(
+            activateKeyboard: false,
+            animated: false,
+            initialQuery: nil
+        )
+        controller.activateSearchModeFromExternalRoute(
+            activateKeyboard: false,
+            animated: false,
+            initialQuery: nil
+        )
+
+        XCTAssertTrue(controller.inSearchMode.value)
+        XCTAssertEqual(controller.searchTextObserver.value, "existing")
+        XCTAssertEqual(controller.pendingSearchActivationRequest?.activateKeyboard, false)
+        XCTAssertEqual(controller.pendingSearchActivationRequest?.animated, false)
+        XCTAssertNil(controller.pendingSearchActivationRequest?.initialQuery)
+    }
+
+    func testCardSearchConfiguratorUsesDurableExternalActivationRequest() throws {
+        let chatController = ChatViewController()
+
+        InfoCardChatSearchRouting.searchModeConfigurator()(chatController)
+
+        let request = try XCTUnwrap(chatController.pendingSearchActivationRequest)
+        XCTAssertTrue(chatController.inSearchMode.value)
+        XCTAssertTrue(request.activateKeyboard)
+        XCTAssertTrue(request.animated)
+        XCTAssertNil(request.initialQuery)
+    }
+
+    func testCancelSearchModeClearsSearchStateWithoutClosingController() {
+        let controller = ChatViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        controller.inSearchMode.accept(true)
+        controller.searchTextObserver.accept("needle")
+        controller.currentSearchQueryId = "query-1"
+
+        controller.cancelSearchModeFromSearchUI()
+
+        XCTAssertFalse(controller.inSearchMode.value)
+        XCTAssertNil(controller.searchTextObserver.value)
+        XCTAssertNil(controller.currentSearchQueryId)
+        XCTAssertIdentical(navigationController.topViewController, controller)
+        XCTAssertNil(controller.presentingViewController)
+    }
+}
+
 final class NotificationsNavigationTests: XCTestCase {
     func testBackPolicyPreservesModalDismiss() {
         let action = NotificationsBackPolicy.action(

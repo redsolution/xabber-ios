@@ -127,7 +127,7 @@ enum InfoCardChatSearchRouting {
 
     static func searchModeConfigurator() -> ((ChatViewController?) -> Void) {
         { chatViewController in
-            chatViewController?.inSearchMode.accept(true)
+            chatViewController?.activateSearchModeFromExternalRoute()
         }
     }
 

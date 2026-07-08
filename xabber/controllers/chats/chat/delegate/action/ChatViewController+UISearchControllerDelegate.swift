@@ -36,21 +36,7 @@ extension ChatViewController: UISearchBarDelegate {
     }
     
     fileprivate func cancelSearch() {
-        if self.showSkeletonObserver.value {
-            return
-        }
-        self.currentSearchQueryId = nil
-//        self.messagesCollectionView.reconfigureItems(at: self.messagesCollectionView.indexPathsForVisibleItems)
-//        searchBar.resignFirstResponder()
-        searchBar.endEditing(true)
-        self.inSearchMode.accept(false)
-        self.becomeFirstResponder()
-        self.searchTextObserver.accept(nil)
-        self.navigationItem.setHidesBackButton(false, animated: false)
-        self.messagesCollectionView.reloadDataAndKeepOffset()
-        UIView.performWithoutAnimation {
-            self.configureNavbar()
-        }
+        self.cancelSearchModeFromSearchUI()
     }
     
     @objc

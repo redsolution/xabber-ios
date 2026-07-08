@@ -295,9 +295,9 @@ extension ChatViewController {
                     return
                 }
                 if value {
-                    self.configureSearchBar(
-                        activateKeyboard: !self.isNavigationTransitionActive,
-                        animated: ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+                    self.configureSearchModeForCurrentActivation(
+                        defaultActivateKeyboard: !self.isNavigationTransitionActive,
+                        defaultAnimated: ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
                             requestedAnimated: true,
                             isTransitionActive: self.isNavigationTransitionActive,
                             isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation

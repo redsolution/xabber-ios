@@ -10,7 +10,7 @@ import Foundation
 
 extension ChatViewController: ChangeChatStateProtocol {
     func openSearchBar() {
-        self.inSearchMode.accept(true)
+        self.activateSearchModeFromExternalRoute()
 //        let vc = SearchChatListViewController()
 //        vc.jid = self.jid
 //        vc.owner = self.owner
