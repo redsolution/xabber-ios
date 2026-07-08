@@ -99,10 +99,65 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         }
     }
     
-    internal func searchChat() {
-        self.dismiss(animated: true) {
-            self.chatStateDelegate?.openSearchBar()
+    private func performAfterResolvedGroupchatInfoExit(_ perform: @escaping (UIViewController) -> Void) {
+        let exitAction = NavigationExitPolicy.action(
+            for: NavigationExitPolicyContext(destination: self, route: .currentNavigationPush)
+        )
+        let resolution = GroupchatInfoActionExitPolicy.resolve(
+            currentController: self,
+            presentingViewController: navigationController?.presentingViewController
+                ?? presentationController?.presentingViewController
+                ?? presentingViewController,
+            exitAction: exitAction
+        )
+
+        guard resolution.action != .ignore,
+              let routePresenter = resolution.routePresenter else {
+            return
         }
+
+        switch resolution.action {
+        case .dismissThenPerform:
+            dismiss(animated: true) {
+                perform(routePresenter)
+            }
+        case .performImmediately:
+            perform(routePresenter)
+        case .ignore:
+            break
+        }
+    }
+
+    private func routeToGroupChat(configure: ((ChatViewController?) -> Void)?) {
+        let route = InfoCardChatSearchRouting.route(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: .group
+        )
+
+        performAfterResolvedGroupchatInfoExit { [weak self] routePresenter in
+            guard let self else { return }
+
+            if let leftMenuDelegate = self.leftMenuDelegate {
+                leftMenuDelegate.openChatlistWithChat(
+                    owner: route.owner,
+                    jid: route.jid,
+                    conversationType: route.conversationType,
+                    configure: configure
+                )
+                return
+            }
+
+            let chatVc = InfoCardChatSearchRouting.makeChatViewController(
+                for: route,
+                configure: configure
+            )
+            showStacked(chatVc, in: routePresenter)
+        }
+    }
+
+    internal func searchChat() {
+        routeToGroupChat(configure: InfoCardChatSearchRouting.searchModeConfigurator())
     }
     
     internal func onInvite() {

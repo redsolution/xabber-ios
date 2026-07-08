@@ -28,6 +28,30 @@ import DeepDiff
 import CocoaLumberjack
 import XMPPFramework.XMPPJID
 
+enum GroupchatInfoActionExitPolicy {
+    static func resolve(
+        currentController: UIViewController,
+        presentingViewController: UIViewController?,
+        exitAction: NavigationExitAction
+    ) -> ContactInfoActionExitResolution {
+        if exitAction == .dismissModal {
+            guard let presentingViewController else {
+                return ContactInfoActionExitResolution(action: .ignore, routePresenter: nil)
+            }
+
+            return ContactInfoActionExitResolution(
+                action: .dismissThenPerform,
+                routePresenter: presentingViewController
+            )
+        }
+
+        return ContactInfoActionExitResolution(
+            action: .performImmediately,
+            routePresenter: currentController
+        )
+    }
+}
+
 class GroupchatInfoViewController: SimpleBaseViewController {
     
     class Datasource: DiffAware, Equatable, Hashable {

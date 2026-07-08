@@ -813,6 +813,135 @@ final class ContactInfoNavigationTests: XCTestCase {
     }
 }
 
+final class InfoCardChatSearchRoutingTests: XCTestCase {
+    private struct CapturedRoute {
+        let owner: String
+        let jid: String
+        let conversationType: ClientSynchronizationManager.ConversationType
+        let configure: ((ChatViewController?) -> Void)?
+    }
+
+    private final class LeftMenuSpy: LeftMenuSelectRootScreenDelegate {
+        var selectedScreen: String?
+        var selectedCategory: String?
+        var capturedRoutes: [CapturedRoute] = []
+
+        func selectRootScreenAndCategory(screen key: String, category: String?) {
+            selectedScreen = key
+            selectedCategory = category
+        }
+
+        func openChatlistWithChat(
+            owner: String,
+            jid: String,
+            conversationType: ClientSynchronizationManager.ConversationType,
+            configure: ((ChatViewController?) -> Void)?
+        ) {
+            capturedRoutes.append(CapturedRoute(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                configure: configure
+            ))
+        }
+    }
+
+    private final class ChatStateSpy: ChangeChatStateProtocol {
+        var openSearchBarCallCount = 0
+
+        func openSearchBar() {
+            openSearchBarCallCount += 1
+        }
+    }
+
+    func testRegularContactSearchRouteBuildsConfiguredChatController() {
+        let route = InfoCardChatSearchRouting.route(
+            owner: "alice@example.com",
+            jid: "bob@example.com",
+            conversationType: .regular
+        )
+
+        let chatController = InfoCardChatSearchRouting.makeChatViewController(
+            for: route,
+            configure: InfoCardChatSearchRouting.searchModeConfigurator()
+        )
+
+        XCTAssertEqual(chatController.owner, "alice@example.com")
+        XCTAssertEqual(chatController.jid, "bob@example.com")
+        XCTAssertEqual(chatController.conversationType, .regular)
+        XCTAssertTrue(chatController.inSearchMode.value)
+    }
+
+    func testOmemoContactSearchRouteKeepsEncryptedConversationType() {
+        let route = InfoCardChatSearchRouting.route(
+            owner: "alice@example.com",
+            jid: "secure@example.com",
+            conversationType: .omemo
+        )
+
+        XCTAssertEqual(route.owner, "alice@example.com")
+        XCTAssertEqual(route.jid, "secure@example.com")
+        XCTAssertEqual(route.conversationType, .omemo)
+    }
+
+    func testGroupSearchRouteBuildsConfiguredGroupChatController() {
+        let route = InfoCardChatSearchRouting.route(
+            owner: "alice@example.com",
+            jid: "team@conference.example.com",
+            conversationType: .group
+        )
+
+        let chatController = InfoCardChatSearchRouting.makeChatViewController(
+            for: route,
+            configure: InfoCardChatSearchRouting.searchModeConfigurator()
+        )
+
+        XCTAssertEqual(chatController.owner, "alice@example.com")
+        XCTAssertEqual(chatController.jid, "team@conference.example.com")
+        XCTAssertEqual(chatController.conversationType, .group)
+        XCTAssertTrue(chatController.inSearchMode.value)
+    }
+
+    func testModalGroupInfoSearchResolvesDismissBeforeRoutingFromPresenter() {
+        let currentController = UIViewController()
+        let presenter = UIViewController()
+
+        let resolution = GroupchatInfoActionExitPolicy.resolve(
+            currentController: currentController,
+            presentingViewController: presenter,
+            exitAction: .dismissModal
+        )
+
+        XCTAssertEqual(resolution.action, .dismissThenPerform)
+        XCTAssertIdentical(resolution.routePresenter, presenter)
+    }
+
+    func testGroupInfoSearchUsesLeftMenuRouteInsteadOfCurrentChatSearchDelegate() throws {
+        let controller = GroupchatInfoViewController()
+        controller.owner = "alice@example.com"
+        controller.jid = "team@conference.example.com"
+
+        let leftMenuSpy = LeftMenuSpy()
+        let chatStateSpy = ChatStateSpy()
+        controller.leftMenuDelegate = leftMenuSpy
+        controller.chatStateDelegate = chatStateSpy
+
+        controller.searchChat()
+
+        XCTAssertEqual(chatStateSpy.openSearchBarCallCount, 0)
+        let route = try XCTUnwrap(leftMenuSpy.capturedRoutes.first)
+        XCTAssertEqual(leftMenuSpy.capturedRoutes.count, 1)
+        XCTAssertEqual(route.owner, "alice@example.com")
+        XCTAssertEqual(route.jid, "team@conference.example.com")
+        XCTAssertEqual(route.conversationType, .group)
+
+        let chatController = ChatViewController()
+        XCTAssertFalse(chatController.inSearchMode.value)
+        route.configure?(chatController)
+        XCTAssertTrue(chatController.inSearchMode.value)
+    }
+}
+
 final class NotificationsNavigationTests: XCTestCase {
     func testBackPolicyPreservesModalDismiss() {
         let action = NotificationsBackPolicy.action(

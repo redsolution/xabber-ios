@@ -106,6 +106,44 @@ enum ContactInfoActionExitPolicy {
     }
 }
 
+struct InfoCardChatSearchRoute {
+    let owner: String
+    let jid: String
+    let conversationType: ClientSynchronizationManager.ConversationType
+}
+
+enum InfoCardChatSearchRouting {
+    static func route(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> InfoCardChatSearchRoute {
+        InfoCardChatSearchRoute(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType
+        )
+    }
+
+    static func searchModeConfigurator() -> ((ChatViewController?) -> Void) {
+        { chatViewController in
+            chatViewController?.inSearchMode.accept(true)
+        }
+    }
+
+    static func makeChatViewController(
+        for route: InfoCardChatSearchRoute,
+        configure: ((ChatViewController?) -> Void)?
+    ) -> ChatViewController {
+        let chatViewController = ChatViewController()
+        chatViewController.owner = route.owner
+        chatViewController.jid = route.jid
+        chatViewController.conversationType = route.conversationType
+        configure?(chatViewController)
+        return chatViewController
+    }
+}
+
 class ContactInfoViewController: BaseViewController {
     
     class Datasource {

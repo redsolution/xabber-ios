@@ -149,6 +149,12 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
         conversationType: ClientSynchronizationManager.ConversationType,
         configure: ((ChatViewController?) -> Void)?
     ) {
+        let route = InfoCardChatSearchRouting.route(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: conversationType
+        )
+
         if conversationType == .omemo {
             AccountManager.shared.find(for: self.owner)?.omemo.initChat(jid: self.jid)
         }
@@ -158,28 +164,27 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
 
             if let leftMenuDelegate = self.leftMenuDelegate {
                 leftMenuDelegate.openChatlistWithChat(
-                    owner: self.owner,
-                    jid: self.jid,
-                    conversationType: conversationType,
+                    owner: route.owner,
+                    jid: route.jid,
+                    conversationType: route.conversationType,
                     configure: configure
                 )
                 return
             }
 
-            let chatVc = ChatViewController()
-            chatVc.owner = self.owner
-            chatVc.jid = self.jid
-            chatVc.conversationType = conversationType
-            configure?(chatVc)
-
+            let chatVc = InfoCardChatSearchRouting.makeChatViewController(
+                for: route,
+                configure: configure
+            )
             showStacked(chatVc, in: routePresenter)
         }
     }
 
     internal func searchChat(conversationType: ClientSynchronizationManager.ConversationType = .regular) {
-        routeToChat(conversationType: conversationType) { chatVc in
-            chatVc?.inSearchMode.accept(true)
-        }
+        routeToChat(
+            conversationType: conversationType,
+            configure: InfoCardChatSearchRouting.searchModeConfigurator()
+        )
     }
 
     internal func onStartEncryptedChat() {
