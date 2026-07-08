@@ -136,7 +136,13 @@ extension ChatViewController: SensitiveContentFirstPaneViewControllerDelegate {
     func onViewSensitiveMedia(messagePrimary: String, referencePrimary: String, urls: [URL], url: URL, isVideo: Bool) {
         if referencePrimary.isNotEmpty {
             revealedSensitiveMediaPrimaries.insert(referencePrimary)
-            messagesCollectionView.reloadDataAndKeepOffset()
+            let plan = ChatReloadInvalidationPolicy.sensitiveMediaRevealPlan()
+            mapAndApplyTimelineCurrent(
+                mode: plan.mode,
+                animated: plan.animated,
+                invalidateLayout: plan.invalidateLayout,
+                suppressDefaultBottomScroll: plan.suppressDefaultBottomScroll
+            )
         }
 
         if isVideo {

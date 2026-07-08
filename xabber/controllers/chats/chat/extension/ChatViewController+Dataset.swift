@@ -5021,6 +5021,24 @@ enum ChatDatasourceApplyMode {
     case targetedDiff
 }
 
+struct ChatReloadInvalidationPlan {
+    let mode: ChatDatasourceApplyMode
+    let animated: Bool
+    let invalidateLayout: Bool
+    let suppressDefaultBottomScroll: Bool
+}
+
+enum ChatReloadInvalidationPolicy {
+    static func sensitiveMediaRevealPlan() -> ChatReloadInvalidationPlan {
+        ChatReloadInvalidationPlan(
+            mode: .targetedDiff,
+            animated: false,
+            invalidateLayout: false,
+            suppressDefaultBottomScroll: true
+        )
+    }
+}
+
 enum ChatBottomAlignmentTarget: Equatable {
     case newestRealMessage
     case message(ChatMessageAnchorRef)
