@@ -752,8 +752,23 @@ struct ChatAnchorExecutionState: Equatable {
 struct ChatAnchorExecutionHooks {
     let direction: ChatViewController.ChatDirection
     let animatedScroll: Bool
+    let onPositioningStarted: (() -> Void)?
     let onFailed: (() -> Void)?
     let onPositioned: (() -> Void)?
+
+    init(
+        direction: ChatViewController.ChatDirection,
+        animatedScroll: Bool,
+        onPositioningStarted: (() -> Void)? = nil,
+        onFailed: (() -> Void)?,
+        onPositioned: (() -> Void)?
+    ) {
+        self.direction = direction
+        self.animatedScroll = animatedScroll
+        self.onPositioningStarted = onPositioningStarted
+        self.onFailed = onFailed
+        self.onPositioned = onPositioned
+    }
 }
 
 enum ChatAnchorExecutionAction: Equatable {
@@ -1425,6 +1440,46 @@ extension ChatViewController {
         )
     }
 
+    internal func markSearchResultNavigationPositioningStarted(index: Int) {
+        if searchMessagesQueue.indices.contains(index) {
+            searchResultNavigationState = .positioning(index: index)
+        }
+        setSelectedSearchResultNavigationIndex(index, isLoadingContext: false)
+        scheduleStaleSearchResultPositioningCompletionFallback(finishedIndex: index)
+    }
+
+    private func hasActiveSearchResultAnchorWork() -> Bool {
+        currentPage.locked ||
+        pendingOpenMessageRequest != nil ||
+        activeAnchorExecutionState != nil ||
+        isApplyingBootstrapAnchorWindow ||
+        isMessageAnchorNavigationInFlight
+    }
+
+    @discardableResult
+    internal func completeStaleSearchResultPositioningIfNeeded(finishedIndex: Int) -> Bool {
+        guard !hasActiveSearchResultAnchorWork() else {
+            return false
+        }
+
+        switch searchResultNavigationState {
+        case .positioning(let currentIndex) where currentIndex == finishedIndex:
+            completeSearchResultNavigation(index: finishedIndex)
+            return true
+        case .pending:
+            completeSearchResultNavigation(index: finishedIndex)
+            return true
+        case .idle, .loadingContext, .positioning:
+            return false
+        }
+    }
+
+    private func scheduleStaleSearchResultPositioningCompletionFallback(finishedIndex: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.completeStaleSearchResultPositioningIfNeeded(finishedIndex: finishedIndex)
+        }
+    }
+
     private func recordPendingSearchResultNavigation(
         index: Int,
         scrollDirection: ChatDirection
@@ -1435,7 +1490,7 @@ extension ChatViewController {
 
         chatScrollDirection = scrollDirection
         searchResultNavigationState = .pending(index: index, scrollDirection: scrollDirection)
-        setSelectedSearchResultNavigationIndex(index, isLoadingContext: true)
+        setSearchResultsPanelContextLoading(true)
     }
 
     internal func markSearchResultNavigationLoadingContext(for request: ChatOpenMessageRequest) {
@@ -1458,13 +1513,14 @@ extension ChatViewController {
 
     internal func completeSearchResultNavigation(index: Int) {
         let pendingNavigation = consumePendingSearchResultNavigation(finishedIndex: index)
-        setSearchResultsPanelContextLoading(false)
-        refreshVisibleSearchSelection()
 
         guard let pendingNavigation else {
+            setSearchResultsPanelContextLoading(false)
+            refreshVisibleSearchSelection()
             return
         }
 
+        setSearchResultsPanelContextLoading(true)
         DispatchQueue.main.async { [weak self] in
             guard let self else {
                 return
@@ -1478,15 +1534,16 @@ extension ChatViewController {
 
     private func openSearchResult(
         at index: Int,
-        direction: ChatDirection
+        direction: ChatDirection,
+        onNavigationFinished: (() -> Void)? = nil
     ) {
         guard searchMessagesQueue.indices.contains(index) else {
             searchResultNavigationState = .idle
+            onNavigationFinished?()
             return
         }
 
         searchResultNavigationState = .positioning(index: index)
-        setSelectedSearchResultNavigationIndex(index, isLoadingContext: false)
 
         let item = searchMessagesQueue[index]
         chatScrollDirection = direction
@@ -1510,11 +1567,16 @@ extension ChatViewController {
             hooks: ChatAnchorExecutionHooks(
                 direction: direction,
                 animatedScroll: true,
+                onPositioningStarted: { [weak self] in
+                    self?.markSearchResultNavigationPositioningStarted(index: index)
+                },
                 onFailed: { [weak self] in
                     self?.completeSearchResultNavigation(index: index)
+                    onNavigationFinished?()
                 },
                 onPositioned: { [weak self] in
                     self?.completeSearchResultNavigation(index: index)
+                    onNavigationFinished?()
                 }
             )
         )
@@ -1912,6 +1974,7 @@ extension ChatViewController {
         self.setDatasourceLoadingEnabled(true)
         self.currentPage.unlock()
 
+        activeHooks?.onPositioningStarted?()
         self.positionMessage(
             primary: target.primary,
             archivedId: target.archivedId,
@@ -3429,30 +3492,31 @@ extension ChatViewController {
                 animated: false,
                 invalidateLayout: applyPlan.invalidateLayout,
                 completion: {
-                let usesTransientHighlight = request.source.usesTransientHighlight && request.highlight
-                self.positionMessage(
-                    primary: positionTarget.primary,
-                    archivedId: positionTarget.archivedId,
-                    highlight: request.highlight && !usesTransientHighlight,
-                    animated: hooks?.animatedScroll ?? false,
-                    completion: {
-                        if usesTransientHighlight {
-                            self.applyTransientMessageHighlight(primary: positionTarget.primary)
-                        }
-                        self.finishActiveAnchorExecution()
-                        self.scheduleMentionReadOnVisibleIfNeeded(
-                            for: request,
-                            positionedPrimary: positionTarget.primary
-                        )
-                        hooks?.onPositioned?()
-                        if contextPrefetchMode == .background {
-                            self.startBackgroundContextPrefetchIfNeeded(
-                                around: positionTarget,
-                                request: request
+                    let usesTransientHighlight = request.source.usesTransientHighlight && request.highlight
+                    hooks?.onPositioningStarted?()
+                    self.positionMessage(
+                        primary: positionTarget.primary,
+                        archivedId: positionTarget.archivedId,
+                        highlight: request.highlight && !usesTransientHighlight,
+                        animated: hooks?.animatedScroll ?? false,
+                        completion: {
+                            if usesTransientHighlight {
+                                self.applyTransientMessageHighlight(primary: positionTarget.primary)
+                            }
+                            self.finishActiveAnchorExecution()
+                            self.scheduleMentionReadOnVisibleIfNeeded(
+                                for: request,
+                                positionedPrimary: positionTarget.primary
                             )
+                            hooks?.onPositioned?()
+                            if contextPrefetchMode == .background {
+                                self.startBackgroundContextPrefetchIfNeeded(
+                                    around: positionTarget,
+                                    request: request
+                                )
+                            }
                         }
-                    }
-                )
+                    )
             }, cancelledCompletion: {
                 self.failActiveAnchorExecution()
             })
@@ -3837,45 +3901,22 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
         self.setLoadingIndicatorVisible(false)
         self.searchMessagesQueue = self.normalizedInChatSearchResultsForDisplay(self.searchMessagesQueue)
         let newIndex = 0
-        self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchMessagesQueue.count)
         if self.searchMessagesQueue.isNotEmpty {
-            self.selectedSearchResultId = self.searchResultSelectionIdentity(for: self.searchMessagesQueue[newIndex])
-            self.refreshVisibleSearchSelection()
-            self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchMessagesQueue.count)
-            let archivedId = searchMessagesQueue[newIndex].archivedId
-            let date = searchMessagesQueue[newIndex].date
-            self.chatScrollDirection = .up
-            self.queueOpenMessageRequest(
-                ChatOpenMessageRequest(
-                    chatJid: self.jid,
-                    owner: self.owner,
-                    conversationType: self.conversationType,
-                    anchor: ChatMessageAnchorRef(
-                        messagePrimary: searchMessagesQueue[newIndex].primary,
-                        archivedId: archivedId.isNotEmpty ? archivedId : nil,
-                        messageId: nil,
-                        authorId: nil,
-                        bodyFingerprint: nil,
-                        sourceDate: date
-                    ),
-                    highlight: true,
-                    markReadOnVisible: false,
-                    source: .search
-                ),
-                hooks: ChatAnchorExecutionHooks(
-                    direction: .up,
-                    animatedScroll: true,
-                    onFailed: { [weak self] in
-                        self?.preventHidingDate = false
-                    },
-                    onPositioned: { [weak self] in
-                        self?.preventHidingDate = false
-                    }
-                )
-            )
-        } else {
+            self.searchResultNavigationState = .idle
             self.selectedSearchResultId = nil
             self.refreshVisibleSearchSelection()
+            self.openSearchResult(
+                at: newIndex,
+                direction: .up,
+                onNavigationFinished: { [weak self] in
+                    self?.preventHidingDate = false
+                }
+            )
+        } else {
+            self.searchResultNavigationState = .idle
+            self.selectedSearchResultId = nil
+            self.refreshVisibleSearchSelection()
+            self.applySearchResultsPanelState(isLoadingContext: false)
         }
         self.setFloatingDateVisible(true)
     }

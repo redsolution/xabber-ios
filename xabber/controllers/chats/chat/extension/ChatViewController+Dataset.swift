@@ -3378,10 +3378,12 @@ enum ChatTimelineObserverRefreshPolicy {
         isResidentAtLiveTail: Bool,
         isShowingBootstrapPlaceholder: Bool,
         hasActiveRemoteLoad: Bool,
-        hasInteractiveRemoteContext: Bool
+        hasInteractiveRemoteContext: Bool,
+        hasSearchAnchorWork: Bool = false
     ) -> Bool {
         guard !hasActiveRemoteLoad,
-              !hasInteractiveRemoteContext else {
+              !hasInteractiveRemoteContext,
+              !hasSearchAnchorWork else {
             return false
         }
 
@@ -12031,6 +12033,9 @@ extension ChatViewController {
             jid: self.jid,
             conversationType: self.conversationType
         )
+        let hasSearchAnchorWork = self.pendingOpenMessageRequest?.source == .search ||
+            self.activeAnchorExecutionState?.request.source == .search ||
+            self.searchResultNavigationState.isBusy
         let completion = {
             ChatArchiveDebugTrace.log("observerRefreshCompletion", [
                 ("owner", self.owner),
@@ -12040,8 +12045,13 @@ extension ChatViewController {
                 ("oldest", self.virtualTimelineState.oldest?.archivedId ?? "-"),
                 ("newest", self.virtualTimelineState.newest?.archivedId ?? "-"),
                 ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count),
-                ("datasourceCount", self.datasource.count)
+                ("datasourceCount", self.datasource.count),
+                ("hasSearchAnchorWork", hasSearchAnchorWork)
             ])
+            if hasSearchAnchorWork {
+                self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
+                return
+            }
             if self.pendingForceLatestOpen {
                 self.finishLatestBottomScroll(
                     animated: self.pendingForceLatestOpenAnimated && !self.initialHistoryAppearancePending,
@@ -12051,13 +12061,16 @@ extension ChatViewController {
             }
             self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
         }
-        let baseShouldOpenLatest = ChatTimelineObserverRefreshPolicy.shouldOpenLatest(
-            isTimelineEmpty: normalizedState.isEmpty,
-            isResidentAtLiveTail: normalizedState.isResidentAtLiveTail,
-            isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
-            hasActiveRemoteLoad: normalizedState.activeRemoteLoad != nil,
-            hasInteractiveRemoteContext: self.interactiveHistoryPageLoadContext != nil
-        ) || self.pendingForceLatestOpen
+        let baseShouldOpenLatest = !hasSearchAnchorWork && (
+            ChatTimelineObserverRefreshPolicy.shouldOpenLatest(
+                isTimelineEmpty: normalizedState.isEmpty,
+                isResidentAtLiveTail: normalizedState.isResidentAtLiveTail,
+                isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
+                hasActiveRemoteLoad: normalizedState.activeRemoteLoad != nil,
+                hasInteractiveRemoteContext: self.interactiveHistoryPageLoadContext != nil,
+                hasSearchAnchorWork: hasSearchAnchorWork
+            ) || self.pendingForceLatestOpen
+        )
         let stabilizationAction = self.initialLatestObserverRefreshAction(baseShouldOpenLatest: baseShouldOpenLatest)
         let shouldOpenLatest = stabilizationAction == .openLatestNonAnimated ||
             (stabilizationAction == .followDefault && baseShouldOpenLatest)
@@ -12072,6 +12085,7 @@ extension ChatViewController {
             ("isShowingBootstrapPlaceholder", self.isShowingBootstrapPlaceholder),
             ("activeRemoteLoad", normalizedState.activeRemoteLoad?.queryId ?? "-"),
             ("interactiveQueryId", self.interactiveHistoryPageLoadContext?.queryId ?? "-"),
+            ("hasSearchAnchorWork", hasSearchAnchorWork),
             ("oldest", normalizedState.oldest?.archivedId ?? "-"),
             ("newest", normalizedState.newest?.archivedId ?? "-"),
             ("residentCount", normalizedState.residentPrimaryKeys.count),

@@ -1496,6 +1496,60 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
         XCTAssertEqual(controller.searchResultSelectionIdentity(for: localOnlyResult), "primary-fallback")
     }
 
+    func testApplySearchResultsRoutesInitialResultThroughNavigationStateMachine() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.inSearchMode.accept(true)
+        controller.searchTextObserver.accept("needle")
+        controller.currentSearchQueryId = "query-1"
+        let olderArchivedId = "1756120975490655"
+        let newestArchivedId = "1783493923727774"
+        controller.searchMessagesQueue = [
+            makeMessage(
+                owner: controller.owner,
+                jid: controller.jid,
+                conversationType: controller.conversationType,
+                primary: "older",
+                archivedId: olderArchivedId,
+                date: Date(timeIntervalSince1970: 1_756_120_975)
+            ),
+            makeMessage(
+                owner: controller.owner,
+                jid: controller.jid,
+                conversationType: controller.conversationType,
+                primary: "newest",
+                archivedId: newestArchivedId,
+                date: Date(timeIntervalSince1970: 1_783_493_923)
+            )
+        ]
+
+        controller.applySearchResults(emptyList: false)
+
+        XCTAssertEqual(controller.searchMessagesQueue.map(\.archivedId), [newestArchivedId, olderArchivedId])
+        XCTAssertEqual(controller.searchResultNavigationState, .loadingContext(index: 0))
+        XCTAssertNil(controller.selectedSearchResultId)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: 0, total: 2, isLoadingContext: true)
+        )
+
+        let request = try XCTUnwrap(controller.pendingOpenMessageRequest)
+        XCTAssertEqual(request.source, .search)
+        XCTAssertFalse(request.markReadOnVisible)
+        XCTAssertEqual(request.anchor.archivedId, newestArchivedId)
+        XCTAssertEqual(request.anchor.messagePrimary, "newest")
+        XCTAssertEqual(controller.chatScrollDirection, .up)
+
+        try XCTUnwrap(controller.activeAnchorExecutionHooks?.onPositioningStarted)()
+
+        XCTAssertEqual(controller.searchResultNavigationState, .positioning(index: 0))
+        XCTAssertEqual(controller.selectedSearchResultId, newestArchivedId)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: 0, total: 2, isLoadingContext: false)
+        )
+    }
+
     private func makeController(
         owner: String = "owner@example.com",
         jid: String = "contact@example.com",
@@ -1531,7 +1585,7 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
 
 @MainActor
 final class ChatSearchResultNavigationStateTests: XCTestCase {
-    func testSeekWhileSearchContextLoadingRecordsLatestPendingIndexAndUpdatesPanel() {
+    func testSeekWhileSearchContextLoadingRecordsLatestPendingIndexAndKeepsActivePanelResult() {
         let controller = makeControllerWithSearchResults(count: 4, selectedIndex: 0)
         controller.loadViewIfNeeded()
         controller.currentPage.locked = true
@@ -1541,19 +1595,19 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.onSearchPanelSeekUp()
 
         XCTAssertEqual(controller.searchResultNavigationState, .pending(index: 1, scrollDirection: .up))
-        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[1].archivedId)
+        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[0].archivedId)
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
-            .results(current: 1, total: 4, isLoadingContext: true)
+            .results(current: 0, total: 4, isLoadingContext: true)
         )
 
         controller.onSearchPanelSeekUp()
 
         XCTAssertEqual(controller.searchResultNavigationState, .pending(index: 2, scrollDirection: .up))
-        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[2].archivedId)
+        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[0].archivedId)
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
-            .results(current: 2, total: 4, isLoadingContext: true)
+            .results(current: 0, total: 4, isLoadingContext: true)
         )
     }
 
@@ -1562,18 +1616,42 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.loadViewIfNeeded()
         controller.currentPage.locked = true
         controller.searchResultNavigationState = .pending(index: 2, scrollDirection: .up)
-        controller.selectedSearchResultId = controller.searchMessagesQueue[2].archivedId
-        controller.xabberInputView.searchPanel.applyRenderState(.results(current: 2, total: 5, isLoadingContext: true))
+        controller.xabberInputView.searchPanel.applyRenderState(.results(current: 0, total: 5, isLoadingContext: true))
 
         controller.onSearchPanelSeekUp()
 
         XCTAssertEqual(controller.searchResultNavigationState, .pending(index: 3, scrollDirection: .up))
-        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[3].archivedId)
+        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[0].archivedId)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: 0, total: 5, isLoadingContext: true)
+        )
 
         controller.onSearchPanelSeekDown()
 
         XCTAssertEqual(controller.searchResultNavigationState, .pending(index: 2, scrollDirection: .down))
+        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[0].archivedId)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: 0, total: 5, isLoadingContext: true)
+        )
+    }
+
+    func testPositioningStartSwitchesActiveSelectionAndPanelCounterToTarget() {
+        let controller = makeControllerWithSearchResults(count: 4, selectedIndex: 0)
+        controller.loadViewIfNeeded()
+        controller.inSearchMode.accept(true)
+        controller.searchResultNavigationState = .positioning(index: 2)
+        controller.xabberInputView.searchPanel.applyRenderState(.results(current: 0, total: 4, isLoadingContext: true))
+
+        controller.markSearchResultNavigationPositioningStarted(index: 2)
+
+        XCTAssertEqual(controller.searchResultNavigationState, .positioning(index: 2))
         XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[2].archivedId)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: 2, total: 4, isLoadingContext: false)
+        )
     }
 
     func testSearchNavigationWrapsAroundExistingUpDownPolicy() {
@@ -1604,6 +1682,94 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
             controller.scrollDirectionForSearchNavigation(from: 0, to: 9, requestedDirection: .down),
             .up
         )
+    }
+
+    func testSearchPanelSeekWrapsFromLastResultToFirstResult() {
+        let controller = makeControllerWithSearchResults(count: 17, selectedIndex: 16)
+        controller.loadViewIfNeeded()
+        controller.inSearchMode.accept(true)
+        controller.currentPage.locked = true
+        controller.xabberInputView.searchPanel.applyRenderState(.results(current: 16, total: 17, isLoadingContext: false))
+
+        controller.onSearchPanelSeekUp()
+
+        XCTAssertEqual(controller.searchResultNavigationState, .pending(index: 0, scrollDirection: .down))
+        XCTAssertEqual(controller.chatScrollDirection, .down)
+        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[16].archivedId)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: 16, total: 17, isLoadingContext: true)
+        )
+    }
+
+    func testSearchPanelSeekWrapsFromFirstResultToLastResult() {
+        let controller = makeControllerWithSearchResults(count: 17, selectedIndex: 0)
+        controller.loadViewIfNeeded()
+        controller.inSearchMode.accept(true)
+        controller.currentPage.locked = true
+        controller.xabberInputView.searchPanel.applyRenderState(.results(current: 0, total: 17, isLoadingContext: false))
+
+        controller.onSearchPanelSeekDown()
+
+        XCTAssertEqual(controller.searchResultNavigationState, .pending(index: 16, scrollDirection: .up))
+        XCTAssertEqual(controller.chatScrollDirection, .up)
+        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[0].archivedId)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: 0, total: 17, isLoadingContext: true)
+        )
+    }
+
+    func testCompletedContextPositioningClearsBusyStateBeforeNextWraparoundTap() {
+        let controller = makeControllerWithSearchResults(count: 17, selectedIndex: 16)
+        controller.loadViewIfNeeded()
+        controller.inSearchMode.accept(true)
+        controller.searchResultNavigationState = .loadingContext(index: 16)
+        controller.xabberInputView.searchPanel.applyRenderState(.results(current: 16, total: 17, isLoadingContext: true))
+
+        controller.markSearchResultNavigationPositioningStarted(index: 16)
+        controller.completeSearchResultNavigation(index: 16)
+        controller.currentPage.locked = true
+        controller.onSearchPanelSeekUp()
+
+        XCTAssertEqual(controller.searchResultNavigationState, .pending(index: 0, scrollDirection: .down))
+        XCTAssertEqual(controller.chatScrollDirection, .down)
+        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[16].archivedId)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: 16, total: 17, isLoadingContext: true)
+        )
+    }
+
+    func testStalePositioningCompletionDrainsPendingWraparoundIntent() {
+        let controller = makeControllerWithSearchResults(count: 17, selectedIndex: 16)
+        controller.loadViewIfNeeded()
+        controller.inSearchMode.accept(true)
+        controller.markSearchResultNavigationPositioningStarted(index: 16)
+        controller.searchResultNavigationState = .pending(index: 0, scrollDirection: .down)
+        controller.xabberInputView.searchPanel.applyRenderState(.results(current: 16, total: 17, isLoadingContext: true))
+
+        XCTAssertTrue(controller.completeStaleSearchResultPositioningIfNeeded(finishedIndex: 16))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(controller.searchResultNavigationState, .loadingContext(index: 0))
+        XCTAssertEqual(controller.chatScrollDirection, .down)
+        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[16].archivedId)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: 16, total: 17, isLoadingContext: true)
+        )
+    }
+
+    func testStalePositioningCompletionDoesNotDrainWhileAnchorWorkIsActive() {
+        let controller = makeControllerWithSearchResults(count: 17, selectedIndex: 16)
+        controller.loadViewIfNeeded()
+        controller.inSearchMode.accept(true)
+        controller.searchResultNavigationState = .pending(index: 0, scrollDirection: .down)
+        controller.pendingOpenMessageRequest = makeSearchOpenRequest(controller: controller, index: 16)
+
+        XCTAssertFalse(controller.completeStaleSearchResultPositioningIfNeeded(finishedIndex: 16))
+        XCTAssertEqual(controller.searchResultNavigationState, .pending(index: 0, scrollDirection: .down))
     }
 
     func testCompletingNavigationDrainsOnlyDifferentPendingTarget() {
@@ -1644,7 +1810,7 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         let controller = makeControllerWithSearchResults(count: 3, selectedIndex: 1)
         controller.loadViewIfNeeded()
         controller.searchResultNavigationState = .pending(index: 2, scrollDirection: .up)
-        controller.xabberInputView.searchPanel.applyRenderState(.results(current: 2, total: 3, isLoadingContext: true))
+        controller.xabberInputView.searchPanel.applyRenderState(.results(current: 1, total: 3, isLoadingContext: true))
 
         controller.cancelSearchResultNavigation()
 
@@ -1917,18 +2083,18 @@ final class ChatSearchArchiveGapRepairTests: XCTestCase {
         controller.inSearchMode.accept(true)
         controller.searchResultNavigationState = .pending(index: 2, scrollDirection: .up)
         controller.xabberInputView.searchPanel.applyRenderState(
-            .results(current: 2, total: 3, isLoadingContext: true)
+            .results(current: 0, total: 3, isLoadingContext: true)
         )
 
         controller.completeSearchResultNavigation(index: 0)
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 
         XCTAssertEqual(controller.searchMessagesQueue.count, 3)
-        XCTAssertEqual(controller.selectedSearchResultId, "archive-2")
+        XCTAssertEqual(controller.selectedSearchResultId, "archive-0")
         XCTAssertEqual(controller.searchResultNavigationState, .loadingContext(index: 2))
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
-            .results(current: 2, total: 3, isLoadingContext: true)
+            .results(current: 0, total: 3, isLoadingContext: true)
         )
     }
 
@@ -21962,6 +22128,20 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         )
     }
 
+    @MainActor
+    private func makeLoadedSearchController() -> ChatViewController {
+        let controller = ChatViewController()
+        controller.owner = "owner@example.com"
+        controller.jid = "group@xabber.example"
+        controller.conversationType = .group
+        controller.loadViewIfNeeded()
+        controller.datasource = [
+            makeDatasource(primary: "loaded", archivedId: "archived-loaded", messageId: "message-loaded")
+        ]
+        controller.datasourceSnapshot = .empty
+        return controller
+    }
+
     private func visibleCandidate(
         primary: String,
         archivedId: String? = nil,
@@ -22564,6 +22744,59 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
 
         XCTAssertFalse(controller.containsLoadedMessage(anchor: anchor))
         XCTAssertNil(controller.indexPathForLoadedMessage(anchor: anchor))
+    }
+
+    @MainActor
+    func testLoadedSearchRequestCallsPositioningStartedBeforePositioned() {
+        let controller = makeLoadedSearchController()
+        var events: [String] = []
+
+        controller.queueOpenMessageRequest(
+            makeRequest(archivedId: "archived-loaded", messageId: "message-loaded", source: .search),
+            hooks: ChatAnchorExecutionHooks(
+                direction: .up,
+                animatedScroll: false,
+                onPositioningStarted: {
+                    events.append("started")
+                },
+                onFailed: nil,
+                onPositioned: {
+                    events.append("positioned")
+                }
+            )
+        )
+
+        XCTAssertEqual(events, ["started", "positioned"])
+    }
+
+    @MainActor
+    func testContextWaitingSearchRequestDoesNotCallPositioningStarted() {
+        let controller = makeLoadedSearchController()
+        let request = makeRequest(archivedId: "archived-loaded", messageId: "message-loaded", source: .search)
+        var state = ChatAnchorExecutionState(request: request)
+        state.contextPrefetchAnchorKey = "archived-loaded"
+        state.contextPrefetchQueryIds = ["context-query"]
+        state.contextPrefetchPendingQueryIds = ["context-query"]
+        controller.activeAnchorExecutionState = state
+        var events: [String] = []
+
+        controller.queueOpenMessageRequest(
+            request,
+            hooks: ChatAnchorExecutionHooks(
+                direction: .up,
+                animatedScroll: false,
+                onPositioningStarted: {
+                    events.append("started")
+                },
+                onFailed: nil,
+                onPositioned: {
+                    events.append("positioned")
+                }
+            )
+        )
+
+        XCTAssertEqual(events, [])
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
     }
 
     func testAnchorFetchPolicyPrefersExactArchivedIdWhenAvailable() {
@@ -23653,6 +23886,19 @@ final class ChatHistoryPageCompletionPolicyTests: XCTestCase {
                 isShowingBootstrapPlaceholder: false,
                 hasActiveRemoteLoad: false,
                 hasInteractiveRemoteContext: false
+            )
+        )
+    }
+
+    func testObserverRefreshDoesNotOpenLatestDuringSearchAnchorWork() {
+        XCTAssertFalse(
+            ChatTimelineObserverRefreshPolicy.shouldOpenLatest(
+                isTimelineEmpty: false,
+                isResidentAtLiveTail: true,
+                isShowingBootstrapPlaceholder: false,
+                hasActiveRemoteLoad: false,
+                hasInteractiveRemoteContext: false,
+                hasSearchAnchorWork: true
             )
         )
     }
