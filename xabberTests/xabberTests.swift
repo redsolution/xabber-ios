@@ -1251,6 +1251,21 @@ final class ChatSearchModeActivationTests: XCTestCase {
     }
 }
 
+fileprivate func waitForSearchTestCondition(
+    timeout: TimeInterval = 1.0,
+    pollInterval: TimeInterval = 0.01,
+    _ condition: () -> Bool
+) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if condition() {
+            return true
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(pollInterval))
+    }
+    return condition()
+}
+
 @MainActor
 final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
     func testQueryGenerationSupersedesOlderCallbacks() throws {
@@ -1618,8 +1633,9 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
         controller.activeAnchorExecutionHooks = nil
         controller.isMessageAnchorNavigationInFlight = false
 
-        RunLoop.main.run(until: Date().addingTimeInterval(0.35))
-
+        XCTAssertTrue(waitForSearchTestCondition {
+            controller.pendingOpenMessageRequest?.anchor.archivedId == targetArchivedId
+        })
         XCTAssertEqual(controller.pendingOpenMessageRequest?.anchor.archivedId, targetArchivedId)
         XCTAssertEqual(controller.searchResultNavigationState, .loadingContext(index: 0))
         XCTAssertNil(controller.selectedSearchResultId)
@@ -1903,8 +1919,10 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.xabberInputView.searchPanel.applyRenderState(.results(current: 16, total: 17, isLoadingContext: true))
 
         XCTAssertTrue(controller.completeStaleSearchResultPositioningIfNeeded(finishedIndex: 16))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 
+        XCTAssertTrue(waitForSearchTestCondition {
+            controller.searchResultNavigationState == .loadingContext(index: 0)
+        })
         XCTAssertEqual(controller.searchResultNavigationState, .loadingContext(index: 0))
         XCTAssertEqual(controller.chatScrollDirection, .down)
         XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[16].archivedId)
@@ -2257,8 +2275,10 @@ final class ChatSearchArchiveGapRepairTests: XCTestCase {
         )
 
         controller.completeSearchResultNavigation(index: 0)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 
+        XCTAssertTrue(waitForSearchTestCondition {
+            controller.searchResultNavigationState == .loadingContext(index: 2)
+        })
         XCTAssertEqual(controller.searchMessagesQueue.count, 3)
         XCTAssertEqual(controller.selectedSearchResultId, "archive-0")
         XCTAssertEqual(controller.searchResultNavigationState, .loadingContext(index: 2))
