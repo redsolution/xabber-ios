@@ -339,6 +339,9 @@ extension LastChatsViewController: UITableViewDelegate {
         )
         let route = stackedNavigationRoute(for: self)
         let usesSplitDetailColumn = route == .splitDetailReplacement
+        if !usesSplitDetailColumn {
+            beginOutgoingChatOpenNavigationDeferral()
+        }
         setSelectedChat(
             jid: jid,
             owner: owner,

@@ -715,6 +715,28 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         )
     }
 
+    func testOutgoingChatOpenBeginsLastChatsMutationDeferralBeforePush() {
+        let controller = LastChatsViewController()
+
+        XCTAssertFalse(controller.isNavigationTransitionActive)
+
+        controller.beginOutgoingChatOpenNavigationDeferral()
+
+        XCTAssertTrue(controller.isNavigationTransitionActive)
+        XCTAssertTrue(
+            LastChatsNavigationTransitionMutationPolicy.shouldDeferMutation(
+                isTransitionActive: controller.isNavigationTransitionActive,
+                isCriticalForFirstFrame: false
+            )
+        )
+        XCTAssertFalse(
+            LastChatsNavigationTransitionMutationPolicy.shouldDeferMutation(
+                isTransitionActive: controller.isNavigationTransitionActive,
+                isCriticalForFirstFrame: true
+            )
+        )
+    }
+
     private func withInterfaceType(_ interfaceType: CommonConfigManager.InterfaceType, useYubikey: Bool, block: () -> Void) {
         let previousInterfaceType = CommonConfigManager.shared.config.interface_type
         let previousUseYubikey = CommonConfigManager.shared.config.use_yubikey

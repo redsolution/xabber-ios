@@ -1087,6 +1087,12 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
     }
 
+    internal func beginOutgoingChatOpenNavigationDeferral() {
+        self.isNavigationTransitionActive = true
+        self.shouldSuppressNextDatasetAnimation = true
+        DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=outgoingChatOpenDeferralBegin")
+    }
+
     private func completeNavigationTransitionDeferral(cancelled: Bool) {
         self.isNavigationTransitionActive = false
         let deferredDatasetAction = LastChatsBootstrapDatasetUpdatePolicy.deferredDatasetUpdateAction(
@@ -3445,6 +3451,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        beginNavigationTransitionDeferralIfNeeded()
         NotifyManager.shared.setLastChats(displayed: false)
         isAppeared = false
     }
