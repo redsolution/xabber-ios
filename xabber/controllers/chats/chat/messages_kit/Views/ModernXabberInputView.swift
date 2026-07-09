@@ -730,8 +730,9 @@ class ModernXabberInputView: UIView {
                 self.counterLabel.isHidden = false
                 self.seekUpButton.isHidden = false
                 self.seekDownButton.isHidden = false
-                self.seekUpButton.isEnabled = !isLoadingContext
-                self.seekDownButton.isEnabled = !isLoadingContext
+                let hasQueueableNavigation = total > 1
+                self.seekUpButton.isEnabled = hasQueueableNavigation
+                self.seekDownButton.isEnabled = hasQueueableNavigation
                 if isLoadingContext {
                     self.startLoadingIndicator()
                 } else {

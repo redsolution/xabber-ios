@@ -2473,7 +2473,7 @@ final class ChatSearchBottomPanelTests: XCTestCase {
         XCTAssertFalse(panel.activityIndicator.isAnimating)
     }
 
-    func testContextLoadingKeepsCountVisibleAndDisablesNavigationWhileShowingSpinner() {
+    func testContextLoadingKeepsCountVisibleAndKeepsNavigationQueueableWhileShowingSpinner() {
         let harness = makePanelHarness()
         let panel = harness.panel
 
@@ -2481,6 +2481,23 @@ final class ChatSearchBottomPanelTests: XCTestCase {
         harness.layout()
 
         XCTAssertEqual(panel.counterLabel.text, "2 of 3")
+        XCTAssertFalse(panel.counterLabel.isHidden)
+        XCTAssertFalse(panel.seekUpButton.isHidden)
+        XCTAssertFalse(panel.seekDownButton.isHidden)
+        XCTAssertTrue(panel.seekUpButton.isEnabled)
+        XCTAssertTrue(panel.seekDownButton.isEnabled)
+        XCTAssertFalse(panel.activityIndicator.isHidden)
+        XCTAssertTrue(panel.activityIndicator.isAnimating)
+    }
+
+    func testContextLoadingWithSingleResultKeepsNavigationDisabledWhileShowingSpinner() {
+        let harness = makePanelHarness()
+        let panel = harness.panel
+
+        panel.applyRenderState(.results(current: 0, total: 1, isLoadingContext: true))
+        harness.layout()
+
+        XCTAssertEqual(panel.counterLabel.text, "1 of 1")
         XCTAssertFalse(panel.counterLabel.isHidden)
         XCTAssertFalse(panel.seekUpButton.isHidden)
         XCTAssertFalse(panel.seekDownButton.isHidden)
