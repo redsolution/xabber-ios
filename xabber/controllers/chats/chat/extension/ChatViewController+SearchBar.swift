@@ -1148,6 +1148,40 @@ extension ChatViewController {
         return true
     }
 
+    internal func normalizedInChatSearchResultsForDisplay(_ results: [MessageStorageItem]) -> [MessageStorageItem] {
+        // Server MAM search returns chronological rows; chat search UI presents newest as 1 of N.
+        results.sorted { lhs, rhs in
+            switch lhs.date.compare(rhs.date) {
+            case .orderedDescending:
+                return true
+            case .orderedAscending:
+                return false
+            case .orderedSame:
+                return searchResultTieBreaksBefore(lhs, rhs)
+            }
+        }
+    }
+
+    private func searchResultTieBreaksBefore(
+        _ lhs: MessageStorageItem,
+        _ rhs: MessageStorageItem
+    ) -> Bool {
+        guard lhs.archivedId != rhs.archivedId else {
+            return lhs.primary > rhs.primary
+        }
+
+        if let lhsArchiveTimestamp = Int64(lhs.archivedId),
+           let rhsArchiveTimestamp = Int64(rhs.archivedId) {
+            return lhsArchiveTimestamp > rhsArchiveTimestamp
+        }
+
+        if lhs.archivedId.isNotEmpty != rhs.archivedId.isNotEmpty {
+            return lhs.archivedId.isNotEmpty
+        }
+
+        return lhs.archivedId > rhs.archivedId
+    }
+
     internal func searchResultSelectionIdentity(for item: MessageStorageItem) -> String? {
         if item.archivedId.isNotEmpty {
             return item.archivedId
@@ -3798,7 +3832,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
     internal final func applySearchResults(emptyList: Bool = false) {
         self.preventHidingDate = true
         self.setLoadingIndicatorVisible(false)
-        self.searchMessagesQueue = self.searchMessagesQueue.sorted(by: { $0.date > $1.date })
+        self.searchMessagesQueue = self.normalizedInChatSearchResultsForDisplay(self.searchMessagesQueue)
         let newIndex = 0
         self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchMessagesQueue.count)
         if self.searchMessagesQueue.isNotEmpty {

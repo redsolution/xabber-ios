@@ -1431,6 +1431,71 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
         XCTAssertEqual(controller.xabberInputView.searchPanel.renderState, .emptyResults)
     }
 
+    func testMamSearchResultsNormalizeServerChronologicalOrderToNewestFirstUiOrder() throws {
+        let controller = makeController()
+        let oldestArchivedId = "1756120975490655"
+        let middleArchivedId = "1770000000000000"
+        let newestArchivedId = "1783493923727774"
+
+        // Server MAM search rows arrive chronological older-to-newer; chat search UI shows newest as 1 of N.
+        let serverChronologicalResults = [
+            makeMessage(
+                owner: controller.owner,
+                jid: controller.jid,
+                conversationType: controller.conversationType,
+                primary: "oldest",
+                archivedId: oldestArchivedId,
+                date: Date(timeIntervalSince1970: 1_756_120_975)
+            ),
+            makeMessage(
+                owner: controller.owner,
+                jid: controller.jid,
+                conversationType: controller.conversationType,
+                primary: "middle",
+                archivedId: middleArchivedId,
+                date: Date(timeIntervalSince1970: 1_770_000_000)
+            ),
+            makeMessage(
+                owner: controller.owner,
+                jid: controller.jid,
+                conversationType: controller.conversationType,
+                primary: "newest",
+                archivedId: newestArchivedId,
+                date: Date(timeIntervalSince1970: 1_783_493_923)
+            )
+        ]
+
+        let normalized = controller.normalizedInChatSearchResultsForDisplay(serverChronologicalResults)
+
+        XCTAssertEqual(
+            normalized.map(\.archivedId),
+            [newestArchivedId, middleArchivedId, oldestArchivedId]
+        )
+        XCTAssertEqual(normalized.first?.archivedId, newestArchivedId)
+        XCTAssertEqual(controller.searchResultSelectionIdentity(for: try XCTUnwrap(normalized.first)), newestArchivedId)
+    }
+
+    func testSearchResultSelectionIdentityPrefersArchivedIdAndFallsBackToPrimary() {
+        let controller = makeController()
+        let archivedResult = makeMessage(
+            owner: controller.owner,
+            jid: controller.jid,
+            conversationType: controller.conversationType,
+            primary: "primary-with-archive",
+            archivedId: "archive-from-server"
+        )
+        let localOnlyResult = makeMessage(
+            owner: controller.owner,
+            jid: controller.jid,
+            conversationType: controller.conversationType,
+            primary: "primary-fallback",
+            archivedId: ""
+        )
+
+        XCTAssertEqual(controller.searchResultSelectionIdentity(for: archivedResult), "archive-from-server")
+        XCTAssertEqual(controller.searchResultSelectionIdentity(for: localOnlyResult), "primary-fallback")
+    }
+
     private func makeController(
         owner: String = "owner@example.com",
         jid: String = "contact@example.com",
@@ -1447,7 +1512,9 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
         owner: String,
         jid: String,
         conversationType: ClientSynchronizationManager.ConversationType,
-        primary: String = UUID().uuidString
+        primary: String = UUID().uuidString,
+        archivedId: String? = nil,
+        date: Date = Date(timeIntervalSince1970: 1_711_283_200)
     ) -> MessageStorageItem {
         let message = MessageStorageItem()
         message.primary = primary
@@ -1455,9 +1522,9 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
         message.opponent = jid
         message.conversationType = conversationType
         message.messageType = MessageStorageItem.MessageDisplayType.text.rawValue
-        message.archivedId = "archive-\(primary)"
+        message.archivedId = archivedId ?? "archive-\(primary)"
         message.messageId = "message-\(primary)"
-        message.date = Date(timeIntervalSince1970: 1_711_283_200)
+        message.date = date
         return message
     }
 }
