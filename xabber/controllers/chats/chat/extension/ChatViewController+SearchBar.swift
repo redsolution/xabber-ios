@@ -836,6 +836,13 @@ enum ChatAnchorExecutionPolicy {
             return .resolveLocally
         }
 
+        if ChatAnchorRemoteResultDeliveryPolicy.shouldWaitForDeliveredRows(
+            remoteResultCount: remoteResultCount,
+            persistedMessageCount: persistedMessageCount
+        ) {
+            return .waitForObserverSync
+        }
+
         return nextRemotePlan(for: state, pageSize: pageSize).map(ChatAnchorExecutionAction.startRemoteFetch) ?? .fail
     }
 }

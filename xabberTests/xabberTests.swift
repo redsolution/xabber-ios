@@ -22291,6 +22291,29 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         )
     }
 
+    private func makeSearchOpenRequest(
+        controller: ChatViewController,
+        archivedId: String,
+        sourceDate: Date = Date(timeIntervalSince1970: 1_700_000_000)
+    ) -> ChatOpenMessageRequest {
+        ChatOpenMessageRequest(
+            chatJid: controller.jid,
+            owner: controller.owner,
+            conversationType: controller.conversationType,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: archivedId,
+                messageId: nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: sourceDate
+            ),
+            highlight: true,
+            markReadOnVisible: false,
+            source: .search
+        )
+    }
+
     @MainActor
     private func makeLoadedSearchController() -> ChatViewController {
         let controller = ChatViewController()
@@ -22698,6 +22721,55 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         XCTAssertEqual(controller.activeAnchorExecutionState?.isWaitingForObserverSync, true)
         XCTAssertEqual(controller.activeAnchorExecutionState?.lastAttemptedRemotePlan, .exactArchivedId("archive-1"))
         XCTAssertNil(controller.activeAnchorExecutionState?.remoteQueryId)
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+    }
+
+    @MainActor
+    func testDuplicateRemoteSearchFinalDuringDelayedPersistenceKeepsAnchorWorkActive() {
+        let controller = ChatViewController()
+        controller.owner = "owner@example.com"
+        controller.jid = "contact@example.com"
+        controller.conversationType = .regular
+        controller.loadViewIfNeeded()
+
+        let queryId = "MAM jump exact: duplicate-final"
+        let request = makeSearchOpenRequest(
+            controller: controller,
+            archivedId: "archive-delayed"
+        )
+        var state = ChatAnchorExecutionState(request: request)
+        state.lastAttemptedRemotePlan = .exactArchivedId("archive-delayed")
+        state.remoteQueryId = queryId
+        state.isRemoteFetchInFlight = true
+        controller.pendingOpenMessageRequest = request
+        controller.activeAnchorExecutionState = state
+        controller.registerRemoteHistoryEndPageDispatcher(queryId: queryId)
+
+        let finalState = MessageArchivePageEndState(
+            queryExhausted: true,
+            archiveEnded: true,
+            persistedMessageCount: 0
+        )
+
+        controller.didReceiveEndPage(
+            queryId: queryId,
+            state: finalState,
+            first: "archive-delayed",
+            last: "archive-delayed",
+            count: 1
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        controller.didReceiveEndPage(
+            queryId: queryId,
+            state: finalState,
+            first: "archive-delayed",
+            last: "archive-delayed",
+            count: 1
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        XCTAssertEqual(controller.activeAnchorExecutionState?.isWaitingForObserverSync, true)
+        XCTAssertEqual(controller.activeAnchorExecutionState?.lastAttemptedRemotePlan, .exactArchivedId("archive-delayed"))
         XCTAssertEqual(controller.pendingOpenMessageRequest, request)
     }
 
@@ -23425,7 +23497,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         )
     }
 
-    func testAnchorExecutionPolicyFallsBackImmediatelyAfterNonEmptyExactRemoteResultWithoutLocalMatch() {
+    func testAnchorExecutionPolicyWaitsAfterNonEmptyExactRemoteResultBeforePersistence() {
         let request = makeRequest()
         var state = ChatAnchorExecutionState(request: request)
         state.lastAttemptedRemotePlan = .exactArchivedId("archived-42")
@@ -23438,11 +23510,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
                 remoteResultCount: 101,
                 pageSize: ChatHistoryPagingConfiguration.pageSize
             ),
-            .startRemoteFetch(.dateWindow(
-                start: request.anchor.sourceDate.addingTimeInterval(-60),
-                end: request.anchor.sourceDate.addingTimeInterval(60),
-                max: ChatHistoryPagingConfiguration.pageSize
-            ))
+            .waitForObserverSync
         )
     }
 
@@ -23462,6 +23530,17 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
                 state: state,
                 hasLocalMatch: false,
                 persistedMessageCount: 0,
+                remoteResultCount: 100,
+                pageSize: ChatHistoryPagingConfiguration.pageSize
+            ),
+            .waitForObserverSync
+        )
+
+        XCTAssertEqual(
+            ChatAnchorExecutionPolicy.remoteCompletionAction(
+                state: state,
+                hasLocalMatch: false,
+                persistedMessageCount: 100,
                 remoteResultCount: 100,
                 pageSize: ChatHistoryPagingConfiguration.pageSize
             ),
@@ -23507,7 +23586,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
                 remoteResultCount: 100,
                 pageSize: ChatHistoryPagingConfiguration.pageSize
             ),
-            .fail
+            .waitForObserverSync
         )
     }
 
