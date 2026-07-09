@@ -4722,6 +4722,7 @@ enum ChatObserverRefreshBackpressureAction: Equatable {
     case scheduleCoalesced
     case keepCoalesced
     case deferUntilScrollRest
+    case deferUntilSearchNavigationCommit
 }
 
 enum ChatObserverRefreshFlushAction: Equatable {
@@ -4737,8 +4738,13 @@ enum ChatObserverRefreshBackpressurePolicy {
         isShowingBootstrapPlaceholder: Bool,
         isHistoryPressureActive: Bool,
         motionState: ChatScrollMotionState,
-        hasScheduledRefresh: Bool
+        hasScheduledRefresh: Bool,
+        isBlockedBySearchNavigation: Bool = false
     ) -> ChatObserverRefreshBackpressureAction {
+        if isBlockedBySearchNavigation {
+            return .deferUntilSearchNavigationCommit
+        }
+
         guard !isShowingBootstrapPlaceholder,
               isHistoryPressureActive else {
             return .applyImmediately
@@ -4753,10 +4759,15 @@ enum ChatObserverRefreshBackpressurePolicy {
 
     static func flushAction(
         hasPendingRefresh: Bool,
-        motionState: ChatScrollMotionState
+        motionState: ChatScrollMotionState,
+        isBlockedBySearchNavigation: Bool = false
     ) -> ChatObserverRefreshFlushAction {
         guard hasPendingRefresh else {
             return .none
+        }
+
+        guard !isBlockedBySearchNavigation else {
+            return .keepPending
         }
 
         return motionState.isMoving ? .keepPending : .flush
@@ -10072,6 +10083,12 @@ extension ChatViewController {
         self.activeChatHistoryLoadActivityKeys.isNotEmpty
     }
 
+    internal var hasActiveSearchNavigationTransaction: Bool {
+        self.pendingOpenMessageRequest?.source == .search ||
+        self.activeAnchorExecutionState?.request.source == .search ||
+        self.searchResultNavigationState.isBusy
+    }
+
     internal func handleMessagesObserverRefresh() {
         self.refreshPinnedMessagePanelIfNeeded()
         if self.showSkeletonObserver.value {
@@ -10081,6 +10098,10 @@ extension ChatViewController {
                 self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
             }
             self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
+            return
+        }
+        if self.hasActiveSearchNavigationTransaction,
+           self.applyObserverRefreshBackpressureIfNeeded() {
             return
         }
         if self.currentPage.locked {
@@ -10099,7 +10120,8 @@ extension ChatViewController {
             isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
             isHistoryPressureActive: self.isArchiveObserverRefreshPressureActive,
             motionState: self.currentScrollMotionState(),
-            hasScheduledRefresh: self.archiveObserverRefreshWorkItem != nil
+            hasScheduledRefresh: self.archiveObserverRefreshWorkItem != nil,
+            isBlockedBySearchNavigation: self.hasActiveSearchNavigationTransaction
         )
 
         switch action {
@@ -10110,6 +10132,13 @@ extension ChatViewController {
             self.archiveObserverRefreshWorkItem?.cancel()
             self.archiveObserverRefreshWorkItem = nil
             self.logArchiveObserverRefreshBackpressure(action: "deferUntilScrollRest")
+            return true
+        case .deferUntilSearchNavigationCommit:
+            self.pendingArchiveObserverRefresh = true
+            self.archiveObserverRefreshWorkItem?.cancel()
+            self.archiveObserverRefreshWorkItem = nil
+            self.logArchiveObserverRefreshBackpressure(action: "deferUntilSearchNavigationCommit")
+            self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
             return true
         case .keepCoalesced:
             self.pendingArchiveObserverRefresh = true
@@ -10136,7 +10165,8 @@ extension ChatViewController {
     internal func flushPendingArchiveObserverRefreshIfPossible(reason: String) -> Bool {
         let action = ChatObserverRefreshBackpressurePolicy.flushAction(
             hasPendingRefresh: self.pendingArchiveObserverRefresh,
-            motionState: self.currentScrollMotionState()
+            motionState: self.currentScrollMotionState(),
+            isBlockedBySearchNavigation: self.hasActiveSearchNavigationTransaction
         )
 
         switch action {
@@ -12036,6 +12066,23 @@ extension ChatViewController {
         let hasSearchAnchorWork = self.pendingOpenMessageRequest?.source == .search ||
             self.activeAnchorExecutionState?.request.source == .search ||
             self.searchResultNavigationState.isBusy
+        if hasSearchAnchorWork {
+            self.pendingArchiveObserverRefresh = true
+            self.archiveObserverRefreshWorkItem?.cancel()
+            self.archiveObserverRefreshWorkItem = nil
+            ChatArchiveDebugTrace.log("observerRefreshDecision", [
+                ("owner", self.owner),
+                ("jid", self.jid),
+                ("conversationType", self.conversationType.rawValue),
+                ("action", "deferSearchNavigation"),
+                ("hasSearchAnchorWork", true),
+                ("datasourceFirst", self.datasource.first?.archivedId ?? "-"),
+                ("datasourceLast", self.datasource.last?.archivedId ?? "-"),
+                ("datasourceCount", self.datasource.count)
+            ])
+            self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
+            return
+        }
         let completion = {
             ChatArchiveDebugTrace.log("observerRefreshCompletion", [
                 ("owner", self.owner),

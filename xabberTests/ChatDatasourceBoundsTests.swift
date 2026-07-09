@@ -72,6 +72,52 @@ final class ChatDatasourceBoundsTests: XCTestCase {
         XCTAssertTrue(controller.messagesToReadObserver.value.isEmpty)
     }
 
+    func testObserverRefreshBackpressureDefersDuringSearchNavigationTransaction() {
+        XCTAssertEqual(
+            ChatObserverRefreshBackpressurePolicy.action(
+                isShowingBootstrapPlaceholder: false,
+                isHistoryPressureActive: false,
+                motionState: .resting,
+                hasScheduledRefresh: false,
+                isBlockedBySearchNavigation: true
+            ),
+            .deferUntilSearchNavigationCommit
+        )
+    }
+
+    func testPendingObserverRefreshFlushWaitsForSearchNavigationCommit() {
+        XCTAssertEqual(
+            ChatObserverRefreshBackpressurePolicy.flushAction(
+                hasPendingRefresh: true,
+                motionState: .resting,
+                isBlockedBySearchNavigation: true
+            ),
+            .keepPending
+        )
+        XCTAssertEqual(
+            ChatObserverRefreshBackpressurePolicy.flushAction(
+                hasPendingRefresh: true,
+                motionState: .resting,
+                isBlockedBySearchNavigation: false
+            ),
+            .flush
+        )
+    }
+
+    func testDirectObserverRefreshDuringSearchNavigationDefersWithoutMutatingDatasource() {
+        let controller = makeController()
+        let visible = makeDatasource(primary: "visible")
+        controller.loadViewIfNeeded()
+        controller.datasource = [visible]
+        controller.datasourceSnapshot = ChatDatasourceCoordinator.makeSnapshot(items: [visible])
+        controller.searchResultNavigationState = .positioning(index: 0)
+
+        controller.didReceiveChangeset()
+
+        XCTAssertEqual(controller.datasource.map(\.primary), ["visible"])
+        XCTAssertTrue(controller.pendingArchiveObserverRefresh)
+    }
+
     private func assertStaleFallback(
         _ message: MessageType,
         file: StaticString = #filePath,

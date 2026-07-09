@@ -1503,12 +1503,16 @@ extension ChatViewController {
 
     internal func commitSearchResultNavigationPositioned(index: Int) {
         guard searchMessagesQueue.indices.contains(index) else {
-            completeSearchResultNavigation(index: index)
+            if !completeSearchResultNavigation(index: index) {
+                flushPendingArchiveObserverRefreshIfPossible(reason: "searchPositionedInvalidIndex")
+            }
             return
         }
 
         setSelectedSearchResultNavigationIndex(index, isLoadingContext: false)
-        completeSearchResultNavigation(index: index)
+        if !completeSearchResultNavigation(index: index) {
+            flushPendingArchiveObserverRefreshIfPossible(reason: "searchPositioned")
+        }
     }
 
     private func hasActiveSearchResultAnchorWork() -> Bool {
@@ -1609,13 +1613,14 @@ extension ChatViewController {
         }
     }
 
-    internal func completeSearchResultNavigation(index: Int) {
+    @discardableResult
+    internal func completeSearchResultNavigation(index: Int) -> Bool {
         let pendingNavigation = consumePendingSearchResultNavigation(finishedIndex: index)
 
         guard let pendingNavigation else {
             setSearchResultsPanelContextLoading(false)
             refreshVisibleSearchSelection()
-            return
+            return false
         }
 
         setSearchResultsPanelContextLoading(true)
@@ -1628,6 +1633,7 @@ extension ChatViewController {
                 direction: pendingNavigation.scrollDirection
             )
         }
+        return true
     }
 
     private func openSearchResult(
