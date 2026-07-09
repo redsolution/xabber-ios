@@ -744,6 +744,7 @@ struct ChatAnchorExecutionState: Equatable {
     var contextPrefetchAnchorKey: String? = nil
     var contextPrefetchQueryIds: Set<String> = []
     var contextPrefetchPendingQueryIds: Set<String> = []
+    var contextPrefetchExpectedMessageCount: Int = 0
     var contextPrefetchPersistedMessageCount: Int = 0
     var didObserveContextPostIdleTick: Bool = false
     var isPositioning: Bool = false
@@ -777,6 +778,15 @@ enum ChatAnchorExecutionAction: Equatable {
     case waitForObserverSync
     case fail
     case none
+}
+
+enum ChatAnchorRemoteResultDeliveryPolicy {
+    static func shouldWaitForDeliveredRows(
+        remoteResultCount: Int,
+        persistedMessageCount: Int
+    ) -> Bool {
+        remoteResultCount > 0 && persistedMessageCount < remoteResultCount
+    }
 }
 
 enum ChatAnchorExecutionPolicy {
@@ -840,6 +850,11 @@ enum ChatLoadedMessageNavigationPolicy {
             return target
         }
 
+        if request.source == .search,
+           let target = searchIndex(in: items, for: request.anchor) {
+            return target
+        }
+
         return index(in: items, for: request.anchor)
     }
 
@@ -866,6 +881,35 @@ enum ChatLoadedMessageNavigationPolicy {
         if let messageId = anchor.messageId,
            messageId.isNotEmpty,
            let match = anchorableItems.first(where: { $0.element.messageId == messageId }) {
+            return match.offset
+        }
+
+        return nil
+    }
+
+    private static func searchIndex(
+        in items: [ChatViewController.Datasource],
+        for anchor: ChatMessageAnchorRef
+    ) -> Int? {
+        let anchorableItems = items.enumerated().filter { _, item in
+            isAnchorable(item)
+        }
+
+        if let archivedId = anchor.archivedId,
+           archivedId.isNotEmpty,
+           let match = anchorableItems.first(where: { $0.element.archivedId == archivedId }) {
+            return match.offset
+        }
+
+        if let messageId = anchor.messageId,
+           messageId.isNotEmpty,
+           let match = anchorableItems.first(where: { $0.element.messageId == messageId }) {
+            return match.offset
+        }
+
+        if let messagePrimary = anchor.messagePrimary,
+           messagePrimary.isNotEmpty,
+           let match = anchorableItems.first(where: { $0.element.primary == messagePrimary }) {
             return match.offset
         }
 
@@ -1110,7 +1154,8 @@ extension ChatViewController {
 
     internal func clearInChatSearchQuery(
         clearResults: Bool,
-        panelState: ModernXabberInputView.SearchPanel.RenderState? = nil
+        panelState: ModernXabberInputView.SearchPanel.RenderState? = nil,
+        cancelResultNavigation: Bool = true
     ) {
         if let currentSearchQueryId {
             unregisterRemoteHistoryPersistenceSource(queryId: currentSearchQueryId)
@@ -1124,8 +1169,10 @@ extension ChatViewController {
             selectedSearchResultId = nil
         }
         refreshVisibleSearchSelection()
-        cancelSearchResultNavigation()
-        setLoadingIndicatorVisible(false)
+        if cancelResultNavigation {
+            cancelSearchResultNavigation()
+            setLoadingIndicatorVisible(false)
+        }
         guard isViewLoaded else {
             return
         }
@@ -1273,7 +1320,7 @@ extension ChatViewController {
             return false
         }
         applySearchResults(emptyList: emptyList)
-        clearInChatSearchQuery(clearResults: false, panelState: nil)
+        clearInChatSearchQuery(clearResults: false, panelState: nil, cancelResultNavigation: false)
         return true
     }
 
@@ -1480,6 +1527,41 @@ extension ChatViewController {
         }
     }
 
+    private func scheduleInitialSearchResultOpenFallback(
+        index: Int,
+        direction: ChatDirection,
+        attempt: Int = 0,
+        onNavigationFinished: (() -> Void)? = nil
+    ) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self,
+                  self.inSearchMode.value || self.xabberInputView.state == .search,
+                  self.searchMessagesQueue.indices.contains(index),
+                  self.selectedSearchResultId == nil,
+                  self.currentSearchResultNavigationBaseIndex() == index else {
+                return
+            }
+
+            guard !self.hasActiveSearchResultAnchorWork() else {
+                if attempt < 4 {
+                    self.scheduleInitialSearchResultOpenFallback(
+                        index: index,
+                        direction: direction,
+                        attempt: attempt + 1,
+                        onNavigationFinished: onNavigationFinished
+                    )
+                }
+                return
+            }
+
+            self.openSearchResult(
+                at: index,
+                direction: direction,
+                onNavigationFinished: onNavigationFinished
+            )
+        }
+    }
+
     private func recordPendingSearchResultNavigation(
         index: Int,
         scrollDirection: ChatDirection
@@ -1547,14 +1629,15 @@ extension ChatViewController {
 
         let item = searchMessagesQueue[index]
         chatScrollDirection = direction
+        let archivedId = item.archivedId.isNotEmpty ? item.archivedId : nil
         queueOpenMessageRequest(
             ChatOpenMessageRequest(
                 chatJid: jid,
                 owner: owner,
                 conversationType: conversationType,
                 anchor: ChatMessageAnchorRef(
-                    messagePrimary: item.primary,
-                    archivedId: item.archivedId.isNotEmpty ? item.archivedId : nil,
+                    messagePrimary: archivedId == nil ? item.primary : nil,
+                    archivedId: archivedId,
                     messageId: nil,
                     authorId: nil,
                     bodyFingerprint: nil,
@@ -2705,11 +2788,7 @@ extension ChatViewController {
                 conversationType: self.conversationType
             )
             let anchor = request.anchor
-            guard let message = provider.message(
-                primary: anchor.messagePrimary,
-                archivedId: anchor.archivedId,
-                messageId: anchor.messageId
-            ) else {
+            guard let message = self.searchProviderMessage(for: anchor, provider: provider) else {
                 return nil
             }
 
@@ -2773,6 +2852,21 @@ extension ChatViewController {
             }
 
             let anchor = request.anchor
+            if request.source == .search,
+               let message = self.searchProviderMessage(for: anchor, provider: provider) {
+                if let archivedId = anchor.archivedId,
+                   archivedId.isNotEmpty,
+                   message.archivedId == archivedId {
+                    return (message, .archivedId)
+                }
+                if let messageId = anchor.messageId,
+                   messageId.isNotEmpty,
+                   message.messageId == messageId {
+                    return (message, .messageId)
+                }
+                return (message, .primary)
+            }
+
             if let message = provider.message(
                 primary: anchor.messagePrimary,
                 archivedId: anchor.archivedId,
@@ -2797,6 +2891,31 @@ extension ChatViewController {
             }
         } catch {
             DDLogDebug("ChatViewController.providerAnchorMessage: \(error.localizedDescription)")
+        }
+
+        return nil
+    }
+
+    private func searchProviderMessage(
+        for anchor: ChatMessageAnchorRef,
+        provider: ChatLocalHistoryPageProvider
+    ) -> MessageStorageItem? {
+        if let archivedId = anchor.archivedId,
+           archivedId.isNotEmpty,
+           let message = provider.message(primary: nil, archivedId: archivedId, messageId: nil) {
+            return message
+        }
+
+        if let messageId = anchor.messageId,
+           messageId.isNotEmpty,
+           let message = provider.message(primary: nil, archivedId: nil, messageId: messageId) {
+            return message
+        }
+
+        if let messagePrimary = anchor.messagePrimary,
+           messagePrimary.isNotEmpty,
+           let message = provider.message(primary: messagePrimary, archivedId: nil, messageId: nil) {
+            return message
         }
 
         return nil
@@ -2898,6 +3017,22 @@ extension ChatViewController {
         if case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution,
            let message = self.firstLoadedIncomingMessageAfterUnreadBoundary(boundaryArchivedId) {
             return (message, .unreadBoundaryAfter)
+        }
+
+        if request.source == .search {
+            if let archivedId = anchor.archivedId,
+               archivedId.isNotEmpty,
+               let observerIndex = self.observerArchivedIdIndexMap[archivedId],
+               observerIndex < self.messagesObserver.count {
+                return (self.messagesObserver[observerIndex], .archivedId)
+            }
+
+            if let messageId = anchor.messageId,
+               messageId.isNotEmpty,
+               let observerIndex = self.observerMessageIdIndexMap[messageId],
+               observerIndex < self.messagesObserver.count {
+                return (self.messagesObserver[observerIndex], .messageId)
+            }
         }
 
         if let messagePrimary = anchor.messagePrimary,
@@ -3187,6 +3322,7 @@ extension ChatViewController {
         state.contextPrefetchAnchorKey = anchorKey
         state.contextPrefetchQueryIds = []
         state.contextPrefetchPendingQueryIds = []
+        state.contextPrefetchExpectedMessageCount = 0
         state.contextPrefetchPersistedMessageCount = 0
         state.didObserveContextPostIdleTick = false
     }
@@ -3197,15 +3333,31 @@ extension ChatViewController {
         }
     }
 
-    private func scheduleContextPrefetchObserverResumeIfNeeded() {
-        DispatchQueue.main.async { [weak self] in
-            self?.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
+    private func scheduleContextPrefetchObserverResumeIfNeeded(delay: TimeInterval = 0) {
+        let work = { [weak self] in
+            guard let self else {
+                return
+            }
+            self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
+        }
+        if delay > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        } else {
+            DispatchQueue.main.async(execute: work)
         }
     }
 
-    private func scheduleAnchorObserverResumeIfNeeded() {
-        DispatchQueue.main.async { [weak self] in
-            self?.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
+    private func scheduleAnchorObserverResumeIfNeeded(delay: TimeInterval = 0) {
+        let work = { [weak self] in
+            guard let self else {
+                return
+            }
+            self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
+        }
+        if delay > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        } else {
+            DispatchQueue.main.async(execute: work)
         }
     }
 
@@ -3276,6 +3428,7 @@ extension ChatViewController {
         var updatedState = executionState
         updatedState.contextPrefetchQueryIds = queryIds
         updatedState.contextPrefetchPendingQueryIds = queryIds
+        updatedState.contextPrefetchExpectedMessageCount = 0
         updatedState.contextPrefetchPersistedMessageCount = 0
         updatedState.didObserveContextPostIdleTick = false
         self.activeAnchorExecutionState = updatedState
@@ -3870,14 +4023,15 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
         let item = self.searchMessagesQueue[index]
         self.selectedSearchResultId = self.searchResultSelectionIdentity(for: item)
         self.refreshVisibleSearchSelection()
+        let archivedId = item.archivedId.isNotEmpty ? item.archivedId : nil
         self.queueOpenMessageRequest(
             ChatOpenMessageRequest(
                 chatJid: self.jid,
                 owner: self.owner,
                 conversationType: self.conversationType,
                 anchor: ChatMessageAnchorRef(
-                    messagePrimary: item.primary,
-                    archivedId: item.archivedId.isNotEmpty ? item.archivedId : nil,
+                    messagePrimary: archivedId == nil ? item.primary : nil,
+                    archivedId: archivedId,
                     messageId: item.messageId.isNotEmpty ? item.messageId : nil,
                     authorId: item.groupchatAuthorId,
                     bodyFingerprint: nil,
@@ -3905,12 +4059,18 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             self.searchResultNavigationState = .idle
             self.selectedSearchResultId = nil
             self.refreshVisibleSearchSelection()
+            let onNavigationFinished: () -> Void = { [weak self] in
+                self?.preventHidingDate = false
+            }
             self.openSearchResult(
                 at: newIndex,
                 direction: .up,
-                onNavigationFinished: { [weak self] in
-                    self?.preventHidingDate = false
-                }
+                onNavigationFinished: onNavigationFinished
+            )
+            self.scheduleInitialSearchResultOpenFallback(
+                index: newIndex,
+                direction: .up,
+                onNavigationFinished: onNavigationFinished
             )
         } else {
             self.searchResultNavigationState = .idle
@@ -4028,7 +4188,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 ])
                 return
             }
-            if self.handleAnchorContextPrefetchEndPageIfNeeded(queryId: queryId, state: effectiveState) {
+            if self.handleAnchorContextPrefetchEndPageIfNeeded(queryId: queryId, state: effectiveState, count: count) {
                 ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
                     ("queryId", queryId),
                     ("handler", "anchorContextPrefetch")
@@ -4070,7 +4230,8 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
     @discardableResult
     private func handleAnchorContextPrefetchEndPageIfNeeded(
         queryId: String,
-        state: MessageArchivePageEndState
+        state: MessageArchivePageEndState,
+        count: Int
     ) -> Bool {
         guard var executionState = self.activeAnchorExecutionState,
               executionState.contextPrefetchQueryIds.contains(queryId) else {
@@ -4078,9 +4239,22 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
         }
 
         executionState.contextPrefetchPendingQueryIds.remove(queryId)
+        executionState.contextPrefetchExpectedMessageCount += max(0, count)
         executionState.contextPrefetchPersistedMessageCount += state.persistedMessageCount
         self.activeAnchorExecutionState = executionState
         self.syncAnchorExecutionFlags()
+
+        if executionState.contextPrefetchPendingQueryIds.isEmpty,
+           ChatAnchorRemoteResultDeliveryPolicy.shouldWaitForDeliveredRows(
+               remoteResultCount: executionState.contextPrefetchExpectedMessageCount,
+               persistedMessageCount: executionState.contextPrefetchPersistedMessageCount
+           ) {
+            executionState.didObserveContextPostIdleTick = true
+            self.activeAnchorExecutionState = executionState
+            self.syncAnchorExecutionFlags()
+            self.scheduleContextPrefetchObserverResumeIfNeeded(delay: 0.08)
+            return true
+        }
 
         let action = ChatAnchorContextPrefetchPolicy.completionAction(
             pendingQueryIds: executionState.contextPrefetchPendingQueryIds,
@@ -4123,6 +4297,18 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
 
         let hasLocalMatch = self.pendingOpenMessageRequest
             .flatMap { self.localAnchorMessage(for: $0) } != nil
+
+        if !hasLocalMatch,
+           ChatAnchorRemoteResultDeliveryPolicy.shouldWaitForDeliveredRows(
+               remoteResultCount: count,
+               persistedMessageCount: state.persistedMessageCount
+           ) {
+            executionState.isWaitingForObserverSync = true
+            self.activeAnchorExecutionState = executionState
+            self.syncAnchorExecutionFlags()
+            self.scheduleAnchorObserverResumeIfNeeded(delay: 0.08)
+            return true
+        }
 
         let action = ChatAnchorExecutionPolicy.remoteCompletionAction(
             state: executionState,

@@ -73,7 +73,7 @@ extension ChatViewController {
                     }
                 self.applySearchResults()
                 if self.currentSearchQueryId != nil {
-                    self.clearInChatSearchQuery(clearResults: false, panelState: nil)
+                    self.clearInChatSearchQuery(clearResults: false, panelState: nil, cancelResultNavigation: false)
                 }
             } catch {
                 DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")

@@ -1499,6 +1499,7 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
     func testApplySearchResultsRoutesInitialResultThroughNavigationStateMachine() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()
+        controller.messagesObserver = nil
         controller.inSearchMode.accept(true)
         controller.searchTextObserver.accept("needle")
         controller.currentSearchQueryId = "query-1"
@@ -1537,7 +1538,7 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
         XCTAssertEqual(request.source, .search)
         XCTAssertFalse(request.markReadOnVisible)
         XCTAssertEqual(request.anchor.archivedId, newestArchivedId)
-        XCTAssertEqual(request.anchor.messagePrimary, "newest")
+        XCTAssertNil(request.anchor.messagePrimary)
         XCTAssertEqual(controller.chatScrollDirection, .up)
 
         try XCTUnwrap(controller.activeAnchorExecutionHooks?.onPositioningStarted)()
@@ -1548,6 +1549,71 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
             controller.xabberInputView.searchPanel.renderState,
             .results(current: 0, total: 2, isLoadingContext: false)
         )
+    }
+
+    func testFinishSearchQueryKeepsInitialResultNavigationInFlight() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.messagesObserver = nil
+        controller.inSearchMode.accept(true)
+        controller.searchTextObserver.accept("needle")
+        _ = try XCTUnwrap(controller.beginInChatSearchQueryIfNeeded(text: "needle", queryId: "query-1"))
+        let targetArchivedId = "1783493923727774"
+        controller.searchMessagesQueue = [
+            makeMessage(
+                owner: controller.owner,
+                jid: controller.jid,
+                conversationType: controller.conversationType,
+                primary: "target",
+                archivedId: targetArchivedId,
+                date: Date(timeIntervalSince1970: 1_783_493_923)
+            )
+        ]
+
+        XCTAssertTrue(controller.finishInChatSearchQueryIfCurrent(queryId: "query-1", emptyList: false))
+
+        XCTAssertNil(controller.currentSearchQueryId)
+        XCTAssertNil(controller.currentInChatSearchQueryContext)
+        XCTAssertEqual(controller.searchResultNavigationState, .loadingContext(index: 0))
+        XCTAssertNil(controller.selectedSearchResultId)
+        XCTAssertEqual(controller.pendingOpenMessageRequest?.anchor.archivedId, targetArchivedId)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: 0, total: 1, isLoadingContext: true)
+        )
+    }
+
+    func testInitialSearchResultOpenRetriesWhenFirstAnchorWorkDisappearsBeforePositioning() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.messagesObserver = nil
+        controller.inSearchMode.accept(true)
+        controller.searchTextObserver.accept("needle")
+        let targetArchivedId = "1783493923727774"
+        controller.searchMessagesQueue = [
+            makeMessage(
+                owner: controller.owner,
+                jid: controller.jid,
+                conversationType: controller.conversationType,
+                primary: "target",
+                archivedId: targetArchivedId,
+                date: Date(timeIntervalSince1970: 1_783_493_923)
+            )
+        ]
+
+        controller.applySearchResults(emptyList: false)
+        XCTAssertEqual(controller.pendingOpenMessageRequest?.anchor.archivedId, targetArchivedId)
+
+        controller.pendingOpenMessageRequest = nil
+        controller.activeAnchorExecutionState = nil
+        controller.activeAnchorExecutionHooks = nil
+        controller.isMessageAnchorNavigationInFlight = false
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.35))
+
+        XCTAssertEqual(controller.pendingOpenMessageRequest?.anchor.archivedId, targetArchivedId)
+        XCTAssertEqual(controller.searchResultNavigationState, .loadingContext(index: 0))
+        XCTAssertNil(controller.selectedSearchResultId)
     }
 
     private func makeController(
@@ -22032,6 +22098,25 @@ final class ChatOpenMessageRequestHandlingPolicyTests: XCTestCase {
 }
 
 final class ChatMessageAnchorPolicyTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+
+    override func setUp() {
+        super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ChatMessageAnchorPolicyTests-\(name)-\(UUID().uuidString)"
+        )
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    override func tearDown() {
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        super.tearDown()
+    }
 
     private func makeDatasource(
         primary: String = "message-1",
@@ -22087,6 +22172,32 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             avatarUrl: nil,
             attributedAuthor: nil
         )
+    }
+
+    private func makeStoredMessage(
+        primary: String,
+        archivedId: String,
+        owner: String = "owner@example.com",
+        jid: String = "group@xabber.example",
+        conversationType: ClientSynchronizationManager.ConversationType = .regular,
+        timestamp: TimeInterval = 1_700_000_000
+    ) -> MessageStorageItem {
+        let message = MessageStorageItem()
+        message.primary = primary
+        message.owner = owner
+        message.opponent = jid
+        message.conversationType = conversationType
+        message.archivedId = archivedId
+        message.messageId = "message-id-\(primary)"
+        message.messageType = MessageStorageItem.MessageDisplayType.text.rawValue
+        message.displayAs = .text
+        message.body = primary
+        message.date = Date(timeIntervalSince1970: timestamp)
+        message.sentDate = message.date
+        message.outgoing = false
+        message.isRead = true
+        message.state = .read
+        return message
     }
 
     private func makeAnchor(
@@ -22459,6 +22570,85 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         XCTAssertEqual(result, 1)
     }
 
+    func testSearchLoadedMessageLookupPrefersArchivedIdBeforePrimary() {
+        let items = [
+            makeDatasource(primary: "search-primary", archivedId: "wrong-archived", messageId: "wrong-message"),
+            makeDatasource(primary: "target-primary", archivedId: "target-archived", messageId: "target-message")
+        ]
+
+        let result = ChatLoadedMessageNavigationPolicy.index(
+            in: items,
+            for: ChatOpenMessageRequest(
+                chatJid: "group@xabber.example",
+                owner: "owner@example.com",
+                conversationType: .group,
+                anchor: ChatMessageAnchorRef(
+                    messagePrimary: "search-primary",
+                    archivedId: "target-archived",
+                    messageId: nil,
+                    authorId: nil,
+                    bodyFingerprint: nil,
+                    sourceDate: Date(timeIntervalSince1970: 1_700_000_000)
+                ),
+                highlight: true,
+                markReadOnVisible: false,
+                source: .search
+            )
+        )
+
+        XCTAssertEqual(result, 1)
+    }
+
+    @MainActor
+    func testRemoteSearchAnchorFinalWaitsWhenFinArrivesBeforeResultRowPersistence() {
+        let controller = ChatViewController()
+        controller.owner = "owner@example.com"
+        controller.jid = "contact@example.com"
+        controller.conversationType = .regular
+        controller.loadViewIfNeeded()
+
+        let request = ChatOpenMessageRequest(
+            chatJid: controller.jid,
+            owner: controller.owner,
+            conversationType: controller.conversationType,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: "archive-1",
+                messageId: nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: Date(timeIntervalSince1970: 1_783_493_923)
+            ),
+            highlight: true,
+            markReadOnVisible: false,
+            source: .search
+        )
+        var state = ChatAnchorExecutionState(request: request)
+        state.lastAttemptedRemotePlan = .exactArchivedId("archive-1")
+        state.remoteQueryId = "MAM jump exact: test"
+        state.isRemoteFetchInFlight = true
+        controller.pendingOpenMessageRequest = request
+        controller.activeAnchorExecutionState = state
+
+        controller.didReceiveEndPage(
+            queryId: "MAM jump exact: test",
+            state: MessageArchivePageEndState(
+                queryExhausted: true,
+                archiveEnded: true,
+                persistedMessageCount: 0
+            ),
+            first: "archive-1",
+            last: "archive-1",
+            count: 1
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        XCTAssertEqual(controller.activeAnchorExecutionState?.isWaitingForObserverSync, true)
+        XCTAssertEqual(controller.activeAnchorExecutionState?.lastAttemptedRemotePlan, .exactArchivedId("archive-1"))
+        XCTAssertNil(controller.activeAnchorExecutionState?.remoteQueryId)
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+    }
+
     func testLoadedMessageLookupMatchesArchivedIdAndMessageIdInDatasourceOnly() {
         let items = [
             makeDatasource(primary: "first", archivedId: "archived-1", messageId: "message-1"),
@@ -22799,6 +22989,101 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         XCTAssertEqual(controller.pendingOpenMessageRequest, request)
     }
 
+    @MainActor
+    func testPendingSearchResumeOpensWindowAroundArchivedIdWhenPrimaryConflicts() throws {
+        let owner = "owner@example.com"
+        let jid = "contact@example.com"
+        let targetArchivedId = "target-archived"
+        let conflictingPrimary = "message-0"
+        let targetPrimary = "message-180"
+        let realm = try WRealm.safe()
+        try realm.write {
+            (0..<220).forEach { index in
+                let archivedId = index == 180 ? targetArchivedId : "archived-\(index)"
+                realm.add(
+                    makeStoredMessage(
+                        primary: "message-\(index)",
+                        archivedId: archivedId,
+                        owner: owner,
+                        jid: jid,
+                        timestamp: TimeInterval(index)
+                    ),
+                    update: .modified
+                )
+            }
+        }
+
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = .regular
+        controller.loadViewIfNeeded()
+        controller.showSkeletonObserver.accept(false)
+        controller.messagesObserver = realm.objects(MessageStorageItem.self)
+            .filter(
+                "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@",
+                owner,
+                jid,
+                ClientSynchronizationManager.ConversationType.regular.rawValue
+            )
+            .sorted(byKeyPath: "date", ascending: true)
+
+        let request = ChatOpenMessageRequest(
+            chatJid: jid,
+            owner: owner,
+            conversationType: .regular,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: conflictingPrimary,
+                archivedId: targetArchivedId,
+                messageId: nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: Date(timeIntervalSince1970: 180)
+            ),
+            highlight: true,
+            markReadOnVisible: false,
+            source: .search
+        )
+        var state = ChatAnchorExecutionState(request: request)
+        state.contextPrefetchAnchorKey = targetArchivedId
+        state.contextPrefetchQueryIds = []
+        state.contextPrefetchPendingQueryIds = []
+        controller.pendingOpenMessageRequest = request
+        controller.activeAnchorExecutionState = state
+
+        let positioned = expectation(description: "search anchor positioned")
+        controller.activeAnchorExecutionHooks = ChatAnchorExecutionHooks(
+            direction: .up,
+            animatedScroll: false,
+            onPositioningStarted: nil,
+            onFailed: {
+                XCTFail("search anchor should resolve by archived id")
+                positioned.fulfill()
+            },
+            onPositioned: {
+                positioned.fulfill()
+            }
+        )
+
+        controller.performPendingOpenMessageRequestIfNeeded()
+        wait(for: [positioned], timeout: 1.0)
+
+        let datasourceSummary = controller.datasource
+            .prefix(20)
+            .map { "\($0.primary)|\($0.archivedId)" }
+            .joined(separator: ", ")
+        XCTAssertTrue(
+            controller.datasource.contains { $0.primary == targetPrimary && $0.archivedId == targetArchivedId },
+            "Search navigation must build the visible window around the server archived id target. datasourceCount=\(controller.datasource.count) firstItems=[\(datasourceSummary)]"
+        )
+        XCTAssertFalse(
+            controller.datasource.contains { $0.primary == conflictingPrimary && $0.archivedId == "archived-0" },
+            "A conflicting search primary must not choose the wrong local message."
+        )
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+    }
+
     func testAnchorFetchPolicyPrefersExactArchivedIdWhenAvailable() {
         let anchor = ChatMessageAnchorRef(
             messagePrimary: nil,
@@ -22975,6 +23260,27 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
                 totalPersistedMessageCount: 0
             ),
             .complete
+        )
+    }
+
+    func testAnchorResultDeliveryPolicyWaitsWhenFinalArrivesBeforeAllRowsPersist() {
+        XCTAssertTrue(
+            ChatAnchorRemoteResultDeliveryPolicy.shouldWaitForDeliveredRows(
+                remoteResultCount: 28,
+                persistedMessageCount: 27
+            )
+        )
+        XCTAssertFalse(
+            ChatAnchorRemoteResultDeliveryPolicy.shouldWaitForDeliveredRows(
+                remoteResultCount: 28,
+                persistedMessageCount: 28
+            )
+        )
+        XCTAssertFalse(
+            ChatAnchorRemoteResultDeliveryPolicy.shouldWaitForDeliveredRows(
+                remoteResultCount: 0,
+                persistedMessageCount: 0
+            )
         )
     }
 
