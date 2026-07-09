@@ -3874,13 +3874,10 @@ class ChatViewController: MessagesViewController {
 
         self.applySearchResultsPanelState()
         self.xabberInputView.changeState(to: .search)
-        self.updateChatInputKeyboardLayoutMode()
-        self.xabberInputView.update(
-            screenHeight: self.view.bounds.height,
-            keyboardHeight: 0,
-            includeBottomSafeAreaWhenKeyboardHidden: false
+        let inputHeight = self.updateChatInputViewForCurrentKeyboardLayout(
+            visibleKeyboardHeight: 0
         )
-        self.updateChatCollectionInsets(inputHeight: self.xabberInputView.bounds.height)
+        self.updateChatCollectionInsets(inputHeight: inputHeight)
     }
 
     internal func installSearchInputOverlayIfNeeded() {
@@ -4566,6 +4563,27 @@ class ChatViewController: MessagesViewController {
         isChatSearchInputKeyboardOwned ? 0 : visibleKeyboardHeight
     }
 
+    @discardableResult
+    internal func updateChatInputViewForCurrentKeyboardLayout(
+        visibleKeyboardHeight: CGFloat
+    ) -> CGFloat {
+        guard let inputView = self.xabberInputView else {
+            return 0
+        }
+
+        self.updateChatInputKeyboardLayoutMode()
+        let inputKeyboardHeight = self.inputKeyboardHeightForCurrentChatInputMode(
+            visibleKeyboardHeight: visibleKeyboardHeight
+        )
+        let screenHeight = self.view.bounds.height > 0 ? self.view.bounds.height : UIScreen.main.bounds.height
+        inputView.update(
+            screenHeight: screenHeight,
+            keyboardHeight: inputKeyboardHeight,
+            includeBottomSafeAreaWhenKeyboardHidden: !self.isChatSearchInputKeyboardOwned
+        )
+        return inputView.bounds.height
+    }
+
     private func currentNavigationVisualHeight() -> CGFloat {
         if view.safeAreaInsets.top > 0 {
             return view.safeAreaInsets.top
@@ -4591,15 +4609,8 @@ class ChatViewController: MessagesViewController {
             self.xabberInputView.timerButton.isHidden = true
             self.xabberInputView.timerButton.isEnabled = false
         }
-        self.updateChatInputKeyboardLayoutMode()
-        let screenHeight = self.view.bounds.height > 0 ? self.view.bounds.height : UIScreen.main.bounds.height
-        let inputKeyboardHeight = self.inputKeyboardHeightForCurrentChatInputMode(
+        _ = self.updateChatInputViewForCurrentKeyboardLayout(
             visibleKeyboardHeight: self.xabberInputView.keyboardHeight
-        )
-        self.xabberInputView.update(
-            screenHeight: screenHeight,
-            keyboardHeight: inputKeyboardHeight,
-            includeBottomSafeAreaWhenKeyboardHidden: !self.isChatSearchInputKeyboardOwned
         )
         self.xabberInputView.searchPanel.conversationType = self.conversationType
         self.xabberInputView.searchPanel.onChangeConversationTypeCallback = onSearchPanelChangeConversationType
@@ -4756,15 +4767,9 @@ class ChatViewController: MessagesViewController {
         self.messageLoadingActivityIndicator.frame = CGRect(width: 64, height: 64)
         self.messageLoadingActivityIndicator.center = CGPoint(x: self.view.center.x, y: navbarHeight + 32)
         
-        self.updateChatInputKeyboardLayoutMode()
-        let inputKeyboardHeight = self.inputKeyboardHeightForCurrentChatInputMode(
+        let inputHeight = self.updateChatInputViewForCurrentKeyboardLayout(
             visibleKeyboardHeight: self.xabberInputView.keyboardHeight
         )
-        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight + inputKeyboardHeight
-        if !self.isChatSearchInputKeyboardOwned,
-           let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
-        }
         
         let horizontalInset = ModernXabberInputView.edgeHorizontalInset
         let leadingInset = self.view.safeAreaInsets.left + horizontalInset

@@ -3391,6 +3391,38 @@ enum ChatTimelineObserverRefreshPolicy {
     }
 }
 
+enum ChatObserverRefreshAnchorRestorePolicy {
+    static func shouldSuppressOpenLatest(
+        isSearchModeActive: Bool,
+        isNearBottom: Bool,
+        hasPendingForceLatestOpen: Bool
+    ) -> Bool {
+        isSearchModeActive && !isNearBottom && !hasPendingForceLatestOpen
+    }
+
+    static func visibleAnchorDirection(
+        isSearchModeActive: Bool,
+        isNearBottom: Bool,
+        willOpenLatest: Bool,
+        hasSearchAnchorWork: Bool,
+        isShowingBootstrapPlaceholder: Bool
+    ) -> ChatHistoryPageDirection? {
+        guard isSearchModeActive,
+              !isNearBottom,
+              !willOpenLatest,
+              !hasSearchAnchorWork,
+              !isShowingBootstrapPlaceholder else {
+            return nil
+        }
+
+        return .newer
+    }
+
+    static func restorePhase(hasCapturedAnchor: Bool) -> ChatHistoryPageAnchorRestorePhase {
+        hasCapturedAnchor ? .completion : .none
+    }
+}
+
 enum ChatHistoryPageAnchorRestorePolicy {
     static func targetContentOffsetY(
         anchorMinY: CGFloat,
@@ -12063,6 +12095,8 @@ extension ChatViewController {
             jid: self.jid,
             conversationType: self.conversationType
         )
+        let wasNearBottom = self.isNearBottom()
+        let isSearchModeActive = self.isChatSearchInputKeyboardOwned
         let hasSearchAnchorWork = self.pendingOpenMessageRequest?.source == .search ||
             self.activeAnchorExecutionState?.request.source == .search ||
             self.searchResultNavigationState.isBusy
@@ -12108,7 +12142,12 @@ extension ChatViewController {
             }
             self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
         }
-        let baseShouldOpenLatest = !hasSearchAnchorWork && (
+        let shouldSuppressOpenLatestForSearchPosition = ChatObserverRefreshAnchorRestorePolicy.shouldSuppressOpenLatest(
+            isSearchModeActive: isSearchModeActive,
+            isNearBottom: wasNearBottom,
+            hasPendingForceLatestOpen: self.pendingForceLatestOpen
+        )
+        let baseShouldOpenLatest = !hasSearchAnchorWork && !shouldSuppressOpenLatestForSearchPosition && (
             ChatTimelineObserverRefreshPolicy.shouldOpenLatest(
                 isTimelineEmpty: normalizedState.isEmpty,
                 isResidentAtLiveTail: normalizedState.isResidentAtLiveTail,
@@ -12121,12 +12160,35 @@ extension ChatViewController {
         let stabilizationAction = self.initialLatestObserverRefreshAction(baseShouldOpenLatest: baseShouldOpenLatest)
         let shouldOpenLatest = stabilizationAction == .openLatestNonAnimated ||
             (stabilizationAction == .followDefault && baseShouldOpenLatest)
+        let observerRefreshAnchorDirection = ChatObserverRefreshAnchorRestorePolicy.visibleAnchorDirection(
+            isSearchModeActive: isSearchModeActive,
+            isNearBottom: wasNearBottom,
+            willOpenLatest: shouldOpenLatest,
+            hasSearchAnchorWork: hasSearchAnchorWork,
+            isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
+        )
+        let observerRefreshAnchor = observerRefreshAnchorDirection.flatMap {
+            self.capturePagingAnchorIfNeeded(direction: $0)
+        }
+        let observerRefreshAnchorRestorePhase = ChatObserverRefreshAnchorRestorePolicy.restorePhase(
+            hasCapturedAnchor: observerRefreshAnchor != nil
+        )
+        let currentWindowCompletion = {
+            if observerRefreshAnchorRestorePhase == .completion,
+               let observerRefreshAnchor {
+                self.restorePagingAnchor(observerRefreshAnchor)
+            }
+            completion()
+        }
         ChatArchiveDebugTrace.log("observerRefreshDecision", [
             ("owner", self.owner),
             ("jid", self.jid),
             ("conversationType", self.conversationType.rawValue),
             ("action", shouldOpenLatest ? "openLatest" : "current"),
             ("stabilizationAction", "\(stabilizationAction)"),
+            ("suppressSearchOpenLatest", shouldSuppressOpenLatestForSearchPosition),
+            ("observerAnchorDirection", observerRefreshAnchorDirection.map { "\($0)" } ?? "-"),
+            ("observerAnchorPrimary", observerRefreshAnchor?.primary ?? "-"),
             ("isTimelineEmpty", normalizedState.isEmpty),
             ("isResidentAtLiveTail", normalizedState.isResidentAtLiveTail),
             ("isShowingBootstrapPlaceholder", self.isShowingBootstrapPlaceholder),
@@ -12147,7 +12209,10 @@ extension ChatViewController {
                 animated: false,
                 invalidateLayout: false,
                 suppressDefaultBottomScroll: true,
-                completion: completion
+                anchorRestorePhase: observerRefreshAnchorRestorePhase,
+                anchorPrimary: observerRefreshAnchor?.primary,
+                restoreAnchor: observerRefreshAnchor,
+                completion: currentWindowCompletion
             )
         case .openLatestNonAnimated:
             self.mapAndApplyTimelineLatest(
@@ -12177,7 +12242,10 @@ extension ChatViewController {
                 mode: .targetedDiff,
                 animated: self.shouldAnimateInitialHistoryAppearance,
                 invalidateLayout: false,
-                completion: completion
+                anchorRestorePhase: observerRefreshAnchorRestorePhase,
+                anchorPrimary: observerRefreshAnchor?.primary,
+                restoreAnchor: observerRefreshAnchor,
+                completion: currentWindowCompletion
             )
         }
     }

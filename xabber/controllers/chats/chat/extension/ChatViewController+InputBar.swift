@@ -165,7 +165,7 @@ extension ChatViewController {
     private func handleKeyboardFrameChange(_ notification: Notification) {
         guard let userInfo = notification.userInfo,
               let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue,
-              let inputView = self.xabberInputView else {
+              self.xabberInputView != nil else {
             return
         }
 
@@ -183,16 +183,9 @@ extension ChatViewController {
         )
 
         let updates = {
-            self.updateChatInputKeyboardLayoutMode()
-            let inputKeyboardHeight = self.inputKeyboardHeightForCurrentChatInputMode(
+            let inputHeight = self.updateChatInputViewForCurrentKeyboardLayout(
                 visibleKeyboardHeight: keyboardVisibleHeight
             )
-            inputView.update(
-                screenHeight: self.view.bounds.height,
-                keyboardHeight: inputKeyboardHeight,
-                includeBottomSafeAreaWhenKeyboardHidden: !self.isChatSearchInputKeyboardOwned
-            )
-            let inputHeight = inputView.bounds.height
             self.applyChatComposerFrameUpdate(
                 inputHeight: inputHeight,
                 source: .keyboardFrame,

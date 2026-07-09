@@ -32,21 +32,7 @@ final class SearchChatListKeyboardLayoutTests: XCTestCase {
     }
 
     func testChatSearchStatusBarIsKeyboardOwnedWithoutKeyboardHeightTail() throws {
-        let controller = ChatViewController()
-        controller.owner = "owner@example.com"
-        controller.jid = "alexey.boldin@example.com"
-        controller.conversationType = .regular
-        controller.ownerSender = Sender(id: controller.owner, displayName: "Owner")
-        controller.opponentSender = Sender(id: controller.jid, displayName: "Alexey Boldin")
-        controller.showSkeletonObserver.accept(false)
-
-        let navigationController = UINavigationController(rootViewController: controller)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        window.rootViewController = navigationController
-        window.makeKeyAndVisible()
-        controller.loadViewIfNeeded()
-        controller.view.frame = window.bounds
-        controller.view.layoutIfNeeded()
+        let controller = makeLoadedChatController()
 
         controller.configureSearchModeForCurrentActivation(
             defaultActivateKeyboard: false,
@@ -80,5 +66,47 @@ final class SearchChatListKeyboardLayoutTests: XCTestCase {
             ModernXabberInputView.defaultBarHeight,
             accuracy: 0.001
         )
+    }
+
+    func testChatSearchStatusBarStaysKeyboardOwnedAfterContainerBoundsChange() throws {
+        let controller = makeLoadedChatController()
+
+        controller.configureSearchModeForCurrentActivation(
+            defaultActivateKeyboard: false,
+            defaultAnimated: false
+        )
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 812)
+        controller.shouldChangeFrame()
+        controller.view.layoutIfNeeded()
+
+        let keyboardTopConstraint = try XCTUnwrap(controller.xabberInputViewKeyboardTopConstraint)
+        XCTAssertTrue(keyboardTopConstraint.isActive)
+        XCTAssertFalse(try XCTUnwrap(controller.xabberInputViewBottomConstraint).isActive)
+        XCTAssertEqual(controller.xabberInputView.keyboardHeight, 0, accuracy: 0.001)
+        XCTAssertEqual(
+            try XCTUnwrap(controller.xabberInputView.heightConstraint).constant,
+            ModernXabberInputView.defaultBarHeight,
+            accuracy: 0.001
+        )
+    }
+
+    private func makeLoadedChatController() -> ChatViewController {
+        let controller = ChatViewController()
+        controller.owner = "owner@example.com"
+        controller.jid = "alexey.boldin@example.com"
+        controller.conversationType = .regular
+        controller.ownerSender = Sender(id: controller.owner, displayName: "Owner")
+        controller.opponentSender = Sender(id: controller.jid, displayName: "Alexey Boldin")
+        controller.showSkeletonObserver.accept(false)
+
+        let navigationController = UINavigationController(rootViewController: controller)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = navigationController
+        window.makeKeyAndVisible()
+        controller.loadViewIfNeeded()
+        controller.view.frame = window.bounds
+        controller.view.layoutIfNeeded()
+
+        return controller
     }
 }

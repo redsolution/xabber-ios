@@ -94,6 +94,58 @@ final class ChatReloadInvalidationPolicyTests: XCTestCase {
         XCTAssertEqual(plan.applyCategory, .olderAnchorReload)
     }
 
+    func testSearchObserverRefreshAwayFromBottomPreservesVisibleNewerAnchor() {
+        XCTAssertTrue(ChatObserverRefreshAnchorRestorePolicy.shouldSuppressOpenLatest(
+            isSearchModeActive: true,
+            isNearBottom: false,
+            hasPendingForceLatestOpen: false
+        ))
+        XCTAssertEqual(
+            ChatObserverRefreshAnchorRestorePolicy.visibleAnchorDirection(
+                isSearchModeActive: true,
+                isNearBottom: false,
+                willOpenLatest: false,
+                hasSearchAnchorWork: false,
+                isShowingBootstrapPlaceholder: false
+            ),
+            .newer
+        )
+        XCTAssertEqual(
+            ChatObserverRefreshAnchorRestorePolicy.restorePhase(hasCapturedAnchor: true),
+            .completion
+        )
+    }
+
+    func testSearchObserverRefreshAtLiveBottomKeepsLatestBehavior() {
+        XCTAssertFalse(ChatObserverRefreshAnchorRestorePolicy.shouldSuppressOpenLatest(
+            isSearchModeActive: true,
+            isNearBottom: true,
+            hasPendingForceLatestOpen: false
+        ))
+        XCTAssertNil(ChatObserverRefreshAnchorRestorePolicy.visibleAnchorDirection(
+            isSearchModeActive: true,
+            isNearBottom: true,
+            willOpenLatest: true,
+            hasSearchAnchorWork: false,
+            isShowingBootstrapPlaceholder: false
+        ))
+    }
+
+    func testSearchObserverRefreshDoesNotSuppressExplicitForceLatest() {
+        XCTAssertFalse(ChatObserverRefreshAnchorRestorePolicy.shouldSuppressOpenLatest(
+            isSearchModeActive: true,
+            isNearBottom: false,
+            hasPendingForceLatestOpen: true
+        ))
+        XCTAssertNil(ChatObserverRefreshAnchorRestorePolicy.visibleAnchorDirection(
+            isSearchModeActive: true,
+            isNearBottom: false,
+            willOpenLatest: true,
+            hasSearchAnchorWork: false,
+            isShowingBootstrapPlaceholder: false
+        ))
+    }
+
     func testTailAppendPinsBottomOnlyWhenNearBottomAndNotAnchorDeferred() {
         let oldItems = [
             makeDatasource(primary: "m1"),
