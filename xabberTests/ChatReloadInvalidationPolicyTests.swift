@@ -114,8 +114,8 @@ final class ChatReloadInvalidationPolicyTests: XCTestCase {
         ))
     }
 
-    func testNewerAnchorCaptureKeepsLocalBottomPagingBehaviorWithoutPlaceholder() {
-        XCTAssertFalse(ChatHistoryPageAnchorCapturePolicy.shouldCaptureNewerAnchor(
+    func testNewerAnchorCaptureTreatsNonLiveLocalBottomAsVirtualBottom() {
+        XCTAssertTrue(ChatHistoryPageAnchorCapturePolicy.shouldCaptureNewerAnchor(
             isNearBottom: true,
             isResidentAtLiveTail: false,
             hasBottomBoundaryPlaceholder: false,

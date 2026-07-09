@@ -3384,11 +3384,7 @@ enum ChatHistoryPageAnchorCapturePolicy {
             return true
         }
 
-        return !isResidentAtLiveTail && (
-            hasBottomBoundaryPlaceholder ||
-            hasBottomVirtualPlaceholder ||
-            hasNewerRemoteLoad
-        )
+        return !isResidentAtLiveTail
     }
 }
 
@@ -9199,11 +9195,26 @@ extension ChatViewController {
         direction: ChatHistoryPageDirection,
         currentWindow: ChatDatasetWindow
     ) {
+        let anchor = self.capturePagingAnchorIfNeeded(direction: direction)
+        let applyPlan = ChatHistoryPageApplyPolicy.plan(
+            direction: direction,
+            hasCapturedAnchor: anchor != nil
+        )
         self.activeHistoryBoundaryPlaceholder = direction == .older ? .top : .bottom
         self.mapAndApplyTimelineCurrent(
-            mode: .windowReload(keepOffset: ChatHistoryPageApplyPolicy.keepOffset(direction: direction)),
+            mode: .windowReload(keepOffset: applyPlan.keepOffset),
             animated: false,
-            invalidateLayout: false
+            invalidateLayout: false,
+            applyCategory: applyPlan.applyCategory,
+            anchorRestorePhase: applyPlan.restorePhase,
+            anchorPrimary: anchor?.primary,
+            restoreAnchor: anchor,
+            completion: {
+                if applyPlan.restorePhase == .completion,
+                   let anchor {
+                    self.restorePagingAnchor(anchor)
+                }
+            }
         )
     }
 

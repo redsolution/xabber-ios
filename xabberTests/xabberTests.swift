@@ -14582,7 +14582,10 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         )
         controller.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: bottomOffset), animated: false)
         controller.messagesCollectionView.layoutIfNeeded()
+        XCTAssertTrue(controller.isNearBottom(threshold: 1))
 
+        let anchor = try XCTUnwrap(controller.capturePagingAnchorIfNeeded(direction: .newer))
+        let beforeViewportY = try viewportY(for: anchor.primary, in: controller)
         let context = controller.pagingBoundaryContext(
             visibleSections: controller.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
         )
@@ -14609,7 +14612,42 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         )
         XCTAssertNil(controller.pendingPreparedLocalHistoryPage)
         XCTAssertEqual(controller.datasource.last(where: { !$0.isFakeMessage })?.primary, "first-frame-message-999")
-        XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, expectedBottomOffset, accuracy: 1.0)
+        XCTAssertEqual(try viewportY(for: anchor.primary, in: controller), beforeViewportY, accuracy: 1.0)
+        XCTAssertGreaterThan(expectedBottomOffset - controller.messagesCollectionView.contentOffset.y, 100)
+    }
+
+    func testNewerBoundaryPlaceholderAppearsWithoutMovingVisibleAnchor() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 1_000)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        try applyResidentWindow(300..<900, to: controller)
+
+        let bottomOffset = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+            targetMaxY: controller.messagesCollectionView.contentSize.height,
+            contentHeight: controller.messagesCollectionView.contentSize.height,
+            viewportHeight: controller.messagesCollectionView.bounds.height,
+            contentInsets: controller.messagesCollectionView.contentInset
+        )
+        controller.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: bottomOffset), animated: false)
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let lastRealPrimary = try XCTUnwrap(controller.datasource.last(where: { !$0.isFakeMessage })?.primary)
+        let beforeViewportY = try viewportY(for: lastRealPrimary, in: controller)
+
+        controller.showHistoryBoundaryPlaceholder(
+            direction: .newer,
+            currentWindow: controller.visibleWindow()
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertEqual(controller.datasource.last?.archivedId, "history-boundary-placeholder-bottom")
+        XCTAssertEqual(try viewportY(for: lastRealPrimary, in: controller), beforeViewportY, accuracy: 1.0)
     }
 
     func testNewerApplyFromBottomPlaceholderAppendsRowsWithoutMovingVisibleAnchor() throws {
