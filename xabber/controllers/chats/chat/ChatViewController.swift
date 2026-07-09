@@ -4539,11 +4539,22 @@ class ChatViewController: MessagesViewController {
     }
 
     internal var isChatSearchInputKeyboardOwned: Bool {
-        guard isViewLoaded else {
-            return inSearchMode.value
+        inSearchMode.value
+    }
+
+    internal func reconcileChatInputViewStateWithSearchModeIfNeeded() {
+        guard isViewLoaded,
+              let inputView = xabberInputView else {
+            return
         }
 
-        return inSearchMode.value || xabberInputView?.state == .search
+        if inSearchMode.value {
+            if inputView.state != .search {
+                inputView.changeState(to: .search)
+            }
+        } else if inputView.state == .search {
+            inputView.changeState(to: .normal)
+        }
     }
 
     internal func updateChatInputKeyboardLayoutMode() {
@@ -4571,6 +4582,7 @@ class ChatViewController: MessagesViewController {
             return 0
         }
 
+        self.reconcileChatInputViewStateWithSearchModeIfNeeded()
         self.updateChatInputKeyboardLayoutMode()
         let inputKeyboardHeight = self.inputKeyboardHeightForCurrentChatInputMode(
             visibleKeyboardHeight: visibleKeyboardHeight

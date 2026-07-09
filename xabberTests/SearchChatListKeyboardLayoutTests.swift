@@ -34,6 +34,7 @@ final class SearchChatListKeyboardLayoutTests: XCTestCase {
     func testChatSearchStatusBarIsKeyboardOwnedWithoutKeyboardHeightTail() throws {
         let controller = makeLoadedChatController()
 
+        controller.inSearchMode.accept(true)
         controller.configureSearchModeForCurrentActivation(
             defaultActivateKeyboard: false,
             defaultAnimated: false
@@ -71,6 +72,7 @@ final class SearchChatListKeyboardLayoutTests: XCTestCase {
     func testChatSearchStatusBarStaysKeyboardOwnedAfterContainerBoundsChange() throws {
         let controller = makeLoadedChatController()
 
+        controller.inSearchMode.accept(true)
         controller.configureSearchModeForCurrentActivation(
             defaultActivateKeyboard: false,
             defaultAnimated: false
@@ -87,6 +89,41 @@ final class SearchChatListKeyboardLayoutTests: XCTestCase {
             try XCTUnwrap(controller.xabberInputView.heightConstraint).constant,
             ModernXabberInputView.defaultBarHeight,
             accuracy: 0.001
+        )
+    }
+
+    func testChatComposerReturnsToNormalKeyboardLayoutImmediatelyAfterSearchReset() throws {
+        let controller = makeLoadedChatController()
+
+        controller.inSearchMode.accept(true)
+        controller.configureSearchModeForCurrentActivation(
+            defaultActivateKeyboard: false,
+            defaultAnimated: false
+        )
+        XCTAssertEqual(controller.xabberInputView.state, .search)
+
+        controller.inSearchMode.accept(false)
+        controller.keyboardWillChangeFrameNotification(
+            Notification(
+                name: UIResponder.keyboardWillChangeFrameNotification,
+                object: nil,
+                userInfo: [
+                    UIResponder.keyboardFrameEndUserInfoKey: NSValue(
+                        cgRect: CGRect(x: 0, y: 544, width: 390, height: 300)
+                    ),
+                    UIResponder.keyboardAnimationDurationUserInfoKey: NSNumber(value: 0)
+                ]
+            )
+        )
+        controller.view.layoutIfNeeded()
+
+        XCTAssertEqual(controller.xabberInputView.state, .normal)
+        XCTAssertTrue(try XCTUnwrap(controller.xabberInputViewBottomConstraint).isActive)
+        XCTAssertFalse(try XCTUnwrap(controller.xabberInputViewKeyboardTopConstraint).isActive)
+        XCTAssertEqual(controller.xabberInputView.keyboardHeight, 300, accuracy: 0.001)
+        XCTAssertGreaterThan(
+            try XCTUnwrap(controller.xabberInputView.heightConstraint).constant,
+            ModernXabberInputView.defaultBarHeight + 250
         )
     }
 
