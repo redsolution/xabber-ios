@@ -1491,8 +1491,17 @@ extension ChatViewController {
         if searchMessagesQueue.indices.contains(index) {
             searchResultNavigationState = .positioning(index: index)
         }
-        setSelectedSearchResultNavigationIndex(index, isLoadingContext: false)
         scheduleStaleSearchResultPositioningCompletionFallback(finishedIndex: index)
+    }
+
+    internal func commitSearchResultNavigationPositioned(index: Int) {
+        guard searchMessagesQueue.indices.contains(index) else {
+            completeSearchResultNavigation(index: index)
+            return
+        }
+
+        setSelectedSearchResultNavigationIndex(index, isLoadingContext: false)
+        completeSearchResultNavigation(index: index)
     }
 
     private func hasActiveSearchResultAnchorWork() -> Bool {
@@ -1626,6 +1635,7 @@ extension ChatViewController {
         }
 
         searchResultNavigationState = .positioning(index: index)
+        setSearchResultsPanelContextLoading(true)
 
         let item = searchMessagesQueue[index]
         chatScrollDirection = direction
@@ -1658,7 +1668,7 @@ extension ChatViewController {
                     onNavigationFinished?()
                 },
                 onPositioned: { [weak self] in
-                    self?.completeSearchResultNavigation(index: index)
+                    self?.commitSearchResultNavigationPositioned(index: index)
                     onNavigationFinished?()
                 }
             )
