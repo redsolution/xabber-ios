@@ -1768,6 +1768,75 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         )
     }
 
+    func testDirectionalSearchScrollStagingOnlyStagesWhenDirectionWouldBeLost() {
+        XCTAssertNil(
+            ChatDirectionalScrollStagingPolicy.stagedOffsetY(
+                currentOffsetY: 260,
+                targetOffsetY: 200,
+                direction: .up,
+                viewportHeight: 600,
+                minOffsetY: 0,
+                maxOffsetY: 1_000
+            )
+        )
+        XCTAssertNil(
+            ChatDirectionalScrollStagingPolicy.stagedOffsetY(
+                currentOffsetY: 140,
+                targetOffsetY: 200,
+                direction: .down,
+                viewportHeight: 600,
+                minOffsetY: 0,
+                maxOffsetY: 1_000
+            )
+        )
+
+        XCTAssertGreaterThan(
+            try XCTUnwrap(ChatDirectionalScrollStagingPolicy.stagedOffsetY(
+                currentOffsetY: 200,
+                targetOffsetY: 200,
+                direction: .up,
+                viewportHeight: 600,
+                minOffsetY: 0,
+                maxOffsetY: 1_000
+            )),
+            200
+        )
+        XCTAssertLessThan(
+            try XCTUnwrap(ChatDirectionalScrollStagingPolicy.stagedOffsetY(
+                currentOffsetY: 200,
+                targetOffsetY: 200,
+                direction: .down,
+                viewportHeight: 600,
+                minOffsetY: 0,
+                maxOffsetY: 1_000
+            )),
+            200
+        )
+    }
+
+    func testDirectionalSearchScrollStagingRespectsContentBounds() {
+        XCTAssertNil(
+            ChatDirectionalScrollStagingPolicy.stagedOffsetY(
+                currentOffsetY: 40,
+                targetOffsetY: 40,
+                direction: .down,
+                viewportHeight: 600,
+                minOffsetY: 40,
+                maxOffsetY: 1_000
+            )
+        )
+        XCTAssertNil(
+            ChatDirectionalScrollStagingPolicy.stagedOffsetY(
+                currentOffsetY: 1_000,
+                targetOffsetY: 1_000,
+                direction: .up,
+                viewportHeight: 600,
+                minOffsetY: 0,
+                maxOffsetY: 1_000
+            )
+        )
+    }
+
     func testSearchPanelSeekWrapsFromLastResultToFirstResult() {
         let controller = makeControllerWithSearchResults(count: 17, selectedIndex: 16)
         controller.loadViewIfNeeded()
