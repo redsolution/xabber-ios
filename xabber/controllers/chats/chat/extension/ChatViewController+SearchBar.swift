@@ -117,7 +117,7 @@ enum ChatAnchorContextPrefetchModePolicy {
         isSynced: Bool
     ) -> ChatAnchorContextPrefetchMode {
         if source == .search {
-            return .blocking
+            return hasLocalMatch ? .background : .blocking
         }
 
         if hasLocalMatch && isSynced {
@@ -1655,7 +1655,10 @@ extension ChatViewController {
 
         chatScrollDirection = scrollDirection
         searchResultNavigationState = .pending(index: index, scrollDirection: scrollDirection)
-        setSearchResultsPanelContextLoading(true)
+        if hasActiveSearchResultAnchorWork() ||
+            xabberInputView.searchPanel.renderState.isLoadingContext {
+            setSearchResultsPanelContextLoading(true)
+        }
     }
 
     internal func markSearchResultNavigationLoadingContext(for request: ChatOpenMessageRequest) {
@@ -1686,7 +1689,6 @@ extension ChatViewController {
             return false
         }
 
-        setSearchResultsPanelContextLoading(true)
         DispatchQueue.main.async { [weak self] in
             guard let self else {
                 return
@@ -1710,29 +1712,33 @@ extension ChatViewController {
             return
         }
 
-        searchResultNavigationState = .positioning(index: index)
-        setSearchResultsPanelContextLoading(true)
-
         let item = searchMessagesQueue[index]
         chatScrollDirection = direction
         let archivedId = item.archivedId.isNotEmpty ? item.archivedId : nil
-        queueOpenMessageRequest(
-            ChatOpenMessageRequest(
-                chatJid: jid,
-                owner: owner,
-                conversationType: conversationType,
-                anchor: ChatMessageAnchorRef(
-                    messagePrimary: archivedId == nil ? item.primary : nil,
-                    archivedId: archivedId,
-                    messageId: nil,
-                    authorId: nil,
-                    bodyFingerprint: nil,
-                    sourceDate: item.date
-                ),
-                highlight: true,
-                markReadOnVisible: false,
-                source: .search
+        let request = ChatOpenMessageRequest(
+            chatJid: jid,
+            owner: owner,
+            conversationType: conversationType,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: archivedId == nil ? item.primary : nil,
+                archivedId: archivedId,
+                messageId: nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: item.date
             ),
+            highlight: true,
+            markReadOnVisible: false,
+            source: .search
+        )
+
+        searchResultNavigationState = .positioning(index: index)
+        setSearchResultsPanelContextLoading(
+            shouldShowSearchResultContextLoading(for: request)
+        )
+
+        queueOpenMessageRequest(
+            request,
             hooks: ChatAnchorExecutionHooks(
                 direction: direction,
                 animatedScroll: true,
@@ -1749,6 +1755,24 @@ extension ChatViewController {
                 }
             )
         )
+    }
+
+    private func shouldShowSearchResultContextLoading(
+        for request: ChatOpenMessageRequest
+    ) -> Bool {
+        guard request.source == .search else {
+            return false
+        }
+
+        guard self.indexPathForLoadedMessage(request: request) != nil else {
+            return true
+        }
+
+        return ChatAnchorContextPrefetchModePolicy.mode(
+            for: request.source,
+            hasLocalMatch: true,
+            isSynced: self.currentChatIsSyncedForAnchorBootstrap()
+        ) == .blocking
     }
 
     private func navigateSearchResult(direction: ChatDirection) {

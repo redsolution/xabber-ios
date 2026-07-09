@@ -1865,6 +1865,36 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         )
     }
 
+    func testLoadedSearchResultNavigationDoesNotShowContextLoadingSpinner() {
+        let controller = makeControllerWithSearchResults(count: 3, selectedIndex: 0)
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
+        controller.inSearchMode.accept(true)
+        controller.applyChatDatasource(
+            (0..<3).map { makeDatasource(index: $0) },
+            mode: .fullReload(keepOffset: false),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.xabberInputView.searchPanel.applyRenderState(.results(current: 0, total: 3, isLoadingContext: false))
+
+        controller.onSearchPanelSeekUp()
+
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: 0, total: 3, isLoadingContext: false)
+        )
+        XCTAssertTrue(waitForSearchTestCondition {
+            controller.searchResultNavigationState == .idle &&
+            controller.selectedSearchResultId == controller.searchMessagesQueue[1].archivedId &&
+            controller.xabberInputView.searchPanel.renderState == .results(current: 1, total: 3, isLoadingContext: false)
+        })
+    }
+
     func testSearchNavigationWrapsAroundExistingUpDownPolicy() {
         let controller = makeControllerWithSearchResults(count: 3, selectedIndex: 0)
 
@@ -2194,6 +2224,56 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         message.messageId = "message-\(index)"
         message.date = Date(timeIntervalSince1970: TimeInterval(1_711_283_200 + index))
         return message
+    }
+
+    private func makeDatasource(index: Int) -> ChatViewController.Datasource {
+        ChatViewController.Datasource(
+            primary: "primary-\(index)",
+            jid: "contact@example.com",
+            owner: "owner@example.com",
+            outgoing: false,
+            sender: Sender(id: "contact@example.com", displayName: "Contact"),
+            messageId: "message-\(index)",
+            sentDate: Date(timeIntervalSince1970: TimeInterval(1_711_283_200 + index)),
+            editDate: nil,
+            kind: .attributedText(NSAttributedString(string: "needle \(index)")),
+            withAuthor: false,
+            withAvatar: false,
+            error: false,
+            errorType: "",
+            canPinMessage: false,
+            canEditMessage: false,
+            canDeleteMessage: false,
+            forwards: [],
+            isOutgoing: false,
+            isEdited: false,
+            groupchatAuthorRole: "",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isHasAttachedMessages: false,
+            isDownloaded: true,
+            state: .read,
+            searchString: "needle",
+            errorMetadata: nil,
+            burnDate: -1,
+            afterburnInterval: -1,
+            archivedId: "archive-\(index)",
+            queryIds: nil,
+            isRead: true,
+            selectedSearchResultId: nil,
+            isHadHistoryGap: false,
+            tailed: false,
+            isFakeMessage: false,
+            images: [],
+            videos: [],
+            files: [],
+            audios: [],
+            timeMarkerText: NSAttributedString(string: ""),
+            indicator: .none,
+            avatarUrl: nil,
+            attributedAuthor: nil
+        )
     }
 }
 
@@ -23516,14 +23596,22 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         )
     }
 
-    func testSearchContextPrefetchBlocksEvenWhenLocalAnchorExists() {
+    func testSearchContextPrefetchRunsInBackgroundWhenLocalAnchorExists() {
         XCTAssertEqual(
             ChatAnchorContextPrefetchModePolicy.mode(
                 for: .search,
                 hasLocalMatch: true,
                 isSynced: true
             ),
-            .blocking
+            .background
+        )
+        XCTAssertEqual(
+            ChatAnchorContextPrefetchModePolicy.mode(
+                for: .search,
+                hasLocalMatch: true,
+                isSynced: false
+            ),
+            .background
         )
     }
 
