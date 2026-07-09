@@ -94,6 +94,36 @@ final class ChatReloadInvalidationPolicyTests: XCTestCase {
         XCTAssertEqual(plan.applyCategory, .olderAnchorReload)
     }
 
+    func testNewerAnchorCaptureTreatsBottomPlaceholderAsNonLiveBottom() {
+        XCTAssertTrue(ChatHistoryPageAnchorCapturePolicy.shouldCaptureNewerAnchor(
+            isNearBottom: true,
+            isResidentAtLiveTail: false,
+            hasBottomBoundaryPlaceholder: true,
+            hasBottomVirtualPlaceholder: true,
+            hasNewerRemoteLoad: true
+        ))
+    }
+
+    func testNewerAnchorCaptureKeepsLiveBottomLatestBehavior() {
+        XCTAssertFalse(ChatHistoryPageAnchorCapturePolicy.shouldCaptureNewerAnchor(
+            isNearBottom: true,
+            isResidentAtLiveTail: true,
+            hasBottomBoundaryPlaceholder: false,
+            hasBottomVirtualPlaceholder: false,
+            hasNewerRemoteLoad: false
+        ))
+    }
+
+    func testNewerAnchorCaptureKeepsLocalBottomPagingBehaviorWithoutPlaceholder() {
+        XCTAssertFalse(ChatHistoryPageAnchorCapturePolicy.shouldCaptureNewerAnchor(
+            isNearBottom: true,
+            isResidentAtLiveTail: false,
+            hasBottomBoundaryPlaceholder: false,
+            hasBottomVirtualPlaceholder: false,
+            hasNewerRemoteLoad: false
+        ))
+    }
+
     func testSearchObserverRefreshAwayFromBottomPreservesVisibleNewerAnchor() {
         XCTAssertTrue(ChatObserverRefreshAnchorRestorePolicy.shouldSuppressOpenLatest(
             isSearchModeActive: true,

@@ -14612,6 +14612,85 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, expectedBottomOffset, accuracy: 1.0)
     }
 
+    func testNewerApplyFromBottomPlaceholderAppendsRowsWithoutMovingVisibleAnchor() throws {
+        let controller = makeController()
+        controller.ownerSender = Sender(id: owner, displayName: owner)
+        controller.opponentSender = Sender(id: jid, displayName: jid)
+        controller.loadViewIfNeeded()
+        controller.view.layoutIfNeeded()
+        controller.showSkeletonObserver.accept(false)
+
+        let initialItems = (300..<340).map { makeDatasource(index: $0) }
+        controller.activeHistoryBoundaryPlaceholder = .bottom
+        controller.virtualTimelineState = makeVirtualTimelineState(
+            items: initialItems,
+            queryId: "newer-query",
+            activePlaceholder: .bottom,
+            isResidentAtLiveTail: false
+        )
+        controller.boundedTimelineWindowState = ChatBoundedTimelineWindowState(
+            virtualState: controller.virtualTimelineState
+        )
+        controller.applyChatDatasource(
+            controller.datasourceByAddingHistoryBoundaryPlaceholder(
+                to: initialItems,
+                position: .bottom
+            ),
+            mode: .fullReload(keepOffset: false),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let bottomOffset = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+            targetMaxY: controller.messagesCollectionView.contentSize.height,
+            contentHeight: controller.messagesCollectionView.contentSize.height,
+            viewportHeight: controller.messagesCollectionView.bounds.height,
+            contentInsets: controller.messagesCollectionView.contentInset
+        )
+        controller.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: bottomOffset), animated: false)
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertTrue(controller.isNearBottom(threshold: 1))
+        XCTAssertEqual(controller.datasource.last?.archivedId, "history-boundary-placeholder-bottom")
+
+        let anchor = try XCTUnwrap(controller.capturePagingAnchorIfNeeded(direction: .newer))
+        let beforeViewportY = try viewportY(for: anchor.primary, in: controller)
+        let expandedItems = (300..<380).map { makeDatasource(index: $0) }
+        let applyPlan = ChatHistoryPageApplyPolicy.plan(direction: .newer, hasCapturedAnchor: true)
+        var completionViewportY: CGFloat?
+
+        controller.activeHistoryBoundaryPlaceholder = nil
+        controller.virtualTimelineState = makeVirtualTimelineState(
+            items: expandedItems,
+            queryId: nil,
+            activePlaceholder: nil,
+            isResidentAtLiveTail: false
+        )
+        controller.boundedTimelineWindowState = ChatBoundedTimelineWindowState(
+            virtualState: controller.virtualTimelineState
+        )
+        controller.applyChatDatasource(
+            expandedItems,
+            mode: .windowReload(keepOffset: applyPlan.keepOffset),
+            animated: false,
+            anchorRestorePhase: applyPlan.restorePhase,
+            anchorPrimary: anchor.primary,
+            restoreAnchor: anchor,
+            completion: {
+                if applyPlan.restorePhase == .completion {
+                    controller.restorePagingAnchor(anchor)
+                }
+                completionViewportY = try? self.viewportY(for: anchor.primary, in: controller)
+            }
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertEqual(controller.datasource.last(where: { !$0.isFakeMessage })?.primary, "atomic-message-379")
+        XCTAssertEqual(try XCTUnwrap(completionViewportY), beforeViewportY, accuracy: 1.0)
+        XCTAssertEqual(try viewportY(for: anchor.primary, in: controller), beforeViewportY, accuracy: 1.0)
+    }
+
     func testPreparedLocalPageIsDiscardedWhenVirtualStateChangesBeforeScrollRest() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 620)
@@ -14820,6 +14899,61 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             archivedId: "archive-\(index)",
             messageId: "message-\(index)",
             date: Date(timeIntervalSince1970: TimeInterval(1_700_000_000 + index))
+        )
+    }
+
+    private func makeVirtualTimelineState(
+        items: [ChatViewController.Datasource],
+        queryId: String?,
+        activePlaceholder: ChatHistoryBoundaryPlaceholderPosition?,
+        isResidentAtLiveTail: Bool
+    ) -> ChatVirtualTimelineState {
+        let oldest = items.first.map {
+            ChatTimelineBoundary(
+                primary: $0.primary,
+                archivedId: $0.archivedId,
+                messageId: $0.messageId,
+                date: $0.sentDate
+            )
+        }
+        let newest = items.last.map {
+            ChatTimelineBoundary(
+                primary: $0.primary,
+                archivedId: $0.archivedId,
+                messageId: $0.messageId,
+                date: $0.sentDate
+            )
+        }
+        var segments: [ChatVirtualSegment] = [
+            .unknownOlder,
+            .loadedRange(oldestArchiveId: oldest?.archivedId, newestArchiveId: newest?.archivedId),
+            .unknownNewer
+        ]
+        if let activePlaceholder {
+            segments.append(.loadingPlaceholder(activePlaceholder))
+        }
+
+        return ChatVirtualTimelineState(
+            conversationKey: ChatTimelineConversationKey(
+                owner: owner,
+                jid: jid,
+                conversationType: .regular
+            ),
+            segments: segments,
+            oldest: oldest,
+            newest: newest,
+            residentPrimaryKeys: items.map(\.primary),
+            residentArchivedIds: items.compactMap(\.archivedId),
+            activeRemoteLoad: queryId.map {
+                ChatTimelineRemoteLoad(
+                    queryId: $0,
+                    direction: .newer,
+                    decision: .remoteNewerPage,
+                    cursorId: newest?.archivedId
+                )
+            },
+            activePlaceholder: activePlaceholder,
+            isResidentAtLiveTail: isResidentAtLiveTail
         )
     }
 

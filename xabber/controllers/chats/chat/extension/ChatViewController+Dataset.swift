@@ -3372,6 +3372,26 @@ enum ChatHistoryPageApplyPolicy {
     }
 }
 
+enum ChatHistoryPageAnchorCapturePolicy {
+    static func shouldCaptureNewerAnchor(
+        isNearBottom: Bool,
+        isResidentAtLiveTail: Bool,
+        hasBottomBoundaryPlaceholder: Bool,
+        hasBottomVirtualPlaceholder: Bool,
+        hasNewerRemoteLoad: Bool
+    ) -> Bool {
+        guard isNearBottom else {
+            return true
+        }
+
+        return !isResidentAtLiveTail && (
+            hasBottomBoundaryPlaceholder ||
+            hasBottomVirtualPlaceholder ||
+            hasNewerRemoteLoad
+        )
+    }
+}
+
 enum ChatTimelineObserverRefreshPolicy {
     static func shouldOpenLatest(
         isTimelineEmpty: Bool,
@@ -6570,13 +6590,14 @@ extension ChatViewController {
         let containsRealMessages = items.contains { !$0.isFakeMessage }
         let wasNearBottom = self.isNearBottom()
         let effectiveAnchorPrimary = anchorPrimary ?? restoreAnchor?.primary
+        let shouldRestoreAnchor = anchorRestorePhase != .none && restoreAnchor != nil
         let shouldRestoreAnchorInApplyTransaction = anchorRestorePhase == .applyTransaction && restoreAnchor != nil
         let isDefaultBottomScrollDeferred = ChatInitialScrollPolicy.shouldDeferDefaultScroll(
             hasPendingAnchorRequest: self.pendingOpenMessageRequest != nil,
             isAnchorNavigationInFlight: self.isMessageAnchorNavigationInFlight
         )
         let shouldAutoScrollToBottom = !suppressDefaultBottomScroll
-            && !shouldRestoreAnchorInApplyTransaction
+            && !shouldRestoreAnchor
             && forceBottomAlignmentTarget == nil
             && wasNearBottom
             && !isDefaultBottomScrollDeferred
@@ -6591,7 +6612,7 @@ extension ChatViewController {
             isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
         )
         let outgoingAutoScrollDecision = self.consumePendingOutgoingAutoScrollDecision(items: items)
-        let shouldTailAppendBottomPin = !shouldRestoreAnchorInApplyTransaction
+        let shouldTailAppendBottomPin = !shouldRestoreAnchor
             && ChatTailAppendBottomPinPolicy.shouldPinBottom(
                 old: previousSnapshot,
                 new: newSnapshot,
@@ -8113,7 +8134,19 @@ extension ChatViewController {
         case .older:
             anchorSection = candidateSections.min()
         case .newer:
-            anchorSection = self.isNearBottom() ? nil : candidateSections.max()
+            let normalizedState = self.virtualTimelineState.normalized(
+                owner: self.owner,
+                jid: self.jid,
+                conversationType: self.conversationType
+            )
+            let shouldCapture = ChatHistoryPageAnchorCapturePolicy.shouldCaptureNewerAnchor(
+                isNearBottom: self.isNearBottom(),
+                isResidentAtLiveTail: normalizedState.isResidentAtLiveTail,
+                hasBottomBoundaryPlaceholder: self.activeHistoryBoundaryPlaceholder == .bottom,
+                hasBottomVirtualPlaceholder: normalizedState.activePlaceholder == .bottom,
+                hasNewerRemoteLoad: normalizedState.activeRemoteLoad?.direction == .newer
+            )
+            anchorSection = shouldCapture ? candidateSections.max() : nil
         }
 
         guard let section = anchorSection else {
@@ -8326,8 +8359,17 @@ extension ChatViewController {
         streamKind: MessageArchiveEndPageEvent.StreamKind,
         errorDescription: String?
     ) {
+        let context = self.interactiveHistoryPageLoadContext
         let hadBoundaryPlaceholder = self.activeHistoryBoundaryPlaceholder != nil
         let hadVirtualPlaceholder = self.virtualTimelineState.activePlaceholder != nil
+        let direction = context?.direction ?? self.virtualTimelineState.activeRemoteLoad?.direction
+        let anchor = direction.flatMap { self.capturePagingAnchorIfNeeded(direction: $0) }
+        let applyPlan = direction.map {
+            ChatHistoryPageApplyPolicy.plan(
+                direction: $0,
+                hasCapturedAnchor: anchor != nil
+            )
+        }
         if let queryId {
             self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
             self.abortedRemoteHistoryQueryIds.insert(queryId)
@@ -8356,10 +8398,20 @@ extension ChatViewController {
         ])
         if hadBoundaryPlaceholder || hadVirtualPlaceholder {
             self.mapAndApplyTimelineCurrent(
-                mode: .windowReload(keepOffset: true),
+                mode: .windowReload(keepOffset: applyPlan?.keepOffset ?? true),
                 animated: false,
                 invalidateLayout: false,
-                preserveBoundaryPlaceholder: false
+                preserveBoundaryPlaceholder: false,
+                applyCategory: applyPlan?.applyCategory ?? .default,
+                anchorRestorePhase: applyPlan?.restorePhase ?? .none,
+                anchorPrimary: anchor?.primary,
+                restoreAnchor: anchor,
+                completion: {
+                    if applyPlan?.restorePhase == .completion,
+                       let anchor {
+                        self.restorePagingAnchor(anchor)
+                    }
+                }
             )
         }
     }
