@@ -183,7 +183,15 @@ extension ChatViewController {
         )
 
         let updates = {
-            inputView.update(screenHeight: self.view.bounds.height, keyboardHeight: keyboardVisibleHeight)
+            self.updateChatInputKeyboardLayoutMode()
+            let inputKeyboardHeight = self.inputKeyboardHeightForCurrentChatInputMode(
+                visibleKeyboardHeight: keyboardVisibleHeight
+            )
+            inputView.update(
+                screenHeight: self.view.bounds.height,
+                keyboardHeight: inputKeyboardHeight,
+                includeBottomSafeAreaWhenKeyboardHidden: !self.isChatSearchInputKeyboardOwned
+            )
             let inputHeight = inputView.bounds.height
             self.applyChatComposerFrameUpdate(
                 inputHeight: inputHeight,

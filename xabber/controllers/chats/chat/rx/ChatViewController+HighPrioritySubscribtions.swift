@@ -309,6 +309,7 @@ extension ChatViewController {
                         )
                     )
                     self.xabberInputView.changeState(to: .search)
+                    self.updateChatInputKeyboardLayoutMode()
                     self.shouldShowScrollDownButton.accept(false)
                     if self.shouldShowUnreadMentionsNavigator.value {
                         self.shouldShowUnreadMentionsNavigator.accept(false)
@@ -316,7 +317,8 @@ extension ChatViewController {
                 } else {
                     self.searchTextObserver.accept(nil)
                     self.configureNavbar()
-                    self.xabberInputView.changeState(to: self.xabberInputView.state)
+                    self.xabberInputView.changeState(to: .normal)
+                    self.updateChatInputKeyboardLayoutMode()
                     self.applyChatDatasource(
                         self.datasource,
                         mode: .fullReload(),

@@ -2841,7 +2841,13 @@ class ModernXabberInputView: UIView {
         
     }
     
-    final func update(screenHeight: CGFloat, keyboardHeight: CGFloat, animate: Bool = false, additionalAnimations: (() -> Void)? = nil) {
+    final func update(
+        screenHeight: CGFloat,
+        keyboardHeight: CGFloat,
+        includeBottomSafeAreaWhenKeyboardHidden: Bool = true,
+        animate: Bool = false,
+        additionalAnimations: (() -> Void)? = nil
+    ) {
         func doAnimate(_ block: @escaping () -> Void) {
             if animate {
                 UIView.animate(withDuration: 0.16, delay: 0.0, options: [.showHideTransitionViews, .curveEaseInOut], animations: block)
@@ -2853,7 +2859,7 @@ class ModernXabberInputView: UIView {
         self.keyboardHeight = keyboardHeight
         self.screenHeight = screenHeight
         var inputHeight: CGFloat = self.barHeight + keyboardHeight + topInset
-        if keyboardHeight == 0 {
+        if keyboardHeight == 0, includeBottomSafeAreaWhenKeyboardHidden {
             if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
                 inputHeight += bottomInset
             }
