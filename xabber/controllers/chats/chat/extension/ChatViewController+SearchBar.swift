@@ -1204,6 +1204,9 @@ extension ChatViewController {
             selectedSearchResultId = nil
         }
         refreshVisibleSearchSelection()
+        if clearResults {
+            clearVisibleSearchTextHighlightsIfNeeded()
+        }
         if cancelResultNavigation {
             cancelSearchResultNavigation()
             setLoadingIndicatorVisible(false)
@@ -1213,6 +1216,38 @@ extension ChatViewController {
         }
         if let panelState {
             xabberInputView.searchPanel.applyRenderState(panelState)
+        }
+    }
+
+    internal func clearVisibleSearchTextHighlightsIfNeeded() {
+        guard isViewLoaded,
+              datasource.contains(where: { $0.searchString != nil }) else {
+            return
+        }
+        applyChatDatasource(
+            Self.datasourceByClearingSearchTextHighlights(datasource),
+            mode: .fullReload(keepOffset: true),
+            animated: false,
+            invalidateLayout: true,
+            suppressDefaultBottomScroll: true
+        )
+    }
+
+    internal static func datasourceByClearingSearchTextHighlights(_ items: [Datasource]) -> [Datasource] {
+        items.map { item in
+            guard item.searchString != nil else {
+                return item
+            }
+            var cleared = item
+            cleared.searchString = nil
+            if case .attributedText(let text) = item.kind {
+                let mutable = NSMutableAttributedString(attributedString: text)
+                if mutable.length > 0 {
+                    mutable.removeAttribute(.backgroundColor, range: NSRange(location: 0, length: mutable.length))
+                }
+                cleared.kind = .attributedText(mutable)
+            }
+            return cleared
         }
     }
 

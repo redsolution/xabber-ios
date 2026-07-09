@@ -1249,6 +1249,117 @@ final class ChatSearchModeActivationTests: XCTestCase {
         XCTAssertIdentical(navigationController.topViewController, controller)
         XCTAssertNil(controller.presentingViewController)
     }
+
+    func testCancelSearchModeClearsVisibleTextHighlight() throws {
+        let controller = ChatViewController()
+        controller.loadViewIfNeeded()
+        controller.showSkeletonObserver.accept(false)
+        controller.inSearchMode.accept(true)
+        controller.searchTextObserver.accept("needle")
+        controller.datasource = [
+            makeSearchHighlightedDatasource(primary: "primary-1", text: "needle in message")
+        ]
+
+        controller.cancelSearchModeFromSearchUI()
+
+        let attributedText = try XCTUnwrap(controller.datasource.first?.attributedTextForTesting)
+        XCTAssertNil(attributedText.attribute(.backgroundColor, at: 0, effectiveRange: nil))
+        XCTAssertNil(controller.datasource.first?.searchString)
+    }
+
+    func testEmptySearchSubmitClearsVisibleTextHighlight() throws {
+        let controller = ChatViewController()
+        controller.loadViewIfNeeded()
+        controller.showSkeletonObserver.accept(false)
+        controller.inSearchMode.accept(true)
+        controller.searchTextObserver.accept("needle")
+        controller.datasource = [
+            makeSearchHighlightedDatasource(primary: "primary-1", text: "needle in message")
+        ]
+
+        controller.submitSearchTextFromSearchInput("   ")
+
+        let attributedText = try XCTUnwrap(controller.datasource.first?.attributedTextForTesting)
+        XCTAssertNil(attributedText.attribute(.backgroundColor, at: 0, effectiveRange: nil))
+        XCTAssertNil(controller.datasource.first?.searchString)
+        XCTAssertNil(controller.searchTextObserver.value)
+    }
+
+    func testClearingSearchHighlightRemovesSearchBackgroundWithoutChangingBodyText() throws {
+        let highlighted = makeSearchHighlightedDatasource(primary: "primary-1", text: "needle in message")
+
+        let cleared = ChatViewController.datasourceByClearingSearchTextHighlights([highlighted])
+
+        let item = try XCTUnwrap(cleared.first)
+        let attributedText = try XCTUnwrap(item.attributedTextForTesting)
+        XCTAssertEqual(attributedText.string, "needle in message")
+        XCTAssertNil(attributedText.attribute(.backgroundColor, at: 0, effectiveRange: nil))
+        XCTAssertNil(item.searchString)
+    }
+
+    private func makeSearchHighlightedDatasource(
+        primary: String,
+        text: String
+    ) -> ChatViewController.Datasource {
+        let attributed = NSMutableAttributedString(string: text)
+        attributed.addAttribute(.backgroundColor, value: UIColor.systemGreen, range: NSRange(location: 0, length: min(6, attributed.length)))
+        return ChatViewController.Datasource(
+            primary: primary,
+            jid: "romeo@example.com",
+            owner: "owner@example.com",
+            outgoing: false,
+            sender: Sender(id: "romeo@example.com", displayName: "Romeo"),
+            messageId: "\(primary)-message-id",
+            sentDate: Date(timeIntervalSince1970: 1_700_000_000),
+            editDate: nil,
+            kind: .attributedText(attributed),
+            withAuthor: false,
+            withAvatar: false,
+            error: false,
+            errorType: "",
+            canPinMessage: false,
+            canEditMessage: false,
+            canDeleteMessage: false,
+            forwards: [],
+            isOutgoing: false,
+            isEdited: false,
+            groupchatAuthorRole: "",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isHasAttachedMessages: false,
+            isDownloaded: true,
+            state: .read,
+            searchString: "needle",
+            errorMetadata: nil,
+            burnDate: -1,
+            afterburnInterval: -1,
+            archivedId: "archive-\(primary)",
+            queryIds: nil,
+            isRead: true,
+            selectedSearchResultId: nil,
+            isHadHistoryGap: false,
+            tailed: false,
+            isFakeMessage: false,
+            images: [],
+            videos: [],
+            files: [],
+            audios: [],
+            timeMarkerText: NSAttributedString(string: ""),
+            indicator: .none,
+            avatarUrl: nil,
+            attributedAuthor: nil
+        )
+    }
+}
+
+private extension ChatViewController.Datasource {
+    var attributedTextForTesting: NSAttributedString? {
+        guard case .attributedText(let text) = kind else {
+            return nil
+        }
+        return text
+    }
 }
 
 fileprivate func waitForSearchTestCondition(
