@@ -41,6 +41,7 @@ struct VoiceMessageDescriptor: Equatable {
     let downloaded: Bool
     let pcm: [Float]
     let sentDate: Date
+    let archivedId: String?
 
     init(
         referencePrimary: String,
@@ -50,7 +51,8 @@ struct VoiceMessageDescriptor: Equatable {
         duration: TimeInterval,
         downloaded: Bool,
         pcm: [Float],
-        sentDate: Date
+        sentDate: Date,
+        archivedId: String? = nil
     ) {
         self.referencePrimary = referencePrimary
         self.containerMessagePrimary = containerMessagePrimary
@@ -60,6 +62,7 @@ struct VoiceMessageDescriptor: Equatable {
         self.downloaded = downloaded
         self.pcm = pcm
         self.sentDate = sentDate
+        self.archivedId = archivedId
     }
 
     var isLocallyAvailable: Bool {
@@ -453,7 +456,8 @@ final class VoiceMessagePlaybackCoordinator {
                 duration: file.duration,
                 downloaded: true,
                 pcm: file.pcm,
-                sentDate: descriptor.sentDate
+                sentDate: descriptor.sentDate,
+                archivedId: descriptor.archivedId
             )
             descriptors[descriptor.referencePrimary] = downloadedDescriptor
             setState(.downloaded, for: downloadedDescriptor)
@@ -612,7 +616,9 @@ final class VoiceMessagePlaybackCoordinator {
                 return nil
             }
 
-            let archivedId = message?.archivedId.isEmpty == false ? message?.archivedId : nil
+            let archivedId = message?.archivedId.isEmpty == false
+                ? message?.archivedId
+                : descriptor.archivedId
             return VoiceMessagePlaybackRoute(
                 owner: owner,
                 jid: jid,
