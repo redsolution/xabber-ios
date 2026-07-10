@@ -475,10 +475,11 @@ enum ChatOpenMessageRequestSource: String {
     case initialUnreadBoundary = "initial-unread-boundary"
     case savedVisiblePosition = "saved-visible-position"
     case directOpenAtMessage = "direct-open-at-message"
+    case mediaGallery = "media-gallery"
 
     var usesTransientHighlight: Bool {
         switch self {
-        case .voicePlayer, .composerReferencePreview, .composerEditPreview, .pinnedMessage:
+        case .voicePlayer, .composerReferencePreview, .composerEditPreview, .pinnedMessage, .mediaGallery:
             return true
         case .mentionNotification, .pushNotification, .search, .external, .initialUnreadBoundary, .savedVisiblePosition, .directOpenAtMessage:
             return false

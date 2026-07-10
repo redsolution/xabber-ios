@@ -294,7 +294,7 @@ enum ChatOpenMessageRequestHandlingPolicy {
     }
 
     static func shouldHonorMessageAnchorRequest(source: ChatOpenMessageRequestSource) -> Bool {
-        if source == .search || source == .initialUnreadBoundary {
+        if source == .search || source == .initialUnreadBoundary || source == .mediaGallery {
             return true
         }
 

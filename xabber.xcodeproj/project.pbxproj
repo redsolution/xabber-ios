@@ -53,6 +53,8 @@
 		4E8400082FD3000000ABC001 /* MediaGalleryImagePrefetchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8400072FD3000000ABC001 /* MediaGalleryImagePrefetchTests.swift */; };
 		4E84000A2FD3000000ABC001 /* MediaGalleryVideoCellStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8400092FD3000000ABC001 /* MediaGalleryVideoCellStateTests.swift */; };
 		4E84000C2FD3000000ABC001 /* MediaGalleryVideoPrefetchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E84000B2FD3000000ABC001 /* MediaGalleryVideoPrefetchTests.swift */; };
+		4E84000E2FD3000000ABC001 /* MediaGalleryMessageNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E84000D2FD3000000ABC001 /* MediaGalleryMessageNavigationTests.swift */; };
+		4E8400102FD3000000ABC001 /* MediaGalleryMessageNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E84000F2FD3000000ABC001 /* MediaGalleryMessageNavigation.swift */; };
 		4E7000022FAF00000ABC001 /* TextMessageCellReuseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7000012FAF00000ABC001 /* TextMessageCellReuseTests.swift */; };
 		4E7100022FB000000ABC001 /* ChatComposerSendButtonIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7100012FB000000ABC001 /* ChatComposerSendButtonIconTests.swift */; };
 		4E5300082F71000000ABC001 /* GroupchatInviteV3Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5300072F71000000ABC001 /* GroupchatInviteV3Tests.swift */; };
@@ -942,6 +944,8 @@
 		4E8400072FD3000000ABC001 /* MediaGalleryImagePrefetchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGalleryImagePrefetchTests.swift; sourceTree = "<group>"; };
 		4E8400092FD3000000ABC001 /* MediaGalleryVideoCellStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGalleryVideoCellStateTests.swift; sourceTree = "<group>"; };
 		4E84000B2FD3000000ABC001 /* MediaGalleryVideoPrefetchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGalleryVideoPrefetchTests.swift; sourceTree = "<group>"; };
+		4E84000D2FD3000000ABC001 /* MediaGalleryMessageNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGalleryMessageNavigationTests.swift; sourceTree = "<group>"; };
+		4E84000F2FD3000000ABC001 /* MediaGalleryMessageNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGalleryMessageNavigation.swift; sourceTree = "<group>"; };
 		4E5300072F71000000ABC001 /* GroupchatInviteV3Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatInviteV3Tests.swift; sourceTree = "<group>"; };
 		4E5700022F75000000ABC001 /* XMPPMessageScheduleStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPMessageScheduleStorageItem.swift; sourceTree = "<group>"; };
 		4E5700032F75000000ABC001 /* XMPPMessageScheduleManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPMessageScheduleManager.swift; sourceTree = "<group>"; };
@@ -3016,6 +3020,7 @@
 			isa = PBXGroup;
 			children = (
 				4E8400052FD3000000ABC001 /* MediaGalleryFullscreenFoundation.swift */,
+				4E84000F2FD3000000ABC001 /* MediaGalleryMessageNavigation.swift */,
 				660307562EFC22C6000306D8 /* VoiceGalleryForChatViewController.swift */,
 				6681C7842EFABB5900EF7170 /* FilesGalleryForChatViewController.swift */,
 				6681C7822EFABAA100EF7170 /* VideoGalleryForChatViewController.swift */,
@@ -3943,6 +3948,7 @@
 					4E8400072FD3000000ABC001 /* MediaGalleryImagePrefetchTests.swift */,
 					4E8400092FD3000000ABC001 /* MediaGalleryVideoCellStateTests.swift */,
 					4E84000B2FD3000000ABC001 /* MediaGalleryVideoPrefetchTests.swift */,
+					4E84000D2FD3000000ABC001 /* MediaGalleryMessageNavigationTests.swift */,
 					4E5300072F71000000ABC001 /* GroupchatInviteV3Tests.swift */,
 					4E5700062F75000000ABC001 /* XMPPMessageScheduleManagerTests.swift */,
 					4E58000A2F76000000ABC001 /* XEPMessageScheduleUITests.swift */,
@@ -5546,6 +5552,7 @@
 				6624562E2498AC9C005510AE /* GroupchatContactInfoViewController+ItemCell.swift in Sources */,
 				6681C7812EFAB04500EF7170 /* BaseMediaGalleryForChatViewController.swift in Sources */,
 				4E8400062FD3000000ABC001 /* MediaGalleryFullscreenFoundation.swift in Sources */,
+				4E8400102FD3000000ABC001 /* MediaGalleryMessageNavigation.swift in Sources */,
 				66C28E7B2BA87845000AF10B /* XMPPNotificationsManagerStorageItem.swift in Sources */,
 				849D262C2C4F7FCB000A19D2 /* ChatFilesViewController+CollectionViewDataSource.swift in Sources */,
 				667BC4AB291E640400B07957 /* SubscribtionsManager.swift in Sources */,
@@ -5950,6 +5957,7 @@
 					4E8400082FD3000000ABC001 /* MediaGalleryImagePrefetchTests.swift in Sources */,
 					4E84000A2FD3000000ABC001 /* MediaGalleryVideoCellStateTests.swift in Sources */,
 					4E84000C2FD3000000ABC001 /* MediaGalleryVideoPrefetchTests.swift in Sources */,
+					4E84000E2FD3000000ABC001 /* MediaGalleryMessageNavigationTests.swift in Sources */,
 					4E5300082F71000000ABC001 /* GroupchatInviteV3Tests.swift in Sources */,
 					4E5700072F75000000ABC001 /* XMPPMessageScheduleManagerTests.swift in Sources */,
 					4E5800092F76000000ABC001 /* XEPMessageScheduleUITests.swift in Sources */,

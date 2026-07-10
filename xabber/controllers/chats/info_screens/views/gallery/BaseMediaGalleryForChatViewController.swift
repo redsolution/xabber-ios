@@ -140,6 +140,7 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
     
     internal var datasource: [Datasource] = []
     internal var revealedSensitiveMediaPrimaries: Set<String> = Set<String>()
+    var messageNavigationRouter: MediaGalleryMessageNavigationRouting = MediaGalleryMessageNavigationRouter.shared
     
     open var kind: MessageMediaAttachmentStorageItem.Kind = .file
     open var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
@@ -192,6 +193,20 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
     
     func compareDatasource(_ newDatasource: [Datasource]) -> [Change<Datasource>] {
         return diff(old: self.datasource, new: newDatasource)
+    }
+
+    func canOpenContainingMessage(for item: Datasource) -> Bool {
+        MediaGalleryMessageNavigationRequestBuilder.request(for: item) != nil
+    }
+
+    @discardableResult
+    func openContainingMessage(
+        for item: Datasource
+    ) -> MediaGalleryMessageNavigationRouteResult {
+        guard let request = MediaGalleryMessageNavigationRequestBuilder.request(for: item) else {
+            return .unavailable
+        }
+        return messageNavigationRouter.route(request, from: self)
     }
     
     func apply(_ newDatasource: [Datasource]) {

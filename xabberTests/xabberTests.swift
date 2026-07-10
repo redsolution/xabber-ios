@@ -22597,12 +22597,13 @@ final class ChatOpenMessageRequestHandlingPolicyTests: XCTestCase {
         .pinnedMessage,
         .initialUnreadBoundary,
         .savedVisiblePosition,
-        .directOpenAtMessage
+        .directOpenAtMessage,
+        .mediaGallery
     ]
 
-    func testSearchAndInitialUnreadBoundaryRequestsAreHonoredWhileOtherAnchorsAreSuppressed() {
+    func testSearchUnreadBoundaryAndMediaGalleryRequestsAreHonoredWhileOtherAnchorsAreSuppressed() {
         allSources.forEach { source in
-            if source == .search || source == .initialUnreadBoundary {
+            if source == .search || source == .initialUnreadBoundary || source == .mediaGallery {
                 XCTAssertTrue(
                     ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: source),
                     "\(source) should use archive anchor navigation"
