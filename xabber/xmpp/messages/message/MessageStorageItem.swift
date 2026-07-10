@@ -1770,7 +1770,7 @@ class MessageStorageItem: Object {
         paragraph.allowsDefaultTighteningForTruncation = true
         for reference in references where !reference.isLocallyHiddenByReport {
             if reference.end <= reference.begin { continue }
-            if reference.end > body.count { continue }
+            if reference.end > body.utf16.count { continue }
             switch reference.kind {
             case .forward:
                 break
@@ -1835,19 +1835,24 @@ class MessageStorageItem: Object {
             reference.jid = self.opponent
             reference.messageId = self.primary
             
-            reference.begin = out.xmlEscaping(reverse: false).count
+            let fallback: String?
             switch reference.kind {
             case .media:
-                if let uri = reference.fileSharingURI {
-                    out += "\(uri)\n"
-                }
-//                print("OUT: \(out)")
+                fallback = reference.fileSharingURI
             case .voice:
-                out += "Voice message (duration \(TimeInterval(reference.metadata?["duration"] as? Double ?? 0).minuteFormatedString) sec)\n\(reference.fileSharingURI ?? "")\n"
-            default: break
+                guard let uri = reference.fileSharingURI else { return }
+                fallback = "Voice message (duration \(TimeInterval(reference.metadata?["duration"] as? Double ?? 0).minuteFormatedString) sec)\n\(uri)"
+            default:
+                return
             }
-            
-            reference.end = out.xmlEscaping(reverse: false).count + 1
+            guard let fallback, fallback.isNotEmpty else { return }
+
+            if out.isNotEmpty, !out.hasSuffix("\n") {
+                out.append("\n")
+            }
+            reference.begin = out.xmlEscaping(reverse: false).unicodeScalars.count
+            out += fallback
+            reference.end = out.xmlEscaping(reverse: false).unicodeScalars.count
         }
 //        out = [out, body].joined()
         references.forEach {

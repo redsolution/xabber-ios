@@ -84,10 +84,136 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
             .element(forName: "sources")?
             .element(forName: "uri"))
 
-        XCTAssertEqual(item.legacyBody, "\(remoteURL)\n")
+        XCTAssertEqual(item.legacyBody, remoteURL)
         XCTAssertEqual(item.references.first?.begin, 0)
-        XCTAssertGreaterThan(item.references.first?.end ?? 0, remoteURL.count)
+        XCTAssertEqual(item.references.first?.end, remoteURL.xmlEscaping(reverse: false).unicodeScalars.count)
         XCTAssertEqual(uriElement.stringValue, remoteURL)
+    }
+
+    func testMediaFallbackRangesSeparateCaptionAndMultipleAttachments() throws {
+        let caption = "Look & 👨🏿‍🚀"
+        let first = mediaReference(mediaType: "image/jpeg", name: "first.jpg")
+        let second = mediaReference(mediaType: "application/pdf", name: "second.pdf")
+        let firstURI = try XCTUnwrap(first.fileSharingURI)
+        let secondURI = try XCTUnwrap(second.fileSharingURI)
+        let item = MessageStorageItem()
+        item.owner = owner
+        item.opponent = jid
+        item.conversationType = .regular
+        item.legacyBody = caption
+        item.references.append(objectsIn: [first, second])
+
+        item.createLegacyBody()
+        let referenceElements = item.createReferences()
+        let firstBegin = "\(caption)\n".xmlEscaping(reverse: false).unicodeScalars.count
+        let firstEnd = firstBegin + firstURI.xmlEscaping(reverse: false).unicodeScalars.count
+        let secondBegin = firstEnd + 1
+        let secondEnd = secondBegin + secondURI.xmlEscaping(reverse: false).unicodeScalars.count
+
+        XCTAssertEqual(item.legacyBody, "\(caption)\n\(firstURI)\n\(secondURI)")
+        XCTAssertEqual(first.begin, firstBegin)
+        XCTAssertEqual(first.end, firstEnd)
+        XCTAssertEqual(second.begin, secondBegin)
+        XCTAssertEqual(second.end, secondEnd)
+        XCTAssertEqual(referenceElements[0].attributeIntegerValue(forName: "begin"), firstBegin)
+        XCTAssertEqual(referenceElements[0].attributeIntegerValue(forName: "end"), firstEnd)
+        XCTAssertEqual(referenceElements[1].attributeIntegerValue(forName: "begin"), secondBegin)
+        XCTAssertEqual(referenceElements[1].attributeIntegerValue(forName: "end"), secondEnd)
+    }
+
+    func testVoiceFallbackRangeCoversItsCompletePlainTextFallback() {
+        let uri = "https://example.com/voice.ogg"
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .voice
+        reference.mimeType = "audio"
+        reference.url = uri
+        reference.metadata = ["duration": 12.0, "uri": uri]
+        let item = MessageStorageItem()
+        item.owner = owner
+        item.opponent = jid
+        item.conversationType = .regular
+        item.references.append(reference)
+
+        item.createLegacyBody()
+
+        XCTAssertEqual(reference.begin, 0)
+        XCTAssertEqual(reference.end, item.legacyBody.xmlEscaping(reverse: false).unicodeScalars.count)
+        XCTAssertFalse(item.legacyBody.hasSuffix("\n"))
+        XCTAssertTrue(item.legacyBody.hasSuffix(uri))
+    }
+
+    func testValidIncomingMediaReferenceHidesOnlyItsFallbackBody() throws {
+        let fallback = "https://example.com/photo.jpg"
+        let message = try makeMessage(
+            referenceXML: mediaReferenceXML(begin: "0", end: "\(fallback.xmlEscaping(reverse: false).unicodeScalars.count)"),
+            body: fallback
+        )
+        let item = MessageStorageItem()
+
+        item.configureIncomingMessage(
+            message,
+            owner: owner,
+            opponent: jid,
+            outgoing: false,
+            isRead: false,
+            date: Date(timeIntervalSince1970: 10)
+        )
+
+        XCTAssertEqual(item.body, "")
+        XCTAssertEqual(item.references.count, 1)
+        XCTAssertEqual(item.references.first?.kind, .media)
+    }
+
+    func testMalformedIncomingMediaReferenceKeepsFallbackBodyVisible() throws {
+        let fallback = "https://example.com/photo.jpg"
+        let invalidReferences = [
+            mediaReferenceXML(begin: "0", end: "\(fallback.xmlEscaping(reverse: false).unicodeScalars.count + 1)"),
+            mediaReferenceXML(begin: nil, end: "\(fallback.xmlEscaping(reverse: false).unicodeScalars.count)"),
+            mediaReferenceXML(begin: "not-a-number", end: "\(fallback.xmlEscaping(reverse: false).unicodeScalars.count)"),
+            mediaReferenceXML(begin: "-1", end: "\(fallback.xmlEscaping(reverse: false).unicodeScalars.count)"),
+            mediaReferenceXML(begin: "8", end: "3")
+        ]
+
+        for referenceXML in invalidReferences {
+            let message = try makeMessage(referenceXML: referenceXML, body: fallback)
+            let item = MessageStorageItem()
+
+            item.configureIncomingMessage(
+                message,
+                owner: owner,
+                opponent: jid,
+                outgoing: false,
+                isRead: false,
+                date: Date(timeIntervalSince1970: 10)
+            )
+
+            XCTAssertTrue(item.references.isEmpty)
+            XCTAssertEqual(item.body, fallback)
+        }
+    }
+
+    func testMalformedIncomingVoiceReferenceKeepsFallbackBodyVisible() throws {
+        let fallback = "Voice message\nhttps://example.com/voice.ogg"
+        let message = try makeMessage(
+            referenceXML: voiceReferenceXML(
+                begin: "0",
+                end: "\(fallback.xmlEscaping(reverse: false).unicodeScalars.count + 1)"
+            ),
+            body: fallback
+        )
+        let item = MessageStorageItem()
+
+        item.configureIncomingMessage(
+            message,
+            owner: owner,
+            opponent: jid,
+            outgoing: false,
+            isRead: false,
+            date: Date(timeIntervalSince1970: 10)
+        )
+
+        XCTAssertTrue(item.references.isEmpty)
+        XCTAssertEqual(item.body, fallback)
     }
 
     func testEncryptedMediaReferenceRoundTripsEncryptionMetadata() throws {
@@ -834,6 +960,47 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
         """
         let document = try DDXMLDocument(xmlString: xml, options: 0)
         return XMPPMessage(from: try XCTUnwrap(document.rootElement()))
+    }
+
+    private func mediaReferenceXML(begin: String?, end: String?) -> String {
+        let beginAttribute = begin.map { " begin='\($0)'" } ?? ""
+        let endAttribute = end.map { " end='\($0)'" } ?? ""
+        return """
+        <reference xmlns='https://xabber.com/protocol/references' type='mutable'\(beginAttribute)\(endAttribute)>
+          <file-sharing xmlns='https://xabber.com/protocol/files'>
+            <file>
+              <media-type>image/jpeg</media-type>
+              <name>photo.jpg</name>
+              <size>1024</size>
+            </file>
+            <sources>
+              <uri>https://example.com/photo.jpg</uri>
+            </sources>
+          </file-sharing>
+        </reference>
+        """
+    }
+
+    private func voiceReferenceXML(begin: String?, end: String?) -> String {
+        let beginAttribute = begin.map { " begin='\($0)'" } ?? ""
+        let endAttribute = end.map { " end='\($0)'" } ?? ""
+        return """
+        <reference xmlns='https://xabber.com/protocol/references' type='mutable'\(beginAttribute)\(endAttribute)>
+          <voice-message xmlns='https://xabber.com/protocol/voice-messages'>
+            <file-sharing xmlns='https://xabber.com/protocol/files'>
+              <file>
+                <media-type>audio/ogg</media-type>
+                <name>voice.ogg</name>
+                <duration>12</duration>
+                <size>1024</size>
+              </file>
+              <sources>
+                <uri>https://example.com/voice.ogg</uri>
+              </sources>
+            </file-sharing>
+          </voice-message>
+        </reference>
+        """
     }
 
     private func makeArchivedMessage(referenceXML: String, body: String, archiveId: String) throws -> XMPPMessage {

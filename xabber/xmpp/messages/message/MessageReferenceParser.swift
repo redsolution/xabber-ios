@@ -28,6 +28,56 @@ private let geolocXMLNS = "http://jabber.org/protocol/geoloc"
 private let contactSharingXMLNS = "https://xabber.com/protocol/contact-sharing"
 private let avatarMetadataXMLNS = "urn:xmpp:avatar:metadata"
 
+private struct MessageReferenceWireRange: Equatable {
+    let begin: Int
+    let end: Int
+
+    func stringRange(in body: String) -> Range<String.Index>? {
+        let scalars = body.unicodeScalars
+        guard begin >= 0,
+              end >= begin,
+              end <= scalars.count else {
+            return nil
+        }
+
+        let lowerScalarIndex = scalars.index(scalars.startIndex, offsetBy: begin)
+        let upperScalarIndex = scalars.index(scalars.startIndex, offsetBy: end)
+        guard let lowerBound = String.Index(lowerScalarIndex, within: body),
+              let upperBound = String.Index(upperScalarIndex, within: body) else {
+            return nil
+        }
+        return lowerBound..<upperBound
+    }
+}
+
+private func messageReferenceWireRange(
+    _ reference: DDXMLElement,
+    in escapedBody: String
+) -> MessageReferenceWireRange? {
+    guard let beginValue = reference.attributeStringValue(forName: "begin"),
+          let endValue = reference.attributeStringValue(forName: "end"),
+          let begin = Int(beginValue),
+          let end = Int(endValue) else {
+        return nil
+    }
+
+    let range = MessageReferenceWireRange(begin: begin, end: end)
+    return range.stringRange(in: escapedBody) == nil ? nil : range
+}
+
+private func referenceHasAnyWireRangeAttribute(_ reference: DDXMLElement) -> Bool {
+    reference.attributeStringValue(forName: "begin") != nil ||
+    reference.attributeStringValue(forName: "end") != nil
+}
+
+private func referenceRequiresWireRange(_ reference: DDXMLElement, kind: String) -> Bool {
+    if ["media", "voice"].contains(kind) {
+        return true
+    }
+    return reference.attributeStringValue(forName: "type") == "mutable" ||
+    reference.attributeStringValue(forName: "type") == "decoration"
+}
+
 private func isAnonymousMutableReference(_ reference: DDXMLElement) -> Bool {
     let elementChildren = reference.children?.compactMap { $0 as? DDXMLElement } ?? []
     return reference.xmlns() == referencesXMLNS &&
@@ -338,16 +388,34 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
     
     let groupchatRef = groupchatReferenceElement(from: message)
     let displayBody = escapingBody.excludeFromBody(references, groupchat: groupchatRef)
+
+    func displayOffset(for wireOffset: Int) -> Int? {
+        guard let prefix = escapingBody.prefixThroughUnicodeScalars(wireOffset) else {
+            return nil
+        }
+        return prefix
+            .excludeFromBody(references, groupchat: groupchatRef)
+            .utf16.count
+    }
     
     func parse(_ ref: DDXMLElement) -> MessageReferenceStorageItem? {
         guard ref.xmlns() == "https://xabber.com/protocol/references",
             let kind = getReferenceType(ref) else {
                 return nil
             }
-        let begin_unwr = ref.attributeIntegerValue(forName: "begin", withDefaultValue: 0)
-        let end_unwr = ref.attributeIntegerValue(forName: "end", withDefaultValue: 0)// + 1
-        let begin = "\(escapingBody.prefix(begin_unwr))".excludeFromBody(references, groupchat: groupchatRef).count
-        let end = "\(escapingBody.prefix(end_unwr))".excludeFromBody(references, groupchat: groupchatRef).count
+        let wireRange = messageReferenceWireRange(ref, in: escapingBody)
+        if referenceHasAnyWireRangeAttribute(ref) {
+            guard wireRange != nil else { return nil }
+        }
+        if referenceRequiresWireRange(ref, kind: kind) {
+            guard wireRange != nil else { return nil }
+        }
+        if ["media", "voice"].contains(kind),
+           ref.attributeStringValue(forName: "type") != "mutable" {
+            return nil
+        }
+        let begin = wireRange.flatMap { displayOffset(for: $0.begin) } ?? 0
+        let end = wireRange.flatMap { displayOffset(for: $0.end) } ?? 0
         let reference = MessageReferenceStorageItem()
         
         
@@ -661,47 +729,63 @@ extension String {
         }
         return out
     }
+
+    fileprivate func prefixThroughUnicodeScalars(_ offset: Int) -> String? {
+        let scalars = unicodeScalars
+        guard offset >= 0, offset <= scalars.count else { return nil }
+        let scalarIndex = scalars.index(scalars.startIndex, offsetBy: offset)
+        guard let stringIndex = String.Index(scalarIndex, within: self) else { return nil }
+        return String(self[..<stringIndex])
+    }
     
     public func excludeFromBody(_ references: [DDXMLElement], groupchat: DDXMLElement?) -> String {
-        var out: String = self
         var mutatedReferences: [DDXMLElement] = references
         if let groupchatReference = groupchat {
             mutatedReferences.append(groupchatReference)
         }
         if self.isEmpty { return self }
-        for reference in mutatedReferences
-            .sorted(by: { $0.attributeIntegerValue(forName: "begin") < $1.attributeIntegerValue(forName: "begin")}) {
-            if reference.xmlns() != "https://xabber.com/protocol/references" { continue }
-            let ref = MessageReferenceStorageItem()
-            ref.kind_ = getReferenceType(reference) ?? "none"
-            let shouldRemoveAnonymousMutableBody = isAnonymousMutableReference(reference)
-            let offset = self.count - out.count
-            var begin = reference.attributeIntegerValue(forName: "begin") - offset
-            var end = reference.attributeIntegerValue(forName: "end") - offset// + 1
-            if end > out.count {
-                end = out.count - 1
+
+        struct Candidate {
+            let range: MessageReferenceWireRange
+            let kind: String?
+            let removesBody: Bool
+        }
+
+        let candidates = mutatedReferences.compactMap { reference -> Candidate? in
+            guard reference.xmlns() == referencesXMLNS,
+                  let range = messageReferenceWireRange(reference, in: self) else {
+                return nil
             }
-            if begin < 0 {
-                begin = 0
-            }
-            if begin >= end { continue }
-            ref.begin = begin
-            ref.end = end
-            switch ref.kind {
-            case .media, .voice, .forward, .groupchat, .geoloc, .contact:
-                if let range = Range<String.Index>(ref.range, in: out) {
-                    out.removeSubrange(range)
-                }
-            case .quote:
-                let marker =  ">".xmlEscaping(reverse: false)
-                if let range = Range<String.Index>(ref.range, in: out) {
-                    out = out.replacingOccurrences(of: marker, with: "", options: [], range: range)
-                }
+            let kind = getReferenceType(reference)
+            let removesBody: Bool
+            switch kind {
+            case "media", "voice", "forward", "groupchat", "geoloc", "contact":
+                removesBody = true
             default:
-                if shouldRemoveAnonymousMutableBody,
-                   let range = Range<String.Index>(ref.range, in: out) {
-                    out.removeSubrange(range)
-                }
+                removesBody = isAnonymousMutableReference(reference)
+            }
+            guard removesBody || kind == "quote" else { return nil }
+            return Candidate(range: range, kind: kind, removesBody: removesBody)
+        }
+
+        var accepted: [Candidate] = []
+        for candidate in candidates {
+            let overlapsAcceptedRange = accepted.contains {
+                candidate.range.begin < $0.range.end && $0.range.begin < candidate.range.end
+            }
+            if !overlapsAcceptedRange {
+                accepted.append(candidate)
+            }
+        }
+
+        var out = self
+        for candidate in accepted.sorted(by: { $0.range.begin > $1.range.begin }) {
+            guard let range = candidate.range.stringRange(in: out) else { continue }
+            if candidate.removesBody {
+                out.removeSubrange(range)
+            } else if candidate.kind == "quote" {
+                let marker = ">".xmlEscaping(reverse: false)
+                out = out.replacingOccurrences(of: marker, with: "", options: [], range: range)
             }
         }
         return out.xmlEscaping(reverse: true)

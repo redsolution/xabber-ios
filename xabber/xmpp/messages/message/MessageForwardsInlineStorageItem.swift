@@ -97,7 +97,7 @@ class MessageForwardsInlineStorageItem: Object {
         paragraph.allowsDefaultTighteningForTruncation = true
         for reference in references {
             if reference.end <= reference.begin { continue }
-            if reference.end > body.count { continue }
+            if reference.end > body.utf16.count { continue }
             switch reference.kind {
             case .markup:
                 if let styles = reference.metadata?["styles"] as? [String] {

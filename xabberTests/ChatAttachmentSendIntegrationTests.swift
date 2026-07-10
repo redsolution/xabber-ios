@@ -475,10 +475,10 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         let stanza = XMPPMessage(from: stanzaElement)
 
         XCTAssertEqual(stored.body, "")
-        XCTAssertEqual(stored.legacyBody, "\(remoteURL)\n")
+        XCTAssertEqual(stored.legacyBody, remoteURL)
         XCTAssertEqual(stored.references.first?.begin, 0)
-        XCTAssertGreaterThan(stored.references.first?.end ?? 0, remoteURL.count)
-        XCTAssertEqual(stanza.body, "\(remoteURL)\n")
+        XCTAssertEqual(stored.references.first?.end, remoteURL.xmlEscaping(reverse: false).unicodeScalars.count)
+        XCTAssertEqual(stanza.body, remoteURL)
     }
 
     func testWillSendMediaMessageWithCaptionReturnsNilForEmptyAttachmentsAndCreatesNoRow() throws {

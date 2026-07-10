@@ -259,7 +259,7 @@ struct SavedMessageDisplayPolicy {
 
         for reference in presentation.visibleReferences where !reference.isLocallyHiddenByReport {
             if reference.end <= reference.begin { continue }
-            if reference.end > body.count { continue }
+            if reference.end > body.utf16.count { continue }
             switch reference.kind {
             case .markup:
                 applyMarkup(reference, to: string)
@@ -857,7 +857,7 @@ struct ChatMessageDisplaySnapshot {
         for reference in references {
             if skipsHiddenReferences && reference.isLocallyHiddenByReport { continue }
             if reference.end <= reference.begin { continue }
-            if reference.end > body.count { continue }
+            if reference.end > body.utf16.count { continue }
             switch reference.kind {
             case .markup:
                 applyMarkup(reference, to: string)
