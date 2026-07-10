@@ -18,6 +18,9 @@ import RxRelay
 import DeepDiff
 import Kingfisher
 
+enum MediaGalleryContextMenuIdentifier {
+    static let report = UIAction.Identifier("mediaGallery.report")
+}
 
 class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
         
@@ -208,6 +211,20 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
         }
         return messageNavigationRouter.route(request, from: self)
     }
+
+    @available(iOS 13.0, *)
+    func contextMenuActions(for item: Datasource) -> [UIMenuElement] {
+        [
+            UIAction(
+                title: "Report Media".localizeString(id: "report_media_action", arguments: []),
+                image: UIImage(systemName: "exclamationmark.circle"),
+                identifier: MediaGalleryContextMenuIdentifier.report,
+                handler: { [weak self] _ in
+                    self?.presentReportMedia(primary: item.primary)
+                }
+            )
+        ]
+    }
     
     func apply(_ newDatasource: [Datasource]) {
         
@@ -241,17 +258,9 @@ extension BaseMediaGalleryForChatViewController: UICollectionViewDelegate {
         guard datasource.indices.contains(indexPath.row) else {
             return nil
         }
-        let primary = datasource[indexPath.row].primary
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
-            UIMenu(children: [
-                UIAction(
-                    title: "Report Media".localizeString(id: "report_media_action", arguments: []),
-                    image: UIImage(systemName: "exclamationmark.circle"),
-                    handler: { [weak self] _ in
-                        self?.presentReportMedia(primary: primary)
-                    }
-                )
-            ])
+        let item = datasource[indexPath.row]
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            UIMenu(children: self?.contextMenuActions(for: item) ?? [])
         }
     }
     
