@@ -1,6 +1,21 @@
 import CoreGraphics
 import Foundation
 
+struct ChatKeyboardLayoutUpdateSignature: Equatable {
+    let visibleHeight: CGFloat
+    let viewSize: CGSize
+    let searchOwnsKeyboard: Bool
+}
+
+struct ChatKeyboardLayoutUpdatePolicy {
+    static func shouldApply(
+        previous: ChatKeyboardLayoutUpdateSignature?,
+        next: ChatKeyboardLayoutUpdateSignature
+    ) -> Bool {
+        previous != next
+    }
+}
+
 enum ChatComposerFrameUpdateSource: Equatable {
     case containerBounds
     case keyboardFrame

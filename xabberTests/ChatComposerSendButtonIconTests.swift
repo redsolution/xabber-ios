@@ -15,12 +15,12 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
 
     func testTypingPolicySkipsLayoutAndControlAnimationForStableOneLineSendState() {
         let previousVisualState = ComposerTypingVisualState(
-            sendButtonState: .send,
+            actionMode: .textSend,
             timerHidden: true,
             scheduledMessagesVisible: false
         )
         let nextVisualState = ComposerTypingVisualState(
-            sendButtonState: .send,
+            actionMode: .textSend,
             timerHidden: true,
             scheduledMessagesVisible: false
         )
@@ -39,12 +39,12 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
 
     func testTypingPolicyUpdatesControlsWhenComposerCrossesEmptyBoundary() {
         let previousVisualState = ComposerTypingVisualState(
-            sendButtonState: .record,
+            actionMode: .record,
             timerHidden: false,
             scheduledMessagesVisible: true
         )
         let nextVisualState = ComposerTypingVisualState(
-            sendButtonState: .send,
+            actionMode: .textSend,
             timerHidden: true,
             scheduledMessagesVisible: false
         )
@@ -88,8 +88,8 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
     }
 
     func testComposerSendButtonImagesUseRequestedActionGlyphSize() throws {
-        let recordImage = try XCTUnwrap(ModernXabberInputView.composerSendButtonImage(for: .record))
-        let sendImage = try XCTUnwrap(ModernXabberInputView.composerSendButtonImage(for: .send))
+        let recordImage = try XCTUnwrap(ModernXabberInputView.composerActionButtonImage(for: .record))
+        let sendImage = try XCTUnwrap(ModernXabberInputView.composerActionButtonImage(for: .textSend))
 
         XCTAssertEqual(max(recordImage.size.width, recordImage.size.height), Self.composerActionGlyphDimension, accuracy: 0.001)
         XCTAssertEqual(max(sendImage.size.width, sendImage.size.height), Self.composerActionGlyphDimension, accuracy: 0.001)
@@ -97,8 +97,8 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
 
     func testComposerSendButtonImagesUseSameGlyphBox() throws {
         let expectedGlyphDimension = Self.composerActionGlyphDimension
-        let recordImage = try XCTUnwrap(ModernXabberInputView.composerSendButtonImage(for: .record))
-        let sendImage = try XCTUnwrap(ModernXabberInputView.composerSendButtonImage(for: .send))
+        let recordImage = try XCTUnwrap(ModernXabberInputView.composerActionButtonImage(for: .record))
+        let sendImage = try XCTUnwrap(ModernXabberInputView.composerActionButtonImage(for: .textSend))
         let recordAlphaBounds = try alphaBounds(of: recordImage)
         let sendAlphaBounds = try alphaBounds(of: sendImage)
 
@@ -113,7 +113,7 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
         )
     }
 
-    func testChangeSendButtonStatePreservesGlyphTintAndTapTarget() throws {
+    func testSeparateComposerActionsPreserveGlyphTintAndTapTargets() throws {
         let inputView = ModernXabberInputView(frame: CGRect(
             x: 0,
             y: 0,
@@ -123,16 +123,25 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
         inputView.layoutIfNeeded()
 
         inputView.isSendButtonEnabled = true
-        inputView.changeSendButtonState(to: .record)
+        inputView.changeComposerActionMode(to: .record)
+
+        XCTAssertNotNil(buttonGlyphImage(inputView.recordButton))
+        XCTAssertEqual(inputView.recordButton.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(try buttonGlyphMaxDimension(inputView.recordButton), Self.composerActionGlyphDimension, accuracy: 0.001)
+        XCTAssertTrue(inputView.recordButton.tintColor.isEqual(UIColor.secondaryLabel))
+        XCTAssertFalse(inputView.recordButton.isHidden)
+        XCTAssertTrue(inputView.sendButton.isHidden)
 
         XCTAssertNotNil(buttonGlyphImage(inputView.sendButton))
         XCTAssertEqual(inputView.sendButton.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
         XCTAssertEqual(inputView.sendButton.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
         XCTAssertEqual(try buttonGlyphMaxDimension(inputView.sendButton), Self.composerActionGlyphDimension, accuracy: 0.001)
-        XCTAssertTrue(inputView.sendButton.tintColor.isEqual(UIColor.secondaryLabel))
 
-        inputView.changeSendButtonState(to: .send)
+        inputView.changeComposerActionMode(to: .textSend)
 
+        XCTAssertTrue(inputView.recordButton.isHidden)
+        XCTAssertFalse(inputView.sendButton.isHidden)
         XCTAssertNotNil(buttonGlyphImage(inputView.sendButton))
         XCTAssertEqual(inputView.sendButton.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
         XCTAssertEqual(inputView.sendButton.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
@@ -141,14 +150,14 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
         XCTAssertTrue(inputView.sendButton.isEnabled)
 
         inputView.isSendButtonEnabled = false
-        inputView.changeSendButtonState(to: .send)
+        inputView.changeComposerActionMode(to: .textSend)
 
         XCTAssertNotNil(buttonGlyphImage(inputView.sendButton))
         XCTAssertFalse(inputView.sendButton.isEnabled)
         XCTAssertTrue(inputView.sendButton.tintColor.isEqual(UIColor.secondaryLabel))
     }
 
-    func testRepeatedStateRefreshesDoNotDropSendButtonGlyph() throws {
+    func testRepeatedModeRefreshesDoNotDropEitherActionGlyph() throws {
         let inputView = ModernXabberInputView(frame: CGRect(
             x: 0,
             y: 0,
@@ -159,13 +168,15 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
         inputView.isSendButtonEnabled = true
 
         for _ in 0..<3 {
-            inputView.changeSendButtonState(to: .send)
+            inputView.changeComposerActionMode(to: .textSend)
             XCTAssertNotNil(buttonGlyphImage(inputView.sendButton))
             XCTAssertEqual(try buttonGlyphMaxDimension(inputView.sendButton), Self.composerActionGlyphDimension, accuracy: 0.001)
+            XCTAssertNotNil(buttonGlyphImage(inputView.recordButton))
 
-            inputView.changeSendButtonState(to: .record)
+            inputView.changeComposerActionMode(to: .record)
+            XCTAssertNotNil(buttonGlyphImage(inputView.recordButton))
+            XCTAssertEqual(try buttonGlyphMaxDimension(inputView.recordButton), Self.composerActionGlyphDimension, accuracy: 0.001)
             XCTAssertNotNil(buttonGlyphImage(inputView.sendButton))
-            XCTAssertEqual(try buttonGlyphMaxDimension(inputView.sendButton), Self.composerActionGlyphDimension, accuracy: 0.001)
         }
     }
 

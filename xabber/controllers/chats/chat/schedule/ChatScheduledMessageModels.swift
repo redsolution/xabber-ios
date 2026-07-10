@@ -39,12 +39,12 @@ struct ChatSendOptionsMenuState: Equatable {
 
 enum ChatSendOptionsMenuPolicy {
     static func shouldPresentTextSendMenu(
-        sendButtonState: ModernXabberInputView.SendButtonState,
+        actionMode: ModernXabberInputView.ComposerActionMode,
         inputState: ModernXabberInputView.InputBarState,
         isSendButtonEnabled: Bool,
         body: String
     ) -> Bool {
-        guard sendButtonState == .send,
+        guard actionMode == .textSend,
               inputState == .normal,
               isSendButtonEnabled else {
             return false

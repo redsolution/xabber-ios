@@ -6943,6 +6943,7 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
 
         harness.coordinator.setForegroundActive(false)
         harness.coordinator.setForegroundActive(true)
+        harness.scheduler.advance(by: 0)
 
         XCTAssertEqual(harness.recorder.endpointResolutionInvalidationReasons, ["foreground-active"])
     }
@@ -6951,6 +6952,7 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
         let harness = makeHarness()
 
         harness.coordinator.streamManagementResumeCompleted(didResume: true, responseName: "resumed")
+        harness.scheduler.advance(by: 0)
 
         XCTAssertEqual(harness.recorder.skipFullSetupCount, 1)
         XCTAssertEqual(harness.recorder.fullSetupCount, 0)
@@ -6960,6 +6962,7 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
         let harness = makeHarness()
 
         harness.coordinator.streamManagementResumeCompleted(didResume: false, responseName: "failed")
+        harness.scheduler.advance(by: 0)
 
         XCTAssertEqual(harness.recorder.skipFullSetupCount, 0)
         XCTAssertEqual(harness.recorder.fullSetupCount, 1)
@@ -7049,6 +7052,29 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.recorder.reconnectTriggers, [.uiActionOpen])
     }
 
+    func testExternalResilienceActionsNeverRunWhileStateLockIsHeld() {
+        let harness = makeHarness(canResume: true)
+        let coordinator = harness.coordinator
+
+        let assertHealthSnapshotIsNotLocked: () -> Void = {
+            let completed = DispatchSemaphore(value: 0)
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = coordinator.healthSnapshot
+                completed.signal()
+            }
+            XCTAssertEqual(completed.wait(timeout: .now() + 0.2), .success)
+        }
+        harness.recorder.onCanResumeStream = assertHealthSnapshotIsNotLocked
+        harness.recorder.onRequestReconnect = assertHealthSnapshotIsNotLocked
+        harness.recorder.onHealthChanged = assertHealthSnapshotIsNotLocked
+
+        coordinator.updatePendingOutgoingCount(1)
+        coordinator.scheduleReconnect(cause: .accidentalSocket, trigger: .resilienceRetry)
+        harness.scheduler.advance(by: 0)
+
+        XCTAssertEqual(harness.recorder.reconnectTriggers, [.resilienceRetry])
+    }
+
     private func makeHarness(
         canResume: Bool = false,
         gate: AccountStreamLifecycleGate? = nil,
@@ -7089,6 +7115,9 @@ private final class AccountConnectionResilienceActionRecorder {
     private(set) var endpointResolutionInvalidationReasons: [String] = []
     private(set) var staleReasons: [AccountConnectionStaleReason] = []
     private(set) var healthSnapshots: [AccountConnectionHealthSnapshot] = []
+    var onCanResumeStream: (() -> Void)?
+    var onRequestReconnect: (() -> Void)?
+    var onHealthChanged: (() -> Void)?
 
     init(canResume: Bool, gate: AccountStreamLifecycleGate?) {
         self.canResume = canResume
@@ -7105,6 +7134,7 @@ private final class AccountConnectionResilienceActionRecorder {
                 self?.forceCloseCauses.append(cause)
             },
             requestReconnect: { [weak self] trigger, _ in
+                self?.onRequestReconnect?()
                 self?.reconnectTriggers.append(trigger)
                 guard let gate = self?.gate else {
                     self?.reconnectWasStarted.append(true)
@@ -7123,7 +7153,8 @@ private final class AccountConnectionResilienceActionRecorder {
                 self?.probeOnlineStreamCount += 1
             },
             canResumeStream: { [weak self] in
-                self?.canResume ?? false
+                self?.onCanResumeStream?()
+                return self?.canResume ?? false
             },
             skipFullSetupAfterResume: { [weak self] in
                 self?.skipFullSetupCount += 1
@@ -7138,6 +7169,7 @@ private final class AccountConnectionResilienceActionRecorder {
                 self?.staleReasons.append(reason)
             },
             healthChanged: { [weak self] snapshot in
+                self?.onHealthChanged?()
                 self?.healthSnapshots.append(snapshot)
             },
             log: { [weak self] event, _ in
@@ -34249,7 +34281,7 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertTrue(hitView === inputView.mentionPanel || hitView?.isDescendant(of: inputView.mentionPanel) == true)
     }
 
-    func testComposerTextSurfaceDoesNotOwnDetachedComposerButtons() throws {
+    func testComposerTextSurfaceOwnsTextSendButNotDetachedComposerButtons() throws {
         let inputView = ModernXabberInputView(frame: CGRect(
             x: 0,
             y: 0,
@@ -34265,9 +34297,10 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertTrue(inputView.contentView.isDescendant(of: effectView.contentView))
         XCTAssertTrue(inputView.textField.isDescendant(of: effectView.contentView))
         XCTAssertTrue(inputView.stateButton.isDescendant(of: effectView.contentView))
+        XCTAssertTrue(inputView.sendButton.isDescendant(of: effectView.contentView))
         XCTAssertFalse(inputView.attachButton.isDescendant(of: effectView.contentView))
         XCTAssertFalse(inputView.timerButton.isDescendant(of: effectView.contentView))
-        XCTAssertFalse(inputView.sendButton.isDescendant(of: effectView.contentView))
+        XCTAssertFalse(inputView.recordButton.isDescendant(of: effectView.contentView))
     }
 
     func testComposerTextFieldHasFourPointVerticalPaddingAndSharedHorizontalInsetInsidePrimaryGlass() throws {
@@ -34332,17 +34365,17 @@ final class ComposerMentionsTests: XCTestCase {
             let textSurfaceFrame = textSurface.convert(textSurface.bounds, to: inputView)
             let attachFrame = inputView.attachButton.convert(inputView.attachButton.bounds, to: inputView)
             let timerFrame = inputView.timerButton.convert(inputView.timerButton.bounds, to: inputView)
-            let sendFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)
+            let recordFrame = inputView.recordButton.convert(inputView.recordButton.bounds, to: inputView)
 
             XCTAssertEqual(textSurfaceFrame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
             XCTAssertEqual(attachFrame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
             XCTAssertEqual(timerFrame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
-            XCTAssertEqual(sendFrame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+            XCTAssertEqual(recordFrame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
 
             XCTAssertEqual(inputView.bounds.maxY - textSurfaceFrame.maxY, NativeGlassBarStyle.bottomOffset, accuracy: 0.001)
             XCTAssertEqual(textSurfaceFrame.maxY, attachFrame.maxY, accuracy: 0.001)
             XCTAssertEqual(textSurfaceFrame.maxY, timerFrame.maxY, accuracy: 0.001)
-            XCTAssertEqual(textSurfaceFrame.maxY, sendFrame.maxY, accuracy: 0.001)
+            XCTAssertEqual(textSurfaceFrame.maxY, recordFrame.maxY, accuracy: 0.001)
             XCTAssertEqual(attachFrame.maxX, textSurfaceFrame.maxX - 8, accuracy: 0.001)
 
             if #available(iOS 26.0, *) {
@@ -34351,7 +34384,7 @@ final class ComposerMentionsTests: XCTestCase {
                 XCTAssertTrue(textSurface.effect is UIBlurEffect)
             }
 
-            for button in [inputView.attachButton, inputView.timerButton, inputView.sendButton] {
+            for button in [inputView.attachButton, inputView.timerButton, inputView.recordButton] {
                 XCTAssertEqual(button.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
 
                 if #available(iOS 26.0, *) {
@@ -34388,6 +34421,7 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertGreaterThan(expandedFrame.height, NativeGlassBarStyle.minimumHeight)
         XCTAssertGreaterThan(expandedFrame.height, collapsedFrame.height)
         XCTAssertEqual(inputView.sendButton.bounds.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.bounds.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
         XCTAssertEqual(inputView.attachButton.bounds.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
         XCTAssertEqual(inputView.timerButton.bounds.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
     }
@@ -34420,7 +34454,7 @@ final class ComposerMentionsTests: XCTestCase {
         inputView.shouldHideTimer = false
         inputView.layoutIfNeeded()
 
-        for button in [inputView.attachButton, inputView.timerButton, inputView.sendButton] {
+        for button in [inputView.attachButton, inputView.timerButton, inputView.recordButton] {
             XCTAssertEqual(button.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
             XCTAssertEqual(button.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
             XCTAssertEqual(button.layer.borderWidth, 0, accuracy: 0.001)
@@ -34449,13 +34483,14 @@ final class ComposerMentionsTests: XCTestCase {
             height: ModernXabberInputView.defaultBarHeight
         ))
         inputView.isSendButtonEnabled = true
-        inputView.changeSendButtonState(to: .send)
+        inputView.changeComposerActionMode(to: .textSend)
         inputView.layoutIfNeeded()
 
         XCTAssertNotNil(buttonGlyphImage(inputView.attachButton))
+        XCTAssertNotNil(buttonGlyphImage(inputView.recordButton))
         XCTAssertNotNil(buttonGlyphImage(inputView.sendButton))
 
-        for button in [inputView.attachButton, inputView.sendButton] {
+        for button in [inputView.attachButton, inputView.recordButton] {
             if #available(iOS 26.0, *) {
                 var configuration = button.configuration ?? UIButton.Configuration.clearGlass()
                 configuration.image = nil
@@ -34465,11 +34500,13 @@ final class ComposerMentionsTests: XCTestCase {
             }
             button.setImage(nil, for: .normal)
         }
+        inputView.sendButton.configuration = nil
+        inputView.sendButton.setImage(nil, for: .normal)
 
         inputView.setNeedsLayout()
         inputView.layoutIfNeeded()
 
-        for button in [inputView.attachButton, inputView.sendButton] {
+        for button in [inputView.attachButton, inputView.recordButton] {
             XCTAssertNotNil(buttonGlyphImage(button))
             XCTAssertEqual(button.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
             XCTAssertEqual(button.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
@@ -34482,6 +34519,8 @@ final class ComposerMentionsTests: XCTestCase {
                 XCTAssertNotNil(detachedButtonEffectView(in: button))
             }
         }
+        XCTAssertNotNil(buttonGlyphImage(inputView.sendButton))
+        XCTAssertNil(inputView.sendButton.configuration)
     }
 
     func testTimerVisibleLayoutKeepsDetachedControlsAlignedAroundTextSurface() throws {
@@ -34499,15 +34538,15 @@ final class ComposerMentionsTests: XCTestCase {
         let attachFrame = inputView.attachButton.convert(inputView.attachButton.bounds, to: inputView)
         let textSurfaceFrame = textSurface.convert(textSurface.bounds, to: inputView)
         let timerFrame = inputView.timerButton.convert(inputView.timerButton.bounds, to: inputView)
-        let sendFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)
+        let recordFrame = inputView.recordButton.convert(inputView.recordButton.bounds, to: inputView)
 
         XCTAssertFalse(inputView.timerButton.isHidden)
         XCTAssertEqual(textSurfaceFrame.minX - attachFrame.maxX, NativeGlassBarStyle.interItemSpacing, accuracy: 0.001)
         XCTAssertEqual(timerFrame.minX - textSurfaceFrame.maxX, NativeGlassBarStyle.interItemSpacing, accuracy: 0.001)
-        XCTAssertEqual(sendFrame.minX - timerFrame.maxX, NativeGlassBarStyle.interItemSpacing, accuracy: 0.001)
-        XCTAssertEqual(attachFrame.midY, sendFrame.midY, accuracy: 0.001)
-        XCTAssertEqual(timerFrame.midY, sendFrame.midY, accuracy: 0.001)
-        XCTAssertEqual(textSurfaceFrame.maxY - sendFrame.maxY, 0, accuracy: 0.001)
+        XCTAssertEqual(recordFrame.minX - timerFrame.maxX, NativeGlassBarStyle.interItemSpacing, accuracy: 0.001)
+        XCTAssertEqual(attachFrame.midY, recordFrame.midY, accuracy: 0.001)
+        XCTAssertEqual(timerFrame.midY, recordFrame.midY, accuracy: 0.001)
+        XCTAssertEqual(textSurfaceFrame.maxY - recordFrame.maxY, 0, accuracy: 0.001)
     }
 
     func testComposerUsesNativeGlassEffectWhenAvailable() throws {
@@ -34911,12 +34950,12 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertTrue(inputView.searchPanel.isHidden)
         XCTAssertTrue(inputView.recordAndPlayPanel.isHidden)
 
-        XCTAssertFalse(inputView.sendButton.isHidden)
+        XCTAssertFalse(inputView.recordButton.isHidden)
         XCTAssertFalse(inputView.recordPanel.isHidden)
 
         let effectView = try XCTUnwrap(composerEffectView(containing: inputView.recordPanel))
         XCTAssertTrue(inputView.recordPanel.isDescendant(of: effectView.contentView))
-        XCTAssertFalse(inputView.sendButton.isDescendant(of: effectView.contentView))
+        XCTAssertFalse(inputView.recordButton.isDescendant(of: effectView.contentView))
     }
 
     func testRecordAndPlayStateShowsPreviewControlsOnPrimaryGlass() throws {
@@ -34935,12 +34974,12 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertTrue(inputView.timerButton.isHidden)
         XCTAssertTrue(inputView.recordPanel.isHidden)
 
-        XCTAssertFalse(inputView.sendButton.isHidden)
+        XCTAssertFalse(inputView.recordButton.isHidden)
         XCTAssertFalse(inputView.recordAndPlayPanel.isHidden)
 
         let effectView = try XCTUnwrap(composerEffectView(containing: inputView.recordAndPlayPanel))
         XCTAssertTrue(inputView.recordAndPlayPanel.isDescendant(of: effectView.contentView))
-        XCTAssertFalse(inputView.sendButton.isDescendant(of: effectView.contentView))
+        XCTAssertFalse(inputView.recordButton.isDescendant(of: effectView.contentView))
     }
 
     func testAudioPanelsDoNotAddSeparateGlassBackgrounds() {
@@ -34955,7 +34994,7 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertFalse(inputView.recordAndPlayPanel.containsDescendant(ofType: UIVisualEffectView.self))
     }
 
-    func testRecordingDragMovesDetachedSendButtonAndClampsToGestureThresholds() {
+    func testRecordingDragMovesDetachedRecordButtonAndClampsToGestureThresholds() {
         let hostView = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let inputView = ModernXabberInputView(frame: CGRect(
             x: 8,
@@ -34968,15 +35007,15 @@ final class ComposerMentionsTests: XCTestCase {
         hostView.layoutIfNeeded()
         inputView.layoutIfNeeded()
 
-        let initialButtonFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: hostView)
+        let initialButtonFrame = inputView.recordButton.convert(inputView.recordButton.bounds, to: hostView)
 
         inputView.updateVoiceRecordingDragUI(CGPoint(x: -1_000, y: -1_000))
 
-        let draggedButtonFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: hostView)
+        let draggedButtonFrame = inputView.recordButton.convert(inputView.recordButton.bounds, to: hostView)
 
         XCTAssertTrue(hostView.bounds.contains(draggedButtonFrame))
-        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation.x, -120, accuracy: 0.001)
-        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation.y, -108, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.recordingVisualTranslation.x, -120, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.recordingVisualTranslation.y, -108, accuracy: 0.001)
         XCTAssertEqual(draggedButtonFrame.midX, initialButtonFrame.midX - 120, accuracy: 0.001)
         XCTAssertEqual(draggedButtonFrame.midY, initialButtonFrame.midY - 108, accuracy: 0.001)
     }
@@ -34991,17 +35030,17 @@ final class ComposerMentionsTests: XCTestCase {
         inputView.changeState(to: .record)
         inputView.layoutIfNeeded()
 
-        let initialButtonFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)
+        let initialButtonFrame = inputView.recordButton.convert(inputView.recordButton.bounds, to: inputView)
         inputView.updateVoiceRecordingDragUI(CGPoint(x: -1_000, y: -1_000))
 
         inputView.resetRecordingButtonPositionAndVisibility(animated: false)
 
-        let resetButtonFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)
-        XCTAssertFalse(inputView.sendButton.isHidden)
+        let resetButtonFrame = inputView.recordButton.convert(inputView.recordButton.bounds, to: inputView)
+        XCTAssertFalse(inputView.recordButton.isHidden)
         XCTAssertTrue(inputView.bounds.contains(resetButtonFrame))
         XCTAssertEqual(resetButtonFrame.origin.x, initialButtonFrame.origin.x, accuracy: 0.001)
         XCTAssertEqual(resetButtonFrame.origin.y, initialButtonFrame.origin.y, accuracy: 0.001)
-        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation, .zero)
+        XCTAssertEqual(inputView.recordButton.recordingVisualTranslation, .zero)
     }
 
     func testCancelAndStateChangeClearRecordingDragOffset() {
@@ -35017,17 +35056,17 @@ final class ComposerMentionsTests: XCTestCase {
 
         inputView.cancelRecord()
 
-        XCTAssertFalse(inputView.sendButton.isHidden)
-        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation, .zero)
-        XCTAssertTrue(inputView.bounds.contains(inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)))
+        XCTAssertFalse(inputView.recordButton.isHidden)
+        XCTAssertEqual(inputView.recordButton.recordingVisualTranslation, .zero)
+        XCTAssertTrue(inputView.bounds.contains(inputView.recordButton.convert(inputView.recordButton.bounds, to: inputView)))
 
         inputView.changeState(to: .record)
         inputView.updateVoiceRecordingDragUI(CGPoint(x: -1_000, y: -1_000))
         inputView.changeState(to: .recordAndPlay)
 
-        XCTAssertFalse(inputView.sendButton.isHidden)
-        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation, .zero)
-        XCTAssertTrue(inputView.bounds.contains(inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)))
+        XCTAssertFalse(inputView.recordButton.isHidden)
+        XCTAssertEqual(inputView.recordButton.recordingVisualTranslation, .zero)
+        XCTAssertTrue(inputView.bounds.contains(inputView.recordButton.convert(inputView.recordButton.bounds, to: inputView)))
     }
 
     func testBoundsChangeRefreshesRecordingButtonAnchorAndClearsDragOffset() {
@@ -35045,13 +35084,13 @@ final class ComposerMentionsTests: XCTestCase {
         inputView.setNeedsLayout()
         inputView.layoutIfNeeded()
 
-        let buttonFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)
-        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation, .zero)
+        let buttonFrame = inputView.recordButton.convert(inputView.recordButton.bounds, to: inputView)
+        XCTAssertEqual(inputView.recordButton.recordingVisualTranslation, .zero)
         XCTAssertTrue(inputView.bounds.contains(buttonFrame))
         XCTAssertGreaterThan(buttonFrame.minX, 430)
     }
 
-    func testRecordingDragClampsDetachedSendButtonToVisibleHostBounds() {
+    func testRecordingDragClampsDetachedRecordButtonToVisibleHostBounds() {
         let hostView = UIView(frame: CGRect(x: 0, y: 0, width: 240, height: 160))
         let inputView = ModernXabberInputView(frame: CGRect(
             x: 8,
@@ -35066,12 +35105,12 @@ final class ComposerMentionsTests: XCTestCase {
 
         inputView.updateVoiceRecordingDragUI(CGPoint(x: -1_000, y: -1_000))
 
-        let draggedButtonFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: hostView)
+        let draggedButtonFrame = inputView.recordButton.convert(inputView.recordButton.bounds, to: hostView)
         XCTAssertTrue(hostView.bounds.contains(draggedButtonFrame))
-        XCTAssertGreaterThan(inputView.sendButton.recordingVisualTranslation.y, -108)
+        XCTAssertGreaterThan(inputView.recordButton.recordingVisualTranslation.y, -108)
     }
 
-    func testRecordingPulseIndicatorShowsLargeCircleOutsideComposerGlass() throws {
+    func testRecordingPulseIndicatorUsesSolidCoreAndHaloOutsideComposerGlass() throws {
         let inputView = ModernXabberInputView(frame: CGRect(
             x: 0,
             y: 0,
@@ -35081,10 +35120,10 @@ final class ComposerMentionsTests: XCTestCase {
         inputView.changeState(to: .record)
         inputView.layoutIfNeeded()
 
-        inputView.sendButton.showPulse()
+        inputView.recordButton.showPulse()
         inputView.layoutIfNeeded()
 
-        let pulseView = inputView.sendButton.pulseView
+        let pulseView = inputView.recordButton.pulseView
         let effectView = try XCTUnwrap(composerEffectView(containing: inputView.recordPanel))
         let pulseFrame = pulseView.convert(pulseView.bounds, to: inputView)
         let composerFrame = effectView.convert(effectView.bounds, to: inputView)
@@ -35097,18 +35136,17 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertFalse(pulseView.isDescendant(of: effectView.contentView))
         XCTAssertLessThan(pulseFrame.minY, composerFrame.minY)
 
-        let pulseEffectView = try XCTUnwrap(pulseView.subviews.compactMap { $0 as? UIVisualEffectView }.first)
-        let pulseTintOverlay = try XCTUnwrap(pulseView.subviews.first { subview in
-            !(subview is UIVisualEffectView) && (subview.backgroundColor?.cgColor.alpha ?? 0) > 0
-        })
-        XCTAssertEqual(pulseEffectView.bounds.width, 128, accuracy: 0.001)
-        XCTAssertEqual(pulseEffectView.bounds.height, 128, accuracy: 0.001)
-        XCTAssertEqual(pulseTintOverlay.bounds.width, 128, accuracy: 0.001)
-        XCTAssertEqual(pulseTintOverlay.bounds.height, 128, accuracy: 0.001)
-        XCTAssertEqual(pulseTintOverlay.backgroundColor?.cgColor.alpha ?? 0, 0.82, accuracy: 0.01)
+        XCTAssertFalse(pulseView.containsDescendant(ofType: UIVisualEffectView.self))
+        XCTAssertEqual(inputView.recordButton.recordingCoreView.bounds.width, 72, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.recordingCoreView.bounds.height, 72, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.recordingHaloView.bounds.width, 88, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.recordingHaloView.bounds.height, 88, accuracy: 0.001)
+        XCTAssertTrue(inputView.recordButton.recordingCoreView.backgroundColor?.isEqual(inputView.accountPalette.tint600) == true)
+        XCTAssertTrue(inputView.recordButton.recordingHaloView.backgroundColor?.isEqual(inputView.accountPalette.tint500) == true)
+        XCTAssertTrue(inputView.recordButton.tintColor.isEqual(UIColor.white))
     }
 
-    func testRecordingPulseMeteringAnimatesClampedColoredShadow() {
+    func testRecordingPulseMeteringAnimatesClampedSolidCoreAndHalo() {
         let inputView = ModernXabberInputView(frame: CGRect(
             x: 0,
             y: 0,
@@ -35116,35 +35154,42 @@ final class ComposerMentionsTests: XCTestCase {
             height: ModernXabberInputView.defaultBarHeight
         ))
         inputView.changeState(to: .record)
-        inputView.sendButton.showPulse()
+        inputView.recordButton.showPulse()
 
         inputView.updateRecordingMeteringLevel(0, animated: false)
-        let quietOpacity = inputView.sendButton.pulseView.layer.shadowOpacity
-        let quietRadius = inputView.sendButton.pulseView.layer.shadowRadius
+        let quietCoreScale = inputView.recordButton.recordingCoreView.transform.a
+        let quietHaloScale = inputView.recordButton.recordingHaloView.transform.a
+        let quietHaloAlpha = inputView.recordButton.recordingHaloView.alpha
 
         inputView.updateRecordingMeteringLevel(1, animated: false)
-        let loudOpacity = inputView.sendButton.pulseView.layer.shadowOpacity
-        let loudRadius = inputView.sendButton.pulseView.layer.shadowRadius
+        let loudCoreScale = inputView.recordButton.recordingCoreView.transform.a
+        let loudHaloScale = inputView.recordButton.recordingHaloView.transform.a
+        let loudHaloAlpha = inputView.recordButton.recordingHaloView.alpha
 
         inputView.updateRecordingMeteringLevel(-10, animated: false)
-        let reducedOpacity = inputView.sendButton.pulseView.layer.shadowOpacity
-        let reducedRadius = inputView.sendButton.pulseView.layer.shadowRadius
+        let reducedCoreScale = inputView.recordButton.recordingCoreView.transform.a
+        let reducedHaloScale = inputView.recordButton.recordingHaloView.transform.a
+        let reducedHaloAlpha = inputView.recordButton.recordingHaloView.alpha
 
         inputView.updateRecordingMeteringLevel(10, animated: false)
-        let clampedOpacity = inputView.sendButton.pulseView.layer.shadowOpacity
-        let clampedRadius = inputView.sendButton.pulseView.layer.shadowRadius
+        let clampedCoreScale = inputView.recordButton.recordingCoreView.transform.a
+        let clampedHaloScale = inputView.recordButton.recordingHaloView.transform.a
+        let clampedHaloAlpha = inputView.recordButton.recordingHaloView.alpha
 
-        XCTAssertGreaterThan(loudOpacity, quietOpacity)
-        XCTAssertGreaterThan(loudRadius, quietRadius)
-        XCTAssertLessThan(reducedOpacity, loudOpacity)
-        XCTAssertLessThan(reducedRadius, loudRadius)
-        XCTAssertLessThanOrEqual(clampedOpacity, 0.5)
-        XCTAssertLessThanOrEqual(clampedRadius, 38)
-        XCTAssertEqual(inputView.sendButton.pulseView.layer.shadowOffset, .zero)
-        XCTAssertNotNil(inputView.sendButton.pulseView.layer.shadowColor)
+        XCTAssertGreaterThan(loudCoreScale, quietCoreScale)
+        XCTAssertGreaterThan(loudHaloScale, quietHaloScale)
+        XCTAssertGreaterThan(loudHaloAlpha, quietHaloAlpha)
+        XCTAssertLessThan(reducedCoreScale, loudCoreScale)
+        XCTAssertLessThan(reducedHaloScale, loudHaloScale)
+        XCTAssertLessThan(reducedHaloAlpha, loudHaloAlpha)
+        XCTAssertLessThanOrEqual(clampedCoreScale, 88.0 / 72.0)
+        XCTAssertLessThanOrEqual(clampedHaloScale, 128.0 / 88.0)
+        XCTAssertLessThanOrEqual(clampedHaloAlpha, 0.28)
+        XCTAssertEqual(inputView.recordButton.pulseView.layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.pulseView.layer.shadowRadius, 0, accuracy: 0.001)
     }
 
-    func testRecordingLockButtonUsesDetachedGlassAndAlignsAboveSendButton() throws {
+    func testRecordingLockButtonUsesDetachedGlassAndAlignsAboveRecordButton() throws {
         let hostView = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let inputView = ModernXabberInputView(frame: CGRect(
             x: 8,
@@ -35155,15 +35200,15 @@ final class ComposerMentionsTests: XCTestCase {
         hostView.addSubview(inputView)
         inputView.changeState(to: .record)
         inputView.showRecordingLockOverlay(isLocked: false, allowsStop: false, animated: false)
-        inputView.sendButton.showPulse()
+        inputView.recordButton.showPulse()
         hostView.layoutIfNeeded()
         inputView.layoutIfNeeded()
 
         let effectView = try XCTUnwrap(composerEffectView(containing: inputView.recordPanel))
         let lockButton = inputView.recordLockButton
         let initialLockFrame = lockButton.convert(lockButton.bounds, to: inputView)
-        let initialSendFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)
-        let initialPulseFrame = inputView.sendButton.pulseView.convert(inputView.sendButton.pulseView.bounds, to: inputView)
+        let initialRecordFrame = inputView.recordButton.convert(inputView.recordButton.bounds, to: inputView)
+        let initialPulseFrame = inputView.recordButton.pulseView.convert(inputView.recordButton.pulseView.bounds, to: inputView)
 
         XCTAssertFalse(lockButton.isHidden)
         XCTAssertTrue(inputView.isRecordingLockOverlayVisible)
@@ -35179,19 +35224,19 @@ final class ComposerMentionsTests: XCTestCase {
             XCTAssertEqual(lockEffectView.layer.cornerRadius, 22, accuracy: 0.001)
             XCTAssertEqual(lockEffectView.layer.borderWidth, 0, accuracy: 0.001)
         }
-        XCTAssertEqual(initialLockFrame.midX, initialSendFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(initialLockFrame.midX, initialRecordFrame.midX, accuracy: 0.001)
         XCTAssertLessThanOrEqual(initialLockFrame.maxY, initialPulseFrame.minY - 6)
         XCTAssertFalse(lockButton.isDescendant(of: effectView.contentView))
 
         inputView.updateVoiceRecordingDragUI(CGPoint(x: -72, y: -64))
 
         let draggedLockFrame = lockButton.convert(lockButton.bounds, to: inputView)
-        let draggedSendFrame = inputView.sendButton.convert(inputView.sendButton.bounds, to: inputView)
-        let draggedPulseFrame = inputView.sendButton.pulseView.convert(inputView.sendButton.pulseView.bounds, to: inputView)
+        let draggedRecordFrame = inputView.recordButton.convert(inputView.recordButton.bounds, to: inputView)
+        let draggedPulseFrame = inputView.recordButton.pulseView.convert(inputView.recordButton.pulseView.bounds, to: inputView)
 
-        XCTAssertEqual(draggedLockFrame.midX - initialLockFrame.midX, draggedSendFrame.midX - initialSendFrame.midX, accuracy: 0.001)
-        XCTAssertEqual(draggedLockFrame.midY - initialLockFrame.midY, draggedSendFrame.midY - initialSendFrame.midY, accuracy: 0.001)
-        XCTAssertEqual(draggedLockFrame.midX, draggedSendFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(draggedLockFrame.midX - initialLockFrame.midX, draggedRecordFrame.midX - initialRecordFrame.midX, accuracy: 0.001)
+        XCTAssertEqual(draggedLockFrame.midY - initialLockFrame.midY, draggedRecordFrame.midY - initialRecordFrame.midY, accuracy: 0.001)
+        XCTAssertEqual(draggedLockFrame.midX, draggedRecordFrame.midX, accuracy: 0.001)
         XCTAssertLessThanOrEqual(draggedLockFrame.maxY, draggedPulseFrame.minY - 6)
 
         inputView.resetRecordingButtonPositionAndVisibility(animated: false)
@@ -35202,7 +35247,7 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertEqual(lockButton.transform, .identity)
     }
 
-    func testRecordingDragHidesSendButtonDetachedGlassUntilReset() throws {
+    func testRecordingDragHidesRecordButtonDetachedGlassUntilReset() throws {
         let inputView = ModernXabberInputView(frame: CGRect(
             x: 0,
             y: 0,
@@ -35212,24 +35257,24 @@ final class ComposerMentionsTests: XCTestCase {
         inputView.changeState(to: .record)
         inputView.layoutIfNeeded()
 
-        XCTAssertFalse(isDetachedButtonChromeHidden(inputView.sendButton))
+        XCTAssertFalse(isDetachedButtonChromeHidden(inputView.recordButton))
 
         inputView.updateVoiceRecordingDragUI(CGPoint(x: -40, y: -24))
 
-        XCTAssertTrue(isDetachedButtonChromeHidden(inputView.sendButton))
-        XCTAssertFalse(inputView.sendButton.isHidden)
-        XCTAssertNotNil(inputView.sendButton.imageView?.image)
+        XCTAssertTrue(isDetachedButtonChromeHidden(inputView.recordButton))
+        XCTAssertFalse(inputView.recordButton.isHidden)
+        XCTAssertNotNil(inputView.recordButton.imageView?.image)
 
         inputView.setNeedsLayout()
         inputView.layoutIfNeeded()
 
-        XCTAssertTrue(isDetachedButtonChromeHidden(inputView.sendButton))
+        XCTAssertTrue(isDetachedButtonChromeHidden(inputView.recordButton))
 
         inputView.resetRecordingButtonPositionAndVisibility(animated: false)
 
-        XCTAssertFalse(isDetachedButtonChromeHidden(inputView.sendButton))
-        XCTAssertEqual(inputView.sendButton.transform, .identity)
-        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation, .zero)
+        XCTAssertFalse(isDetachedButtonChromeHidden(inputView.recordButton))
+        XCTAssertEqual(inputView.recordButton.transform, .identity)
+        XCTAssertEqual(inputView.recordButton.recordingVisualTranslation, .zero)
     }
 
     func testLockingRecordingPreservesActiveDragPosition() throws {
@@ -35243,31 +35288,31 @@ final class ComposerMentionsTests: XCTestCase {
         hostView.addSubview(inputView)
         inputView.changeState(to: .record)
         inputView.showRecordingLockOverlay(isLocked: false, allowsStop: false, animated: false)
-        inputView.sendButton.showPulse()
+        inputView.recordButton.showPulse()
         hostView.layoutIfNeeded()
         inputView.layoutIfNeeded()
 
         inputView.updateVoiceRecordingDragUI(CGPoint(x: -44, y: -108))
 
-        let sendFrameBeforeLock = inputView.sendButton.convert(inputView.sendButton.bounds, to: hostView)
+        let recordFrameBeforeLock = inputView.recordButton.convert(inputView.recordButton.bounds, to: hostView)
         let lockFrameBeforeLock = inputView.recordLockButton.convert(inputView.recordLockButton.bounds, to: hostView)
-        let pulseFrameBeforeLock = inputView.sendButton.pulseView.convert(inputView.sendButton.pulseView.bounds, to: hostView)
+        let pulseFrameBeforeLock = inputView.recordButton.pulseView.convert(inputView.recordButton.pulseView.bounds, to: hostView)
 
         inputView.lockVoiceRecordingUI()
 
-        let sendFrameAfterLock = inputView.sendButton.convert(inputView.sendButton.bounds, to: hostView)
+        let recordFrameAfterLock = inputView.recordButton.convert(inputView.recordButton.bounds, to: hostView)
         let lockFrameAfterLock = inputView.recordLockButton.convert(inputView.recordLockButton.bounds, to: hostView)
-        let pulseFrameAfterLock = inputView.sendButton.pulseView.convert(inputView.sendButton.pulseView.bounds, to: hostView)
+        let pulseFrameAfterLock = inputView.recordButton.pulseView.convert(inputView.recordButton.pulseView.bounds, to: hostView)
 
-        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation.x, -44, accuracy: 0.001)
-        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation.y, -108, accuracy: 0.001)
-        XCTAssertEqual(sendFrameAfterLock.origin.x, sendFrameBeforeLock.origin.x, accuracy: 0.001)
-        XCTAssertEqual(sendFrameAfterLock.origin.y, sendFrameBeforeLock.origin.y, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.recordingVisualTranslation.x, -44, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.recordingVisualTranslation.y, -108, accuracy: 0.001)
+        XCTAssertEqual(recordFrameAfterLock.origin.x, recordFrameBeforeLock.origin.x, accuracy: 0.001)
+        XCTAssertEqual(recordFrameAfterLock.origin.y, recordFrameBeforeLock.origin.y, accuracy: 0.001)
         XCTAssertEqual(lockFrameAfterLock.origin.x, lockFrameBeforeLock.origin.x, accuracy: 0.001)
         XCTAssertEqual(lockFrameAfterLock.origin.y, lockFrameBeforeLock.origin.y, accuracy: 0.001)
         XCTAssertEqual(pulseFrameAfterLock.origin.x, pulseFrameBeforeLock.origin.x, accuracy: 0.001)
         XCTAssertEqual(pulseFrameAfterLock.origin.y, pulseFrameBeforeLock.origin.y, accuracy: 0.001)
-        XCTAssertTrue(isDetachedButtonChromeHidden(inputView.sendButton))
+        XCTAssertTrue(isDetachedButtonChromeHidden(inputView.recordButton))
     }
 
     func testLockedRecordingCancelDragResetsOverlayAndDetachedChrome() throws {
@@ -35294,12 +35339,12 @@ final class ComposerMentionsTests: XCTestCase {
         inputView.applyLockedVoiceRecordingCancelDrag(CGPoint(x: -121, y: 0), finished: false)
 
         XCTAssertEqual(inputView.voiceRecordingInteraction.state, .idle)
-        XCTAssertTrue(inputView.sendButton.pulseView.isHidden)
+        XCTAssertTrue(inputView.recordButton.pulseView.isHidden)
         XCTAssertTrue(inputView.recordLockButton.isHidden)
-        XCTAssertFalse(isDetachedButtonChromeHidden(inputView.sendButton))
-        XCTAssertEqual(inputView.sendButton.transform, .identity)
+        XCTAssertFalse(isDetachedButtonChromeHidden(inputView.recordButton))
+        XCTAssertEqual(inputView.recordButton.transform, .identity)
         XCTAssertEqual(inputView.recordLockButton.transform, .identity)
-        XCTAssertEqual(inputView.sendButton.recordingVisualTranslation, .zero)
+        XCTAssertEqual(inputView.recordButton.recordingVisualTranslation, .zero)
     }
 
     func testRecordingPulseDoesNotAddRootLevelSendIconOverlay() {
@@ -35312,16 +35357,16 @@ final class ComposerMentionsTests: XCTestCase {
         inputView.changeState(to: .record)
         inputView.layoutIfNeeded()
 
-        inputView.sendButton.showPulse()
-        inputView.changeSendButtonState(to: .send)
+        inputView.recordButton.showPulse()
+        inputView.changeComposerActionMode(to: .textSend)
         inputView.showRecordingLockOverlay(isLocked: true, allowsStop: true, animated: false)
         inputView.layoutIfNeeded()
 
         XCTAssertEqual(visibleRootImageViewCount(in: inputView), 0)
 
         inputView.resetRecordingOverlayVisuals()
-        inputView.changeSendButtonState(to: .record)
-        inputView.sendButton.showPulse()
+        inputView.changeComposerActionMode(to: .record)
+        inputView.recordButton.showPulse()
         inputView.layoutIfNeeded()
 
         XCTAssertEqual(visibleRootImageViewCount(in: inputView), 0)
@@ -35361,19 +35406,22 @@ final class ComposerMentionsTests: XCTestCase {
             height: ModernXabberInputView.defaultBarHeight
         ))
         inputView.changeState(to: .record)
-        inputView.sendButton.showPulse()
+        inputView.recordButton.showPulse()
         inputView.showRecordingLockOverlay(isLocked: true, allowsStop: true, animated: false)
         inputView.updateRecordingMeteringLevel(1, animated: false)
 
         inputView.cancelRecord()
 
-        XCTAssertTrue(inputView.sendButton.pulseView.isHidden)
+        XCTAssertTrue(inputView.recordButton.pulseView.isHidden)
         XCTAssertTrue(inputView.recordLockButton.isHidden)
         XCTAssertFalse(inputView.isRecordingLockOverlayVisible)
-        XCTAssertFalse(isDetachedButtonChromeHidden(inputView.sendButton))
+        XCTAssertFalse(isDetachedButtonChromeHidden(inputView.recordButton))
         XCTAssertEqual(inputView.recordLockButton.transform, .identity)
-        XCTAssertEqual(inputView.sendButton.pulseView.layer.shadowOpacity, 0, accuracy: 0.001)
-        XCTAssertEqual(inputView.sendButton.pulseView.layer.shadowRadius, 0, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.recordingCoreView.transform, .identity)
+        XCTAssertEqual(inputView.recordButton.recordingHaloView.transform, .identity)
+        XCTAssertEqual(inputView.recordButton.recordingHaloView.alpha, 0.12, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.pulseView.layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.pulseView.layer.shadowRadius, 0, accuracy: 0.001)
     }
 
     private func composerEffectView(containing view: UIView) -> UIVisualEffectView? {

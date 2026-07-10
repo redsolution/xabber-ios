@@ -3155,6 +3155,7 @@ class ChatViewController: MessagesViewController {
     internal var xabberInputView: ModernXabberInputView!
     internal var xabberInputViewBottomConstraint: NSLayoutConstraint?
     internal var xabberInputViewKeyboardTopConstraint: NSLayoutConstraint?
+    internal var lastAppliedChatKeyboardLayoutSignature: ChatKeyboardLayoutUpdateSignature?
     
     internal var shouldRequestChatInfo: Bool = false
     
@@ -3279,28 +3280,29 @@ class ChatViewController: MessagesViewController {
         )
     }
 
-    internal func scrollDownButtonSendButtonFrameInView() -> CGRect? {
+    internal func scrollDownButtonTrailingActionFrameInView() -> CGRect? {
         guard self.isViewLoaded,
               let xabberInputView = self.xabberInputView,
-              xabberInputView.superview != nil,
-              xabberInputView.sendButton.superview != nil else {
+              xabberInputView.superview != nil else {
             return nil
         }
 
         xabberInputView.layoutIfNeeded()
-        let frame = xabberInputView.sendButton.convert(xabberInputView.sendButton.bounds, to: self.view)
+        guard let frame = xabberInputView.trailingActionFrame(in: self.view) else {
+            return nil
+        }
         return FloatingControlsLayoutPolicy.scrollButtonVisibleFrame(sendButtonFrame: frame) == nil ? nil : frame
     }
 
     internal func scrollDownButtonVisibleFrame() -> CGRect? {
-        guard let sendButtonFrame = self.scrollDownButtonSendButtonFrameInView() else {
+        guard let sendButtonFrame = self.scrollDownButtonTrailingActionFrameInView() else {
             return nil
         }
         return FloatingControlsLayoutPolicy.scrollButtonVisibleFrame(sendButtonFrame: sendButtonFrame)
     }
 
     internal func scrollDownButtonHiddenFrame() -> CGRect? {
-        guard let sendButtonFrame = self.scrollDownButtonSendButtonFrameInView() else {
+        guard let sendButtonFrame = self.scrollDownButtonTrailingActionFrameInView() else {
             return nil
         }
         return FloatingControlsLayoutPolicy.scrollButtonHiddenFrame(
@@ -3638,7 +3640,7 @@ class ChatViewController: MessagesViewController {
     internal func unreadMentionsNavigatorVisibleFrame() -> CGRect? {
         let inputHeight = self.floatingControlsInputHeight()
         let size = self.unreadMentionsNavigatorView.preferredSize
-        guard let sendButtonFrame = self.scrollDownButtonSendButtonFrameInView() else {
+        guard let sendButtonFrame = self.scrollDownButtonTrailingActionFrameInView() else {
             return nil
         }
         let requestedShowsScrollDownButton = ChatUnreadMentionFloatingControlPolicy.shouldShowScrollDownButton(
@@ -3661,7 +3663,7 @@ class ChatViewController: MessagesViewController {
     internal func unreadMentionsNavigatorHiddenFrame() -> CGRect {
         let size = self.unreadMentionsNavigatorView.preferredSize
         let originX: CGFloat
-        if let sendButtonFrame = self.scrollDownButtonSendButtonFrameInView() {
+        if let sendButtonFrame = self.scrollDownButtonTrailingActionFrameInView() {
             originX = sendButtonFrame.midX - size.width / 2
         } else {
             originX = FloatingControlsLayoutPolicy.trailingX(
@@ -5023,6 +5025,7 @@ class ChatViewController: MessagesViewController {
         guard !self.chatObserversRegistered else {
             return
         }
+        self.lastAppliedChatKeyboardLayoutSignature = nil
         self.chatObserversRegistered = true
         super.addObservers()
         chatNotificationCenter.addObserver(
@@ -5121,6 +5124,7 @@ class ChatViewController: MessagesViewController {
         guard self.chatObserversRegistered else {
             return
         }
+        self.lastAppliedChatKeyboardLayoutSignature = nil
         self.chatObserversRegistered = false
         super.removeObservers()
 //        NotificationCenter.default.removeObserver(self)

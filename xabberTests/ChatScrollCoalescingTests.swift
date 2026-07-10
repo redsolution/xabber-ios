@@ -39,11 +39,12 @@ final class ChatScrollCoalescingTests: XCTestCase {
         now = Date(timeIntervalSince1970: 100.1)
         gate.activate(reason: .typing, duration: 0.2)
         XCTAssertTrue(gate.isActive)
-        XCTAssertEqual(scheduled.count, 2)
+        XCTAssertEqual(scheduled.count, 1)
 
         now = Date(timeIntervalSince1970: 100.25)
         scheduled[0].1()
         XCTAssertTrue(gate.isActive)
+        XCTAssertEqual(scheduled.count, 2)
 
         now = Date(timeIntervalSince1970: 100.31)
         scheduled[1].1()

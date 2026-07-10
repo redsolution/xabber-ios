@@ -5438,6 +5438,16 @@
 "schedule_message_action" = "Запланировать сообщение";
 "send_without_sound_action" = "Отправить без звука";
 "scheduled_messages_title" = "Отложенные сообщения";
+"chat_composer_record_voice_message_accessibility" = "Записать голосовое сообщение";
+"chat_composer_record_voice_message_hint" = "Удерживайте для записи, сдвиньте влево для отмены или вверх для блокировки";
+"chat_composer_send_message_accessibility" = "Отправить сообщение";
+"chat_composer_send_voice_message_accessibility" = "Отправить голосовое сообщение";
+"chat_composer_lock_recording_accessibility" = "Заблокировать запись";
+"chat_composer_recording_locked_accessibility" = "Запись заблокирована";
+"chat_composer_recording_locked_value" = "Заблокировано";
+"chat_composer_recording_unlocked_value" = "Не заблокировано";
+"chat_composer_recording_stop_hint" = "Коснитесь дважды, чтобы остановить запись";
+"chat_composer_recording_lock_hint" = "Сдвиньте вверх, чтобы заблокировать запись";
 "schedule_send_today_at" = "Отправить сегодня в %@";
 "schedule_send_tomorrow_at" = "Отправить завтра в %@";
 "schedule_send_on" = "Отправить %@";

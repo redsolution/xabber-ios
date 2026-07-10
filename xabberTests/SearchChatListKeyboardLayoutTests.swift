@@ -12,6 +12,33 @@ import UIKit
 
 @MainActor
 final class SearchChatListKeyboardLayoutTests: XCTestCase {
+    func testKeyboardLayoutUpdatePolicySkipsEquivalentUIKitNotifications() {
+        let signature = ChatKeyboardLayoutUpdateSignature(
+            visibleHeight: 300,
+            viewSize: CGSize(width: 390, height: 844),
+            searchOwnsKeyboard: false
+        )
+
+        XCTAssertTrue(ChatKeyboardLayoutUpdatePolicy.shouldApply(previous: nil, next: signature))
+        XCTAssertFalse(ChatKeyboardLayoutUpdatePolicy.shouldApply(previous: signature, next: signature))
+        XCTAssertTrue(ChatKeyboardLayoutUpdatePolicy.shouldApply(
+            previous: signature,
+            next: ChatKeyboardLayoutUpdateSignature(
+                visibleHeight: 301,
+                viewSize: signature.viewSize,
+                searchOwnsKeyboard: false
+            )
+        ))
+        XCTAssertTrue(ChatKeyboardLayoutUpdatePolicy.shouldApply(
+            previous: signature,
+            next: ChatKeyboardLayoutUpdateSignature(
+                visibleHeight: signature.visibleHeight,
+                viewSize: signature.viewSize,
+                searchOwnsKeyboard: true
+            )
+        ))
+    }
+
     func testBottomBarIsAnchoredToKeyboardLayoutGuide() throws {
         let controller = SearchChatListViewController()
 

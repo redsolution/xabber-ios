@@ -773,6 +773,65 @@ struct AccountConnectionHealthSnapshot: Equatable {
     let isSuspectedStale: Bool
     let suspectedStaleReason: AccountConnectionStaleReason?
     let isNetworkPathSatisfied: Bool?
+
+    static let empty = AccountConnectionHealthSnapshot(
+        lastInboundStanzaAt: nil,
+        lastStreamManagementAckAt: nil,
+        lastDeliveryReceiptAt: nil,
+        lastSuccessfulPingAt: nil,
+        lastOutboundStanzaAt: nil,
+        pendingOutgoingCount: 0,
+        lastConfirmedActivityAt: nil,
+        lastActivityAge: nil,
+        isSuspectedStale: false,
+        suspectedStaleReason: nil,
+        isNetworkPathSatisfied: nil
+    )
+
+    func refreshingActivityAge(now: TimeInterval) -> AccountConnectionHealthSnapshot {
+        AccountConnectionHealthSnapshot(
+            lastInboundStanzaAt: lastInboundStanzaAt,
+            lastStreamManagementAckAt: lastStreamManagementAckAt,
+            lastDeliveryReceiptAt: lastDeliveryReceiptAt,
+            lastSuccessfulPingAt: lastSuccessfulPingAt,
+            lastOutboundStanzaAt: lastOutboundStanzaAt,
+            pendingOutgoingCount: pendingOutgoingCount,
+            lastConfirmedActivityAt: lastConfirmedActivityAt,
+            lastActivityAge: lastConfirmedActivityAt.map { max(0, now - $0) },
+            isSuspectedStale: isSuspectedStale,
+            suspectedStaleReason: suspectedStaleReason,
+            isNetworkPathSatisfied: isNetworkPathSatisfied
+        )
+    }
+}
+
+private final class AccountConnectionHealthSnapshotStore {
+    private let lock = NSLock()
+    private var snapshot: AccountConnectionHealthSnapshot = .empty
+    private var mainThreadSnapshot: AccountConnectionHealthSnapshot = .empty
+
+    func read(now: TimeInterval) -> AccountConnectionHealthSnapshot {
+        if Thread.isMainThread {
+            guard lock.try() else {
+                return mainThreadSnapshot.refreshingActivityAge(now: now)
+            }
+            let value = snapshot
+            lock.unlock()
+            mainThreadSnapshot = value
+            return value.refreshingActivityAge(now: now)
+        }
+
+        lock.lock()
+        let value = snapshot
+        lock.unlock()
+        return value.refreshingActivityAge(now: now)
+    }
+
+    func publish(_ snapshot: AccountConnectionHealthSnapshot) {
+        lock.lock()
+        self.snapshot = snapshot
+        lock.unlock()
+    }
 }
 
 struct AccountConnectionResilienceActions {
@@ -794,6 +853,9 @@ final class AccountConnectionResilienceCoordinator {
     private let scheduler: AccountConnectionResilienceScheduling
     private let actions: AccountConnectionResilienceActions
     private let stateLock = NSRecursiveLock()
+    private let healthSnapshotStore = AccountConnectionHealthSnapshotStore()
+    private var stateLockDepth = 0
+    private var pendingEffects: [() -> Void] = []
 
     private var isForegroundActive = false
     private var isOnline = false
@@ -819,11 +881,11 @@ final class AccountConnectionResilienceCoordinator {
     private var stableOnlineTimer: AccountConnectionResilienceCancellable?
     private var bindingWatchdogTimer: AccountConnectionResilienceCancellable?
     private var pausedReconnect: (cause: AccountDisconnectCause, trigger: AccountConnectTrigger)?
+    private var isReconnectDelayResolutionPending = false
+    private var reconnectDelayResolutionGeneration = 0
 
     var healthSnapshot: AccountConnectionHealthSnapshot {
-        withStateLock {
-            makeHealthSnapshot(now: scheduler.now)
-        }
+        healthSnapshotStore.read(now: scheduler.now)
     }
 
     init(
@@ -844,12 +906,15 @@ final class AccountConnectionResilienceCoordinator {
 
     private func setForegroundActiveLocked(_ active: Bool) {
         isForegroundActive = active
-        actions.log(
+        log(
             active ? "resilience_foreground_active" : "resilience_foreground_inactive",
             ["online": isOnline]
         )
         if active {
-            actions.invalidateEndpointResolutionCache("foreground-active")
+            let actions = self.actions
+            runAfterStateUnlock {
+                actions.invalidateEndpointResolutionCache("foreground-active")
+            }
             scheduleLivenessTick()
         } else {
             cancelLiveness()
@@ -874,7 +939,7 @@ final class AccountConnectionResilienceCoordinator {
         cancelRetry()
         scheduleStableOnlineReset()
         scheduleLivenessTick()
-        actions.log(
+        log(
             "resilience_stream_online",
             ["resumed": resumed]
         )
@@ -892,12 +957,13 @@ final class AccountConnectionResilienceCoordinator {
         pendingPing = false
         missedPings = 0
         lastActivityAt = nil
+        publishHealthSnapshot()
         cancelLiveness()
         outboundConfirmationTimer?.cancel()
         outboundConfirmationTimer = nil
         stableOnlineTimer?.cancel()
         stableOnlineTimer = nil
-        actions.log(
+        log(
             "resilience_stream_disconnected",
             ["cause": cause.rawValue, "willReconnect": cause.allowsAutoReconnect]
         )
@@ -923,7 +989,7 @@ final class AccountConnectionResilienceCoordinator {
 
     private func streamDidEnterBindingLocked() {
         guard isForegroundActive, !isOnline, !isSuspectedStale, currentPath?.isSatisfied ?? true else {
-            actions.log(
+            log(
                 "resilience_binding_watchdog_skipped",
                 [
                     "foreground": isForegroundActive,
@@ -936,7 +1002,7 @@ final class AccountConnectionResilienceCoordinator {
         }
 
         bindingWatchdogTimer?.cancel()
-        actions.log(
+        log(
             "resilience_binding_watchdog_started",
             ["timeout": policy.bindingSetupTimeout]
         )
@@ -964,7 +1030,7 @@ final class AccountConnectionResilienceCoordinator {
     func noteDeliveryReceipt(originId: String, stanzaId: String) {
         withStateLock {
             recordConfirmedActivity(reason: "delivery-receipt", kind: .deliveryReceipt)
-            actions.log(
+            log(
                 "resilience_delivery_receipt_observed",
                 ["originId": originId, "stanzaId": stanzaId]
             )
@@ -976,7 +1042,7 @@ final class AccountConnectionResilienceCoordinator {
         withStateLock {
             lastOutboundStanzaAt = scheduler.now
             publishHealthSnapshot()
-            actions.log(
+            log(
                 "resilience_outbound_stanza_observed",
                 ["id": id ?? "none", "timeout": policy.outboundConfirmationTimeout]
             )
@@ -987,13 +1053,13 @@ final class AccountConnectionResilienceCoordinator {
     func notePrimaryStreamAckTimeout(stanzaId: String?, generation: UInt64) {
         withStateLock {
             guard isOnline, !isSuspectedStale else {
-                actions.log(
+                log(
                     "resilience_primary_stream_ack_timeout_ignored",
                     ["id": stanzaId ?? "none", "generation": generation, "online": isOnline]
                 )
                 return
             }
-            actions.log(
+            log(
                 "resilience_primary_stream_ack_timeout",
                 ["id": stanzaId ?? "none", "generation": generation]
             )
@@ -1003,7 +1069,7 @@ final class AccountConnectionResilienceCoordinator {
 
     func notePrimaryStreamTrackingLimitRejected(_ violation: PrimaryStreamTrackingLimitViolation) {
         withStateLock {
-            actions.log(
+            log(
                 "resilience_primary_stream_tracking_limit_rejected",
                 ["violation": String(describing: violation), "online": isOnline]
             )
@@ -1021,7 +1087,7 @@ final class AccountConnectionResilienceCoordinator {
 
     func notePingResult(success: Bool) {
         withStateLock {
-            actions.log(
+            log(
                 success ? "resilience_ping_result" : "resilience_ping_error",
                 ["success": success]
             )
@@ -1047,14 +1113,19 @@ final class AccountConnectionResilienceCoordinator {
 
     func streamManagementResumeCompleted(didResume: Bool, responseName: String?) {
         withStateLock {
-            actions.log(
+            log(
                 didResume ? "stream_management_resume_succeeded" : "stream_management_resume_failed",
                 ["response": responseName ?? "none"]
             )
+            let actions = self.actions
             if didResume {
-                actions.skipFullSetupAfterResume()
+                runAfterStateUnlock {
+                    actions.skipFullSetupAfterResume()
+                }
             } else {
-                actions.runFullSetupAfterAuthentication()
+                runAfterStateUnlock {
+                    actions.runFullSetupAfterAuthentication()
+                }
             }
             streamDidReachOnlineLocked(resumed: didResume)
         }
@@ -1081,31 +1152,61 @@ final class AccountConnectionResilienceCoordinator {
         cause: AccountDisconnectCause,
         trigger: AccountConnectTrigger,
         delayOverride: TimeInterval? = nil,
-        replaceExistingRetry: Bool = false
+        replaceExistingRetry: Bool = false,
+        canResumeStream: Bool? = nil
     ) {
         guard cause.allowsAutoReconnect else { return }
         if replaceExistingRetry {
             retryTimer?.cancel()
             retryTimer = nil
+            isReconnectDelayResolutionPending = false
+            reconnectDelayResolutionGeneration += 1
         }
-        guard retryTimer == nil else { return }
+        guard retryTimer == nil, !isReconnectDelayResolutionPending else { return }
         guard currentPath?.isSatisfied ?? true else {
             pausedReconnect = (cause, trigger)
-            actions.log(
+            log(
                 "resilience_reconnect_paused_path_unsatisfied",
                 ["cause": cause.rawValue, "trigger": trigger.rawValue]
             )
             return
         }
 
-        let delay = delayOverride ?? reconnectDelay()
-        actions.log(
+        let delay: TimeInterval
+        if let delayOverride {
+            delay = delayOverride
+        } else if let canResumeStream {
+            delay = reconnectDelay(canResumeStream: canResumeStream)
+        } else {
+            isReconnectDelayResolutionPending = true
+            reconnectDelayResolutionGeneration += 1
+            let generation = reconnectDelayResolutionGeneration
+            let actions = self.actions
+            runAfterStateUnlock { [weak self] in
+                let canResumeStream = actions.canResumeStream()
+                self?.withStateLock {
+                    guard let self,
+                          self.isReconnectDelayResolutionPending,
+                          self.reconnectDelayResolutionGeneration == generation else {
+                        return
+                    }
+                    self.isReconnectDelayResolutionPending = false
+                    self.scheduleReconnectLocked(
+                        cause: cause,
+                        trigger: trigger,
+                        canResumeStream: canResumeStream
+                    )
+                }
+            }
+            return
+        }
+        log(
             "resilience_reconnect_scheduled",
             ["cause": cause.rawValue, "trigger": trigger.rawValue, "delay": delay]
         )
         retryTimer = scheduler.schedule(after: delay) { [weak self] in
             self?.withStateLock {
-                self?.fireReconnect(cause: cause, trigger: trigger)
+                self?.fireReconnectLocked(cause: cause, trigger: trigger)
             }
         }
     }
@@ -1114,9 +1215,12 @@ final class AccountConnectionResilienceCoordinator {
         let previous = currentPath
         currentPath = snapshot
         if let previous, previous != snapshot {
-            actions.invalidateEndpointResolutionCache("path-changed")
+            let actions = self.actions
+            runAfterStateUnlock {
+                actions.invalidateEndpointResolutionCache("path-changed")
+            }
         }
-        actions.log(
+        log(
             "resilience_path_changed",
             [
                 "status": snapshot.status.rawValue,
@@ -1125,6 +1229,7 @@ final class AccountConnectionResilienceCoordinator {
                 "isConstrained": snapshot.isConstrained
             ]
         )
+        publishHealthSnapshot()
 
         guard snapshot.isSatisfied else {
             cancelLiveness()
@@ -1137,7 +1242,10 @@ final class AccountConnectionResilienceCoordinator {
         guard recovered || interfaceChanged else { return }
 
         if isOnline {
-            actions.probeOnlineStream()
+            let actions = self.actions
+            runAfterStateUnlock {
+                actions.probeOnlineStream()
+            }
             sendLivenessProbeNow()
         } else if let pausedReconnect {
             self.pausedReconnect = nil
@@ -1173,7 +1281,7 @@ final class AccountConnectionResilienceCoordinator {
 
         if let lastActivityAt,
            scheduler.now - lastActivityAt >= policy.staleActivityTimeout {
-            actions.log(
+            log(
                 "resilience_liveness_stale_activity",
                 ["age": scheduler.now - lastActivityAt]
             )
@@ -1182,15 +1290,17 @@ final class AccountConnectionResilienceCoordinator {
         }
 
         pendingPing = true
-        actions.log("resilience_ping_enqueue", ["timeout": policy.pingTimeout])
-        guard actions.sendPing() else {
-            handlePingTimeout()
-            return
-        }
+        log("resilience_ping_enqueue", ["timeout": policy.pingTimeout])
         pingTimeoutTimer?.cancel()
         pingTimeoutTimer = scheduler.schedule(after: policy.pingTimeout) { [weak self] in
             self?.withStateLock {
                 self?.handlePingTimeout()
+            }
+        }
+        let actions = self.actions
+        runAfterStateUnlock { [weak self] in
+            if !actions.sendPing() {
+                self?.notePingResult(success: false)
             }
         }
     }
@@ -1201,7 +1311,7 @@ final class AccountConnectionResilienceCoordinator {
         pingTimeoutTimer?.cancel()
         pingTimeoutTimer = nil
         missedPings += 1
-        actions.log(
+        log(
             "resilience_ping_timeout",
             ["missedPings": missedPings, "limit": policy.maxMissedPings]
         )
@@ -1217,7 +1327,7 @@ final class AccountConnectionResilienceCoordinator {
         bindingWatchdogTimer?.cancel()
         bindingWatchdogTimer = nil
         guard isForegroundActive, !isOnline, !isSuspectedStale, currentPath?.isSatisfied ?? true else {
-            actions.log(
+            log(
                 "resilience_binding_timeout_ignored",
                 [
                     "foreground": isForegroundActive,
@@ -1229,33 +1339,35 @@ final class AccountConnectionResilienceCoordinator {
             return
         }
 
-        actions.log(
+        log(
             "resilience_binding_timeout",
             ["timeout": policy.bindingSetupTimeout]
         )
         cancelLiveness()
         markSuspectedStale(.bindingTimeout)
         isOnline = false
-        actions.forceClose(.bindingTimeout)
-        scheduleReconnectLocked(
-            cause: .bindingTimeout,
-            trigger: .resilienceRetry,
-            delayOverride: 0,
-            replaceExistingRetry: true
-        )
+        let actions = self.actions
+        runAfterStateUnlock { [weak self] in
+            actions.forceClose(.bindingTimeout)
+            self?.requestImmediateReconnect(
+                cause: .bindingTimeout,
+                trigger: .resilienceRetry
+            )
+        }
     }
 
     private func forceCloseAfterLivenessFailure(reason: AccountConnectionStaleReason) {
         cancelLiveness()
         markSuspectedStale(reason)
         isOnline = false
-        actions.forceClose(.pingTimeout)
-        scheduleReconnectLocked(
-            cause: .pingTimeout,
-            trigger: .resilienceRetry,
-            delayOverride: 0,
-            replaceExistingRetry: true
-        )
+        let actions = self.actions
+        runAfterStateUnlock { [weak self] in
+            actions.forceClose(.pingTimeout)
+            self?.requestImmediateReconnect(
+                cause: .pingTimeout,
+                trigger: .resilienceRetry
+            )
+        }
     }
 
     private func scheduleOutboundConfirmationTimeout() {
@@ -1270,32 +1382,35 @@ final class AccountConnectionResilienceCoordinator {
 
     private func handleOutboundConfirmationTimeout() {
         guard isOnline, !isSuspectedStale else { return }
-        actions.log(
+        log(
             "resilience_outbound_confirmation_timeout",
             ["timeout": policy.outboundConfirmationTimeout]
         )
         forceCloseAfterLivenessFailure(reason: .outboundConfirmationTimeout)
     }
 
-    private func fireReconnect(cause: AccountDisconnectCause, trigger: AccountConnectTrigger) {
+    private func fireReconnectLocked(cause: AccountDisconnectCause, trigger: AccountConnectTrigger) {
         retryTimer = nil
         guard currentPath?.isSatisfied ?? true else {
             pausedReconnect = (cause, trigger)
-            actions.log(
+            log(
                 "resilience_reconnect_paused_path_unsatisfied",
                 ["cause": cause.rawValue, "trigger": trigger.rawValue]
             )
             return
         }
-        let started = actions.requestReconnect(trigger, cause)
-        actions.log(
-            started ? "resilience_reconnect_started" : "resilience_reconnect_skipped",
-            ["cause": cause.rawValue, "trigger": trigger.rawValue]
-        )
+        let actions = self.actions
+        runAfterStateUnlock {
+            let started = actions.requestReconnect(trigger, cause)
+            actions.log(
+                started ? "resilience_reconnect_started" : "resilience_reconnect_skipped",
+                ["cause": cause.rawValue, "trigger": trigger.rawValue]
+            )
+        }
     }
 
-    private func reconnectDelay() -> TimeInterval {
-        if actions.canResumeStream(), fastResumeAttempt < policy.fastResumeDelays.count {
+    private func reconnectDelay(canResumeStream: Bool) -> TimeInterval {
+        if canResumeStream, fastResumeAttempt < policy.fastResumeDelays.count {
             let delay = policy.fastResumeDelays[fastResumeAttempt]
             fastResumeAttempt += 1
             return delay
@@ -1314,7 +1429,7 @@ final class AccountConnectionResilienceCoordinator {
             self?.withStateLock {
                 self?.retryAttempt = 0
                 self?.fastResumeAttempt = 0
-                self?.actions.log("resilience_backoff_reset", [:])
+                self?.log("resilience_backoff_reset", [:])
             }
         }
     }
@@ -1332,6 +1447,8 @@ final class AccountConnectionResilienceCoordinator {
     private func cancelRetry() {
         retryTimer?.cancel()
         retryTimer = nil
+        isReconnectDelayResolutionPending = false
+        reconnectDelayResolutionGeneration += 1
         pausedReconnect = nil
     }
 
@@ -1339,7 +1456,7 @@ final class AccountConnectionResilienceCoordinator {
         guard bindingWatchdogTimer != nil else { return }
         bindingWatchdogTimer?.cancel()
         bindingWatchdogTimer = nil
-        actions.log("resilience_binding_watchdog_cancelled", ["reason": reason])
+        log("resilience_binding_watchdog_cancelled", ["reason": reason])
     }
 
     private enum ConfirmedActivityKind {
@@ -1352,13 +1469,39 @@ final class AccountConnectionResilienceCoordinator {
     @discardableResult
     private func withStateLock<T>(_ block: () -> T) -> T {
         stateLock.lock()
-        defer { stateLock.unlock() }
-        return block()
+        stateLockDepth += 1
+        let result = block()
+        stateLockDepth -= 1
+        let effects: [() -> Void]
+        if stateLockDepth == 0 {
+            effects = pendingEffects
+            pendingEffects.removeAll(keepingCapacity: true)
+        } else {
+            effects = []
+        }
+        stateLock.unlock()
+        if !effects.isEmpty {
+            _ = scheduler.schedule(after: 0) {
+                effects.forEach { $0() }
+            }
+        }
+        return result
+    }
+
+    private func runAfterStateUnlock(_ effect: @escaping () -> Void) {
+        pendingEffects.append(effect)
+    }
+
+    private func log(_ event: String, _ details: [String: Any?]) {
+        let actions = self.actions
+        runAfterStateUnlock {
+            actions.log(event, details)
+        }
     }
 
     private func recordConfirmedActivity(reason: String, kind: ConfirmedActivityKind) {
         guard !isSuspectedStale else {
-            actions.log("resilience_activity_ignored_after_stale", ["reason": reason])
+            log("resilience_activity_ignored_after_stale", ["reason": reason])
             return
         }
 
@@ -1380,7 +1523,7 @@ final class AccountConnectionResilienceCoordinator {
         pingTimeoutTimer = nil
         outboundConfirmationTimer?.cancel()
         outboundConfirmationTimer = nil
-        actions.log(
+        log(
             "resilience_activity_observed",
             ["reason": reason]
         )
@@ -1392,16 +1535,25 @@ final class AccountConnectionResilienceCoordinator {
         isSuspectedStale = true
         suspectedStaleReason = reason
         let snapshot = makeHealthSnapshot(now: scheduler.now)
-        actions.log(
+        healthSnapshotStore.publish(snapshot)
+        log(
             "connection_health_suspected_stale",
             ["reason": reason.rawValue, "lastActivityAge": snapshot.lastActivityAge]
         )
-        actions.healthChanged(snapshot)
-        actions.markSuspectedStale(reason, snapshot)
+        let actions = self.actions
+        runAfterStateUnlock {
+            actions.healthChanged(snapshot)
+            actions.markSuspectedStale(reason, snapshot)
+        }
     }
 
     private func publishHealthSnapshot() {
-        actions.healthChanged(makeHealthSnapshot(now: scheduler.now))
+        let snapshot = makeHealthSnapshot(now: scheduler.now)
+        healthSnapshotStore.publish(snapshot)
+        let actions = self.actions
+        runAfterStateUnlock {
+            actions.healthChanged(snapshot)
+        }
     }
 
     private func makeHealthSnapshot(now: TimeInterval) -> AccountConnectionHealthSnapshot {

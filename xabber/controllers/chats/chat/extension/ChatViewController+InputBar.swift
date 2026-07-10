@@ -170,6 +170,19 @@ extension ChatViewController {
         }
 
         let keyboardVisibleHeight = self.keyboardOverlapHeight(from: frameValue.cgRectValue)
+        let layoutSignature = ChatKeyboardLayoutUpdateSignature(
+            visibleHeight: keyboardVisibleHeight,
+            viewSize: self.view.bounds.size,
+            searchOwnsKeyboard: self.isChatSearchInputKeyboardOwned
+        )
+        guard ChatKeyboardLayoutUpdatePolicy.shouldApply(
+            previous: self.lastAppliedChatKeyboardLayoutSignature,
+            next: layoutSignature
+        ) else {
+            return
+        }
+        self.lastAppliedChatKeyboardLayoutSignature = layoutSignature
+
         let duration = (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0
         let curveValue = (userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue
         let options = curveValue

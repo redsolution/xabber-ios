@@ -84,14 +84,16 @@ extension ChatViewController {
         hasPendingOrFailedMessage: Bool,
         omemoAvailability: OmemoSendAvailabilityPolicy.Availability? = nil
     ) {
-        self.xabberInputView.isSendButtonEnabled = ChatSendButtonReadinessPolicy.isEnabled(
+        let isEnabled = ChatSendButtonReadinessPolicy.isEnabled(
             conversationType: self.conversationType,
             isSkeletonVisible: isSkeletonVisible,
             isAccountConnecting: isAccountConnecting,
             hasPendingOrFailedMessage: hasPendingOrFailedMessage,
             omemoAvailability: omemoAvailability ?? self.baseOmemoAvailabilityForSendButton()
         )
-        self.xabberInputView.updateSendButtonState()
+        guard self.xabberInputView.isSendButtonEnabled != isEnabled else { return }
+        self.xabberInputView.isSendButtonEnabled = isEnabled
+        self.xabberInputView.updateComposerActionReadiness()
     }
 
     internal func updateStatusText() {
@@ -506,15 +508,27 @@ extension ChatViewController {
         }.disposed(by: self.bag)
 
         
+        let draftOwner = self.owner
+        let draftJID = self.jid
+        let draftConversationType = self.conversationType
+        let draftPersistenceScheduler = ConcurrentDispatchQueueScheduler(qos: .utility)
         self.draftMessageText
             .asObservable()
+            .distinctUntilChanged()
             .debounce(.milliseconds(800), scheduler: MainScheduler.asyncInstance)
-            .observe(on: MainScheduler.asyncInstance)
+            .observe(on: draftPersistenceScheduler)
             .subscribe { value in
                 do {
                     let realm  = try WRealm.safe()
                     try realm.write {
-                        realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))?.draftMessage = value
+                        realm.object(
+                            ofType: LastChatsStorageItem.self,
+                            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                                jid: draftJID,
+                                owner: draftOwner,
+                                conversationType: draftConversationType
+                            )
+                        )?.draftMessage = value
                     }
                 } catch {
                     DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")

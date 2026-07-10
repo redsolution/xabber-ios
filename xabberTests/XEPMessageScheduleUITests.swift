@@ -53,32 +53,32 @@ final class XEPMessageScheduleUITests: XCTestCase {
 
     func testTextLongPressMenuPolicyAllowsOnlyEnabledSendStateWithText() {
         XCTAssertTrue(ChatSendOptionsMenuPolicy.shouldPresentTextSendMenu(
-            sendButtonState: .send,
+            actionMode: .textSend,
             inputState: .normal,
             isSendButtonEnabled: true,
             body: "  later  "
         ))
 
         XCTAssertFalse(ChatSendOptionsMenuPolicy.shouldPresentTextSendMenu(
-            sendButtonState: .record,
+            actionMode: .record,
             inputState: .normal,
             isSendButtonEnabled: true,
             body: "later"
         ))
         XCTAssertFalse(ChatSendOptionsMenuPolicy.shouldPresentTextSendMenu(
-            sendButtonState: .send,
+            actionMode: .textSend,
             inputState: .record,
             isSendButtonEnabled: true,
             body: "later"
         ))
         XCTAssertFalse(ChatSendOptionsMenuPolicy.shouldPresentTextSendMenu(
-            sendButtonState: .send,
+            actionMode: .textSend,
             inputState: .normal,
             isSendButtonEnabled: false,
             body: "later"
         ))
         XCTAssertFalse(ChatSendOptionsMenuPolicy.shouldPresentTextSendMenu(
-            sendButtonState: .send,
+            actionMode: .textSend,
             inputState: .normal,
             isSendButtonEnabled: true,
             body: " \n\t "
@@ -182,8 +182,10 @@ final class XEPMessageScheduleUITests: XCTestCase {
         menu.closeMenu(withAnimation: false)
     }
 
-    func testModernInputViewUsesComposerFieldAsSendOptionsMenuSource() {
+    func testModernInputViewUsesWholeComposerCapsuleAsSendOptionsMenuSource() {
         let inputView = ModernXabberInputView(frame: CGRect(x: 0, y: 0, width: 390, height: 49))
+        inputView.textField.text = "Scheduled text"
+        inputView.textViewDidChange(force: true)
 
         inputView.layoutIfNeeded()
 
@@ -193,7 +195,7 @@ final class XEPMessageScheduleUITests: XCTestCase {
 
         XCTAssertFalse(sourceView === inputView.sendButton)
         XCTAssertGreaterThan(sourceFrame.width, sendFrame.width)
-        XCTAssertLessThanOrEqual(sourceFrame.maxX, sendFrame.minX)
+        XCTAssertTrue(sourceFrame.contains(sendFrame))
     }
 
     func testContextMenuDisabledRowsCannotBeSelectedOrInvokeTap() {
@@ -432,7 +434,7 @@ final class XEPMessageScheduleUITests: XCTestCase {
         let viewController = makeChatViewController(owner: owner, conversation: conversation)
         let inputView = viewController.xabberInputView!
         inputView.isSendButtonEnabled = true
-        inputView.changeSendButtonState(to: .send)
+        inputView.changeComposerActionMode(to: .textSend)
         inputView.clearComposer()
 
         try seedSchedule(
@@ -450,10 +452,11 @@ final class XEPMessageScheduleUITests: XCTestCase {
 
         XCTAssertFalse(inputView.scheduledMessagesButton.isHidden)
         XCTAssertNotNil(buttonGlyphImage(inputView.attachButton))
+        XCTAssertNotNil(buttonGlyphImage(inputView.recordButton))
         XCTAssertNotNil(buttonGlyphImage(inputView.sendButton))
         XCTAssertNotNil(inputView.scheduledMessagesButton.image(for: .normal))
 
-        for button in [inputView.attachButton, inputView.sendButton] {
+        for button in [inputView.attachButton, inputView.recordButton] {
             if #available(iOS 26.0, *) {
                 var configuration = button.configuration ?? UIButton.Configuration.clearGlass()
                 configuration.image = nil
@@ -463,6 +466,8 @@ final class XEPMessageScheduleUITests: XCTestCase {
             }
             button.setImage(nil, for: .normal)
         }
+        inputView.sendButton.configuration = nil
+        inputView.sendButton.setImage(nil, for: .normal)
         inputView.scheduledMessagesButton.configuration = nil
         inputView.scheduledMessagesButton.setImage(nil, for: .normal)
 
@@ -471,7 +476,7 @@ final class XEPMessageScheduleUITests: XCTestCase {
 
         XCTAssertFalse(inputView.scheduledMessagesButton.isHidden)
         XCTAssertNotNil(inputView.scheduledMessagesButton.image(for: .normal))
-        for button in [inputView.attachButton, inputView.sendButton] {
+        for button in [inputView.attachButton, inputView.recordButton] {
             XCTAssertNotNil(buttonGlyphImage(button))
             XCTAssertEqual(button.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
             XCTAssertEqual(button.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
@@ -479,6 +484,8 @@ final class XEPMessageScheduleUITests: XCTestCase {
                 XCTAssertNotNil(button.configuration?.image)
             }
         }
+        XCTAssertNotNil(buttonGlyphImage(inputView.sendButton))
+        XCTAssertNil(inputView.sendButton.configuration)
     }
 
     func testAttachmentButtonStaysEnabledWhenSendReadinessIsBlocked() {
@@ -486,13 +493,14 @@ final class XEPMessageScheduleUITests: XCTestCase {
         inputView.changeState(to: .normal)
 
         inputView.isSendButtonEnabled = false
-        inputView.changeSendButtonState(to: .record)
+        inputView.changeComposerActionMode(to: .record)
 
         XCTAssertFalse(inputView.attachButton.isHidden)
         XCTAssertTrue(inputView.attachButton.isEnabled)
+        XCTAssertFalse(inputView.recordButton.isEnabled)
         XCTAssertFalse(inputView.sendButton.isEnabled)
 
-        inputView.changeSendButtonState(to: .send)
+        inputView.changeComposerActionMode(to: .textSend)
 
         XCTAssertFalse(inputView.attachButton.isHidden)
         XCTAssertTrue(inputView.attachButton.isEnabled)
@@ -504,19 +512,19 @@ final class XEPMessageScheduleUITests: XCTestCase {
         let inputView = ModernXabberInputView(frame: CGRect(x: 0, y: 0, width: 390, height: 49))
         inputView.layoutIfNeeded()
         inputView.isSendButtonEnabled = true
-        inputView.changeSendButtonState(to: .send)
+        inputView.changeComposerActionMode(to: .textSend)
 
-        for button in [inputView.attachButton, inputView.sendButton] {
+        for button in [inputView.attachButton, inputView.recordButton, inputView.sendButton] {
             XCTAssertEqual(button.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
             XCTAssertEqual(button.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
             XCTAssertEqual(try buttonGlyphMaxDimension(button), expectedGlyphDimension, accuracy: 0.001)
         }
 
-        inputView.changeSendButtonState(to: .record)
+        inputView.changeComposerActionMode(to: .record)
 
-        XCTAssertEqual(inputView.sendButton.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
-        XCTAssertEqual(inputView.sendButton.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
-        XCTAssertEqual(try buttonGlyphMaxDimension(inputView.sendButton), expectedGlyphDimension, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.bounds.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordButton.bounds.height, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(try buttonGlyphMaxDimension(inputView.recordButton), expectedGlyphDimension, accuracy: 0.001)
     }
 
     func testChatControllerRefreshHidesScheduledMessagesButtonAfterRowsDisappear() throws {

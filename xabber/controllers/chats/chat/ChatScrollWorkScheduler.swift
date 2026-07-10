@@ -34,6 +34,7 @@ final class ChatUIResponsivenessGate {
     private let schedule: Schedule
     private var activeUntil: Date?
     private var generation = 0
+    private var isExpirationCheckScheduled = false
     private var pendingDeferredWork: [String: () -> Void] = [:]
     private var isDeferredFlushScheduled = false
 
@@ -64,17 +65,13 @@ final class ChatUIResponsivenessGate {
             activeUntil = expiration
         }
 
-        generation += 1
-        let scheduledGeneration = generation
-        let delay = max(0, expiration.timeIntervalSince(now()))
-        schedule(delay) { [weak self] in
-            self?.expireIfNeeded(generation: scheduledGeneration)
-        }
+        scheduleExpirationCheckIfNeeded()
     }
 
     func resetForTesting() {
         activeUntil = nil
         generation += 1
+        isExpirationCheckScheduled = false
         pendingDeferredWork.removeAll()
         isDeferredFlushScheduled = false
     }
@@ -104,15 +101,33 @@ final class ChatUIResponsivenessGate {
         scheduleDeferredFlushIfNeeded()
     }
 
-    private func expireIfNeeded(generation scheduledGeneration: Int? = nil) {
-        if let scheduledGeneration, scheduledGeneration != generation {
-            return
-        }
+    private func expireIfNeeded() {
         guard let activeUntil,
               now() >= activeUntil else {
             return
         }
         self.activeUntil = nil
+    }
+
+    private func scheduleExpirationCheckIfNeeded() {
+        guard !isExpirationCheckScheduled,
+              let activeUntil else {
+            return
+        }
+
+        isExpirationCheckScheduled = true
+        let scheduledGeneration = generation
+        let delay = max(0, activeUntil.timeIntervalSince(now()))
+        schedule(delay) { [weak self] in
+            self?.runExpirationCheck(generation: scheduledGeneration)
+        }
+    }
+
+    private func runExpirationCheck(generation scheduledGeneration: Int) {
+        guard scheduledGeneration == generation else { return }
+        isExpirationCheckScheduled = false
+        expireIfNeeded()
+        scheduleExpirationCheckIfNeeded()
     }
 
     private func scheduleDeferredFlushIfNeeded() {
