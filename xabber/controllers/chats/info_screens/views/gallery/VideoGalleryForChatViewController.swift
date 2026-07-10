@@ -158,16 +158,27 @@ class VideoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
         guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: GalleryItemCell.cellName, for: indexPath) as? GalleryItemCell else {
             fatalError()
         }
-        let item  = self.datasource[indexPath.row]
+        guard self.datasource.indices.contains(indexPath.row) else {
+            cell.prepareForReuse()
+            return cell
+        }
+        let item = self.datasource[indexPath.row]
         
-        cell.configure(url: item.url, title: item.title, subtitle: item.subtitle, thumb: item.thumb, isSensitive: item.isSensitive && !item.isSensitiveRevealed)
+        if let url = item.url {
+            cell.configure(url: url, title: item.title, subtitle: item.subtitle, thumb: item.thumb, isSensitive: item.isSensitive && !item.isSensitiveRevealed)
+        }
         
         return cell
     }
     
     override func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
         indexPaths
-            .compactMap({ self.datasource[$0.row].url })
+            .compactMap { indexPath -> URL? in
+                guard self.datasource.indices.contains(indexPath.row) else {
+                    return nil
+                }
+                return self.datasource[indexPath.row].url
+            }
             .forEach {
                 ImageDownloader
                     .default
@@ -184,7 +195,10 @@ class VideoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
     }
     
     override func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        let url = self.datasource[indexPath.row].url
+        guard self.datasource.indices.contains(indexPath.row),
+              let url = self.datasource[indexPath.row].url else {
+            return
+        }
         let item = self.datasource[indexPath.row]
         if item.isSensitive && !item.isSensitiveRevealed {
             let vc = SensitiveContentFirstPaneViewController()

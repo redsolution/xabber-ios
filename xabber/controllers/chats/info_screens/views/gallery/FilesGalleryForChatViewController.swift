@@ -124,10 +124,10 @@ class FilesGalleryForChatViewController: BaseMediaGalleryForChatViewController {
             ])
         }
         
-        public func configure(owner: String,  url: URL, filename: String, size: String) {
+        public func configure(owner: String, url: URL?, filename: String, size: String) {
             self.palette = AccountColorManager.shared.palette(for: owner)
             iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            let mimeType = url.absoluteString
+            let mimeType = url?.absoluteString ?? ""
             switch MimeIconTypes(rawValue: mimeType) {
                 case .image:
                     iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
@@ -249,10 +249,6 @@ class FilesGalleryForChatViewController: BaseMediaGalleryForChatViewController {
         self.collectionView.fillSuperview()
     }
     
-    override func loadDatasource() {
-        self.datasource = []
-    }
-    
     override func configure() {
         super.configure()
         self.title = "Files"
@@ -266,7 +262,11 @@ class FilesGalleryForChatViewController: BaseMediaGalleryForChatViewController {
         guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: GalleryItemCell.cellName, for: indexPath) as? GalleryItemCell else {
             fatalError()
         }
-        let item  = self.datasource[indexPath.row]
+        guard self.datasource.indices.contains(indexPath.row) else {
+            cell.prepareForReuse()
+            return cell
+        }
+        let item = self.datasource[indexPath.row]
         
         cell.configure(owner: self.owner, url: item.url, filename: item.title, size: item.subtitle)
         

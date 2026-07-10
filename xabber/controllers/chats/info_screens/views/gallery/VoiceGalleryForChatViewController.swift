@@ -78,7 +78,7 @@ class VoiceGalleryForChatViewController: BaseMediaGalleryForChatViewController {
             self.contentView.layer.borderColor = MDCPalette.grey.tint300.cgColor
         }
 
-        func configure(url: URL, title: String, subtitle: String) {
+        func configure(url: URL?, title: String, subtitle: String) {
             let placeholderView = GalleryPlaceholderView(frame: CGRect(square: 64))
             placeholderView.image.image = imageLiteral("custom.photo.badge.clock")
 //            self.imageView.addSubview(placeholderView)
@@ -189,10 +189,6 @@ class VoiceGalleryForChatViewController: BaseMediaGalleryForChatViewController {
     }
     
     
-    override func loadDatasource() {
-        self.datasource = []
-    }
-    
     override func configure() {
         super.configure()
         self.title = "Files"
@@ -206,7 +202,11 @@ class VoiceGalleryForChatViewController: BaseMediaGalleryForChatViewController {
         guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: GalleryPhotoItemCell.cellName, for: indexPath) as? GalleryPhotoItemCell else {
             fatalError()
         }
-        let item  = self.datasource[indexPath.row]
+        guard self.datasource.indices.contains(indexPath.row) else {
+            cell.prepareForReuse()
+            return cell
+        }
+        let item = self.datasource[indexPath.row]
         
         cell.configure(url: item.url, title: item.title, subtitle: item.subtitle)
         
@@ -215,7 +215,12 @@ class VoiceGalleryForChatViewController: BaseMediaGalleryForChatViewController {
     
     override func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
         indexPaths
-            .compactMap({ self.datasource[$0.row].url })
+            .compactMap { indexPath -> URL? in
+                guard self.datasource.indices.contains(indexPath.row) else {
+                    return nil
+                }
+                return self.datasource[indexPath.row].url
+            }
             .forEach {
                 ImageDownloader
                     .default

@@ -40,34 +40,99 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
         
         static func compareContent(_ a: Datasource, _ b: Datasource) -> Bool {
             return a.primary == b.primary &&
+                a.kind == b.kind &&
                 a.url == b.url &&
-                a.title == b.title &&
+                a.filename == b.filename &&
+                a.archiveId == b.archiveId &&
+                a.messagePrimary == b.messagePrimary &&
+                a.byteSize == b.byteSize &&
+                a.durationSeconds == b.durationSeconds &&
+                a.previewCacheIdentity == b.previewCacheIdentity &&
+                a.decodedURL == b.decodedURL &&
+                a.isDownloaded == b.isDownloaded &&
+                a.pcm == b.pcm &&
+                a.verySmallThumb == b.verySmallThumb &&
                 a.isSensitive == b.isSensitive &&
                 a.isSensitiveRevealed == b.isSensitiveRevealed
         }
         
-        var kind: MessageMediaAttachmentStorageItem.Kind
-        var primary: String
-        var title: String
-        var subtitle: String
-        var url: URL
-        var messagePrimary: String
-        var isDownloaded: Bool
-        var messageId: String
-        var thumb: UIImage?
-        var isSensitive: Bool
-        var isSensitiveRevealed: Bool
+        let kind: MessageMediaAttachmentStorageItem.Kind
+        let primary: String
+        let owner: String
+        let jid: String
+        let conversationType: ClientSynchronizationManager.ConversationType
+        let date: Date
+        let filename: String
+        let url: URL?
+        let messagePrimary: String
+        let archiveId: String
+        let isDownloaded: Bool
+        let verySmallThumb: String?
+        let thumb: UIImage?
+        let byteSize: Int
+        let formattedByteSize: String
+        let durationSeconds: TimeInterval?
+        let formattedDuration: String?
+        let previewURL: URL?
+        let previewCacheIdentity: String?
+        let mediaType: String?
+        let decodedURL: URL?
+        let pcm: [Float]
+        let isSensitive: Bool
+        let isSensitiveRevealed: Bool
+
+        var title: String { filename }
+        var subtitle: String { formattedByteSize }
+        var messageId: String { archiveId }
         
-        init(kind: MessageMediaAttachmentStorageItem.Kind, primary: String, title: String, subtitle: String, url: URL, messagePrimary: String, isDownloaded: Bool, messageId: String, thumb: UIImage?, isSensitive: Bool, isSensitiveRevealed: Bool) {
+        init(
+            kind: MessageMediaAttachmentStorageItem.Kind,
+            primary: String,
+            owner: String,
+            jid: String,
+            conversationType: ClientSynchronizationManager.ConversationType,
+            date: Date,
+            filename: String,
+            url: URL?,
+            messagePrimary: String,
+            archiveId: String,
+            isDownloaded: Bool,
+            verySmallThumb: String?,
+            thumb: UIImage?,
+            byteSize: Int,
+            formattedByteSize: String,
+            durationSeconds: TimeInterval?,
+            formattedDuration: String?,
+            previewURL: URL?,
+            previewCacheIdentity: String?,
+            mediaType: String?,
+            decodedURL: URL?,
+            pcm: [Float],
+            isSensitive: Bool,
+            isSensitiveRevealed: Bool
+        ) {
             self.kind = kind
             self.primary = primary
-            self.title = title
+            self.owner = owner
+            self.jid = jid
+            self.conversationType = conversationType
+            self.date = date
+            self.filename = filename
             self.url = url
             self.messagePrimary = messagePrimary
+            self.archiveId = archiveId
             self.isDownloaded = isDownloaded
-            self.subtitle = subtitle
-            self.messageId = messageId
+            self.verySmallThumb = verySmallThumb
             self.thumb = thumb
+            self.byteSize = byteSize
+            self.formattedByteSize = formattedByteSize
+            self.durationSeconds = durationSeconds
+            self.formattedDuration = formattedDuration
+            self.previewURL = previewURL
+            self.previewCacheIdentity = previewCacheIdentity
+            self.mediaType = mediaType
+            self.decodedURL = decodedURL
+            self.pcm = pcm
             self.isSensitive = isSensitive
             self.isSensitiveRevealed = isSensitiveRevealed
         }
@@ -117,24 +182,11 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
     }
     
     func mapDataset(_ results: Results<MessageMediaAttachmentStorageItem>) -> [Datasource] {
-        return results.compactMap {
-            item in
-            if let url = item.url {
-                return Datasource(
-                    kind: self.kind,
-                    primary: item.primary,
-                    title: item.filename,
-                    subtitle: item.subtitle(),
-                    url: url,
-                    messagePrimary: item.messagePrimary,
-                    isDownloaded: item.isDownloaded,
-                    messageId: item.archiveId,
-                    thumb: item.thumb,
-                    isSensitive: item.isSensitive,
-                    isSensitiveRevealed: self.revealedSensitiveMediaPrimaries.contains(item.primary)
-                )
-            }
-            return nil
+        return results.map { item in
+            MediaGalleryDatasourceMapper.map(
+                item,
+                revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries
+            )
         }
     }
     
@@ -171,7 +223,7 @@ extension BaseMediaGalleryForChatViewController: UICollectionViewDelegate {
 
     @available(iOS 13.0, *)
     func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
-        guard indexPath.row < datasource.count else {
+        guard datasource.indices.contains(indexPath.row) else {
             return nil
         }
         let primary = datasource[indexPath.row].primary
@@ -206,8 +258,10 @@ extension BaseMediaGalleryForChatViewController: UICollectionViewDataSource {
 
 extension BaseMediaGalleryForChatViewController: UICollectionViewDataSourcePrefetching {
     func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
-
-        guard let maxRow = indexPaths.compactMap({ $0.row }).max() else { return }
+        let validRows = indexPaths
+            .map(\.row)
+            .filter { datasource.indices.contains($0) }
+        guard let maxRow = validRows.max() else { return }
         if maxRow > datasource.count / 2 {
             let requestCallbacks = MessageArchiveManager.RequestCallbacks(
                 onMessage: { [weak self] item, queryId in
