@@ -47,4 +47,25 @@ final class MediaGalleryFullscreenLayoutPolicyTests: XCTestCase {
 
         XCTAssertEqual(first, second)
     }
+
+    @MainActor
+    func testThreeColumnFlowLayoutUsesCollectionWidthAndInvalidatesForWidthChanges() {
+        let layout = MediaGalleryThreeColumnFlowLayout(policy: policy)
+        let collectionView = UICollectionView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 600),
+            collectionViewLayout: layout
+        )
+
+        layout.prepare()
+
+        XCTAssertEqual(layout.itemSize.width, 358.0 / 3.0, accuracy: 0.0001)
+        XCTAssertEqual(layout.itemSize.height, layout.itemSize.width, accuracy: 0.0001)
+        XCTAssertTrue(layout.shouldInvalidateLayout(
+            forBoundsChange: CGRect(x: 0, y: 0, width: 430, height: 600)
+        ))
+        XCTAssertFalse(layout.shouldInvalidateLayout(
+            forBoundsChange: CGRect(x: 0, y: 0, width: 390, height: 500)
+        ))
+        withExtendedLifetime(collectionView) {}
+    }
 }

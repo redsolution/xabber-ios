@@ -8,265 +8,359 @@
 
 import Foundation
 import UIKit
-import Realm
-import RealmSwift
 import MaterialComponents.MDCPalettes
-import CocoaLumberjack
-import RxSwift
-import RxCocoa
-import RxRelay
 import DeepDiff
 import Kingfisher
 
 class GalleryPlaceholderView: UIView {
     let image: UIImageView = {
         let image = UIImageView()
-        
         image.contentMode = .center
-        
         return image
     }()
-    
+
     override init(frame: CGRect) {
         super.init(frame: frame)
-        self.addSubview(self.image)
+        addSubview(image)
     }
-    
+
     func configureWithThumb(_ thumb: UIImage?, placeholderImage: UIImage?) {
         if let thumb = thumb?.blurred(radius: 5, targetSize: 128) {
-            self.image.image = thumb
-            self.image.fillSuperview()
+            image.image = thumb
+            image.fillSuperview()
         } else {
-            self.image.image = placeholderImage
-            self.image.tintColor = MDCPalette.grey.tint300
-            self.image.fillSuperviewWithOffset(top: 32, bottom: 32, left: 32, right: 32)
+            image.image = placeholderImage
+            image.tintColor = MDCPalette.grey.tint300
+            image.fillSuperviewWithOffset(top: 32, bottom: 32, left: 32, right: 32)
         }
     }
-    
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 }
 
-extension GalleryPlaceholderView: Placeholder {
-    
+extension GalleryPlaceholderView: Placeholder {}
+
+enum MediaGalleryImageLoadOutcome: Equatable {
+    case success
+    case failure
+}
+
+protocol MediaGalleryImageLoading: AnyObject {
+    func load(
+        request: MediaGalleryImageRequest,
+        into imageView: UIImageView,
+        placeholder: UIView?,
+        completion: @escaping (MediaGalleryImageLoadOutcome) -> Void
+    )
+    func cancelLoad(in imageView: UIImageView)
+}
+
+final class KingfisherMediaGalleryImageLoader: MediaGalleryImageLoading {
+    static let shared = KingfisherMediaGalleryImageLoader()
+
+    func load(
+        request: MediaGalleryImageRequest,
+        into imageView: UIImageView,
+        placeholder: UIView?,
+        completion: @escaping (MediaGalleryImageLoadOutcome) -> Void
+    ) {
+        imageView.kf.setImage(
+            with: request.resource,
+            placeholder: placeholder as? GalleryPlaceholderView,
+            options: request.kingfisherOptions + [.transition(.fade(0.1))]
+        ) { result in
+            switch result {
+            case .success:
+                completion(.success)
+            case .failure:
+                completion(.failure)
+            }
+        }
+    }
+
+    func cancelLoad(in imageView: UIImageView) {
+        imageView.kf.cancelDownloadTask()
+    }
 }
 
 class PhotoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
-    
-    static let cellSize: CGSize = CGSize(square: 128)
-    
     class GalleryPhotoItemCell: UICollectionViewCell {
-        public static let cellName: String = "GalleryPhotoItemCell"
-        private let label = {
-            let label = UILabel()
-            
-            return label
-        }()
-        
+        static let cellName = "GalleryPhotoItemCell"
+
         private let imageView: UIImageView = {
             let view = UIImageView()
-            
             view.contentMode = .scaleAspectFill
-            
             return view
         }()
         private let sensitiveOverlay = SensitiveMediaOverlayView()
+        private let imageLoader: MediaGalleryImageLoading
+        private var representedPrimary: String?
+        private(set) var failurePlaceholderPrimary: String?
 
         override init(frame: CGRect) {
+            imageLoader = KingfisherMediaGalleryImageLoader.shared
             super.init(frame: frame)
             setup()
         }
-        required init?(coder: NSCoder) {
-            fatalError()
+
+        init(frame: CGRect, imageLoader: MediaGalleryImageLoading) {
+            self.imageLoader = imageLoader
+            super.init(frame: frame)
+            setup()
         }
 
-        private func setup() {
-            self.contentView.addSubview(self.imageView)
-            self.imageView.fillSuperview()
-            self.contentView.addSubview(sensitiveOverlay)
-            sensitiveOverlay.fillSuperview()
-            sensitiveOverlay.isUserInteractionEnabled = false
-            self.contentView.layer.cornerRadius = 4
-            self.contentView.layer.masksToBounds = true
-            self.contentView.layer.borderWidth = 1
-            self.contentView.layer.borderColor = MDCPalette.grey.tint300.cgColor
-        }
-
-        func configure(url: URL, title: String, subtitle: String, thumb: UIImage?, isSensitive: Bool) {
-            sensitiveOverlay.isHidden = !isSensitive
-            let placeholderView = GalleryPlaceholderView(frame: CGRect(square: 64))
-            placeholderView.configureWithThumb(thumb, placeholderImage: imageLiteral("custom.photo.badge.clock"))
-//            placeholderView.image.image = imageLiteral("custom.photo.badge.clock")
-//            self.imageView.addSubview(placeholderView)
-//            placeholderView.fillSuperview()
-            
-            self.imageView.kf.setImage(
-                with: url,
-                placeholder: placeholderView,
-                options: [
-                    .alsoPrefetchToMemory,
-                    .waitForCache,
-                    .backgroundDecode,
-                    .transition(.fade(0.1))
-                ]) { result in
-                    switch result {
-                        case .success(_):
-                            break
-                        case .failure(_):
-//                            self.imageView.kf.
-                            let placeholderView = GalleryPlaceholderView(frame: CGRect(square: 64))
-                            placeholderView.configureWithThumb(thumb, placeholderImage: imageLiteral("custom.photo.trianglebadge.exclamationmark"))
-                            
-//                            placeholderView.image.image = imageLiteral("custom.photo.trianglebadge.exclamationmark")
-                            self.imageView.addSubview(placeholderView)
-                            placeholderView.fillSuperview()
-                            self.imageView.layoutIfNeeded()
-//                            self.imageView.image = imageLiteral("custom.photo.trianglebadge.exclamationmark")?.withTintColor(MDCPalette.grey.tint300)
-                    }
-                }
-        }
-        
-        override func prepareForReuse() {
-            super.prepareForReuse()
-            label.text = nil
-            self.imageView.subviews.forEach { $0.removeFromSuperview() }
-            sensitiveOverlay.isHidden = true
-        }
-    }
-    
-    
-    class FlowLayout: UICollectionViewFlowLayout {
-        override init() {
-            super.init()
-            itemSize = CGSize(width: 128, height: 128)
-            minimumInteritemSpacing = 8
-            minimumLineSpacing = 8
-            sectionInset = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
-        }
-            
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
         }
-        
+
+        private func setup() {
+            contentView.addSubview(imageView)
+            imageView.fillSuperview()
+            contentView.addSubview(sensitiveOverlay)
+            sensitiveOverlay.fillSuperview()
+            sensitiveOverlay.isUserInteractionEnabled = false
+            contentView.layer.cornerRadius = 4
+            contentView.layer.masksToBounds = true
+            contentView.layer.borderWidth = 1
+            contentView.layer.borderColor = MDCPalette.grey.tint300.cgColor
+        }
+
+        func configure(
+            primary: String,
+            request: MediaGalleryImageRequest,
+            thumb: UIImage?,
+            isSensitive: Bool
+        ) {
+            imageLoader.cancelLoad(in: imageView)
+            representedPrimary = primary
+            failurePlaceholderPrimary = nil
+            imageView.image = nil
+            imageView.subviews.forEach { $0.removeFromSuperview() }
+            sensitiveOverlay.isHidden = !isSensitive
+
+            let placeholderView = GalleryPlaceholderView(frame: CGRect(square: 64))
+            placeholderView.configureWithThumb(
+                thumb,
+                placeholderImage: imageLiteral("custom.photo.badge.clock")
+            )
+            imageLoader.load(
+                request: request,
+                into: imageView,
+                placeholder: placeholderView
+            ) { [weak self] outcome in
+                guard let self,
+                      self.representedPrimary == primary,
+                      outcome == .failure else {
+                    return
+                }
+                self.failurePlaceholderPrimary = primary
+                self.imageView.subviews.forEach { $0.removeFromSuperview() }
+                let failureView = GalleryPlaceholderView(frame: CGRect(square: 64))
+                failureView.configureWithThumb(
+                    thumb,
+                    placeholderImage: imageLiteral("custom.photo.trianglebadge.exclamationmark")
+                )
+                self.imageView.addSubview(failureView)
+                failureView.fillSuperview()
+            }
+        }
+
+        override func prepareForReuse() {
+            super.prepareForReuse()
+            imageLoader.cancelLoad(in: imageView)
+            representedPrimary = nil
+            failurePlaceholderPrimary = nil
+            imageView.image = nil
+            imageView.subviews.forEach { $0.removeFromSuperview() }
+            sensitiveOverlay.isHidden = true
+        }
     }
-    
-    public var collectionView: UICollectionView = {
-        let layout = FlowLayout()
+
+    let collectionView: UICollectionView = {
+        let layout = MediaGalleryThreeColumnFlowLayout()
         let view = UICollectionView(frame: .zero, collectionViewLayout: layout)
-        
-        view.register(GalleryPhotoItemCell.self, forCellWithReuseIdentifier: GalleryPhotoItemCell.cellName)
-        
+        view.register(
+            GalleryPhotoItemCell.self,
+            forCellWithReuseIdentifier: GalleryPhotoItemCell.cellName
+        )
         return view
     }()
-    
+
+    private var imagePrefetchCoordinator: MediaGalleryImagePrefetchCoordinator?
+
     override func apply(_ newDatasource: [BaseMediaGalleryForChatViewController.Datasource]) {
         let changes = compareDatasource(newDatasource)
-        if self.datasource.isEmpty || newDatasource.isEmpty {
-            self.datasource = newDatasource
-            self.collectionView.reloadData()
+        if datasource.isEmpty || newDatasource.isEmpty {
+            datasource = newDatasource
+            collectionView.reloadData()
         } else {
-            self.collectionView.reload(changes: changes) {
+            collectionView.reload(changes: changes) {
                 self.datasource = newDatasource
             }
         }
     }
-    
-    
+
     override func setupSubviews() {
         super.setupSubviews()
-        self.view.addSubview(self.collectionView)
-        self.collectionView.fillSuperview()
+        view.addSubview(collectionView)
+        collectionView.fillSuperview()
     }
-    
+
     override func configure() {
         super.configure()
-        self.title = "Images"
-        self.kind = .image
-        self.collectionView.prefetchDataSource = self
-        self.collectionView.dataSource = self
-        self.collectionView.delegate = self
+        title = "Images"
+        kind = .image
+        collectionView.prefetchDataSource = self
+        collectionView.dataSource = self
+        collectionView.delegate = self
     }
-    
-    override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: GalleryPhotoItemCell.cellName, for: indexPath) as? GalleryPhotoItemCell else {
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        collectionView.collectionViewLayout.invalidateLayout()
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        imagePrefetchCoordinator?.cancelAll()
+    }
+
+    deinit {
+        imagePrefetchCoordinator?.cancelAll()
+    }
+
+    override func collectionView(
+        _ collectionView: UICollectionView,
+        cellForItemAt indexPath: IndexPath
+    ) -> UICollectionViewCell {
+        guard let cell = collectionView.dequeueReusableCell(
+            withReuseIdentifier: GalleryPhotoItemCell.cellName,
+            for: indexPath
+        ) as? GalleryPhotoItemCell else {
             fatalError()
         }
-        guard self.datasource.indices.contains(indexPath.row) else {
+        guard datasource.indices.contains(indexPath.item) else {
             cell.prepareForReuse()
             return cell
         }
-        let item = self.datasource[indexPath.row]
-        
-        if let url = item.url {
-            cell.configure(url: url, title: item.title, subtitle: item.subtitle, thumb: item.thumb, isSensitive: item.isSensitive && !item.isSensitiveRevealed)
+
+        let item = datasource[indexPath.item]
+        if let request = MediaGalleryImageRequestPlanner.request(
+            for: item,
+            displaySize: currentGridItemSize,
+            scale: currentScreenScale
+        ) {
+            cell.configure(
+                primary: item.primary,
+                request: request,
+                thumb: item.thumb,
+                isSensitive: item.isSensitive && !item.isSensitiveRevealed
+            )
+        } else {
+            cell.prepareForReuse()
         }
-        
         return cell
     }
-    
-    override func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
-        indexPaths
-            .compactMap { indexPath -> URL? in
-                guard self.datasource.indices.contains(indexPath.row) else {
-                    return nil
-                }
-                return self.datasource[indexPath.row].url
-            }
-            .forEach {
-                ImageDownloader
-                    .default
-                    .downloadImage(
-                        with: $0,
-                        options: [
-                            .alsoPrefetchToMemory,
-                            .waitForCache,
-                            .backgroundDecode
-                        ]
-                    )
-            }
+
+    override func collectionView(
+        _ collectionView: UICollectionView,
+        prefetchItemsAt indexPaths: [IndexPath]
+    ) {
+        prefetchCoordinator.prefetchItems(at: indexPaths)
         super.collectionView(collectionView, prefetchItemsAt: indexPaths)
     }
-    
-    override func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        guard self.datasource.indices.contains(indexPath.row),
-              let url = self.datasource[indexPath.row].url else {
-            return
-        }
-        let item = self.datasource[indexPath.row]
-        if item.isSensitive && !item.isSensitiveRevealed {
-            let vc = SensitiveContentFirstPaneViewController()
-            vc.isFirstStep = true
-            vc.urls = self.datasource.compactMap { $0.url }
-            vc.url = url
-            vc.delegate = self
-            vc.messagePrimary = item.messagePrimary
-            vc.referencePrimary = item.primary
-            vc.isVideo = false
-            showModal(vc, parent: self)
-            return
-        }
-        let urls = self.datasource.compactMap { $0.url }
-        let gallery = PhotoGallery(urls: urls, from: url)
-        
-        let nvc = UINavigationController(rootViewController: gallery)
-        nvc.modalPresentationStyle = .fullScreen
 
+    override func collectionView(
+        _ collectionView: UICollectionView,
+        cancelPrefetchingForItemsAt indexPaths: [IndexPath]
+    ) {
+        imagePrefetchCoordinator?.cancelPrefetchingForItems(at: indexPaths)
+        super.collectionView(collectionView, cancelPrefetchingForItemsAt: indexPaths)
+    }
+
+    override func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        guard datasource.indices.contains(indexPath.item),
+              let url = datasource[indexPath.item].url else {
+            return
+        }
+        let item = datasource[indexPath.item]
+        if item.isSensitive && !item.isSensitiveRevealed {
+            let viewController = SensitiveContentFirstPaneViewController()
+            viewController.isFirstStep = true
+            viewController.urls = datasource.compactMap(\.url)
+            viewController.url = url
+            viewController.delegate = self
+            viewController.messagePrimary = item.messagePrimary
+            viewController.referencePrimary = item.primary
+            viewController.isVideo = false
+            showModal(viewController, parent: self)
+            return
+        }
+
+        let urls = datasource.compactMap(\.url)
+        let gallery = PhotoGallery(urls: urls, from: url)
+        let navigationController = UINavigationController(rootViewController: gallery)
+        navigationController.modalPresentationStyle = .fullScreen
         gallery.initialPage = urls.firstIndex(of: url) ?? 0
-        present(nvc, animated: true, completion: nil)
+        present(navigationController, animated: true)
+    }
+
+    private var currentGridItemSize: CGSize {
+        guard let layout = collectionView.collectionViewLayout as? MediaGalleryThreeColumnFlowLayout else {
+            return CGSize(width: 1, height: 1)
+        }
+        return layout.policy.squareItemSize(
+            containerWidth: collectionView.bounds.width,
+            contentInset: collectionView.adjustedContentInset
+        )
+    }
+
+    private var currentScreenScale: CGFloat {
+        view.window?.screen.scale ?? UIScreen.main.scale
+    }
+
+    private var prefetchCoordinator: MediaGalleryImagePrefetchCoordinator {
+        if let imagePrefetchCoordinator {
+            return imagePrefetchCoordinator
+        }
+        let coordinator = MediaGalleryImagePrefetchCoordinator(
+            itemProvider: { [weak self] indexPath in
+                guard let self,
+                      self.datasource.indices.contains(indexPath.item) else {
+                    return nil
+                }
+                return self.datasource[indexPath.item]
+            },
+            displaySizeProvider: { [weak self] in
+                self?.currentGridItemSize ?? CGSize(width: 1, height: 1)
+            },
+            scaleProvider: { [weak self] in
+                self?.currentScreenScale ?? UIScreen.main.scale
+            }
+        )
+        imagePrefetchCoordinator = coordinator
+        return coordinator
     }
 }
 
 extension PhotoGalleryForChatViewController: SensitiveContentFirstPaneViewControllerDelegate {
-    func onViewSensitiveMedia(messagePrimary: String, referencePrimary: String, urls: [URL], url: URL, isVideo: Bool) {
+    func onViewSensitiveMedia(
+        messagePrimary: String,
+        referencePrimary: String,
+        urls: [URL],
+        url: URL,
+        isVideo: Bool
+    ) {
         if referencePrimary.isNotEmpty {
             revealedSensitiveMediaPrimaries.insert(referencePrimary)
             collectionView.reloadData()
         }
         let gallery = PhotoGallery(urls: urls, from: url)
-        let nvc = UINavigationController(rootViewController: gallery)
-        nvc.modalPresentationStyle = .fullScreen
+        let navigationController = UINavigationController(rootViewController: gallery)
+        navigationController.modalPresentationStyle = .fullScreen
         gallery.initialPage = urls.firstIndex(of: url) ?? 0
-        present(nvc, animated: true, completion: nil)
+        present(navigationController, animated: true)
     }
 }

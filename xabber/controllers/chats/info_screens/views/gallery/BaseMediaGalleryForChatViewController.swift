@@ -295,8 +295,11 @@ extension BaseMediaGalleryForChatViewController: UICollectionViewDataSourcePrefe
 
         }
     }
-    
-    
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        cancelPrefetchingForItemsAt indexPaths: [IndexPath]
+    ) {}
 }
 
 extension BaseMediaGalleryForChatViewController: TemporaryMessageReceiverProtocol {
