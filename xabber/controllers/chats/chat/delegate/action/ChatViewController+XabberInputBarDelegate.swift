@@ -968,7 +968,7 @@ extension ChatViewController: XabberInputBarDelegate {
                 if let editedMessage = editMessageId.value,
                     editedMessage.isNotEmpty {
                     let primary = editedMessage
-                    AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
+                    AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                         user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
                         user.messages.editSimpleMessage(payload.body, primary: primary, references: payload.references)
                         //self.canUpdateDataset = true
@@ -978,7 +978,7 @@ extension ChatViewController: XabberInputBarDelegate {
                     self.beginSendToLocalRowSignpost()
                     self.requestOutgoingAutoScrollAfterDatasourceUpdate()
                     FeedbackManager.shared.generate(feedback: .success)
-                    AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
+                    AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                         user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
                         _ = user.messages.sendSimpleMessage(
                             payload.body,

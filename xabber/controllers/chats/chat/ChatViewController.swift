@@ -3280,14 +3280,16 @@ class ChatViewController: MessagesViewController {
         )
     }
 
-    internal func scrollDownButtonTrailingActionFrameInView() -> CGRect? {
+    internal func scrollDownButtonTrailingActionFrameInView(ensureLayout: Bool = true) -> CGRect? {
         guard self.isViewLoaded,
               let xabberInputView = self.xabberInputView,
               xabberInputView.superview != nil else {
             return nil
         }
 
-        xabberInputView.layoutIfNeeded()
+        if ensureLayout {
+            xabberInputView.layoutIfNeeded()
+        }
         guard let frame = xabberInputView.trailingActionFrame(in: self.view) else {
             return nil
         }
@@ -3295,14 +3297,26 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func scrollDownButtonVisibleFrame() -> CGRect? {
-        guard let sendButtonFrame = self.scrollDownButtonTrailingActionFrameInView() else {
+        self.scrollDownButtonVisibleFrame(
+            trailingActionFrame: self.scrollDownButtonTrailingActionFrameInView()
+        )
+    }
+
+    private func scrollDownButtonVisibleFrame(trailingActionFrame: CGRect?) -> CGRect? {
+        guard let sendButtonFrame = trailingActionFrame else {
             return nil
         }
         return FloatingControlsLayoutPolicy.scrollButtonVisibleFrame(sendButtonFrame: sendButtonFrame)
     }
 
     internal func scrollDownButtonHiddenFrame() -> CGRect? {
-        guard let sendButtonFrame = self.scrollDownButtonTrailingActionFrameInView() else {
+        self.scrollDownButtonHiddenFrame(
+            trailingActionFrame: self.scrollDownButtonTrailingActionFrameInView()
+        )
+    }
+
+    private func scrollDownButtonHiddenFrame(trailingActionFrame: CGRect?) -> CGRect? {
+        guard let sendButtonFrame = trailingActionFrame else {
             return nil
         }
         return FloatingControlsLayoutPolicy.scrollButtonHiddenFrame(
@@ -3312,6 +3326,16 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func updateScrollDownButtonFrame(animated: Bool) {
+        self.updateScrollDownButtonFrame(
+            animated: animated,
+            resolvedTrailingActionFrame: self.scrollDownButtonTrailingActionFrameInView()
+        )
+    }
+
+    private func updateScrollDownButtonFrame(
+        animated: Bool,
+        resolvedTrailingActionFrame: CGRect?
+    ) {
         let requestedShowButton = ChatUnreadMentionFloatingControlPolicy.shouldShowScrollDownButton(
             requested: self.shouldShowScrollDownButton.value,
             navigatorVisible: self.shouldShowUnreadMentionsNavigator.value
@@ -3328,8 +3352,11 @@ class ChatViewController: MessagesViewController {
             return
         }
 
-        guard let visibleFrame = self.scrollDownButtonVisibleFrame(),
-              let hiddenFrame = self.scrollDownButtonHiddenFrame() else {
+        guard let visibleFrame = self.scrollDownButtonVisibleFrame(
+            trailingActionFrame: resolvedTrailingActionFrame
+        ), let hiddenFrame = self.scrollDownButtonHiddenFrame(
+            trailingActionFrame: resolvedTrailingActionFrame
+        ) else {
             self.hasPositionedScrollDownButton = false
             self.scrollDownButton.isHidden = true
             self.scrollDownButton.isUserInteractionEnabled = false
@@ -3638,9 +3665,15 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func unreadMentionsNavigatorVisibleFrame() -> CGRect? {
+        self.unreadMentionsNavigatorVisibleFrame(
+            trailingActionFrame: self.scrollDownButtonTrailingActionFrameInView()
+        )
+    }
+
+    private func unreadMentionsNavigatorVisibleFrame(trailingActionFrame: CGRect?) -> CGRect? {
         let inputHeight = self.floatingControlsInputHeight()
         let size = self.unreadMentionsNavigatorView.preferredSize
-        guard let sendButtonFrame = self.scrollDownButtonTrailingActionFrameInView() else {
+        guard let sendButtonFrame = trailingActionFrame else {
             return nil
         }
         let requestedShowsScrollDownButton = ChatUnreadMentionFloatingControlPolicy.shouldShowScrollDownButton(
@@ -3649,7 +3682,9 @@ class ChatViewController: MessagesViewController {
         )
         let showsScrollDownButton = requestedShowsScrollDownButton &&
             !ScrollDownButtonStartupVisibilityPolicy.isSuppressed(until: self.scrollDownButtonVisibilitySuppressedUntil)
-        let scrollButtonFrame = showsScrollDownButton ? self.scrollDownButtonVisibleFrame() : nil
+        let scrollButtonFrame = showsScrollDownButton
+            ? self.scrollDownButtonVisibleFrame(trailingActionFrame: sendButtonFrame)
+            : nil
         return FloatingControlsLayoutPolicy.mentionIndicatorFrame(
             sendButtonFrame: sendButtonFrame,
             viewHeight: self.view.frame.height,
@@ -3661,9 +3696,15 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func unreadMentionsNavigatorHiddenFrame() -> CGRect {
+        self.unreadMentionsNavigatorHiddenFrame(
+            trailingActionFrame: self.scrollDownButtonTrailingActionFrameInView()
+        )
+    }
+
+    private func unreadMentionsNavigatorHiddenFrame(trailingActionFrame: CGRect?) -> CGRect {
         let size = self.unreadMentionsNavigatorView.preferredSize
         let originX: CGFloat
-        if let sendButtonFrame = self.scrollDownButtonTrailingActionFrameInView() {
+        if let sendButtonFrame = trailingActionFrame {
             originX = sendButtonFrame.midX - size.width / 2
         } else {
             originX = FloatingControlsLayoutPolicy.trailingX(
@@ -3681,17 +3722,31 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func updateUnreadMentionsNavigatorFrame(animated: Bool) {
+        self.updateUnreadMentionsNavigatorFrame(
+            animated: animated,
+            resolvedTrailingActionFrame: self.scrollDownButtonTrailingActionFrameInView()
+        )
+    }
+
+    private func updateUnreadMentionsNavigatorFrame(
+        animated: Bool,
+        resolvedTrailingActionFrame: CGRect?
+    ) {
         let shouldShowNavigator = self.shouldShowUnreadMentionsNavigator.value
         let frame: CGRect
         if shouldShowNavigator {
-            guard let visibleFrame = self.unreadMentionsNavigatorVisibleFrame() else {
+            guard let visibleFrame = self.unreadMentionsNavigatorVisibleFrame(
+                trailingActionFrame: resolvedTrailingActionFrame
+            ) else {
                 self.unreadMentionsNavigatorView.isUserInteractionEnabled = false
                 self.unreadMentionsNavigatorView.isHidden = true
                 return
             }
             frame = visibleFrame
         } else {
-            frame = self.unreadMentionsNavigatorHiddenFrame()
+            frame = self.unreadMentionsNavigatorHiddenFrame(
+                trailingActionFrame: resolvedTrailingActionFrame
+            )
         }
         let shouldAnimate = self.shouldAnimateDuringInitialLatestStabilization(requestedAnimated: animated)
         let updates = {
@@ -3711,6 +3766,23 @@ class ChatViewController: MessagesViewController {
             updates()
             self.unreadMentionsNavigatorView.isHidden = !shouldShowNavigator
         }
+    }
+
+    internal func updateFloatingControlsFrames(
+        animated: Bool,
+        ensureComposerLayout: Bool = true
+    ) {
+        let trailingActionFrame = self.scrollDownButtonTrailingActionFrameInView(
+            ensureLayout: ensureComposerLayout
+        )
+        self.updateUnreadMentionsNavigatorFrame(
+            animated: animated,
+            resolvedTrailingActionFrame: trailingActionFrame
+        )
+        self.updateScrollDownButtonFrame(
+            animated: animated,
+            resolvedTrailingActionFrame: trailingActionFrame
+        )
     }
 
     internal func isNearBottom(threshold: CGFloat = 80) -> Bool {
@@ -4094,8 +4166,7 @@ class ChatViewController: MessagesViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateNavbarTitleWidth()
-        updateUnreadMentionsNavigatorFrame(animated: false)
-        updateScrollDownButtonFrame(animated: false)
+        updateFloatingControlsFrames(animated: false, ensureComposerLayout: false)
         updateInitialMessageOverlayFrame()
         updateFloatingBubblesVisibility(animated: false)
         recordChatOpenTimingFirstMessagesVisibleIfPossible(
@@ -4498,7 +4569,9 @@ class ChatViewController: MessagesViewController {
             if heightChanged {
                 self.floatingBubblesHeight = height
             }
-            self.updateChatCollectionInsets()
+            if visibilityChanged || heightChanged {
+                self.updateChatCollectionInsets()
+            }
             if shouldAnimate {
                 self.view.layoutIfNeeded()
             }
@@ -4566,8 +4639,12 @@ class ChatViewController: MessagesViewController {
         }
 
         let shouldUseKeyboardGuide = isChatSearchInputKeyboardOwned
-        xabberInputViewBottomConstraint?.isActive = !shouldUseKeyboardGuide
-        xabberInputViewKeyboardTopConstraint?.isActive = shouldUseKeyboardGuide
+        if xabberInputViewBottomConstraint?.isActive == shouldUseKeyboardGuide {
+            xabberInputViewBottomConstraint?.isActive = !shouldUseKeyboardGuide
+        }
+        if xabberInputViewKeyboardTopConstraint?.isActive != shouldUseKeyboardGuide {
+            xabberInputViewKeyboardTopConstraint?.isActive = shouldUseKeyboardGuide
+        }
     }
 
     internal func inputKeyboardHeightForCurrentChatInputMode(
@@ -4800,8 +4877,7 @@ class ChatViewController: MessagesViewController {
             wasNearBottom: wasNearBottom,
             visibleAnchor: visibleAnchor
         )
-        self.updateUnreadMentionsNavigatorFrame(animated: false)
-        self.updateScrollDownButtonFrame(animated: false)
+        self.updateFloatingControlsFrames(animated: false)
     }
 
     internal func applyChatComposerFrameUpdate(
@@ -4816,7 +4892,11 @@ class ChatViewController: MessagesViewController {
                 layoutSignpost.end()
             }
             let anchorRestoration: ChatComposerFrameAnchorRestoration
-            if wasNearBottom {
+            if source == .keyboardFrame {
+                anchorRestoration = ChatKeyboardFrameViewportPolicy.anchorRestoration(
+                    wasNearBottom: wasNearBottom
+                )
+            } else if wasNearBottom {
                 anchorRestoration = .bottom
             } else if visibleAnchor != nil {
                 anchorRestoration = .visibleAnchor

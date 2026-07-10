@@ -46,6 +46,7 @@
 		4E7A00022FC800000ABC001 /* ChatReloadInvalidationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7A00012FC800000ABC001 /* ChatReloadInvalidationPolicyTests.swift */; };
 		4E8100022FD000000ABC001 /* SearchChatListKeyboardLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8100012FD000000ABC001 /* SearchChatListKeyboardLayoutTests.swift */; };
 		4E8200022FD1000000ABC001 /* ChatComposerRecordSendSeparationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8200012FD1000000ABC001 /* ChatComposerRecordSendSeparationTests.swift */; };
+		4E8300022FD2000000ABC001 /* ChatComposerDragKeyboardPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8300012FD2000000ABC001 /* ChatComposerDragKeyboardPerformanceTests.swift */; };
 		4E7000022FAF00000ABC001 /* TextMessageCellReuseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7000012FAF00000ABC001 /* TextMessageCellReuseTests.swift */; };
 		4E7100022FB000000ABC001 /* ChatComposerSendButtonIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7100012FB000000ABC001 /* ChatComposerSendButtonIconTests.swift */; };
 		4E5300082F71000000ABC001 /* GroupchatInviteV3Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5300072F71000000ABC001 /* GroupchatInviteV3Tests.swift */; };
@@ -928,6 +929,7 @@
 		4E7000012FAF00000ABC001 /* TextMessageCellReuseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextMessageCellReuseTests.swift; sourceTree = "<group>"; };
 		4E7100012FB000000ABC001 /* ChatComposerSendButtonIconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatComposerSendButtonIconTests.swift; sourceTree = "<group>"; };
 		4E8200012FD1000000ABC001 /* ChatComposerRecordSendSeparationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatComposerRecordSendSeparationTests.swift; sourceTree = "<group>"; };
+		4E8300012FD2000000ABC001 /* ChatComposerDragKeyboardPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatComposerDragKeyboardPerformanceTests.swift; sourceTree = "<group>"; };
 		4E5300072F71000000ABC001 /* GroupchatInviteV3Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatInviteV3Tests.swift; sourceTree = "<group>"; };
 		4E5700022F75000000ABC001 /* XMPPMessageScheduleStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPMessageScheduleStorageItem.swift; sourceTree = "<group>"; };
 		4E5700032F75000000ABC001 /* XMPPMessageScheduleManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPMessageScheduleManager.swift; sourceTree = "<group>"; };
@@ -3922,6 +3924,7 @@
 					4E7000012FAF00000ABC001 /* TextMessageCellReuseTests.swift */,
 					4E7100012FB000000ABC001 /* ChatComposerSendButtonIconTests.swift */,
 					4E8200012FD1000000ABC001 /* ChatComposerRecordSendSeparationTests.swift */,
+					4E8300012FD2000000ABC001 /* ChatComposerDragKeyboardPerformanceTests.swift */,
 					4E5300072F71000000ABC001 /* GroupchatInviteV3Tests.swift */,
 					4E5700062F75000000ABC001 /* XMPPMessageScheduleManagerTests.swift */,
 					4E58000A2F76000000ABC001 /* XEPMessageScheduleUITests.swift */,
@@ -5922,6 +5925,7 @@
 					4E7000022FAF00000ABC001 /* TextMessageCellReuseTests.swift in Sources */,
 					4E7100022FB000000ABC001 /* ChatComposerSendButtonIconTests.swift in Sources */,
 					4E8200022FD1000000ABC001 /* ChatComposerRecordSendSeparationTests.swift in Sources */,
+					4E8300022FD2000000ABC001 /* ChatComposerDragKeyboardPerformanceTests.swift in Sources */,
 					4E5300082F71000000ABC001 /* GroupchatInviteV3Tests.swift in Sources */,
 					4E5700072F75000000ABC001 /* XMPPMessageScheduleManagerTests.swift in Sources */,
 					4E5800092F76000000ABC001 /* XEPMessageScheduleUITests.swift in Sources */,

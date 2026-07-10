@@ -3051,7 +3051,7 @@ final class Account: NSObject {
     var statusMessage: BehaviorRelay<String> = BehaviorRelay(value: "Offline")
     var pushStatusMessage: BehaviorRelay<Bool> = BehaviorRelay(value: false)
 //  service data
-    var delayedConnectTimer: Timer?
+    var delayedConnectWorkItem: DispatchWorkItem?
     var isPresenceUpdateRequestSend: Bool = false
     private var shouldSendBroadcastPresenceWhenReady: Bool = false
     private var pendingPresenceTargetJids: Set<String> = []
@@ -3799,14 +3799,12 @@ final class Account: NSObject {
 
     @objc
     final func connect() {
-        self.requestConnect(trigger: .legacyDirect)
+        self.asyncConnect(trigger: .legacyDirect)
     }
 
     final func cancelDelayedConnectTimer() {
-        if self.delayedConnectTimer != nil {
-            self.delayedConnectTimer?.invalidate()
-            self.delayedConnectTimer = nil
-        }
+        self.delayedConnectWorkItem?.cancel()
+        self.delayedConnectWorkItem = nil
     }
 
     final func handleConnectTimeout() {
@@ -4000,7 +3998,7 @@ final class Account: NSObject {
     }
 
     final func scheduleConnectRetry(after delay: TimeInterval, trigger: AccountConnectTrigger, attemptID: UInt64?) {
-        guard self.delayedConnectTimer == nil else { return }
+        guard self.delayedConnectWorkItem == nil else { return }
         self.logConnectionDiagnostics(
             event: "connect_retry_timer_scheduled",
             trigger: trigger,
@@ -4010,27 +4008,22 @@ final class Account: NSObject {
             ]
         )
         let context = AccountConnectRetryContext(attemptID: attemptID, trigger: trigger)
-        self.delayedConnectTimer = Timer(
-            timeInterval: delay,
-            target: self,
-            selector: #selector(self.delayedConnectTimerDidFire(_:)),
-            userInfo: context,
-            repeats: false
-        )
-        RunLoop.main.add(self.delayedConnectTimer!, forMode: RunLoop.Mode.default)
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.delayedConnectRetryDidFire(context: context)
+        }
+        self.delayedConnectWorkItem = workItem
+        self.queue.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
-    @objc
-    private func delayedConnectTimerDidFire(_ timer: Timer) {
-        let context = timer.userInfo as? AccountConnectRetryContext
-        self.delayedConnectTimer = nil
+    private func delayedConnectRetryDidFire(context: AccountConnectRetryContext) {
+        self.delayedConnectWorkItem = nil
 
-        if let attemptID = context?.attemptID,
+        if let attemptID = context.attemptID,
            !self.connectionGate.canRetryTimeout(for: attemptID) {
-            DDLogDebug("skip stale account retry jid=\(self.jid) trigger=\(context?.trigger.rawValue ?? "unknown") attempt=\(attemptID) phase=\(self.connectionGate.snapshot().phase.rawValue) streamState=\(self.streamStateDescription)")
+            DDLogDebug("skip stale account retry jid=\(self.jid) trigger=\(context.trigger.rawValue) attempt=\(attemptID) phase=\(self.connectionGate.snapshot().phase.rawValue) streamState=\(self.streamStateDescription)")
             self.logConnectionDiagnostics(
                 event: "connect_retry_timer_skipped_stale",
-                trigger: context?.trigger ?? .timeoutRetry,
+                trigger: context.trigger,
                 details: ["retryAttempt": attemptID]
             )
             return
@@ -4038,12 +4031,12 @@ final class Account: NSObject {
 
         self.logConnectionDiagnostics(
             event: "connect_retry_timer_fired",
-            trigger: context?.trigger ?? .timeoutRetry,
-            details: ["retryAttempt": context?.attemptID.map(String.init) ?? "none"]
+            trigger: context.trigger,
+            details: ["retryAttempt": context.attemptID.map(String.init) ?? "none"]
         )
         self.resetStream()
         self.requestConnect(
-            trigger: context?.trigger ?? .timeoutRetry,
+            trigger: context.trigger,
             forceReset: true,
             prepareStream: { self.configureStream() }
         )
@@ -4185,12 +4178,24 @@ final class Account: NSObject {
  **/
     func asyncConnect(shouldReregisterDFevice: Bool = false, trigger: AccountConnectTrigger = .initialLoad) {
         let connectTrigger: AccountConnectTrigger = shouldReregisterDFevice ? .deviceReregister : trigger
-        DDLogDebug("account async connect jid=\(self.jid) trigger=\(connectTrigger.rawValue) reregisterDevice=\(shouldReregisterDFevice) deviceIdPresent=\(self.devices.deviceId?.isEmpty == false) manualHost=\(self.manuallySetHost) hostPresent=\(self.host.isEmpty == false) port=\(self.port) resourcePresent=\(self.resource.isEmpty == false) phase=\(self.connectionGate.snapshot().phase.rawValue) streamState=\(self.streamStateDescription)")
+        self.queue.async { [weak self] in
+            self?.performAsyncConnect(
+                shouldReregisterDevice: shouldReregisterDFevice,
+                trigger: connectTrigger
+            )
+        }
+    }
+
+    private func performAsyncConnect(
+        shouldReregisterDevice: Bool,
+        trigger connectTrigger: AccountConnectTrigger
+    ) {
+        DDLogDebug("account async connect jid=\(self.jid) trigger=\(connectTrigger.rawValue) reregisterDevice=\(shouldReregisterDevice) deviceIdPresent=\(self.devices.deviceId?.isEmpty == false) manualHost=\(self.manuallySetHost) hostPresent=\(self.host.isEmpty == false) port=\(self.port) resourcePresent=\(self.resource.isEmpty == false) phase=\(self.connectionGate.snapshot().phase.rawValue) streamState=\(self.streamStateDescription)")
         self.logConnectionDiagnostics(
             event: "async_connect_requested",
             trigger: connectTrigger,
             details: [
-                "reregisterDevice": shouldReregisterDFevice,
+                "reregisterDevice": shouldReregisterDevice,
                 "deviceIdPresent": self.devices.deviceId?.isEmpty == false,
                 "manualHost": self.manuallySetHost,
                 "hostPresent": self.host.isEmpty == false,
@@ -4198,7 +4203,7 @@ final class Account: NSObject {
                 "resourcePresent": self.resource.isEmpty == false
             ]
         )
-        if shouldReregisterDFevice {
+        if shouldReregisterDevice {
             if let deviceId = self.devices.deviceId {
                 self.logConnectionDiagnostics(
                     event: "device_reregister_reset_stream",
@@ -4214,7 +4219,7 @@ final class Account: NSObject {
         }
         self.requestConnect(
             trigger: connectTrigger,
-            forceReset: shouldReregisterDFevice,
+            forceReset: shouldReregisterDevice,
             prepareStream: { self.configureStream() }
         )
     }

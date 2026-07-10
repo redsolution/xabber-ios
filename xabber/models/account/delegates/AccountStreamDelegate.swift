@@ -119,8 +119,7 @@ extension Account: XMPPStreamDelegate {
         func invalidate() {
             self.tokenWasInvalidated()
         }
-        delayedConnectTimer?.invalidate()
-        delayedConnectTimer = nil
+        cancelDelayedConnectTimer()
         self.connectionGate.markAuthenticating()
         self.sendReadiness.markAuthenticating()
 //        DispatchQueue.main.async {

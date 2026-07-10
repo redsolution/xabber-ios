@@ -82,24 +82,22 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
         XCTAssertEqual(actions.filter { $0 == .updateInsets(280) }.count, 1)
     }
 
-    func testKeyboardFrameChangeKeepsLayoutBeforeVisibleAnchorRestore() throws {
+    func testKeyboardFrameChangeAwayFromBottomSkipsSynchronousAnchorWork() {
         let actions = ChatComposerFrameUpdatePlanner.actions(
             for: ChatComposerFrameUpdateRequest(
                 source: .keyboardFrame,
                 hasMessages: true,
                 previousInputHeight: 88,
                 inputHeight: 280,
-                anchorRestoration: .visibleAnchor
+                anchorRestoration: .none
             )
         )
 
         XCTAssertFalse(actions.contains(.reloadData))
         XCTAssertFalse(actions.contains(.invalidateLayoutCache))
         XCTAssertFalse(actions.contains(.invalidateLayout))
-        XCTAssertLessThan(
-            try XCTUnwrap(actions.firstIndex(of: .layoutIfNeeded)),
-            try XCTUnwrap(actions.firstIndex(of: .restoreVisibleAnchor))
-        )
-        XCTAssertEqual(actions.filter { $0 == .updateInsets(280) }.count, 2)
+        XCTAssertFalse(actions.contains(.layoutIfNeeded))
+        XCTAssertFalse(actions.contains(.restoreVisibleAnchor))
+        XCTAssertEqual(actions.filter { $0 == .updateInsets(280) }.count, 1)
     }
 }

@@ -189,7 +189,9 @@ extension ChatViewController {
             .map { UIView.AnimationOptions(rawValue: $0 << 16).union(.beginFromCurrentState) }
             ?? [.beginFromCurrentState, .curveEaseInOut]
         let wasNearBottom = self.isNearBottom()
-        let visibleAnchor = wasNearBottom ? nil : self.capturePagingAnchorIfNeeded(direction: .older)
+        let visibleAnchor = ChatKeyboardFrameViewportPolicy.shouldCaptureVisibleAnchor(
+            wasNearBottom: wasNearBottom
+        ) ? self.capturePagingAnchorIfNeeded(direction: .older) : nil
         ChatUIResponsivenessGate.shared.activate(
             reason: .keyboardFrame,
             duration: ChatUIResponsivenessGate.holdDuration(keyboardAnimationDuration: duration)

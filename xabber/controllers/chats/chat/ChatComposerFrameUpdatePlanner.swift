@@ -16,6 +16,16 @@ struct ChatKeyboardLayoutUpdatePolicy {
     }
 }
 
+enum ChatKeyboardFrameViewportPolicy {
+    static func shouldCaptureVisibleAnchor(wasNearBottom: Bool) -> Bool {
+        false
+    }
+
+    static func anchorRestoration(wasNearBottom: Bool) -> ChatComposerFrameAnchorRestoration {
+        wasNearBottom ? .bottom : .none
+    }
+}
+
 enum ChatComposerFrameUpdateSource: Equatable {
     case containerBounds
     case keyboardFrame

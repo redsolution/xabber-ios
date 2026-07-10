@@ -515,7 +515,7 @@ extension ChatViewController {
         self.draftMessageText
             .asObservable()
             .distinctUntilChanged()
-            .debounce(.milliseconds(800), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(800), scheduler: draftPersistenceScheduler)
             .observe(on: draftPersistenceScheduler)
             .subscribe { value in
                 do {

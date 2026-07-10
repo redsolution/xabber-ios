@@ -91,6 +91,37 @@ enum ComposerTypingUpdatePolicy {
     }
 }
 
+struct RecordingCancelHintVisualState: Equatable {
+    let originX: CGFloat
+    let alpha: CGFloat
+}
+
+enum RecordingCancelHintVisualPolicy {
+    static let minimumOriginX: CGFloat = 106
+    private static let fadeStartDistance: CGFloat = 12
+    private static let cancellationDistance: CGFloat = 120
+
+    static func visualState(translationX: CGFloat) -> RecordingCancelHintVisualState {
+        let leftDragDistance = min(max(-translationX, 0), cancellationDistance)
+        let fadeDistance = max(cancellationDistance - fadeStartDistance, 1)
+        let fadeProgress = min(
+            max((leftDragDistance - fadeStartDistance) / fadeDistance, 0),
+            1
+        )
+        return RecordingCancelHintVisualState(
+            originX: minimumOriginX,
+            alpha: 1 - fadeProgress
+        )
+    }
+}
+
+enum ComposerRecordingGeometryResetPolicy {
+    static func shouldReset(previousWidth: CGFloat, nextWidth: CGFloat) -> Bool {
+        guard previousWidth.isFinite else { return true }
+        return abs(previousWidth - nextWidth) > 0.5
+    }
+}
+
 class ModernXabberInputView: UIView {
     static let edgeHorizontalInset: CGFloat = NativeGlassBarStyle.horizontalInset
     static let minimumComposerHeight: CGFloat = NativeGlassBarStyle.minimumHeight
@@ -1596,11 +1627,15 @@ class ModernXabberInputView: UIView {
                 origin: CGPoint(x: 24, y: 2),
                 size: CGSize(width: 74, height: 34)
             )
-            let offset: CGFloat = 90
+            let visualState = RecordingCancelHintVisualPolicy.visualState(translationX: 0)
             self.slideToCancelButton.frame = CGRect(
-                origin: CGPoint(x: offset, y: 0),
-                size: CGSize(width: self.frame.width - 140, height: 38)
+                origin: CGPoint(x: visualState.originX, y: 0),
+                size: CGSize(
+                    width: max(0, self.frame.width - visualState.originX - 50),
+                    height: 38
+                )
             )
+            self.slideToCancelButton.alpha = visualState.alpha
             self.cancelButton.frame = CGRect(
                 origin: CGPoint(x: self.frame.width / 2 - 32, y: 0),
                 size: CGSize(width: 108, height: 38)
@@ -1662,14 +1697,15 @@ class ModernXabberInputView: UIView {
         }
         
         func slideToCancel(diffX: CGFloat) {
-//            if abs(diffX) < 2 { return }
-            let offset: CGFloat = 90 + (diffX / 2)
+            let visualState = RecordingCancelHintVisualPolicy.visualState(translationX: diffX)
             self.slideToCancelButton.frame = CGRect(
-                origin: CGPoint(x: offset, y: 0),
-                size: CGSize(width: self.frame.width - 140, height: 38)
+                origin: CGPoint(x: visualState.originX, y: 0),
+                size: CGSize(
+                    width: max(0, self.frame.width - visualState.originX - 50),
+                    height: 38
+                )
             )
-//            self.slideToCancelButton.alpha = alpha < 1.0 ? alpha : 1.0
-//            self.done()
+            self.slideToCancelButton.alpha = visualState.alpha
         }
         
         func slideToLock(point: CGPoint) {
@@ -1806,7 +1842,7 @@ class ModernXabberInputView: UIView {
     private var textFieldTrailingToContentConstraint: NSLayoutConstraint?
     private var textFieldTrailingToScheduledButtonConstraint: NSLayoutConstraint?
     private var textFieldTrailingToSendButtonConstraint: NSLayoutConstraint?
-    private var lastBoundsForRecordingButtonReset: CGRect = .null
+    private var lastWidthForRecordingButtonReset: CGFloat = .nan
 
     private enum RecordingDragVisualPolicy {
         static let minX: CGFloat = -120
@@ -2868,7 +2904,6 @@ class ModernXabberInputView: UIView {
             $0.transform = .identity
         }
         self.setNeedsLayout()
-        self.layoutIfNeeded()
         if state != .record {
             self.resetRecordingOverlayVisuals()
         }
@@ -3180,11 +3215,14 @@ class ModernXabberInputView: UIView {
     }
 
     override func layoutSubviews() {
-        let shouldResetRecordingButton = self.lastBoundsForRecordingButtonReset != self.bounds
+        let shouldResetRecordingButton = ComposerRecordingGeometryResetPolicy.shouldReset(
+            previousWidth: self.lastWidthForRecordingButtonReset,
+            nextWidth: self.bounds.width
+        )
         super.layoutSubviews()
         self.layoutLiquidGlassAppearance()
         if shouldResetRecordingButton {
-            self.lastBoundsForRecordingButtonReset = self.bounds
+            self.lastWidthForRecordingButtonReset = self.bounds.width
             self.resetRecordingButtonPositionAndVisibility(animated: false, enforceVisibility: false)
         }
     }
@@ -3289,7 +3327,7 @@ class ModernXabberInputView: UIView {
         )
     }
 
-    private func refreshDetachedComposerButtonChrome(forceConfigurationUpdate: Bool = true) {
+    private func refreshDetachedComposerButtonChrome(forceConfigurationUpdate: Bool = false) {
         [
             self.attachButton,
             self.timerButton,
@@ -3652,7 +3690,19 @@ class ModernXabberInputView: UIView {
         case sendVoice
     }
 
+    private static let recordComposerActionButtonImage = makeComposerActionButtonImage(for: .record)
+    private static let sendComposerActionButtonImage = makeComposerActionButtonImage(for: .textSend)
+
     static func composerActionButtonImage(for mode: ComposerActionMode) -> UIImage? {
+        switch mode {
+        case .record:
+            return self.recordComposerActionButtonImage
+        case .textSend:
+            return self.sendComposerActionButtonImage
+        }
+    }
+
+    private static func makeComposerActionButtonImage(for mode: ComposerActionMode) -> UIImage? {
         guard let image = self.composerActionButtonSymbolImage(for: mode)
                 ?? self.composerActionButtonAssetFallbackImage(for: mode) else {
             return nil
@@ -4146,12 +4196,6 @@ class ModernXabberInputView: UIView {
         let updates = {
             self.recordButton.transform = .identity
             self.recordButton.layer.removeAllAnimations()
-            self.mainInputGlassView.setNeedsLayout()
-            self.mainInputGlassView.layoutIfNeeded()
-            self.mainInputGlassView.contentView.setNeedsLayout()
-            self.mainInputGlassView.contentView.layoutIfNeeded()
-            self.contentView.setNeedsLayout()
-            self.contentView.layoutIfNeeded()
             self.startPositionRecordButton = self.recordButton.center
             self.recordButton.setRecordingVisualTranslation(.zero, animated: false)
             self.recordLockButtonIconScale = 1

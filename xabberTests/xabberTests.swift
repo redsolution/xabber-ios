@@ -34376,7 +34376,7 @@ final class ComposerMentionsTests: XCTestCase {
             XCTAssertEqual(textSurfaceFrame.maxY, attachFrame.maxY, accuracy: 0.001)
             XCTAssertEqual(textSurfaceFrame.maxY, timerFrame.maxY, accuracy: 0.001)
             XCTAssertEqual(textSurfaceFrame.maxY, recordFrame.maxY, accuracy: 0.001)
-            XCTAssertEqual(attachFrame.maxX, textSurfaceFrame.maxX - 8, accuracy: 0.001)
+            XCTAssertEqual(attachFrame.maxX + 8, textSurfaceFrame.minX, accuracy: 0.001)
 
             if #available(iOS 26.0, *) {
                 XCTAssertTrue(textSurface.effect is UIGlassEffect)

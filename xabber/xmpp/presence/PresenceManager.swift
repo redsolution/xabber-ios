@@ -25,6 +25,15 @@ import RxCocoa
 import XMPPFramework
 import Network
 
+enum PresenceProcessingSchedulerFactory {
+    static func make(owner: String) -> SerialDispatchQueueScheduler {
+        SerialDispatchQueueScheduler(
+            qos: .utility,
+            internalSerialQueueName: "com.xabber.presence-processing.\(owner)"
+        )
+    }
+}
+
 class PresenceManager: AbstractXMPPManager {
     
     enum PresenceDirection {
@@ -34,6 +43,7 @@ class PresenceManager: AbstractXMPPManager {
     
     internal var bag: DisposeBag = DisposeBag()
     internal var enqueuedItems: BehaviorRelay<[XMPPPresence]> = BehaviorRelay<[XMPPPresence]>(value: [])
+    private lazy var processingScheduler = PresenceProcessingSchedulerFactory.make(owner: self.owner)
 
     init(withOwner owner: String, withoutSubscribtion: Bool) {
         super.init(withOwner: owner)
@@ -64,22 +74,18 @@ class PresenceManager: AbstractXMPPManager {
         
         enqueuedItems
             .asObservable()
-            .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(200), scheduler: self.processingScheduler)
+            .observe(on: self.processingScheduler)
             .subscribe(onNext: { (results) in
-                RunLoop.main.perform {
-                do {
-                    let realm = try  WRealm.safe()
-                        let presences = results.compactMap({ return $0 })
-                    
-                        realm.writeAsync {
+                let presences = results.compactMap({ return $0 })
+                AccountManager.shared.find(for: self.owner)?.action { [weak self] account, _ in
+                    guard let self else { return }
+                    do {
+                        let realm = try WRealm.safe()
+                        try realm.write {
                             presences.forEach { self.parse(contact: $0, realm: realm) }
                         }
-                        AccountManager
-                            .shared
-                            .find(for: self.owner)?
-                            .devices
-                            .readBatch(presences, commitTransaction: true)
-                    
+                        account.devices.readBatch(presences, commitTransaction: true)
                     } catch {
                         DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
                     }

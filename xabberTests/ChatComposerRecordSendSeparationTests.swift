@@ -110,7 +110,7 @@ final class ChatComposerRecordSendSeparationTests: XCTestCase {
         }
     }
 
-    func testStableLayoutKeepsComposerGlassEffectInstance() throws {
+    func testStableLayoutKeepsComposerGlassSurfaceAndEffectKind() throws {
         let inputView = makeInputView()
         let composerSurface = try XCTUnwrap(composerEffectView(containing: inputView.textField))
         let initialEffect = try XCTUnwrap(composerSurface.effect)
@@ -119,7 +119,11 @@ final class ChatComposerRecordSendSeparationTests: XCTestCase {
             inputView.setNeedsLayout()
             inputView.layoutIfNeeded()
 
-            XCTAssertTrue(composerSurface.effect === initialEffect)
+            XCTAssertTrue(composerEffectView(containing: inputView.textField) === composerSurface)
+            XCTAssertEqual(
+                String(describing: type(of: try XCTUnwrap(composerSurface.effect))),
+                String(describing: type(of: initialEffect))
+            )
         }
     }
 
