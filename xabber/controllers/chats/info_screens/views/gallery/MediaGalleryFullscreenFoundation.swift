@@ -124,8 +124,21 @@ enum MediaGalleryImageRequestPlanner {
         displaySize: CGSize,
         scale: CGFloat
     ) -> MediaGalleryImageRequest? {
-        guard item.kind == .image,
-              let url = item.previewURL ?? item.url else {
+        let url: URL?
+        switch item.kind {
+        case .image:
+            url = item.previewURL ?? item.url
+        case .video:
+            if let previewURL = item.previewURL,
+               previewURL != item.url {
+                url = previewURL
+            } else {
+                url = nil
+            }
+        default:
+            url = nil
+        }
+        guard let url else {
             return nil
         }
         return MediaGalleryImageRequest(
@@ -133,6 +146,71 @@ enum MediaGalleryImageRequestPlanner {
             displaySize: displaySize,
             scale: scale
         )
+    }
+}
+
+enum MediaGalleryVideoPreviewSource: Equatable {
+    case request(MediaGalleryImageRequest)
+    case cacheKey(String)
+    case embeddedThumbnail
+    case placeholder
+}
+
+struct MediaGalleryVideoCellState: Equatable {
+    let primary: String
+    let previewSource: MediaGalleryVideoPreviewSource
+    let durationText: String?
+    let showsPlayIcon: Bool
+    let showsSensitiveOverlay: Bool
+}
+
+enum MediaGalleryVideoCellStatePolicy {
+    static func state(
+        for item: BaseMediaGalleryForChatViewController.Datasource,
+        displaySize: CGSize,
+        scale: CGFloat
+    ) -> MediaGalleryVideoCellState {
+        let previewSource: MediaGalleryVideoPreviewSource
+        if let request = MediaGalleryImageRequestPlanner.request(
+            for: item,
+            displaySize: displaySize,
+            scale: scale
+        ) {
+            previewSource = .request(request)
+        } else if let cacheKey = item.previewCacheIdentity?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  cacheKey.isNotEmpty {
+            previewSource = .cacheKey(cacheKey)
+        } else if item.thumb != nil {
+            previewSource = .embeddedThumbnail
+        } else {
+            previewSource = .placeholder
+        }
+
+        return MediaGalleryVideoCellState(
+            primary: item.primary,
+            previewSource: previewSource,
+            durationText: item.formattedDuration,
+            showsPlayIcon: true,
+            showsSensitiveOverlay: item.isSensitive && !item.isSensitiveRevealed
+        )
+    }
+}
+
+enum MediaGalleryVideoSelectionAction: Equatable {
+    case none
+    case confirmSensitive(URL)
+    case play(URL)
+}
+
+enum MediaGalleryVideoSelectionPolicy {
+    static func action(
+        for item: BaseMediaGalleryForChatViewController.Datasource
+    ) -> MediaGalleryVideoSelectionAction {
+        guard let playbackURL = item.url else { return .none }
+        if item.isSensitive && !item.isSensitiveRevealed {
+            return .confirmSensitive(playbackURL)
+        }
+        return .play(playbackURL)
     }
 }
 
@@ -253,10 +331,12 @@ enum MediaGalleryDatasourceMapper {
     ) -> BaseMediaGalleryForChatViewController.Datasource {
         let metadata = item.metadata ?? [:]
         let durationSeconds = positiveDuration(from: metadata["duration"])
+            ?? formattedDurationSeconds(from: metadata["video_duration"])
         let previewCacheIdentity = firstNonEmptyString(
             metadata["preview_local_url"],
             metadata["thumbnail"],
-            metadata["preview_url"]
+            metadata["preview_url"],
+            metadata["video_preview_key"]
         )
         let decodedURL = url(from: firstNonEmptyString(
             metadata["decodedUrl"],
@@ -315,6 +395,34 @@ enum MediaGalleryDatasourceMapper {
             duration = nil
         }
 
+        guard let duration, duration.isFinite, duration > 0 else {
+            return nil
+        }
+        return duration
+    }
+
+    private static func formattedDurationSeconds(from value: Any?) -> TimeInterval? {
+        guard let rawValue = value as? String else {
+            return positiveDuration(from: value)
+        }
+        let rawComponents = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: ":")
+        let components = rawComponents.compactMap { TimeInterval($0) }
+
+        guard components.count == rawComponents.count else {
+            return positiveDuration(from: rawValue)
+        }
+
+        let duration: TimeInterval?
+        switch components.count {
+        case 2:
+            duration = (components[0] * 60) + components[1]
+        case 3:
+            duration = (components[0] * 3_600) + (components[1] * 60) + components[2]
+        default:
+            duration = positiveDuration(from: rawValue)
+        }
         guard let duration, duration.isFinite, duration > 0 else {
             return nil
         }
