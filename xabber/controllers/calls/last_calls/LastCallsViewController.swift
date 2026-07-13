@@ -190,6 +190,7 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal var displayNames: Results<RosterDisplayNameStorageItem>? = nil
     internal var enabledAccounts: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set<String>())
     internal var filter: BehaviorRelay<CallsListFilter> = BehaviorRelay(value: .all)
+    internal var currentCallsCounters: CallsListCoordinator.Counters?
     internal var filterMenu: UIMenu = UIMenu()
     internal var isEmptyViewShowed: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     internal var isCallHistoryLoaded: Bool = false
@@ -330,17 +331,27 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             if enabledAccounts.value != accounts {
                 enabledAccounts.accept(accounts)
             }
-            let results = CallsListCoordinator
-                .deriveState(
+            var state = CallsListCoordinator.deriveState(
+                realm: realm,
+                enabledAccounts: accounts,
+                filter: filter.value,
+                searchQuery: callsSearchQuery
+            )
+            if filter.value == .missed, state.counters.missed == 0 {
+                filter.accept(.all)
+                state = CallsListCoordinator.deriveState(
                     realm: realm,
                     enabledAccounts: accounts,
-                    filter: filter.value,
+                    filter: .all,
                     searchQuery: callsSearchQuery
                 )
-                .listDatasource
+            }
+            currentCallsCounters = state.counters
+            let results = state.listDatasource
             applyCallDatasource(results)
             isCallHistoryLoaded = true
             refreshEmptyStateVisibility(callHistoryIsEmpty: results.isEmpty)
+            updateCallsCompactBottomBarState()
         } catch {
             DDLogDebug("LastCallsViewController: \(#function). \(error.localizedDescription)")
         }
@@ -652,6 +663,12 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             startCallTitle,
             accessibilityIdentifier: "calls_start_call_bottom_button",
             accessibilityLabel: startCallTitle
+        )
+        callsCompactBottomBarView.applyActionPresentation(
+            FloatingBottomBarView.ActionPresentation(
+                isLeftVisible: currentCallsCounters.map { $0.missed > 0 } ?? false,
+                isCenterVisible: false
+            )
         )
         callsCompactBottomBarView.setCenterButtonEnabled(false)
         callsCompactBottomBarView.isHidden = !shouldUseCallsCompactBottomBar ||

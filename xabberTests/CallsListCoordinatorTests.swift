@@ -13,12 +13,20 @@ import RealmSwift
 
 final class CallsListCoordinatorTests: XCTestCase {
     private let owner = "owner@example.com"
+    private var previousRealmConfiguration: Realm.Configuration!
 
     override func setUp() {
         super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "CallsListCoordinatorTests-\(UUID().uuidString)"
         )
+    }
+
+    override func tearDown() {
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        super.tearDown()
     }
 
     func testCallStateAndDirectionMapToFilters() {
@@ -50,7 +58,7 @@ final class CallsListCoordinatorTests: XCTestCase {
         XCTAssertEqual(state.listDatasource.first?.direction, .outgoing)
     }
 
-    func testSearchQueryFiltersCallsAfterSelectedCategoryAndKeepsCountersUnsearched() throws {
+    func testCountersRemainUnfilteredBySelectedCategoryAndSearch() throws {
         let realm = try WRealm.safe()
         try realm.write {
             addCall(to: realm, jid: "alpha@example.com", callState: .missed, outgoing: false, dateOffset: 3)
@@ -286,6 +294,37 @@ final class CallsVisualStyleTests: XCTestCase {
             account.order = order
             realm.add(account, update: .modified)
         }
+    }
+
+    @discardableResult
+    private func addCall(
+        owner: String,
+        jid: String,
+        state: MessageStorageItem.VoIPCallState,
+        outgoing: Bool,
+        date: Date = Date()
+    ) -> String {
+        let realm = try! WRealm.safe()
+        let primary = "call-\(UUID().uuidString)"
+        try! realm.write {
+            let message = MessageStorageItem()
+            message.primary = primary
+            message.owner = owner
+            message.opponent = jid
+            message.messageType = MessageStorageItem.MessageDisplayType.call.rawValue
+            message.date = date
+            message.outgoing = outgoing
+
+            let reference = MessageReferenceStorageItem()
+            reference.primary = "ref-\(primary)"
+            reference.owner = owner
+            reference.messageId = primary
+            reference.kind = .call
+            reference.metadata = ["callState": state.rawValue]
+            message.references.append(reference)
+            realm.add(message)
+        }
+        return primary
     }
 
     private func registerAccountColor(owner: String, colorKey: String) {
@@ -697,7 +736,7 @@ final class CallsVisualStyleTests: XCTestCase {
         XCTAssertEqual(spy.categories, [CallsListFilter.missed.rawValue])
     }
 
-    func testCallsCompactSplitUsesBottomActionsAndClearsNavbarDuplicates() throws {
+    func testCallsCompactSplitUsesBottomBarAndClearsNavbarDuplicates() throws {
         let controller = LastCallsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
@@ -713,9 +752,218 @@ final class CallsVisualStyleTests: XCTestCase {
             controller.callsCompactBottomBarCenterTitle,
             "Start Call".localizeString(id: "calls_empty_start_call", arguments: [])
         )
+        XCTAssertTrue(controller.callsCompactBottomBarPrimaryButton.isHidden)
         XCTAssertFalse(controller.isCallsCompactStartCallButtonEnabled)
+        XCTAssertTrue(controller.callsCompactBottomBarPrimaryButton.accessibilityElementsHidden)
         XCTAssertTrue(controller.bottomSearchHostView.superview === controller.view)
         XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
+    }
+
+    func testMissedFilterHiddenWhenUnfilteredMissedCountIsZero() {
+        let owner = "calls-zero-missed-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner, colorKey: "blue", order: 0)
+        addCall(owner: owner, jid: "incoming@example.com", state: .received, outgoing: false)
+        let controller = LastCallsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+        container.loadViewIfNeeded()
+
+        controller.reloadCallDatasource()
+
+        XCTAssertEqual(controller.currentCallsCounters?.missed, 0)
+        XCTAssertTrue(controller.callsCompactBottomBarFilterButton.isHidden)
+    }
+
+    func testMissedFilterVisibleWhenMissedCountIsPositiveEvenIfSearchHasNoRows() {
+        let owner = "calls-search-missed-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner, colorKey: "blue", order: 0)
+        addCall(owner: owner, jid: "missed@example.com", state: .missed, outgoing: false)
+        let controller = LastCallsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+        container.loadViewIfNeeded()
+        controller.callsSearchQuery = "no matching call"
+
+        controller.reloadCallDatasource()
+
+        XCTAssertTrue(controller.datasource.isEmpty)
+        XCTAssertEqual(controller.currentCallsCounters?.missed, 1)
+        XCTAssertFalse(controller.callsCompactBottomBarFilterButton.isHidden)
+    }
+
+    func testActiveMissedFilterResetsToAllWhenLastMissedCallDisappears() {
+        let owner = "calls-normalize-missed-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner, colorKey: "blue", order: 0)
+        addCall(owner: owner, jid: "incoming@example.com", state: .received, outgoing: false)
+        let controller = LastCallsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+        container.loadViewIfNeeded()
+        controller.filter.accept(.missed)
+
+        controller.reloadCallDatasource()
+
+        XCTAssertEqual(controller.filter.value, .all)
+        XCTAssertEqual(controller.datasource.map(\.jid), ["incoming@example.com"])
+        XCTAssertTrue(controller.callsCompactBottomBarFilterButton.isHidden)
+    }
+
+    func testNonMissedCallsDoNotKeepMissedFilterVisible() {
+        let owner = "calls-non-missed-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner, colorKey: "blue", order: 0)
+        addCall(owner: owner, jid: "incoming@example.com", state: .received, outgoing: false)
+        addCall(owner: owner, jid: "outgoing@example.com", state: .made, outgoing: true)
+        let controller = LastCallsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+        container.loadViewIfNeeded()
+
+        controller.reloadCallDatasource()
+
+        XCTAssertEqual(controller.currentCallsCounters?.total, 2)
+        XCTAssertEqual(controller.currentCallsCounters?.missed, 0)
+        XCTAssertTrue(controller.callsCompactBottomBarFilterButton.isHidden)
+    }
+
+    func testStartCallActionIsHiddenWhileItHasNoTarget() {
+        let controller = LastCallsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+        container.loadViewIfNeeded()
+
+        controller.reloadCallDatasource()
+
+        XCTAssertTrue(controller.callsCompactBottomBarPrimaryButton.isHidden)
+        XCTAssertFalse(controller.callsCompactBottomBarPrimaryButton.isEnabled)
+        XCTAssertTrue(controller.callsCompactBottomBarPrimaryButton.accessibilityElementsHidden)
+        XCTAssertFalse(controller.callsCompactBottomBarPrimaryButton.isAccessibilityElement)
+    }
+
+    func testHiddenCallsActionsDoNotMoveSearchFrame() {
+        let owner = "calls-fixed-search-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner, colorKey: "blue", order: 0)
+        let callPrimary = addCall(
+            owner: owner,
+            jid: "missed@example.com",
+            state: .missed,
+            outgoing: false
+        )
+        let controller = LastCallsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+        container.loadViewIfNeeded()
+        controller.reloadCallDatasource()
+        container.view.layoutIfNeeded()
+        navigationController.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        let visibleFilterSearchFrame = controller.bottomSearchHostView.collapsedButton.convert(
+            controller.bottomSearchHostView.collapsedButton.bounds,
+            to: controller.view
+        )
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.object(ofType: MessageStorageItem.self, forPrimaryKey: callPrimary)?.isDeleted = true
+        }
+
+        controller.reloadCallDatasource()
+        controller.view.layoutIfNeeded()
+
+        XCTAssertTrue(controller.callsCompactBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.callsCompactBottomBarPrimaryButton.isHidden)
+        XCTAssertEqual(
+            controller.bottomSearchHostView.collapsedButton.convert(
+                controller.bottomSearchHostView.collapsedButton.bounds,
+                to: controller.view
+            ),
+            visibleFilterSearchFrame
+        )
+    }
+
+    func testCallsCollapsedSearchPassesTouchesThroughHiddenActionSlots() {
+        let controller = LastCallsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+        container.loadViewIfNeeded()
+        controller.reloadCallDatasource()
+        container.view.layoutIfNeeded()
+        navigationController.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+
+        let filterPoint = controller.view.convert(
+            CGPoint(
+                x: controller.callsCompactBottomBarFilterButton.bounds.midX,
+                y: controller.callsCompactBottomBarFilterButton.bounds.midY
+            ),
+            from: controller.callsCompactBottomBarFilterButton
+        )
+        let primaryPoint = controller.view.convert(
+            CGPoint(
+                x: controller.callsCompactBottomBarPrimaryButton.bounds.midX,
+                y: controller.callsCompactBottomBarPrimaryButton.bounds.midY
+            ),
+            from: controller.callsCompactBottomBarPrimaryButton
+        )
+        let searchButton = controller.bottomSearchHostView.collapsedButton
+        let searchPoint = controller.view.convert(
+            CGPoint(x: searchButton.bounds.midX, y: searchButton.bounds.midY),
+            from: searchButton
+        )
+
+        XCTAssertTrue(controller.callsCompactBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.callsCompactBottomBarPrimaryButton.isHidden)
+        XCTAssertFalse(controller.view.hitTest(filterPoint, with: nil) === controller.callsCompactBottomBarFilterButton)
+        XCTAssertFalse(controller.view.hitTest(primaryPoint, with: nil) === controller.callsCompactBottomBarPrimaryButton)
+        XCTAssertTrue(controller.view.hitTest(searchPoint, with: nil) === searchButton)
+    }
+
+    func testCallsRegularWidthNavbarAndCategoryControllerRemainUnchanged() {
+        let controller = LastCallsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .regular)
+        container.loadViewIfNeeded()
+        let leftIdentifiers = controller.navigationItem.leftBarButtonItems?.compactMap(\.accessibilityIdentifier)
+        let rightIdentifiers = controller.navigationItem.rightBarButtonItems?.compactMap(\.accessibilityIdentifier)
+        let categoriesController = CallsCategoriesViewController()
+        categoriesController.loadViewIfNeeded()
+        let categoryKeys = categoriesController.datasource.flatMap { $0 }.map(\.key)
+
+        controller.reloadCallDatasource()
+
+        XCTAssertEqual(controller.navigationItem.leftBarButtonItems?.compactMap(\.accessibilityIdentifier), leftIdentifiers)
+        XCTAssertEqual(controller.navigationItem.rightBarButtonItems?.compactMap(\.accessibilityIdentifier), rightIdentifiers)
+        XCTAssertEqual(categoriesController.datasource.flatMap { $0 }.map(\.key), categoryKeys)
+        XCTAssertTrue(controller.isCallsCompactBottomBarHidden)
+    }
+
+    func testCallsLastRowRemainsAboveBottomSearchAtMaximumOffset() {
+        let controller = LastCallsViewController()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        controller.loadViewIfNeeded()
+        controller.reloadCallDatasource()
+        controller.view.layoutIfNeeded()
+        controller.tableView.contentSize = CGSize(width: 393, height: 1_600)
+        controller.updateTableInsetsForBottomSearch()
+        let maximumOffsetY = max(
+            -controller.tableView.adjustedContentInset.top,
+            controller.tableView.contentSize.height
+                + controller.tableView.adjustedContentInset.bottom
+                - controller.tableView.bounds.height
+        )
+        controller.tableView.contentOffset.y = maximumOffsetY
+
+        let contentBottomY = controller.tableView.convert(
+            CGPoint(x: 0, y: controller.tableView.contentSize.height),
+            to: controller.view
+        ).y
+        let searchFrame = controller.bottomSearchHostView.collapsedButton.convert(
+            controller.bottomSearchHostView.collapsedButton.bounds,
+            to: controller.view
+        )
+
+        XCTAssertLessThanOrEqual(
+            contentBottomY,
+            searchFrame.minY - FloatingBottomBarView.Metrics.tableInsetPadding + 0.001
+        )
     }
 
     func testCallsUsesGeometryBasedBottomOverlayInsetCoordinator() {
@@ -738,11 +986,15 @@ final class CallsVisualStyleTests: XCTestCase {
     }
 
     func testCallsCompactBottomFilterReceivesHitWhenSearchHostIsCollapsed() {
+        let owner = "calls-filter-hit-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner, colorKey: "blue", order: 0)
+        addCall(owner: owner, jid: "missed@example.com", state: .missed, outgoing: false)
         let controller = LastCallsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
 
         container.loadViewIfNeeded()
+        controller.reloadCallDatasource()
         container.view.layoutIfNeeded()
         navigationController.view.layoutIfNeeded()
         controller.view.layoutIfNeeded()
@@ -757,11 +1009,15 @@ final class CallsVisualStyleTests: XCTestCase {
     }
 
     func testCallsCompactBottomFilterTogglesAllAndMissedCalls() {
+        let owner = "calls-filter-toggle-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner, colorKey: "blue", order: 0)
+        addCall(owner: owner, jid: "missed@example.com", state: .missed, outgoing: false)
         let controller = LastCallsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
 
         container.loadViewIfNeeded()
+        controller.reloadCallDatasource()
 
         XCTAssertEqual(controller.filter.value, .all)
         XCTAssertFalse(controller.isCallsCompactMissedFilterActive)
