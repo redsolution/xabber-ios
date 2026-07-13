@@ -1692,6 +1692,8 @@ class ChatViewController: MessagesViewController {
     var isChatSearchCalendarDateResolutionLoading = false
     var chatSearchCalendarDateAnnouncementHandler: ((String) -> Void)? = nil
     var chatSearchCalendarDateErrorHandler: ((String) -> Void)? = nil
+    var chatSearchAccessibilityAnnouncementHandler: ((String) -> Void)? = nil
+    var chatSearchAccessibilityAnnouncementState = ChatSearchAccessibilityAnnouncementState()
     var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var currentSearchQueryId: String? = nil
     var currentInChatSearchQueryContext: ChatInChatSearchQueryContext? = nil
@@ -3785,6 +3787,7 @@ class ChatViewController: MessagesViewController {
         self.updateChatCollectionInsets(inputHeight: inputHeight)
         self.view.layoutIfNeeded()
         self.transitionSearchChrome(to: .visible, animated: shouldAnimate)
+        self.refreshChatSearchAccessibilityOrder()
     }
 
     internal func installSearchInputOverlayIfNeeded() {

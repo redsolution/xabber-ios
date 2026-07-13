@@ -133,12 +133,12 @@ final class ChatSearchCalendarView: UIView {
         let snapshot: ChatSearchCalendarModel.Snapshot
     }
 
-    static let accessibilityIdentifier = "chat_search_calendar"
-    static let closeAccessibilityIdentifier = "chat_search_calendar_close"
-    static let monthAccessibilityIdentifier = "chat_search_calendar_month"
-    static let previousAccessibilityIdentifier = "chat_search_calendar_previous_month"
-    static let nextAccessibilityIdentifier = "chat_search_calendar_next_month"
-    static let doneAccessibilityIdentifier = "chat_search_calendar_done"
+    static let accessibilityIdentifier = ChatSearchAccessibilityIdentifier.calendar
+    static let closeAccessibilityIdentifier = ChatSearchAccessibilityIdentifier.calendarClose
+    static let monthAccessibilityIdentifier = ChatSearchAccessibilityIdentifier.calendarMonth
+    static let previousAccessibilityIdentifier = ChatSearchAccessibilityIdentifier.calendarPreviousMonth
+    static let nextAccessibilityIdentifier = ChatSearchAccessibilityIdentifier.calendarNextMonth
+    static let doneAccessibilityIdentifier = ChatSearchAccessibilityIdentifier.calendarDone
 
     var onClose: (() -> Void)?
     var onPreviousMonth: (() -> Void)?
@@ -185,6 +185,7 @@ final class ChatSearchCalendarView: UIView {
 
     private let animationSpec: ChatSearchAnimationSpec
     private let localization: ChatSearchLocalization
+    private let accessibilityFormatting: ChatSearchFormatting
     private var runningMonthAnimator: UIViewPropertyAnimator?
     private weak var outgoingMonthSnapshotView: UIView?
 
@@ -213,10 +214,16 @@ final class ChatSearchCalendarView: UIView {
         snapshot: ChatSearchCalendarModel.Snapshot,
         animationSpec: ChatSearchAnimationSpec = .production,
         prefersNativeGlass: Bool = true,
-        localization: ChatSearchLocalization = .production()
+        localization: ChatSearchLocalization = .production(),
+        accessibilityFormatting: ChatSearchFormatting? = nil
     ) {
         self.animationSpec = animationSpec
         self.localization = localization
+        self.accessibilityFormatting = accessibilityFormatting ?? ChatSearchFormatting(
+            locale: localization.locale,
+            calendar: .autoupdatingCurrent,
+            timeZone: .autoupdatingCurrent
+        )
         surfaceView = UIVisualEffectView(
             effect: NativeGlassBarStyle.makeEffect(
                 role: .sheet,
@@ -234,7 +241,13 @@ final class ChatSearchCalendarView: UIView {
     }
 
     required init?(coder: NSCoder) {
-        localization = .production()
+        let localization = ChatSearchLocalization.production()
+        self.localization = localization
+        accessibilityFormatting = ChatSearchFormatting(
+            locale: localization.locale,
+            calendar: .autoupdatingCurrent,
+            timeZone: .autoupdatingCurrent
+        )
         animationSpec = ChatSearchAnimationSpec.production.resolved(
             for: .init(
                 reduceMotion: UIAccessibility.isReduceMotionEnabled,
@@ -279,7 +292,8 @@ final class ChatSearchCalendarView: UIView {
 
         layoutWeekdayLabels(direction: direction)
         layoutPickerControls(direction: direction)
-        if let layout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout {
+        if let layout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout,
+           collectionView.bounds.width > 0 {
             layout.itemSize = CGSize(
                 width: collectionView.bounds.width / 7,
                 height: ChatSearchCalendarLayout.dayHeight
@@ -345,6 +359,7 @@ final class ChatSearchCalendarView: UIView {
 
     private func setup(prefersNativeGlass: Bool) {
         accessibilityIdentifier = Self.accessibilityIdentifier
+        isAccessibilityElement = false
         backgroundColor = .clear
 
         NativeGlassBarStyle.applySurface(
@@ -419,6 +434,11 @@ final class ChatSearchCalendarView: UIView {
         addSubview(collectionView)
 
         monthYearPickerContainerView.backgroundColor = .secondarySystemBackground
+        monthYearPickerContainerView.accessibilityIdentifier =
+            ChatSearchAccessibilityIdentifier.calendarMonthYearPicker
+        monthYearPickerContainerView.accessibilityLabel =
+            localization.text(.monthYearPickerAccessibility)
+        monthYearPickerContainerView.isAccessibilityElement = false
         monthYearPickerContainerView.layer.cornerRadius = 16
         monthYearPickerContainerView.layer.cornerCurve = .continuous
         monthPicker.dataSource = self
@@ -437,9 +457,16 @@ final class ChatSearchCalendarView: UIView {
         monthYearPickerContainerView.addSubview(yearPicker)
         monthYearPickerContainerView.addSubview(pickerCloseButton)
         monthYearPickerContainerView.addSubview(pickerApplyButton)
+        monthYearPickerContainerView.accessibilityElements = [
+            monthPicker,
+            yearPicker,
+            pickerCloseButton,
+            pickerApplyButton
+        ]
         addSubview(monthYearPickerContainerView)
 
         doneButton.accessibilityIdentifier = Self.doneAccessibilityIdentifier
+        doneButton.accessibilityLabel = localization.text(.done)
         doneButton.setTitle(localization.text(.done), for: .normal)
         doneButton.setTitleColor(.white, for: .normal)
         doneButton.setTitleColor(UIColor.white.withAlphaComponent(0.5), for: .disabled)
@@ -456,6 +483,7 @@ final class ChatSearchCalendarView: UIView {
         collectionView.addGestureRecognizer(leftSwipe)
         collectionView.addGestureRecognizer(rightSwipe)
         synchronizeSemanticDirection()
+        updateAccessibilityOrder()
     }
 
     private func configureIconButton(
@@ -472,6 +500,7 @@ final class ChatSearchCalendarView: UIView {
 
     private func applySnapshot(_ snapshot: ChatSearchCalendarModel.Snapshot) {
         monthButton.setTitle(snapshot.monthTitle, for: .normal)
+        monthButton.accessibilityValue = snapshot.monthTitle
         previousButton.isEnabled = snapshot.canNavigatePreviousMonth
         nextButton.isEnabled = snapshot.canNavigateNextMonth
         doneButton.isEnabled = snapshot.isDoneEnabled
@@ -489,9 +518,27 @@ final class ChatSearchCalendarView: UIView {
             yearPicker.selectRow(yearRow, inComponent: 0, animated: false)
         }
         monthYearPickerContainerView.isHidden = !snapshot.isMonthYearPickerPresented
+        monthYearPickerContainerView.accessibilityElementsHidden =
+            !snapshot.isMonthYearPickerPresented
         weekdayContainerView.isHidden = snapshot.isMonthYearPickerPresented
+        weekdayContainerView.accessibilityElementsHidden = snapshot.isMonthYearPickerPresented
         collectionView.isHidden = snapshot.isMonthYearPickerPresented
+        collectionView.accessibilityElementsHidden = snapshot.isMonthYearPickerPresented
         collectionView.reloadData()
+        updateAccessibilityOrder()
+    }
+
+    private func updateAccessibilityOrder() {
+        var elements: [Any] = [titleLabel, closeButton, monthButton]
+        if monthYearPickerContainerView.isHidden {
+            elements.append(previousButton)
+            elements.append(nextButton)
+            elements.append(collectionView)
+        } else {
+            elements.append(monthYearPickerContainerView)
+        }
+        elements.append(doneButton)
+        accessibilityElements = elements
     }
 
     private func rebuildWeekdayLabels(symbols: [String]) {
@@ -649,7 +696,11 @@ extension ChatSearchCalendarView: UICollectionViewDataSource, UICollectionViewDe
         let slot = renderedSnapshot?.daySlots[indexPath.item] else {
             return UICollectionViewCell()
         }
-        cell.configure(with: slot)
+        cell.configure(
+            with: slot,
+            localization: localization,
+            formatting: accessibilityFormatting
+        )
         return cell
     }
 

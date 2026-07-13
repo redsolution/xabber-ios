@@ -319,7 +319,7 @@ final class ChatSearchResultCellTests: XCTestCase {
         cell.configure(with: result)
 
         XCTAssertTrue(cell.isAccessibilityElement)
-        XCTAssertEqual(cell.accessibilityIdentifier, "chat.search.result.archived.archive-42")
+        XCTAssertEqual(cell.accessibilityIdentifier, "chat_search_result_row.archived.archive-42")
         XCTAssertTrue(cell.accessibilityLabel?.contains("You") == true)
         XCTAssertTrue(cell.accessibilityLabel?.contains("test message") == true)
         XCTAssertTrue(cell.accessibilityLabel?.contains(cell.dateLabel.text ?? "missing-date") == true)

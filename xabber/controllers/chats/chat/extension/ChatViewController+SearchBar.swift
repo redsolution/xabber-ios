@@ -1153,6 +1153,7 @@ extension ChatViewController {
             renderSearchNavigationButtons(
                 animated: shouldAnimateSearchNavigationButtons(for: event)
             )
+            refreshChatSearchAccessibilityOrder()
         }
         return searchPresentationState
     }
@@ -1285,6 +1286,7 @@ extension ChatViewController {
                     self.setChatSearchTimelineHidden(true)
                 }
                 self.bringSearchModeChromeToFront()
+                self.refreshChatSearchAccessibilityOrder()
             }
         )
     }
@@ -1436,6 +1438,43 @@ extension ChatViewController {
     private func setChatSearchTimelineHidden(_ hidden: Bool) {
         messagesCollectionView.isHidden = hidden
         messagesCollectionView.isUserInteractionEnabled = !hidden
+        messagesCollectionView.accessibilityElementsHidden = hidden
+    }
+
+    internal func refreshChatSearchAccessibilityOrder() {
+        guard isViewLoaded else { return }
+        guard searchPresentationState.isActive else {
+            view.accessibilityElements = nil
+            messagesCollectionView.accessibilityElementsHidden = false
+            return
+        }
+
+        if let calendarView = searchCalendarViewController?.viewIfLoaded,
+           calendarView.superview === view,
+           !calendarView.accessibilityElementsHidden {
+            view.accessibilityElements = [calendarView]
+            return
+        }
+
+        var elements: [Any] = []
+        if searchNavigationView.superview === view, !searchNavigationView.isHidden {
+            elements.append(searchNavigationView)
+        }
+        if let listView = searchResultsListViewController?.viewIfLoaded,
+           listView.superview === view,
+           !listView.isHidden,
+           !listView.accessibilityElementsHidden {
+            elements.append(listView)
+        } else {
+            elements.append(messagesCollectionView)
+        }
+        if searchNavigationButtonsView.superview === view,
+           !searchNavigationButtonsView.isHidden,
+           !searchNavigationButtonsView.accessibilityElementsHidden {
+            elements.append(searchNavigationButtonsView)
+        }
+        elements.append(xabberInputView.searchPanel)
+        view.accessibilityElements = elements
     }
 
     internal func installSearchNavigationButtons() {
@@ -1486,6 +1525,7 @@ extension ChatViewController {
             view.bringSubviewToFront(searchNavigationButtonsView)
             bringSearchInputOverlayToFront()
         }
+        refreshChatSearchAccessibilityOrder()
     }
 
     internal func applyLegacySearchPanelStateFromPresentation() {
@@ -2142,6 +2182,10 @@ extension ChatViewController {
             .failed(generation: searchPresentationState.generation)
         )
         clearInChatSearchQuery(clearResults: true, panelState: .emptyResults)
+        postChatSearchAccessibilityAnnouncement(
+            .searchFailure,
+            generation: searchPresentationState.generation
+        )
         return true
     }
 
@@ -3556,6 +3600,12 @@ extension ChatViewController {
             usesBootstrapLoading: usesBootstrapLoading,
             hasFailureHook: hasFailureHook
         ) else { return }
+        if case .search? = executionState?.request.source {
+            self.postChatSearchAccessibilityAnnouncement(
+                .positioningFailure,
+                generation: self.searchPresentationState.generation
+            )
+        }
         self.view.makeToast("Original message is no longer available")
     }
 
@@ -4889,6 +4939,7 @@ extension ChatViewController {
                     searchPresentationState.generation == candidateGeneration
             }
         )
+        refreshChatSearchAccessibilityOrder()
     }
 
     internal func dismissChatSearchCalendar(animated: Bool) {
@@ -5099,7 +5150,9 @@ extension ChatViewController {
                       anchor: anchor,
                       conversationType: conversationType
                   ) else {
-                presentChatSearchCalendarDateResolutionError()
+                presentChatSearchCalendarDateResolutionError(
+                    generation: Int(request.generation)
+                )
                 return
             }
             chatScrollDirection = .up
@@ -5113,9 +5166,13 @@ extension ChatViewController {
                 )
             )
         case .noMessage:
-            announceChatSearchCalendarDateHasNoMessage()
+            announceChatSearchCalendarDateHasNoMessage(
+                generation: Int(request.generation)
+            )
         case .failed:
-            presentChatSearchCalendarDateResolutionError()
+            presentChatSearchCalendarDateResolutionError(
+                generation: Int(request.generation)
+            )
         case .cancelled:
             break
         }
@@ -5163,21 +5220,45 @@ extension ChatViewController {
             scope.conversationTypeRawValue == conversationType.rawValue
     }
 
-    private func announceChatSearchCalendarDateHasNoMessage() {
-        let message = ChatSearchLocalization.production().text(.announcementNoMessages)
-        if let chatSearchCalendarDateAnnouncementHandler {
-            chatSearchCalendarDateAnnouncementHandler(message)
-        } else {
-            UIAccessibility.post(notification: .announcement, argument: message)
-        }
+    private func announceChatSearchCalendarDateHasNoMessage(generation: Int) {
+        postChatSearchAccessibilityAnnouncement(
+            .dateNoMessage,
+            generation: generation,
+            handler: chatSearchCalendarDateAnnouncementHandler
+        )
     }
 
-    private func presentChatSearchCalendarDateResolutionError() {
-        let message = ChatSearchLocalization.production().text(.announcementSearchError)
-        if let chatSearchCalendarDateErrorHandler {
-            chatSearchCalendarDateErrorHandler(message)
-        } else if isViewLoaded {
-            view.makeToast(message)
+    private func presentChatSearchCalendarDateResolutionError(generation: Int) {
+        let handler = chatSearchCalendarDateErrorHandler
+        postChatSearchAccessibilityAnnouncement(
+            .dateFailure,
+            generation: generation,
+            handler: handler
+        )
+        guard handler == nil, isViewLoaded else {
+            return
+        }
+        view.makeToast(ChatSearchLocalization.production().text(.announcementSearchError))
+    }
+
+    private func postChatSearchAccessibilityAnnouncement(
+        _ event: ChatSearchAccessibilityAnnouncementState.Event,
+        generation: Int,
+        handler: ((String) -> Void)? = nil
+    ) {
+        guard let message = chatSearchAccessibilityAnnouncementState.message(
+            for: event,
+            generation: generation,
+            localization: .production()
+        ) else {
+            return
+        }
+        if let handler {
+            handler(message)
+        } else if let chatSearchAccessibilityAnnouncementHandler {
+            chatSearchAccessibilityAnnouncementHandler(message)
+        } else {
+            UIAccessibility.post(notification: .announcement, argument: message)
         }
     }
     
@@ -5442,6 +5523,10 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             self.selectedSearchResultId = nil
             self.refreshVisibleSearchSelection()
             self.applySearchResultsPanelState(isLoadingContext: false)
+            self.postChatSearchAccessibilityAnnouncement(
+                .noResults,
+                generation: self.searchPresentationState.generation
+            )
         }
         self.setFloatingDateVisible(true)
     }

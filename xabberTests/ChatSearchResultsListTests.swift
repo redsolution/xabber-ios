@@ -135,7 +135,8 @@ final class ChatSearchResultsListTests: XCTestCase {
         XCTAssertEqual(controller.tableView.backgroundColor, .systemBackground)
         XCTAssertEqual(controller.emptyView.backgroundColor, .clear)
         XCTAssertEqual(controller.errorView.backgroundColor, .clear)
-        XCTAssertEqual(controller.view.accessibilityIdentifier, "chat_search_results_list")
+        XCTAssertNil(controller.view.accessibilityIdentifier)
+        XCTAssertEqual(controller.tableView.accessibilityIdentifier, "chat_search_results_list")
 
         controller.render(model(generation: 1, results: [], phase: .loadingFirstPage))
         XCTAssertFalse(controller.firstPageLoadingView.isHidden)

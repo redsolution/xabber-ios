@@ -421,6 +421,7 @@ final class ChatSearchResultCell: UITableViewCell {
 
     private let avatarLoader: ChatSearchResultAvatarLoading
     private let dateFormatter: ChatSearchResultDateFormatter
+    private let localization: ChatSearchLocalization
     private let now: () -> Date
     private var avatarRequest: ChatSearchResultAvatarLoadCancelling?
     private var deliveryAccessibilityLabel: String?
@@ -429,6 +430,7 @@ final class ChatSearchResultCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         avatarLoader = ChatSearchResultDefaultAvatarLoader.shared
         dateFormatter = ChatSearchResultDateFormatter()
+        localization = .production()
         now = Date.init
         super.init(style: style, reuseIdentifier: reuseIdentifier ?? Self.reuseIdentifier)
         prepareView()
@@ -437,10 +439,12 @@ final class ChatSearchResultCell: UITableViewCell {
     init(
         avatarLoader: ChatSearchResultAvatarLoading,
         dateFormatter: ChatSearchResultDateFormatter = ChatSearchResultDateFormatter(),
+        localization: ChatSearchLocalization = .production(),
         now: @escaping () -> Date = Date.init
     ) {
         self.avatarLoader = avatarLoader
         self.dateFormatter = dateFormatter
+        self.localization = localization
         self.now = now
         super.init(style: .default, reuseIdentifier: Self.reuseIdentifier)
         prepareView()
@@ -465,6 +469,9 @@ final class ChatSearchResultCell: UITableViewCell {
         statusImageView.isHidden = true
         accessibilityIdentifier = nil
         accessibilityLabel = nil
+        accessibilityValue = nil
+        accessibilityHint = nil
+        accessibilityTraits = [.button]
     }
 
     func configure(with result: ChatSearchResult) {
@@ -505,7 +512,8 @@ final class ChatSearchResultCell: UITableViewCell {
             self.avatarImageView.image = image
         }
 
-        accessibilityIdentifier = accessibilityIdentifier(for: result.id)
+        accessibilityIdentifier = ChatSearchAccessibilityIdentifier.resultRow(result.id)
+        accessibilityHint = localization.text(.resultJumpHint)
         updateAccessibilityLabel()
         setNeedsLayout()
     }
@@ -615,15 +623,6 @@ final class ChatSearchResultCell: UITableViewCell {
         )
     }
 
-    private func accessibilityIdentifier(for id: ChatSearchResult.ID) -> String {
-        switch id {
-        case let .archived(value):
-            return "chat.search.result.archived.\(value)"
-        case let .primary(value):
-            return "chat.search.result.primary.\(value)"
-        }
-    }
-
     private func updateAccessibilityLabel() {
         accessibilityLabel = [
             senderLabel.text,
@@ -636,5 +635,10 @@ final class ChatSearchResultCell: UITableViewCell {
             return value
         }
         .joined(separator: ", ")
+    }
+
+    func updateAccessibilityPosition(_ value: String?, isSelected: Bool) {
+        accessibilityValue = value
+        accessibilityTraits = isSelected ? [.button, .selected] : [.button]
     }
 }

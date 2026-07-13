@@ -567,7 +567,7 @@ class ModernXabberInputView: UIView {
             let button = UIButton(type: .system)
             button.setImage(imageLiteral("calendar", dimension: 20), for: .normal)
             button.tintColor = NativeGlassBarStyle.iconTintColor
-            button.accessibilityIdentifier = "chat_search_calendar"
+            button.accessibilityIdentifier = ChatSearchAccessibilityIdentifier.calendarButton
             return button
         }()
 
@@ -575,7 +575,7 @@ class ModernXabberInputView: UIView {
             let button = UIButton(type: .system)
             button.setImage(imageLiteral("xmark", dimension: NativeGlassBarStyle.iconSize), for: .normal)
             button.tintColor = NativeGlassBarStyle.iconTintColor
-            button.accessibilityIdentifier = "chat_search_cancel"
+            button.accessibilityIdentifier = ChatSearchAccessibilityIdentifier.cancel
             button.accessibilityLabel = "Cancel".localizeString(id: "cancel", arguments: [])
             return button
         }()
@@ -587,7 +587,7 @@ class ModernXabberInputView: UIView {
             button.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
             button.titleLabel?.adjustsFontSizeToFitWidth = true
             button.titleLabel?.minimumScaleFactor = 0.78
-            button.accessibilityIdentifier = "chat_search_view_mode_control"
+            button.accessibilityIdentifier = ChatSearchAccessibilityIdentifier.viewModeControl
             return button
         }()
 
@@ -608,7 +608,7 @@ class ModernXabberInputView: UIView {
             
             view.isHidden = true
             view.hidesWhenStopped = false
-            view.accessibilityIdentifier = "chat_search_loading"
+            view.accessibilityIdentifier = ChatSearchAccessibilityIdentifier.loading
             
             return view
         }()
@@ -622,7 +622,7 @@ class ModernXabberInputView: UIView {
             label.textColor = .secondaryLabel
             label.adjustsFontSizeToFitWidth = true
             label.minimumScaleFactor = 0.85
-            label.accessibilityIdentifier = "chat_search_results_count"
+            label.accessibilityIdentifier = ChatSearchAccessibilityIdentifier.resultsCount
             
             return label
         }()
@@ -856,6 +856,7 @@ class ModernXabberInputView: UIView {
                 direction: counterDirection,
                 animated: animated
             )
+            counterLabel.accessibilityValue = hasCommittedCurrentResult ? counterText : nil
 
             let viewModeTitle: String
             switch newSurfaceMode {
@@ -867,14 +868,17 @@ class ModernXabberInputView: UIView {
             viewModeButton.setTitle(viewModeTitle, for: .normal)
             viewModeButton.accessibilityLabel = viewModeTitle
             trailingSurfaceView.isHidden = !hasCommittedCurrentResult
+            trailingSurfaceView.accessibilityElementsHidden = !hasCommittedCurrentResult
             viewModeButton.isHidden = !hasCommittedCurrentResult
             viewModeButton.isEnabled = hasCommittedCurrentResult
+            viewModeButton.accessibilityElementsHidden = !hasCommittedCurrentResult
             calendarButton.isHidden = false
             calendarButton.isEnabled = true
             counterLabel.isHidden = false
 
             cancelButton.isHidden = true
             stopLoadingIndicator()
+            updateAccessibilityOrder(hasCommittedCurrentResult: hasCommittedCurrentResult)
             setNeedsLayout()
         }
 
@@ -967,6 +971,14 @@ class ModernXabberInputView: UIView {
             self.activityIndicator.stopAnimating()
             self.activityIndicator.isHidden = true
         }
+
+        private func updateAccessibilityOrder(hasCommittedCurrentResult: Bool) {
+            var elements: [Any] = [calendarButton, counterLabel]
+            if hasCommittedCurrentResult {
+                elements.append(viewModeButton)
+            }
+            accessibilityElements = elements
+        }
         
         @objc
         private func onChangeConversationTypeButtonTouchUp(_ sender: UIButton) {
@@ -989,8 +1001,11 @@ class ModernXabberInputView: UIView {
         }
         
         func setup() {
-            self.accessibilityIdentifier = "chat_search_results_panel"
+            self.accessibilityIdentifier = ChatSearchAccessibilityIdentifier.resultsPanel
+            self.isAccessibilityElement = false
             self.calendarButton.accessibilityLabel = localization.text(.calendar)
+            self.counterLabel.isAccessibilityElement = true
+            self.counterLabel.accessibilityLabel = localization.text(.resultsCountAccessibility)
             self.backgroundColor = .clear
             self.isOpaque = false
             self.leadingSurfaceView.autoresizingMask = []

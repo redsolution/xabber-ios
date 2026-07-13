@@ -69,11 +69,11 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
         let isRemoteSearching: Bool
     }
 
-    static let inputAccessibilityIdentifier = "chat_search_input"
-    static let submitAccessibilityIdentifier = "chat_search_submit"
-    static let loadingAccessibilityIdentifier = "chat_search_loading"
-    static let clearAccessibilityIdentifier = "chat_search_clear"
-    static let cancelAccessibilityIdentifier = "chat_search_cancel"
+    static let inputAccessibilityIdentifier = ChatSearchAccessibilityIdentifier.input
+    static let submitAccessibilityIdentifier = ChatSearchAccessibilityIdentifier.submit
+    static let loadingAccessibilityIdentifier = ChatSearchAccessibilityIdentifier.loading
+    static let clearAccessibilityIdentifier = ChatSearchAccessibilityIdentifier.clear
+    static let cancelAccessibilityIdentifier = ChatSearchAccessibilityIdentifier.cancel
 
     var onSubmit: ((String) -> Void)?
     var onTextChanged: ((String?) -> Void)?
@@ -125,6 +125,15 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
         return indicator
     }()
 
+    private(set) lazy var loadingAccessibilityElement: UIAccessibilityElement = {
+        let element = UIAccessibilityElement(accessibilityContainer: self)
+        element.accessibilityIdentifier = Self.loadingAccessibilityIdentifier
+        element.accessibilityLabel = localization.text(.loading)
+        element.accessibilityTraits = [.updatesFrequently]
+        element.isAccessibilityElement = true
+        return element
+    }()
+
     let clearButton: UIButton = {
         let button = UIButton(type: .system)
         button.accessibilityIdentifier = clearAccessibilityIdentifier
@@ -145,6 +154,7 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
         set {
             textField.text = newValue ?? ""
             updateClearVisibility()
+            updateAccessibilityState()
         }
     }
 
@@ -222,6 +232,8 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
             width: max(0, clearButton.frame.minX - submitButton.frame.maxX),
             height: ChatSearchNavigationLayout.controlHeight
         )
+        loadingAccessibilityElement.accessibilityFrameInContainerSpace =
+            loadingIndicator.convert(loadingIndicator.bounds, to: self)
     }
 
     override func didMoveToWindow() {
@@ -241,6 +253,7 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
         } else {
             loadingIndicator.stopAnimating()
         }
+        updateAccessibilityState()
     }
 
     @discardableResult
@@ -270,6 +283,9 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
         loadingIndicator.accessibilityLabel = localization.text(.loading)
         clearButton.accessibilityLabel = localization.text(.clear)
         cancelButton.accessibilityLabel = localization.text(.cancel)
+        accessibilityIdentifier = ChatSearchAccessibilityIdentifier.topBar
+        isAccessibilityElement = false
+        loadingIndicator.isAccessibilityElement = false
         backgroundColor = .clear
         isOpaque = false
         translatesAutoresizingMaskIntoConstraints = false
@@ -314,6 +330,7 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
         clearButton.addTarget(self, action: #selector(onClearButtonTouchUp), for: .touchUpInside)
         cancelButton.addTarget(self, action: #selector(onCancelButtonTouchUp), for: .touchUpInside)
         textField.addTarget(self, action: #selector(onTextFieldEditingChanged), for: .editingChanged)
+        updateAccessibilityState()
     }
 
     private func fulfillPendingFocusRequestIfPossible() {
@@ -326,6 +343,29 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
 
     private func updateClearVisibility() {
         clearButton.isHidden = (textField.text ?? "").isEmpty
+    }
+
+    private func updateAccessibilityState() {
+        textField.accessibilityValue = textField.text
+        submitButton.accessibilityElementsHidden = submitButton.isHidden
+        loadingIndicator.accessibilityElementsHidden = loadingIndicator.isHidden
+        loadingAccessibilityElement.accessibilityElementsHidden = loadingIndicator.isHidden
+        clearButton.accessibilityElementsHidden = clearButton.isHidden
+        cancelButton.accessibilityElementsHidden = cancelButton.isHidden
+
+        var orderedElements: [Any] = [textField]
+        if !submitButton.isHidden {
+            orderedElements.append(submitButton)
+        } else if !loadingIndicator.isHidden {
+            orderedElements.append(loadingAccessibilityElement)
+        }
+        if !clearButton.isHidden {
+            orderedElements.append(clearButton)
+        }
+        if !cancelButton.isHidden {
+            orderedElements.append(cancelButton)
+        }
+        accessibilityElements = orderedElements
     }
 
     private func submitCurrentText() {
@@ -341,6 +381,7 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
     private func onClearButtonTouchUp() {
         textField.text = ""
         updateClearVisibility()
+        updateAccessibilityState()
         onTextChanged?(nil)
         onClear?()
     }
@@ -353,6 +394,7 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
     @objc
     private func onTextFieldEditingChanged() {
         updateClearVisibility()
+        updateAccessibilityState()
         onTextChanged?(textField.text)
     }
 }

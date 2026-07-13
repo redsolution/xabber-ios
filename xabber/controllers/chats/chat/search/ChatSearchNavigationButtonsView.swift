@@ -270,7 +270,7 @@ final class ChatSearchNavigationButtonsView: UIView {
         renderState = state
         previousButton.isEnabled = state.isVisible && state.isPreviousEnabled
         nextButton.isEnabled = state.isVisible && state.isNextEnabled
-        accessibilityValue = state.isBusy ? localization.text(.loading) : nil
+        updateAccessibilityState()
 
         guard state.isVisible != wasVisible else {
             if !state.isVisible {
@@ -309,7 +309,7 @@ final class ChatSearchNavigationButtonsView: UIView {
         renderState = state
         previousButton.isEnabled = state.isVisible && state.isPreviousEnabled
         nextButton.isEnabled = state.isVisible && state.isNextEnabled
-        accessibilityValue = state.isBusy ? localization.text(.loading) : nil
+        updateAccessibilityState()
         if state.isVisible {
             isHidden = false
             isUserInteractionEnabled = true
@@ -325,18 +325,20 @@ final class ChatSearchNavigationButtonsView: UIView {
         isOpaque = false
         clipsToBounds = false
         accessibilityIdentifier = "chat_search_navigation_buttons"
+        isAccessibilityElement = false
+        accessibilityElements = [previousButton, nextButton]
 
         configure(
             previousButton,
             imageName: "chevron.up",
-            identifier: "chat_search_previous_result",
-            label: localization.text(.earlierResult)
+            identifier: ChatSearchAccessibilityIdentifier.previousResult,
+            label: localization.text(.previousResult)
         )
         configure(
             nextButton,
             imageName: "chevron.down",
-            identifier: "chat_search_next_result",
-            label: localization.text(.laterResult)
+            identifier: ChatSearchAccessibilityIdentifier.nextResult,
+            label: localization.text(.nextResult)
         )
         addSubview(previousButton)
         addSubview(nextButton)
@@ -376,8 +378,30 @@ final class ChatSearchNavigationButtonsView: UIView {
         layer.removeAllAnimations()
         isHidden = true
         isUserInteractionEnabled = false
+        accessibilityElementsHidden = true
         alpha = 0
         transform = .identity
+    }
+
+    private func updateAccessibilityState() {
+        accessibilityElementsHidden = !renderState.isVisible
+        guard renderState.isVisible else {
+            previousButton.accessibilityValue = nil
+            nextButton.accessibilityValue = nil
+            return
+        }
+        if renderState.isBusy {
+            let loading = localization.text(.loading)
+            previousButton.accessibilityValue = loading
+            nextButton.accessibilityValue = loading
+            return
+        }
+        previousButton.accessibilityValue = renderState.isPreviousEnabled
+            ? localization.text(.olderMessage)
+            : localization.text(.noOlderResults)
+        nextButton.accessibilityValue = renderState.isNextEnabled
+            ? localization.text(.newerMessage)
+            : localization.text(.noNewerResults)
     }
 
     private func animate(

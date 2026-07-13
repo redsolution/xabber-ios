@@ -80,7 +80,7 @@ final class ChatSearchBottomActionBarTests: XCTestCase {
 
             XCTAssertFalse(panel.calendarButton.isHidden)
             XCTAssertTrue(panel.calendarButton.isEnabled)
-            XCTAssertEqual(panel.calendarButton.accessibilityIdentifier, "chat_search_calendar")
+            XCTAssertEqual(panel.calendarButton.accessibilityIdentifier, "chat_search_calendar_button")
             XCTAssertGreaterThanOrEqual(panel.calendarButton.bounds.width, 40)
             XCTAssertGreaterThanOrEqual(panel.calendarButton.bounds.height, 40)
         }
@@ -232,7 +232,7 @@ final class ChatSearchBottomActionBarTests: XCTestCase {
         XCTAssertEqual(panel.accessibilityIdentifier, "chat_search_results_panel")
         XCTAssertEqual(panel.counterLabel.accessibilityIdentifier, "chat_search_results_count")
         XCTAssertEqual(panel.viewModeButton.accessibilityIdentifier, "chat_search_view_mode_control")
-        XCTAssertEqual(panel.calendarButton.accessibilityIdentifier, "chat_search_calendar")
+        XCTAssertEqual(panel.calendarButton.accessibilityIdentifier, "chat_search_calendar_button")
     }
 
     private func makePanel(

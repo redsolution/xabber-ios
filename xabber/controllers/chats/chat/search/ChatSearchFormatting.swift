@@ -30,6 +30,18 @@ enum ChatSearchLocalizationKey: String, CaseIterable {
     case outgoingSenderYou = "chat_search_sender_you"
     case earlierResult = "chat_search_earlier_result"
     case laterResult = "chat_search_later_result"
+    case previousResult = "chat_search_accessibility_previous_result"
+    case nextResult = "chat_search_accessibility_next_result"
+    case olderMessage = "chat_search_accessibility_older_message"
+    case newerMessage = "chat_search_accessibility_newer_message"
+    case noOlderResults = "chat_search_accessibility_no_older_results"
+    case noNewerResults = "chat_search_accessibility_no_newer_results"
+    case resultsListAccessibility = "chat_search_accessibility_results_list"
+    case resultsCountAccessibility = "chat_search_accessibility_results_count"
+    case resultJumpHint = "chat_search_accessibility_result_jump_hint"
+    case monthYearPickerAccessibility = "chat_search_accessibility_month_year_picker"
+    case selected = "selected"
+    case today = "today"
     case loading = "chat_search_loading"
     case clear = "chat_search_clear"
     case cancel = "chat_search_cancel"
@@ -63,6 +75,18 @@ enum ChatSearchLocalizationKey: String, CaseIterable {
         .outgoingSenderYou,
         .earlierResult,
         .laterResult,
+        .previousResult,
+        .nextResult,
+        .olderMessage,
+        .newerMessage,
+        .noOlderResults,
+        .noNewerResults,
+        .resultsListAccessibility,
+        .resultsCountAccessibility,
+        .resultJumpHint,
+        .monthYearPickerAccessibility,
+        .selected,
+        .today,
         .loading,
         .clear,
         .cancel,
@@ -118,6 +142,30 @@ enum ChatSearchLocalizationKey: String, CaseIterable {
             return "Earlier result"
         case .laterResult:
             return "Later result"
+        case .previousResult:
+            return "Previous result"
+        case .nextResult:
+            return "Next result"
+        case .olderMessage:
+            return "Older message"
+        case .newerMessage:
+            return "Newer message"
+        case .noOlderResults:
+            return "No older results"
+        case .noNewerResults:
+            return "No newer results"
+        case .resultsListAccessibility:
+            return "Search results"
+        case .resultsCountAccessibility:
+            return "Search results count"
+        case .resultJumpHint:
+            return "Double tap to jump to this message"
+        case .monthYearPickerAccessibility:
+            return "Month and year picker"
+        case .selected:
+            return "Selected"
+        case .today:
+            return "Today"
         case .loading:
             return "Loading"
         case .clear:
@@ -380,6 +428,7 @@ final class ChatSearchFormatterCache {
         case resultSameYear
         case resultOlderYear
         case monthTitle
+        case fullDate
         case symbols
 
         var template: String? {
@@ -392,6 +441,8 @@ final class ChatSearchFormatterCache {
                 return "yMd"
             case .monthTitle:
                 return "LLLL yyyy"
+            case .fullDate:
+                return "yMMMMd"
             case .symbols:
                 return nil
             }
@@ -526,6 +577,10 @@ struct ChatSearchFormatting {
 
     func monthTitle(for date: Date) -> String {
         cache.dateString(date, role: .monthTitle, context: context)
+    }
+
+    func fullDate(for date: Date) -> String {
+        cache.dateString(date, role: .fullDate, context: context)
     }
 
     func weekdaySymbols() -> [String] {

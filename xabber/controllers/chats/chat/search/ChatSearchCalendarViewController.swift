@@ -181,10 +181,13 @@ final class ChatSearchCalendarViewController: UIViewController {
         let rootView = UIView()
         rootView.backgroundColor = .clear
         rootView.accessibilityViewIsModal = true
+        rootView.accessibilityElementsHidden = true
+        rootView.accessibilityElements = [calendarView]
 
         dimView.backgroundColor = .black
         dimView.alpha = 0
         dimView.isAccessibilityElement = false
+        dimView.accessibilityElementsHidden = true
         dimView.accessibilityIdentifier = Self.dimAccessibilityIdentifier
         rootView.addSubview(dimView)
         rootView.addSubview(calendarView)
@@ -438,6 +441,9 @@ final class ChatSearchCalendarViewController: UIViewController {
     }
 
     private func applyInitialVisualState(_ plan: ChatSearchCalendarPresentationPlan) {
+        let isPresenting = plan.targetState == .presented
+        view.accessibilityElementsHidden = !isPresenting
+        calendarView.accessibilityElementsHidden = !isPresenting
         dimView.isUserInteractionEnabled = true
         calendarView.isUserInteractionEnabled = true
         if let dimAlpha = plan.dimTransition.alpha {
@@ -461,12 +467,16 @@ final class ChatSearchCalendarViewController: UIViewController {
     ) {
         switch state {
         case .presented:
+            view.accessibilityElementsHidden = false
+            calendarView.accessibilityElementsHidden = false
             dimView.alpha = CGFloat(dimTargetAlpha)
             calendarView.alpha = 1
             calendarView.transform = .identity
             dimView.isUserInteractionEnabled = true
             calendarView.isUserInteractionEnabled = true
         case .dismissed:
+            view.accessibilityElementsHidden = true
+            calendarView.accessibilityElementsHidden = true
             dimView.alpha = 0
             calendarView.alpha = 0
             calendarView.transform = sheetTransform(offsetFraction: 1)

@@ -2784,7 +2784,7 @@ final class ChatSearchBottomPanelTests: XCTestCase {
         XCTAssertTrue(effectViews.contains { $0 === panel.trailingSurfaceView })
         XCTAssertEqual(panel.leadingSurfaceView.layer.cornerRadius, 20, accuracy: 0.001)
         XCTAssertEqual(panel.trailingSurfaceView.layer.cornerRadius, 20, accuracy: 0.001)
-        XCTAssertEqual(panel.calendarButton.accessibilityIdentifier, "chat_search_calendar")
+        XCTAssertEqual(panel.calendarButton.accessibilityIdentifier, "chat_search_calendar_button")
         XCTAssertEqual(panel.counterLabel.accessibilityIdentifier, "chat_search_results_count")
         XCTAssertEqual(panel.viewModeButton.accessibilityIdentifier, "chat_search_view_mode_control")
         XCTAssertEqual(panel.intrinsicContentSize.height, 40, accuracy: 0.001)

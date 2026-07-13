@@ -30,7 +30,7 @@ final class ChatSearchCalendarDayCell: UICollectionViewCell {
     }
 
     static let reuseIdentifier = "ChatSearchCalendarDayCell"
-    static let accessibilityIdentifier = "chat_search_calendar_day"
+    static let accessibilityIdentifier = ChatSearchAccessibilityIdentifier.calendarDay
 
     let selectionCircleView: UIView = {
         let view = UIView()
@@ -82,7 +82,11 @@ final class ChatSearchCalendarDayCell: UICollectionViewCell {
         resetState()
     }
 
-    func configure(with slot: ChatSearchCalendarModel.DaySlot) {
+    func configure(
+        with slot: ChatSearchCalendarModel.DaySlot,
+        localization: ChatSearchLocalization = .production(),
+        formatting: ChatSearchFormatting? = nil
+    ) {
         resetState()
 
         guard slot.isInVisibleMonth, let dayNumber = slot.dayNumber else {
@@ -90,15 +94,18 @@ final class ChatSearchCalendarDayCell: UICollectionViewCell {
         }
 
         dayLabel.text = String(dayNumber)
-        accessibilityIdentifier = Self.accessibilityIdentifier
+        accessibilityIdentifier = ChatSearchAccessibilityIdentifier.calendarDay(slot.id)
         isAccessibilityElement = true
         isUserInteractionEnabled = slot.isInteractive
+        accessibilityTraits = [.button]
 
         if let date = slot.date {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .long
-            formatter.timeStyle = .none
-            accessibilityLabel = formatter.string(from: date)
+            let formatting = formatting ?? ChatSearchFormatting(
+                locale: localization.locale,
+                calendar: .autoupdatingCurrent,
+                timeZone: .autoupdatingCurrent
+            )
+            accessibilityLabel = formatting.fullDate(for: date)
         } else {
             accessibilityLabel = String(dayNumber)
         }
@@ -106,10 +113,10 @@ final class ChatSearchCalendarDayCell: UICollectionViewCell {
         var valueComponents: [String] = []
         if slot.isSelected {
             accessibilityTraits.insert(.selected)
-            valueComponents.append("Selected".localizeString(id: "selected", arguments: []))
+            valueComponents.append(localization.text(.selected))
         }
         if slot.isToday {
-            valueComponents.append("Today".localizeString(id: "today", arguments: []))
+            valueComponents.append(localization.text(.today))
         }
         if !slot.isEnabled {
             accessibilityTraits.insert(.notEnabled)

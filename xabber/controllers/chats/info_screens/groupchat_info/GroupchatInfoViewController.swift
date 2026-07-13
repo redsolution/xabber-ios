@@ -53,7 +53,7 @@ enum GroupchatInfoActionExitPolicy {
 }
 
 enum GroupchatInfoAccessibilityIdentifiers {
-    static let searchButton = "group_info_search_button"
+    static let searchButton = ChatSearchAccessibilityIdentifier.groupInfoEntry
 }
 
 class GroupchatInfoViewController: SimpleBaseViewController {

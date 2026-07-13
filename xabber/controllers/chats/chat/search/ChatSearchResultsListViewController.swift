@@ -191,7 +191,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         tableView.keyboardDismissMode = .interactive
         tableView.rowHeight = ChatSearchResultCellLayoutPolicy.standardRowHeight
         tableView.estimatedRowHeight = ChatSearchResultCellLayoutPolicy.standardRowHeight
-        tableView.accessibilityIdentifier = "chat_search_results_list"
+        tableView.accessibilityIdentifier = ChatSearchAccessibilityIdentifier.resultsList
         return tableView
     }()
 
@@ -231,7 +231,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         self.localization = localization
         emptyView = ChatSearchResultsListStateView(
             text: localization.text(.resultsEmpty),
-            accessibilityIdentifier: "chat_search_results_empty"
+            accessibilityIdentifier: ChatSearchAccessibilityIdentifier.resultsEmpty
         )
 
         let retryButton = UIButton(type: .system)
@@ -243,7 +243,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
 
         let pagingIndicator = UIActivityIndicatorView(style: .medium)
         pagingIndicator.hidesWhenStopped = true
-        pagingIndicator.accessibilityIdentifier = "chat_search_results_paging"
+        pagingIndicator.accessibilityIdentifier = ChatSearchAccessibilityIdentifier.resultsPaging
         pagingIndicator.isAccessibilityElement = true
         pagingIndicator.accessibilityLabel = localization.text(.resultsLoading)
         pagingIndicatorView = pagingIndicator
@@ -255,7 +255,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         self.localization = localization
         emptyView = ChatSearchResultsListStateView(
             text: localization.text(.resultsEmpty),
-            accessibilityIdentifier: "chat_search_results_empty"
+            accessibilityIdentifier: ChatSearchAccessibilityIdentifier.resultsEmpty
         )
 
         let retryButton = UIButton(type: .system)
@@ -267,7 +267,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
 
         let pagingIndicator = UIActivityIndicatorView(style: .medium)
         pagingIndicator.hidesWhenStopped = true
-        pagingIndicator.accessibilityIdentifier = "chat_search_results_paging"
+        pagingIndicator.accessibilityIdentifier = ChatSearchAccessibilityIdentifier.resultsPaging
         pagingIndicator.isAccessibilityElement = true
         pagingIndicator.accessibilityLabel = localization.text(.resultsLoading)
         pagingIndicatorView = pagingIndicator
@@ -389,6 +389,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         retainVisibleAnchorForModeSwitch()
         view.isUserInteractionEnabled = false
         view.isHidden = true
+        view.accessibilityElementsHidden = true
     }
 
     func retainVisibleAnchorForModeSwitch() {
@@ -418,6 +419,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
     func prepareForModeSwitchToList(selectedID: ChatSearchResult.ID?) {
         view.isHidden = false
         view.isUserInteractionEnabled = true
+        view.accessibilityElementsHidden = false
         if view.window != nil {
             view.layoutIfNeeded()
             tableView.layoutIfNeeded()
@@ -453,6 +455,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         onSelectResult = nil
         onRetry = nil
         stopPagingIndicators()
+        view.accessibilityElementsHidden = true
         isPreparedForRemoval = true
     }
 
@@ -481,7 +484,9 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
 
     private func prepareView() {
         view.backgroundColor = .systemBackground
-        view.accessibilityIdentifier = "chat_search_results_list"
+        view.accessibilityIdentifier = nil
+        view.isAccessibilityElement = false
+        tableView.accessibilityLabel = localization.text(.resultsListAccessibility)
 
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.delegate = self
@@ -517,7 +522,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
 
     private func prepareErrorView() {
         errorView.backgroundColor = .clear
-        errorView.accessibilityIdentifier = "chat_search_results_error"
+        errorView.accessibilityIdentifier = ChatSearchAccessibilityIdentifier.resultsError
         errorView.translatesAutoresizingMaskIntoConstraints = false
 
         errorLabel.text = localization.text(.resultsError)
@@ -526,6 +531,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         errorLabel.adjustsFontForContentSizeCategory = true
         errorLabel.textAlignment = .center
         errorLabel.numberOfLines = 0
+        errorLabel.isAccessibilityElement = true
 
         let stack = UIStackView(arrangedSubviews: [errorLabel, errorRetryButton])
         stack.axis = .vertical
@@ -533,6 +539,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         errorView.addSubview(stack)
+        errorView.accessibilityElements = [errorLabel, errorRetryButton]
         errorRetryButton.addTarget(self, action: #selector(retryTapped), for: .touchUpInside)
         view.addSubview(errorView)
 
@@ -550,7 +557,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
 
     private func prepareFirstPageLoadingView() {
         firstPageLoadingView.backgroundColor = .clear
-        firstPageLoadingView.accessibilityIdentifier = "chat_search_results_paging"
+        firstPageLoadingView.accessibilityIdentifier = ChatSearchAccessibilityIdentifier.resultsPaging
         firstPageLoadingView.isAccessibilityElement = true
         firstPageLoadingView.accessibilityLabel = pagingIndicatorView.accessibilityLabel
         firstPageLoadingView.translatesAutoresizingMaskIntoConstraints = false
@@ -596,7 +603,13 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
                 return UITableViewCell(style: .default, reuseIdentifier: nil)
             }
             cell.configure(with: result)
-            cell.accessibilityIdentifier = "chat_search_result_row.\(self.accessibilityToken(for: id))"
+            cell.updateAccessibilityPosition(
+                self.localization.currentPosition(
+                    zeroBasedIndex: indexPath.row,
+                    total: self.currentResults.count
+                ),
+                isSelected: self.currentModel?.selectedID == id
+            )
             self.trackedCells.add(cell)
             return cell
         }
@@ -641,6 +654,16 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
             tableView.isHidden = !hasResults
             errorView.isHidden = false
         }
+        updateAccessibilityVisibility()
+    }
+
+    private func updateAccessibilityVisibility() {
+        tableView.accessibilityElementsHidden = tableView.isHidden
+        emptyView.accessibilityElementsHidden = emptyView.isHidden
+        errorView.accessibilityElementsHidden = errorView.isHidden
+        firstPageLoadingView.accessibilityElementsHidden = firstPageLoadingView.isHidden
+        pagingIndicatorView.accessibilityElementsHidden = !isPagingIndicatorVisible
+        view.accessibilityElements = [tableView, emptyView, errorView, firstPageLoadingView]
     }
 
     private func stopPagingIndicators() {
@@ -695,15 +718,6 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         }
     }
 
-    private func accessibilityToken(for id: ChatSearchResult.ID) -> String {
-        switch id {
-        case .archived(let value):
-            return "archived.\(value)"
-        case .primary(let value):
-            return "primary.\(value)"
-        }
-    }
-
     @objc
     private func retryTapped() {
         guard let generation = latestGeneration else { return }
@@ -728,6 +742,7 @@ extension ChatViewController {
         view.bringSubviewToFront(xabberInputView)
         view.bringSubviewToFront(searchNavigationButtonsView)
         bringSearchInputOverlayToFront()
+        refreshChatSearchAccessibilityOrder()
     }
 
     func removeChatSearchResultsListController() {
@@ -736,5 +751,7 @@ extension ChatViewController {
         searchResultsListViewController = nil
         messagesCollectionView.isHidden = false
         messagesCollectionView.isUserInteractionEnabled = true
+        messagesCollectionView.accessibilityElementsHidden = false
+        refreshChatSearchAccessibilityOrder()
     }
 }

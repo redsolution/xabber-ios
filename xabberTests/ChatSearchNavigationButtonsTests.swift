@@ -53,8 +53,8 @@ final class ChatSearchNavigationButtonsTests: XCTestCase {
         XCTAssertEqual(view.nextButton.frame, CGRect(x: 0, y: 52, width: 40, height: 40))
         XCTAssertEqual(view.previousButton.accessibilityIdentifier, "chat_search_previous_result")
         XCTAssertEqual(view.nextButton.accessibilityIdentifier, "chat_search_next_result")
-        XCTAssertEqual(view.previousButton.accessibilityLabel, "Earlier result")
-        XCTAssertEqual(view.nextButton.accessibilityLabel, "Later result")
+        XCTAssertEqual(view.previousButton.accessibilityLabel, "Previous result")
+        XCTAssertEqual(view.nextButton.accessibilityLabel, "Next result")
         XCTAssertNil(view.descendant(withAccessibilityIdentifier: "chat_search_calendar"))
     }
 
