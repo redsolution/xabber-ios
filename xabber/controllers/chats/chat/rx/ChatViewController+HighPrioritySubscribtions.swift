@@ -44,25 +44,28 @@ extension ChatViewController {
     }
 
     public func updateSearchResults(value: String?) {
-        let normalizedValue = ChatInChatSearchQueryContext.normalizedText(value ?? "")
-        if normalizedValue.isEmpty {
-            self.reduceSearchPresentationState(.queryChanged(""))
-            self.clearInChatSearchQuery(clearResults: true, panelState: .idle)
+        acceptSearchSessionQuery(value, flushImmediately: true)
+    }
+
+    internal func executeSearchRequest(_ request: ChatSearchSession.Request) {
+        guard searchSession.isCurrentRequest(request),
+              request.scope.owner == owner,
+              request.scope.jid == jid,
+              request.scope.conversationTypeRawValue == conversationType.rawValue else {
             return
         }
-        if !self.searchPresentationState.isActive {
-            self.reduceSearchPresentationState(.activate)
-        }
-        if self.searchPresentationState.query != normalizedValue {
-            self.reduceSearchPresentationState(.queryChanged(normalizedValue))
-        }
+        let normalizedValue = request.query
         self.reduceSearchPresentationState(
             .debounceElapsed(generation: self.searchPresentationState.generation)
         )
-        if self.conversationType.isEncrypted {
-            guard let context = self.beginInChatSearchQueryIfNeeded(text: normalizedValue) else {
+        if request.provider == .localEncrypted {
+            guard let context = self.beginInChatSearchQueryIfNeeded(
+                text: normalizedValue,
+                queryId: "Local search:\(request.generation):\(NanoID.new(8))"
+            ) else {
                 return
             }
+            searchSessionGenerationByQueryId[context.queryId] = request.generation
             do {
                 self.searchMessagesQueue = []
                 let realm = try WRealm.safe()
@@ -81,10 +84,10 @@ extension ChatViewController {
                     .forEach { item in
                         self.appendInChatSearchResultIfCurrent(item, queryId: context.queryId)
                     }
-                self.applySearchResults()
-                if self.currentSearchQueryId != nil {
-                    self.clearInChatSearchQuery(clearResults: false, panelState: nil, cancelResultNavigation: false)
-                }
+                _ = self.finishInChatSearchQueryIfCurrent(
+                    queryId: context.queryId,
+                    emptyList: self.searchMessagesQueue.isEmpty
+                )
             } catch {
                 DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
                 if let queryId = self.currentSearchQueryId {
@@ -92,20 +95,34 @@ extension ChatViewController {
                 }
             }
         } else {
-            guard let context = self.beginInChatSearchQueryIfNeeded(text: normalizedValue) else {
+            guard let context = self.beginInChatSearchQueryIfNeeded(
+                text: normalizedValue,
+                queryId: "MAM search:\(request.generation):\(NanoID.new(8))"
+            ) else {
                 return
             }
+            searchSessionGenerationByQueryId[context.queryId] = request.generation
             self.applyLegacySearchPanelStateFromPresentation()
             self.registerRemoteHistoryFailureDispatcher(queryId: context.queryId)
             let requestCallbacks = MessageArchiveManager.RequestCallbacks(
                 onMessage: { [weak self] item, queryId in
+                    guard self?.searchSession.isCurrentRequest(request) == true else {
+                        return
+                    }
                     self?.didReceiveMessage(item, queryId: queryId)
                 },
                 onEndPage: { [weak self] queryId, state, first, last, count in
+                    guard self?.searchSession.isCurrentRequest(request) == true else {
+                        return
+                    }
                     self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
                 }
             )
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                guard self.searchSession.isCurrentRequest(request),
+                      self.isCurrentInChatSearchQuery(queryId: context.queryId) else {
+                    return
+                }
                 let queryId = session.mam?.searchText(
                     stream,
                     jid: context.jid,
@@ -120,11 +137,19 @@ extension ChatViewController {
                     self.handleInChatSearchQueryFailure(queryId: context.queryId)
                 }
             } fail: {
+                guard self.searchSession.isCurrentRequest(request),
+                      self.isCurrentInChatSearchQuery(queryId: context.queryId) else {
+                    return
+                }
                 guard let account = AccountManager.shared.find(for: self.owner) else {
                     self.handleInChatSearchQueryFailure(queryId: context.queryId)
                     return
                 }
                 account.action({ user, stream in
+                    guard self.searchSession.isCurrentRequest(request),
+                          self.isCurrentInChatSearchQuery(queryId: context.queryId) else {
+                        return
+                    }
                     let queryId = user.mam.searchText(
                         stream,
                         jid: context.jid,
@@ -347,11 +372,9 @@ extension ChatViewController {
             .asObservable()
             .skip(1)
             .distinctUntilChanged()
-            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
             .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
-                self.setLoadingIndicatorVisible((value ?? "").isNotEmpty)
-                self.updateSearchResults(value: value)
+                self.acceptSearchSessionQuery(value, flushImmediately: false)
             })
             .disposed(by: bag)
 

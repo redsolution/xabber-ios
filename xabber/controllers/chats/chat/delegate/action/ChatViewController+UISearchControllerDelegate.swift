@@ -40,6 +40,7 @@ extension ChatViewController: UISearchBarDelegate {
     }
     
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-        
+        searchInputBar.text = searchText
+        searchTextObserver.accept(searchText)
     }
 }

@@ -1144,6 +1144,7 @@ extension ChatViewController {
 
         if normalizedText.isEmpty {
             reduceSearchPresentationState(.queryChanged(""))
+            applySearchSessionEffects(searchSession.cancel())
             clearInChatSearchQuery(clearResults: true, panelState: .idle)
             searchTextObserver.accept(nil)
             return
@@ -1156,7 +1157,102 @@ extension ChatViewController {
         if searchPresentationState.query != normalizedText {
             reduceSearchPresentationState(.queryChanged(normalizedText))
         }
+        acceptSearchSessionQuery(normalizedText, flushImmediately: true)
         searchTextObserver.accept(normalizedText)
+    }
+
+    internal func acceptSearchSessionQuery(
+        _ text: String?,
+        flushImmediately: Bool
+    ) {
+        let normalizedText = ChatInChatSearchQueryContext.normalizedText(text ?? "")
+        if normalizedText.isEmpty {
+            reduceSearchPresentationState(.queryChanged(""))
+            applySearchSessionEffects(searchSession.accept(query: text, scope: currentSearchSessionScope))
+            clearInChatSearchQuery(clearResults: true, panelState: .idle)
+            return
+        }
+
+        if !searchPresentationState.isActive {
+            reduceSearchPresentationState(.activate)
+        }
+        if searchPresentationState.query != normalizedText {
+            reduceSearchPresentationState(.queryChanged(normalizedText))
+        }
+
+        let previousGeneration = searchSession.generation
+        let effects = searchSession.accept(query: normalizedText, scope: currentSearchSessionScope)
+        applySearchSessionEffects(effects)
+        if searchSession.generation != previousGeneration {
+            clearInChatSearchQuery(clearResults: true, panelState: nil)
+        }
+        if flushImmediately {
+            applySearchSessionEffects(searchSession.flush())
+        }
+    }
+
+    internal func applySearchSessionEffects(_ effects: [ChatSearchSession.Effect]) {
+        for effect in effects {
+            switch effect {
+            case .cancelDebounce(let generation):
+                guard searchSessionDebounceGeneration == generation else {
+                    continue
+                }
+                searchSessionDebounceWorkItem?.cancel()
+                searchSessionDebounceWorkItem = nil
+                searchSessionDebounceGeneration = nil
+            case .scheduleDebounce(let request, let milliseconds):
+                let workItem = DispatchWorkItem { [weak self] in
+                    guard let self,
+                          self.searchSessionDebounceGeneration == request.generation else {
+                        return
+                    }
+                    self.searchSessionDebounceWorkItem = nil
+                    self.searchSessionDebounceGeneration = nil
+                    self.applySearchSessionEffects(
+                        self.searchSession.debounceElapsed(generation: request.generation)
+                    )
+                }
+                searchSessionDebounceWorkItem = workItem
+                searchSessionDebounceGeneration = request.generation
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + .milliseconds(milliseconds),
+                    execute: workItem
+                )
+            case .cancelProviderRequest(let generation):
+                let queryIds = searchSessionGenerationByQueryId.compactMap { queryId, value in
+                    value == generation ? queryId : nil
+                }
+                let cancelsCurrentQuery = currentSearchQueryId.map(queryIds.contains) == true
+                queryIds.forEach { queryId in
+                    unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+                    searchSessionGenerationByQueryId.removeValue(forKey: queryId)
+                }
+                if cancelsCurrentQuery {
+                    currentSearchQueryId = nil
+                    currentInChatSearchQueryContext = nil
+                }
+            case .startProviderRequest(let request):
+                guard searchSession.isCurrentRequest(request) else {
+                    continue
+                }
+                setLoadingIndicatorVisible(true)
+                executeSearchRequest(request)
+            case .cancelDateResolver:
+                break
+            case .cancelPendingNavigation:
+                cancelSearchResultNavigation()
+            }
+        }
+    }
+
+    private var currentSearchSessionScope: ChatSearchSession.Scope {
+        ChatSearchSession.Scope(
+            owner: owner,
+            jid: jid,
+            conversationTypeRawValue: conversationType.rawValue,
+            isEncrypted: conversationType.isEncrypted
+        )
     }
 
     internal func cancelSearchModeFromSearchUI() {
@@ -1165,6 +1261,7 @@ extension ChatViewController {
         }
 
         reduceSearchPresentationState(.cancelSearch)
+        applySearchSessionEffects(searchSession.cancel())
         clearInChatSearchQuery(clearResults: true, panelState: .idle)
         pendingSearchActivationRequest = nil
         searchBar.text = nil
@@ -1234,6 +1331,7 @@ extension ChatViewController {
     ) {
         if let currentSearchQueryId {
             unregisterRemoteHistoryPersistenceSource(queryId: currentSearchQueryId)
+            searchSessionGenerationByQueryId.removeValue(forKey: currentSearchQueryId)
         }
         currentSearchQueryId = nil
         currentInChatSearchQueryContext = nil
@@ -1317,6 +1415,10 @@ extension ChatViewController {
             item,
             context: inChatSearchResultMappingContext
         ) else {
+            return false
+        }
+        if let generation = searchSessionGenerationByQueryId[queryId],
+           !searchSession.receive(.result(generation: generation, id: result.id)) {
             return false
         }
 
@@ -1403,6 +1505,13 @@ extension ChatViewController {
         return item.primary.isNotEmpty ? item.primary : nil
     }
 
+    internal func searchResultIdentity(for item: MessageStorageItem) -> ChatSearchResult.ID? {
+        if item.archivedId.isNotEmpty {
+            return .archived(item.archivedId)
+        }
+        return item.primary.isNotEmpty ? .primary(item.primary) : nil
+    }
+
     internal func searchResultItem(
         _ item: MessageStorageItem,
         matchesSelection selectedId: String?
@@ -1468,6 +1577,10 @@ extension ChatViewController {
         guard isCurrentInChatSearchQuery(queryId: queryId) else {
             return false
         }
+        if let generation = searchSessionGenerationByQueryId[queryId],
+           !searchSession.receive(.finished(generation: generation)) {
+            return false
+        }
         applySearchResults(emptyList: emptyList)
         clearInChatSearchQuery(clearResults: false, panelState: nil, cancelResultNavigation: false)
         return true
@@ -1476,6 +1589,10 @@ extension ChatViewController {
     @discardableResult
     internal func handleInChatSearchQueryFailure(queryId: String) -> Bool {
         guard isCurrentInChatSearchQuery(queryId: queryId) else {
+            return false
+        }
+        if let generation = searchSessionGenerationByQueryId[queryId],
+           !searchSession.receive(.failed(generation: generation)) {
             return false
         }
         reduceSearchPresentationState(
@@ -1666,6 +1783,12 @@ extension ChatViewController {
                 generation: searchPresentationState.generation
             )
         )
+        if let id = searchResultIdentity(for: searchMessagesQueue[index]) {
+            _ = searchSession.positioningSucceeded(
+                generation: searchSession.generation,
+                id: id
+            )
+        }
         setSelectedSearchResultNavigationIndex(index, isLoadingContext: false)
         if !completeSearchResultNavigation(index: index) {
             flushPendingArchiveObserverRefreshIfPossible(reason: "searchPositioned")
@@ -1768,6 +1891,7 @@ extension ChatViewController {
         switch searchResultNavigationState {
         case .positioning:
             searchResultNavigationState = .loadingContext(index: index)
+            searchSession.setContextLoading(true)
         case .loadingContext, .pending(_, _), .idle:
             return
         }
@@ -1779,6 +1903,7 @@ extension ChatViewController {
             .navigationFinished(generation: searchPresentationState.generation)
         )
         let pendingNavigation = consumePendingSearchResultNavigation(finishedIndex: index)
+        searchSession.setContextLoading(false)
 
         guard let pendingNavigation else {
             setSearchResultsPanelContextLoading(false)
@@ -1810,6 +1935,7 @@ extension ChatViewController {
         }
 
         let item = searchMessagesQueue[index]
+        searchSession.beginPendingNavigation()
         chatScrollDirection = direction
         let archivedId = item.archivedId.isNotEmpty ? item.archivedId : nil
         let request = ChatOpenMessageRequest(

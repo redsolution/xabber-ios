@@ -136,6 +136,7 @@ final class ChatSearchInputBarView: UIView, UITextViewDelegate {
     static let maximumTextHeight: CGFloat = 130
 
     var onSubmit: ((String?) -> Void)?
+    var onTextChanged: ((String?) -> Void)?
     var onHeightChanged: ((CGFloat) -> Void)?
     private var measuredHeight: CGFloat = NativeGlassBarStyle.minimumHeight
 
@@ -219,6 +220,7 @@ final class ChatSearchInputBarView: UIView, UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
         refreshPlaceholderVisibility()
         updateMeasuredHeight(notify: true)
+        onTextChanged?(textView.text)
     }
 
     func textView(
@@ -1898,6 +1900,10 @@ class ChatViewController: MessagesViewController {
     var topPanelState: BehaviorRelay<TopPanelState> = BehaviorRelay(value: .none)
 // search
     var searchPresentationState: ChatSearchPresentationState = .inactive
+    var searchSession: ChatSearchSession = ChatSearchSession()
+    var searchSessionDebounceWorkItem: DispatchWorkItem? = nil
+    var searchSessionDebounceGeneration: UInt64? = nil
+    var searchSessionGenerationByQueryId: [String: UInt64] = [:]
     var searchMessagesQueue: [MessageStorageItem] = []
     var searchResultPresentations: [ChatSearchResult] = []
     var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
@@ -2919,6 +2925,10 @@ class ChatViewController: MessagesViewController {
         let view = ChatSearchInputBarView()
         view.onSubmit = { [weak self] text in
             self?.submitSearchTextFromSearchInput(text)
+        }
+        view.onTextChanged = { [weak self] text in
+            self?.searchBar.text = text
+            self?.searchTextObserver.accept(text)
         }
         view.onHeightChanged = { [weak self] height in
             self?.updateSearchInputOverlayHeight(height)
