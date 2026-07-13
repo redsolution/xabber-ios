@@ -536,6 +536,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         case gapRepair
         case snapshotRepair
         case search
+        case timestampLookup
         case latest
         case media
         case inviteRecovery
@@ -548,14 +549,14 @@ class MessageArchiveManager: AbstractXMPPManager {
             switch self {
             case .bootstrap, .pageOlder, .pageNewer, .jump, .gapRepair, .snapshotRepair:
                 return true
-            case .search, .latest, .media, .inviteRecovery:
+            case .search, .timestampLookup, .latest, .media, .inviteRecovery:
                 return false
             }
         }
 
         var routesMamServerErrorAsRequestFailure: Bool {
             switch self {
-            case .bootstrap, .pageOlder, .pageNewer, .gapRepair, .snapshotRepair, .search:
+            case .bootstrap, .pageOlder, .pageNewer, .gapRepair, .snapshotRepair, .search, .timestampLookup:
                 return true
             case .jump, .latest, .media, .inviteRecovery:
                 return false
@@ -1369,7 +1370,9 @@ class MessageArchiveManager: AbstractXMPPManager {
         errorDescription: String?
     ) -> [MessageArchiveRequestFailureEvent] {
         let pendingItems = self.callbackQueueItems {
-            $0.task.purpose.isArchiveHistoryProducing || $0.task.purpose == .search
+            $0.task.purpose.isArchiveHistoryProducing ||
+                $0.task.purpose == .search ||
+                $0.task.purpose == .timestampLookup
         }
             .sorted { $0.elementId < $1.elementId }
         let pendingQueryCount = pendingItems.count
@@ -1401,6 +1404,8 @@ class MessageArchiveManager: AbstractXMPPManager {
                     reason: Self.searchFailureReason(for: event),
                     event: event
                 )
+            } else if item.task.purpose == .timestampLookup {
+                self.notifyDidFailRequest(item.requestCallbacks, event: event)
             }
             self.removePendingArchiveRequestAfterFailure(item)
         }
@@ -1433,6 +1438,15 @@ class MessageArchiveManager: AbstractXMPPManager {
         if let taskQueryId = item.task.queryId,
            taskQueryId != item.elementId {
             self.removeArchiveRequestStateAfterFailure(queryId: taskQueryId)
+        }
+    }
+
+    private func notifyDidFailRequest(
+        _ callbacks: RequestCallbacks,
+        event: MessageArchiveRequestFailureEvent
+    ) {
+        DispatchQueue.main.async {
+            callbacks.onFailure?(event)
         }
     }
 
@@ -2028,6 +2042,8 @@ class MessageArchiveManager: AbstractXMPPManager {
                             reason: Self.searchFailureReason(for: event),
                             event: event
                         )
+                    } else if item.task.purpose == .timestampLookup {
+                        self.notifyDidFailRequest(item.requestCallbacks, event: event)
                     }
                     self.removePendingArchiveRequestAfterFailure(item)
                     let delivered = MessageArchiveRequestFailureDispatcher.publish(event)
@@ -2404,6 +2420,62 @@ class MessageArchiveManager: AbstractXMPPManager {
         self.continuesTaskID = taskId
         return queryId
     }
+
+    @discardableResult
+    internal func requestTimestampLookup(
+        _ stream: XMPPStream,
+        plan: ChatSearchTimestampMAMRequestPlan,
+        requestCallbacks: RequestCallbacks = .none
+    ) -> Bool {
+        guard plan.scope.owner == owner,
+              plan.scope.jid.isNotEmpty,
+              let conversationType = plan.conversationType,
+              !conversationType.isEncrypted,
+              [.regular, .group, .channel].contains(conversationType) else {
+            return false
+        }
+
+        let callbacks = RequestCallbacks(
+            onMessage: requestCallbacks.onMessage,
+            onEndPage: { [weak self] queryId, state, first, last, count in
+                self?.searchResultsQueries.remove(queryId)
+                self?.queryIds.remove(queryId)
+                self?.unregisterArchiveQueryId(queryId)
+                requestCallbacks.onEndPage?(queryId, state, first, last, count)
+            },
+            onFailure: requestCallbacks.onFailure
+        )
+        searchResultsQueries.insert(plan.queryId)
+        requestArchive(
+            stream,
+            jid: plan.scope.jid,
+            isContinues: false,
+            conversationType: conversationType,
+            purpose: .timestampLookup,
+            queryId: plan.queryId,
+            flipPage: plan.flipPage,
+            start: plan.start,
+            end: plan.end,
+            nextPage: plan.nextPage,
+            max: plan.max,
+            consumerManagesArchiveEnd: true,
+            consumerManagesHistoryCursor: true,
+            callback: nil,
+            requestCallbacks: callbacks
+        )
+        return true
+    }
+
+    @discardableResult
+    internal func cancelTimestampLookup(queryId: String) -> Bool {
+        guard let item = firstCallbackQueueItem(where: {
+            $0.elementId == queryId && $0.task.purpose == .timestampLookup
+        }) else {
+            return false
+        }
+        removePendingArchiveRequestAfterFailure(item)
+        return true
+    }
     
     public func getMedia(_ stream: XMPPStream, jid: String?, conversationType: ClientSynchronizationManager.ConversationType, media: [MessageMediaAttachmentStorageItem.Kind], after lastMessageId: String?, requestCallbacks: RequestCallbacks = .none) {
         let taskId = ["media", jid ?? "global", conversationType.rawValue].prp()
@@ -2631,7 +2703,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                     }
                 case .jump, .gapRepair:
                     break
-                case .search, .latest, .media, .inviteRecovery:
+                case .search, .timestampLookup, .latest, .media, .inviteRecovery:
                     break
                 }
                 archiveState.updatedAt = Date()
