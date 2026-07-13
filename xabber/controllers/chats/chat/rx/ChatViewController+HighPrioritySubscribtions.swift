@@ -66,32 +66,36 @@ extension ChatViewController {
                 return
             }
             searchSessionGenerationByQueryId[context.queryId] = request.generation
-            do {
-                self.searchMessagesQueue = []
-                let realm = try WRealm.safe()
-                realm
-                    .objects(MessageStorageItem.self)
-                    .filter(
-                        "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND body CONTAINS[cd] %@",
-                        self.owner,
-                        self.jid,
-                        self.conversationType.rawValue,
-                        MessageStorageItem.MessageDisplayType.system.rawValue,
-                        normalizedValue
+            self.searchMessagesQueue = []
+            self.searchResultPresentations = []
+            let localRequest = ChatSearchLocalProvider.Request(
+                generation: request.generation,
+                queryId: context.queryId,
+                query: normalizedValue,
+                mappingContext: inChatSearchResultMappingContext
+            )
+            searchLocalProvider.search(localRequest) { [weak self] event in
+                guard let self,
+                      event.generation == request.generation,
+                      event.queryId == context.queryId,
+                      self.searchSession.isCurrentRequest(request),
+                      self.isCurrentInChatSearchQuery(queryId: context.queryId) else {
+                    return
+                }
+                switch event.phase {
+                case .batch(let results):
+                    _ = self.appendDetachedInChatSearchResultsIfCurrent(
+                        results,
+                        queryId: context.queryId
                     )
-                    .sorted(byKeyPath: "date", ascending: false)
-                    .toArray()
-                    .forEach { item in
-                        self.appendInChatSearchResultIfCurrent(item, queryId: context.queryId)
-                    }
-                _ = self.finishInChatSearchQueryIfCurrent(
-                    queryId: context.queryId,
-                    emptyList: self.searchMessagesQueue.isEmpty
-                )
-            } catch {
-                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-                if let queryId = self.currentSearchQueryId {
-                    self.handleInChatSearchQueryFailure(queryId: queryId)
+                case .completed:
+                    _ = self.finishInChatSearchQueryIfCurrent(
+                        queryId: context.queryId,
+                        emptyList: self.searchResultPresentations.isEmpty
+                    )
+                case .failed(let failure):
+                    DDLogDebug("ChatViewController: local search failed: \(failure)")
+                    _ = self.handleInChatSearchQueryFailure(queryId: context.queryId)
                 }
             }
         } else {

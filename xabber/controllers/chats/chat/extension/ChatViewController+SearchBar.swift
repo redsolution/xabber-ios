@@ -1225,6 +1225,7 @@ extension ChatViewController {
                 }
                 let cancelsCurrentQuery = currentSearchQueryId.map(queryIds.contains) == true
                 queryIds.forEach { queryId in
+                    _ = searchLocalProvider.cancel(queryId: queryId, generation: generation)
                     searchArchiveManagersByQueryId.removeValue(forKey: queryId)?.cancelSearch(
                         queryId: queryId
                     )
@@ -1333,6 +1334,12 @@ extension ChatViewController {
         cancelResultNavigation: Bool = true
     ) {
         if let currentSearchQueryId {
+            if let generation = searchSessionGenerationByQueryId[currentSearchQueryId] {
+                _ = searchLocalProvider.cancel(
+                    queryId: currentSearchQueryId,
+                    generation: generation
+                )
+            }
             unregisterRemoteHistoryPersistenceSource(queryId: currentSearchQueryId)
             searchSessionGenerationByQueryId.removeValue(forKey: currentSearchQueryId)
             searchArchiveManagersByQueryId.removeValue(forKey: currentSearchQueryId)
@@ -1461,6 +1468,61 @@ extension ChatViewController {
         return true
     }
 
+    @discardableResult
+    internal func appendDetachedInChatSearchResultsIfCurrent(
+        _ results: [ChatSearchResult],
+        queryId: String
+    ) -> Bool {
+        guard isCurrentInChatSearchQuery(queryId: queryId),
+              let context = currentInChatSearchQueryContext,
+              let generation = searchSessionGenerationByQueryId[queryId] else {
+            return false
+        }
+        let expectedScope = ChatSearchResult.Scope(
+            owner: context.owner,
+            jid: context.jid,
+            conversationTypeRawValue: context.conversationType.rawValue
+        )
+        let accepted = results.filter { result in
+            result.scope == expectedScope &&
+            searchSession.receive(.result(generation: generation, id: result.id))
+        }
+        guard accepted.isNotEmpty else {
+            return false
+        }
+        searchResultPresentations = ChatSearchResultCollection.orderedAndDeduplicated(
+            searchResultPresentations + accepted
+        )
+        searchMessagesQueue = searchResultPresentations.map(Self.legacySearchMessage)
+        return true
+    }
+
+    private static func legacySearchMessage(_ result: ChatSearchResult) -> MessageStorageItem {
+        let item = MessageStorageItem()
+        item.primary = result.anchor.primary
+        item.archivedId = result.anchor.archivedId
+        item.messageId = result.anchor.messageId
+        item.owner = result.scope.owner
+        item.opponent = result.scope.jid
+        item.conversationType_ = result.scope.conversationTypeRawValue
+        item.body = result.body
+        item.date = result.anchor.date
+        item.outgoing = result.outgoing
+        switch result.deliveryState {
+        case .sent:
+            item.state = .sended
+        case .delivered:
+            item.state = .deliver
+        case .read:
+            item.state = .read
+        case .failed:
+            item.state = .error
+        case .pending:
+            item.state = .none
+        }
+        return item
+    }
+
     internal func normalizedInChatSearchResultsForDisplay(_ results: [MessageStorageItem]) -> [MessageStorageItem] {
         let mapped = results.compactMap { item -> (MessageStorageItem, ChatSearchResult)? in
             guard let result = ChatSearchResultMapper.map(
@@ -1486,7 +1548,7 @@ extension ChatViewController {
         )
     }
 
-    private var inChatSearchResultMappingContext: ChatSearchResultMappingContext {
+    internal var inChatSearchResultMappingContext: ChatSearchResultMappingContext {
         let localizedYou = "You:".localizeString(id: "you", arguments: [])
             .trimmingCharacters(in: CharacterSet(charactersIn: ":： ").union(.whitespacesAndNewlines))
         return ChatSearchResultMappingContext(
