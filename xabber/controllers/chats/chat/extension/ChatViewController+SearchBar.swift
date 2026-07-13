@@ -1063,8 +1063,59 @@ extension ChatViewController {
                 )
             )
             applyLegacySearchPanelStateFromPresentation()
+            renderSearchNavigationButtons(animated: true)
         }
         return searchPresentationState
+    }
+
+    internal func installSearchNavigationButtons() {
+        guard searchNavigationButtonsView.superview == nil else {
+            return
+        }
+        let buttons = searchNavigationButtonsView
+        buttons.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(buttons)
+        let trailing = buttons.trailingAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.trailingAnchor,
+            constant: -ChatSearchNavigationButtonsLayout.trailingInset
+        )
+        let bottom = buttons.bottomAnchor.constraint(
+            equalTo: xabberInputView.topAnchor,
+            constant: -ChatSearchNavigationButtonsLayout.bottomInset
+        )
+        searchNavigationButtonsTrailingConstraint = trailing
+        searchNavigationButtonsBottomConstraint = bottom
+        NSLayoutConstraint.activate([
+            trailing,
+            bottom,
+            buttons.widthAnchor.constraint(
+                equalToConstant: ChatSearchNavigationButtonsLayout.stackSize.width
+            ),
+            buttons.heightAnchor.constraint(
+                equalToConstant: ChatSearchNavigationButtonsLayout.stackSize.height
+            )
+        ])
+        view.bringSubviewToFront(buttons)
+        renderSearchNavigationButtons(animated: false)
+    }
+
+    internal func renderSearchNavigationButtons(animated: Bool) {
+        guard isViewLoaded else {
+            return
+        }
+        searchNavigationButtonsView.render(
+            ChatSearchNavigationButtonsRenderPolicy.state(
+                presentation: searchPresentationState,
+                navigationBusy: searchResultNavigationState.isBusy ||
+                    searchOlderPageNavigationGate.hasPendingNavigation,
+                canRequestOlderPage: searchOlderPageNavigationGate.canRequest
+            ),
+            animated: animated
+        )
+        if searchNavigationButtonsView.superview != nil {
+            view.bringSubviewToFront(searchNavigationButtonsView)
+            bringSearchInputOverlayToFront()
+        }
     }
 
     internal func applyLegacySearchPanelStateFromPresentation() {
@@ -1152,6 +1203,7 @@ extension ChatViewController {
         if normalizedText.isEmpty {
             reduceSearchPresentationState(.queryChanged(""))
             applySearchSessionEffects(searchSession.cancel())
+            searchOlderPageNavigationGate.reset(generation: searchSession.generation)
             clearInChatSearchQuery(clearResults: true, panelState: .idle)
             searchTextObserver.accept(nil)
             return
@@ -1191,6 +1243,7 @@ extension ChatViewController {
         let effects = searchSession.accept(query: normalizedText, scope: currentSearchSessionScope)
         applySearchSessionEffects(effects)
         if searchSession.generation != previousGeneration {
+            searchOlderPageNavigationGate.reset(generation: searchSession.generation)
             clearInChatSearchQuery(clearResults: true, panelState: nil)
         }
         if flushImmediately {
@@ -1273,6 +1326,7 @@ extension ChatViewController {
 
         reduceSearchPresentationState(.cancelSearch)
         applySearchSessionEffects(searchSession.cancel())
+        searchOlderPageNavigationGate.reset(generation: searchSession.generation)
         clearInChatSearchQuery(clearResults: true, panelState: .idle)
         pendingSearchActivationRequest = nil
         searchBar.text = nil
@@ -1485,6 +1539,7 @@ extension ChatViewController {
 
         searchMessagesQueue.append(item)
         refreshSearchResultPresentations()
+        consumePendingOlderSearchResultNavigationIfReady(queryId: queryId)
         return true
     }
 
@@ -1746,6 +1801,7 @@ extension ChatViewController {
             return
         }
         applySearchResultsPanelState(isLoadingContext: false)
+        renderSearchNavigationButtons(animated: true)
     }
 
     internal func nextSearchResultIndex(
@@ -1760,10 +1816,10 @@ extension ChatViewController {
         switch direction {
         case .up:
             let nextIndex = index + 1
-            return nextIndex >= searchMessagesQueue.count ? 0 : nextIndex
+            return nextIndex < searchMessagesQueue.count ? nextIndex : nil
         case .down:
             let nextIndex = index - 1
-            return nextIndex < 0 ? searchMessagesQueue.count - 1 : nextIndex
+            return nextIndex >= 0 ? nextIndex : nil
         }
     }
 
@@ -1772,17 +1828,7 @@ extension ChatViewController {
         to nextIndex: Int,
         requestedDirection: ChatDirection
     ) -> ChatDirection {
-        guard searchMessagesQueue.count > 1 else {
-            return requestedDirection
-        }
-
-        let lastIndex = searchMessagesQueue.count - 1
-        switch requestedDirection {
-        case .up:
-            return currentIndex == lastIndex && nextIndex == 0 ? .down : .up
-        case .down:
-            return currentIndex == 0 && nextIndex == lastIndex ? .up : .down
-        }
+        requestedDirection
     }
 
     internal func consumePendingSearchResultNavigation(finishedIndex: Int) -> ChatSearchPendingNavigation? {
@@ -1852,6 +1898,7 @@ extension ChatViewController {
         if searchMessagesQueue.indices.contains(index) {
             searchResultNavigationState = .positioning(index: index)
         }
+        renderSearchNavigationButtons(animated: true)
         scheduleStaleSearchResultPositioningCompletionFallback(finishedIndex: index)
     }
 
@@ -1958,6 +2005,7 @@ extension ChatViewController {
 
         chatScrollDirection = scrollDirection
         searchResultNavigationState = .pending(index: index, scrollDirection: scrollDirection)
+        renderSearchNavigationButtons(animated: true)
         if hasActiveSearchResultAnchorWork() ||
             xabberInputView.searchPanel.renderState.isLoadingContext {
             setSearchResultsPanelContextLoading(true)
@@ -1978,6 +2026,7 @@ extension ChatViewController {
         case .positioning:
             searchResultNavigationState = .loadingContext(index: index)
             searchSession.setContextLoading(true)
+            renderSearchNavigationButtons(animated: true)
         case .loadingContext, .pending(_, _), .idle:
             return
         }
@@ -1994,8 +2043,11 @@ extension ChatViewController {
         guard let pendingNavigation else {
             setSearchResultsPanelContextLoading(false)
             refreshVisibleSearchSelection()
+            renderSearchNavigationButtons(animated: true)
             return false
         }
+
+        renderSearchNavigationButtons(animated: true)
 
         DispatchQueue.main.async { [weak self] in
             guard let self else {
@@ -2091,8 +2143,14 @@ extension ChatViewController {
     }
 
     private func navigateSearchResult(direction: ChatDirection) {
-        guard let baseIndex = currentSearchResultNavigationBaseIndex(),
-              let nextIndex = nextSearchResultIndex(from: baseIndex, direction: direction) else {
+        guard let baseIndex = currentSearchResultNavigationBaseIndex() else {
+            return
+        }
+        guard let nextIndex = nextSearchResultIndex(from: baseIndex, direction: direction) else {
+            if direction == .up,
+               baseIndex == searchMessagesQueue.count - 1 {
+                requestOlderSearchResultsIfAvailable()
+            }
             return
         }
         let scrollDirection = scrollDirectionForSearchNavigation(
@@ -2109,6 +2167,67 @@ extension ChatViewController {
         }
 
         openSearchResult(at: nextIndex, direction: scrollDirection)
+    }
+
+    internal func offerOlderSearchResultsCursor(
+        _ cursor: String,
+        queryId: String,
+        generation: UInt64
+    ) {
+        guard isCurrentInChatSearchQuery(queryId: queryId),
+              searchSessionGenerationByQueryId[queryId] == generation else {
+            return
+        }
+        _ = searchOlderPageNavigationGate.offer(
+            cursor: cursor,
+            generation: generation,
+            loadedResultCount: searchMessagesQueue.count
+        )
+        renderSearchNavigationButtons(animated: true)
+    }
+
+    internal func markOlderSearchResultsTerminal(generation: UInt64) {
+        searchOlderPageNavigationGate.markTerminal(generation: generation)
+        renderSearchNavigationButtons(animated: true)
+    }
+
+    private func requestOlderSearchResultsIfAvailable() {
+        let generation = searchOlderPageNavigationGate.generation
+        guard searchOlderPageNavigationGate.requestNavigation(generation: generation) != nil,
+              let queryId = currentSearchQueryId,
+              let manager = searchArchiveManagersByQueryId[queryId] else {
+            searchOlderPageNavigationGate.markTerminal(generation: generation)
+            renderSearchNavigationButtons(animated: true)
+            return
+        }
+        guard manager.requestPendingSearchContinuation(queryId: queryId) else {
+            searchOlderPageNavigationGate.markTerminal(generation: generation)
+            renderSearchNavigationButtons(animated: true)
+            return
+        }
+        renderSearchNavigationButtons(animated: true)
+    }
+
+    private func consumePendingOlderSearchResultNavigationIfReady(queryId: String) {
+        guard let generation = searchSessionGenerationByQueryId[queryId],
+              let target = searchOlderPageNavigationGate.consumePendingNavigationTarget(
+                  resultCount: searchMessagesQueue.count,
+                  generation: generation
+              ),
+              searchMessagesQueue.indices.contains(target) else {
+            return
+        }
+        reduceSearchPresentationState(
+            .resultsAppended(
+                count: searchMessagesQueue.count,
+                generation: searchPresentationState.generation
+            )
+        )
+        if currentPage.locked || searchResultNavigationState.isBusy {
+            recordPendingSearchResultNavigation(index: target, scrollDirection: .up)
+        } else {
+            openSearchResult(at: target, direction: .up)
+        }
     }
 
     private struct ResolvedJumpTarget {

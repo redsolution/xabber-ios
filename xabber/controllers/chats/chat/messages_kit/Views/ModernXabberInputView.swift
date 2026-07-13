@@ -623,26 +623,6 @@ class ModernXabberInputView: UIView {
             return label
         }()
         
-        let seekUpButton: UIButton = {
-            let button = UIButton()
-            
-            button.setImage(imageLiteral("chevron.up", dimension: 24), for: .normal)
-            button.tintColor = .tintColor
-            button.accessibilityIdentifier = "chat_search_previous_result"
-            
-            return button
-        }()
-        
-        let seekDownButton: UIButton = {
-            let button = UIButton()
-            
-            button.setImage(imageLiteral("chevron.down", dimension: 24), for: .normal)
-            button.tintColor = .tintColor
-            button.accessibilityIdentifier = "chat_search_next_result"
-            
-            return button
-        }()
-        
         let stack: UIStackView = {
             let stack = UIStackView()
             
@@ -862,10 +842,6 @@ class ModernXabberInputView: UIView {
             counterLabel.isHidden = false
 
             cancelButton.isHidden = true
-            seekUpButton.isHidden = true
-            seekDownButton.isHidden = true
-            seekUpButton.isEnabled = false
-            seekDownButton.isEnabled = false
             stopLoadingIndicator()
             setNeedsLayout()
         }
@@ -955,16 +931,6 @@ class ModernXabberInputView: UIView {
         }
         
         @objc
-        private func onSeekUpButtonTouchUp(_ sender: UIButton) {
-            self.onSeekUpCallback?()
-        }
-        
-        @objc
-        private func onSeekDownButtonTouchUp(_ sender: UIButton) {
-            self.onSeekDownCallback?()
-        }
-        
-        @objc
         private func onChangeViewStateTouchUp(_ sender: UIButton) {
             self.onChangeViewStateCallback?()
         }
@@ -998,8 +964,6 @@ class ModernXabberInputView: UIView {
             self.calendarButton.addTarget(self, action: #selector(onCalendarTouchUp), for: .touchUpInside)
             self.viewModeButton.addTarget(self, action: #selector(onChangeViewStateTouchUp), for: .touchUpInside)
             self.cancelButton.isHidden = true
-            self.seekUpButton.isHidden = true
-            self.seekDownButton.isHidden = true
             self.activityIndicator.isHidden = true
             self.applyRenderState(.idle, surfaceMode: .chat, animated: false)
         }

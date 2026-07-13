@@ -52,6 +52,7 @@ struct ChatSearchPresentationState: Equatable {
         case queryChanged(String)
         case debounceElapsed(generation: Int)
         case resultsReceived(count: Int, generation: Int)
+        case resultsAppended(count: Int, generation: Int)
         case emptyReceived(generation: Int)
         case failed(generation: Int)
         case resultCommitted(index: Int, generation: Int)
@@ -116,7 +117,7 @@ struct ChatSearchPresentationState: Equatable {
             bottom: surfaceMode != .calendar,
             arrows: surfaceMode == .chat &&
                 resultPhase == .results &&
-                resultCount > 1 &&
+                resultCount > 0 &&
                 hasCommittedResult,
             list: surfaceMode == .list,
             calendar: surfaceMode == .calendar,
@@ -192,6 +193,14 @@ struct ChatSearchPresentationState: Equatable {
             positioningPhase = .idle
             resultPhase = resultCount > 0 ? .results : .empty
             enforceListInvariant()
+
+        case .resultsAppended(let count, let eventGeneration):
+            guard accepts(eventGeneration),
+                  resultPhase == .results,
+                  count >= resultCount else {
+                return
+            }
+            resultCount = count
 
         case .emptyReceived(let eventGeneration):
             guard accepts(eventGeneration) else {

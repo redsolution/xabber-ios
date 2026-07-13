@@ -225,8 +225,6 @@ final class ChatSearchBottomActionBarTests: XCTestCase {
         XCTAssertEqual(calendarCount, 1)
         XCTAssertEqual(modeCount, 1)
         XCTAssertNil(panel.cancelButton.superview)
-        XCTAssertNil(panel.seekUpButton.superview)
-        XCTAssertNil(panel.seekDownButton.superview)
         XCTAssertNil(panel.descendant(withAccessibilityIdentifier: "chat_search_cancel"))
         XCTAssertNil(panel.descendant(withAccessibilityIdentifier: "chat_search_previous_result"))
         XCTAssertNil(panel.descendant(withAccessibilityIdentifier: "chat_search_next_result"))

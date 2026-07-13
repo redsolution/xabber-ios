@@ -66,6 +66,7 @@ extension ChatViewController {
                 return
             }
             searchSessionGenerationByQueryId[context.queryId] = request.generation
+            searchOlderPageNavigationGate.reset(generation: request.generation)
             self.searchMessagesQueue = []
             self.searchResultPresentations = []
             let localRequest = ChatSearchLocalProvider.Request(
@@ -106,6 +107,7 @@ extension ChatViewController {
                 return
             }
             searchSessionGenerationByQueryId[context.queryId] = request.generation
+            searchOlderPageNavigationGate.reset(generation: request.generation)
             self.applyLegacySearchPanelStateFromPresentation()
             self.registerRemoteHistoryFailureDispatcher(queryId: context.queryId)
             let requestCallbacks = MessageArchiveManager.RequestCallbacks(
@@ -133,6 +135,16 @@ extension ChatViewController {
                     }
                     if case .failed = terminal {
                         _ = self?.handleInChatSearchQueryFailure(queryId: queryId)
+                    }
+                    self?.markOlderSearchResultsTerminal(generation: request.generation)
+                },
+                onSearchContinuationAvailable: { [weak self] queryId, cursor in
+                    DispatchQueue.main.async {
+                        self?.offerOlderSearchResultsCursor(
+                            cursor,
+                            queryId: queryId,
+                            generation: request.generation
+                        )
                     }
                 }
             )

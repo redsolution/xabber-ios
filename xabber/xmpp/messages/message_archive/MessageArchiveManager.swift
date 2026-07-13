@@ -488,17 +488,23 @@ class MessageArchiveManager: AbstractXMPPManager {
         let onEndPage: ((String, MessageArchivePageEndState, String, String, Int) -> Void)?
         let onFailure: ((MessageArchiveRequestFailureEvent) -> Void)?
         let onSearchTerminal: ((String, ChatSearchArchiveSession.Terminal) -> Void)?
+        let onSearchContinuationAvailable: ((String, String) -> Void)?
+        let onSearchContinuationStarted: ((String, String) -> Void)?
 
         init(
             onMessage: ((MessageStorageItem, String) -> Void)? = nil,
             onEndPage: ((String, MessageArchivePageEndState, String, String, Int) -> Void)? = nil,
             onFailure: ((MessageArchiveRequestFailureEvent) -> Void)? = nil,
-            onSearchTerminal: ((String, ChatSearchArchiveSession.Terminal) -> Void)? = nil
+            onSearchTerminal: ((String, ChatSearchArchiveSession.Terminal) -> Void)? = nil,
+            onSearchContinuationAvailable: ((String, String) -> Void)? = nil,
+            onSearchContinuationStarted: ((String, String) -> Void)? = nil
         ) {
             self.onMessage = onMessage
             self.onEndPage = onEndPage
             self.onFailure = onFailure
             self.onSearchTerminal = onSearchTerminal
+            self.onSearchContinuationAvailable = onSearchContinuationAvailable
+            self.onSearchContinuationStarted = onSearchContinuationStarted
         }
 
         static let none = RequestCallbacks()
@@ -1027,6 +1033,19 @@ class MessageArchiveManager: AbstractXMPPManager {
         searchArchiveStateLock.lock()
         defer { searchArchiveStateLock.unlock() }
         return pendingSearchContinuationsByQueryId[queryId] != nil
+    }
+
+    @discardableResult
+    internal func requestPendingSearchContinuation(queryId: String) -> Bool {
+        searchArchiveStateLock.lock()
+        guard let continuation = pendingSearchContinuationsByQueryId[queryId],
+              searchArchiveSessionsByQueryId[queryId]?.isActive == true else {
+            searchArchiveStateLock.unlock()
+            return false
+        }
+        searchArchiveStateLock.unlock()
+        DispatchQueue.global().async(execute: continuation.workItem)
+        return true
     }
 
     private func registerSearchArchiveSession(
@@ -1609,6 +1628,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 queryId: queryId,
                 cursor: cursor
             )
+            callbacks.onSearchContinuationAvailable?(queryId, cursor)
         case .terminal(let terminal):
             notifySearchArchiveTerminal(
                 callbacks: callbacks,
@@ -1661,6 +1681,8 @@ class MessageArchiveManager: AbstractXMPPManager {
             self.pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)
             let callbacks = self.searchArchiveCallbacksByQueryId[queryId] ?? .none
             self.searchArchiveStateLock.unlock()
+
+            callbacks.onSearchContinuationStarted?(queryId, cursor)
 
             self.requestArchive(
                 stream,
@@ -2449,6 +2471,18 @@ class MessageArchiveManager: AbstractXMPPManager {
             onSearchTerminal: { queryId, terminal in
                 primary.onSearchTerminal?(queryId, terminal)
                 entry.requestCallbacks.forEach { $0.onSearchTerminal?(queryId, terminal) }
+            },
+            onSearchContinuationAvailable: { queryId, cursor in
+                primary.onSearchContinuationAvailable?(queryId, cursor)
+                entry.requestCallbacks.forEach {
+                    $0.onSearchContinuationAvailable?(queryId, cursor)
+                }
+            },
+            onSearchContinuationStarted: { queryId, cursor in
+                primary.onSearchContinuationStarted?(queryId, cursor)
+                entry.requestCallbacks.forEach {
+                    $0.onSearchContinuationStarted?(queryId, cursor)
+                }
             }
         )
     }

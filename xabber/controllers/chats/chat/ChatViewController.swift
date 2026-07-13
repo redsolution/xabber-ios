@@ -1670,6 +1670,7 @@ class ChatViewController: MessagesViewController {
     var searchSessionDebounceGeneration: UInt64? = nil
     var searchSessionGenerationByQueryId: [String: UInt64] = [:]
     var searchArchiveManagersByQueryId: [String: MessageArchiveManager] = [:]
+    var searchOlderPageNavigationGate = ChatSearchOlderPageNavigationGate(generation: 0)
     let searchLocalProvider: ChatSearchLocalProvider = ChatSearchLocalProvider()
     var searchMessagesQueue: [MessageStorageItem] = []
     var searchResultPresentations: [ChatSearchResult] = []
@@ -2712,6 +2713,19 @@ class ChatViewController: MessagesViewController {
     internal var searchInputBarHeightConstraint: NSLayoutConstraint?
     internal var searchInputBarBottomConstraint: NSLayoutConstraint?
     internal var searchInputBarConstraints: [NSLayoutConstraint] = []
+
+    internal lazy var searchNavigationButtonsView: ChatSearchNavigationButtonsView = {
+        let view = ChatSearchNavigationButtonsView()
+        view.onPrevious = { [weak self] in
+            self?.onSearchPanelSeekUp()
+        }
+        view.onNext = { [weak self] in
+            self?.onSearchPanelSeekDown()
+        }
+        return view
+    }()
+    internal var searchNavigationButtonsTrailingConstraint: NSLayoutConstraint?
+    internal var searchNavigationButtonsBottomConstraint: NSLayoutConstraint?
 
     internal var searchBar: UISearchBar = {
         let bar = UISearchBar()
@@ -4031,6 +4045,7 @@ class ChatViewController: MessagesViewController {
             heightConstraint
         ])
         xabberInputView.heightConstraint = heightConstraint
+        self.installSearchNavigationButtons()
         
         self.messagesCollectionView.keyboardDismissMode = .interactive
         self.updateChatCollectionInsets(inputHeight: inputHeight)
@@ -4487,8 +4502,6 @@ class ChatViewController: MessagesViewController {
         )
         self.xabberInputView.searchPanel.conversationType = self.conversationType
         self.xabberInputView.searchPanel.onChangeConversationTypeCallback = onSearchPanelChangeConversationType
-        self.xabberInputView.searchPanel.onSeekUpCallback = self.onSearchPanelSeekUp
-        self.xabberInputView.searchPanel.onSeekDownCallback = self.onSearchPanelSeekDown
         self.xabberInputView.searchPanel.onChangeViewStateCallback = self.onSearchPanelChangeChatViewState
         self.xabberInputView.searchPanel.onCalendarCallback = self.onSearchPanelOpenCalendar
         self.xabberInputView.searchPanel.onCancelCallback = nil
