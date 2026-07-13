@@ -810,9 +810,12 @@ enum BottomInPlaceSearchHostHelper {
     ) {
         searchView.searchTextField.placeholder = placeholder
         updater.onSnapshotChanged = reload
+        searchView.onTransitionPhaseChanged = { [weak searchView] _ in
+            guard let searchView else { return }
+            activeChanged(searchView.isExpanded)
+        }
         searchView.onBegin = { [weak searchView, weak updater] in
             guard let searchView, let updater else { return }
-            activeChanged(true)
             updater.updateSearchResults(with: searchView.query)
             reload()
         }
@@ -824,7 +827,6 @@ enum BottomInPlaceSearchHostHelper {
         searchView.onCancel = { [weak updater] in
             guard let updater else { return }
             updater.reset()
-            activeChanged(false)
             reload()
         }
     }

@@ -653,7 +653,8 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             accessibilityLabel: startCallTitle
         )
         callsCompactBottomBarView.setCenterButtonEnabled(false)
-        callsCompactBottomBarView.isHidden = !shouldUseCallsCompactBottomBar || bottomSearchHostView.isExpanded
+        callsCompactBottomBarView.isHidden = !shouldUseCallsCompactBottomBar ||
+            bottomSearchHostView.hidesUnderlyingActions
         callsCompactBottomBarView.refreshAppearance()
 
         if callsCompactBottomBarView.superview != nil {

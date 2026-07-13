@@ -31,23 +31,23 @@ extension ContactsViewController {
         installBottomSearchHostIfNeeded()
         bottomSearchHostView.searchTextField.placeholder = contactsSearchPlaceholderText
         searchController.searchBar.placeholder = contactsSearchPlaceholderText
+        bottomSearchHostView.onTransitionPhaseChanged = { [weak self] _ in
+            self?.bottomSearchPresentationStateDidChange()
+        }
         bottomSearchHostView.onBegin = { [weak self] in
             guard let self else { return }
             self.contactsSearchQuery = self.bottomSearchHostView.query
             self.runDatasetUpdateTask(force: true)
-            self.bottomSearchPresentationStateDidChange()
         }
         bottomSearchHostView.onQueryChanged = { [weak self] query in
             guard let self else { return }
             self.contactsSearchQuery = query
             self.runDatasetUpdateTask(force: true)
-            self.bottomSearchPresentationStateDidChange()
         }
         bottomSearchHostView.onCancel = { [weak self] in
             guard let self else { return }
             self.contactsSearchQuery = nil
             self.runDatasetUpdateTask(force: true)
-            self.bottomSearchPresentationStateDidChange()
         }
     }
 

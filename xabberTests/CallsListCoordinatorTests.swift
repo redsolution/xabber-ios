@@ -493,7 +493,7 @@ final class CallsVisualStyleTests: XCTestCase {
         XCTAssertNil(controller.navigationItem.searchController)
     }
 
-    func testCallsBottomSearchExpandsWithoutShowingLegacyBottomBar() {
+    func testCallsBottomSearchExpandsWithoutShowingLegacyBottomBar() throws {
         let controller = LastCallsViewController()
         let container = embedInTraitContainer(controller, horizontalSizeClass: .regular)
 
@@ -503,8 +503,15 @@ final class CallsVisualStyleTests: XCTestCase {
         XCTAssertNil(controller.navigationItem.searchController)
         XCTAssertTrue(controller.bottomBar.superview == nil || controller.bottomBar.isHidden)
         XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
+        controller.bottomSearchHostView.animatorFactory = { _, curve in
+            UIViewPropertyAnimator(duration: 10, curve: curve)
+        }
 
         controller.bottomSearchHostView.collapsedButton.sendActions(for: .touchUpInside)
+        let expansionAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        expansionAnimator.pauseAnimation()
+        expansionAnimator.stopAnimation(false)
+        expansionAnimator.finishAnimation(at: .end)
 
         XCTAssertTrue(controller.bottomSearchHostView.isExpanded)
         XCTAssertTrue(controller.bottomSearchHostView.collapsedButton.isHidden)
@@ -751,24 +758,39 @@ final class CallsVisualStyleTests: XCTestCase {
         XCTAssertFalse(controller.isCallsCompactMissedFilterActive)
     }
 
-    func testCallsCompactSearchExpansionHidesAndRestoresBottomActions() {
+    func testCallsCompactSearchExpansionHidesActionsOnlyAfterMorphAndRestoresBeforeCollapse() throws {
         let controller = LastCallsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
 
         container.loadViewIfNeeded()
+        controller.bottomSearchHostView.animatorFactory = { _, curve in
+            UIViewPropertyAnimator(duration: 10, curve: curve)
+        }
 
         XCTAssertFalse(controller.isCallsCompactBottomBarHidden)
 
         controller.bottomSearchHostView.collapsedButton.sendActions(for: .touchUpInside)
 
         XCTAssertTrue(controller.bottomSearchHostView.isExpanded)
+        XCTAssertEqual(controller.bottomSearchHostView.transitionPhase, .expanding)
+        XCTAssertFalse(controller.isCallsCompactBottomBarHidden)
+        let expansionAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        expansionAnimator.pauseAnimation()
+        expansionAnimator.stopAnimation(false)
+        expansionAnimator.finishAnimation(at: .end)
+
         XCTAssertTrue(controller.isCallsCompactBottomBarHidden)
 
         controller.bottomSearchHostView.cancelButton.sendActions(for: .touchUpInside)
 
         XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
+        XCTAssertEqual(controller.bottomSearchHostView.transitionPhase, .collapsing)
         XCTAssertFalse(controller.isCallsCompactBottomBarHidden)
+        let collapseAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        collapseAnimator.pauseAnimation()
+        collapseAnimator.stopAnimation(false)
+        collapseAnimator.finishAnimation(at: .end)
     }
 
     func testCallsTraitChangeHidesCompactBottomBarInRegularWidth() {

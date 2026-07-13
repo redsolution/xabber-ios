@@ -263,6 +263,116 @@ final class BottomSearchHostViewTests: XCTestCase {
         view.setExpanded(true, animated: false)
 
         XCTAssertTrue(view.isExpanded)
+        XCTAssertEqual(view.transitionPhase, .expanded)
+        XCTAssertTrue(view.hidesUnderlyingActions)
+        XCTAssertTrue(view.collapsedButton.isHidden)
+        XCTAssertFalse(view.surfaceView.isHidden)
+    }
+
+    func testAnimatedExpansionStartsAtCollapsedButtonGeometryWithoutHidingOutgoingButton() throws {
+        let view = makeLaidOutSearchView()
+        view.animatorFactory = longRunningAnimator
+        let collapsedFrame = view.collapsedButton.frame
+
+        view.setExpanded(true, animated: true)
+        let animator = try XCTUnwrap(view.transitionAnimator)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0
+        defer { animator.stopAnimation(true) }
+
+        XCTAssertTrue(view.isExpanded)
+        XCTAssertEqual(view.transitionPhase, .expanding)
+        XCTAssertFalse(view.hidesUnderlyingActions)
+        XCTAssertEqual(view.transitionGeometry?.startSurfaceFrame, collapsedFrame)
+        XCTAssertEqual(view.currentInteractiveSurfaceFrame, collapsedFrame)
+        XCTAssertFalse(view.collapsedButton.isHidden)
+        XCTAssertFalse(view.surfaceView.isHidden)
+    }
+
+    func testAnimatedExpansionEndsAtFullWidthSurfaceGeometry() throws {
+        let view = makeLaidOutSearchView()
+        view.animatorFactory = longRunningAnimator
+        let expandedFrame = view.surfaceView.frame
+
+        view.setExpanded(true, animated: true)
+        try finishTransition(in: view, at: .end)
+
+        XCTAssertEqual(view.transitionPhase, .expanded)
+        XCTAssertTrue(view.hidesUnderlyingActions)
+        XCTAssertEqual(view.currentInteractiveSurfaceFrame, expandedFrame)
+        XCTAssertEqual(view.surfaceView.transform, .identity)
+        XCTAssertTrue(view.collapsedButton.isHidden)
+        XCTAssertFalse(view.surfaceView.isHidden)
+    }
+
+    func testAnimatedExpansionKeepsOneContinuousMorphSurfaceVisible() throws {
+        let view = makeLaidOutSearchView()
+        view.animatorFactory = longRunningAnimator
+
+        view.setExpanded(true, animated: true)
+        let animator = try XCTUnwrap(view.transitionAnimator)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.5
+
+        XCTAssertFalse(view.surfaceView.isHidden)
+        XCTAssertGreaterThan(view.currentInteractiveSurfaceFrame.width, BottomSearchHostView.Metrics.buttonSize)
+        XCTAssertLessThan(view.currentInteractiveSurfaceFrame.width, view.surfaceView.bounds.width)
+
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: .end)
+        XCTAssertFalse(view.surfaceView.isHidden)
+        XCTAssertEqual(view.transitionPhase, .expanded)
+    }
+
+    func testExpandThenCollapseReversesActiveAnimatorAndSettlesCollapsed() throws {
+        let view = makeLaidOutSearchView()
+        view.animatorFactory = longRunningAnimator
+
+        view.setExpanded(true, animated: true)
+        let animator = try XCTUnwrap(view.transitionAnimator)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.4
+
+        view.setExpanded(false, animated: true)
+        animator.pauseAnimation()
+
+        XCTAssertTrue(animator.isReversed)
+        XCTAssertEqual(view.transitionPhase, .collapsing)
+        XCTAssertFalse(view.hidesUnderlyingActions)
+
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: .start)
+
+        XCTAssertFalse(view.isExpanded)
+        XCTAssertEqual(view.transitionPhase, .collapsed)
+        XCTAssertFalse(view.hidesUnderlyingActions)
+        XCTAssertFalse(view.collapsedButton.isHidden)
+        XCTAssertTrue(view.surfaceView.isHidden)
+    }
+
+    func testCollapseThenExpandReversesActiveAnimatorAndSettlesExpanded() throws {
+        let view = makeLaidOutSearchView()
+        view.animatorFactory = longRunningAnimator
+        view.setExpanded(true, animated: false)
+
+        view.setExpanded(false, animated: true)
+        let animator = try XCTUnwrap(view.transitionAnimator)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.4
+
+        view.setExpanded(true, animated: true)
+        animator.pauseAnimation()
+
+        XCTAssertTrue(animator.isReversed)
+        XCTAssertEqual(view.transitionPhase, .expanding)
+        XCTAssertFalse(view.hidesUnderlyingActions)
+
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: .start)
+
+        XCTAssertTrue(view.isExpanded)
+        XCTAssertEqual(view.transitionPhase, .expanded)
+        XCTAssertTrue(view.hidesUnderlyingActions)
         XCTAssertTrue(view.collapsedButton.isHidden)
         XCTAssertFalse(view.surfaceView.isHidden)
     }
@@ -312,6 +422,29 @@ final class BottomSearchHostViewTests: XCTestCase {
         XCTAssertNil(view.hitTest(outsideSurfacePoint, with: nil))
     }
 
+    func testTransitionHitTestingFollowsCurrentMorphGeometry() throws {
+        let view = makeLaidOutSearchView()
+        view.animatorFactory = longRunningAnimator
+
+        view.setExpanded(true, animated: true)
+        let animator = try XCTUnwrap(view.transitionAnimator)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.25
+        defer { animator.stopAnimation(true) }
+
+        let interactiveFrame = view.currentInteractiveSurfaceFrame
+        let interactivePoint = CGPoint(x: interactiveFrame.midX, y: interactiveFrame.midY)
+        let actionPoint = CGPoint(
+            x: BottomSearchHostView.Metrics.horizontalInset,
+            y: interactiveFrame.midY
+        )
+
+        let surfaceHit = view.hitTest(interactivePoint, with: nil)
+        XCTAssertTrue(surfaceHit === view.surfaceView || surfaceHit?.isDescendant(of: view.surfaceView) == true)
+        XCTAssertFalse(interactiveFrame.contains(actionPoint))
+        XCTAssertNil(view.hitTest(actionPoint, with: nil))
+    }
+
     func testExpandedSearchTextFieldUsesTransparentChrome() throws {
         let view = BottomSearchHostView(frame: CGRect(x: 0, y: 0, width: 393, height: 44))
 
@@ -332,20 +465,104 @@ final class BottomSearchHostViewTests: XCTestCase {
         XCTAssertNil(view.searchTextField.layer.shadowColor)
     }
 
-    func testQueryChangesNotifyOwnerAndCancelClearsQuery() {
+    func testQueryChangesNotifyOwnerAndCancelClearsQueryWithOneResetCallback() {
         let view = BottomSearchHostView(frame: .zero)
         var observedQueries: [String?] = []
-        var didCancel = false
+        var cancelCount = 0
         view.onQueryChanged = { observedQueries.append($0) }
-        view.onCancel = { didCancel = true }
+        view.onCancel = { cancelCount += 1 }
 
         view.setExpanded(true, animated: false)
         view.setQuery("romeo", notify: true)
         view.cancelButton.sendActions(for: .touchUpInside)
 
-        XCTAssertEqual(observedQueries.compactMap { $0 }, ["romeo", ""])
-        XCTAssertTrue(didCancel)
+        XCTAssertEqual(observedQueries.compactMap { $0 }, ["romeo"])
+        XCTAssertEqual(cancelCount, 1)
         XCTAssertFalse(view.isExpanded)
         XCTAssertEqual(view.query, "")
+    }
+
+    func testReduceMotionSettlesAtRequestedEndpointAndCallsPhaseObserverOnce() {
+        let view = makeLaidOutSearchView()
+        var observedPhases: [BottomSearchHostView.TransitionPhase] = []
+        view.reduceMotionEnabledProvider = { true }
+        view.onTransitionPhaseChanged = { observedPhases.append($0) }
+
+        view.setExpanded(true, animated: true)
+
+        XCTAssertEqual(view.transitionPhase, .expanded)
+        XCTAssertNil(view.transitionAnimator)
+        XCTAssertEqual(observedPhases, [.expanded])
+
+        view.setExpanded(false, animated: true)
+
+        XCTAssertEqual(view.transitionPhase, .collapsed)
+        XCTAssertNil(view.transitionAnimator)
+        XCTAssertEqual(observedPhases, [.expanded, .collapsed])
+    }
+
+    func testSameValueRequestIsIdempotent() {
+        let view = makeLaidOutSearchView()
+        var observedPhases: [BottomSearchHostView.TransitionPhase] = []
+        view.onTransitionPhaseChanged = { observedPhases.append($0) }
+
+        view.setExpanded(false, animated: true)
+        XCTAssertTrue(observedPhases.isEmpty)
+        XCTAssertNil(view.transitionAnimator)
+
+        view.setExpanded(true, animated: false)
+        view.setExpanded(true, animated: true)
+
+        XCTAssertEqual(observedPhases, [.expanded])
+        XCTAssertNil(view.transitionAnimator)
+    }
+
+    func testTransitionAndEndpointsExposeOnlyCurrentAccessibilitySurface() throws {
+        let view = makeLaidOutSearchView()
+        view.animatorFactory = longRunningAnimator
+
+        XCTAssertFalse(view.collapsedButton.accessibilityElementsHidden)
+        XCTAssertTrue(view.surfaceView.accessibilityElementsHidden)
+
+        view.setExpanded(true, animated: true)
+        let animator = try XCTUnwrap(view.transitionAnimator)
+        animator.pauseAnimation()
+
+        XCTAssertTrue(view.collapsedButton.accessibilityElementsHidden)
+        XCTAssertFalse(view.surfaceView.accessibilityElementsHidden)
+
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: .end)
+
+        XCTAssertTrue(view.collapsedButton.accessibilityElementsHidden)
+        XCTAssertFalse(view.surfaceView.accessibilityElementsHidden)
+    }
+
+    private func makeLaidOutSearchView() -> BottomSearchHostView {
+        let view = BottomSearchHostView(frame: CGRect(x: 0, y: 0, width: 393, height: 44))
+
+        view.layoutIfNeeded()
+        view.surfaceView.layoutIfNeeded()
+        view.surfaceView.contentView.layoutIfNeeded()
+
+        return view
+    }
+
+    private func longRunningAnimator(
+        duration: TimeInterval,
+        curve: UIView.AnimationCurve
+    ) -> UIViewPropertyAnimator {
+        UIViewPropertyAnimator(duration: max(duration, 10), curve: curve)
+    }
+
+    private func finishTransition(
+        in view: BottomSearchHostView,
+        at position: UIViewAnimatingPosition
+    ) throws {
+        let animator = try XCTUnwrap(view.transitionAnimator)
+
+        animator.pauseAnimation()
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: position)
     }
 }

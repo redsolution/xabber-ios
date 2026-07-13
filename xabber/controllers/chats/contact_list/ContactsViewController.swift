@@ -1824,7 +1824,8 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             accessibilityLabel: contactsCompactBottomBarPrimaryTitle
         )
         contactsCompactBottomBarView.setCenterButtonEnabled(true)
-        contactsCompactBottomBarView.isHidden = !shouldUseContactsCompactBottomBar || bottomSearchHostView.isExpanded
+        contactsCompactBottomBarView.isHidden = !shouldUseContactsCompactBottomBar ||
+            bottomSearchHostView.hidesUnderlyingActions
         contactsCompactBottomBarView.refreshAppearance()
 
         if contactsCompactBottomBarView.superview != nil {

@@ -31,23 +31,23 @@ extension LastCallsViewController {
         installBottomSearchHostIfNeeded()
         bottomSearchHostView.searchTextField.placeholder = callsSearchPlaceholderText
         searchController.searchBar.placeholder = callsSearchPlaceholderText
+        bottomSearchHostView.onTransitionPhaseChanged = { [weak self] _ in
+            self?.bottomSearchPresentationStateDidChange()
+        }
         bottomSearchHostView.onBegin = { [weak self] in
             guard let self else { return }
             self.callsSearchQuery = self.bottomSearchHostView.query
             self.reloadCallDatasource()
-            self.bottomSearchPresentationStateDidChange()
         }
         bottomSearchHostView.onQueryChanged = { [weak self] query in
             guard let self else { return }
             self.callsSearchQuery = query
             self.reloadCallDatasource()
-            self.bottomSearchPresentationStateDidChange()
         }
         bottomSearchHostView.onCancel = { [weak self] in
             guard let self else { return }
             self.callsSearchQuery = nil
             self.reloadCallDatasource()
-            self.bottomSearchPresentationStateDidChange()
         }
     }
 

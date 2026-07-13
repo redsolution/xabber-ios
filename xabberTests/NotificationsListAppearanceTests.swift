@@ -536,24 +536,39 @@ final class NotificationsListAppearanceTests: XCTestCase {
         ])
     }
 
-    func testNotificationsCompactSearchExpansionHidesAndRestoresBottomActions() {
+    func testNotificationsCompactSearchExpansionHidesActionsOnlyAfterMorphAndRestoresBeforeCollapse() throws {
         let controller = NotificationsListViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
 
         container.loadViewIfNeeded()
+        controller.bottomSearchHostView.animatorFactory = { _, curve in
+            UIViewPropertyAnimator(duration: 10, curve: curve)
+        }
 
         XCTAssertFalse(controller.isNotificationsCompactBottomBarHidden)
 
         controller.bottomSearchHostView.collapsedButton.sendActions(for: .touchUpInside)
 
         XCTAssertTrue(controller.bottomSearchHostView.isExpanded)
+        XCTAssertEqual(controller.bottomSearchHostView.transitionPhase, .expanding)
+        XCTAssertFalse(controller.isNotificationsCompactBottomBarHidden)
+        let expansionAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        expansionAnimator.pauseAnimation()
+        expansionAnimator.stopAnimation(false)
+        expansionAnimator.finishAnimation(at: .end)
+
         XCTAssertTrue(controller.isNotificationsCompactBottomBarHidden)
 
         controller.bottomSearchHostView.cancelButton.sendActions(for: .touchUpInside)
 
         XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
+        XCTAssertEqual(controller.bottomSearchHostView.transitionPhase, .collapsing)
         XCTAssertFalse(controller.isNotificationsCompactBottomBarHidden)
+        let collapseAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        collapseAnimator.pauseAnimation()
+        collapseAnimator.stopAnimation(false)
+        collapseAnimator.finishAnimation(at: .end)
     }
 
     func testNotificationsCategoriesRegularNavbarShowsSidebarButtonImmediately() {

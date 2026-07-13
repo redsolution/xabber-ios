@@ -690,20 +690,19 @@ class NotificationsListViewController: SimpleBaseViewController {
         )
         bottomSearchHostView.isHidden = false
         bottomSearchHostView.searchTextField.placeholder = "Search".localizeString(id: "search", arguments: [])
-        bottomSearchHostView.onBegin = { [weak self] in
+        bottomSearchHostView.onTransitionPhaseChanged = { [weak self] _ in
             self?.notificationBottomSearchPresentationStateDidChange()
         }
+        bottomSearchHostView.onBegin = nil
         bottomSearchHostView.onQueryChanged = { [weak self] query in
             guard let self else { return }
             self.notificationSearchQuery = query ?? ""
             self.scheduleDatasourceReload()
-            self.notificationBottomSearchPresentationStateDidChange()
         }
         bottomSearchHostView.onCancel = { [weak self] in
             guard let self else { return }
             self.notificationSearchQuery = ""
             self.scheduleDatasourceReload()
-            self.notificationBottomSearchPresentationStateDidChange()
         }
         updateNotificationsTableInsetsForBottomSearch()
     }
@@ -782,7 +781,8 @@ class NotificationsListViewController: SimpleBaseViewController {
             accessibilityLabel: readAllTitle
         )
         notificationsCompactBottomBarView.setCenterButtonEnabled(matchingUnreadNotificationCount() > 0)
-        notificationsCompactBottomBarView.isHidden = !shouldUseNotificationsCompactBottomBar || bottomSearchHostView.isExpanded
+        notificationsCompactBottomBarView.isHidden = !shouldUseNotificationsCompactBottomBar ||
+            bottomSearchHostView.hidesUnderlyingActions
         notificationsCompactBottomBarView.refreshAppearance()
 
         if notificationsCompactBottomBarView.superview != nil {

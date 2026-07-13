@@ -3040,7 +3040,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             : "line.3.horizontal.decrease.circle"
 
         self.floatingBottomBarView.updateLeftButton(imageName: imageName, isActive: isUnreadFilterActive)
-        self.floatingBottomBarView.isHidden = self.bottomSearchHostView.isExpanded ||
+        self.floatingBottomBarView.isHidden = self.bottomSearchHostView.hidesUnderlyingActions ||
             !self.shouldShowBottomBar ||
             self.filter.value == .saved
         self.floatingBottomBarView.refreshAppearance()

@@ -132,22 +132,67 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         XCTAssertFalse(controller.isMarkAllReadButtonEnabled)
     }
 
-    func testBottomSearchExpansionHidesAndRestoresLastChatsActionBar() {
+    func testBottomSearchExpansionHidesActionBarOnlyAfterMorphAndRestoresItBeforeCollapse() throws {
         let controller = LastChatsViewController()
         controller.loadViewIfNeeded()
+        controller.bottomSearchHostView.animatorFactory = { _, curve in
+            UIViewPropertyAnimator(duration: 10, curve: curve)
+        }
 
         XCTAssertFalse(controller.isFloatingBottomBarHidden)
 
-        controller.bottomSearchHostView.setExpanded(true, animated: false)
-        controller.bottomSearchPresentationStateDidChange()
+        controller.bottomSearchHostView.collapsedButton.sendActions(for: .touchUpInside)
 
+        XCTAssertEqual(controller.bottomSearchHostView.transitionPhase, .expanding)
+        XCTAssertFalse(controller.isFloatingBottomBarHidden)
+        let expansionAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        expansionAnimator.pauseAnimation()
+        expansionAnimator.stopAnimation(false)
+        expansionAnimator.finishAnimation(at: .end)
+
+        XCTAssertEqual(controller.bottomSearchHostView.transitionPhase, .expanded)
         XCTAssertTrue(controller.isFloatingBottomBarHidden)
         XCTAssertFalse(controller.bottomSearchHostView.surfaceView.isHidden)
 
         controller.bottomSearchHostView.cancelButton.sendActions(for: .touchUpInside)
 
+        XCTAssertEqual(controller.bottomSearchHostView.transitionPhase, .collapsing)
         XCTAssertFalse(controller.isFloatingBottomBarHidden)
+        let collapseAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        collapseAnimator.pauseAnimation()
+        collapseAnimator.stopAnimation(false)
+        collapseAnimator.finishAnimation(at: .end)
+
+        XCTAssertEqual(controller.bottomSearchHostView.transitionPhase, .collapsed)
         XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
+    }
+
+    func testSavedRouteKeepsActionBarHiddenAcrossSearchMorph() throws {
+        let controller = LastChatsViewController()
+        controller.loadViewIfNeeded()
+        controller.filter.accept(.saved)
+        controller.bottomSearchPresentationStateDidChange()
+        controller.bottomSearchHostView.animatorFactory = { _, curve in
+            UIViewPropertyAnimator(duration: 10, curve: curve)
+        }
+
+        XCTAssertTrue(controller.isFloatingBottomBarHidden)
+
+        controller.bottomSearchHostView.collapsedButton.sendActions(for: .touchUpInside)
+        XCTAssertTrue(controller.isFloatingBottomBarHidden)
+        let expansionAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        expansionAnimator.pauseAnimation()
+        expansionAnimator.stopAnimation(false)
+        expansionAnimator.finishAnimation(at: .end)
+        XCTAssertTrue(controller.isFloatingBottomBarHidden)
+
+        controller.bottomSearchHostView.cancelButton.sendActions(for: .touchUpInside)
+        XCTAssertTrue(controller.isFloatingBottomBarHidden)
+        let collapseAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        collapseAnimator.pauseAnimation()
+        collapseAnimator.stopAnimation(false)
+        collapseAnimator.finishAnimation(at: .end)
+        XCTAssertTrue(controller.isFloatingBottomBarHidden)
     }
 
     func testBottomSearchCollapsedPassesHitsToLastChatsActionButtons() {

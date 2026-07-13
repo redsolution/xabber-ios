@@ -451,7 +451,7 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertNil(controller.navigationItem.searchController)
     }
 
-    func testContactsBottomSearchExpandsWithoutShowingLegacyBottomBar() {
+    func testContactsBottomSearchExpandsWithoutShowingLegacyBottomBar() throws {
         let controller = ContactsViewController()
         let container = embedInTraitContainer(controller, horizontalSizeClass: .regular)
 
@@ -461,8 +461,15 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertNil(controller.navigationItem.searchController)
         XCTAssertTrue(controller.bottomBar.superview == nil || controller.bottomBar.isHidden)
         XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
+        controller.bottomSearchHostView.animatorFactory = { _, curve in
+            UIViewPropertyAnimator(duration: 10, curve: curve)
+        }
 
         controller.bottomSearchHostView.collapsedButton.sendActions(for: .touchUpInside)
+        let expansionAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        expansionAnimator.pauseAnimation()
+        expansionAnimator.stopAnimation(false)
+        expansionAnimator.finishAnimation(at: .end)
 
         XCTAssertTrue(controller.bottomSearchHostView.isExpanded)
         XCTAssertTrue(controller.bottomSearchHostView.collapsedButton.isHidden)
@@ -470,12 +477,15 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertTrue(controller.bottomBar.superview == nil || controller.bottomBar.isHidden)
     }
 
-    func testContactsCompactBottomSearchExpansionHidesAndRestoresActionBar() {
+    func testContactsCompactBottomSearchExpansionHidesActionBarOnlyAfterMorphAndRestoresBeforeCollapse() throws {
         let controller = ContactsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
 
         container.loadViewIfNeeded()
+        controller.bottomSearchHostView.animatorFactory = { _, curve in
+            UIViewPropertyAnimator(duration: 10, curve: curve)
+        }
 
         XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
 
@@ -483,13 +493,26 @@ final class ContactsListAppearanceTests: XCTestCase {
 
         XCTAssertTrue(controller.bottomSearchHostView.isExpanded)
         XCTAssertFalse(controller.bottomSearchHostView.surfaceView.isHidden)
+        XCTAssertEqual(controller.bottomSearchHostView.transitionPhase, .expanding)
+        XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
+        let expansionAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        expansionAnimator.pauseAnimation()
+        expansionAnimator.stopAnimation(false)
+        expansionAnimator.finishAnimation(at: .end)
+
         XCTAssertTrue(controller.isContactsCompactBottomBarHidden)
 
         controller.bottomSearchHostView.cancelButton.sendActions(for: .touchUpInside)
 
         XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
-        XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
+        XCTAssertEqual(controller.bottomSearchHostView.transitionPhase, .collapsing)
         XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
+        let collapseAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        collapseAnimator.pauseAnimation()
+        collapseAnimator.stopAnimation(false)
+        collapseAnimator.finishAnimation(at: .end)
+
+        XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
     }
 
     func testGroupsListUsesSameInsetGroupedTransparentSplitAppearanceInRegularWidth() {
