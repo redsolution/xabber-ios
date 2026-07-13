@@ -1448,6 +1448,7 @@ extension ChatViewController {
         animated: Bool = true,
         initialQuery: String? = nil
     ) {
+        cancelChatSearchCalendarDateResolution()
         let request = ChatSearchActivationRequest(
             activateKeyboard: activateKeyboard,
             animated: animated,
@@ -1604,7 +1605,7 @@ extension ChatViewController {
                 setLoadingIndicatorVisible(true)
                 executeSearchRequest(request)
             case .cancelDateResolver:
-                break
+                cancelChatSearchCalendarDateResolution()
             case .cancelPendingNavigation:
                 cancelSearchResultNavigation()
             }
@@ -1625,6 +1626,7 @@ extension ChatViewController {
             return
         }
 
+        cancelChatSearchCalendarDateResolution()
         reduceSearchPresentationState(.cancelSearch)
         applySearchSessionEffects(searchSession.cancel())
         searchOlderPageNavigationGate.reset(generation: searchSession.generation)
@@ -4762,6 +4764,9 @@ extension ChatViewController {
         calendarController.onCancel = { [weak self] in
             self?.dismissChatSearchCalendar(animated: true)
         }
+        calendarController.onComplete = { [weak self] selectedTimestamp in
+            self?.completeChatSearchCalendar(at: selectedTimestamp, animated: true)
+        }
         searchCalendarViewController = calendarController
         calendarController.install(in: self, containerView: view)
         let generation = searchPresentationState.generation
@@ -4811,6 +4816,260 @@ extension ChatViewController {
     internal func removeChatSearchCalendarControllerImmediately() {
         searchCalendarViewController?.reset()
         searchCalendarViewController = nil
+    }
+
+    internal func completeChatSearchCalendar(at selectedTimestamp: Date, animated: Bool) {
+        assert(Thread.isMainThread, "Calendar date completion must run on the main thread")
+        guard searchPresentationState.isActive,
+              searchPresentationState.surfaceMode == .calendar,
+              pendingSearchCalendarCompletionRequest == nil,
+              activeSearchCalendarCompletionRequest == nil else {
+            return
+        }
+
+        let scope = ChatSearchResult.Scope(
+            owner: owner,
+            jid: jid,
+            conversationTypeRawValue: conversationType.rawValue
+        )
+        let displayedCandidates = searchResultPresentations.compactMap { result -> ChatSearchTimestampAnchor? in
+            guard result.scope == scope else { return nil }
+            return ChatSearchTimestampAnchor(
+                id: result.id,
+                scope: result.scope,
+                anchor: result.anchor
+            )
+        }
+        let nextPresentationGeneration = searchPresentationState.generation &+ 1
+        let request = ChatSearchCalendarCompletionRequest(
+            id: UUID(),
+            generation: UInt64(max(0, nextPresentationGeneration)),
+            scope: scope,
+            selectedTimestamp: selectedTimestamp,
+            displayedCandidates: displayedCandidates,
+            displayedCoverage: nil
+        )
+        pendingSearchCalendarCompletionRequest = request
+        setChatSearchCalendarDateResolutionLoading(true)
+
+        let beginResolution: () -> Void = { [weak self] in
+            self?.beginChatSearchCalendarDateResolution(request)
+        }
+        guard let calendarController = searchCalendarViewController else {
+            beginResolution()
+            return
+        }
+        let calendarGeneration = searchPresentationState.generation
+        calendarController.dismiss(
+            generation: calendarGeneration,
+            animated: animated,
+            isGenerationCurrent: { [weak self] candidateGeneration in
+                guard let self else { return false }
+                return self.searchPresentationState.isActive &&
+                    self.searchPresentationState.surfaceMode == .calendar &&
+                    self.searchPresentationState.generation == candidateGeneration &&
+                    self.pendingSearchCalendarCompletionRequest?.id == request.id
+            },
+            completion: { [weak self, weak calendarController] in
+                guard let self,
+                      self.searchCalendarViewController === calendarController else {
+                    return
+                }
+                self.searchCalendarViewController = nil
+                beginResolution()
+            }
+        )
+    }
+
+    @discardableResult
+    internal func cancelChatSearchCalendarDateResolution() -> Bool {
+        assert(Thread.isMainThread, "Calendar date cancellation must run on the main thread")
+        let hadPending = pendingSearchCalendarCompletionRequest != nil
+        let hadActive = activeSearchCalendarCompletionRequest != nil
+        pendingSearchCalendarCompletionRequest = nil
+        activeSearchCalendarCompletionRequest = nil
+        let cancelled = searchCalendarCompletionCoordinator?.cancel() ?? false
+        if case .resolvingDate = searchPresentationState.positioningPhase {
+            reduceSearchPresentationState(
+                .dateResolutionFinished(generation: searchPresentationState.generation)
+            )
+        }
+        if hadPending || hadActive || cancelled {
+            setChatSearchCalendarDateResolutionLoading(false)
+        }
+        return hadPending || hadActive || cancelled
+    }
+
+    private func beginChatSearchCalendarDateResolution(
+        _ request: ChatSearchCalendarCompletionRequest
+    ) {
+        guard pendingSearchCalendarCompletionRequest?.id == request.id,
+              searchPresentationState.isActive,
+              searchPresentationState.surfaceMode == .calendar,
+              currentChatSearchScopeMatches(request.scope) else {
+            pendingSearchCalendarCompletionRequest = nil
+            setChatSearchCalendarDateResolutionLoading(false)
+            return
+        }
+        pendingSearchCalendarCompletionRequest = nil
+        reduceSearchPresentationState(.completeCalendarDate(request.selectedTimestamp))
+        guard UInt64(max(0, searchPresentationState.generation)) == request.generation else {
+            reduceSearchPresentationState(
+                .dateResolutionFinished(generation: searchPresentationState.generation)
+            )
+            setChatSearchCalendarDateResolutionLoading(false)
+            return
+        }
+
+        restoreNormalChatChromeForCalendarDateResolution()
+        activeSearchCalendarCompletionRequest = request
+        let coordinator = configuredSearchCalendarCompletionCoordinator()
+        guard coordinator.begin(request, completion: { [weak self] outcome in
+            self?.finishChatSearchCalendarDateResolution(request: request, outcome: outcome)
+        }) else {
+            finishChatSearchCalendarDateResolution(
+                request: request,
+                outcome: .failed(
+                    .init(reason: .requestStartFailed, description: nil)
+                )
+            )
+            return
+        }
+    }
+
+    private func configuredSearchCalendarCompletionCoordinator()
+        -> ChatSearchCalendarCompletionCoordinating {
+        if let searchCalendarCompletionCoordinator {
+            return searchCalendarCompletionCoordinator
+        }
+        let transport = ChatSearchTimestampMAMTransport()
+        let remoteResolver = ChatSearchTimestampMAMResolver(
+            dependencies: .init(
+                start: { plan, callbacks in
+                    transport.start(plan: plan, callbacks: callbacks)
+                },
+                cancel: { queryID in
+                    transport.cancel(queryID: queryID)
+                }
+            )
+        )
+        let coordinator = ChatSearchCalendarCompletionCoordinator(
+            localResolver: ChatSearchTimestampResolver(),
+            remoteResolver: remoteResolver
+        )
+        searchCalendarTimestampMAMTransport = transport
+        searchCalendarCompletionCoordinator = coordinator
+        return coordinator
+    }
+
+    private func finishChatSearchCalendarDateResolution(
+        request: ChatSearchCalendarCompletionRequest,
+        outcome: ChatSearchCalendarCompletionOutcome
+    ) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.finishChatSearchCalendarDateResolution(request: request, outcome: outcome)
+            }
+            return
+        }
+        guard activeSearchCalendarCompletionRequest?.id == request.id else {
+            return
+        }
+        activeSearchCalendarCompletionRequest = nil
+        reduceSearchPresentationState(
+            .dateResolutionFinished(generation: Int(request.generation))
+        )
+        setChatSearchCalendarDateResolutionLoading(false)
+
+        guard currentChatSearchScopeMatches(request.scope) else {
+            return
+        }
+        switch outcome {
+        case .resolved(let anchor):
+            guard anchor.scope == request.scope,
+                  let openRequest = ChatSearchCalendarAnchorRequestFactory.make(
+                      anchor: anchor,
+                      conversationType: conversationType
+                  ) else {
+                presentChatSearchCalendarDateResolutionError()
+                return
+            }
+            chatScrollDirection = .up
+            queueOpenMessageRequest(
+                openRequest,
+                hooks: ChatAnchorExecutionHooks(
+                    direction: .up,
+                    animatedScroll: true,
+                    onFailed: nil,
+                    onPositioned: nil
+                )
+            )
+        case .noMessage:
+            announceChatSearchCalendarDateHasNoMessage()
+        case .failed:
+            presentChatSearchCalendarDateResolutionError()
+        case .cancelled:
+            break
+        }
+    }
+
+    private func restoreNormalChatChromeForCalendarDateResolution() {
+        applySearchSessionEffects(searchSession.cancel())
+        searchOlderPageNavigationGate.reset(generation: searchSession.generation)
+        clearInChatSearchQuery(clearResults: true, panelState: .idle)
+        pendingSearchActivationRequest = nil
+        searchBar.text = nil
+        searchTextObserver.accept(nil)
+        inSearchMode.accept(false)
+
+        guard isViewLoaded else {
+            setChatSearchCalendarDateResolutionLoading(true)
+            return
+        }
+        searchInputBar.text = nil
+        searchBar.endEditing(true)
+        searchInputBar.endEditing(true)
+        hideSearchInputOverlay()
+        xabberInputView.changeState(to: .normal)
+        let inputHeight = updateChatInputViewForCurrentKeyboardLayout(visibleKeyboardHeight: 0)
+        updateChatCollectionInsets(inputHeight: inputHeight)
+        navigationItem.setHidesBackButton(false, animated: false)
+        UIView.performWithoutAnimation {
+            configureNavbar()
+        }
+        setChatSearchCalendarDateResolutionLoading(true)
+    }
+
+    private func setChatSearchCalendarDateResolutionLoading(_ isLoading: Bool) {
+        isChatSearchCalendarDateResolutionLoading = isLoading
+        setLoadingIndicatorVisible(isLoading)
+    }
+
+    private func currentChatSearchScopeMatches(_ scope: ChatSearchResult.Scope) -> Bool {
+        scope.owner == owner &&
+            scope.jid == jid &&
+            scope.conversationTypeRawValue == conversationType.rawValue
+    }
+
+    private func announceChatSearchCalendarDateHasNoMessage() {
+        let message = "No messages".localizeString(id: "no_messages", arguments: [])
+        if let chatSearchCalendarDateAnnouncementHandler {
+            chatSearchCalendarDateAnnouncementHandler(message)
+        } else {
+            UIAccessibility.post(notification: .announcement, argument: message)
+        }
+    }
+
+    private func presentChatSearchCalendarDateResolutionError() {
+        let message = "Internal error".localizeString(
+            id: "message_manager_error_internal",
+            arguments: []
+        )
+        if let chatSearchCalendarDateErrorHandler {
+            chatSearchCalendarDateErrorHandler(message)
+        } else if isViewLoaded {
+            view.makeToast(message)
+        }
     }
     
     internal func scrollToSearchedMessage(primary: String) {

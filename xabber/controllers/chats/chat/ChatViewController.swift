@@ -1677,6 +1677,13 @@ class ChatViewController: MessagesViewController {
     var searchResultsListViewController: ChatSearchResultsListViewController? = nil
     var searchModeTransitionCoordinator = ChatSearchModeTransitionCoordinator()
     var searchCalendarViewController: ChatSearchCalendarViewController? = nil
+    var searchCalendarCompletionCoordinator: ChatSearchCalendarCompletionCoordinating? = nil
+    var searchCalendarTimestampMAMTransport: ChatSearchTimestampMAMTransport? = nil
+    var pendingSearchCalendarCompletionRequest: ChatSearchCalendarCompletionRequest? = nil
+    var activeSearchCalendarCompletionRequest: ChatSearchCalendarCompletionRequest? = nil
+    var isChatSearchCalendarDateResolutionLoading = false
+    var chatSearchCalendarDateAnnouncementHandler: ((String) -> Void)? = nil
+    var chatSearchCalendarDateErrorHandler: ((String) -> Void)? = nil
     var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var currentSearchQueryId: String? = nil
     var currentInChatSearchQueryContext: ChatInChatSearchQueryContext? = nil
@@ -4881,6 +4888,7 @@ class ChatViewController: MessagesViewController {
         }
         self.didRunNavigationDisappearanceCleanup = true
         self.didScheduleNavigationDisappearanceCleanup = false
+        self.cancelChatSearchCalendarDateResolution()
         AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             user.mam.allowHistoryFixTask = false
@@ -4976,6 +4984,7 @@ class ChatViewController: MessagesViewController {
 
     internal func handleApplicationDidEnterBackground() {
         NotifyManager.shared.currentDialog = nil
+        self.cancelChatSearchCalendarDateResolution()
         self.cancelActiveAudioRecordingForLifecycle()
         self.flushPendingVisibleReadTarget()
         do {

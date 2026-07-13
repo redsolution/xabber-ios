@@ -74,6 +74,7 @@ struct ChatSearchPresentationState: Equatable {
         case openCalendar
         case cancelCalendar
         case completeCalendarDate(Date)
+        case dateResolutionFinished(generation: Int)
         case cancelSearch
     }
 
@@ -309,6 +310,14 @@ struct ChatSearchPresentationState: Equatable {
             query = ""
             resultCount = 0
             committedResultIndex = nil
+
+        case .dateResolutionFinished(let eventGeneration):
+            guard !isActive,
+                  generation == eventGeneration,
+                  case .resolvingDate = positioningPhase else {
+                return
+            }
+            positioningPhase = .idle
 
         case .cancelSearch:
             generation &+= 1
