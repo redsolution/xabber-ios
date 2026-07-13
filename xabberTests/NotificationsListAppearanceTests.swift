@@ -226,6 +226,19 @@ final class NotificationsListAppearanceTests: XCTestCase {
         }
     }
 
+    private func setNotificationRead(
+        owner: String,
+        uniqueId: String,
+        isRead: Bool,
+        jid: String = "server@example.com"
+    ) {
+        let realm = try! WRealm.safe()
+        let primary = NotificationStorageItem.genPrimary(owner: owner, jid: jid, uniqueId: uniqueId)
+        try! realm.write {
+            realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: primary)?.isRead = isRead
+        }
+    }
+
     func testNotificationsListUsesInsetGroupedTransparentSplitAppearance() {
         let controller = NotificationsListViewController()
         let container = embedInTraitContainer(controller, horizontalSizeClass: .regular)
@@ -403,7 +416,7 @@ final class NotificationsListAppearanceTests: XCTestCase {
         )
     }
 
-    func testNotificationsCompactSplitUsesBottomActionsAndClearsNavbarDuplicates() throws {
+    func testNotificationsCompactSplitUsesBottomBarAndClearsNavbarDuplicates() throws {
         let controller = NotificationsListViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
@@ -419,8 +432,257 @@ final class NotificationsListAppearanceTests: XCTestCase {
             controller.notificationsCompactBottomBarCenterTitle,
             "Read all".localizeString(id: "notifications_read_all_button", arguments: [])
         )
+        XCTAssertTrue(controller.notificationsCompactBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.notificationsCompactBottomBarPrimaryButton.isHidden)
+        XCTAssertFalse(controller.notificationsCompactBottomBarPrimaryButton.isEnabled)
+        XCTAssertTrue(controller.notificationsCompactBottomBarPrimaryButton.accessibilityElementsHidden)
         XCTAssertTrue(controller.bottomSearchHostView.superview === controller.view)
         XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
+    }
+
+    func testZeroMatchingUnreadHidesUnreadFilterAndReadAll() {
+        let owner = "notifications-zero-unread-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner)
+        addNotification(owner: owner, uniqueId: "read-info", category: .info, isRead: true, text: "Read info")
+        addNotification(owner: owner, uniqueId: "unread-device", category: .device, isRead: false, text: "Security")
+        let controller = NotificationsListViewController()
+        controller.filter.accept(.info)
+        controller.filterAccount.accept(owner)
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+        container.view.layoutIfNeeded()
+        navigationController.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+
+        let filterButton = controller.notificationsCompactBottomBarFilterButton
+        let readAllButton = controller.notificationsCompactBottomBarPrimaryButton
+        let filterPoint = controller.view.convert(
+            CGPoint(x: filterButton.bounds.midX, y: filterButton.bounds.midY),
+            from: filterButton
+        )
+        let readAllPoint = controller.view.convert(
+            CGPoint(x: readAllButton.bounds.midX, y: readAllButton.bounds.midY),
+            from: readAllButton
+        )
+        let searchButton = controller.bottomSearchHostView.collapsedButton
+        let searchPoint = controller.view.convert(
+            CGPoint(x: searchButton.bounds.midX, y: searchButton.bounds.midY),
+            from: searchButton
+        )
+
+        XCTAssertTrue(filterButton.isHidden)
+        XCTAssertFalse(filterButton.isEnabled)
+        XCTAssertFalse(filterButton.isAccessibilityElement)
+        XCTAssertTrue(filterButton.accessibilityElementsHidden)
+        XCTAssertTrue(readAllButton.isHidden)
+        XCTAssertFalse(readAllButton.isEnabled)
+        XCTAssertFalse(readAllButton.isAccessibilityElement)
+        XCTAssertTrue(readAllButton.accessibilityElementsHidden)
+        XCTAssertFalse(controller.view.hitTest(filterPoint, with: nil) === filterButton)
+        XCTAssertFalse(controller.view.hitTest(readAllPoint, with: nil) === readAllButton)
+        XCTAssertTrue(controller.view.hitTest(searchPoint, with: nil) === searchButton)
+    }
+
+    func testMatchingUnreadShowsUnreadFilterAndReadAll() {
+        let owner = "notifications-matching-unread-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner)
+        addNotification(owner: owner, uniqueId: "unread-info", category: .info, isRead: false, text: "Unread info")
+        let controller = NotificationsListViewController()
+        controller.filter.accept(.info)
+        controller.filterAccount.accept(owner)
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+
+        XCTAssertFalse(controller.notificationsCompactBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.notificationsCompactBottomBarFilterButton.isEnabled)
+        XCTAssertTrue(controller.notificationsCompactBottomBarFilterButton.isAccessibilityElement)
+        XCTAssertFalse(controller.notificationsCompactBottomBarPrimaryButton.isHidden)
+        XCTAssertTrue(controller.notificationsCompactBottomBarPrimaryButton.isEnabled)
+        XCTAssertTrue(controller.notificationsCompactBottomBarPrimaryButton.isAccessibilityElement)
+    }
+
+    func testReadNotificationInAnotherCategoryDoesNotAffectCurrentAvailability() {
+        let owner = "notifications-other-category-read-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner)
+        addNotification(owner: owner, uniqueId: "unread-info", category: .info, isRead: false, text: "Unread info")
+        addNotification(owner: owner, uniqueId: "read-device", category: .device, isRead: true, text: "Read security")
+        let controller = NotificationsListViewController()
+        controller.filter.accept(.info)
+        controller.filterAccount.accept(owner)
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+
+        XCTAssertFalse(controller.notificationsCompactBottomBarFilterButton.isHidden)
+        XCTAssertFalse(controller.notificationsCompactBottomBarPrimaryButton.isHidden)
+        XCTAssertTrue(controller.notificationsCompactBottomBarPrimaryButton.isEnabled)
+    }
+
+    func testUnreadNotificationInAnotherAccountDoesNotAffectPinnedAccountScope() {
+        let owner = "notifications-pinned-\(UUID().uuidString)@example.com"
+        let otherOwner = "notifications-other-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner, order: 0)
+        addEnabledAccount(owner: otherOwner, order: 1)
+        addNotification(owner: owner, uniqueId: "read-info", category: .info, isRead: true, text: "Read info")
+        addNotification(owner: otherOwner, uniqueId: "unread-info", category: .info, isRead: false, text: "Other unread")
+        let controller = NotificationsListViewController()
+        controller.filter.accept(.info)
+        controller.filterAccount.accept(owner)
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+
+        XCTAssertTrue(controller.notificationsCompactBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.notificationsCompactBottomBarPrimaryButton.isHidden)
+    }
+
+    func testLocalSearchDoesNotChangeUnreadActionAvailability() {
+        let owner = "notifications-search-availability-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner)
+        addNotification(owner: owner, uniqueId: "unread-info", category: .info, isRead: false, text: "Alpha outage")
+        let controller = NotificationsListViewController()
+        controller.filter.accept(.info)
+        controller.filterAccount.accept(owner)
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+        container.loadViewIfNeeded()
+
+        controller.bottomSearchHostView.setQuery("no matching notification", notify: true)
+        controller.updateNotificationsCompactBottomBarState()
+
+        XCTAssertFalse(controller.notificationsCompactBottomBarFilterButton.isHidden)
+        XCTAssertFalse(controller.notificationsCompactBottomBarPrimaryButton.isHidden)
+        XCTAssertTrue(controller.notificationsCompactBottomBarPrimaryButton.isEnabled)
+    }
+
+    func testActiveUnreadFilterResetsWhenLastMatchingUnreadBecomesRead() {
+        let owner = "notifications-reset-unread-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner)
+        addNotification(owner: owner, uniqueId: "unread-info", category: .info, isRead: false, text: "Unread info")
+        let controller = NotificationsListViewController()
+        controller.filter.accept(.info)
+        controller.filterAccount.accept(owner)
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+        container.loadViewIfNeeded()
+        controller.unreadOnly.accept(true)
+        controller.updateNotificationsCompactBottomBarState()
+        setNotificationRead(owner: owner, uniqueId: "unread-info", isRead: true)
+
+        controller.updateNotificationsCompactBottomBarState()
+
+        XCTAssertFalse(controller.unreadOnly.value)
+        XCTAssertTrue(controller.notificationsCompactBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.notificationsCompactBottomBarPrimaryButton.isHidden)
+    }
+
+    func testReadAllHidesBothActionsAfterMatchingRowsAreMarkedRead() {
+        let owner = "notifications-read-all-hide-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner)
+        addNotification(owner: owner, uniqueId: "unread-info", category: .info, isRead: false, text: "Unread info")
+        let controller = NotificationsListViewController()
+        controller.filter.accept(.info)
+        controller.filterAccount.accept(owner)
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+        container.loadViewIfNeeded()
+        controller.unreadOnly.accept(true)
+        controller.updateNotificationsCompactBottomBarState()
+
+        controller.notificationsCompactBottomBarPrimaryButton.sendActions(for: .touchUpInside)
+
+        XCTAssertFalse(controller.unreadOnly.value)
+        XCTAssertTrue(controller.notificationsCompactBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.notificationsCompactBottomBarPrimaryButton.isHidden)
+        XCTAssertFalse(controller.notificationsCompactBottomBarPrimaryButton.isEnabled)
+    }
+
+    func testHiddenNotificationActionsDoNotMoveSearchFrame() {
+        let owner = "notifications-fixed-search-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner)
+        addNotification(owner: owner, uniqueId: "unread-info", category: .info, isRead: false, text: "Unread info")
+        let controller = NotificationsListViewController()
+        controller.filter.accept(.info)
+        controller.filterAccount.accept(owner)
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+        container.loadViewIfNeeded()
+        container.view.layoutIfNeeded()
+        navigationController.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        let visibleActionsSearchFrame = controller.bottomSearchHostView.collapsedButton.convert(
+            controller.bottomSearchHostView.collapsedButton.bounds,
+            to: controller.view
+        )
+        setNotificationRead(owner: owner, uniqueId: "unread-info", isRead: true)
+
+        controller.updateNotificationsCompactBottomBarState()
+        controller.view.layoutIfNeeded()
+
+        XCTAssertTrue(controller.notificationsCompactBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.notificationsCompactBottomBarPrimaryButton.isHidden)
+        XCTAssertEqual(
+            controller.bottomSearchHostView.collapsedButton.convert(
+                controller.bottomSearchHostView.collapsedButton.bounds,
+                to: controller.view
+            ),
+            visibleActionsSearchFrame
+        )
+    }
+
+    func testRegularWidthNavbarReadAllAndFiltersRemainUnchanged() {
+        let controller = NotificationsListViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .regular)
+        container.loadViewIfNeeded()
+        let originalIdentifiers = controller.navigationItem.rightBarButtonItems?.compactMap(\.accessibilityIdentifier)
+
+        controller.updateNotificationsCompactBottomBarState()
+        controller.configureBars(animated: false)
+
+        XCTAssertEqual(
+            controller.navigationItem.rightBarButtonItems?.compactMap(\.accessibilityIdentifier),
+            originalIdentifiers
+        )
+        XCTAssertTrue(originalIdentifiers?.contains("notifications_filter_menu_button") == true)
+        XCTAssertTrue(originalIdentifiers?.contains("notifications_mark_all_read_button") == true)
+        XCTAssertTrue(controller.isNotificationsCompactBottomBarHidden)
+    }
+
+    func testNotificationsLastRowRemainsAboveBottomSearchAtMaximumOffset() {
+        let controller = NotificationsListViewController()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        controller.loadViewIfNeeded()
+        controller.view.layoutIfNeeded()
+        controller.tableView.contentSize = CGSize(width: 393, height: 1_600)
+        controller.updateNotificationsTableInsetsForBottomSearch()
+        let maximumOffsetY = max(
+            -controller.tableView.adjustedContentInset.top,
+            controller.tableView.contentSize.height
+                + controller.tableView.adjustedContentInset.bottom
+                - controller.tableView.bounds.height
+        )
+        controller.tableView.contentOffset.y = maximumOffsetY
+
+        let contentBottomY = controller.tableView.convert(
+            CGPoint(x: 0, y: controller.tableView.contentSize.height),
+            to: controller.view
+        ).y
+        let searchFrame = controller.bottomSearchHostView.collapsedButton.convert(
+            controller.bottomSearchHostView.collapsedButton.bounds,
+            to: controller.view
+        )
+
+        XCTAssertLessThanOrEqual(
+            contentBottomY,
+            searchFrame.minY - FloatingBottomBarView.Metrics.tableInsetPadding + 0.001
+        )
     }
 
     func testNotificationsUsesGeometryBasedBottomOverlayInsetCoordinator() {
@@ -454,7 +716,12 @@ final class NotificationsListAppearanceTests: XCTestCase {
     }
 
     func testNotificationsCompactBottomFilterReceivesHitWhenSearchHostIsCollapsed() {
+        let owner = "notifications-filter-hit-\(UUID().uuidString)@example.com"
+        addEnabledAccount(owner: owner)
+        addNotification(owner: owner, uniqueId: "unread-info", category: .info, isRead: false, text: "Unread info")
         let controller = NotificationsListViewController()
+        controller.filter.accept(.info)
+        controller.filterAccount.accept(owner)
         let navigationController = UINavigationController(rootViewController: controller)
         let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
 
@@ -475,6 +742,7 @@ final class NotificationsListAppearanceTests: XCTestCase {
     func testNotificationsCompactUnreadFilterTogglesWithoutChangingCategoryOrAccount() {
         let owner = "notifications-unread-filter-\(UUID().uuidString)@example.com"
         addEnabledAccount(owner: owner)
+        addNotification(owner: owner, uniqueId: "unread-mention", category: .mention, isRead: false, text: "Unread mention")
         let controller = NotificationsListViewController()
         controller.filter.accept(.mentions)
         controller.filterAccount.accept(owner)
@@ -498,7 +766,7 @@ final class NotificationsListAppearanceTests: XCTestCase {
         XCTAssertEqual(controller.filterAccount.value, owner)
     }
 
-    func testNotificationsReadAllMarksOnlyMatchingUnreadNotifications() throws {
+    func testMarkAllStillTargetsOnlyCurrentCategoryAndAccountScope() throws {
         let owner = "notifications-read-all-\(UUID().uuidString)@example.com"
         let otherOwner = "notifications-read-all-other-\(UUID().uuidString)@example.com"
         addEnabledAccount(owner: owner)
@@ -533,6 +801,8 @@ final class NotificationsListAppearanceTests: XCTestCase {
         XCTAssertFalse(isRead("wrong-owner", owner: otherOwner))
         XCTAssertTrue(isRead("already-read"))
         XCTAssertFalse(controller.isNotificationsCompactReadAllButtonEnabled)
+        XCTAssertTrue(controller.notificationsCompactBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.notificationsCompactBottomBarPrimaryButton.isHidden)
     }
 
     func testNotificationsLocalSearchFiltersStoredNotificationRows() {

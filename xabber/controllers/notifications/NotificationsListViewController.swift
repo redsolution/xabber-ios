@@ -767,6 +767,11 @@ class NotificationsListViewController: SimpleBaseViewController {
             configureNotificationsBottomSearchIfNeeded()
         }
 
+        let hasMatchingUnreadNotifications = matchingUnreadNotificationCount() > 0
+        if !hasMatchingUnreadNotifications, unreadOnly.value {
+            unreadOnly.accept(false)
+        }
+
         let isActive = unreadOnly.value
         notificationsCompactBottomBarView.leftButton.accessibilityIdentifier = "notifications_unread_filter_button"
         notificationsCompactBottomBarView.leftButton.accessibilityLabel = "Unread notifications filter"
@@ -781,7 +786,13 @@ class NotificationsListViewController: SimpleBaseViewController {
             accessibilityIdentifier: "notifications_read_all_bottom_button",
             accessibilityLabel: readAllTitle
         )
-        notificationsCompactBottomBarView.setCenterButtonEnabled(matchingUnreadNotificationCount() > 0)
+        notificationsCompactBottomBarView.applyActionPresentation(
+            .init(
+                isLeftVisible: hasMatchingUnreadNotifications,
+                isCenterVisible: hasMatchingUnreadNotifications
+            )
+        )
+        notificationsCompactBottomBarView.setCenterButtonEnabled(hasMatchingUnreadNotifications)
         notificationsCompactBottomBarView.isHidden = !shouldUseNotificationsCompactBottomBar ||
             bottomSearchHostView.hidesUnderlyingActions
         notificationsCompactBottomBarView.refreshAppearance()
