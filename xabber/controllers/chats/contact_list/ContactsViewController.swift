@@ -50,15 +50,28 @@ struct ContactsListCoordinator {
         let datasource: [[ContactsViewController.Datasource]]
         let categoryDatasource: [[ContactsCategoryViewController.Datasource]]
         let circleCounts: [(name: String, count: Int)]
+        let filterablePresenceRowCount: Int
     }
 
     static func deriveState(realm: Realm, state: ContactsFilterState, datasourceBuilder: (ContactsFilterState, ContactsListSupport.Context) -> [[ContactsViewController.Datasource]]) -> DerivedState {
         let context = ContactsListSupport.makeContext(realm: realm, state: state)
+        let filterablePresenceState = ContactsFilterState(
+            category: state.category,
+            filteredAccounts: state.filteredAccounts,
+            filteredGroups: state.filteredGroups,
+            showOffline: true,
+            isGroup: state.isGroup,
+            searchQuery: nil
+        )
         return DerivedState(
             context: context,
             datasource: datasourceBuilder(state, context),
             categoryDatasource: ContactsListSupport.categoryDatasource(context: context),
-            circleCounts: ContactsListSupport.circleCounts(context: context)
+            circleCounts: ContactsListSupport.circleCounts(context: context),
+            filterablePresenceRowCount: ContactsListSupport.filterablePresenceRowCount(
+                context: context,
+                state: filterablePresenceState
+            )
         )
     }
 }
@@ -178,6 +191,39 @@ enum ContactsListSupport {
     static func hasAnyGroupAreaContent(context: Context) -> Bool {
         visibleJoinedGroupRosterItems(context: context).isNotEmpty ||
         context.invites.contains { $0.isRead == false }
+    }
+
+    static func filterablePresenceRowCount(
+        context: Context,
+        state: ContactsFilterState
+    ) -> Int {
+        if state.isGroup {
+            guard state.category != "invitations" else {
+                return 0
+            }
+
+            return context.groupChats.reduce(into: 0) { count, group in
+                guard !context.ignoredJids.contains(group.jid),
+                      groupMatchesPresenceCategory(group, category: state.category),
+                      let rosterItem = rosterItem(for: group.jid, owner: group.owner, context: context),
+                      includeGroup(contact: rosterItem, state: state) else {
+                    return
+                }
+                count += 1
+            }
+        }
+
+        guard state.category == nil ||
+                state.category == "all" ||
+                state.category == "online" else {
+            return 0
+        }
+
+        return context.joinedContactRosterItems.reduce(into: 0) { count, contact in
+            if includeContact(contact, state: state) {
+                count += 1
+            }
+        }
     }
 
     static func filteredGroupsMatch(itemGroups: Set<String>, state: ContactsFilterState) -> Bool {
@@ -406,6 +452,24 @@ enum ContactsListSupport {
             return rosterItem
         }
     }
+
+    private static func groupMatchesPresenceCategory(
+        _ group: GroupChatStorageItem,
+        category: String?
+    ) -> Bool {
+        switch category {
+        case "public":
+            return group.privacy == .publicChat && !group.peerToPeer
+        case "incognito":
+            return group.privacy == .incognito && !group.peerToPeer
+        case "private":
+            return group.peerToPeer
+        case nil, "all":
+            return !group.peerToPeer
+        default:
+            return false
+        }
+    }
 }
 
 class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuieting {
@@ -629,6 +693,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
     internal var datasetGeneration: Int = 0
     internal var currentFeatureHasAnyContent: Bool = false
     internal var currentSnapshotIsResolved: Bool = false
+    internal var currentFilterablePresenceRowCount: Int?
     
     var pinnedAccount: Int = 0
     
@@ -1292,7 +1357,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         updateQueue.async { [weak self] in
             guard let self = self else { return }
             let realm = try? WRealm.safe()
-            let result: (datasource: [[Datasource]], featureHasAnyContent: Bool, hasResolvedSnapshot: Bool) = realm.map {
+            let result: (datasource: [[Datasource]], featureHasAnyContent: Bool, hasResolvedSnapshot: Bool, filterablePresenceRowCount: Int) = realm.map {
                 let derivedState = ContactsListCoordinator.deriveState(
                     realm: $0,
                     state: state,
@@ -1315,9 +1380,15 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                 return (
                     datasource: derivedState.datasource,
                     featureHasAnyContent: featureHasAnyContent,
-                    hasResolvedSnapshot: hasResolvedSnapshot
+                    hasResolvedSnapshot: hasResolvedSnapshot,
+                    filterablePresenceRowCount: derivedState.filterablePresenceRowCount
                 )
-            } ?? (datasource: [[]], featureHasAnyContent: false, hasResolvedSnapshot: false)
+            } ?? (
+                datasource: [[]],
+                featureHasAnyContent: false,
+                hasResolvedSnapshot: false,
+                filterablePresenceRowCount: 0
+            )
             
             DispatchQueue.main.async {
                 guard self.datasetGeneration == generation else { return }
@@ -1325,6 +1396,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                     result.datasource,
                     featureHasAnyContent: result.featureHasAnyContent,
                     hasResolvedSnapshot: result.hasResolvedSnapshot,
+                    filterablePresenceRowCount: result.filterablePresenceRowCount,
                     forceFullReload: force
                 )
                 self.postprocessDataset()
@@ -1332,9 +1404,20 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         }
     }
     
-    internal final func applyMappedDataset(_ newDatasource: [[Datasource]], featureHasAnyContent: Bool, hasResolvedSnapshot: Bool, forceFullReload: Bool) {
+    internal final func applyMappedDataset(
+        _ newDatasource: [[Datasource]],
+        featureHasAnyContent: Bool,
+        hasResolvedSnapshot: Bool,
+        filterablePresenceRowCount: Int,
+        forceFullReload: Bool
+    ) {
         currentFeatureHasAnyContent = featureHasAnyContent
         currentSnapshotIsResolved = hasResolvedSnapshot
+        currentFilterablePresenceRowCount = filterablePresenceRowCount
+        normalizeActivePresenceFilterIfUnavailable(
+            filterablePresenceRowCount: filterablePresenceRowCount
+        )
+        updateContactsCompactBottomBarState()
 
         func refreshEmptyStateAfterDatasourceUpdate() {
             self.updateEmptyState(
@@ -1816,6 +1899,12 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             imageName: active ? "person.fill" : "person",
             isActive: active
         )
+        contactsCompactBottomBarView.applyActionPresentation(
+            FloatingBottomBarView.ActionPresentation(
+                isLeftVisible: currentFilterablePresenceRowCount.map { $0 > 0 } ?? true,
+                isCenterVisible: true
+            )
+        )
 
         contactsCompactBottomBarView.setCenterButtonTitle(
             contactsCompactBottomBarPrimaryTitle,
@@ -1834,6 +1923,24 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             view.bringSubviewToFront(bottomSearchHostView)
         }
         updateTableInsetsForBottomSearch()
+    }
+
+    private final func normalizeActivePresenceFilterIfUnavailable(
+        filterablePresenceRowCount: Int
+    ) {
+        guard filterablePresenceRowCount == 0, showOffline == false else {
+            return
+        }
+
+        showOffline = true
+        guard !isGroup, category == Filter.online.rawValue else {
+            return
+        }
+
+        category = Filter.all.rawValue
+        filter.accept(.all)
+        categoryDelegate?.filterDidSelect(category: Filter.all.rawValue)
+        updateTitle()
     }
 
     @objc
