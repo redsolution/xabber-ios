@@ -1067,7 +1067,7 @@ final class InfoCardSearchAccessibilityTests: XCTestCase {
         controller.loadViewIfNeeded()
         controller.activateSearchModeFromExternalRoute(activateKeyboard: false, animated: false)
 
-        let searchBar = controller.searchInputBar
+        let searchBar = controller.searchNavigationView
         let searchPanel = controller.xabberInputView.searchPanel
         XCTAssertNil(controller.navigationItem.titleView)
         assertSearchInputIdentifiers(searchBar)
@@ -1078,7 +1078,7 @@ final class InfoCardSearchAccessibilityTests: XCTestCase {
         assertSearchInputIdentifiers(searchBar)
         assertSearchPanelIdentifiers(searchPanel)
 
-        searchPanel.applyRenderState(.loading)
+        controller.applyInChatSearchPanelRenderState(.loading)
         assertSearchPanelIdentifiers(searchPanel)
 
         controller.searchMessagesQueue = [
@@ -1090,7 +1090,7 @@ final class InfoCardSearchAccessibilityTests: XCTestCase {
         assertSearchPanelIdentifiers(searchPanel)
 
         controller.showSkeletonObserver.accept(false)
-        searchPanel.cancelButton.sendActions(for: .touchUpInside)
+        searchBar.cancelButton.sendActions(for: .touchUpInside)
         XCTAssertFalse(controller.inSearchMode.value)
         XCTAssertEqual(controller.xabberInputView.state, .normal)
         XCTAssertTrue(searchPanel.isHidden)
@@ -1109,12 +1109,12 @@ final class InfoCardSearchAccessibilityTests: XCTestCase {
     }
 
     private func assertSearchInputIdentifiers(
-        _ searchBar: ChatSearchInputBarView,
+        _ searchBar: ChatSearchNavigationView,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         XCTAssertEqual(
-            searchBar.textView.accessibilityIdentifier,
+            searchBar.textField.accessibilityIdentifier,
             "chat_search_input",
             file: file,
             line: line
@@ -1125,8 +1125,15 @@ final class InfoCardSearchAccessibilityTests: XCTestCase {
             file: file,
             line: line
         )
-        XCTAssertNil(
-            findView(withAccessibilityIdentifier: "chat_search_cancel", in: searchBar),
+        XCTAssertEqual(
+            searchBar.clearButton.accessibilityIdentifier,
+            "chat_search_clear",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            searchBar.cancelButton.accessibilityIdentifier,
+            "chat_search_cancel",
             file: file,
             line: line
         )
@@ -2625,26 +2632,23 @@ final class ChatSearchArchiveGapRepairTests: XCTestCase {
 
 @MainActor
 final class ChatSearchInputBarViewTests: XCTestCase {
-    func testStructureUsesGlassInputSurfaceWithDetachedSearchButtonAndNoTopCancel() throws {
-        let bar = ChatSearchInputBarView(frame: CGRect(x: 0, y: 0, width: 358, height: NativeGlassBarStyle.minimumHeight))
+    func testStructureUsesOneGlassFieldWithInternalSearchClearAndDetachedCancel() throws {
+        let bar = ChatSearchNavigationView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: ChatSearchNavigationLayout.nominalHeight)
+        )
+        bar.render(.init(query: "test", isRemoteSearching: false))
         bar.layoutIfNeeded()
 
-        let effectViews = visualEffectViews(in: bar)
-        XCTAssertTrue(effectViews.contains { $0 === bar.surfaceView })
         XCTAssertEqual(bar.surfaceView.layer.cornerRadius, NativeGlassBarStyle.cornerRadius, accuracy: 0.001)
-        XCTAssertEqual(bar.textView.accessibilityIdentifier, "chat_search_input")
+        XCTAssertEqual(bar.textField.accessibilityIdentifier, "chat_search_input")
         XCTAssertEqual(bar.submitButton.accessibilityIdentifier, "chat_search_submit")
-        XCTAssertNil(findView(withAccessibilityIdentifier: "chat_search_cancel", in: bar))
-        XCTAssertEqual(bar.textView.backgroundColor ?? .clear, .clear)
-        XCTAssertEqual(bar.textView.layer.borderWidth, 0, accuracy: 0.001)
-        XCTAssertTrue((bar.submitButton.title(for: .normal) ?? "").isEmpty)
-        XCTAssertNotNil(bar.submitButton.image(for: .normal))
-        XCTAssertEqual(bar.submitButton.bounds.size, CGSize(width: NativeGlassBarStyle.buttonSize, height: NativeGlassBarStyle.buttonSize))
-        XCTAssertLessThanOrEqual(
-            bar.surfaceView.frame.maxX,
-            bar.submitButton.frame.minX - NativeGlassBarStyle.interItemSpacing + 0.001
-        )
-        XCTAssertLessThanOrEqual(bar.submitButton.frame.maxX, bar.bounds.maxX + 0.001)
+        XCTAssertEqual(bar.clearButton.accessibilityIdentifier, "chat_search_clear")
+        XCTAssertEqual(bar.cancelButton.accessibilityIdentifier, "chat_search_cancel")
+        XCTAssertTrue(bar.submitButton.isDescendant(of: bar.surfaceView.contentView))
+        XCTAssertTrue(bar.clearButton.isDescendant(of: bar.surfaceView.contentView))
+        XCTAssertFalse(bar.cancelButton.isDescendant(of: bar.surfaceView))
+        XCTAssertEqual(bar.surfaceView.frame, CGRect(x: 16, y: 6, width: 306, height: 44))
+        XCTAssertEqual(bar.cancelButton.frame, CGRect(x: 330, y: 6, width: 44, height: 44))
 
         if #available(iOS 26.0, *) {
             let glassEffect = try XCTUnwrap(bar.surfaceView.effect as? UIGlassEffect)
@@ -2655,48 +2659,35 @@ final class ChatSearchInputBarViewTests: XCTestCase {
         }
     }
 
-    func testIPhone16eWidthKeepsNonOverlappingInputAndDetachedSearchButton() {
-        let bar = ChatSearchInputBarView(frame: CGRect(x: 0, y: 0, width: 358, height: NativeGlassBarStyle.minimumHeight))
-
-        bar.text = "A long search query that should remain inside the input field"
-        bar.layoutIfNeeded()
-
-        XCTAssertEqual(bar.intrinsicContentSize.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
-        XCTAssertGreaterThanOrEqual(bar.textView.frame.minX, bar.surfaceView.bounds.minX + NativeGlassBarStyle.contentInset - 0.001)
-        XCTAssertLessThanOrEqual(bar.surfaceView.frame.maxX, bar.submitButton.frame.minX - NativeGlassBarStyle.interItemSpacing + 0.001)
-        XCTAssertLessThanOrEqual(bar.submitButton.frame.maxX, bar.bounds.maxX + 0.001)
-        XCTAssertEqual(bar.submitButton.frame.width, NativeGlassBarStyle.buttonSize, accuracy: 0.001)
-    }
-
-    func testLongTextIncreasesIntrinsicHeightDownwardUpToComposerMaximum() {
-        let bar = ChatSearchInputBarView(frame: CGRect(x: 0, y: 0, width: 358, height: NativeGlassBarStyle.minimumHeight))
-        bar.layoutIfNeeded()
-        let initialSurfaceMinY = bar.surfaceView.frame.minY
+    func testIPhone16eWidthKeepsFixedSingleLineInputGeometry() {
+        let bar = ChatSearchNavigationView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: ChatSearchNavigationLayout.nominalHeight)
+        )
 
         bar.text = Array(repeating: "long search query", count: 60).joined(separator: " ")
         bar.layoutIfNeeded()
 
-        XCTAssertGreaterThan(bar.intrinsicContentSize.height, NativeGlassBarStyle.minimumHeight)
-        XCTAssertLessThanOrEqual(bar.intrinsicContentSize.height, ChatSearchInputBarView.maximumTextHeight)
-        XCTAssertEqual(bar.surfaceView.frame.minY, initialSurfaceMinY, accuracy: 0.001)
+        XCTAssertEqual(bar.intrinsicContentSize.height, 60, accuracy: 0.001)
+        XCTAssertEqual(bar.textField.maxLines, 1)
+        XCTAssertEqual(bar.textField.frame.height, 44, accuracy: 0.001)
+        XCTAssertEqual(bar.submitButton.frame, CGRect(x: 0, y: 0, width: 44, height: 44))
+        XCTAssertEqual(bar.clearButton.frame.maxX, bar.surfaceView.bounds.maxX, accuracy: 0.001)
     }
 
-    func testSubmitButtonAndReturnSubmitCurrentText() {
-        let bar = ChatSearchInputBarView(frame: CGRect(x: 0, y: 0, width: 358, height: NativeGlassBarStyle.minimumHeight))
-        var submittedTexts: [String?] = []
+    func testSubmitButtonAndReturnSubmitCurrentTextWithoutClearingIt() {
+        let bar = ChatSearchNavigationView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: ChatSearchNavigationLayout.nominalHeight)
+        )
+        var submittedTexts: [String] = []
         bar.onSubmit = { submittedTexts.append($0) }
 
         bar.text = "needle"
         bar.submitButton.sendActions(for: .touchUpInside)
-        bar.text = "return needle"
-        let shouldInsertReturn = bar.textView.delegate?.textView?(
-            bar.textView,
-            shouldChangeTextIn: NSRange(location: bar.textView.text.count, length: 0),
-            replacementText: "\n"
-        )
+        let shouldReturn = bar.textField.delegate?.textFieldShouldReturn?(bar.textField)
 
-        XCTAssertEqual(submittedTexts, ["needle", "return needle"])
-        XCTAssertEqual(shouldInsertReturn, false)
+        XCTAssertEqual(submittedTexts, ["needle", "needle"])
+        XCTAssertEqual(shouldReturn, true)
+        XCTAssertEqual(bar.text, "needle")
     }
 
     func testWhitespaceSubmitClearsControllerSearchStateWithoutStartingQuery() {
@@ -2712,7 +2703,7 @@ final class ChatSearchInputBarViewTests: XCTestCase {
         XCTAssertNil(controller.currentSearchQueryId)
     }
 
-    func testSearchModeInstallsFloatingGlassInputBarAndClearsStaleNavbarItems() throws {
+    func testSearchModeInstallsFixedTopChromeAndClearsStaleNavbarItems() throws {
         let controller = ChatViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         let staleRight = UIBarButtonItem(title: "stale", style: .plain, target: nil, action: nil)
@@ -2722,7 +2713,7 @@ final class ChatSearchInputBarViewTests: XCTestCase {
         controller.loadViewIfNeeded()
         controller.activateSearchModeFromExternalRoute(activateKeyboard: false, animated: false)
 
-        let bar = controller.searchInputBar
+        let bar = controller.searchNavigationView
         XCTAssertNil(controller.navigationItem.leftBarButtonItem)
         XCTAssertNil(controller.navigationItem.rightBarButtonItem)
         XCTAssertNil(controller.navigationItem.rightBarButtonItems)
@@ -2731,35 +2722,16 @@ final class ChatSearchInputBarViewTests: XCTestCase {
         XCTAssertTrue(controller.navigationItem.hidesBackButton)
         XCTAssertIdentical(bar.superview, controller.view)
         XCTAssertFalse(bar.isHidden)
-        let topConstraint = try XCTUnwrap(controller.searchInputBarTopConstraint)
         XCTAssertEqual(
-            topConstraint.constant,
-            -max(NativeGlassBarStyle.minimumHeight, navigationController.navigationBar.frame.height),
+            try XCTUnwrap(controller.searchInputBarHeightConstraint).constant,
+            ChatSearchNavigationLayout.nominalHeight,
             accuracy: 0.001
         )
-        XCTAssertEqual(bar.textView.accessibilityIdentifier, "chat_search_input")
+        XCTAssertNotNil(controller.searchInputBarBottomConstraint)
+        XCTAssertEqual(bar.textField.accessibilityIdentifier, "chat_search_input")
         XCTAssertEqual(bar.submitButton.accessibilityIdentifier, "chat_search_submit")
-        XCTAssertNil(findView(withAccessibilityIdentifier: "chat_search_cancel", in: bar))
-    }
-
-    private func visualEffectViews(in view: UIView) -> [UIVisualEffectView] {
-        view.subviews.reduce(view is UIVisualEffectView ? [view as! UIVisualEffectView] : []) { result, subview in
-            result + visualEffectViews(in: subview)
-        }
-    }
-
-    private func findView(withAccessibilityIdentifier identifier: String, in view: UIView) -> UIView? {
-        if view.accessibilityIdentifier == identifier {
-            return view
-        }
-
-        for subview in view.subviews {
-            if let match = findView(withAccessibilityIdentifier: identifier, in: subview) {
-                return match
-            }
-        }
-
-        return nil
+        XCTAssertEqual(bar.cancelButton.accessibilityIdentifier, "chat_search_cancel")
+        XCTAssertTrue(controller.xabberInputView.searchPanel.cancelButton.isHidden)
     }
 }
 

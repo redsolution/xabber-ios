@@ -129,6 +129,7 @@ enum XabberGlassStyle {
         role: SurfaceRole = .bar,
         cornerStyle: CornerStyle = .fixed(cornerRadius),
         interactive: Bool = true,
+        prefersNativeGlass: Bool = true,
         nativeGlassStyle: GlassEffectStyle? = nil,
         maskedCorners: CACornerMask? = nil,
         tintColor: UIColor? = nil
@@ -136,6 +137,7 @@ enum XabberGlassStyle {
         view.effect = makeEffect(
             role: role,
             interactive: interactive,
+            prefersNativeGlass: prefersNativeGlass,
             nativeGlassStyle: nativeGlassStyle,
             tintColor: tintColor
         )

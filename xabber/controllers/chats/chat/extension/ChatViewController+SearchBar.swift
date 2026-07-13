@@ -1055,6 +1055,14 @@ extension ChatViewController {
     ) -> ChatSearchPresentationState {
         assert(Thread.isMainThread, "Chat search presentation events must be reduced on the main thread")
         searchPresentationState.reduce(event)
+        if isViewLoaded {
+            searchNavigationView.render(
+                .init(
+                    query: searchPresentationState.query,
+                    isRemoteSearching: searchPresentationState.resultPhase == .searching
+                )
+            )
+        }
         return searchPresentationState
     }
 
@@ -1079,7 +1087,7 @@ extension ChatViewController {
                 isLoadingContext: isLoadingContext
             )
         }
-        xabberInputView.searchPanel.applyRenderState(renderState)
+        applyInChatSearchPanelRenderState(renderState)
     }
 
     internal func activateSearchModeFromExternalRoute(
@@ -1138,8 +1146,6 @@ extension ChatViewController {
         searchBar.text = text
         if isViewLoaded {
             searchInputBar.text = text
-            searchBar.resignFirstResponder()
-            searchInputBar.endEditing(true)
         }
 
         if normalizedText.isEmpty {
@@ -1365,8 +1371,15 @@ extension ChatViewController {
             return
         }
         if let panelState {
-            xabberInputView.searchPanel.applyRenderState(panelState)
+            applyInChatSearchPanelRenderState(panelState)
         }
+    }
+
+    internal func applyInChatSearchPanelRenderState(
+        _ renderState: ModernXabberInputView.SearchPanel.RenderState
+    ) {
+        xabberInputView.searchPanel.applyRenderState(renderState)
+        hideDuplicateBottomSearchCancelIfNeeded()
     }
 
     internal func clearVisibleSearchTextHighlightsIfNeeded() {
@@ -1677,21 +1690,21 @@ extension ChatViewController {
         let hasActiveQuery = queryText.isNotEmpty || currentSearchQueryId != nil
 
         guard hasActiveQuery else {
-            xabberInputView.searchPanel.applyRenderState(.idle)
+            applyInChatSearchPanelRenderState(.idle)
             return
         }
 
         guard searchMessagesQueue.isNotEmpty else {
             if xabberInputView.searchPanel.isInLoadingState {
-                xabberInputView.searchPanel.applyRenderState(.loading)
+                applyInChatSearchPanelRenderState(.loading)
             } else {
-                xabberInputView.searchPanel.applyRenderState(.emptyResults)
+                applyInChatSearchPanelRenderState(.emptyResults)
             }
             return
         }
 
         let currentIndex = currentSearchResultIndexForPanel()
-        xabberInputView.searchPanel.applyRenderState(
+        applyInChatSearchPanelRenderState(
             .results(
                 current: currentIndex,
                 total: searchMessagesQueue.count,
@@ -1813,7 +1826,7 @@ extension ChatViewController {
         guard isViewLoaded else {
             return
         }
-        xabberInputView.searchPanel.applyRenderState(
+        applyInChatSearchPanelRenderState(
             .results(
                 current: index,
                 total: searchMessagesQueue.count,
