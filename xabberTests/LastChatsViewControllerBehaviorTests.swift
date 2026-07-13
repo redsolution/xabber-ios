@@ -23,10 +23,12 @@ import RealmSwift
 @MainActor
 final class LastChatsViewControllerBehaviorTests: XCTestCase {
     private var previousRealmConfiguration: Realm.Configuration!
+    private var previousConnectingAccounts: Set<String>!
 
     override func setUp() {
         super.setUp()
         previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        previousConnectingAccounts = AccountManager.shared.connectingUsers.value
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "LastChatsViewControllerBehaviorTests-\(name)-\(UUID().uuidString)"
         )
@@ -35,6 +37,8 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
 
     override func tearDown() {
         ChatUIResponsivenessGate.shared.resetForTesting()
+        AccountManager.shared.connectingUsers.accept(previousConnectingAccounts)
+        previousConnectingAccounts = nil
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
         previousRealmConfiguration = nil
         super.tearDown()
@@ -123,29 +127,173 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         )
     }
 
-    func testMarkAllAsReadButtonStateFollowsUnreadAndConnectingState() {
+    func testZeroUnreadHidesUnreadActionsWithoutMovingSearchButton() {
         let controller = LastChatsViewController()
-        let previousEnabledAccounts = controller.enabledAccounts.value
-        let previousConnectingAccounts = AccountManager.shared.connectingUsers.value
-
-        defer {
-            controller.enabledAccounts.accept(previousEnabledAccounts)
-            AccountManager.shared.connectingUsers.accept(previousConnectingAccounts)
-        }
-
-        let ownerJid = "owner@example.com"
-        controller.enabledAccounts.accept([ownerJid])
+        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        controller.loadViewIfNeeded()
         AccountManager.shared.connectingUsers.accept([])
 
+        controller.updateUnreadChatsCounter(count: 1)
+        controller.view.layoutIfNeeded()
+        let searchFrameWithActions = controller.bottomSearchHostView.collapsedButton.convert(
+            controller.bottomSearchHostView.collapsedButton.bounds,
+            to: controller.view
+        )
+
         controller.updateUnreadChatsCounter(count: 0)
-        XCTAssertFalse(controller.isMarkAllReadButtonEnabled)
+        controller.view.layoutIfNeeded()
+        let searchFrameWithoutActions = controller.bottomSearchHostView.collapsedButton.convert(
+            controller.bottomSearchHostView.collapsedButton.bounds,
+            to: controller.view
+        )
+
+        XCTAssertTrue(controller.floatingBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.markAllReadButton.isHidden)
+        XCTAssertEqual(searchFrameWithoutActions, searchFrameWithActions)
+    }
+
+    func testUnreadChatsShowFilterAndMarkAllActions() {
+        let controller = LastChatsViewController()
+        AccountManager.shared.connectingUsers.accept([])
 
         controller.updateUnreadChatsCounter(count: 1)
-        XCTAssertTrue(controller.isMarkAllReadButtonEnabled)
 
-        AccountManager.shared.connectingUsers.accept([ownerJid])
+        XCTAssertFalse(controller.floatingBottomBarFilterButton.isHidden)
+        XCTAssertFalse(controller.markAllReadButton.isHidden)
+        XCTAssertTrue(controller.floatingBottomBarFilterButton.isEnabled)
+        XCTAssertTrue(controller.markAllReadButton.isEnabled)
+    }
+
+    func testConnectingAccountHidesOnlyMarkAllAction() {
+        withConnectingAccount { controller, ownerJid in
+            AccountManager.shared.connectingUsers.accept([ownerJid])
+
+            controller.updateUnreadChatsCounter(count: 1)
+
+            XCTAssertFalse(controller.floatingBottomBarFilterButton.isHidden)
+            XCTAssertTrue(controller.markAllReadButton.isHidden)
+        }
+    }
+
+    func testDisconnectedAccountRestoresMarkAllAction() {
+        withConnectingAccount { controller, ownerJid in
+            AccountManager.shared.connectingUsers.accept([ownerJid])
+            controller.updateUnreadChatsCounter(count: 1)
+
+            AccountManager.shared.connectingUsers.accept([])
+            controller.updateUnreadChatsCounter(count: 1)
+
+            XCTAssertFalse(controller.floatingBottomBarFilterButton.isHidden)
+            XCTAssertFalse(controller.markAllReadButton.isHidden)
+            XCTAssertTrue(controller.markAllReadButton.isEnabled)
+        }
+    }
+
+    func testUnreadFilterReturnsToChatsWhenLastUnreadDisappears() {
+        let controller = LastChatsViewController()
+        AccountManager.shared.connectingUsers.accept([])
         controller.updateUnreadChatsCounter(count: 1)
-        XCTAssertFalse(controller.isMarkAllReadButtonEnabled)
+        controller.filter.accept(.unread)
+
+        controller.updateUnreadChatsCounter(count: 0)
+
+        XCTAssertEqual(controller.filter.value, .chats)
+        XCTAssertEqual(controller.normalState, .chats)
+        XCTAssertTrue(controller.floatingBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.markAllReadButton.isHidden)
+    }
+
+    func testMarkAllReturnsUnreadFilterToChatsWhenNoUnreadTargetsRemain() {
+        let controller = LastChatsViewController()
+        AccountManager.shared.connectingUsers.accept([])
+        controller.updateUnreadChatsCounter(count: 1)
+        controller.filter.accept(.unread)
+
+        controller.onTitleBarButtonTapped()
+
+        XCTAssertEqual(controller.filter.value, .chats)
+        XCTAssertTrue(controller.floatingBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.markAllReadButton.isHidden)
+    }
+
+    func testSearchQueryDoesNotChangeUnreadActionAvailability() {
+        let controller = LastChatsViewController()
+        AccountManager.shared.connectingUsers.accept([])
+        controller.updateUnreadChatsCounter(count: 1)
+        let visibilityBeforeQuery = unreadActionVisibility(of: controller)
+
+        controller.bottomSearchHostView.setQuery("needle", notify: true)
+        controller.updateFloatingToolbarFilterButtonState()
+
+        XCTAssertEqual(unreadActionVisibility(of: controller), visibilityBeforeQuery)
+    }
+
+    func testArchivedRouteIsSearchOnlyEvenWhenUnreadChatsExist() {
+        let controller = LastChatsViewController()
+        controller.filter.accept(.archived)
+
+        controller.updateUnreadChatsCounter(count: 1)
+
+        XCTAssertTrue(controller.isFloatingBottomBarHidden)
+        XCTAssertTrue(controller.floatingBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.markAllReadButton.isHidden)
+        XCTAssertFalse(controller.bottomSearchHostView.isHidden)
+    }
+
+    func testSavedRouteIsSearchOnlyEvenWhenUnreadChatsExist() {
+        let controller = LastChatsViewController()
+        controller.filter.accept(.saved)
+
+        controller.updateUnreadChatsCounter(count: 1)
+
+        XCTAssertTrue(controller.isFloatingBottomBarHidden)
+        XCTAssertTrue(controller.floatingBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.markAllReadButton.isHidden)
+        XCTAssertFalse(controller.bottomSearchHostView.isHidden)
+    }
+
+    func testRouteWithoutBottomActionsRemainsSearchOnly() {
+        let controller = LastChatsViewController()
+        controller.shouldShowBottomBar = false
+
+        controller.updateUnreadChatsCounter(count: 1)
+
+        XCTAssertTrue(controller.isFloatingBottomBarHidden)
+        XCTAssertTrue(controller.floatingBottomBarFilterButton.isHidden)
+        XCTAssertTrue(controller.markAllReadButton.isHidden)
+        XCTAssertFalse(controller.bottomSearchHostView.isHidden)
+    }
+
+    func testLastChatContentEndsAboveCollapsedSearchButtonAtMaximumOffset() {
+        let controller = LastChatsViewController()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        controller.loadViewIfNeeded()
+        controller.updateUnreadChatsCounter(count: 0)
+        controller.view.layoutIfNeeded()
+        controller.tableView.contentSize = CGSize(width: 393, height: 1_600)
+        controller.updateTableInsetsForFloatingToolbar()
+
+        let maximumOffsetY = max(
+            -controller.tableView.adjustedContentInset.top,
+            controller.tableView.contentSize.height
+                + controller.tableView.adjustedContentInset.bottom
+                - controller.tableView.bounds.height
+        )
+        controller.tableView.contentOffset.y = maximumOffsetY
+
+        let contentBottomY = controller.tableView.convert(
+            CGPoint(x: 0, y: controller.tableView.contentSize.height),
+            to: controller.view
+        ).y
+        let searchFrame = controller.bottomSearchHostView.collapsedButton.convert(
+            controller.bottomSearchHostView.collapsedButton.bounds,
+            to: controller.view
+        )
+
+        XCTAssertLessThanOrEqual(
+            contentBottomY,
+            searchFrame.minY - FloatingBottomBarView.Metrics.tableInsetPadding + 0.001
+        )
     }
 
     func testBottomSearchExpansionHidesActionBarOnlyAfterMorphAndRestoresItBeforeCollapse() throws {
@@ -809,6 +957,22 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         CommonConfigManager.shared.config.interface_type = interfaceType.rawValue
         CommonConfigManager.shared.config.use_yubikey = useYubikey
         block()
+    }
+
+    private func withConnectingAccount(
+        _ block: (LastChatsViewController, String) -> Void
+    ) {
+        let controller = LastChatsViewController()
+        let ownerJid = "owner@example.com"
+        controller.enabledAccounts.accept([ownerJid])
+        block(controller, ownerJid)
+    }
+
+    private func unreadActionVisibility(of controller: LastChatsViewController) -> [Bool] {
+        [
+            !controller.floatingBottomBarFilterButton.isHidden,
+            !controller.markAllReadButton.isHidden
+        ]
     }
 
     private func assertLargeTitle(
