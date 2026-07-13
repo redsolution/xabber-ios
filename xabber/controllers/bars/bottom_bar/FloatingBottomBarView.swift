@@ -9,6 +9,16 @@
 import UIKit
 
 final class FloatingBottomBarView: UIView {
+    struct ActionPresentation: Equatable {
+        let isLeftVisible: Bool
+        let isCenterVisible: Bool
+
+        static let allVisible = ActionPresentation(
+            isLeftVisible: true,
+            isCenterVisible: true
+        )
+    }
+
     enum Metrics {
         static let height: CGFloat = NativeGlassBarStyle.minimumHeight
         static let bottomOffset: CGFloat = NativeGlassBarStyle.bottomOffset
@@ -66,6 +76,8 @@ final class FloatingBottomBarView: UIView {
         return button
     }()
 
+    private(set) var actionPresentation: ActionPresentation = .allVisible
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         setup()
@@ -80,10 +92,27 @@ final class FloatingBottomBarView: UIView {
         leftButton.accessibilityValue = isActive ? "On" : "Off"
     }
 
+    func applyActionPresentation(_ presentation: ActionPresentation) {
+        actionPresentation = presentation
+        applyVisibility(presentation.isLeftVisible, to: leftButton)
+        applyVisibility(presentation.isCenterVisible, to: centerButton)
+
+        centerEffectView.isHidden = !presentation.isCenterVisible
+        centerEffectView.isUserInteractionEnabled = presentation.isCenterVisible
+        centerEffectView.accessibilityElementsHidden = !presentation.isCenterVisible
+        centerEffectView.alpha = 1
+        if presentation.isCenterVisible {
+            centerButton.accessibilityValue = nil
+        }
+    }
+
+    // Transitional configuration API retained while root sections migrate to ActionPresentation.
     func setCenterButtonEnabled(_ isEnabled: Bool) {
-        centerButton.isEnabled = isEnabled
-        centerEffectView.alpha = isEnabled ? 1.0 : 0.55
-        centerButton.accessibilityValue = isEnabled ? nil : "Disabled"
+        let effectiveValue = isEnabled && actionPresentation.isCenterVisible
+
+        centerButton.isEnabled = effectiveValue
+        centerEffectView.alpha = effectiveValue ? 1.0 : 0.55
+        centerButton.accessibilityValue = effectiveValue ? nil : "Disabled"
     }
 
     func setCenterButtonTitle(
@@ -102,6 +131,31 @@ final class FloatingBottomBarView: UIView {
             to: leftButton,
             tintColor: NativeGlassBarStyle.iconTintColor
         )
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isUserInteractionEnabled,
+              !isHidden,
+              alpha >= 0.01,
+              self.point(inside: point, with: event) else {
+            return nil
+        }
+
+        if actionPresentation.isLeftVisible {
+            let leftPoint = leftButton.convert(point, from: self)
+            if let hitView = leftButton.hitTest(leftPoint, with: event) {
+                return hitView
+            }
+        }
+
+        if actionPresentation.isCenterVisible {
+            let centerPoint = centerEffectView.convert(point, from: self)
+            if let hitView = centerEffectView.hitTest(centerPoint, with: event) {
+                return hitView
+            }
+        }
+
+        return nil
     }
 
     private func setup() {
@@ -141,7 +195,7 @@ final class FloatingBottomBarView: UIView {
         ])
 
         configure(button: leftButton, imageName: "line.3.horizontal.decrease.circle")
-        setCenterButtonEnabled(true)
+        applyActionPresentation(.allVisible)
     }
 
     private func configure(button: UIButton, imageName: String) {
@@ -152,6 +206,15 @@ final class FloatingBottomBarView: UIView {
             tintColor: NativeGlassBarStyle.iconTintColor,
             image: image
         )
+    }
+
+    private func applyVisibility(_ isVisible: Bool, to button: UIButton) {
+        button.isHidden = !isVisible
+        button.isEnabled = isVisible
+        button.isUserInteractionEnabled = isVisible
+        button.isAccessibilityElement = isVisible
+        button.accessibilityElementsHidden = !isVisible
+        button.alpha = 1
     }
 }
 

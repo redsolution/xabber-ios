@@ -10,6 +10,7 @@ import XCTest
 import UIKit
 @testable import xabber
 
+@MainActor
 final class FloatingBottomBarViewTests: XCTestCase {
     func testDefaultEffectUsesNativeGlassWhenAvailable() throws {
         let effect = XabberGlassStyle.makeEffect(role: .bar, interactive: true)
@@ -92,6 +93,155 @@ final class FloatingBottomBarViewTests: XCTestCase {
         XCTAssertEqual(view.centerButton.backgroundColor ?? .clear, .clear)
         XCTAssertEqual(view.centerButton.layer.borderWidth, 0, accuracy: 0.001)
         XCTAssertEqual(view.centerButton.layer.shadowOpacity, 0, accuracy: 0.001)
+    }
+
+    func testHidingLeftActionKeepsCenterFrameUnchanged() {
+        let view = makeLaidOutView()
+        let originalCenterFrame = view.centerEffectView.frame
+
+        view.applyActionPresentation(.init(isLeftVisible: false, isCenterVisible: true))
+        view.layoutIfNeeded()
+
+        XCTAssertTrue(view.leftButton.isHidden)
+        XCTAssertEqual(view.centerEffectView.frame, originalCenterFrame)
+    }
+
+    func testHidingCenterActionKeepsLeftFrameUnchanged() {
+        let view = makeLaidOutView()
+        let originalLeftFrame = view.leftButton.frame
+
+        view.applyActionPresentation(.init(isLeftVisible: true, isCenterVisible: false))
+        view.layoutIfNeeded()
+
+        XCTAssertTrue(view.centerEffectView.isHidden)
+        XCTAssertEqual(view.leftButton.frame, originalLeftFrame)
+    }
+
+    func testHidingCenterActionHidesEntireEffectSurface() {
+        let view = makeLaidOutView()
+
+        view.applyActionPresentation(.init(isLeftVisible: true, isCenterVisible: false))
+
+        XCTAssertTrue(view.centerEffectView.isHidden)
+        XCTAssertTrue(view.centerButton.isHidden)
+        XCTAssertFalse(view.centerEffectView.isUserInteractionEnabled)
+        XCTAssertFalse(view.centerButton.isUserInteractionEnabled)
+    }
+
+    func testVisibleActionIsEnabledAndAccessible() {
+        let view = makeLaidOutView()
+
+        view.applyActionPresentation(.init(isLeftVisible: true, isCenterVisible: true))
+
+        XCTAssertFalse(view.leftButton.isHidden)
+        XCTAssertTrue(view.leftButton.isEnabled)
+        XCTAssertTrue(view.leftButton.isUserInteractionEnabled)
+        XCTAssertTrue(view.leftButton.isAccessibilityElement)
+        XCTAssertFalse(view.leftButton.accessibilityElementsHidden)
+        XCTAssertFalse(view.centerEffectView.isHidden)
+        XCTAssertTrue(view.centerEffectView.isUserInteractionEnabled)
+        XCTAssertFalse(view.centerButton.isHidden)
+        XCTAssertTrue(view.centerButton.isEnabled)
+        XCTAssertTrue(view.centerButton.isUserInteractionEnabled)
+        XCTAssertTrue(view.centerButton.isAccessibilityElement)
+        XCTAssertFalse(view.centerButton.accessibilityElementsHidden)
+    }
+
+    func testHiddenActionIsDisabledAndAbsentFromAccessibility() {
+        let view = makeLaidOutView()
+
+        view.applyActionPresentation(.init(isLeftVisible: false, isCenterVisible: false))
+
+        XCTAssertTrue(view.leftButton.isHidden)
+        XCTAssertFalse(view.leftButton.isEnabled)
+        XCTAssertFalse(view.leftButton.isUserInteractionEnabled)
+        XCTAssertFalse(view.leftButton.isAccessibilityElement)
+        XCTAssertTrue(view.leftButton.accessibilityElementsHidden)
+        XCTAssertTrue(view.centerEffectView.isHidden)
+        XCTAssertFalse(view.centerEffectView.isUserInteractionEnabled)
+        XCTAssertTrue(view.centerEffectView.accessibilityElementsHidden)
+        XCTAssertTrue(view.centerButton.isHidden)
+        XCTAssertFalse(view.centerButton.isEnabled)
+        XCTAssertFalse(view.centerButton.isUserInteractionEnabled)
+        XCTAssertFalse(view.centerButton.isAccessibilityElement)
+        XCTAssertTrue(view.centerButton.accessibilityElementsHidden)
+    }
+
+    func testHiddenLeftSlotPassesTouchesThrough() {
+        let view = makeLaidOutView()
+        let leftPoint = view.convert(
+            CGPoint(x: view.leftButton.bounds.midX, y: view.leftButton.bounds.midY),
+            from: view.leftButton
+        )
+
+        view.applyActionPresentation(.init(isLeftVisible: false, isCenterVisible: true))
+
+        XCTAssertNil(view.hitTest(leftPoint, with: nil))
+    }
+
+    func testHiddenCenterSlotPassesTouchesThrough() {
+        let view = makeLaidOutView()
+        let centerPoint = view.convert(
+            CGPoint(x: view.centerEffectView.bounds.midX, y: view.centerEffectView.bounds.midY),
+            from: view.centerEffectView
+        )
+
+        view.applyActionPresentation(.init(isLeftVisible: true, isCenterVisible: false))
+
+        XCTAssertNil(view.hitTest(centerPoint, with: nil))
+    }
+
+    func testFullyHiddenActionContainerPassesTouchesThrough() {
+        let view = makeLaidOutView()
+        let leftPoint = view.convert(
+            CGPoint(x: view.leftButton.bounds.midX, y: view.leftButton.bounds.midY),
+            from: view.leftButton
+        )
+        let centerPoint = view.convert(
+            CGPoint(x: view.centerEffectView.bounds.midX, y: view.centerEffectView.bounds.midY),
+            from: view.centerEffectView
+        )
+
+        view.applyActionPresentation(.init(isLeftVisible: false, isCenterVisible: false))
+
+        XCTAssertNil(view.hitTest(leftPoint, with: nil))
+        XCTAssertNil(view.hitTest(centerPoint, with: nil))
+    }
+
+    func testRestoringActionReusesOriginalFrameAndAccessibilityIdentifier() {
+        let view = makeLaidOutView()
+        view.leftButton.accessibilityIdentifier = "test_left_action"
+        view.leftButton.accessibilityLabel = "Filter"
+        view.leftButton.accessibilityValue = "On"
+        view.setCenterButtonTitle(
+            "Action",
+            accessibilityIdentifier: "test_center_action",
+            accessibilityLabel: "Action"
+        )
+        let originalLeftFrame = view.leftButton.frame
+        let originalCenterFrame = view.centerEffectView.frame
+
+        view.applyActionPresentation(.init(isLeftVisible: false, isCenterVisible: false))
+        view.applyActionPresentation(.init(isLeftVisible: true, isCenterVisible: true))
+        view.layoutIfNeeded()
+
+        XCTAssertEqual(view.leftButton.frame, originalLeftFrame)
+        XCTAssertEqual(view.centerEffectView.frame, originalCenterFrame)
+        XCTAssertEqual(view.leftButton.accessibilityIdentifier, "test_left_action")
+        XCTAssertEqual(view.leftButton.accessibilityLabel, "Filter")
+        XCTAssertEqual(view.leftButton.accessibilityValue, "On")
+        XCTAssertEqual(view.centerButton.accessibilityIdentifier, "test_center_action")
+        XCTAssertEqual(view.centerButton.accessibilityLabel, "Action")
+    }
+
+    private func makeLaidOutView() -> FloatingBottomBarView {
+        let view = FloatingBottomBarView(frame: CGRect(x: 0, y: 0, width: 360, height: 44))
+
+        view.layoutIfNeeded()
+        view.centerEffectView.layoutIfNeeded()
+        view.centerEffectView.contentView.layoutIfNeeded()
+
+        return view
     }
 }
 
