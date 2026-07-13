@@ -1063,9 +1063,87 @@ extension ChatViewController {
                 )
             )
             applyLegacySearchPanelStateFromPresentation()
-            renderSearchNavigationButtons(animated: true)
+            renderSearchResultSurfaceFromPresentation()
+            renderSearchNavigationButtons(
+                animated: shouldAnimateSearchNavigationButtons(for: event)
+            )
         }
         return searchPresentationState
+    }
+
+    private func shouldAnimateSearchNavigationButtons(
+        for event: ChatSearchPresentationState.Event
+    ) -> Bool {
+        switch event {
+        case .openList, .closeList:
+            return false
+        default:
+            return true
+        }
+    }
+
+    internal func renderSearchResultSurfaceFromPresentation() {
+        assert(Thread.isMainThread, "Chat search surfaces must render on the main thread")
+        guard isViewLoaded else {
+            return
+        }
+
+        guard searchPresentationState.isActive else {
+            removeChatSearchResultsListController()
+            setChatSearchTimelineHidden(false)
+            return
+        }
+
+        let presentsListUnderCurrentSurface = searchPresentationState.surfaceMode == .list ||
+            (searchPresentationState.surfaceMode == .calendar &&
+                searchPresentationState.calendarOrigin == .list)
+        guard presentsListUnderCurrentSurface,
+              let model = makeChatSearchResultsListRenderModel(),
+              model.canPresent else {
+            searchResultsListViewController?.prepareForModeSwitchToChat()
+            setChatSearchTimelineHidden(false)
+            return
+        }
+
+        let listController: ChatSearchResultsListViewController
+        if let current = searchResultsListViewController {
+            listController = current
+        } else {
+            listController = ChatSearchResultsListViewController()
+        }
+        listController.render(model, animated: false)
+        installChatSearchResultsListController(listController)
+        setChatSearchTimelineHidden(true)
+        listController.prepareForModeSwitchToList(selectedID: model.selectedID)
+        view.bringSubviewToFront(xabberInputView)
+        view.bringSubviewToFront(searchNavigationButtonsView)
+        bringSearchInputOverlayToFront()
+    }
+
+    internal func makeChatSearchResultsListRenderModel() -> ChatSearchResultsListRenderModel? {
+        guard searchPresentationState.isActive,
+              searchPresentationState.resultPhase == .results,
+              searchResultPresentations.isNotEmpty,
+              let committedIndex = searchPresentationState.committedResultIndex,
+              searchResultPresentations.indices.contains(committedIndex) else {
+            return nil
+        }
+
+        let phase: ChatSearchResultsListRenderModel.Phase =
+            searchOlderPageNavigationGate.hasPendingNavigation || searchSession.isProviderSearching
+                ? .loadingNextPage
+                : .populated
+        return ChatSearchResultsListRenderModel(
+            generation: UInt64(max(0, searchPresentationState.generation)),
+            results: searchResultPresentations,
+            selectedID: searchResultPresentations[committedIndex].id,
+            phase: phase
+        )
+    }
+
+    private func setChatSearchTimelineHidden(_ hidden: Bool) {
+        messagesCollectionView.isHidden = hidden
+        messagesCollectionView.isUserInteractionEnabled = !hidden
     }
 
     internal func installSearchNavigationButtons() {
@@ -1617,6 +1695,17 @@ extension ChatViewController {
                 ChatSearchResultMapper.map($0, context: inChatSearchResultMappingContext)
             }
         )
+        if searchPresentationState.resultPhase == .results,
+           searchResultPresentations.count >= searchPresentationState.resultCount {
+            reduceSearchPresentationState(
+                .resultsAppended(
+                    count: searchResultPresentations.count,
+                    generation: searchPresentationState.generation
+                )
+            )
+        } else if searchResultsListViewController != nil {
+            renderSearchResultSurfaceFromPresentation()
+        }
     }
 
     internal var inChatSearchResultMappingContext: ChatSearchResultMappingContext {
@@ -4427,7 +4516,7 @@ extension ChatViewController {
     internal func onSearchPanelChangeChatViewState() {
         if searchPresentationState.surfaceMode == .list {
             reduceSearchPresentationState(.closeList)
-        } else {
+        } else if makeChatSearchResultsListRenderModel()?.canPresent == true {
             reduceSearchPresentationState(.openList)
         }
     }

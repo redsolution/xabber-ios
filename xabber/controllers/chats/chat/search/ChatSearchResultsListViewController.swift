@@ -238,12 +238,15 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
     private(set) var lastReconfiguredResultIDs: [ChatSearchResult.ID] = []
     private(set) var lastRetainedScrollAnchor: ChatSearchResultsListScrollAnchor?
     private(set) var lastProgrammaticScrollID: ChatSearchResult.ID?
+    private(set) var retainedModeSwitchScrollAnchor: ChatSearchResultsListScrollAnchor?
     private(set) var isPreparedForRemoval = false
     private(set) var isPagingIndicatorVisible = false
 
     private var currentResults: [ChatSearchResult] = []
     private var resultsByID: [ChatSearchResult.ID: ChatSearchResult] = [:]
     private var currentModel: ChatSearchResultsListRenderModel?
+    private var pendingProgrammaticScrollID: ChatSearchResult.ID?
+    private var pendingRestoredScrollAnchor: ChatSearchResultsListScrollAnchor?
     private let trackedCells = NSHashTable<ChatSearchResultCell>.weakObjects()
     private let firstPageIndicator = UIActivityIndicatorView(style: .medium)
     private let errorLabel = UILabel()
@@ -266,6 +269,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
             safeAreaInsets: view.safeAreaInsets,
             keyboardOverlap: keyboardOverlap
         )
+        flushPendingScrollIfPossible()
     }
 
     override func viewSafeAreaInsetsDidChange() {
@@ -344,12 +348,43 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
             return false
         }
         lastProgrammaticScrollID = id
-        let indexPath = IndexPath(row: index, section: 0)
-        if tableView.numberOfSections > 0,
-           tableView.numberOfRows(inSection: 0) > index {
-            tableView.scrollToRow(at: indexPath, at: .middle, animated: animated)
+        guard tableView.window != nil else {
+            pendingProgrammaticScrollID = id
+            return true
         }
+        pendingProgrammaticScrollID = nil
+        let indexPath = IndexPath(row: index, section: 0)
+        guard tableView.numberOfSections > 0,
+              tableView.numberOfRows(inSection: 0) > index else {
+            pendingProgrammaticScrollID = id
+            return true
+        }
+        tableView.scrollToRow(at: indexPath, at: .middle, animated: animated)
         return true
+    }
+
+    func prepareForModeSwitchToChat() {
+        if let visibleAnchor = captureVisibleAnchor() {
+            retainedModeSwitchScrollAnchor = visibleAnchor
+        }
+        view.isUserInteractionEnabled = false
+        view.isHidden = true
+    }
+
+    func prepareForModeSwitchToList(selectedID: ChatSearchResult.ID?) {
+        view.isHidden = false
+        view.isUserInteractionEnabled = true
+        if view.window != nil {
+            view.layoutIfNeeded()
+            tableView.layoutIfNeeded()
+        }
+
+        if let retainedModeSwitchScrollAnchor {
+            restoreVisibleAnchor(retainedModeSwitchScrollAnchor)
+            self.retainedModeSwitchScrollAnchor = nil
+        } else if let selectedID {
+            _ = scrollToResult(id: selectedID, animated: false)
+        }
     }
 
     func prepareForRemoval() {
@@ -366,6 +401,9 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         displayedResultIDs.removeAll()
         lastReconfiguredResultIDs.removeAll()
         lastRetainedScrollAnchor = nil
+        retainedModeSwitchScrollAnchor = nil
+        pendingProgrammaticScrollID = nil
+        pendingRestoredScrollAnchor = nil
         currentModel = nil
         latestGeneration = nil
         onSelectResult = nil
@@ -386,6 +424,15 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         ChatSearchResultCellLayoutPolicy.rowHeight(
             for: traitCollection.preferredContentSizeCategory
         )
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard ChatSearchModeSwitchKeyboardPolicy.shouldDismissKeyboard(
+            for: .listInteractiveDrag
+        ) else {
+            return
+        }
+        view.window?.endEditing(true)
     }
 
     private func prepareView() {
@@ -578,6 +625,11 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         guard let index = displayedResultIDs.firstIndex(of: anchor.id) else {
             return
         }
+        guard tableView.window != nil else {
+            pendingRestoredScrollAnchor = anchor
+            return
+        }
+        pendingRestoredScrollAnchor = nil
         tableView.layoutIfNeeded()
         let indexPath = IndexPath(row: index, section: 0)
         guard tableView.numberOfRows(inSection: 0) > index else { return }
@@ -589,6 +641,17 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
             ),
             animated: false
         )
+    }
+
+    private func flushPendingScrollIfPossible() {
+        guard tableView.window != nil else { return }
+        if let anchor = pendingRestoredScrollAnchor {
+            restoreVisibleAnchor(anchor)
+            return
+        }
+        if let id = pendingProgrammaticScrollID {
+            _ = scrollToResult(id: id, animated: false)
+        }
     }
 
     private func accessibilityToken(for id: ChatSearchResult.ID) -> String {
@@ -630,5 +693,7 @@ extension ChatViewController {
         guard let controller = searchResultsListViewController else { return }
         ChatSearchResultsListContainment.remove(controller)
         searchResultsListViewController = nil
+        messagesCollectionView.isHidden = false
+        messagesCollectionView.isUserInteractionEnabled = true
     }
 }

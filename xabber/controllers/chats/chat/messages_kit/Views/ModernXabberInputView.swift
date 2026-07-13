@@ -837,6 +837,7 @@ class ModernXabberInputView: UIView {
             viewModeButton.accessibilityLabel = viewModeTitle
             trailingSurfaceView.isHidden = !hasCommittedCurrentResult
             viewModeButton.isHidden = !hasCommittedCurrentResult
+            viewModeButton.isEnabled = hasCommittedCurrentResult
             calendarButton.isHidden = false
             calendarButton.isEnabled = true
             counterLabel.isHidden = false

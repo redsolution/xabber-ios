@@ -20,6 +20,17 @@
 
 import Foundation
 
+enum ChatSearchModeSwitchKeyboardPolicy {
+    enum Trigger: Equatable {
+        case modeControl
+        case listInteractiveDrag
+    }
+
+    static func shouldDismissKeyboard(for trigger: Trigger) -> Bool {
+        trigger == .listInteractiveDrag
+    }
+}
+
 struct ChatSearchPresentationState: Equatable {
     enum SurfaceMode: Equatable {
         case chat
