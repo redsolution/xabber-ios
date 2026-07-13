@@ -1148,6 +1148,12 @@ extension ChatViewController {
             listController = ChatSearchResultsListViewController()
         }
         listController.render(model, animated: false)
+        listController.onSelectResult = { [weak self] id in
+            self?.handleChatSearchListResultSelection(
+                id,
+                generation: model.generation
+            )
+        }
         installChatSearchResultsListController(listController)
         if searchModeTransitionCoordinator.requestedMode != .list ||
             listController.view.isHidden {
@@ -1233,6 +1239,123 @@ extension ChatViewController {
             results: searchResultPresentations,
             selectedID: searchResultPresentations[committedIndex].id,
             phase: phase
+        )
+    }
+
+    internal func handleChatSearchListResultSelection(
+        _ id: ChatSearchResult.ID,
+        generation: UInt64
+    ) {
+        assert(Thread.isMainThread, "Chat search list selection must run on the main thread")
+        guard searchPresentationState.isActive,
+              searchPresentationState.resultPhase == .results,
+              generation == UInt64(max(0, searchPresentationState.generation)),
+              let targetIndex = searchResultPresentations.firstIndex(where: { $0.id == id }),
+              searchMessagesQueue.indices.contains(targetIndex),
+              searchResultIdentity(for: searchMessagesQueue[targetIndex]) == id,
+              makeSearchResultOpenMessageRequest(at: targetIndex) != nil else {
+            return
+        }
+
+        let baseIndex = currentSearchResultNavigationBaseIndex()
+            ?? searchPresentationState.committedResultIndex
+            ?? targetIndex
+        let direction: ChatDirection
+        if targetIndex > baseIndex {
+            direction = .up
+        } else if targetIndex < baseIndex {
+            direction = .down
+        } else {
+            direction = chatScrollDirection ?? .up
+        }
+
+        if searchPresentationState.surfaceMode == .list {
+            reduceSearchPresentationState(.closeList)
+        }
+        searchResultsListViewController?.retainModeSwitchScrollAnchor(for: id)
+
+        if currentPage.locked || searchResultNavigationState.isBusy {
+            recordPendingSearchResultNavigation(
+                index: targetIndex,
+                scrollDirection: direction
+            )
+            return
+        }
+
+        openSearchResult(at: targetIndex, direction: direction)
+    }
+
+    internal func makeSearchResultOpenMessageRequest(at index: Int) -> ChatOpenMessageRequest? {
+        guard searchMessagesQueue.indices.contains(index) else {
+            return nil
+        }
+        let legacyItem = searchMessagesQueue[index]
+
+        if searchResultPresentations.indices.contains(index) {
+            let result = searchResultPresentations[index]
+            guard result.scope.owner == owner,
+                  result.scope.jid == jid,
+                  result.scope.conversationTypeRawValue == conversationType.rawValue,
+                  searchResultIdentity(for: legacyItem) == result.id else {
+                return nil
+            }
+
+            let archivedId = result.anchor.archivedId.isNotEmpty
+                ? result.anchor.archivedId
+                : nil
+            let primary = archivedId == nil && result.anchor.primary.isNotEmpty
+                ? result.anchor.primary
+                : nil
+            guard archivedId != nil || primary != nil else {
+                return nil
+            }
+
+            return ChatOpenMessageRequest(
+                chatJid: result.scope.jid,
+                owner: result.scope.owner,
+                conversationType: conversationType,
+                anchor: ChatMessageAnchorRef(
+                    messagePrimary: primary,
+                    archivedId: archivedId,
+                    messageId: result.anchor.messageId.isNotEmpty
+                        ? result.anchor.messageId
+                        : nil,
+                    authorId: result.anchor.authorId?.isNotEmpty == true
+                        ? result.anchor.authorId
+                        : nil,
+                    bodyFingerprint: nil,
+                    sourceDate: result.anchor.date
+                ),
+                highlight: true,
+                markReadOnVisible: false,
+                source: .search
+            )
+        }
+
+        let archivedId = legacyItem.archivedId.isNotEmpty
+            ? legacyItem.archivedId
+            : nil
+        let primary = archivedId == nil && legacyItem.primary.isNotEmpty
+            ? legacyItem.primary
+            : nil
+        guard archivedId != nil || primary != nil else { return nil }
+        return ChatOpenMessageRequest(
+            chatJid: jid,
+            owner: owner,
+            conversationType: conversationType,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: primary,
+                archivedId: archivedId,
+                messageId: legacyItem.messageId.isNotEmpty
+                    ? legacyItem.messageId
+                    : nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: legacyItem.date
+            ),
+            highlight: true,
+            markReadOnVisible: false,
+            source: .search
         )
     }
 
@@ -2246,32 +2369,15 @@ extension ChatViewController {
         direction: ChatDirection,
         onNavigationFinished: (() -> Void)? = nil
     ) {
-        guard searchMessagesQueue.indices.contains(index) else {
+        guard searchMessagesQueue.indices.contains(index),
+              let request = makeSearchResultOpenMessageRequest(at: index) else {
             searchResultNavigationState = .idle
             onNavigationFinished?()
             return
         }
 
-        let item = searchMessagesQueue[index]
         searchSession.beginPendingNavigation()
         chatScrollDirection = direction
-        let archivedId = item.archivedId.isNotEmpty ? item.archivedId : nil
-        let request = ChatOpenMessageRequest(
-            chatJid: jid,
-            owner: owner,
-            conversationType: conversationType,
-            anchor: ChatMessageAnchorRef(
-                messagePrimary: archivedId == nil ? item.primary : nil,
-                archivedId: archivedId,
-                messageId: nil,
-                authorId: nil,
-                bodyFingerprint: nil,
-                sourceDate: item.date
-            ),
-            highlight: true,
-            markReadOnVisible: false,
-            source: .search
-        )
 
         searchResultNavigationState = .positioning(index: index)
         reduceSearchPresentationState(

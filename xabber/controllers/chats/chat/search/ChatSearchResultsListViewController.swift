@@ -375,6 +375,24 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         }
     }
 
+    func retainModeSwitchScrollAnchor(for id: ChatSearchResult.ID) {
+        guard let index = displayedResultIDs.firstIndex(of: id) else {
+            return
+        }
+        let indexPath = IndexPath(row: index, section: 0)
+        let offsetFromTop: CGFloat
+        if tableView.numberOfSections > 0,
+           tableView.numberOfRows(inSection: 0) > index {
+            offsetFromTop = tableView.rectForRow(at: indexPath).minY - tableView.contentOffset.y
+        } else {
+            offsetFromTop = 0
+        }
+        retainedModeSwitchScrollAnchor = ChatSearchResultsListScrollAnchor(
+            id: id,
+            offsetFromTop: offsetFromTop
+        )
+    }
+
     func prepareForModeSwitchToList(selectedID: ChatSearchResult.ID?) {
         view.isHidden = false
         view.isUserInteractionEnabled = true
