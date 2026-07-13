@@ -1240,6 +1240,7 @@ extension ChatViewController {
         if clearResults {
             selectedSearchResultId = nil
             searchMessagesQueue = []
+            searchResultPresentations = []
         } else if searchMessagesQueue.isEmpty {
             selectedSearchResultId = nil
         }
@@ -1312,49 +1313,87 @@ extension ChatViewController {
         guard acceptsInChatSearchResult(item, queryId: queryId) else {
             return false
         }
-        let isDuplicate = searchMessagesQueue.contains { existing in
-            existing.primary == item.primary ||
-            (existing.archivedId.isNotEmpty && existing.archivedId == item.archivedId)
-        }
-        guard !isDuplicate else {
+        guard let result = ChatSearchResultMapper.map(
+            item,
+            context: inChatSearchResultMappingContext
+        ) else {
             return false
         }
+
+        if let existingIndex = searchMessagesQueue.firstIndex(where: { existing in
+            guard let existingResult = ChatSearchResultMapper.map(
+                existing,
+                context: inChatSearchResultMappingContext
+            ) else {
+                return false
+            }
+            return existingResult.id == result.id ||
+                (existing.primary.isNotEmpty && existing.primary == item.primary)
+        }),
+           let existingResult = ChatSearchResultMapper.map(
+               searchMessagesQueue[existingIndex],
+               context: inChatSearchResultMappingContext
+           ) {
+            let shouldReplacePrimaryFallback = {
+                if case .primary = existingResult.id,
+                   case .archived = result.id {
+                    return true
+                }
+                return false
+            }()
+            let preferred = ChatSearchResultCollection.preferred(existingResult, result)
+            guard shouldReplacePrimaryFallback || preferred == result && preferred != existingResult else {
+                return false
+            }
+            searchMessagesQueue[existingIndex] = item
+            refreshSearchResultPresentations()
+            return true
+        }
+
         searchMessagesQueue.append(item)
+        refreshSearchResultPresentations()
         return true
     }
 
     internal func normalizedInChatSearchResultsForDisplay(_ results: [MessageStorageItem]) -> [MessageStorageItem] {
-        // Server MAM search returns chronological rows; chat search UI presents newest as 1 of N.
-        results.sorted { lhs, rhs in
-            switch lhs.date.compare(rhs.date) {
-            case .orderedDescending:
-                return true
-            case .orderedAscending:
-                return false
-            case .orderedSame:
-                return searchResultTieBreaksBefore(lhs, rhs)
+        let mapped = results.compactMap { item -> (MessageStorageItem, ChatSearchResult)? in
+            guard let result = ChatSearchResultMapper.map(
+                item,
+                context: inChatSearchResultMappingContext
+            ) else {
+                return nil
             }
+            return (item, result)
+        }
+        let ordered = ChatSearchResultCollection.orderedAndDeduplicated(mapped.map(\.1))
+        searchResultPresentations = ordered
+        return ordered.compactMap { result in
+            mapped.first(where: { $0.1 == result })?.0
         }
     }
 
-    private func searchResultTieBreaksBefore(
-        _ lhs: MessageStorageItem,
-        _ rhs: MessageStorageItem
-    ) -> Bool {
-        guard lhs.archivedId != rhs.archivedId else {
-            return lhs.primary > rhs.primary
-        }
+    internal func refreshSearchResultPresentations() {
+        searchResultPresentations = ChatSearchResultCollection.orderedAndDeduplicated(
+            searchMessagesQueue.compactMap {
+                ChatSearchResultMapper.map($0, context: inChatSearchResultMappingContext)
+            }
+        )
+    }
 
-        if let lhsArchiveTimestamp = Int64(lhs.archivedId),
-           let rhsArchiveTimestamp = Int64(rhs.archivedId) {
-            return lhsArchiveTimestamp > rhsArchiveTimestamp
-        }
-
-        if lhs.archivedId.isNotEmpty != rhs.archivedId.isNotEmpty {
-            return lhs.archivedId.isNotEmpty
-        }
-
-        return lhs.archivedId > rhs.archivedId
+    private var inChatSearchResultMappingContext: ChatSearchResultMappingContext {
+        let localizedYou = "You:".localizeString(id: "you", arguments: [])
+            .trimmingCharacters(in: CharacterSet(charactersIn: ":： ").union(.whitespacesAndNewlines))
+        return ChatSearchResultMappingContext(
+            scope: ChatSearchResult.Scope(
+                owner: owner,
+                jid: jid,
+                conversationTypeRawValue: conversationType.rawValue
+            ),
+            localizedYou: localizedYou,
+            contactDisplayName: opponentSender.displayName.isNotEmpty
+                ? opponentSender.displayName
+                : jid
+        )
     }
 
     internal func searchResultSelectionIdentity(for item: MessageStorageItem) -> String? {
