@@ -80,6 +80,8 @@
 		4E9800022FE900000ABC001 /* ChatSearchHighlighting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9800012FE900000ABC001 /* ChatSearchHighlighting.swift */; };
 		4EA000022FEA00000ABC001 /* ChatSearchResultCellTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA000012FEA00000ABC001 /* ChatSearchResultCellTests.swift */; };
 		4EA000042FEA00000ABC001 /* ChatSearchResultCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA000032FEA00000ABC001 /* ChatSearchResultCell.swift */; };
+		4EA100022FEB00000ABC001 /* ChatSearchResultsListTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA100012FEB00000ABC001 /* ChatSearchResultsListTests.swift */; };
+		4EA100042FEB00000ABC001 /* ChatSearchResultsListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA100032FEB00000ABC001 /* ChatSearchResultsListViewController.swift */; };
 		4E8D00022FE400000ABC001 /* ChatSearchArchiveSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8D00012FE400000ABC001 /* ChatSearchArchiveSession.swift */; };
 		4E8400102FD3000000ABC001 /* MediaGalleryMessageNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E84000F2FD3000000ABC001 /* MediaGalleryMessageNavigation.swift */; };
 		4E7000022FAF00000ABC001 /* TextMessageCellReuseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7000012FAF00000ABC001 /* TextMessageCellReuseTests.swift */; };
@@ -961,6 +963,8 @@
 		4E9800012FE900000ABC001 /* ChatSearchHighlighting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchHighlighting.swift; sourceTree = "<group>"; };
 		4EA000012FEA00000ABC001 /* ChatSearchResultCellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchResultCellTests.swift; sourceTree = "<group>"; };
 		4EA000032FEA00000ABC001 /* ChatSearchResultCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchResultCell.swift; sourceTree = "<group>"; };
+		4EA100012FEB00000ABC001 /* ChatSearchResultsListTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchResultsListTests.swift; sourceTree = "<group>"; };
+		4EA100032FEB00000ABC001 /* ChatSearchResultsListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchResultsListViewController.swift; sourceTree = "<group>"; };
 		4E8D00012FE400000ABC001 /* ChatSearchArchiveSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchArchiveSession.swift; sourceTree = "<group>"; };
 		4E7200012FC000000ABC001 /* DeviceDetailSecurityActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceDetailSecurityActionTests.swift; sourceTree = "<group>"; };
 		4E7300012FC100000ABC001 /* AccountDeletionCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionCleanupTests.swift; sourceTree = "<group>"; };
@@ -3988,6 +3992,7 @@
 					4E9500012FE900000ABC001 /* ChatSearchNavigationButtonsTests.swift */,
 					4E9700012FE900000ABC001 /* ChatSearchHighlightingTests.swift */,
 					4EA000012FEA00000ABC001 /* ChatSearchResultCellTests.swift */,
+					4EA100012FEB00000ABC001 /* ChatSearchResultsListTests.swift */,
 						4E7200012FC000000ABC001 /* DeviceDetailSecurityActionTests.swift */,
 						4E7300012FC100000ABC001 /* AccountDeletionCleanupTests.swift */,
 						4E7400012FC200000ABC001 /* QuitAccountFlowStateTests.swift */,
@@ -4495,6 +4500,7 @@
 				4E9000012FE600000ABC001 /* ChatSearchAnimationSpec.swift */,
 				4E9800012FE900000ABC001 /* ChatSearchHighlighting.swift */,
 				4EA000032FEA00000ABC001 /* ChatSearchResultCell.swift */,
+				4EA100032FEB00000ABC001 /* ChatSearchResultsListViewController.swift */,
 					4E9200012FE700000ABC001 /* ChatSearchNavigationView.swift */,
 					4E9400012FE800000ABC001 /* ChatSearchBottomActionBar.swift */,
 					4E9600012FE900000ABC001 /* ChatSearchNavigationButtonsView.swift */,
@@ -5660,6 +5666,7 @@
 				4E9000022FE600000ABC001 /* ChatSearchAnimationSpec.swift in Sources */,
 				4E9800022FE900000ABC001 /* ChatSearchHighlighting.swift in Sources */,
 				4EA000042FEA00000ABC001 /* ChatSearchResultCell.swift in Sources */,
+				4EA100042FEB00000ABC001 /* ChatSearchResultsListViewController.swift in Sources */,
 				4E9400022FE800000ABC001 /* ChatSearchBottomActionBar.swift in Sources */,
 				4E9600022FE900000ABC001 /* ChatSearchNavigationButtonsView.swift in Sources */,
 				4E9200022FE700000ABC001 /* ChatSearchNavigationView.swift in Sources */,
@@ -6042,6 +6049,7 @@
 					4E9500022FE900000ABC001 /* ChatSearchNavigationButtonsTests.swift in Sources */,
 					4E9700022FE900000ABC001 /* ChatSearchHighlightingTests.swift in Sources */,
 					4EA000022FEA00000ABC001 /* ChatSearchResultCellTests.swift in Sources */,
+					4EA100022FEB00000ABC001 /* ChatSearchResultsListTests.swift in Sources */,
 						4E7200022FC000000ABC001 /* DeviceDetailSecurityActionTests.swift in Sources */,
 						4E7300022FC100000ABC001 /* AccountDeletionCleanupTests.swift in Sources */,
 						4E7400022FC200000ABC001 /* QuitAccountFlowStateTests.swift in Sources */,
