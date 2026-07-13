@@ -1675,7 +1675,15 @@ class ChatViewController: MessagesViewController {
     var searchMessagesQueue: [MessageStorageItem] = []
     var searchResultPresentations: [ChatSearchResult] = []
     var searchResultsListViewController: ChatSearchResultsListViewController? = nil
+    var searchAnimationSpec = ChatSearchAnimationSpec.production.resolved(
+        for: .init(
+            reduceMotion: UIAccessibility.isReduceMotionEnabled,
+            reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
+        )
+    )
     var searchModeTransitionCoordinator = ChatSearchModeTransitionCoordinator()
+    var searchChromeTransitionCoordinator = ChatSearchChromeTransitionCoordinator()
+    var searchNavigationFeedbackCoordinator = ChatSearchNavigationFeedbackCoordinator()
     var searchCalendarViewController: ChatSearchCalendarViewController? = nil
     var searchCalendarCompletionCoordinator: ChatSearchCalendarCompletionCoordinating? = nil
     var searchCalendarTimestampMAMTransport: ChatSearchTimestampMAMTransport? = nil
@@ -2725,7 +2733,10 @@ class ChatViewController: MessagesViewController {
     internal var searchInputBarConstraints: [NSLayoutConstraint] = []
 
     internal lazy var searchNavigationButtonsView: ChatSearchNavigationButtonsView = {
-        let view = ChatSearchNavigationButtonsView()
+        let view = ChatSearchNavigationButtonsView(
+            frame: .zero,
+            animationSpec: self.searchAnimationSpec
+        )
         view.onPrevious = { [weak self] in
             self?.onSearchPanelSeekUp()
         }
@@ -3731,12 +3742,16 @@ class ChatViewController: MessagesViewController {
     }
     
     func configureSearchBar(activateKeyboard: Bool = true, animated: Bool = true) {
-        let shouldAnimate = ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
-            requestedAnimated: animated,
-            isTransitionActive: self.isNavigationTransitionActive,
-            isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
+        let shouldAnimate = ChatSearchMotionMutationPolicy.shouldAnimate(
+            requestedAnimated: self.shouldAnimateDuringInitialLatestStabilization(
+                requestedAnimated: animated
+            ),
+            isNavigationTransitionActive: self.isNavigationTransitionActive,
+            isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation,
+            isInteractiveKeyboardUpdate: false
         )
         self.invalidateNavigationAvatarItem()
+        self.xabberInputView.searchPanel.updateAnimationSpec(self.searchAnimationSpec)
 
         let inputBar = self.searchNavigationView
         inputBar.render(
@@ -3768,6 +3783,8 @@ class ChatViewController: MessagesViewController {
             visibleKeyboardHeight: 0
         )
         self.updateChatCollectionInsets(inputHeight: inputHeight)
+        self.view.layoutIfNeeded()
+        self.transitionSearchChrome(to: .visible, animated: shouldAnimate)
     }
 
     internal func installSearchInputOverlayIfNeeded() {
@@ -4888,6 +4905,7 @@ class ChatViewController: MessagesViewController {
         }
         self.didRunNavigationDisappearanceCleanup = true
         self.didScheduleNavigationDisappearanceCleanup = false
+        self.cleanupSearchAnimationsForLifecycle()
         self.cancelChatSearchCalendarDateResolution()
         AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
@@ -4984,6 +5002,7 @@ class ChatViewController: MessagesViewController {
 
     internal func handleApplicationDidEnterBackground() {
         NotifyManager.shared.currentDialog = nil
+        self.cleanupSearchAnimationsForLifecycle()
         self.cancelChatSearchCalendarDateResolution()
         self.cancelActiveAudioRecordingForLifecycle()
         self.flushPendingVisibleReadTarget()

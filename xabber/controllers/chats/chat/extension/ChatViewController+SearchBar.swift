@@ -1049,6 +1049,81 @@ enum ChatEditPreviewNavigationPolicy {
 }
 
 extension ChatViewController {
+    internal func transitionSearchChrome(
+        to finalState: ChatSearchChromeTransitionPlan.FinalState,
+        animated: Bool,
+        completion: ((ChatSearchChromeTransitionPlan.FinalState) -> Void)? = nil
+    ) {
+        assert(Thread.isMainThread, "Chat search chrome transitions must run on the main thread")
+        guard isViewLoaded else {
+            searchChromeTransitionCoordinator.cleanupAnimations(finalState: finalState)
+            completion?(finalState)
+            return
+        }
+        let generation = searchPresentationState.generation
+        let hosts = [
+            searchNavigationView.surfaceView,
+            searchNavigationView.cancelButton,
+            xabberInputView.searchPanel.leadingSurfaceView,
+            xabberInputView.searchPanel.trailingSurfaceView
+        ]
+        searchChromeTransitionCoordinator.transition(
+            to: finalState,
+            generation: generation,
+            animated: animated,
+            animationSpec: searchAnimationSpec,
+            contentHosts: hosts,
+            isGenerationCurrent: { [weak self] candidateGeneration in
+                guard let self,
+                      self.searchPresentationState.generation == candidateGeneration else {
+                    return false
+                }
+                switch finalState {
+                case .visible:
+                    return self.searchPresentationState.isActive
+                case .hidden:
+                    return !self.searchPresentationState.isActive
+                }
+            },
+            completion: { finalState in
+                completion?(finalState)
+            }
+        )
+    }
+
+    internal func cleanupSearchAnimationsForLifecycle() {
+        assert(Thread.isMainThread, "Chat search lifecycle cleanup must run on the main thread")
+        let chromeState: ChatSearchChromeTransitionPlan.FinalState =
+            searchPresentationState.isActive ? .visible : .hidden
+        searchChromeTransitionCoordinator.cleanupAnimations(finalState: chromeState)
+
+        let listIsReducerFinal: Bool
+        switch searchPresentationState.surfaceMode {
+        case .list:
+            listIsReducerFinal = true
+        case .calendar:
+            listIsReducerFinal = searchPresentationState.calendarOrigin == .list
+        case .chat:
+            listIsReducerFinal = false
+        }
+        searchModeTransitionCoordinator.cleanupAnimations(
+            finalState: listIsReducerFinal ? .list : .chat
+        )
+        if isViewLoaded {
+            searchNavigationButtonsView.cleanupAnimations(
+                finalState: ChatSearchNavigationButtonsRenderPolicy.state(
+                    presentation: searchPresentationState,
+                    navigationBusy: searchResultNavigationState.isBusy ||
+                        searchOlderPageNavigationGate.hasPendingNavigation,
+                    canRequestOlderPage: searchOlderPageNavigationGate.canRequest
+                )
+            )
+        }
+        searchNavigationFeedbackCoordinator.cancel(
+            generation: searchPresentationState.generation
+        )
+    }
+
     @discardableResult
     internal func reduceSearchPresentationState(
         _ event: ChatSearchPresentationState.Event
@@ -1177,17 +1252,11 @@ extension ChatViewController {
         listController: ChatSearchResultsListViewController
     ) {
         let generation = searchPresentationState.generation
-        let animationSpec = ChatSearchAnimationSpec.production.resolved(
-            for: .init(
-                reduceMotion: UIAccessibility.isReduceMotionEnabled,
-                reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
-            )
-        )
         searchModeTransitionCoordinator.transition(
             to: mode,
             generation: generation,
             animated: animated,
-            animationSpec: animationSpec,
+            animationSpec: searchAnimationSpec,
             containerView: view,
             listContentView: listController.view,
             timelineView: messagesCollectionView,
@@ -1627,6 +1696,9 @@ extension ChatViewController {
         }
 
         cancelChatSearchCalendarDateResolution()
+        searchNavigationFeedbackCoordinator.cancel(
+            generation: searchPresentationState.generation
+        )
         reduceSearchPresentationState(.cancelSearch)
         applySearchSessionEffects(searchSession.cancel())
         searchOlderPageNavigationGate.reset(generation: searchSession.generation)
@@ -1643,16 +1715,37 @@ extension ChatViewController {
         searchInputBar.text = nil
         searchBar.endEditing(true)
         searchInputBar.endEditing(true)
-        hideSearchInputOverlay()
-        xabberInputView.changeState(to: .normal)
-        let inputHeight = updateChatInputViewForCurrentKeyboardLayout(visibleKeyboardHeight: 0)
-        updateChatCollectionInsets(inputHeight: inputHeight)
-        becomeFirstResponder()
-        navigationItem.setHidesBackButton(false, animated: false)
-        messagesCollectionView.reloadDataAndKeepOffset()
-        UIView.performWithoutAnimation {
-            configureNavbar()
+        let cancellationGeneration = searchPresentationState.generation
+        let finalizeCancellation: () -> Void = { [weak self] in
+            guard let self,
+                  !self.searchPresentationState.isActive,
+                  self.searchPresentationState.generation == cancellationGeneration else {
+                return
+            }
+            self.hideSearchInputOverlay()
+            self.xabberInputView.changeState(to: .normal)
+            let inputHeight = self.updateChatInputViewForCurrentKeyboardLayout(
+                visibleKeyboardHeight: 0
+            )
+            self.updateChatCollectionInsets(inputHeight: inputHeight)
+            self.becomeFirstResponder()
+            self.navigationItem.setHidesBackButton(false, animated: false)
+            self.messagesCollectionView.reloadDataAndKeepOffset()
+            UIView.performWithoutAnimation {
+                self.configureNavbar()
+            }
         }
+        let shouldAnimate = ChatSearchMotionMutationPolicy.shouldAnimate(
+            requestedAnimated: true,
+            isNavigationTransitionActive: isNavigationTransitionActive,
+            isPreparingFirstFrame: isPreparingStackedNavigationPresentation,
+            isInteractiveKeyboardUpdate: false
+        )
+        transitionSearchChrome(
+            to: .hidden,
+            animated: shouldAnimate,
+            completion: { _ in finalizeCancellation() }
+        )
     }
 
     @discardableResult
@@ -2107,6 +2200,9 @@ extension ChatViewController {
 
     internal func cancelSearchResultNavigation() {
         searchResultNavigationState = .idle
+        searchNavigationFeedbackCoordinator.cancel(
+            generation: searchPresentationState.generation
+        )
         guard isViewLoaded else {
             return
         }
@@ -2233,6 +2329,10 @@ extension ChatViewController {
             )
         }
         setSelectedSearchResultNavigationIndex(index, isLoadingContext: false)
+        _ = searchNavigationFeedbackCoordinator.commitPositioned(
+            index: index,
+            generation: searchPresentationState.generation
+        )
         if !completeSearchResultNavigation(index: index) {
             flushPendingArchiveObserverRefreshIfPossible(reason: "searchPositioned")
         }
@@ -2351,6 +2451,9 @@ extension ChatViewController {
         searchSession.setContextLoading(false)
 
         guard let pendingNavigation else {
+            searchNavigationFeedbackCoordinator.cancel(
+                generation: searchPresentationState.generation
+            )
             setSearchResultsPanelContextLoading(false)
             refreshVisibleSearchSelection()
             renderSearchNavigationButtons(animated: true)
@@ -2379,6 +2482,9 @@ extension ChatViewController {
         guard searchMessagesQueue.indices.contains(index),
               let request = makeSearchResultOpenMessageRequest(at: index) else {
             searchResultNavigationState = .idle
+            searchNavigationFeedbackCoordinator.cancel(
+                generation: searchPresentationState.generation
+            )
             onNavigationFinished?()
             return
         }
@@ -2452,7 +2558,10 @@ extension ChatViewController {
             requestedDirection: direction
         )
 
-        FeedbackManager.shared.generate(feedback: .success)
+        searchNavigationFeedbackCoordinator.prepare(
+            expectedIndex: nextIndex,
+            generation: searchPresentationState.generation
+        )
 
         if currentPage.locked || searchResultNavigationState.isBusy {
             recordPendingSearchResultNavigation(index: nextIndex, scrollDirection: scrollDirection)
@@ -2486,7 +2595,7 @@ extension ChatViewController {
 
     private func requestOlderSearchResultsIfAvailable() {
         let generation = searchOlderPageNavigationGate.generation
-        guard searchOlderPageNavigationGate.requestNavigation(generation: generation) != nil,
+        guard let request = searchOlderPageNavigationGate.requestNavigation(generation: generation),
               let queryId = currentSearchQueryId,
               let manager = searchArchiveManagersByQueryId[queryId] else {
             searchOlderPageNavigationGate.markTerminal(generation: generation)
@@ -2498,6 +2607,10 @@ extension ChatViewController {
             renderSearchNavigationButtons(animated: true)
             return
         }
+        searchNavigationFeedbackCoordinator.prepare(
+            expectedIndex: request.loadedResultCount,
+            generation: searchPresentationState.generation
+        )
         renderSearchNavigationButtons(animated: true)
     }
 
@@ -4722,6 +4835,7 @@ extension ChatViewController {
     }
     
     internal func onSearchPanelChangeChatViewState() {
+        searchChromeTransitionCoordinator.cleanupAnimations(finalState: .visible)
         if searchPresentationState.surfaceMode == .list {
             reduceSearchPresentationState(.closeList)
         } else if makeChatSearchResultsListRenderModel()?.canPresent == true {
@@ -4733,6 +4847,7 @@ extension ChatViewController {
         guard let request = searchPresentationState.calendarPresentationRequest else {
             return
         }
+        searchChromeTransitionCoordinator.cleanupAnimations(finalState: .visible)
         request.prepareForPresentation(
             resignKeyboard: { [weak self] in
                 guard let self else { return }
@@ -4747,19 +4862,13 @@ extension ChatViewController {
         reduceSearchPresentationState(request.event)
         guard searchPresentationState.surfaceMode == .calendar else { return }
 
-        let animationSpec = ChatSearchAnimationSpec.production.resolved(
-            for: .init(
-                reduceMotion: UIAccessibility.isReduceMotionEnabled,
-                reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
-            )
-        )
         let calendarController = ChatSearchCalendarViewController(
             model: ChatSearchCalendarModel(
                 calendar: .autoupdatingCurrent,
                 locale: .autoupdatingCurrent,
                 clock: ChatSearchCalendarSystemClock()
             ),
-            animationSpec: animationSpec
+            animationSpec: searchAnimationSpec
         )
         calendarController.onCancel = { [weak self] in
             self?.dismissChatSearchCalendar(animated: true)
@@ -5014,6 +5123,10 @@ extension ChatViewController {
     }
 
     private func restoreNormalChatChromeForCalendarDateResolution() {
+        searchChromeTransitionCoordinator.cleanupAnimations(finalState: .hidden)
+        searchNavigationFeedbackCoordinator.cancel(
+            generation: searchPresentationState.generation
+        )
         applySearchSessionEffects(searchSession.cancel())
         searchOlderPageNavigationGate.reset(generation: searchSession.generation)
         clearInChatSearchQuery(clearResults: true, panelState: .idle)

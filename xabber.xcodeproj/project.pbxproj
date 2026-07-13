@@ -96,6 +96,7 @@
 		4EA900022FF300000ABC001 /* ChatSearchTimestampMAMResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA900012FF300000ABC001 /* ChatSearchTimestampMAMResolverTests.swift */; };
 		4EAA00022FF400000ABC001 /* ChatSearchCalendarCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAA00012FF400000ABC001 /* ChatSearchCalendarCompletionTests.swift */; };
 		4EAA00042FF400000ABC001 /* ChatSearchCalendarCompletionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAA00032FF400000ABC001 /* ChatSearchCalendarCompletionCoordinator.swift */; };
+		4EAB00022FF500000ABC001 /* ChatSearchModeTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAB00012FF500000ABC001 /* ChatSearchModeTransitionTests.swift */; };
 		4EA900042FF300000ABC001 /* ChatSearchTimestampMAMResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA900032FF300000ABC001 /* ChatSearchTimestampMAMResolver.swift */; };
 		4EA600062FF000000ABC001 /* ChatSearchCalendarDayCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA600052FF000000ABC001 /* ChatSearchCalendarDayCell.swift */; };
 		4EA100042FEB00000ABC001 /* ChatSearchResultsListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA100032FEB00000ABC001 /* ChatSearchResultsListViewController.swift */; };
@@ -996,6 +997,7 @@
 		4EA900012FF300000ABC001 /* ChatSearchTimestampMAMResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchTimestampMAMResolverTests.swift; sourceTree = "<group>"; };
 		4EAA00012FF400000ABC001 /* ChatSearchCalendarCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchCalendarCompletionTests.swift; sourceTree = "<group>"; };
 		4EAA00032FF400000ABC001 /* ChatSearchCalendarCompletionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = chat_search/ChatSearchCalendarCompletionCoordinator.swift; sourceTree = "<group>"; };
+		4EAB00012FF500000ABC001 /* ChatSearchModeTransitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchModeTransitionTests.swift; sourceTree = "<group>"; };
 		4EA900032FF300000ABC001 /* ChatSearchTimestampMAMResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = chat_search/ChatSearchTimestampMAMResolver.swift; sourceTree = "<group>"; };
 		4EA600052FF000000ABC001 /* ChatSearchCalendarDayCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchCalendarDayCell.swift; sourceTree = "<group>"; };
 		4EA100032FEB00000ABC001 /* ChatSearchResultsListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchResultsListViewController.swift; sourceTree = "<group>"; };
@@ -4039,6 +4041,7 @@
 					4EA800012FF200000ABC001 /* ChatSearchTimestampLocalResolverTests.swift */,
 					4EA900012FF300000ABC001 /* ChatSearchTimestampMAMResolverTests.swift */,
 					4EAA00012FF400000ABC001 /* ChatSearchCalendarCompletionTests.swift */,
+					4EAB00012FF500000ABC001 /* ChatSearchModeTransitionTests.swift */,
 						4E7200012FC000000ABC001 /* DeviceDetailSecurityActionTests.swift */,
 						4E7300012FC100000ABC001 /* AccountDeletionCleanupTests.swift */,
 						4E7400012FC200000ABC001 /* QuitAccountFlowStateTests.swift */,
@@ -6118,6 +6121,7 @@
 					4EA800022FF200000ABC001 /* ChatSearchTimestampLocalResolverTests.swift in Sources */,
 					4EA900022FF300000ABC001 /* ChatSearchTimestampMAMResolverTests.swift in Sources */,
 					4EAA00022FF400000ABC001 /* ChatSearchCalendarCompletionTests.swift in Sources */,
+					4EAB00022FF500000ABC001 /* ChatSearchModeTransitionTests.swift in Sources */,
 						4E7200022FC000000ABC001 /* DeviceDetailSecurityActionTests.swift in Sources */,
 						4E7300022FC100000ABC001 /* AccountDeletionCleanupTests.swift in Sources */,
 						4E7400022FC200000ABC001 /* QuitAccountFlowStateTests.swift in Sources */,

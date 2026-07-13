@@ -294,6 +294,24 @@ final class ChatSearchNavigationButtonsView: UIView {
         }
     }
 
+    func cleanupAnimations(finalState state: RenderState) {
+        layer.removeAllAnimations()
+        previousButton.layer.removeAllAnimations()
+        nextButton.layer.removeAllAnimations()
+        renderState = state
+        previousButton.isEnabled = state.isVisible && state.isPreviousEnabled
+        nextButton.isEnabled = state.isVisible && state.isNextEnabled
+        accessibilityValue = state.isBusy ? "Loading" : nil
+        if state.isVisible {
+            isHidden = false
+            isUserInteractionEnabled = true
+            alpha = 1
+            transform = .identity
+        } else {
+            applyHiddenState()
+        }
+    }
+
     private func setup() {
         backgroundColor = .clear
         isOpaque = false

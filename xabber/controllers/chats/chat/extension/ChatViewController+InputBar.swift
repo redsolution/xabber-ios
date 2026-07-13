@@ -209,7 +209,14 @@ extension ChatViewController {
             )
         }
 
-        if duration > 0 {
+        let shouldAnimateKeyboardMutation = ChatSearchMotionMutationPolicy.shouldAnimate(
+            requestedAnimated: duration > 0,
+            isNavigationTransitionActive: self.isNavigationTransitionActive,
+            isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation,
+            isInteractiveKeyboardUpdate: self.isChatSearchInputKeyboardOwned &&
+                self.messagesCollectionView.keyboardDismissMode == .interactive
+        )
+        if shouldAnimateKeyboardMutation {
             UIView.animate(
                 withDuration: TimeInterval(duration),
                 delay: 0,

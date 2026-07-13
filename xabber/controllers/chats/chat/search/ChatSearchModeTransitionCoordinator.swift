@@ -161,6 +161,305 @@ final class UIKitChatSearchModeAnimatorFactory: ChatSearchModeAnimatorFactory {
     }
 }
 
+struct ChatSearchChromeTransitionPlan: Equatable {
+    enum FinalState: Equatable {
+        case visible
+        case hidden
+    }
+
+    let finalState: FinalState
+    let generation: Int
+    let transition: ChatSearchAnimationSpec.Transition
+    let isAnimated: Bool
+    let maximumDuration: TimeInterval
+
+    static func make(
+        finalState: FinalState,
+        generation: Int,
+        animationSpec: ChatSearchAnimationSpec,
+        animated: Bool
+    ) -> ChatSearchChromeTransitionPlan {
+        let source = finalState == .visible
+            ? animationSpec.chromeControls
+            : animationSpec.chromeControls.reversed()
+        let transition = animated
+            ? source
+            : source.replacingDurationsForModeTransition(with: 0)
+        let maximumDuration = transition.modeTransitionDurations.max() ?? 0
+        return ChatSearchChromeTransitionPlan(
+            finalState: finalState,
+            generation: generation,
+            transition: transition,
+            isAnimated: animated && maximumDuration > 0,
+            maximumDuration: maximumDuration
+        )
+    }
+}
+
+enum ChatSearchMotionMutationPolicy {
+    static func shouldAnimate(
+        requestedAnimated: Bool,
+        isNavigationTransitionActive: Bool,
+        isPreparingFirstFrame: Bool,
+        isInteractiveKeyboardUpdate: Bool
+    ) -> Bool {
+        requestedAnimated &&
+            !isNavigationTransitionActive &&
+            !isPreparingFirstFrame &&
+            !isInteractiveKeyboardUpdate
+    }
+}
+
+final class ChatSearchChromeTransitionCoordinator {
+    private final class ActiveTransition {
+        let token = UUID()
+        let plan: ChatSearchChromeTransitionPlan
+        let contentHosts: [UIView]
+        let animator: ChatSearchModeAnimating
+        let isGenerationCurrent: (Int) -> Bool
+        let completion: (ChatSearchChromeTransitionPlan.FinalState) -> Void
+
+        init(
+            plan: ChatSearchChromeTransitionPlan,
+            contentHosts: [UIView],
+            animator: ChatSearchModeAnimating,
+            isGenerationCurrent: @escaping (Int) -> Bool,
+            completion: @escaping (ChatSearchChromeTransitionPlan.FinalState) -> Void
+        ) {
+            self.plan = plan
+            self.contentHosts = contentHosts
+            self.animator = animator
+            self.isGenerationCurrent = isGenerationCurrent
+            self.completion = completion
+        }
+    }
+
+    private let animatorFactory: ChatSearchModeAnimatorFactory
+    private var activeTransition: ActiveTransition?
+
+    private(set) var settledState: ChatSearchChromeTransitionPlan.FinalState = .hidden
+    private(set) var requestedState: ChatSearchChromeTransitionPlan.FinalState = .hidden
+
+    var isTransitioning: Bool {
+        activeTransition != nil
+    }
+
+    init(
+        animatorFactory: ChatSearchModeAnimatorFactory = UIKitChatSearchModeAnimatorFactory()
+    ) {
+        self.animatorFactory = animatorFactory
+    }
+
+    func transition(
+        to finalState: ChatSearchChromeTransitionPlan.FinalState,
+        generation: Int,
+        animated: Bool,
+        animationSpec: ChatSearchAnimationSpec,
+        contentHosts: [UIView],
+        isGenerationCurrent: @escaping (Int) -> Bool,
+        completion: @escaping (ChatSearchChromeTransitionPlan.FinalState) -> Void
+    ) {
+        assert(Thread.isMainThread, "Chat search chrome motion must run on the main thread")
+        requestedState = finalState
+        if let activeTransition,
+           activeTransition.plan.finalState == finalState,
+           activeTransition.plan.generation == generation {
+            return
+        }
+
+        if activeTransition == nil,
+           settledState == finalState {
+            cleanupViews(contentHosts)
+            if isGenerationCurrent(generation) {
+                completion(finalState)
+            }
+            return
+        }
+
+        interruptActiveTransition()
+        let hosts = contentHosts.filter { !$0.isHidden }
+        let plan = ChatSearchChromeTransitionPlan.make(
+            finalState: finalState,
+            generation: generation,
+            animationSpec: animationSpec,
+            animated: animated
+        )
+        guard !hosts.isEmpty,
+              plan.isAnimated,
+              hosts.allSatisfy({ $0.window != nil }),
+              let timing = plan.transition.scale?.timing ?? plan.transition.alpha?.timing else {
+            cleanupViews(hosts)
+            settledState = finalState
+            if isGenerationCurrent(generation) {
+                completion(finalState)
+            }
+            return
+        }
+
+        apply(
+            transition: plan.transition,
+            endpoint: .initial,
+            to: hosts
+        )
+        let animator = animatorFactory.makeAnimator(timing: timing) {
+            Self.apply(
+                transition: plan.transition,
+                endpoint: .final,
+                to: hosts
+            )
+        }
+        let active = ActiveTransition(
+            plan: plan,
+            contentHosts: hosts,
+            animator: animator,
+            isGenerationCurrent: isGenerationCurrent,
+            completion: completion
+        )
+        activeTransition = active
+        animator.addCompletion { [weak self] _ in
+            self?.animationCompleted(token: active.token)
+        }
+        animator.startAnimation()
+    }
+
+    func cleanupAnimations(finalState: ChatSearchChromeTransitionPlan.FinalState) {
+        assert(Thread.isMainThread, "Chat search chrome cleanup must run on the main thread")
+        if let activeTransition {
+            activeTransition.animator.stopAnimation(true)
+            cleanupViews(activeTransition.contentHosts)
+            self.activeTransition = nil
+        }
+        settledState = finalState
+        requestedState = finalState
+    }
+
+    private func animationCompleted(token: UUID) {
+        guard let activeTransition,
+              activeTransition.token == token else {
+            return
+        }
+        let shouldComplete = activeTransition.isGenerationCurrent(
+            activeTransition.plan.generation
+        ) && requestedState == activeTransition.plan.finalState
+        cleanupViews(activeTransition.contentHosts)
+        self.activeTransition = nil
+        guard shouldComplete else { return }
+        settledState = activeTransition.plan.finalState
+        activeTransition.completion(activeTransition.plan.finalState)
+    }
+
+    private func interruptActiveTransition() {
+        guard let activeTransition else { return }
+        activeTransition.animator.stopAnimation(true)
+        cleanupViews(activeTransition.contentHosts)
+        self.activeTransition = nil
+    }
+
+    private func cleanupViews(_ views: [UIView]) {
+        views.forEach {
+            $0.layer.removeAllAnimations()
+            $0.alpha = 1
+            $0.transform = .identity
+        }
+    }
+
+    private enum Endpoint {
+        case initial
+        case final
+    }
+
+    private func apply(
+        transition: ChatSearchAnimationSpec.Transition,
+        endpoint: Endpoint,
+        to views: [UIView]
+    ) {
+        Self.apply(transition: transition, endpoint: endpoint, to: views)
+    }
+
+    private static func apply(
+        transition: ChatSearchAnimationSpec.Transition,
+        endpoint: Endpoint,
+        to views: [UIView]
+    ) {
+        let alpha: Double?
+        let scale: Double?
+        switch endpoint {
+        case .initial:
+            alpha = transition.alpha?.from
+            scale = transition.scale?.from
+        case .final:
+            alpha = transition.alpha?.to
+            scale = transition.scale?.to
+        }
+        views.forEach {
+            if let alpha {
+                $0.alpha = CGFloat(alpha)
+            }
+            if let scale {
+                $0.transform = CGAffineTransform(scaleX: CGFloat(scale), y: CGFloat(scale))
+            } else {
+                $0.transform = .identity
+            }
+        }
+    }
+}
+
+protocol ChatSearchNavigationFeedbackGenerating: AnyObject {
+    func prepare()
+    func selectionChanged()
+}
+
+final class UIKitChatSearchNavigationFeedbackGenerator:
+    ChatSearchNavigationFeedbackGenerating {
+    private let generator = UISelectionFeedbackGenerator()
+
+    func prepare() {
+        generator.prepare()
+    }
+
+    func selectionChanged() {
+        generator.selectionChanged()
+    }
+}
+
+final class ChatSearchNavigationFeedbackCoordinator {
+    private struct PendingFeedback {
+        let expectedIndex: Int
+        let generation: Int
+    }
+
+    private let generator: ChatSearchNavigationFeedbackGenerating
+    private var pending: PendingFeedback?
+
+    init(
+        generator: ChatSearchNavigationFeedbackGenerating =
+            UIKitChatSearchNavigationFeedbackGenerator()
+    ) {
+        self.generator = generator
+    }
+
+    func prepare(expectedIndex: Int, generation: Int) {
+        pending = PendingFeedback(expectedIndex: expectedIndex, generation: generation)
+        generator.prepare()
+    }
+
+    @discardableResult
+    func commitPositioned(index: Int, generation: Int) -> Bool {
+        guard let pending,
+              pending.expectedIndex == index,
+              pending.generation == generation else {
+            return false
+        }
+        self.pending = nil
+        generator.selectionChanged()
+        return true
+    }
+
+    func cancel(generation: Int? = nil) {
+        pending = nil
+    }
+}
+
 final class ChatSearchModeTransitionCoordinator {
     private final class ActiveTransition {
         let token = UUID()
@@ -274,9 +573,20 @@ final class ChatSearchModeTransitionCoordinator {
 
     func reset(to mode: ChatSearchModeTransitionPlan.Mode = .chat) {
         assert(Thread.isMainThread, "Chat search mode transitions must reset on the main thread")
+        cleanupAnimations(finalState: mode)
+    }
+
+    func cleanupAnimations(finalState mode: ChatSearchModeTransitionPlan.Mode) {
+        assert(Thread.isMainThread, "Chat search mode cleanup must run on the main thread")
         if let activeTransition {
             activeTransition.animators.forEach { $0.stopAnimation(true) }
             cleanup(activeTransition)
+            applyVisualFinalMode(
+                mode,
+                listContentView: activeTransition.listContentView,
+                timelineView: activeTransition.timelineView
+            )
+            activeTransition.applyFinalMode(mode)
             self.activeTransition = nil
         }
         settledMode = mode

@@ -178,11 +178,7 @@ final class ChatSearchBottomActionBarTests: XCTestCase {
         XCTAssertEqual(panel.counterTransitionCount, transitionCount + 1)
         let transition = try XCTUnwrap(panel.lastCounterTransition)
         XCTAssertEqual(transition.mode, .verticalPush)
-        XCTAssertEqual(
-            transition.duration,
-            ChatSearchAnimationSpec.production.monthSwipe.timing.duration,
-            accuracy: 0.001
-        )
+        XCTAssertEqual(transition.duration, 0.25, accuracy: 0.001)
     }
 
     func testReducedMotionChangesCounterTransitionToCrossfade() throws {

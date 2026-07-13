@@ -504,8 +504,15 @@ class ModernXabberInputView: UIView {
             case crossfade
         }
 
+        enum CounterDirection: Equatable {
+            case towardOlder
+            case towardNewer
+            case replacement
+        }
+
         struct CounterTransition: Equatable {
             let mode: CounterAnimationMode
+            let direction: CounterDirection
             let duration: TimeInterval
             let fromText: String
             let toText: String
@@ -527,7 +534,7 @@ class ModernXabberInputView: UIView {
         private var lastCurrentResultIndex: Int = -1
         private var lastTotalResults: Int = 0
         private(set) var surfaceMode: SurfaceMode = .chat
-        private let animationSpec: ChatSearchAnimationSpec
+        private var animationSpec: ChatSearchAnimationSpec
         private let countFormatter = ChatSearchBottomCountFormatter()
         private(set) var counterTransitionCount = 0
         private(set) var lastCounterTransition: CounterTransition?
@@ -791,6 +798,8 @@ class ModernXabberInputView: UIView {
             surfaceMode newSurfaceMode: SurfaceMode,
             animated: Bool
         ) {
+            let previousCurrent = self.lastCurrentResultIndex
+            let previousTotal = self.lastTotalResults
             self.renderState = newState
             self.state = newState.legacyState
             self.surfaceMode = newSurfaceMode
@@ -818,7 +827,26 @@ class ModernXabberInputView: UIView {
             } else {
                 counterText = countFormatter.messages(total: total)
             }
-            updateCounterText(counterText, animated: animated)
+            let counterDirection: CounterDirection
+            if newSurfaceMode == .chat,
+               hasCommittedCurrentResult,
+               previousCurrent >= 0,
+               previousTotal == total {
+                if current > previousCurrent {
+                    counterDirection = .towardOlder
+                } else if current < previousCurrent {
+                    counterDirection = .towardNewer
+                } else {
+                    counterDirection = .replacement
+                }
+            } else {
+                counterDirection = .replacement
+            }
+            updateCounterText(
+                counterText,
+                direction: counterDirection,
+                animated: animated
+            )
 
             let viewModeTitle: String
             switch newSurfaceMode {
@@ -852,7 +880,15 @@ class ModernXabberInputView: UIView {
             applyRenderState(renderState, surfaceMode: newSurfaceMode, animated: animated)
         }
 
-        private func updateCounterText(_ text: String, animated: Bool) {
+        func updateAnimationSpec(_ animationSpec: ChatSearchAnimationSpec) {
+            self.animationSpec = animationSpec
+        }
+
+        private func updateCounterText(
+            _ text: String,
+            direction: CounterDirection,
+            animated: Bool
+        ) {
             let previousText = counterLabel.text ?? ""
             guard previousText != text else {
                 return
@@ -864,13 +900,13 @@ class ModernXabberInputView: UIView {
                 return
             }
 
-            let timing = animationSpec.monthSwipe.timing
+            let timing = animationSpec.counterDigits
             let mode: CounterAnimationMode = animationSpec.isReducedMotion
-                || animationSpec.monthSwipe.mode == .crossfade
                 ? .crossfade
                 : .verticalPush
             let transition = CounterTransition(
                 mode: mode,
+                direction: direction,
                 duration: timing.duration,
                 fromText: previousText,
                 toText: text
@@ -896,7 +932,15 @@ class ModernXabberInputView: UIView {
             case .verticalPush:
                 let layerTransition = CATransition()
                 layerTransition.type = .push
-                layerTransition.subtype = .fromTop
+                switch direction {
+                case .towardOlder:
+                    layerTransition.subtype = .fromTop
+                case .towardNewer:
+                    layerTransition.subtype = .fromBottom
+                case .replacement:
+                    layerTransition.type = .fade
+                    layerTransition.subtype = nil
+                }
                 layerTransition.duration = timing.duration
                 layerTransition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 counterLabel.layer.add(layerTransition, forKey: "chat-search-counter")
