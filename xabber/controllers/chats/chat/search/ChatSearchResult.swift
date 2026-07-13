@@ -48,6 +48,18 @@ struct ChatSearchResult: Equatable, Sendable {
         case pending
     }
 
+    struct Avatar: Equatable, Sendable {
+        enum Source: Equatable, Sendable {
+            case contact(jid: String, owner: String)
+            case group(userId: String, conversationJID: String, owner: String)
+        }
+
+        let identity: String
+        let fallbackTitle: String
+        let url: String?
+        let source: Source
+    }
+
     let id: ID
     let scope: Scope
     let anchor: Anchor
@@ -56,12 +68,29 @@ struct ChatSearchResult: Equatable, Sendable {
     let body: String
     let snippet: String
     let deliveryState: DeliveryState
+    let avatar: Avatar
 }
 
 struct ChatSearchResultMappingContext: Equatable, Sendable {
     let scope: ChatSearchResult.Scope
     let localizedYou: String
     let contactDisplayName: String
+    let ownerAvatarURL: String?
+    let contactAvatarURL: String?
+
+    init(
+        scope: ChatSearchResult.Scope,
+        localizedYou: String,
+        contactDisplayName: String,
+        ownerAvatarURL: String? = nil,
+        contactAvatarURL: String? = nil
+    ) {
+        self.scope = scope
+        self.localizedYou = localizedYou
+        self.contactDisplayName = contactDisplayName
+        self.ownerAvatarURL = ownerAvatarURL
+        self.contactAvatarURL = contactAvatarURL
+    }
 }
 
 enum ChatSearchResultMapper {
@@ -87,6 +116,7 @@ enum ChatSearchResultMapper {
         }
 
         let body = item.body
+        let senderTitle = senderTitle(for: item, context: context)
         return ChatSearchResult(
             id: id,
             scope: context.scope,
@@ -98,13 +128,45 @@ enum ChatSearchResultMapper {
                 date: item.date
             ),
             outgoing: item.outgoing,
-            senderTitle: senderTitle(for: item, context: context),
+            senderTitle: senderTitle,
             body: body,
             snippet: body
                 .split(whereSeparator: { $0.isWhitespace })
                 .joined(separator: " "),
-            deliveryState: deliveryState(for: item.state)
+            deliveryState: deliveryState(for: item.state),
+            avatar: avatar(for: item, senderTitle: senderTitle, context: context)
         )
+    }
+
+    private static func avatar(
+        for item: MessageStorageItem,
+        senderTitle: String,
+        context: ChatSearchResultMappingContext
+    ) -> ChatSearchResult.Avatar {
+        switch item.conversationType {
+        case .group, .channel:
+            let userId = nonEmpty(item.groupchatAuthorId)
+                ?? (item.outgoing ? context.scope.owner : senderTitle)
+            let url = nonEmpty(item.groupchatCard?.avatarUrl)
+            return ChatSearchResult.Avatar(
+                identity: "group:\(context.scope.owner)|\(context.scope.jid)|\(userId)",
+                fallbackTitle: senderTitle,
+                url: url,
+                source: .group(
+                    userId: userId,
+                    conversationJID: context.scope.jid,
+                    owner: context.scope.owner
+                )
+            )
+        default:
+            let jid = item.outgoing ? context.scope.owner : context.scope.jid
+            return ChatSearchResult.Avatar(
+                identity: "contact:\(context.scope.owner)|\(jid)",
+                fallbackTitle: senderTitle,
+                url: item.outgoing ? context.ownerAvatarURL : context.contactAvatarURL,
+                source: .contact(jid: jid, owner: context.scope.owner)
+            )
+        }
     }
 
     private static func senderTitle(
@@ -226,6 +288,7 @@ enum ChatSearchResultCollection {
         score += result.body.isNotEmpty ? 2 : 0
         score += result.snippet.isNotEmpty ? 1 : 0
         score += result.deliveryState == .pending ? 0 : 1
+        score += result.avatar.url?.isNotEmpty == true ? 1 : 0
         return score
     }
 }
