@@ -58,6 +58,7 @@
 		4E8400142FD3000000ABC001 /* MediaGalleryVoiceListTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8400132FD3000000ABC001 /* MediaGalleryVoiceListTests.swift */; };
 		4E8400162FD3000000ABC001 /* MediaGalleryVoicePlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8400152FD3000000ABC001 /* MediaGalleryVoicePlaybackTests.swift */; };
 		4E8400182FD3000000ABC001 /* MediaGalleryFullscreenIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8400172FD3000000ABC001 /* MediaGalleryFullscreenIntegrationTests.swift */; };
+		4E8500022FE000000ABC001 /* ChatSearchGoalSafetyPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8500012FE000000ABC001 /* ChatSearchGoalSafetyPolicyTests.swift */; };
 		4E8400102FD3000000ABC001 /* MediaGalleryMessageNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E84000F2FD3000000ABC001 /* MediaGalleryMessageNavigation.swift */; };
 		4E7000022FAF00000ABC001 /* TextMessageCellReuseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7000012FAF00000ABC001 /* TextMessageCellReuseTests.swift */; };
 		4E7100022FB000000ABC001 /* ChatComposerSendButtonIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7100012FB000000ABC001 /* ChatComposerSendButtonIconTests.swift */; };
@@ -916,6 +917,7 @@
 		4E6500012FA400000ABC001 /* ChatBackgroundLastChatsKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatBackgroundLastChatsKeyTests.swift; sourceTree = "<group>"; };
 		4E6600012FA500000ABC001 /* ChatDatasourceBoundsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDatasourceBoundsTests.swift; sourceTree = "<group>"; };
 		4E6700012FA600000ABC001 /* ChatSendButtonReadinessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSendButtonReadinessTests.swift; sourceTree = "<group>"; };
+		4E8500012FE000000ABC001 /* ChatSearchGoalSafetyPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchGoalSafetyPolicyTests.swift; sourceTree = "<group>"; };
 		4E7200012FC000000ABC001 /* DeviceDetailSecurityActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceDetailSecurityActionTests.swift; sourceTree = "<group>"; };
 		4E7300012FC100000ABC001 /* AccountDeletionCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionCleanupTests.swift; sourceTree = "<group>"; };
 		4E7400012FC200000ABC001 /* QuitAccountFlowStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitAccountFlowStateTests.swift; sourceTree = "<group>"; };
@@ -3929,6 +3931,7 @@
 					4E6500012FA400000ABC001 /* ChatBackgroundLastChatsKeyTests.swift */,
 					4E6600012FA500000ABC001 /* ChatDatasourceBoundsTests.swift */,
 					4E6700012FA600000ABC001 /* ChatSendButtonReadinessTests.swift */,
+					4E8500012FE000000ABC001 /* ChatSearchGoalSafetyPolicyTests.swift */,
 						4E7200012FC000000ABC001 /* DeviceDetailSecurityActionTests.swift */,
 						4E7300012FC100000ABC001 /* AccountDeletionCleanupTests.swift */,
 						4E7400012FC200000ABC001 /* QuitAccountFlowStateTests.swift */,
@@ -5942,6 +5945,7 @@
 					4E6500022FA400000ABC001 /* ChatBackgroundLastChatsKeyTests.swift in Sources */,
 					4E6600022FA500000ABC001 /* ChatDatasourceBoundsTests.swift in Sources */,
 					4E6700022FA600000ABC001 /* ChatSendButtonReadinessTests.swift in Sources */,
+					4E8500022FE000000ABC001 /* ChatSearchGoalSafetyPolicyTests.swift in Sources */,
 						4E7200022FC000000ABC001 /* DeviceDetailSecurityActionTests.swift in Sources */,
 						4E7300022FC100000ABC001 /* AccountDeletionCleanupTests.swift in Sources */,
 						4E7400022FC200000ABC001 /* QuitAccountFlowStateTests.swift in Sources */,
@@ -6444,7 +6448,7 @@
 				LLVM_LTO = NO;
 				MARKETING_VERSION = 1.1;
 				OTHER_SWIFT_FLAGS = "$(inherited) -D COCOAPODS -DDEBUG";
-				PRODUCT_BUNDLE_IDENTIFIER = xabber.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(XABBER_APP_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				RUN_CLANG_STATIC_ANALYZER = YES;
@@ -6454,6 +6458,7 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				XABBER_APP_BUNDLE_IDENTIFIER = xabber.ios;
 			};
 			name = Debug;
 		};
@@ -6503,7 +6508,7 @@
 				LLVM_LTO = YES;
 				MARKETING_VERSION = 1.1;
 				OTHER_SWIFT_FLAGS = "$(inherited) -D COCOAPODS -DRELEASE";
-				PRODUCT_BUNDLE_IDENTIFIER = xabber.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(XABBER_APP_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				RUN_CLANG_STATIC_ANALYZER = YES;
@@ -6513,6 +6518,7 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				XABBER_APP_BUNDLE_IDENTIFIER = xabber.ios;
 			};
 			name = Release;
 		};
@@ -6545,7 +6551,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = "xabber.ios.xabber-push-extension";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(XABBER_PUSH_EXTENSION_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SKIP_INSTALL = YES;
@@ -6556,6 +6562,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				XABBER_PUSH_EXTENSION_BUNDLE_IDENTIFIER = "xabber.ios.xabber-push-extension";
 			};
 			name = Debug;
 		};
@@ -6586,7 +6593,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = "xabber.ios.xabber-push-extension";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(XABBER_PUSH_EXTENSION_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SKIP_INSTALL = YES;
@@ -6596,6 +6603,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				XABBER_PUSH_EXTENSION_BUNDLE_IDENTIFIER = "xabber.ios.xabber-push-extension";
 			};
 			name = Release;
 		};

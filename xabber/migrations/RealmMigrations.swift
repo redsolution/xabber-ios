@@ -22,13 +22,17 @@ import Foundation
 import RealmSwift
 
 
-func realmMigrations(scheme: UInt64) {
-    let config = Realm.Configuration(
+func makeRealmMigrationConfiguration(
+    scheme: UInt64,
+    inMemoryIdentifier: String? = nil
+) -> Realm.Configuration {
+    Realm.Configuration(
 //        fileURL: FileManager
 //            .default
 //            .containerURL(forSecurityApplicationGroupIdentifier: "group.clandestino.shared")?
 //            .appendingPathComponent("clandestino.realm"),
 //        encryptionKey: Data("absdasdfadsfasdfsadfadsfsadfadsfasddfasdfasdfdfghjfgjfghjfghjgfhjfgjfgjfgjfghjfghhjfgjhfghjadsf".bytes.prefix(64)),
+        inMemoryIdentifier: inMemoryIdentifier,
         schemaVersion: scheme,
         
         
@@ -169,10 +173,20 @@ func realmMigrations(scheme: UInt64) {
                 // Existing accounts have no local schedule rows to backfill.
             }
         },
-        deleteRealmIfMigrationNeeded: true) { total, used in
+        deleteRealmIfMigrationNeeded: inMemoryIdentifier == nil) { total, used in
             let limit = 100 * 1024 * 1024
             return total > limit && Double(used) / Double(total) < 0/5
         }
+}
+
+func realmMigrations(
+    scheme: UInt64,
+    inMemoryIdentifier: String? = nil
+) {
+    let config = makeRealmMigrationConfiguration(
+        scheme: scheme,
+        inMemoryIdentifier: inMemoryIdentifier
+    )
 
 //    if _DEBUG {
 //        print(config.fileURL)

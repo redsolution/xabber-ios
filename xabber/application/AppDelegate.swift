@@ -36,15 +36,41 @@ func getAppVersion() -> String {
 }
 
 enum AppLaunchEnvironmentPolicy {
+    struct IsolatedStorageDescriptor: Equatable {
+        let inMemoryIdentifier: String
+    }
+
+    // xcodebuild strips TEST_RUNNER_ before forwarding these variables to a
+    // hosted test process. Keep the runtime keys here; shell commands use the
+    // corresponding TEST_RUNNER_XABBER_* names.
+    static let hostedXCTestEnvironmentKey = "XCTestConfigurationFilePath"
+    static let disableAccountAutoconnectEnvironmentKey = "XABBER_DISABLE_ACCOUNT_AUTOCONNECT"
+    static let isolatedStorageEnvironmentKey = "XABBER_ISOLATED_STORAGE"
+
     static func shouldAutoconnectAccounts(
         isPushKit: Bool,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
         guard !isPushKit else { return false }
 
-        let isHostedXCTest = environment["XCTestConfigurationFilePath"] != nil
-        let disablesAutoconnect = environment["TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT"] == "1"
+        let isHostedXCTest = environment[hostedXCTestEnvironmentKey] != nil
+        let disablesAutoconnect = environment[disableAccountAutoconnectEnvironmentKey] == "1"
         return !(isHostedXCTest && disablesAutoconnect)
+    }
+
+    static func isolatedStorageDescriptor(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier
+    ) -> IsolatedStorageDescriptor? {
+        guard environment[hostedXCTestEnvironmentKey] != nil,
+              environment[disableAccountAutoconnectEnvironmentKey] == "1",
+              environment[isolatedStorageEnvironmentKey] == "1" else {
+            return nil
+        }
+
+        return IsolatedStorageDescriptor(
+            inMemoryIdentifier: "xabber-hosted-xctest-\(processIdentifier)"
+        )
     }
 }
 
@@ -87,7 +113,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
 
-        realmMigrations(scheme: 11)
+        let isolatedStorage = AppLaunchEnvironmentPolicy.isolatedStorageDescriptor()
+        realmMigrations(
+            scheme: 11,
+            inMemoryIdentifier: isolatedStorage?.inMemoryIdentifier
+        )
         #if RELEASE
         _DEBUG = false
         DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)

@@ -2934,7 +2934,7 @@ Goal завершен только когда одновременно выпо�
 
 | Task | Status | Pre tests | Red evidence | Post tests | Build | Expected subject | Notes |
 |---|---|---|---|---|---|---|---|
-| 00 | pending | — | — | — | — | test(infrastructure): isolate hosted XCTest storage | — |
+| 00 | ready-to-commit | Exact UDID/container preflight; one pre-isolation AppLaunchEnvironmentPolicyTests baseline: 3/3 pass | Expected compile red: isolated-storage descriptor, runtime flag keys and in-memory Realm configuration APIs absent | Focused safety/search slice: 27/27 pass; B0 repeat after fixing leaked test Realm default: 102/102 pass | pass — `tools/xcodebuild_cached.sh build`, iPhone 16e `7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF` | test(infrastructure): isolate hosted XCTest storage | `TEST_RUNNER_` prefix is stripped in hosted process. Pre-isolation host install exposed real-account autoconnect and changed the app-container UUID; no account action was performed. The protected focused/B0/build sequence used `xabber.ios.codex-hosted-tests`, reported no installed-account autoconnect, and preserved the main `xabber.ios` container at `357416B1-CE86-4630-A585-F148692604DB` before/after. First B0 run found a test-only default-Realm leak; restoration was added and B0 reran green. |
 | 01 | pending | — | — | — | — | — | — |
 | 02 | pending | — | — | — | — | — | — |
 | 03 | pending | — | — | — | — | — | — |

@@ -100,6 +100,22 @@ case "$action" in
       build_args+=(-destination "$destination")
     fi
 
+    disable_account_autoconnect="${TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT:-}"
+    isolated_storage="${TEST_RUNNER_XABBER_ISOLATED_STORAGE:-}"
+    if [[ "$action" == "test" && ( -n "$disable_account_autoconnect" || -n "$isolated_storage" ) ]]; then
+      if [[ "$disable_account_autoconnect" != "1" || "$isolated_storage" != "1" ]]; then
+        echo "error: hosted isolated tests require both TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT=1 and TEST_RUNNER_XABBER_ISOLATED_STORAGE=1." >&2
+        exit 64
+      fi
+
+      hosted_test_bundle_identifier="${XABBER_HOSTED_TEST_BUNDLE_IDENTIFIER:-xabber.ios.codex-hosted-tests}"
+      build_args+=(
+        "XABBER_APP_BUNDLE_IDENTIFIER=$hosted_test_bundle_identifier"
+        "XABBER_PUSH_EXTENSION_BUNDLE_IDENTIFIER=$hosted_test_bundle_identifier.xabber-push-extension"
+      )
+      echo "  hosted test app: $hosted_test_bundle_identifier"
+    fi
+
     xcodebuild "${build_args[@]}" "$action" "$@"
     ;;
   *)

@@ -32,7 +32,17 @@ final class AppLaunchEnvironmentPolicyTests: XCTestCase {
         XCTAssertFalse(AppLaunchEnvironmentPolicy.shouldAutoconnectAccounts(
             isPushKit: false,
             environment: [
-                "XCTestConfigurationFilePath": "/tmp/test.xctestconfiguration",
+                AppLaunchEnvironmentPolicy.hostedXCTestEnvironmentKey: "/tmp/test.xctestconfiguration",
+                AppLaunchEnvironmentPolicy.disableAccountAutoconnectEnvironmentKey: "1"
+            ]
+        ))
+    }
+
+    func testXcodebuildPrefixIsNotPartOfTestRunnerRuntimeFlag() {
+        XCTAssertTrue(AppLaunchEnvironmentPolicy.shouldAutoconnectAccounts(
+            isPushKit: false,
+            environment: [
+                AppLaunchEnvironmentPolicy.hostedXCTestEnvironmentKey: "/tmp/test.xctestconfiguration",
                 "TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT": "1"
             ]
         ))
@@ -49,6 +59,16 @@ final class AppLaunchEnvironmentPolicyTests: XCTestCase {
         XCTAssertFalse(AppLaunchEnvironmentPolicy.shouldAutoconnectAccounts(
             isPushKit: true,
             environment: [:]
+        ))
+    }
+
+    func testHostedXCTestWithoutDisableFlagKeepsAccountAutoconnectEnabled() {
+        XCTAssertTrue(AppLaunchEnvironmentPolicy.shouldAutoconnectAccounts(
+            isPushKit: false,
+            environment: [
+                AppLaunchEnvironmentPolicy.hostedXCTestEnvironmentKey: "/tmp/test.xctestconfiguration",
+                AppLaunchEnvironmentPolicy.isolatedStorageEnvironmentKey: "1"
+            ]
         ))
     }
 }
@@ -2279,8 +2299,11 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
 
 @MainActor
 final class ChatSearchArchiveGapRepairTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+
     override func setUp() {
         super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "ChatSearchArchiveGapRepairTests-\(name)"
         )
@@ -2290,6 +2313,14 @@ final class ChatSearchArchiveGapRepairTests: XCTestCase {
         }
         MessageArchiveEndPageDispatcher.resetForTests()
         MessageArchiveRequestFailureDispatcher.resetForTests()
+    }
+
+    override func tearDown() {
+        MessageArchiveEndPageDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        super.tearDown()
     }
 
     func testSearchAnchorFetchUsesExactArchivedIdBeforeDateWindowFallback() {
