@@ -973,6 +973,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }()
 
     internal let bottomSearchHostView = BottomSearchHostView(frame: .zero)
+    internal let bottomOverlayInsetCoordinator = BottomOverlayInsetCoordinator()
     
     internal let pullDownTableHeaderView: PullDownTableHeaderView = {
         let view = PullDownTableHeaderView(frame: .zero)
@@ -3047,18 +3048,11 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
 
     internal final func updateTableInsetsForFloatingToolbar() {
-        let isToolbarVisible = self.floatingBottomBarView.superview != nil && !self.floatingBottomBarView.isHidden
-        let isBottomSearchVisible = self.bottomSearchHostView.superview != nil && !self.bottomSearchHostView.isHidden
-        let bottomInset = isToolbarVisible || isBottomSearchVisible
-            ? max(FloatingBottomBarView.Metrics.reservedBottomInset, BottomSearchHostView.Metrics.reservedBottomInset)
-            : 0
-
-        if self.tableView.contentInset.bottom != bottomInset {
-            self.tableView.contentInset.bottom = bottomInset
-        }
-        if self.tableView.verticalScrollIndicatorInsets.bottom != bottomInset {
-            self.tableView.verticalScrollIndicatorInsets.bottom = bottomInset
-        }
+        self.bottomOverlayInsetCoordinator.apply(
+            to: self.tableView,
+            in: self.view,
+            overlays: [self.floatingBottomBarView, self.bottomSearchHostView]
+        )
     }
 
     private final func subscribeUnreadChatsCounter() {
@@ -3358,6 +3352,11 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         self.view.bringSubviewToFront(self.pinnedVoicePlayerView)
         self.view.bringSubviewToFront(self.floatingBottomBarView)
         self.view.bringSubviewToFront(self.bottomSearchHostView)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        self.updateTableInsetsForFloatingToolbar()
     }
     
     

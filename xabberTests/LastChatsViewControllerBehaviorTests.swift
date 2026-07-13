@@ -107,6 +107,22 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         )
     }
 
+    func testLastChatsUsesGeometryBasedBottomOverlayInsetCoordinator() {
+        let controller = LastChatsViewController()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        controller.loadViewIfNeeded()
+        controller.view.layoutIfNeeded()
+
+        controller.updateTableInsetsForFloatingToolbar()
+
+        XCTAssertGreaterThan(controller.bottomOverlayInsetCoordinator.appliedBottomContribution, 0)
+        XCTAssertEqual(
+            controller.tableView.contentInset.bottom,
+            controller.bottomOverlayInsetCoordinator.appliedBottomContribution,
+            accuracy: 0.001
+        )
+    }
+
     func testMarkAllAsReadButtonStateFollowsUnreadAndConnectingState() {
         let controller = LastChatsViewController()
         let previousEnabledAccounts = controller.enabledAccounts.value

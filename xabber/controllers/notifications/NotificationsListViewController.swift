@@ -588,6 +588,7 @@ class NotificationsListViewController: SimpleBaseViewController {
     var unreadOnly: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     var filterMenu: UIMenu = UIMenu()
     internal let bottomSearchHostView = BottomSearchHostView(frame: .zero)
+    internal let bottomOverlayInsetCoordinator = BottomOverlayInsetCoordinator()
     internal let notificationsCompactBottomBarView = FloatingBottomBarView(frame: .zero)
     private let datasourceQueue = DispatchQueue(label: "com.xabber.notifications.datasource", qos: .userInitiated)
     private var datasourceGeneration: Int = 0
@@ -793,19 +794,11 @@ class NotificationsListViewController: SimpleBaseViewController {
     }
 
     internal final func updateNotificationsTableInsetsForBottomSearch() {
-        let isBottomSearchVisible = bottomSearchHostView.superview != nil && !bottomSearchHostView.isHidden
-        let isCompactBarVisible = notificationsCompactBottomBarView.superview != nil &&
-            !isNotificationsCompactBottomBarHidden
-        let bottomInset = isBottomSearchVisible || isCompactBarVisible
-            ? max(BottomSearchHostView.Metrics.reservedBottomInset, FloatingBottomBarView.Metrics.reservedBottomInset)
-            : 0
-
-        if tableView.contentInset.bottom != bottomInset {
-            tableView.contentInset.bottom = bottomInset
-        }
-        if tableView.verticalScrollIndicatorInsets.bottom != bottomInset {
-            tableView.verticalScrollIndicatorInsets.bottom = bottomInset
-        }
+        bottomOverlayInsetCoordinator.apply(
+            to: tableView,
+            in: view,
+            overlays: [notificationsCompactBottomBarView, bottomSearchHostView]
+        )
     }
 
     @objc
@@ -1272,6 +1265,11 @@ class NotificationsListViewController: SimpleBaseViewController {
         )
         button.accessibilityIdentifier = "notifications_back_to_chats_button"
         return button
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateNotificationsTableInsetsForBottomSearch()
     }
 
     override func viewDidLoad() {

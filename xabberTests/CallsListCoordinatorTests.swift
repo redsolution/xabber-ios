@@ -718,6 +718,25 @@ final class CallsVisualStyleTests: XCTestCase {
         XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
     }
 
+    func testCallsUsesGeometryBasedBottomOverlayInsetCoordinator() {
+        let controller = LastCallsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+        container.view.layoutIfNeeded()
+        navigationController.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        controller.updateTableInsetsForBottomSearch()
+
+        XCTAssertGreaterThan(controller.bottomOverlayInsetCoordinator.appliedBottomContribution, 0)
+        XCTAssertEqual(
+            controller.tableView.contentInset.bottom,
+            controller.bottomOverlayInsetCoordinator.appliedBottomContribution,
+            accuracy: 0.001
+        )
+    }
+
     func testCallsCompactBottomFilterReceivesHitWhenSearchHostIsCollapsed() {
         let controller = LastCallsViewController()
         let navigationController = UINavigationController(rootViewController: controller)

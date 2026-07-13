@@ -670,8 +670,9 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
     }()
 
     internal let bottomSearchHostView = BottomSearchHostView(frame: .zero)
+    internal let bottomOverlayInsetCoordinator = BottomOverlayInsetCoordinator()
 
-    private let contactsCompactBottomBarView = FloatingBottomBarView(frame: .zero)
+    internal let contactsCompactBottomBarView = FloatingBottomBarView(frame: .zero)
     
     internal let addButton: UIBarButtonItem = {
         let button = UIBarButtonItem(barButtonSystemItem: .add, target: nil, action: nil)
@@ -2158,6 +2159,11 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
         bottomBar.updateFrame(to: frame)
         updateContactsCompactBottomBarState()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateTableInsetsForBottomSearch()
     }
     
     internal func updateTitle() {

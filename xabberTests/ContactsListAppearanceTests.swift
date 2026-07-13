@@ -402,6 +402,25 @@ final class ContactsListAppearanceTests: XCTestCase {
         )
     }
 
+    func testContactsUsesGeometryBasedBottomOverlayInsetCoordinator() {
+        let controller = ContactsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+        container.view.layoutIfNeeded()
+        navigationController.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        controller.updateTableInsetsForBottomSearch()
+
+        XCTAssertGreaterThan(controller.bottomOverlayInsetCoordinator.appliedBottomContribution, 0)
+        XCTAssertEqual(
+            controller.tableView.contentInset.bottom,
+            controller.bottomOverlayInsetCoordinator.appliedBottomContribution,
+            accuracy: 0.001
+        )
+    }
+
     func testContactsConfigureSearchBarInstallsBottomSearchWithoutMutatingAppearance() {
         let controller = ContactsViewController()
         _ = UINavigationController(rootViewController: controller)

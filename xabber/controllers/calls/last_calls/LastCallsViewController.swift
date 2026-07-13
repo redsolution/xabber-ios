@@ -262,6 +262,7 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }()
 
     internal let bottomSearchHostView = BottomSearchHostView(frame: .zero)
+    internal let bottomOverlayInsetCoordinator = BottomOverlayInsetCoordinator()
 
     internal let callsCompactBottomBarView = FloatingBottomBarView(frame: .zero)
     
@@ -825,6 +826,11 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
         bottomBar.updateFrame(to: frame)
         updateCallsCompactBottomBarState()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateTableInsetsForBottomSearch()
     }
     
     internal func configure() {

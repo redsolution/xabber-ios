@@ -81,18 +81,11 @@ extension LastCallsViewController {
     }
 
     internal func updateTableInsetsForBottomSearch() {
-        let isBottomSearchVisible = bottomSearchHostView.superview != nil && !bottomSearchHostView.isHidden
-        let isCompactBarVisible = callsCompactBottomBarView.superview != nil && !isCallsCompactBottomBarHidden
-        let bottomInset = isBottomSearchVisible || isCompactBarVisible
-            ? max(BottomSearchHostView.Metrics.reservedBottomInset, FloatingBottomBarView.Metrics.reservedBottomInset)
-            : 0
-
-        if tableView.contentInset.bottom != bottomInset {
-            tableView.contentInset.bottom = bottomInset
-        }
-        if tableView.verticalScrollIndicatorInsets.bottom != bottomInset {
-            tableView.verticalScrollIndicatorInsets.bottom = bottomInset
-        }
+        bottomOverlayInsetCoordinator.apply(
+            to: tableView,
+            in: view,
+            overlays: [callsCompactBottomBarView, bottomSearchHostView]
+        )
     }
 
     internal func reloadInPlaceSearchResultsIfNeeded() {
