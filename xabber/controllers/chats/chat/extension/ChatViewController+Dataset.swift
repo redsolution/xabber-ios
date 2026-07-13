@@ -274,19 +274,21 @@ struct SavedMessageDisplayPolicy {
             }
         }
 
-        if let searchedText = searchedText, searchedText.isNotEmpty {
-            let range = (string.string as NSString).range(of: searchedText, options: [.caseInsensitive, .diacriticInsensitive])
-            if range.location != NSNotFound {
-                string.addAttribute(.backgroundColor, value: searchedTextColor ?? MDCPalette.blue.tint200, range: range)
-            }
-        }
         if string.length > 0 {
             string.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: string.length))
         }
         if string.string.starts(with: "\n") {
             string.deleteCharacters(in: NSRange(0..<"\n".count))
         }
-        return string
+        let style = ChatSearchHighlightStyle.telegram(for: UITraitCollection.current)
+        return ChatSearchHighlighter.applying(
+            to: string,
+            query: searchedText,
+            style: ChatSearchHighlightStyle(
+                backgroundColor: searchedTextColor ?? style.backgroundColor,
+                foregroundColor: style.foregroundColor
+            )
+        )
     }
 
     private static func applyMarkup(_ reference: MessageReferenceStorageItem, to string: NSMutableAttributedString) {
@@ -871,19 +873,21 @@ struct ChatMessageDisplaySnapshot {
                 break
             }
         }
-        if let searchedText, searchedText.isNotEmpty {
-            let range = (string.string as NSString).range(of: searchedText, options: [.caseInsensitive, .diacriticInsensitive])
-            if range.location != NSNotFound {
-                string.addAttribute(.backgroundColor, value: searchedTextColor ?? MDCPalette.blue.tint200, range: range)
-            }
-        }
         if string.length > 0 {
             string.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: string.length))
         }
         if string.string.starts(with: "\n") {
             string.deleteCharacters(in: NSRange(0..<"\n".count))
         }
-        return string
+        let style = ChatSearchHighlightStyle.telegram(for: UITraitCollection.current)
+        return ChatSearchHighlighter.applying(
+            to: string,
+            query: searchedText,
+            style: ChatSearchHighlightStyle(
+                backgroundColor: searchedTextColor ?? style.backgroundColor,
+                foregroundColor: style.foregroundColor
+            )
+        )
     }
 
     private static func applyMarkup(_ reference: ChatMessageReferenceSnapshot, to string: NSMutableAttributedString) {
@@ -6077,7 +6081,9 @@ extension ChatViewController {
         let bodyFont = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
         let captionFont = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: traitCollection)
         let bodyColor = UIColor.label.resolvedColor(with: traitCollection)
-        let searchHighlightColor = UIColor.systemGreen.resolvedColor(with: traitCollection)
+        let searchHighlightColor = ChatSearchHighlightStyle
+            .telegram(for: traitCollection)
+            .backgroundColor
         let timeMarkerColor = UIColor(red: 158.0 / 255.0, green: 158.0 / 255.0, blue: 158.0 / 255.0, alpha: 1)
         let searchText = self.searchTextObserver.value
 
@@ -10022,8 +10028,10 @@ extension ChatViewController {
             if context.inSearchMode,
                snapshot.displayAs == .text,
                let str = context.searchText,
-               str.isNotEmpty,
-               presentation.visibleBody.contains(str) {
+               ChatSearchQueryRangeFinder.ranges(
+                   in: presentation.visibleBody,
+                   query: str
+               ).isNotEmpty {
                 searchString = str
             }
             

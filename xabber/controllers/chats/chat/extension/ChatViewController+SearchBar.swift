@@ -1465,11 +1465,7 @@ extension ChatViewController {
             var cleared = item
             cleared.searchString = nil
             if case .attributedText(let text) = item.kind {
-                let mutable = NSMutableAttributedString(attributedString: text)
-                if mutable.length > 0 {
-                    mutable.removeAttribute(.backgroundColor, range: NSRange(location: 0, length: mutable.length))
-                }
-                cleared.kind = .attributedText(mutable)
+                cleared.kind = .attributedText(ChatSearchHighlighter.removing(from: text))
             }
             return cleared
         }

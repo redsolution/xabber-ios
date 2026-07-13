@@ -1312,12 +1312,31 @@ final class ChatSearchModeActivationTests: XCTestCase {
         XCTAssertNil(item.searchString)
     }
 
+    func testClearingSearchHighlightLeavesUnsupportedNonTextMessageUntouched() throws {
+        var unsupported = makeSearchHighlightedDatasource(primary: "primary-1", text: "needle")
+        unsupported.kind = .emoji("🙂")
+
+        let cleared = ChatViewController.datasourceByClearingSearchTextHighlights([unsupported])
+
+        let item = try XCTUnwrap(cleared.first)
+        guard case .emoji(let emoji) = item.kind else {
+            return XCTFail("Expected the unsupported non-text message kind to remain unchanged")
+        }
+        XCTAssertEqual(emoji, "🙂")
+        XCTAssertNil(item.searchString)
+    }
+
     private func makeSearchHighlightedDatasource(
         primary: String,
         text: String
     ) -> ChatViewController.Datasource {
-        let attributed = NSMutableAttributedString(string: text)
-        attributed.addAttribute(.backgroundColor, value: UIColor.systemGreen, range: NSRange(location: 0, length: min(6, attributed.length)))
+        let attributed = ChatSearchHighlighter.applying(
+            to: NSAttributedString(string: text),
+            query: "needle",
+            style: ChatSearchHighlightStyle.telegram(
+                for: UITraitCollection(userInterfaceStyle: .light)
+            )
+        )
         return ChatViewController.Datasource(
             primary: primary,
             jid: "romeo@example.com",
@@ -1917,6 +1936,15 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         XCTAssertEqual(controller.nextSearchResultIndex(from: 1, direction: .down), 0)
     }
 
+    func testCommittedSearchResultDoesNotUseWholeCellSelectionWash() {
+        let controller = makeControllerWithSearchResults(count: 3, selectedIndex: 1)
+        controller.inSearchMode.accept(true)
+
+        XCTAssertFalse(
+            controller.isSelected(primary: controller.searchMessagesQueue[1].primary)
+        )
+    }
+
     func testSearchNavigationScrollDirectionMatchesButton() {
         let controller = makeControllerWithSearchResults(count: 10, selectedIndex: 0)
 
@@ -2152,27 +2180,39 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         )
     }
 
-    func testSearchModeSelectionOnlySelectsStatusBarResult() {
+    func testSearchModeSelectionKeepsStatusBarIdentityWithoutWholeCellWash() {
         let controller = makeControllerWithSearchResults(count: 3, selectedIndex: 1)
         controller.inSearchMode.accept(true)
 
         XCTAssertFalse(controller.isSelected(primary: "primary-0"))
-        XCTAssertTrue(controller.isSelected(primary: "primary-1"))
+        XCTAssertFalse(controller.isSelected(primary: "primary-1"))
         XCTAssertFalse(controller.isSelected(primary: "primary-2"))
+        XCTAssertTrue(
+            controller.searchResultItem(
+                controller.searchMessagesQueue[1],
+                matchesSelection: controller.selectedSearchResultId
+            )
+        )
 
         controller.selectedSearchResultId = nil
 
         XCTAssertFalse(controller.isSelected(primary: "primary-1"))
     }
 
-    func testSearchModeSelectionFallsBackToPrimaryWhenArchivedIdIsMissing() {
+    func testSearchModeIdentityFallsBackToPrimaryWithoutWholeCellWash() {
         let controller = makeControllerWithSearchResults(count: 2, selectedIndex: 0)
         controller.searchMessagesQueue[1].archivedId = ""
         controller.selectedSearchResultId = controller.searchMessagesQueue[1].primary
         controller.inSearchMode.accept(true)
 
         XCTAssertFalse(controller.isSelected(primary: "primary-0"))
-        XCTAssertTrue(controller.isSelected(primary: "primary-1"))
+        XCTAssertFalse(controller.isSelected(primary: "primary-1"))
+        XCTAssertTrue(
+            controller.searchResultItem(
+                controller.searchMessagesQueue[1],
+                matchesSelection: controller.selectedSearchResultId
+            )
+        )
     }
 
     private func makeControllerWithSearchResults(

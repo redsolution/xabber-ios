@@ -173,6 +173,8 @@ public class MessageContentCell: MessageCollectionViewCell {
 
     public override func prepareForReuse() {
         super.prepareForReuse()
+        isSelectedMessage = false
+        drawSelectionMode()
         cellTopLabel.text = nil
         messageTopLabel.text = nil
         messageBottomLabel.text = nil
