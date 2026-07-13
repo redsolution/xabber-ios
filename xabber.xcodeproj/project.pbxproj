@@ -72,6 +72,8 @@
 		4E9000022FE600000ABC001 /* ChatSearchAnimationSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9000012FE600000ABC001 /* ChatSearchAnimationSpec.swift */; };
 		4E9100022FE700000ABC001 /* ChatSearchTopChromeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9100012FE700000ABC001 /* ChatSearchTopChromeTests.swift */; };
 		4E9200022FE700000ABC001 /* ChatSearchNavigationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9200012FE700000ABC001 /* ChatSearchNavigationView.swift */; };
+		4E9300022FE800000ABC001 /* ChatSearchBottomActionBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9300012FE800000ABC001 /* ChatSearchBottomActionBarTests.swift */; };
+		4E9400022FE800000ABC001 /* ChatSearchBottomActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9400012FE800000ABC001 /* ChatSearchBottomActionBar.swift */; };
 		4E8D00022FE400000ABC001 /* ChatSearchArchiveSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8D00012FE400000ABC001 /* ChatSearchArchiveSession.swift */; };
 		4E8400102FD3000000ABC001 /* MediaGalleryMessageNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E84000F2FD3000000ABC001 /* MediaGalleryMessageNavigation.swift */; };
 		4E7000022FAF00000ABC001 /* TextMessageCellReuseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7000012FAF00000ABC001 /* TextMessageCellReuseTests.swift */; };
@@ -945,6 +947,8 @@
 		4E9000012FE600000ABC001 /* ChatSearchAnimationSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchAnimationSpec.swift; sourceTree = "<group>"; };
 		4E9100012FE700000ABC001 /* ChatSearchTopChromeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchTopChromeTests.swift; sourceTree = "<group>"; };
 		4E9200012FE700000ABC001 /* ChatSearchNavigationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchNavigationView.swift; sourceTree = "<group>"; };
+		4E9300012FE800000ABC001 /* ChatSearchBottomActionBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchBottomActionBarTests.swift; sourceTree = "<group>"; };
+		4E9400012FE800000ABC001 /* ChatSearchBottomActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchBottomActionBar.swift; sourceTree = "<group>"; };
 		4E8D00012FE400000ABC001 /* ChatSearchArchiveSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchArchiveSession.swift; sourceTree = "<group>"; };
 		4E7200012FC000000ABC001 /* DeviceDetailSecurityActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceDetailSecurityActionTests.swift; sourceTree = "<group>"; };
 		4E7300012FC100000ABC001 /* AccountDeletionCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionCleanupTests.swift; sourceTree = "<group>"; };
@@ -3968,6 +3972,7 @@
 					4E8D00012FE500000ABC001 /* ChatSearchLocalProviderTests.swift */,
 					4E8F00012FE600000ABC001 /* ChatSearchAnimationSpecTests.swift */,
 					4E9100012FE700000ABC001 /* ChatSearchTopChromeTests.swift */,
+					4E9300012FE800000ABC001 /* ChatSearchBottomActionBarTests.swift */,
 						4E7200012FC000000ABC001 /* DeviceDetailSecurityActionTests.swift */,
 						4E7300012FC100000ABC001 /* AccountDeletionCleanupTests.swift */,
 						4E7400012FC200000ABC001 /* QuitAccountFlowStateTests.swift */,
@@ -4473,7 +4478,8 @@
 				4E8900012FE200000ABC001 /* ChatSearchResult.swift */,
 				4E8B00012FE300000ABC001 /* ChatSearchSession.swift */,
 				4E9000012FE600000ABC001 /* ChatSearchAnimationSpec.swift */,
-				4E9200012FE700000ABC001 /* ChatSearchNavigationView.swift */,
+					4E9200012FE700000ABC001 /* ChatSearchNavigationView.swift */,
+					4E9400012FE800000ABC001 /* ChatSearchBottomActionBar.swift */,
 			);
 			path = search;
 			sourceTree = "<group>";
@@ -5634,6 +5640,7 @@
 				4E8B00022FE300000ABC001 /* ChatSearchSession.swift in Sources */,
 				4E8E00022FE500000ABC001 /* ChatSearchLocalProvider.swift in Sources */,
 				4E9000022FE600000ABC001 /* ChatSearchAnimationSpec.swift in Sources */,
+				4E9400022FE800000ABC001 /* ChatSearchBottomActionBar.swift in Sources */,
 				4E9200022FE700000ABC001 /* ChatSearchNavigationView.swift in Sources */,
 				4E6900042FA800000ABC001 /* ChatPerformanceSignposts.swift in Sources */,
 				4E6A00042FA900000ABC001 /* ChatScrollBoundaryAvailabilityCache.swift in Sources */,
@@ -6010,6 +6017,7 @@
 					4E8D00022FE500000ABC001 /* ChatSearchLocalProviderTests.swift in Sources */,
 					4E8F00022FE600000ABC001 /* ChatSearchAnimationSpecTests.swift in Sources */,
 					4E9100022FE700000ABC001 /* ChatSearchTopChromeTests.swift in Sources */,
+					4E9300022FE800000ABC001 /* ChatSearchBottomActionBarTests.swift in Sources */,
 						4E7200022FC000000ABC001 /* DeviceDetailSecurityActionTests.swift in Sources */,
 						4E7300022FC100000ABC001 /* AccountDeletionCleanupTests.swift in Sources */,
 						4E7400022FC200000ABC001 /* QuitAccountFlowStateTests.swift in Sources */,

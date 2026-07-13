@@ -2737,162 +2737,63 @@ final class ChatSearchInputBarViewTests: XCTestCase {
 
 @MainActor
 final class ChatSearchBottomPanelTests: XCTestCase {
-    func testIdleStateShowsNoResultsAndDisabledNavigationWithoutSpinner() {
+    func testPanelUsesTwoSeparatedFortyPointCapsulesAtIPhone16eWidth() throws {
         let harness = makePanelHarness()
         let panel = harness.panel
 
-        panel.applyRenderState(.idle)
-        harness.layout()
-
-        XCTAssertEqual(panel.accessibilityIdentifier, "chat_search_results_panel")
-        XCTAssertEqual(panel.counterLabel.text, "no results")
-        XCTAssertEqual(panel.counterLabel.textAlignment, .center)
-        XCTAssertEqual(panel.counterLabel.textColor, .secondaryLabel)
-        XCTAssertFalse(panel.counterLabel.isHidden)
-        XCTAssertFalse(panel.seekUpButton.isHidden)
-        XCTAssertFalse(panel.seekDownButton.isHidden)
-        XCTAssertFalse(panel.seekUpButton.isEnabled)
-        XCTAssertFalse(panel.seekDownButton.isEnabled)
-        XCTAssertTrue(panel.activityIndicator.isHidden)
-        XCTAssertFalse(panel.activityIndicator.isAnimating)
-        XCTAssertFalse(panel.cancelButton.isHidden)
-    }
-
-    func testLoadingStateShowsSpinnerWithoutResultControls() {
-        let harness = makePanelHarness()
-        let panel = harness.panel
-
-        panel.applyRenderState(.loading)
-        harness.layout()
-
-        XCTAssertTrue(panel.counterLabel.isHidden)
-        XCTAssertFalse(panel.seekUpButton.isHidden)
-        XCTAssertFalse(panel.seekDownButton.isHidden)
-        XCTAssertFalse(panel.seekUpButton.isEnabled)
-        XCTAssertFalse(panel.seekDownButton.isEnabled)
-        XCTAssertFalse(panel.activityIndicator.isHidden)
-        XCTAssertTrue(panel.activityIndicator.isAnimating)
-    }
-
-    func testResultsStateShowsCountAndNavigationWithoutSpinner() {
-        let harness = makePanelHarness()
-        let panel = harness.panel
-
-        panel.applyRenderState(.results(current: 1, total: 3, isLoadingContext: false))
-        harness.layout()
-
-        XCTAssertEqual(panel.counterLabel.text, "2 of 3")
-        XCTAssertFalse(panel.counterLabel.isHidden)
-        XCTAssertFalse(panel.seekUpButton.isHidden)
-        XCTAssertFalse(panel.seekDownButton.isHidden)
-        XCTAssertTrue(panel.seekUpButton.isEnabled)
-        XCTAssertTrue(panel.seekDownButton.isEnabled)
-        XCTAssertTrue(panel.activityIndicator.isHidden)
-        XCTAssertFalse(panel.activityIndicator.isAnimating)
-    }
-
-    func testContextLoadingKeepsCountVisibleAndKeepsNavigationQueueableWhileShowingSpinner() {
-        let harness = makePanelHarness()
-        let panel = harness.panel
-
-        panel.applyRenderState(.results(current: 1, total: 3, isLoadingContext: true))
-        harness.layout()
-
-        XCTAssertEqual(panel.counterLabel.text, "2 of 3")
-        XCTAssertFalse(panel.counterLabel.isHidden)
-        XCTAssertFalse(panel.seekUpButton.isHidden)
-        XCTAssertFalse(panel.seekDownButton.isHidden)
-        XCTAssertTrue(panel.seekUpButton.isEnabled)
-        XCTAssertTrue(panel.seekDownButton.isEnabled)
-        XCTAssertFalse(panel.activityIndicator.isHidden)
-        XCTAssertTrue(panel.activityIndicator.isAnimating)
-    }
-
-    func testContextLoadingWithSingleResultKeepsNavigationDisabledWhileShowingSpinner() {
-        let harness = makePanelHarness()
-        let panel = harness.panel
-
-        panel.applyRenderState(.results(current: 0, total: 1, isLoadingContext: true))
-        harness.layout()
-
-        XCTAssertEqual(panel.counterLabel.text, "1 of 1")
-        XCTAssertFalse(panel.counterLabel.isHidden)
-        XCTAssertFalse(panel.seekUpButton.isHidden)
-        XCTAssertFalse(panel.seekDownButton.isHidden)
-        XCTAssertFalse(panel.seekUpButton.isEnabled)
-        XCTAssertFalse(panel.seekDownButton.isEnabled)
-        XCTAssertFalse(panel.activityIndicator.isHidden)
-        XCTAssertTrue(panel.activityIndicator.isAnimating)
-    }
-
-    func testEmptyResultsStateShowsNoResultsWithoutNavigationOrSpinner() {
-        let harness = makePanelHarness()
-        let panel = harness.panel
-
-        panel.applyRenderState(.emptyResults)
-        harness.layout()
-
-        XCTAssertEqual(panel.counterLabel.text, "no results")
-        XCTAssertFalse(panel.counterLabel.isHidden)
-        XCTAssertFalse(panel.seekUpButton.isHidden)
-        XCTAssertFalse(panel.seekDownButton.isHidden)
-        XCTAssertFalse(panel.seekUpButton.isEnabled)
-        XCTAssertFalse(panel.seekDownButton.isEnabled)
-        XCTAssertTrue(panel.activityIndicator.isHidden)
-        XCTAssertFalse(panel.activityIndicator.isAnimating)
-    }
-
-    func testPanelUsesComposerLikeSeparatedControlsAndStableMetricsAtIPhone16eWidth() throws {
-        let harness = makePanelHarness()
-        let panel = harness.panel
-
-        panel.applyRenderState(.results(current: 0, total: 12, isLoadingContext: false))
+        panel.applyRenderState(
+            .results(current: 0, total: 12, isLoadingContext: false),
+            surfaceMode: .chat,
+            animated: false
+        )
         harness.layout()
 
         let effectViews = visualEffectViews(in: panel)
-        XCTAssertTrue(effectViews.contains { $0 === panel.surfaceView })
-        XCTAssertEqual(panel.surfaceView.layer.cornerRadius, NativeGlassBarStyle.cornerRadius, accuracy: 0.001)
-        XCTAssertEqual(panel.cancelButton.accessibilityIdentifier, "chat_search_cancel")
+        XCTAssertTrue(effectViews.contains { $0 === panel.leadingSurfaceView })
+        XCTAssertTrue(effectViews.contains { $0 === panel.trailingSurfaceView })
+        XCTAssertEqual(panel.leadingSurfaceView.layer.cornerRadius, 20, accuracy: 0.001)
+        XCTAssertEqual(panel.trailingSurfaceView.layer.cornerRadius, 20, accuracy: 0.001)
+        XCTAssertEqual(panel.calendarButton.accessibilityIdentifier, "chat_search_calendar")
         XCTAssertEqual(panel.counterLabel.accessibilityIdentifier, "chat_search_results_count")
-        XCTAssertEqual(panel.seekUpButton.accessibilityIdentifier, "chat_search_previous_result")
-        XCTAssertEqual(panel.seekDownButton.accessibilityIdentifier, "chat_search_next_result")
-        XCTAssertEqual(panel.activityIndicator.accessibilityIdentifier, "chat_search_loading")
-        XCTAssertEqual(panel.intrinsicContentSize.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
-        XCTAssertEqual(panel.bounds.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
-        XCTAssertEqual(panel.cancelButton.frame.size, CGSize(width: NativeGlassBarStyle.buttonSize, height: NativeGlassBarStyle.buttonSize))
-        XCTAssertEqual(panel.seekUpButton.frame.size, CGSize(width: NativeGlassBarStyle.buttonSize, height: NativeGlassBarStyle.buttonSize))
-        XCTAssertEqual(panel.seekDownButton.frame.size, CGSize(width: NativeGlassBarStyle.buttonSize, height: NativeGlassBarStyle.buttonSize))
-        let cancelFrame = panel.convert(panel.cancelButton.bounds, from: panel.cancelButton)
-        let counterFrame = panel.convert(panel.counterLabel.bounds, from: panel.counterLabel)
-        let seekUpFrame = panel.convert(panel.seekUpButton.bounds, from: panel.seekUpButton)
-        let seekDownFrame = panel.convert(panel.seekDownButton.bounds, from: panel.seekDownButton)
-        XCTAssertLessThanOrEqual(cancelFrame.maxX, panel.surfaceView.frame.minX + 0.001)
-        XCTAssertLessThanOrEqual(panel.surfaceView.frame.maxX, seekUpFrame.minX + 0.001)
-        XCTAssertLessThanOrEqual(counterFrame.maxX, seekUpFrame.minX + 0.001)
-        XCTAssertLessThanOrEqual(seekUpFrame.maxX, seekDownFrame.minX + 0.001)
-        XCTAssertLessThanOrEqual(seekDownFrame.maxX, panel.bounds.maxX + 0.001)
+        XCTAssertEqual(panel.viewModeButton.accessibilityIdentifier, "chat_search_view_mode_control")
+        XCTAssertEqual(panel.intrinsicContentSize.height, 40, accuracy: 0.001)
+        XCTAssertEqual(panel.bounds.height, 40, accuracy: 0.001)
+        XCTAssertEqual(panel.calendarButton.frame.size, CGSize(width: 40, height: 40))
+        XCTAssertLessThanOrEqual(panel.leadingSurfaceView.frame.maxX, panel.trailingSurfaceView.frame.minX)
 
         if #available(iOS 26.0, *) {
-            let glassEffect = try XCTUnwrap(panel.surfaceView.effect as? UIGlassEffect)
-            XCTAssertTrue(glassEffect.isInteractive)
-            XCTAssertEqual(glassEffect.tintColor, XabberGlassStyle.nativeGlassTintColor)
+            XCTAssertTrue(try XCTUnwrap(panel.leadingSurfaceView.effect as? UIGlassEffect).isInteractive)
+            XCTAssertTrue(try XCTUnwrap(panel.trailingSurfaceView.effect as? UIGlassEffect).isInteractive)
         } else {
-            XCTAssertTrue(panel.surfaceView.effect is UIBlurEffect)
+            XCTAssertTrue(panel.leadingSurfaceView.effect is UIBlurEffect)
+            XCTAssertTrue(panel.trailingSurfaceView.effect is UIBlurEffect)
         }
     }
 
-    func testCancelButtonInvokesSearchCancelCallback() {
+    func testCalendarAndViewModeCallbacksReplaceLegacyBottomControls() {
         let harness = makePanelHarness()
         let panel = harness.panel
-        var cancelCount = 0
-        panel.onCancelCallback = { cancelCount += 1 }
+        var calendarCount = 0
+        var modeCount = 0
+        panel.onCalendarCallback = { calendarCount += 1 }
+        panel.onChangeViewStateCallback = { modeCount += 1 }
+        panel.applyRenderState(
+            .results(current: 0, total: 2, isLoadingContext: false),
+            surfaceMode: .chat,
+            animated: false
+        )
 
-        panel.cancelButton.sendActions(for: .touchUpInside)
+        panel.calendarButton.sendActions(for: .touchUpInside)
+        panel.viewModeButton.sendActions(for: .touchUpInside)
 
-        XCTAssertEqual(cancelCount, 1)
+        XCTAssertEqual(calendarCount, 1)
+        XCTAssertEqual(modeCount, 1)
+        XCTAssertNil(panel.cancelButton.superview)
+        XCTAssertNil(panel.seekUpButton.superview)
+        XCTAssertNil(panel.seekDownButton.superview)
     }
 
-    func testSearchPanelFrameMatchesComposerRowBoundsWithoutExtraHorizontalInset() {
+    func testSearchPanelFrameMatchesComposerWidthAndCentersFortyPointBar() {
         let inputView = ModernXabberInputView(
             frame: CGRect(
                 x: 0,
@@ -2907,12 +2808,18 @@ final class ChatSearchBottomPanelTests: XCTestCase {
         XCTAssertEqual(inputView.searchPanel.frame.minX, inputView.bounds.minX, accuracy: 0.001)
         XCTAssertEqual(inputView.searchPanel.frame.maxX, inputView.bounds.maxX, accuracy: 0.001)
         XCTAssertEqual(inputView.searchPanel.frame.width, inputView.bounds.width, accuracy: 0.001)
+        XCTAssertEqual(inputView.searchPanel.frame.height, 40, accuracy: 0.001)
+        XCTAssertEqual(
+            inputView.searchPanel.frame.midY,
+            NativeGlassBarStyle.minimumHeight / 2,
+            accuracy: 0.001
+        )
     }
 
     private func makePanelHarness() -> PanelHarness {
         PanelHarness(
             width: 358,
-            height: NativeGlassBarStyle.minimumHeight
+            height: 40
         )
     }
 

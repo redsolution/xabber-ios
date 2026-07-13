@@ -94,6 +94,21 @@ final class SearchChatListKeyboardLayoutTests: XCTestCase {
             ModernXabberInputView.defaultBarHeight,
             accuracy: 0.001
         )
+        controller.xabberInputView.updateBottomPanels(withOffset: 0)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.frame.height,
+            ChatSearchBottomActionBarLayout.height,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.frame.midY,
+            NativeGlassBarStyle.minimumHeight / 2,
+            accuracy: 0.001
+        )
+        XCTAssertLessThanOrEqual(
+            controller.xabberInputView.searchPanel.frame.maxY,
+            controller.xabberInputView.bounds.maxY
+        )
     }
 
     func testChatSearchStatusBarStaysKeyboardOwnedAfterContainerBoundsChange() throws {
@@ -115,6 +130,17 @@ final class SearchChatListKeyboardLayoutTests: XCTestCase {
         XCTAssertEqual(
             try XCTUnwrap(controller.xabberInputView.heightConstraint).constant,
             ModernXabberInputView.defaultBarHeight,
+            accuracy: 0.001
+        )
+        controller.xabberInputView.updateBottomPanels(withOffset: 0)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.frame.height,
+            ChatSearchBottomActionBarLayout.height,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.frame.midY,
+            NativeGlassBarStyle.minimumHeight / 2,
             accuracy: 0.001
         )
     }

@@ -1062,6 +1062,7 @@ extension ChatViewController {
                     isRemoteSearching: searchPresentationState.resultPhase == .searching
                 )
             )
+            applyLegacySearchPanelStateFromPresentation()
         }
         return searchPresentationState
     }
@@ -1378,7 +1379,13 @@ extension ChatViewController {
     internal func applyInChatSearchPanelRenderState(
         _ renderState: ModernXabberInputView.SearchPanel.RenderState
     ) {
-        xabberInputView.searchPanel.applyRenderState(renderState)
+        let surfaceMode: ModernXabberInputView.SearchPanel.SurfaceMode =
+            searchPresentationState.surfaceMode == .list ? .list : .chat
+        xabberInputView.searchPanel.applyRenderState(
+            renderState,
+            surfaceMode: surfaceMode,
+            animated: true
+        )
         hideDuplicateBottomSearchCancelIfNeeded()
     }
 
@@ -4303,7 +4310,15 @@ extension ChatViewController {
     }
     
     internal func onSearchPanelChangeChatViewState() {
-        reduceSearchPresentationState(.openList)
+        if searchPresentationState.surfaceMode == .list {
+            reduceSearchPresentationState(.closeList)
+        } else {
+            reduceSearchPresentationState(.openList)
+        }
+    }
+
+    internal func onSearchPanelOpenCalendar() {
+        reduceSearchPresentationState(.openCalendar)
     }
     
     internal func scrollToSearchedMessage(primary: String) {

@@ -493,6 +493,23 @@ class ModernXabberInputView: UIView {
                 }
             }
         }
+
+        enum SurfaceMode: Equatable {
+            case chat
+            case list
+        }
+
+        enum CounterAnimationMode: Equatable {
+            case verticalPush
+            case crossfade
+        }
+
+        struct CounterTransition: Equatable {
+            let mode: CounterAnimationMode
+            let duration: TimeInterval
+            let fromText: String
+            let toText: String
+        }
         
         var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular {
             didSet {
@@ -509,6 +526,11 @@ class ModernXabberInputView: UIView {
         private var isApplyingRenderState = false
         private var lastCurrentResultIndex: Int = -1
         private var lastTotalResults: Int = 0
+        private(set) var surfaceMode: SurfaceMode = .chat
+        private let animationSpec: ChatSearchAnimationSpec
+        private let countFormatter = ChatSearchBottomCountFormatter()
+        private(set) var counterTransitionCount = 0
+        private(set) var lastCounterTransition: CounterTransition?
         
         var shouldShowSeekUpDownButtons: Bool = true
         
@@ -517,11 +539,32 @@ class ModernXabberInputView: UIView {
         open var onSeekDownCallback: (() -> Void)? = nil
         open var onChangeViewStateCallback: (() -> Void)? = nil
         open var onCancelCallback: (() -> Void)? = nil
+        open var onCalendarCallback: (() -> Void)? = nil
 
-        let surfaceView: UIVisualEffectView = {
+        let leadingSurfaceView: UIVisualEffectView = {
             let view = UIVisualEffectView()
             NativeGlassBarStyle.applySurface(to: view, cornerStyle: .capsule, interactive: true)
             return view
+        }()
+
+        let trailingSurfaceView: UIVisualEffectView = {
+            let view = UIVisualEffectView()
+            NativeGlassBarStyle.applySurface(to: view, cornerStyle: .capsule, interactive: true)
+            return view
+        }()
+
+        var surfaceView: UIVisualEffectView { leadingSurfaceView }
+
+        let calendarButton: UIButton = {
+            let button = UIButton(type: .system)
+            button.setImage(imageLiteral("calendar", dimension: 20), for: .normal)
+            button.tintColor = NativeGlassBarStyle.iconTintColor
+            button.accessibilityIdentifier = "chat_search_calendar"
+            button.accessibilityLabel = "Calendar".localizeString(
+                id: "chat_search_calendar",
+                arguments: []
+            )
+            return button
         }()
 
         let cancelButton: UIButton = {
@@ -533,14 +576,18 @@ class ModernXabberInputView: UIView {
             return button
         }()
         
-        let listButton: UIButton = {
-            let button = UIButton()
-            
-            button.setImage(imageLiteral("list.bullet", dimension: 24), for: .normal)
-            button.tintColor = .tintColor
-            
+        let viewModeButton: UIButton = {
+            let button = UIButton(type: .system)
+            button.tintColor = NativeGlassBarStyle.iconTintColor
+            button.setTitleColor(NativeGlassBarStyle.iconTintColor, for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+            button.titleLabel?.adjustsFontSizeToFitWidth = true
+            button.titleLabel?.minimumScaleFactor = 0.78
+            button.accessibilityIdentifier = "chat_search_view_mode_control"
             return button
         }()
+
+        var listButton: UIButton { viewModeButton }
         
         let changeChatButton: UIButton = {
             let button = UIButton()
@@ -616,64 +663,94 @@ class ModernXabberInputView: UIView {
         }()
 
         override init(frame: CGRect) {
+            self.animationSpec = ChatSearchAnimationSpec.production.resolved(
+                for: .init(
+                    reduceMotion: UIAccessibility.isReduceMotionEnabled,
+                    reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
+                )
+            )
+            super.init(frame: frame)
+            self.setup()
+        }
+
+        init(frame: CGRect, animationSpec: ChatSearchAnimationSpec) {
+            self.animationSpec = animationSpec
             super.init(frame: frame)
             self.setup()
         }
         
         required init?(coder: NSCoder) {
+            self.animationSpec = ChatSearchAnimationSpec.production.resolved(
+                for: .init(
+                    reduceMotion: UIAccessibility.isReduceMotionEnabled,
+                    reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
+                )
+            )
             super.init(coder: coder)
             self.setup()
         }
 
         override var intrinsicContentSize: CGSize {
-            CGSize(width: UIView.noIntrinsicMetric, height: NativeGlassBarStyle.minimumHeight)
+            CGSize(width: UIView.noIntrinsicMetric, height: ChatSearchBottomActionBarLayout.height)
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            let frames = ChatSearchBottomActionBarLayout.frames(
+                in: bounds,
+                safeAreaInsets: safeAreaInsets
+            )
+            leadingSurfaceView.frame = frames.leadingCapsule
+            trailingSurfaceView.frame = frames.trailingCapsule
+            leadingSurfaceView.layer.cornerRadius = ChatSearchBottomActionBarLayout.height / 2
+            trailingSurfaceView.layer.cornerRadius = ChatSearchBottomActionBarLayout.height / 2
+        }
+
+        override func safeAreaInsetsDidChange() {
+            super.safeAreaInsetsDidChange()
+            setNeedsLayout()
         }
         
         func activateConstraints() {
             NSLayoutConstraint.activate([
-                self.cancelButton.leadingAnchor.constraint(equalTo: self.leadingAnchor),
-                self.cancelButton.centerYAnchor.constraint(equalTo: self.centerYAnchor),
-                self.cancelButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
-                self.cancelButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
-                self.surfaceView.leadingAnchor.constraint(
-                    equalTo: self.cancelButton.trailingAnchor,
-                    constant: NativeGlassBarStyle.interItemSpacing
+                self.calendarButton.leadingAnchor.constraint(
+                    equalTo: self.leadingSurfaceView.contentView.leadingAnchor
                 ),
-                self.surfaceView.trailingAnchor.constraint(
-                    equalTo: self.seekUpButton.leadingAnchor,
-                    constant: -NativeGlassBarStyle.interItemSpacing
+                self.calendarButton.topAnchor.constraint(
+                    equalTo: self.leadingSurfaceView.contentView.topAnchor
                 ),
-                self.surfaceView.topAnchor.constraint(equalTo: self.topAnchor),
-                self.surfaceView.bottomAnchor.constraint(equalTo: self.bottomAnchor),
-                self.listButton.leadingAnchor.constraint(equalTo: self.leadingAnchor),
-                self.listButton.centerYAnchor.constraint(equalTo: self.centerYAnchor),
-                self.listButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
-                self.listButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
-                self.stack.centerXAnchor.constraint(equalTo: self.surfaceView.contentView.centerXAnchor),
-                self.stack.centerYAnchor.constraint(equalTo: self.surfaceView.contentView.centerYAnchor),
-                self.stack.leadingAnchor.constraint(
-                    greaterThanOrEqualTo: self.surfaceView.contentView.leadingAnchor,
-                    constant: NativeGlassBarStyle.contentInset
+                self.calendarButton.bottomAnchor.constraint(
+                    equalTo: self.leadingSurfaceView.contentView.bottomAnchor
                 ),
-                self.stack.trailingAnchor.constraint(
-                    lessThanOrEqualTo: self.surfaceView.contentView.trailingAnchor,
-                    constant: -NativeGlassBarStyle.contentInset
+                self.calendarButton.widthAnchor.constraint(
+                    equalToConstant: ChatSearchBottomActionBarLayout.minimumControlWidth
                 ),
-                self.stack.heightAnchor.constraint(lessThanOrEqualTo: self.surfaceView.heightAnchor),
-                self.seekUpButton.trailingAnchor.constraint(
-                    equalTo: self.seekDownButton.leadingAnchor,
-                    constant: -NativeGlassBarStyle.interItemSpacing
+                self.counterLabel.leadingAnchor.constraint(
+                    equalTo: self.calendarButton.trailingAnchor,
+                    constant: 2
                 ),
-                self.seekUpButton.centerYAnchor.constraint(equalTo: self.centerYAnchor),
-                self.seekDownButton.trailingAnchor.constraint(equalTo: self.trailingAnchor),
-                self.seekDownButton.centerYAnchor.constraint(equalTo: self.centerYAnchor),
-                self.seekUpButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
-                self.seekDownButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
-                self.counterLabel.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.minimumHeight),
-                self.seekUpButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
-                self.seekDownButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
-                self.activityIndicator.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize),
-                self.activityIndicator.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize)
+                self.counterLabel.trailingAnchor.constraint(
+                    equalTo: self.leadingSurfaceView.contentView.trailingAnchor,
+                    constant: -10
+                ),
+                self.counterLabel.topAnchor.constraint(
+                    equalTo: self.leadingSurfaceView.contentView.topAnchor
+                ),
+                self.counterLabel.bottomAnchor.constraint(
+                    equalTo: self.leadingSurfaceView.contentView.bottomAnchor
+                ),
+                self.viewModeButton.leadingAnchor.constraint(
+                    equalTo: self.trailingSurfaceView.contentView.leadingAnchor
+                ),
+                self.viewModeButton.trailingAnchor.constraint(
+                    equalTo: self.trailingSurfaceView.contentView.trailingAnchor
+                ),
+                self.viewModeButton.topAnchor.constraint(
+                    equalTo: self.trailingSurfaceView.contentView.topAnchor
+                ),
+                self.viewModeButton.bottomAnchor.constraint(
+                    equalTo: self.trailingSurfaceView.contentView.bottomAnchor
+                )
             ])
         }
         
@@ -726,61 +803,127 @@ class ModernXabberInputView: UIView {
         }
 
         open func applyRenderState(_ newState: RenderState) {
+            applyRenderState(newState, surfaceMode: surfaceMode, animated: true)
+        }
+
+        func applyRenderState(
+            _ newState: RenderState,
+            surfaceMode newSurfaceMode: SurfaceMode,
+            animated: Bool
+        ) {
             self.renderState = newState
             self.state = newState.legacyState
+            self.surfaceMode = newSurfaceMode
             self.setLegacyLoadingFlag(newState.isServerLoading)
 
+            let current: Int
+            let total: Int
             switch newState {
-            case .idle:
-                self.counterLabel.text = "no results"
-                self.listButton.isHidden = true
-                self.cancelButton.isHidden = false
-                self.counterLabel.isHidden = false
-                self.seekUpButton.isHidden = false
-                self.seekDownButton.isHidden = false
-                self.seekUpButton.isEnabled = false
-                self.seekDownButton.isEnabled = false
-                self.stopLoadingIndicator()
-            case .loading:
-                self.listButton.isHidden = true
-                self.cancelButton.isHidden = false
-                self.counterLabel.isHidden = true
-                self.seekUpButton.isHidden = false
-                self.seekDownButton.isHidden = false
-                self.seekUpButton.isEnabled = false
-                self.seekDownButton.isEnabled = false
-                self.startLoadingIndicator()
-            case .emptyResults:
-                self.counterLabel.text = "no results"
-                self.listButton.isHidden = true
-                self.cancelButton.isHidden = false
-                self.counterLabel.isHidden = false
-                self.seekUpButton.isHidden = false
-                self.seekDownButton.isHidden = false
-                self.seekUpButton.isEnabled = false
-                self.seekDownButton.isEnabled = false
-                self.stopLoadingIndicator()
-            case .results(let current, let total, let isLoadingContext):
+            case .idle, .loading, .emptyResults:
+                current = -1
+                total = 0
+                self.lastCurrentResultIndex = -1
+                self.lastTotalResults = 0
+            case .results(let resultIndex, let resultCount, _):
+                current = resultIndex
+                total = max(0, resultCount)
                 self.lastCurrentResultIndex = current
                 self.lastTotalResults = total
-                if current < 0 {
-                    self.counterLabel.text = "\(total) found"
-                } else {
-                    self.counterLabel.text = "\(current + 1) of \(total)"
-                }
-                self.listButton.isHidden = true
-                self.cancelButton.isHidden = false
-                self.counterLabel.isHidden = false
-                self.seekUpButton.isHidden = false
-                self.seekDownButton.isHidden = false
-                let hasQueueableNavigation = total > 1
-                self.seekUpButton.isEnabled = hasQueueableNavigation
-                self.seekDownButton.isEnabled = hasQueueableNavigation
-                if isLoadingContext {
-                    self.startLoadingIndicator()
-                } else {
-                    self.stopLoadingIndicator()
-                }
+            }
+
+            let hasCommittedCurrentResult = current >= 0 && current < total
+            let counterText: String
+            if newSurfaceMode == .chat && hasCommittedCurrentResult {
+                counterText = countFormatter.current(current, total: total)
+            } else {
+                counterText = countFormatter.messages(total: total)
+            }
+            updateCounterText(counterText, animated: animated)
+
+            let viewModeTitle: String
+            switch newSurfaceMode {
+            case .chat:
+                viewModeTitle = "Show as List".localizeString(
+                    id: "chat_search_show_as_list",
+                    arguments: []
+                )
+            case .list:
+                viewModeTitle = "Show as Chat".localizeString(
+                    id: "chat_search_show_as_chat",
+                    arguments: []
+                )
+            }
+            viewModeButton.setTitle(viewModeTitle, for: .normal)
+            viewModeButton.accessibilityLabel = viewModeTitle
+            trailingSurfaceView.isHidden = !hasCommittedCurrentResult
+            viewModeButton.isHidden = !hasCommittedCurrentResult
+            calendarButton.isHidden = false
+            calendarButton.isEnabled = true
+            counterLabel.isHidden = false
+
+            cancelButton.isHidden = true
+            seekUpButton.isHidden = true
+            seekDownButton.isHidden = true
+            seekUpButton.isEnabled = false
+            seekDownButton.isEnabled = false
+            stopLoadingIndicator()
+            setNeedsLayout()
+        }
+
+        func setSurfaceMode(_ newSurfaceMode: SurfaceMode, animated: Bool) {
+            guard surfaceMode != newSurfaceMode else { return }
+            applyRenderState(renderState, surfaceMode: newSurfaceMode, animated: animated)
+        }
+
+        private func updateCounterText(_ text: String, animated: Bool) {
+            let previousText = counterLabel.text ?? ""
+            guard previousText != text else {
+                return
+            }
+
+            guard animated else {
+                counterLabel.text = text
+                lastCounterTransition = nil
+                return
+            }
+
+            let timing = animationSpec.monthSwipe.timing
+            let mode: CounterAnimationMode = animationSpec.isReducedMotion
+                || animationSpec.monthSwipe.mode == .crossfade
+                ? .crossfade
+                : .verticalPush
+            let transition = CounterTransition(
+                mode: mode,
+                duration: timing.duration,
+                fromText: previousText,
+                toText: text
+            )
+            counterTransitionCount += 1
+            lastCounterTransition = transition
+
+            guard timing.duration > 0 else {
+                counterLabel.text = text
+                return
+            }
+
+            switch mode {
+            case .crossfade:
+                UIView.transition(
+                    with: counterLabel,
+                    duration: timing.duration,
+                    options: [.transitionCrossDissolve, .beginFromCurrentState, .allowUserInteraction],
+                    animations: { [weak self] in
+                        self?.counterLabel.text = text
+                    }
+                )
+            case .verticalPush:
+                let layerTransition = CATransition()
+                layerTransition.type = .push
+                layerTransition.subtype = .fromTop
+                layerTransition.duration = timing.duration
+                layerTransition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                counterLabel.layer.add(layerTransition, forKey: "chat-search-counter")
+                counterLabel.text = text
             }
         }
 
@@ -825,55 +968,40 @@ class ModernXabberInputView: UIView {
         private func onChangeViewStateTouchUp(_ sender: UIButton) {
             self.onChangeViewStateCallback?()
         }
+
+        @objc
+        private func onCalendarTouchUp(_ sender: UIButton) {
+            self.onCalendarCallback?()
+        }
         
         func setup() {
             self.accessibilityIdentifier = "chat_search_results_panel"
             self.backgroundColor = .clear
             self.isOpaque = false
-            self.surfaceView.translatesAutoresizingMaskIntoConstraints = false
-            self.cancelButton.translatesAutoresizingMaskIntoConstraints = false
-            self.stack.translatesAutoresizingMaskIntoConstraints = false
-            self.listButton.translatesAutoresizingMaskIntoConstraints = false
-            self.activityIndicator.translatesAutoresizingMaskIntoConstraints = false
+            self.leadingSurfaceView.autoresizingMask = []
+            self.trailingSurfaceView.autoresizingMask = []
+            self.calendarButton.translatesAutoresizingMaskIntoConstraints = false
+            self.viewModeButton.translatesAutoresizingMaskIntoConstraints = false
             self.counterLabel.translatesAutoresizingMaskIntoConstraints = false
-            self.seekUpButton.translatesAutoresizingMaskIntoConstraints = false
-            self.seekDownButton.translatesAutoresizingMaskIntoConstraints = false
-            self.spacerView.translatesAutoresizingMaskIntoConstraints = false
-            self.addSubview(self.surfaceView)
-            self.addSubview(self.cancelButton)
-            self.addSubview(self.listButton)
-            self.addSubview(self.seekUpButton)
-            self.addSubview(self.seekDownButton)
-            self.surfaceView.contentView.addSubview(self.stack)
-            self.stack.addArrangedSubview(self.counterLabel)
-            self.stack.addArrangedSubview(self.activityIndicator)
+            self.addSubview(self.leadingSurfaceView)
+            self.addSubview(self.trailingSurfaceView)
+            self.leadingSurfaceView.contentView.addSubview(self.calendarButton)
+            self.leadingSurfaceView.contentView.addSubview(self.counterLabel)
+            self.trailingSurfaceView.contentView.addSubview(self.viewModeButton)
             self.activateConstraints()
             NativeGlassBarStyle.applyIconButtonStyle(
-                to: self.listButton,
+                to: self.calendarButton,
                 tintColor: NativeGlassBarStyle.iconTintColor,
                 prefersNativeGlass: false
             )
-            NativeGlassBarStyle.applyDetachedIconButtonStyle(
-                to: self.cancelButton,
-                tintColor: NativeGlassBarStyle.iconTintColor,
-                image: imageLiteral("xmark", dimension: NativeGlassBarStyle.iconSize)
-            )
-            NativeGlassBarStyle.applyDetachedIconButtonStyle(
-                to: self.seekUpButton,
-                tintColor: NativeGlassBarStyle.iconTintColor,
-                image: imageLiteral("chevron.up", dimension: 24)
-            )
-            NativeGlassBarStyle.applyDetachedIconButtonStyle(
-                to: self.seekDownButton,
-                tintColor: NativeGlassBarStyle.iconTintColor,
-                image: imageLiteral("chevron.down", dimension: 24)
-            )
             self.changeChatButton.addTarget(self, action: #selector(onChangeConversationTypeButtonTouchUp), for: .touchUpInside)
-            self.cancelButton.addTarget(self, action: #selector(onCancelButtonTouchUp), for: .touchUpInside)
-            self.seekUpButton.addTarget(self, action: #selector(onSeekUpButtonTouchUp), for: .touchUpInside)
-            self.seekDownButton.addTarget(self, action: #selector(onSeekDownButtonTouchUp), for: .touchUpInside)
-            self.listButton.addTarget(self, action: #selector(onChangeViewStateTouchUp), for: .touchUpInside)
-            self.applyRenderState(.idle)
+            self.calendarButton.addTarget(self, action: #selector(onCalendarTouchUp), for: .touchUpInside)
+            self.viewModeButton.addTarget(self, action: #selector(onChangeViewStateTouchUp), for: .touchUpInside)
+            self.cancelButton.isHidden = true
+            self.seekUpButton.isHidden = true
+            self.seekDownButton.isHidden = true
+            self.activityIndicator.isHidden = true
+            self.applyRenderState(.idle, surfaceMode: .chat, animated: false)
         }
     }
 
@@ -2965,11 +3093,16 @@ class ModernXabberInputView: UIView {
             NativeGlassBarStyle.buttonSize,
             self.bounds.width
         )
+        let searchHeight = ChatSearchBottomActionBarLayout.height
+        let searchOriginY = offset + max(
+            0,
+            (NativeGlassBarStyle.minimumHeight - searchHeight) / 2
+        )
         searchPanel.frame = CGRect(
-            origin: CGPoint(x: 0, y: offset),
+            origin: CGPoint(x: 0, y: searchOriginY),
             size: CGSize(
                 width: searchWidth,
-                height: NativeGlassBarStyle.minimumHeight
+                height: searchHeight
             )
         )
         self.layoutMentionPanel()

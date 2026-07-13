@@ -4490,9 +4490,8 @@ class ChatViewController: MessagesViewController {
         self.xabberInputView.searchPanel.onSeekUpCallback = self.onSearchPanelSeekUp
         self.xabberInputView.searchPanel.onSeekDownCallback = self.onSearchPanelSeekDown
         self.xabberInputView.searchPanel.onChangeViewStateCallback = self.onSearchPanelChangeChatViewState
-        self.xabberInputView.searchPanel.onCancelCallback = { [weak self] in
-            self?.cancelSearchModeFromSearchUI()
-        }
+        self.xabberInputView.searchPanel.onCalendarCallback = self.onSearchPanelOpenCalendar
+        self.xabberInputView.searchPanel.onCancelCallback = nil
         self.xabberInputView.mentionConversationType = self.conversationType
         self.xabberInputView.mentionCandidatesProvider = { [weak self] query in
             self?.mentionCandidates(for: query) ?? []
