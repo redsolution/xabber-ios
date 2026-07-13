@@ -46,9 +46,19 @@ extension ChatViewController {
     public func updateSearchResults(value: String?) {
         let normalizedValue = ChatInChatSearchQueryContext.normalizedText(value ?? "")
         if normalizedValue.isEmpty {
+            self.reduceSearchPresentationState(.queryChanged(""))
             self.clearInChatSearchQuery(clearResults: true, panelState: .idle)
             return
         }
+        if !self.searchPresentationState.isActive {
+            self.reduceSearchPresentationState(.activate)
+        }
+        if self.searchPresentationState.query != normalizedValue {
+            self.reduceSearchPresentationState(.queryChanged(normalizedValue))
+        }
+        self.reduceSearchPresentationState(
+            .debounceElapsed(generation: self.searchPresentationState.generation)
+        )
         if self.conversationType.isEncrypted {
             guard let context = self.beginInChatSearchQueryIfNeeded(text: normalizedValue) else {
                 return
@@ -85,7 +95,7 @@ extension ChatViewController {
             guard let context = self.beginInChatSearchQueryIfNeeded(text: normalizedValue) else {
                 return
             }
-            self.xabberInputView.searchPanel.applyRenderState(.loading)
+            self.applyLegacySearchPanelStateFromPresentation()
             self.registerRemoteHistoryFailureDispatcher(queryId: context.queryId)
             let requestCallbacks = MessageArchiveManager.RequestCallbacks(
                 onMessage: { [weak self] item, queryId in

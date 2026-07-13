@@ -1897,6 +1897,7 @@ class ChatViewController: MessagesViewController {
     var topPanelShowed: Bool = false
     var topPanelState: BehaviorRelay<TopPanelState> = BehaviorRelay(value: .none)
 // search
+    var searchPresentationState: ChatSearchPresentationState = .inactive
     var searchMessagesQueue: [MessageStorageItem] = []
     var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var currentSearchQueryId: String? = nil

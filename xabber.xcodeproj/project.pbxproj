@@ -59,6 +59,8 @@
 		4E8400162FD3000000ABC001 /* MediaGalleryVoicePlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8400152FD3000000ABC001 /* MediaGalleryVoicePlaybackTests.swift */; };
 		4E8400182FD3000000ABC001 /* MediaGalleryFullscreenIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8400172FD3000000ABC001 /* MediaGalleryFullscreenIntegrationTests.swift */; };
 		4E8500022FE000000ABC001 /* ChatSearchGoalSafetyPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8500012FE000000ABC001 /* ChatSearchGoalSafetyPolicyTests.swift */; };
+		4E8600022FE100000ABC001 /* ChatSearchPresentationStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8600012FE100000ABC001 /* ChatSearchPresentationStateTests.swift */; };
+		4E8700022FE100000ABC001 /* ChatSearchPresentationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8700012FE100000ABC001 /* ChatSearchPresentationState.swift */; };
 		4E8400102FD3000000ABC001 /* MediaGalleryMessageNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E84000F2FD3000000ABC001 /* MediaGalleryMessageNavigation.swift */; };
 		4E7000022FAF00000ABC001 /* TextMessageCellReuseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7000012FAF00000ABC001 /* TextMessageCellReuseTests.swift */; };
 		4E7100022FB000000ABC001 /* ChatComposerSendButtonIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7100012FB000000ABC001 /* ChatComposerSendButtonIconTests.swift */; };
@@ -918,6 +920,8 @@
 		4E6600012FA500000ABC001 /* ChatDatasourceBoundsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDatasourceBoundsTests.swift; sourceTree = "<group>"; };
 		4E6700012FA600000ABC001 /* ChatSendButtonReadinessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSendButtonReadinessTests.swift; sourceTree = "<group>"; };
 		4E8500012FE000000ABC001 /* ChatSearchGoalSafetyPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchGoalSafetyPolicyTests.swift; sourceTree = "<group>"; };
+		4E8600012FE100000ABC001 /* ChatSearchPresentationStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchPresentationStateTests.swift; sourceTree = "<group>"; };
+		4E8700012FE100000ABC001 /* ChatSearchPresentationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchPresentationState.swift; sourceTree = "<group>"; };
 		4E7200012FC000000ABC001 /* DeviceDetailSecurityActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceDetailSecurityActionTests.swift; sourceTree = "<group>"; };
 		4E7300012FC100000ABC001 /* AccountDeletionCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionCleanupTests.swift; sourceTree = "<group>"; };
 		4E7400012FC200000ABC001 /* QuitAccountFlowStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitAccountFlowStateTests.swift; sourceTree = "<group>"; };
@@ -3932,6 +3936,7 @@
 					4E6600012FA500000ABC001 /* ChatDatasourceBoundsTests.swift */,
 					4E6700012FA600000ABC001 /* ChatSendButtonReadinessTests.swift */,
 					4E8500012FE000000ABC001 /* ChatSearchGoalSafetyPolicyTests.swift */,
+					4E8600012FE100000ABC001 /* ChatSearchPresentationStateTests.swift */,
 						4E7200012FC000000ABC001 /* DeviceDetailSecurityActionTests.swift */,
 						4E7300012FC100000ABC001 /* AccountDeletionCleanupTests.swift */,
 						4E7400012FC200000ABC001 /* QuitAccountFlowStateTests.swift */,
@@ -4409,6 +4414,7 @@
 		66E338182202FC60003B7984 /* chat */ = {
 			isa = PBXGroup;
 			children = (
+				4E8700032FE100000ABC001 /* search */,
 				66F7511B23E2ADBE00A26CE9 /* rx */,
 				665D1C332192D21500278C90 /* subforwards */,
 				4E58000B2F76000000ABC001 /* schedule */,
@@ -4426,6 +4432,14 @@
 				4E6D00032FAC00000ABC001 /* ChatComposerFrameUpdatePlanner.swift */,
 			);
 			path = chat;
+			sourceTree = "<group>";
+		};
+		4E8700032FE100000ABC001 /* search */ = {
+			isa = PBXGroup;
+			children = (
+				4E8700012FE100000ABC001 /* ChatSearchPresentationState.swift */,
+			);
+			path = search;
 			sourceTree = "<group>";
 		};
 		4E58000B2F76000000ABC001 /* schedule */ = {
@@ -5578,6 +5592,7 @@
 				661D8E122ACADD2700990FDF /* DevicePrivacyViewController.swift in Sources */,
 				66CDFFEE2C63942500BF5DCC /* NotificationsControllerFilterProtocol.swift in Sources */,
 				66CB16C321F9C9D100CB03C2 /* ChatViewController.swift in Sources */,
+				4E8700022FE100000ABC001 /* ChatSearchPresentationState.swift in Sources */,
 				4E6900042FA800000ABC001 /* ChatPerformanceSignposts.swift in Sources */,
 				4E6A00042FA900000ABC001 /* ChatScrollBoundaryAvailabilityCache.swift in Sources */,
 				4E6B00042FAA00000ABC001 /* ChatScrollWorkScheduler.swift in Sources */,
@@ -5946,6 +5961,7 @@
 					4E6600022FA500000ABC001 /* ChatDatasourceBoundsTests.swift in Sources */,
 					4E6700022FA600000ABC001 /* ChatSendButtonReadinessTests.swift in Sources */,
 					4E8500022FE000000ABC001 /* ChatSearchGoalSafetyPolicyTests.swift in Sources */,
+					4E8600022FE100000ABC001 /* ChatSearchPresentationStateTests.swift in Sources */,
 						4E7200022FC000000ABC001 /* DeviceDetailSecurityActionTests.swift in Sources */,
 						4E7300022FC100000ABC001 /* AccountDeletionCleanupTests.swift in Sources */,
 						4E7400022FC200000ABC001 /* QuitAccountFlowStateTests.swift in Sources */,

@@ -1049,6 +1049,39 @@ enum ChatEditPreviewNavigationPolicy {
 }
 
 extension ChatViewController {
+    @discardableResult
+    internal func reduceSearchPresentationState(
+        _ event: ChatSearchPresentationState.Event
+    ) -> ChatSearchPresentationState {
+        assert(Thread.isMainThread, "Chat search presentation events must be reduced on the main thread")
+        searchPresentationState.reduce(event)
+        return searchPresentationState
+    }
+
+    internal func applyLegacySearchPanelStateFromPresentation() {
+        assert(Thread.isMainThread, "Chat search UI state must be applied on the main thread")
+        guard isViewLoaded else {
+            return
+        }
+
+        let renderState: ModernXabberInputView.SearchPanel.RenderState
+        switch searchPresentationState.legacyPanelState {
+        case .idle:
+            renderState = .idle
+        case .loading:
+            renderState = .loading
+        case .emptyResults:
+            renderState = .emptyResults
+        case .results(let current, let total, let isLoadingContext):
+            renderState = .results(
+                current: current,
+                total: total,
+                isLoadingContext: isLoadingContext
+            )
+        }
+        xabberInputView.searchPanel.applyRenderState(renderState)
+    }
+
     internal func activateSearchModeFromExternalRoute(
         activateKeyboard: Bool = true,
         animated: Bool = true,
@@ -1060,6 +1093,7 @@ extension ChatViewController {
             initialQuery: initialQuery
         )
         pendingSearchActivationRequest = request
+        reduceSearchPresentationState(.activate)
 
         if !inSearchMode.value {
             inSearchMode.accept(true)
@@ -1079,6 +1113,7 @@ extension ChatViewController {
         defaultActivateKeyboard: Bool,
         defaultAnimated: Bool
     ) {
+        reduceSearchPresentationState(.activate)
         let request = pendingSearchActivationRequest
         pendingSearchActivationRequest = nil
 
@@ -1093,6 +1128,7 @@ extension ChatViewController {
         )
 
         if let initialQuery = request?.initialQuery {
+            reduceSearchPresentationState(.queryChanged(initialQuery))
             searchTextObserver.accept(initialQuery)
         }
     }
@@ -1107,6 +1143,7 @@ extension ChatViewController {
         }
 
         if normalizedText.isEmpty {
+            reduceSearchPresentationState(.queryChanged(""))
             clearInChatSearchQuery(clearResults: true, panelState: .idle)
             searchTextObserver.accept(nil)
             return
@@ -1116,6 +1153,9 @@ extension ChatViewController {
             return
         }
 
+        if searchPresentationState.query != normalizedText {
+            reduceSearchPresentationState(.queryChanged(normalizedText))
+        }
         searchTextObserver.accept(normalizedText)
     }
 
@@ -1124,6 +1164,7 @@ extension ChatViewController {
             return
         }
 
+        reduceSearchPresentationState(.cancelSearch)
         clearInChatSearchQuery(clearResults: true, panelState: .idle)
         pendingSearchActivationRequest = nil
         searchBar.text = nil
@@ -1398,6 +1439,9 @@ extension ChatViewController {
         guard isCurrentInChatSearchQuery(queryId: queryId) else {
             return false
         }
+        reduceSearchPresentationState(
+            .failed(generation: searchPresentationState.generation)
+        )
         clearInChatSearchQuery(clearResults: true, panelState: .emptyResults)
         return true
     }
@@ -1557,6 +1601,12 @@ extension ChatViewController {
     }
 
     internal func markSearchResultNavigationPositioningStarted(index: Int) {
+        reduceSearchPresentationState(
+            .navigationStarted(
+                index: index,
+                generation: searchPresentationState.generation
+            )
+        )
         if searchMessagesQueue.indices.contains(index) {
             searchResultNavigationState = .positioning(index: index)
         }
@@ -1571,6 +1621,12 @@ extension ChatViewController {
             return
         }
 
+        reduceSearchPresentationState(
+            .resultCommitted(
+                index: index,
+                generation: searchPresentationState.generation
+            )
+        )
         setSelectedSearchResultNavigationIndex(index, isLoadingContext: false)
         if !completeSearchResultNavigation(index: index) {
             flushPendingArchiveObserverRefreshIfPossible(reason: "searchPositioned")
@@ -1680,6 +1736,9 @@ extension ChatViewController {
 
     @discardableResult
     internal func completeSearchResultNavigation(index: Int) -> Bool {
+        reduceSearchPresentationState(
+            .navigationFinished(generation: searchPresentationState.generation)
+        )
         let pendingNavigation = consumePendingSearchResultNavigation(finishedIndex: index)
 
         guard let pendingNavigation else {
@@ -1732,6 +1791,12 @@ extension ChatViewController {
         )
 
         searchResultNavigationState = .positioning(index: index)
+        reduceSearchPresentationState(
+            .navigationStarted(
+                index: index,
+                generation: searchPresentationState.generation
+            )
+        )
         setSearchResultsPanelContextLoading(
             shouldShowSearchResultContextLoading(for: request)
         )
@@ -3994,7 +4059,7 @@ extension ChatViewController {
     }
     
     internal func onSearchPanelChangeChatViewState() {
-
+        reduceSearchPresentationState(.openList)
     }
     
     internal func scrollToSearchedMessage(primary: String) {
@@ -4223,6 +4288,18 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
         self.preventHidingDate = true
         self.setLoadingIndicatorVisible(false)
         self.searchMessagesQueue = self.normalizedInChatSearchResultsForDisplay(self.searchMessagesQueue)
+        if self.searchMessagesQueue.isEmpty {
+            self.reduceSearchPresentationState(
+                .emptyReceived(generation: self.searchPresentationState.generation)
+            )
+        } else {
+            self.reduceSearchPresentationState(
+                .resultsReceived(
+                    count: self.searchMessagesQueue.count,
+                    generation: self.searchPresentationState.generation
+                )
+            )
+        }
         let newIndex = 0
         if self.searchMessagesQueue.isNotEmpty {
             self.searchResultNavigationState = .idle
