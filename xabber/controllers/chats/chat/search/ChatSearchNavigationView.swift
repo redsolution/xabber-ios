@@ -84,18 +84,11 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
     private(set) var focusAttemptCount = 0
 
     let surfaceView: UIVisualEffectView
+    private let localization: ChatSearchLocalization
 
     let textField: ChatSearchSingleLineTextField = {
         let field = ChatSearchSingleLineTextField()
         field.accessibilityIdentifier = inputAccessibilityIdentifier
-        field.accessibilityLabel = "Search this chat".localizeString(
-            id: "search_this_chat_hint",
-            arguments: []
-        )
-        field.placeholder = "Search this chat".localizeString(
-            id: "search_this_chat_hint",
-            arguments: []
-        )
         field.backgroundColor = .clear
         field.borderStyle = .none
         field.clearButtonMode = .never
@@ -116,7 +109,6 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
     let submitButton: UIButton = {
         let button = UIButton(type: .system)
         button.accessibilityIdentifier = submitAccessibilityIdentifier
-        button.accessibilityLabel = "Search".localizeString(id: "search", arguments: [])
         button.tintColor = NativeGlassBarStyle.iconTintColor
         button.setImage(
             imageLiteral("magnifyingglass", dimension: NativeGlassBarStyle.iconSize),
@@ -128,7 +120,6 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
     let loadingIndicator: UIActivityIndicatorView = {
         let indicator = UIActivityIndicatorView(style: .medium)
         indicator.accessibilityIdentifier = loadingAccessibilityIdentifier
-        indicator.accessibilityLabel = "Loading".localizeString(id: "loading", arguments: [])
         indicator.color = NativeGlassBarStyle.iconTintColor
         indicator.hidesWhenStopped = true
         return indicator
@@ -137,7 +128,6 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
     let clearButton: UIButton = {
         let button = UIButton(type: .system)
         button.accessibilityIdentifier = clearAccessibilityIdentifier
-        button.accessibilityLabel = "Clear".localizeString(id: "clear", arguments: [])
         button.tintColor = .secondaryLabel
         button.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
         button.isHidden = true
@@ -147,7 +137,6 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
     let cancelButton: UIButton = {
         let button = UIButton(type: .system)
         button.accessibilityIdentifier = cancelAccessibilityIdentifier
-        button.accessibilityLabel = "Cancel".localizeString(id: "cancel", arguments: [])
         return button
     }()
 
@@ -164,6 +153,7 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
     }
 
     override init(frame: CGRect) {
+        localization = .production()
         surfaceView = UIVisualEffectView(
             effect: NativeGlassBarStyle.makeEffect(
                 role: .clearInputSurface,
@@ -174,7 +164,12 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
         setup(prefersNativeGlass: true)
     }
 
-    init(frame: CGRect, prefersNativeGlass: Bool) {
+    init(
+        frame: CGRect,
+        prefersNativeGlass: Bool,
+        localization: ChatSearchLocalization = .production()
+    ) {
+        self.localization = localization
         surfaceView = UIVisualEffectView(
             effect: NativeGlassBarStyle.makeEffect(
                 role: .clearInputSurface,
@@ -187,6 +182,7 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
     }
 
     required init?(coder: NSCoder) {
+        localization = .production()
         surfaceView = UIVisualEffectView(
             effect: NativeGlassBarStyle.makeEffect(
                 role: .clearInputSurface,
@@ -268,6 +264,12 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
     }
 
     private func setup(prefersNativeGlass: Bool) {
+        textField.accessibilityLabel = localization.text(.searchField)
+        textField.placeholder = localization.text(.searchField)
+        submitButton.accessibilityLabel = localization.text(.searchTitle)
+        loadingIndicator.accessibilityLabel = localization.text(.loading)
+        clearButton.accessibilityLabel = localization.text(.clear)
+        cancelButton.accessibilityLabel = localization.text(.cancel)
         backgroundColor = .clear
         isOpaque = false
         translatesAutoresizingMaskIntoConstraints = false

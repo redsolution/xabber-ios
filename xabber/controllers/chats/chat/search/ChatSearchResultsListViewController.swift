@@ -195,39 +195,13 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         return tableView
     }()
 
-    let emptyView: UIView = ChatSearchResultsListStateView(
-        text: "No messages found".localizeString(
-            id: "chat_search_results_empty",
-            arguments: []
-        ),
-        accessibilityIdentifier: "chat_search_results_empty"
-    )
+    let emptyView: UIView
 
     let errorView = UIView()
-    let errorRetryButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.setTitle(
-            "Try Again".localizeString(id: "try_again", arguments: []),
-            for: .normal
-        )
-        button.titleLabel?.font = .preferredFont(forTextStyle: .headline)
-        button.titleLabel?.adjustsFontForContentSizeCategory = true
-        button.accessibilityIdentifier = "chat_search_results_retry"
-        return button
-    }()
+    let errorRetryButton: UIButton
 
     let firstPageLoadingView = UIView()
-    let pagingIndicatorView: UIActivityIndicatorView = {
-        let indicator = UIActivityIndicatorView(style: .medium)
-        indicator.hidesWhenStopped = true
-        indicator.accessibilityIdentifier = "chat_search_results_paging"
-        indicator.isAccessibilityElement = true
-        indicator.accessibilityLabel = "Loading messages".localizeString(
-            id: "chat_search_results_loading",
-            arguments: []
-        )
-        return indicator
-    }()
+    let pagingIndicatorView: UIActivityIndicatorView
 
     var onSelectResult: ((ChatSearchResult.ID) -> Void)?
     var onRetry: ((UInt64) -> Void)?
@@ -251,6 +225,54 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
     private let firstPageIndicator = UIActivityIndicatorView(style: .medium)
     private let errorLabel = UILabel()
     private let pagingFooterView = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 44))
+    private let localization: ChatSearchLocalization
+
+    init(localization: ChatSearchLocalization = .production()) {
+        self.localization = localization
+        emptyView = ChatSearchResultsListStateView(
+            text: localization.text(.resultsEmpty),
+            accessibilityIdentifier: "chat_search_results_empty"
+        )
+
+        let retryButton = UIButton(type: .system)
+        retryButton.setTitle(localization.text(.retry), for: .normal)
+        retryButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+        retryButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        retryButton.accessibilityIdentifier = "chat_search_results_retry"
+        errorRetryButton = retryButton
+
+        let pagingIndicator = UIActivityIndicatorView(style: .medium)
+        pagingIndicator.hidesWhenStopped = true
+        pagingIndicator.accessibilityIdentifier = "chat_search_results_paging"
+        pagingIndicator.isAccessibilityElement = true
+        pagingIndicator.accessibilityLabel = localization.text(.resultsLoading)
+        pagingIndicatorView = pagingIndicator
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        let localization = ChatSearchLocalization.production()
+        self.localization = localization
+        emptyView = ChatSearchResultsListStateView(
+            text: localization.text(.resultsEmpty),
+            accessibilityIdentifier: "chat_search_results_empty"
+        )
+
+        let retryButton = UIButton(type: .system)
+        retryButton.setTitle(localization.text(.retry), for: .normal)
+        retryButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+        retryButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        retryButton.accessibilityIdentifier = "chat_search_results_retry"
+        errorRetryButton = retryButton
+
+        let pagingIndicator = UIActivityIndicatorView(style: .medium)
+        pagingIndicator.hidesWhenStopped = true
+        pagingIndicator.accessibilityIdentifier = "chat_search_results_paging"
+        pagingIndicator.isAccessibilityElement = true
+        pagingIndicator.accessibilityLabel = localization.text(.resultsLoading)
+        pagingIndicatorView = pagingIndicator
+        super.init(coder: coder)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -498,10 +520,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         errorView.accessibilityIdentifier = "chat_search_results_error"
         errorView.translatesAutoresizingMaskIntoConstraints = false
 
-        errorLabel.text = "Search failed".localizeString(
-            id: "chat_search_results_error",
-            arguments: []
-        )
+        errorLabel.text = localization.text(.resultsError)
         errorLabel.textColor = .secondaryLabel
         errorLabel.font = .preferredFont(forTextStyle: .body)
         errorLabel.adjustsFontForContentSizeCategory = true

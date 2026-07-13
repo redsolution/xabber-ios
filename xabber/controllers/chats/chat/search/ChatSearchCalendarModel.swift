@@ -354,24 +354,11 @@ struct ChatSearchCalendarModel: Equatable {
     }
 
     private func makeMonthTitle() -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.locale = locale
-        formatter.timeZone = calendar.timeZone
-        formatter.setLocalizedDateFormatFromTemplate("LLLL yyyy")
-        return formatter.string(from: visibleMonthStart)
+        formatting.monthTitle(for: visibleMonthStart)
     }
 
     private func makePickerMonthSymbols() -> [String] {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.locale = locale
-        formatter.timeZone = calendar.timeZone
-        let symbols = formatter.standaloneMonthSymbols ?? formatter.monthSymbols ?? []
-        guard symbols.count == 12 else {
-            return (1...12).map(String.init)
-        }
-        return symbols
+        formatting.pickerMonthSymbols()
     }
 
     private func makePickerYearRange() -> ClosedRange<Int> {
@@ -381,18 +368,15 @@ struct ChatSearchCalendarModel: Equatable {
     }
 
     private func makeWeekdaySymbols() -> [String] {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.locale = locale
-        formatter.timeZone = calendar.timeZone
-        let symbols = formatter.shortStandaloneWeekdaySymbols ??
-            formatter.shortWeekdaySymbols ??
-            []
-        guard symbols.count == 7 else {
-            return symbols
-        }
-        let firstIndex = max(0, min(6, calendar.firstWeekday - 1))
-        return Array(symbols[firstIndex...] + symbols[..<firstIndex])
+        formatting.weekdaySymbols()
+    }
+
+    private var formatting: ChatSearchFormatting {
+        ChatSearchFormatting(
+            locale: locale,
+            calendar: calendar,
+            timeZone: calendar.timeZone
+        )
     }
 
     private func targetMonth(for direction: MonthDirection) -> Date? {

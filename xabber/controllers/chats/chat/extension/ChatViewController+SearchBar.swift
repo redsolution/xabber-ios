@@ -2027,8 +2027,7 @@ extension ChatViewController {
     }
 
     internal var inChatSearchResultMappingContext: ChatSearchResultMappingContext {
-        let localizedYou = "You:".localizeString(id: "you", arguments: [])
-            .trimmingCharacters(in: CharacterSet(charactersIn: ":： ").union(.whitespacesAndNewlines))
+        let localizedYou = ChatSearchLocalization.production().text(.outgoingSenderYou)
         return ChatSearchResultMappingContext(
             scope: ChatSearchResult.Scope(
                 owner: owner,
@@ -5165,7 +5164,7 @@ extension ChatViewController {
     }
 
     private func announceChatSearchCalendarDateHasNoMessage() {
-        let message = "No messages".localizeString(id: "no_messages", arguments: [])
+        let message = ChatSearchLocalization.production().text(.announcementNoMessages)
         if let chatSearchCalendarDateAnnouncementHandler {
             chatSearchCalendarDateAnnouncementHandler(message)
         } else {
@@ -5174,10 +5173,7 @@ extension ChatViewController {
     }
 
     private func presentChatSearchCalendarDateResolutionError() {
-        let message = "Internal error".localizeString(
-            id: "message_manager_error_internal",
-            arguments: []
-        )
+        let message = ChatSearchLocalization.production().text(.announcementSearchError)
         if let chatSearchCalendarDateErrorHandler {
             chatSearchCalendarDateErrorHandler(message)
         } else if isViewLoaded {

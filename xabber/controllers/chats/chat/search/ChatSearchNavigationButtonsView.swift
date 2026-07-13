@@ -208,10 +208,12 @@ final class ChatSearchNavigationButtonsView: UIView {
     var onNext: (() -> Void)?
 
     private let animationSpec: ChatSearchAnimationSpec
+    private let localization: ChatSearchLocalization
     private(set) var renderState: RenderState = .hidden
     private(set) var lastVisibilityTransition: ChatSearchAnimationSpec.Transition?
 
     override init(frame: CGRect) {
+        localization = .production()
         animationSpec = ChatSearchAnimationSpec.production.resolved(
             for: .init(
                 reduceMotion: UIAccessibility.isReduceMotionEnabled,
@@ -222,13 +224,19 @@ final class ChatSearchNavigationButtonsView: UIView {
         setup()
     }
 
-    init(frame: CGRect, animationSpec: ChatSearchAnimationSpec) {
+    init(
+        frame: CGRect,
+        animationSpec: ChatSearchAnimationSpec,
+        localization: ChatSearchLocalization = .production()
+    ) {
         self.animationSpec = animationSpec
+        self.localization = localization
         super.init(frame: frame)
         setup()
     }
 
     required init?(coder: NSCoder) {
+        localization = .production()
         animationSpec = ChatSearchAnimationSpec.production.resolved(
             for: .init(
                 reduceMotion: UIAccessibility.isReduceMotionEnabled,
@@ -262,7 +270,7 @@ final class ChatSearchNavigationButtonsView: UIView {
         renderState = state
         previousButton.isEnabled = state.isVisible && state.isPreviousEnabled
         nextButton.isEnabled = state.isVisible && state.isNextEnabled
-        accessibilityValue = state.isBusy ? "Loading" : nil
+        accessibilityValue = state.isBusy ? localization.text(.loading) : nil
 
         guard state.isVisible != wasVisible else {
             if !state.isVisible {
@@ -301,7 +309,7 @@ final class ChatSearchNavigationButtonsView: UIView {
         renderState = state
         previousButton.isEnabled = state.isVisible && state.isPreviousEnabled
         nextButton.isEnabled = state.isVisible && state.isNextEnabled
-        accessibilityValue = state.isBusy ? "Loading" : nil
+        accessibilityValue = state.isBusy ? localization.text(.loading) : nil
         if state.isVisible {
             isHidden = false
             isUserInteractionEnabled = true
@@ -322,13 +330,13 @@ final class ChatSearchNavigationButtonsView: UIView {
             previousButton,
             imageName: "chevron.up",
             identifier: "chat_search_previous_result",
-            label: "Previous result"
+            label: localization.text(.earlierResult)
         )
         configure(
             nextButton,
             imageName: "chevron.down",
             identifier: "chat_search_next_result",
-            label: "Next result"
+            label: localization.text(.laterResult)
         )
         addSubview(previousButton)
         addSubview(nextButton)

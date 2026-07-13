@@ -535,7 +535,8 @@ class ModernXabberInputView: UIView {
         private var lastTotalResults: Int = 0
         private(set) var surfaceMode: SurfaceMode = .chat
         private var animationSpec: ChatSearchAnimationSpec
-        private let countFormatter = ChatSearchBottomCountFormatter()
+        private let localization: ChatSearchLocalization
+        private let countFormatter: ChatSearchBottomCountFormatter
         private(set) var counterTransitionCount = 0
         private(set) var lastCounterTransition: CounterTransition?
         
@@ -567,10 +568,6 @@ class ModernXabberInputView: UIView {
             button.setImage(imageLiteral("calendar", dimension: 20), for: .normal)
             button.tintColor = NativeGlassBarStyle.iconTintColor
             button.accessibilityIdentifier = "chat_search_calendar"
-            button.accessibilityLabel = "Calendar".localizeString(
-                id: "chat_search_calendar",
-                arguments: []
-            )
             return button
         }()
 
@@ -650,29 +647,41 @@ class ModernXabberInputView: UIView {
         }()
 
         override init(frame: CGRect) {
+            let localization = ChatSearchLocalization.production()
             self.animationSpec = ChatSearchAnimationSpec.production.resolved(
                 for: .init(
                     reduceMotion: UIAccessibility.isReduceMotionEnabled,
                     reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
                 )
             )
+            self.localization = localization
+            self.countFormatter = ChatSearchBottomCountFormatter(localization: localization)
             super.init(frame: frame)
             self.setup()
         }
 
-        init(frame: CGRect, animationSpec: ChatSearchAnimationSpec) {
+        init(
+            frame: CGRect,
+            animationSpec: ChatSearchAnimationSpec,
+            localization: ChatSearchLocalization = .production()
+        ) {
             self.animationSpec = animationSpec
+            self.localization = localization
+            self.countFormatter = ChatSearchBottomCountFormatter(localization: localization)
             super.init(frame: frame)
             self.setup()
         }
         
         required init?(coder: NSCoder) {
+            let localization = ChatSearchLocalization.production()
             self.animationSpec = ChatSearchAnimationSpec.production.resolved(
                 for: .init(
                     reduceMotion: UIAccessibility.isReduceMotionEnabled,
                     reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
                 )
             )
+            self.localization = localization
+            self.countFormatter = ChatSearchBottomCountFormatter(localization: localization)
             super.init(coder: coder)
             self.setup()
         }
@@ -851,15 +860,9 @@ class ModernXabberInputView: UIView {
             let viewModeTitle: String
             switch newSurfaceMode {
             case .chat:
-                viewModeTitle = "Show as List".localizeString(
-                    id: "chat_search_show_as_list",
-                    arguments: []
-                )
+                viewModeTitle = localization.text(.showAsList)
             case .list:
-                viewModeTitle = "Show as Chat".localizeString(
-                    id: "chat_search_show_as_chat",
-                    arguments: []
-                )
+                viewModeTitle = localization.text(.showAsChat)
             }
             viewModeButton.setTitle(viewModeTitle, for: .normal)
             viewModeButton.accessibilityLabel = viewModeTitle
@@ -987,6 +990,7 @@ class ModernXabberInputView: UIView {
         
         func setup() {
             self.accessibilityIdentifier = "chat_search_results_panel"
+            self.calendarButton.accessibilityLabel = localization.text(.calendar)
             self.backgroundColor = .clear
             self.isOpaque = false
             self.leadingSurfaceView.autoresizingMask = []

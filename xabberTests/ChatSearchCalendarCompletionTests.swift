@@ -235,7 +235,7 @@ final class ChatSearchCalendarCompletionTests: XCTestCase {
 
         XCTAssertFalse(controller.isChatSearchCalendarDateResolutionLoading)
         XCTAssertNil(controller.pendingOpenMessageRequest)
-        XCTAssertEqual(errors, ["Internal error"])
+        XCTAssertEqual(errors, ["Search failed"])
         XCTAssertEqual(harness.local.resolveCalls.count, 1)
         XCTAssertEqual(harness.remote.resolveCalls.count, 1)
     }

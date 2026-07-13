@@ -81,37 +81,20 @@ struct ChatSearchBottomActionBarLayout {
 }
 
 struct ChatSearchBottomCountFormatter {
-    typealias Localizer = (_ fallback: String, _ key: String, _ arguments: [String]) -> String
+    private let localization: ChatSearchLocalization
 
-    private let localize: Localizer
-
-    init(localize: @escaping Localizer = { fallback, key, arguments in
-        fallback.localizeString(id: key, arguments: arguments)
-    }) {
-        self.localize = localize
+    init(localization: ChatSearchLocalization = .production()) {
+        self.localization = localization
     }
 
     func current(_ zeroBasedIndex: Int, total: Int) -> String {
-        localize(
-            "%@ of %@",
-            "chat_search_current_of_total",
-            ["\(max(0, zeroBasedIndex) + 1)", "\(max(0, total))"]
-        )
+        localization.currentPosition(
+            zeroBasedIndex: zeroBasedIndex,
+            total: total
+        ) ?? localization.messageCount(total)
     }
 
     func messages(total: Int) -> String {
-        let nonnegativeTotal = max(0, total)
-        switch nonnegativeTotal {
-        case 0:
-            return localize("No messages", "chat_search_no_messages", [])
-        case 1:
-            return localize("1 message", "chat_search_one_message", [])
-        default:
-            return localize(
-                "%@ messages",
-                "chat_search_messages_count",
-                ["\(nonnegativeTotal)"]
-            )
-        }
+        localization.messageCount(total)
     }
 }

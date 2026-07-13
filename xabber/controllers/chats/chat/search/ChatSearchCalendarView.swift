@@ -184,6 +184,7 @@ final class ChatSearchCalendarView: UIView {
     let doneButton = UIButton(type: .system)
 
     private let animationSpec: ChatSearchAnimationSpec
+    private let localization: ChatSearchLocalization
     private var runningMonthAnimator: UIViewPropertyAnimator?
     private weak var outgoingMonthSnapshotView: UIView?
 
@@ -211,9 +212,11 @@ final class ChatSearchCalendarView: UIView {
         frame: CGRect,
         snapshot: ChatSearchCalendarModel.Snapshot,
         animationSpec: ChatSearchAnimationSpec = .production,
-        prefersNativeGlass: Bool = true
+        prefersNativeGlass: Bool = true,
+        localization: ChatSearchLocalization = .production()
     ) {
         self.animationSpec = animationSpec
+        self.localization = localization
         surfaceView = UIVisualEffectView(
             effect: NativeGlassBarStyle.makeEffect(
                 role: .sheet,
@@ -231,6 +234,7 @@ final class ChatSearchCalendarView: UIView {
     }
 
     required init?(coder: NSCoder) {
+        localization = .production()
         animationSpec = ChatSearchAnimationSpec.production.resolved(
             for: .init(
                 reduceMotion: UIAccessibility.isReduceMotionEnabled,
@@ -354,7 +358,7 @@ final class ChatSearchCalendarView: UIView {
         surfaceView.contentView.backgroundColor = .systemBackground
         addSubview(surfaceView)
 
-        titleLabel.text = "Search".localizeString(id: "search", arguments: [])
+        titleLabel.text = localization.text(.searchTitle)
         titleLabel.textAlignment = .center
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         titleLabel.adjustsFontForContentSizeCategory = true
@@ -367,19 +371,19 @@ final class ChatSearchCalendarView: UIView {
         configureIconButton(
             closeButton,
             identifier: Self.closeAccessibilityIdentifier,
-            accessibilityLabel: "Close".localizeString(id: "close", arguments: []),
+            accessibilityLabel: localization.text(.close),
             systemImage: "xmark"
         )
         configureIconButton(
             previousButton,
             identifier: Self.previousAccessibilityIdentifier,
-            accessibilityLabel: "Previous month".localizeString(id: "previous_month", arguments: []),
+            accessibilityLabel: localization.text(.previousMonth),
             systemImage: "chevron.backward"
         )
         configureIconButton(
             nextButton,
             identifier: Self.nextAccessibilityIdentifier,
-            accessibilityLabel: "Next month".localizeString(id: "next_month", arguments: []),
+            accessibilityLabel: localization.text(.nextMonth),
             systemImage: "chevron.forward"
         )
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
@@ -390,10 +394,7 @@ final class ChatSearchCalendarView: UIView {
         addSubview(nextButton)
 
         monthButton.accessibilityIdentifier = Self.monthAccessibilityIdentifier
-        monthButton.accessibilityLabel = "Choose month and year".localizeString(
-            id: "choose_month_year",
-            arguments: []
-        )
+        monthButton.accessibilityLabel = localization.text(.chooseMonthYear)
         monthButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
         monthButton.titleLabel?.adjustsFontForContentSizeCategory = true
         monthButton.titleLabel?.adjustsFontSizeToFitWidth = true
@@ -424,8 +425,8 @@ final class ChatSearchCalendarView: UIView {
         monthPicker.delegate = self
         yearPicker.dataSource = self
         yearPicker.delegate = self
-        pickerCloseButton.setTitle("Close".localizeString(id: "close", arguments: []), for: .normal)
-        pickerApplyButton.setTitle("Apply".localizeString(id: "apply", arguments: []), for: .normal)
+        pickerCloseButton.setTitle(localization.text(.close), for: .normal)
+        pickerApplyButton.setTitle(localization.text(.apply), for: .normal)
         pickerCloseButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
         pickerApplyButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
         pickerCloseButton.titleLabel?.adjustsFontForContentSizeCategory = true
@@ -439,7 +440,7 @@ final class ChatSearchCalendarView: UIView {
         addSubview(monthYearPickerContainerView)
 
         doneButton.accessibilityIdentifier = Self.doneAccessibilityIdentifier
-        doneButton.setTitle("Done".localizeString(id: "done", arguments: []), for: .normal)
+        doneButton.setTitle(localization.text(.done), for: .normal)
         doneButton.setTitleColor(.white, for: .normal)
         doneButton.setTitleColor(UIColor.white.withAlphaComponent(0.5), for: .disabled)
         doneButton.backgroundColor = .systemBlue

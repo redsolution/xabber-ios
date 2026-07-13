@@ -201,16 +201,7 @@ enum ChatSearchResultCellLayoutPolicy {
 }
 
 struct ChatSearchResultDateFormatter {
-    struct Presentation: Equatable {
-        enum Kind: Equatable {
-            case todayTime
-            case sameYearDate
-            case olderYearDate
-        }
-
-        let kind: Kind
-        let text: String
-    }
+    typealias Presentation = ChatSearchResultDatePresentation
 
     let locale: Locale
     let calendar: Calendar
@@ -229,25 +220,11 @@ struct ChatSearchResultDateFormatter {
     }
 
     func presentation(for date: Date, relativeTo now: Date) -> Presentation {
-        let kind: Presentation.Kind
-        let template: String
-        if calendar.isDate(date, inSameDayAs: now) {
-            kind = .todayTime
-            template = "j:mm"
-        } else if calendar.component(.year, from: date) == calendar.component(.year, from: now) {
-            kind = .sameYearDate
-            template = "Md"
-        } else {
-            kind = .olderYearDate
-            template = "yMd"
-        }
-
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.calendar = calendar
-        formatter.timeZone = timeZone
-        formatter.setLocalizedDateFormatFromTemplate(template)
-        return Presentation(kind: kind, text: formatter.string(from: date))
+        ChatSearchFormatting(
+            locale: locale,
+            calendar: calendar,
+            timeZone: timeZone
+        ).resultDate(for: date, relativeTo: now)
     }
 
     func string(for date: Date, relativeTo now: Date) -> String {
@@ -265,42 +242,39 @@ enum ChatSearchResultDeliveryPresentation {
 
     static func presentation(for state: ChatSearchResult.DeliveryState) -> Value {
         let systemImageName: String
-        let fallback: String
-        let localizationKey: String
+        let localizationKey: ChatSearchLocalizationKey
         let isFailure: Bool
 
         switch state {
         case .pending:
             systemImageName = "clock"
-            fallback = "Pending"
-            localizationKey = "chat_search_delivery_pending"
+            localizationKey = .deliveryPending
             isFailure = false
         case .sent:
             systemImageName = "checkmark"
-            fallback = "Sent"
-            localizationKey = "chat_search_delivery_sent"
+            localizationKey = .deliverySent
             isFailure = false
         case .delivered:
             systemImageName = "checkmark.circle"
-            fallback = "Delivered"
-            localizationKey = "chat_search_delivery_delivered"
+            localizationKey = .deliveryDelivered
             isFailure = false
         case .read:
             systemImageName = "checkmark.circle.fill"
-            fallback = "Read"
-            localizationKey = "chat_search_delivery_read"
+            localizationKey = .deliveryRead
             isFailure = false
         case .failed:
             systemImageName = "exclamationmark.circle.fill"
-            fallback = "Failed"
-            localizationKey = "chat_search_delivery_failed"
+            localizationKey = .deliveryFailed
             isFailure = true
         }
+
+        let localization = ChatSearchLocalization.production()
+        let fallback = localizationKey.developmentFallback
 
         return Value(
             systemImageName: systemImageName,
             fallbackAccessibilityLabel: fallback,
-            accessibilityLabel: fallback.localizeString(id: localizationKey, arguments: []),
+            accessibilityLabel: localization.text(localizationKey),
             isFailure: isFailure
         )
     }
