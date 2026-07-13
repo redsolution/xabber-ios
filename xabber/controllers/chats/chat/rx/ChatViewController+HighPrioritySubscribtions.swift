@@ -116,6 +116,20 @@ extension ChatViewController {
                         return
                     }
                     self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
+                },
+                onFailure: { [weak self] event in
+                    guard self?.searchSession.isCurrentRequest(request) == true else {
+                        return
+                    }
+                    _ = self?.handleInChatSearchQueryFailure(queryId: event.queryId)
+                },
+                onSearchTerminal: { [weak self] queryId, terminal in
+                    guard self?.searchSession.isCurrentRequest(request) == true else {
+                        return
+                    }
+                    if case .failed = terminal {
+                        _ = self?.handleInChatSearchQueryFailure(queryId: queryId)
+                    }
                 }
             )
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
@@ -123,19 +137,21 @@ extension ChatViewController {
                       self.isCurrentInChatSearchQuery(queryId: context.queryId) else {
                     return
                 }
-                let queryId = session.mam?.searchText(
+                guard let mam = session.mam else {
+                    self.handleInChatSearchQueryFailure(queryId: context.queryId)
+                    return
+                }
+                let queryId = mam.searchText(
                     stream,
                     jid: context.jid,
                     conversationType: context.conversationType,
                     text: context.text,
                     queryId: context.queryId,
+                    generation: request.generation,
                     requestCallbacks: requestCallbacks
                 )
-                if let queryId {
-                    self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
-                } else {
-                    self.handleInChatSearchQueryFailure(queryId: context.queryId)
-                }
+                self.searchArchiveManagersByQueryId[queryId] = mam
+                self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
             } fail: {
                 guard self.searchSession.isCurrentRequest(request),
                       self.isCurrentInChatSearchQuery(queryId: context.queryId) else {
@@ -156,8 +172,10 @@ extension ChatViewController {
                         conversationType: context.conversationType,
                         text: context.text,
                         queryId: context.queryId,
+                        generation: request.generation,
                         requestCallbacks: requestCallbacks
                     )
+                    self.searchArchiveManagersByQueryId[queryId] = user.mam
                     self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
                 })
             }

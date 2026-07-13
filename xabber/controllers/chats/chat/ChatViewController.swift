@@ -1904,6 +1904,7 @@ class ChatViewController: MessagesViewController {
     var searchSessionDebounceWorkItem: DispatchWorkItem? = nil
     var searchSessionDebounceGeneration: UInt64? = nil
     var searchSessionGenerationByQueryId: [String: UInt64] = [:]
+    var searchArchiveManagersByQueryId: [String: MessageArchiveManager] = [:]
     var searchMessagesQueue: [MessageStorageItem] = []
     var searchResultPresentations: [ChatSearchResult] = []
     var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)

@@ -16511,17 +16511,17 @@ final class MessageArchiveRequestClassificationTests: XCTestCase {
         XCTAssertTrue(nonArchiveProducing.allSatisfy { !$0.isArchiveHistoryProducing })
     }
 
-    func testMamServerErrorFailureRouteExcludesAnchorAndUtilityRequests() {
+    func testMamServerErrorFailureRouteIncludesSearchButExcludesAnchorAndUtilityRequests() {
         let failureRouted: [MessageArchiveManager.RequestPurpose] = [
             .bootstrap,
             .pageOlder,
             .pageNewer,
             .gapRepair,
-            .snapshotRepair
+            .snapshotRepair,
+            .search
         ]
         let callbackRouted: [MessageArchiveManager.RequestPurpose] = [
             .jump,
-            .search,
             .latest,
             .media,
             .inviteRecovery
@@ -17843,15 +17843,15 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         wait(for: [unexpectedExpectation], timeout: 0.2)
     }
 
-    func testNonHistoryProducingMamRequestIsNotFailedOnDisconnect() {
+    func testSearchMamRequestPublishesTypedFailureAndCleansUpOnDisconnect() {
         let manager = MessageArchiveManager(withOwner: owner)
         let stream = CapturingXMPPStream()
         let queryId = "MAM search: failure-non-history"
-        let unexpectedExpectation = expectation(description: "search request should not fail")
-        unexpectedExpectation.isInverted = true
+        let failureExpectation = expectation(description: "search request should fail")
 
-        MessageArchiveRequestFailureDispatcher.register(owner: owner, queryId: queryId) { _ in
-            unexpectedExpectation.fulfill()
+        MessageArchiveRequestFailureDispatcher.register(owner: owner, queryId: queryId) { event in
+            XCTAssertEqual(event.reason, .uiActionDisconnect)
+            failureExpectation.fulfill()
         }
 
         let returnedQueryId = manager.searchText(
@@ -17874,10 +17874,10 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             errorDescription: "socket closed"
         )
 
-        XCTAssertTrue(events.isEmpty)
-        XCTAssertTrue(manager.queryIds.contains(queryId))
-        XCTAssertTrue(manager.callbacksQueue.contains { $0.elementId == queryId })
-        wait(for: [unexpectedExpectation], timeout: 0.2)
+        XCTAssertEqual(events.map(\.queryId), [queryId])
+        XCTAssertFalse(manager.queryIds.contains(queryId))
+        XCTAssertFalse(manager.callbacksQueue.contains { $0.elementId == queryId })
+        wait(for: [failureExpectation], timeout: 1.0)
     }
 
     func testArchiveRequestRegistersCallbackBeforeSendingStanza() {

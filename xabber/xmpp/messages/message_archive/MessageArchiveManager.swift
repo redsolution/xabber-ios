@@ -75,6 +75,7 @@ enum MessageArchiveRequestFailureReason: String {
     case uiActionDisconnect
     case requestStartFailed
     case serverError
+    case malformedResponse
 }
 
 struct MessageArchiveRequestFailureEvent: Equatable {
@@ -410,13 +411,17 @@ protocol TemporaryMessageReceiverProtocol {
 class MessageArchiveManager: AbstractXMPPManager {
 
     enum HistoryCursorPolicy {
+        static func shouldPersistCursor(for purpose: MessageArchiveManager.RequestPurpose) -> Bool {
+            [.bootstrap, .pageOlder].contains(purpose)
+        }
+
         static func persistedOlderCursorId(
             purpose: MessageArchiveManager.RequestPurpose,
             first: String,
             last: String,
             current: String?
         ) -> String? {
-            guard [.bootstrap, .pageOlder].contains(purpose) else {
+            guard shouldPersistCursor(for: purpose) else {
                 return current
             }
 
@@ -432,6 +437,12 @@ class MessageArchiveManager: AbstractXMPPManager {
             }
 
             return first
+        }
+    }
+
+    enum ArchiveEndPolicy {
+        static func canCommitCoverage(for purpose: RequestPurpose) -> Bool {
+            purpose.isArchiveHistoryProducing
         }
     }
 
@@ -475,11 +486,22 @@ class MessageArchiveManager: AbstractXMPPManager {
     struct RequestCallbacks {
         let onMessage: ((MessageStorageItem, String) -> Void)?
         let onEndPage: ((String, MessageArchivePageEndState, String, String, Int) -> Void)?
+        let onFailure: ((MessageArchiveRequestFailureEvent) -> Void)?
+        let onSearchTerminal: ((String, ChatSearchArchiveSession.Terminal) -> Void)?
 
-        static let none = RequestCallbacks(
-            onMessage: nil,
-            onEndPage: nil
-        )
+        init(
+            onMessage: ((MessageStorageItem, String) -> Void)? = nil,
+            onEndPage: ((String, MessageArchivePageEndState, String, String, Int) -> Void)? = nil,
+            onFailure: ((MessageArchiveRequestFailureEvent) -> Void)? = nil,
+            onSearchTerminal: ((String, ChatSearchArchiveSession.Terminal) -> Void)? = nil
+        ) {
+            self.onMessage = onMessage
+            self.onEndPage = onEndPage
+            self.onFailure = onFailure
+            self.onSearchTerminal = onSearchTerminal
+        }
+
+        static let none = RequestCallbacks()
     }
 
     enum SyncChatStartResult: Equatable {
@@ -527,9 +549,9 @@ class MessageArchiveManager: AbstractXMPPManager {
 
         var routesMamServerErrorAsRequestFailure: Bool {
             switch self {
-            case .bootstrap, .pageOlder, .pageNewer, .gapRepair, .snapshotRepair:
+            case .bootstrap, .pageOlder, .pageNewer, .gapRepair, .snapshotRepair, .search:
                 return true
-            case .jump, .search, .latest, .media, .inviteRecovery:
+            case .jump, .latest, .media, .inviteRecovery:
                 return false
             }
         }
@@ -952,6 +974,17 @@ class MessageArchiveManager: AbstractXMPPManager {
     internal let pageSize: Int = ChatHistoryPagingConfiguration.pageSize
     
     internal var searchResultsQueries: Set<String> = Set()
+    internal var searchContinuationDelay: TimeInterval = 2
+
+    private struct PendingSearchContinuation {
+        let id: UUID
+        let workItem: DispatchWorkItem
+    }
+
+    private let searchArchiveStateLock = NSRecursiveLock()
+    private var searchArchiveSessionsByQueryId: [String: ChatSearchArchiveSession] = [:]
+    private var searchArchiveCallbacksByQueryId: [String: RequestCallbacks] = [:]
+    private var pendingSearchContinuationsByQueryId: [String: PendingSearchContinuation] = [:]
     
     open var temporaryMessageReceiverDelegate: TemporaryMessageReceiverProtocol? = nil
     private var persistedMessageCountsByQueryId: [String: Int] = [:]
@@ -982,6 +1015,154 @@ class MessageArchiveManager: AbstractXMPPManager {
         DispatchQueue.main.async {
             callback?()
         }
+    }
+
+    internal func hasActiveSearchArchiveSession(queryId: String) -> Bool {
+        searchArchiveStateLock.lock()
+        defer { searchArchiveStateLock.unlock() }
+        return searchArchiveSessionsByQueryId[queryId]?.isActive == true
+    }
+
+    internal func hasPendingSearchContinuation(queryId: String) -> Bool {
+        searchArchiveStateLock.lock()
+        defer { searchArchiveStateLock.unlock() }
+        return pendingSearchContinuationsByQueryId[queryId] != nil
+    }
+
+    private func registerSearchArchiveSession(
+        queryId: String,
+        generation: UInt64,
+        configuration: ChatSearchArchiveSession.Configuration,
+        callbacks: RequestCallbacks
+    ) {
+        searchArchiveStateLock.lock()
+        defer { searchArchiveStateLock.unlock() }
+        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)?.workItem.cancel()
+        searchArchiveSessionsByQueryId[queryId] = ChatSearchArchiveSession(
+            generation: generation,
+            queryId: queryId,
+            configuration: configuration
+        )
+        searchArchiveCallbacksByQueryId[queryId] = callbacks
+    }
+
+    private func searchArchiveCallbacks(queryId: String) -> RequestCallbacks? {
+        searchArchiveStateLock.lock()
+        defer { searchArchiveStateLock.unlock() }
+        return searchArchiveCallbacksByQueryId[queryId]
+    }
+
+    private func acceptSearchArchiveResult(
+        queryId: String,
+        id: ChatSearchResult.ID,
+        date: Date
+    ) -> Bool? {
+        searchArchiveStateLock.lock()
+        defer { searchArchiveStateLock.unlock() }
+        guard var session = searchArchiveSessionsByQueryId[queryId] else {
+            return nil
+        }
+        let accepted = session.accept(
+            result: .init(id: id, date: date),
+            generation: session.generation,
+            queryId: queryId
+        )
+        searchArchiveSessionsByQueryId[queryId] = session
+        return accepted
+    }
+
+    private func notifySearchArchiveTerminal(
+        callbacks: RequestCallbacks,
+        queryId: String,
+        terminal: ChatSearchArchiveSession.Terminal,
+        failureEvent: MessageArchiveRequestFailureEvent? = nil
+    ) {
+        DispatchQueue.main.async {
+            if let failureEvent {
+                callbacks.onFailure?(failureEvent)
+            }
+            callbacks.onSearchTerminal?(queryId, terminal)
+        }
+    }
+
+    @discardableResult
+    private func failSearchArchiveSession(
+        queryId: String,
+        reason: ChatSearchArchiveSession.FailureReason,
+        event: MessageArchiveRequestFailureEvent
+    ) -> Bool {
+        searchArchiveStateLock.lock()
+        guard var session = searchArchiveSessionsByQueryId[queryId],
+              session.isActive else {
+            searchArchiveStateLock.unlock()
+            return false
+        }
+        let callbacks = searchArchiveCallbacksByQueryId[queryId] ?? .none
+        let terminal = session.fail(reason)
+        searchArchiveSessionsByQueryId[queryId] = session
+        searchArchiveStateLock.unlock()
+        notifySearchArchiveTerminal(
+            callbacks: callbacks,
+            queryId: queryId,
+            terminal: terminal,
+            failureEvent: event
+        )
+        return true
+    }
+
+    private static func searchFailureReason(
+        for event: MessageArchiveRequestFailureEvent
+    ) -> ChatSearchArchiveSession.FailureReason {
+        switch event.reason {
+        case .timeout:
+            return .timeout(description: event.errorDescription)
+        case .uiActionDisconnect:
+            return .transport(description: event.errorDescription)
+        case .requestStartFailed:
+            return .requestStart(description: event.errorDescription)
+        case .serverError:
+            return .server(description: event.errorDescription)
+        case .malformedResponse:
+            return .malformedResponse(description: event.errorDescription)
+        }
+    }
+
+    private func cleanupSearchArchiveState(queryId: String) {
+        searchArchiveStateLock.lock()
+        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)?.workItem.cancel()
+        searchArchiveSessionsByQueryId.removeValue(forKey: queryId)
+        searchArchiveCallbacksByQueryId.removeValue(forKey: queryId)
+        searchArchiveStateLock.unlock()
+        searchResultsQueries.remove(queryId)
+    }
+
+    @discardableResult
+    public func cancelSearch(queryId: String) -> Bool {
+        searchArchiveStateLock.lock()
+        guard var session = searchArchiveSessionsByQueryId[queryId],
+              session.isActive else {
+            searchArchiveStateLock.unlock()
+            return false
+        }
+        let callbacks = searchArchiveCallbacksByQueryId[queryId] ?? .none
+        let terminal = session.cancel()
+        searchArchiveSessionsByQueryId[queryId] = session
+        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)?.workItem.cancel()
+        searchArchiveStateLock.unlock()
+
+        if let item = firstCallbackQueueItem(where: { $0.elementId == queryId }) {
+            removeCallbackQueueItem(item)
+        }
+        queryIds.remove(queryId)
+        persistedMessageCountsByQueryId.removeValue(forKey: queryId)
+        unregisterFallbackEndPageCallbacks(queryId: queryId)
+        cleanupSearchArchiveState(queryId: queryId)
+        notifySearchArchiveTerminal(
+            callbacks: callbacks,
+            queryId: queryId,
+            terminal: terminal
+        )
+        return true
     }
 
     private static func registerFallbackEndPageCallbacks(owner: String, queryId: String, callbacks: RequestCallbacks) {
@@ -1168,7 +1349,9 @@ class MessageArchiveManager: AbstractXMPPManager {
         reason: MessageArchiveRequestFailureReason,
         errorDescription: String?
     ) -> [MessageArchiveRequestFailureEvent] {
-        let pendingItems = self.callbackQueueItems { $0.task.purpose.isArchiveHistoryProducing }
+        let pendingItems = self.callbackQueueItems {
+            $0.task.purpose.isArchiveHistoryProducing || $0.task.purpose == .search
+        }
             .sorted { $0.elementId < $1.elementId }
         let pendingQueryCount = pendingItems.count
 
@@ -1192,7 +1375,14 @@ class MessageArchiveManager: AbstractXMPPManager {
             )
         }
 
-        pendingItems.forEach { item in
+        zip(pendingItems, events).forEach { item, event in
+            if item.task.purpose == .search {
+                _ = self.failSearchArchiveSession(
+                    queryId: event.queryId,
+                    reason: Self.searchFailureReason(for: event),
+                    event: event
+                )
+            }
             self.removePendingArchiveRequestAfterFailure(item)
         }
 
@@ -1234,6 +1424,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         self.queryIds.remove(queryId)
         self.persistedMessageCountsByQueryId.removeValue(forKey: queryId)
         self.searchResultsQueries.remove(queryId)
+        self.cleanupSearchArchiveState(queryId: queryId)
         self.unregisterArchiveQueryId(queryId)
         self.unregisterFallbackEndPageCallbacks(queryId: queryId)
 
@@ -1347,6 +1538,164 @@ class MessageArchiveManager: AbstractXMPPManager {
         )
     }
 
+    private func handleSearchArchiveFinal(
+        _ stream: XMPPStream,
+        item: CallbackQueueItem,
+        responseQueryId: String,
+        complete: Bool,
+        first: String,
+        last: String,
+        resultCount: Int,
+        streamKind: MessageArchiveEndPageEvent.StreamKind
+    ) -> Bool {
+        let queryId = item.task.queryId ?? item.elementId
+        guard responseQueryId == queryId else {
+            let event = MessageArchiveRequestFailureEvent(
+                owner: owner,
+                queryId: queryId,
+                streamKind: streamKind,
+                reason: .malformedResponse,
+                errorDescription: "MAM search final queryid does not match the active request",
+                pendingQueryCount: 1
+            )
+            _ = failSearchArchiveSession(
+                queryId: queryId,
+                reason: Self.searchFailureReason(for: event),
+                event: event
+            )
+            removePendingArchiveRequestAfterFailure(item)
+            _ = MessageArchiveRequestFailureDispatcher.publish(event)
+            return true
+        }
+
+        let persistedState = makePageEndState(
+            for: item.task,
+            queryId: queryId,
+            queryExhausted: complete || resultCount == 0
+        )
+        searchArchiveStateLock.lock()
+        guard var session = searchArchiveSessionsByQueryId[queryId],
+              session.receiveFinal(
+                  generation: session.generation,
+                  queryId: queryId,
+                  complete: complete,
+                  first: first,
+                  last: last,
+                  serverResultCount: resultCount
+              ),
+              let action = session.commitPersistedPage(
+                  generation: session.generation,
+                  queryId: queryId,
+                  persistedMessageCount: persistedState.persistedMessageCount
+              ) else {
+            searchArchiveStateLock.unlock()
+            removeCallbackQueueItem(item)
+            queryIds.remove(item.elementId)
+            return true
+        }
+        searchArchiveSessionsByQueryId[queryId] = session
+        let callbacks = searchArchiveCallbacksByQueryId[queryId] ?? item.requestCallbacks
+        searchArchiveStateLock.unlock()
+
+        removeCallbackQueueItem(item)
+        queryIds.remove(item.elementId)
+        unregisterFallbackEndPageCallbacks(queryId: queryId)
+
+        switch action {
+        case .requestNext(let cursor):
+            scheduleSearchArchiveContinuation(
+                stream,
+                task: item.task,
+                queryId: queryId,
+                cursor: cursor
+            )
+        case .terminal(let terminal):
+            notifySearchArchiveTerminal(
+                callbacks: callbacks,
+                queryId: queryId,
+                terminal: terminal
+            )
+            switch terminal {
+            case .completed, .truncated:
+                let terminalState = MessageArchivePageEndState(
+                    queryExhausted: true,
+                    archiveEnded: false,
+                    persistedMessageCount: persistedState.persistedMessageCount,
+                    requestCursorId: item.task.messageId
+                )
+                notifyDidReceiveEndPage(
+                    callbacks,
+                    queryId: queryId,
+                    state: terminalState,
+                    first: first,
+                    last: last,
+                    count: resultCount,
+                    streamKind: streamKind
+                )
+            case .failed, .cancelled:
+                break
+            }
+            cleanupSearchArchiveState(queryId: queryId)
+        }
+        return true
+    }
+
+    private func scheduleSearchArchiveContinuation(
+        _ stream: XMPPStream,
+        task: MAMRequestItem,
+        queryId: String,
+        cursor: String
+    ) {
+        let continuationId = UUID()
+        let workItem = DispatchWorkItem { [weak self, weak stream] in
+            guard let self,
+                  let stream else {
+                return
+            }
+            self.searchArchiveStateLock.lock()
+            guard self.pendingSearchContinuationsByQueryId[queryId]?.id == continuationId,
+                  self.searchArchiveSessionsByQueryId[queryId]?.isActive == true else {
+                self.searchArchiveStateLock.unlock()
+                return
+            }
+            self.pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)
+            let callbacks = self.searchArchiveCallbacksByQueryId[queryId] ?? .none
+            self.searchArchiveStateLock.unlock()
+
+            self.requestArchive(
+                stream,
+                jid: task.jid,
+                isContinues: true,
+                conversationType: task.conversationType,
+                purpose: .search,
+                queryId: queryId,
+                searchText: task.searchText,
+                flipPage: false,
+                before: task.messageId,
+                afterId: task.afterId,
+                start: task.start,
+                end: task.end,
+                nextPage: cursor,
+                max: task.max,
+                tags: task.tags,
+                callback: nil,
+                requestCallbacks: callbacks
+            )
+        }
+
+        searchArchiveStateLock.lock()
+        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)?.workItem.cancel()
+        pendingSearchContinuationsByQueryId[queryId] = PendingSearchContinuation(
+            id: continuationId,
+            workItem: workItem
+        )
+        searchArchiveStateLock.unlock()
+        DispatchQueue.global().asyncAfter(
+            deadline: .now() + searchContinuationDelay,
+            execute: workItem
+        )
+    }
+
     private func shouldCommitOwnedArchiveEnd(
         task: MAMRequestItem,
         state: MessageArchivePageEndState,
@@ -1393,7 +1742,8 @@ class MessageArchiveManager: AbstractXMPPManager {
         tags: [Tags],
         withCounter: Bool
     ) -> Bool {
-        guard [.bootstrap, .pageOlder].contains(purpose) else {
+        guard ArchiveEndPolicy.canCommitCoverage(for: purpose),
+              [.bootstrap, .pageOlder].contains(purpose) else {
             return false
         }
 
@@ -1650,6 +2000,13 @@ class MessageArchiveManager: AbstractXMPPManager {
                         errorDescription: Self.mamErrorDescription(from: iq),
                         pendingQueryCount: 1
                     )
+                    if item.task.purpose == .search {
+                        _ = self.failSearchArchiveSession(
+                            queryId: queryId,
+                            reason: Self.searchFailureReason(for: event),
+                            event: event
+                        )
+                    }
                     self.removePendingArchiveRequestAfterFailure(item)
                     let delivered = MessageArchiveRequestFailureDispatcher.publish(event)
                     if !delivered {
@@ -1713,9 +2070,31 @@ class MessageArchiveManager: AbstractXMPPManager {
         guard iq.iqType == .result,
               let elementId = iq.elementID,
               let fin = Self.mamFinalElement(in: iq),
-              let queryId = fin.attributeStringValue(forName: "queryid"),
-              let set = fin.element(forName: "set", xmlns: "http://jabber.org/protocol/rsm") else {
+              let queryId = fin.attributeStringValue(forName: "queryid") else {
             return false
+        }
+        guard let set = fin.element(forName: "set", xmlns: "http://jabber.org/protocol/rsm") else {
+            guard let item = self.firstCallbackQueueItem(where: {
+                $0.elementId == elementId && $0.task.purpose == .search
+            }) else {
+                return false
+            }
+            let event = MessageArchiveRequestFailureEvent(
+                owner: self.owner,
+                queryId: item.task.queryId ?? queryId,
+                streamKind: streamKind,
+                reason: .malformedResponse,
+                errorDescription: "MAM search final is missing the RSM set",
+                pendingQueryCount: 1
+            )
+            _ = self.failSearchArchiveSession(
+                queryId: event.queryId,
+                reason: Self.searchFailureReason(for: event),
+                event: event
+            )
+            self.removePendingArchiveRequestAfterFailure(item)
+            _ = MessageArchiveRequestFailureDispatcher.publish(event)
+            return true
         }
         let complete = fin.attributeBoolValue(forName: "complete")
         let first = set.element(forName: "first")?.stringValue ?? ""
@@ -1745,6 +2124,18 @@ class MessageArchiveManager: AbstractXMPPManager {
         )
 //        DispatchQueue.global().async {
             if let item = self.firstCallbackQueueItem(where: { $0.elementId == elementId }) {
+                if item.task.purpose == .search {
+                    return self.handleSearchArchiveFinal(
+                        stream,
+                        item: item,
+                        responseQueryId: queryId,
+                        complete: complete,
+                        first: first,
+                        last: last,
+                        resultCount: resultCount,
+                        streamKind: streamKind
+                    )
+                }
                 if item.task.isContinues {
                     let nextPage = set.element(forName: "last")?.stringValue
                     do {
@@ -1940,7 +2331,19 @@ class MessageArchiveManager: AbstractXMPPManager {
         )
     }
     
-    public func searchText(_ stream: XMPPStream, jid: String? = nil, conversationType: ClientSynchronizationManager.ConversationType, text: String, max: Int = 250, loadFull: Bool = true, queryId: String? = nil, requestCallbacks: RequestCallbacks = .none) -> String {
+    public func searchText(
+        _ stream: XMPPStream,
+        jid: String? = nil,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        text: String,
+        max: Int = 250,
+        loadFull: Bool = true,
+        queryId: String? = nil,
+        generation: UInt64 = 0,
+        maximumPageCount: Int? = 1_000,
+        maximumResultCount: Int? = nil,
+        requestCallbacks: RequestCallbacks = .none
+    ) -> String {
         let taskId = [jid ?? "global_search", conversationType.rawValue].prp()
         if let continuesTaskID = continuesTaskID {
             if taskId != continuesTaskID {
@@ -1953,6 +2356,15 @@ class MessageArchiveManager: AbstractXMPPManager {
             }
         }
         let queryId = queryId ?? "MAM search: \(NanoID.new(8))"
+        self.registerSearchArchiveSession(
+            queryId: queryId,
+            generation: generation,
+            configuration: .init(
+                maximumPageCount: loadFull ? maximumPageCount : 1,
+                maximumResultCount: maximumResultCount
+            ),
+            callbacks: requestCallbacks
+        )
         self.requestArchive(
             stream,
             jid: jid,
@@ -2029,6 +2441,14 @@ class MessageArchiveManager: AbstractXMPPManager {
             onEndPage: { queryId, state, first, last, count in
                 primary.onEndPage?(queryId, state, first, last, count)
                 entry.requestCallbacks.forEach { $0.onEndPage?(queryId, state, first, last, count) }
+            },
+            onFailure: { event in
+                primary.onFailure?(event)
+                entry.requestCallbacks.forEach { $0.onFailure?(event) }
+            },
+            onSearchTerminal: { queryId, terminal in
+                primary.onSearchTerminal?(queryId, terminal)
+                entry.requestCallbacks.forEach { $0.onSearchTerminal?(queryId, terminal) }
             }
         )
     }
@@ -3130,7 +3550,28 @@ class MessageArchiveManager: AbstractXMPPManager {
                 instance.markAutoDeleted()
             }
             
-            let requestCallbacks = self.firstCallbackQueueItem(where: { $0.elementId == queryId })?.requestCallbacks ?? .none
+            let requestCallbacks: RequestCallbacks
+            let searchResultId: ChatSearchResult.ID? = instance.archivedId.isNotEmpty
+                ? .archived(instance.archivedId)
+                : (instance.primary.isNotEmpty ? .primary(instance.primary) : nil)
+            if self.hasActiveSearchArchiveSession(queryId: queryId) {
+                guard let searchResultId,
+                      let searchAccepted = self.acceptSearchArchiveResult(
+                          queryId: queryId,
+                          id: searchResultId,
+                          date: instance.date
+                      ) else {
+                    return true
+                }
+                guard searchAccepted else {
+                    return true
+                }
+                requestCallbacks = self.searchArchiveCallbacks(queryId: queryId) ?? .none
+            } else {
+                requestCallbacks = self.firstCallbackQueueItem(where: {
+                    $0.elementId == queryId
+                })?.requestCallbacks ?? .none
+            }
             self.notifyDidReceiveMessage(instance, queryId: queryId, callbacks: requestCallbacks)
         }
         return true
@@ -3301,10 +3742,18 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     func didResetState() {
+        searchArchiveStateLock.lock()
+        let activeSearchQueryIds = searchArchiveSessionsByQueryId.compactMap { queryId, session in
+            session.isActive ? queryId : nil
+        }
+        searchArchiveStateLock.unlock()
+        activeSearchQueryIds.forEach { _ = cancelSearch(queryId: $0) }
         let pendingItems = self.drainCallbackQueueItems()
         pendingItems.forEach { $0.callback?() }
         self.queryIds.removeAll()
         self.persistedMessageCountsByQueryId.removeAll()
+        self.searchResultsQueries.removeAll()
+        self.continuesTaskID = nil
         self.regularArchiveInFlightByKey.removeAll()
         self.regularArchiveRequestKeyByQueryId.removeAll()
         self.clearArchiveQueryPurposeRegistry()

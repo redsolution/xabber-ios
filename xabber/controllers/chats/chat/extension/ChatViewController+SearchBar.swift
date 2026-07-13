@@ -1225,6 +1225,9 @@ extension ChatViewController {
                 }
                 let cancelsCurrentQuery = currentSearchQueryId.map(queryIds.contains) == true
                 queryIds.forEach { queryId in
+                    searchArchiveManagersByQueryId.removeValue(forKey: queryId)?.cancelSearch(
+                        queryId: queryId
+                    )
                     unregisterRemoteHistoryPersistenceSource(queryId: queryId)
                     searchSessionGenerationByQueryId.removeValue(forKey: queryId)
                 }
@@ -1332,6 +1335,7 @@ extension ChatViewController {
         if let currentSearchQueryId {
             unregisterRemoteHistoryPersistenceSource(queryId: currentSearchQueryId)
             searchSessionGenerationByQueryId.removeValue(forKey: currentSearchQueryId)
+            searchArchiveManagersByQueryId.removeValue(forKey: currentSearchQueryId)
         }
         currentSearchQueryId = nil
         currentInChatSearchQueryContext = nil
