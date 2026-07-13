@@ -155,6 +155,18 @@ final class ChatSearchCalendarView: UIView {
     private(set) var lastMonthTransition: MonthTransitionRecord?
     private(set) var yearPickerYears: [Int] = []
 
+    var preferredAccessibilityFocusView: UIView {
+        layoutIfNeeded()
+        collectionView.layoutIfNeeded()
+        if let selectedIndex = renderedSnapshot?.daySlots.firstIndex(where: { $0.isSelected }),
+           let cell = collectionView.cellForItem(
+               at: IndexPath(item: selectedIndex, section: 0)
+           ) {
+            return cell
+        }
+        return titleLabel
+    }
+
     let surfaceView: UIVisualEffectView
     let titleLabel = UILabel()
     let closeButton = UIButton(type: .system)
@@ -348,6 +360,8 @@ final class ChatSearchCalendarView: UIView {
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.adjustsFontSizeToFitWidth = true
         titleLabel.minimumScaleFactor = 0.8
+        titleLabel.isAccessibilityElement = true
+        titleLabel.accessibilityTraits = .header
         addSubview(titleLabel)
 
         configureIconButton(

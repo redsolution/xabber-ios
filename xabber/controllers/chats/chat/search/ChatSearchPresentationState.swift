@@ -125,7 +125,7 @@ struct ChatSearchPresentationState: Equatable {
         let hasCommittedResult = committedResultIndex.map(resultIndices.contains) == true
         return Visibility(
             top: true,
-            bottom: surfaceMode != .calendar,
+            bottom: true,
             arrows: surfaceMode == .chat &&
                 resultPhase == .results &&
                 resultCount > 0 &&
@@ -346,6 +346,42 @@ struct ChatSearchPresentationState: Equatable {
             return
         }
         surfaceMode = .chat
+    }
+}
+
+struct ChatSearchCalendarPresentationRequest: Equatable {
+    let origin: ChatSearchPresentationState.CalendarOrigin
+    let event: ChatSearchPresentationState.Event
+    let restoresKeyboardAutomaticallyOnCancel: Bool
+    let permitsUserRequestedInputFocusAfterCancel: Bool
+
+    func prepareForPresentation(
+        resignKeyboard: () -> Void,
+        layoutBottomGuide: () -> Void
+    ) {
+        resignKeyboard()
+        layoutBottomGuide()
+    }
+}
+
+extension ChatSearchPresentationState {
+    var calendarPresentationRequest: ChatSearchCalendarPresentationRequest? {
+        guard isActive else { return nil }
+        let origin: CalendarOrigin
+        switch surfaceMode {
+        case .chat:
+            origin = .chat
+        case .list:
+            origin = .list
+        case .calendar:
+            return nil
+        }
+        return ChatSearchCalendarPresentationRequest(
+            origin: origin,
+            event: .openCalendar,
+            restoresKeyboardAutomaticallyOnCancel: false,
+            permitsUserRequestedInputFocusAfterCancel: true
+        )
     }
 }
 

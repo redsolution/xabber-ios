@@ -235,7 +235,7 @@ final class ChatSearchPresentationStateTests: XCTestCase {
         state.reduce(.openCalendar)
         XCTAssertEqual(
             state.visibility,
-            .init(top: true, bottom: false, arrows: false, list: false, calendar: true, spinner: false)
+            .init(top: true, bottom: true, arrows: false, list: false, calendar: true, spinner: false)
         )
     }
 

@@ -1056,6 +1056,11 @@ extension ChatViewController {
         assert(Thread.isMainThread, "Chat search presentation events must be reduced on the main thread")
         let previousSurfaceMode = searchPresentationState.surfaceMode
         searchPresentationState.reduce(event)
+        if previousSurfaceMode == .calendar,
+           searchPresentationState.surfaceMode != .calendar,
+           searchCalendarViewController != nil {
+            removeChatSearchCalendarControllerImmediately()
+        }
         if isViewLoaded {
             searchNavigationView.render(
                 .init(
@@ -4723,7 +4728,89 @@ extension ChatViewController {
     }
 
     internal func onSearchPanelOpenCalendar() {
-        reduceSearchPresentationState(.openCalendar)
+        guard let request = searchPresentationState.calendarPresentationRequest else {
+            return
+        }
+        request.prepareForPresentation(
+            resignKeyboard: { [weak self] in
+                guard let self else { return }
+                view.endEditing(true)
+                searchBar.endEditing(true)
+                searchInputBar.endEditing(true)
+            },
+            layoutBottomGuide: { [weak self] in
+                self?.view.layoutIfNeeded()
+            }
+        )
+        reduceSearchPresentationState(request.event)
+        guard searchPresentationState.surfaceMode == .calendar else { return }
+
+        let animationSpec = ChatSearchAnimationSpec.production.resolved(
+            for: .init(
+                reduceMotion: UIAccessibility.isReduceMotionEnabled,
+                reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
+            )
+        )
+        let calendarController = ChatSearchCalendarViewController(
+            model: ChatSearchCalendarModel(
+                calendar: .autoupdatingCurrent,
+                locale: .autoupdatingCurrent,
+                clock: ChatSearchCalendarSystemClock()
+            ),
+            animationSpec: animationSpec
+        )
+        calendarController.onCancel = { [weak self] in
+            self?.dismissChatSearchCalendar(animated: true)
+        }
+        searchCalendarViewController = calendarController
+        calendarController.install(in: self, containerView: view)
+        let generation = searchPresentationState.generation
+        calendarController.present(
+            generation: generation,
+            animated: true,
+            focusReturnView: xabberInputView.searchPanel.calendarButton,
+            isGenerationCurrent: { [weak self] candidateGeneration in
+                guard let self else { return false }
+                return searchPresentationState.isActive &&
+                    searchPresentationState.surfaceMode == .calendar &&
+                    searchPresentationState.generation == candidateGeneration
+            }
+        )
+    }
+
+    internal func dismissChatSearchCalendar(animated: Bool) {
+        guard searchPresentationState.surfaceMode == .calendar else { return }
+        guard let calendarController = searchCalendarViewController else {
+            reduceSearchPresentationState(.cancelCalendar)
+            return
+        }
+        let generation = searchPresentationState.generation
+        calendarController.dismiss(
+            generation: generation,
+            animated: animated,
+            isGenerationCurrent: { [weak self] candidateGeneration in
+                guard let self else { return false }
+                return searchPresentationState.isActive &&
+                    searchPresentationState.surfaceMode == .calendar &&
+                    searchPresentationState.generation == candidateGeneration
+            },
+            completion: { [weak self, weak calendarController] in
+                guard let self,
+                      self.searchCalendarViewController === calendarController else {
+                    return
+                }
+                self.searchCalendarViewController = nil
+                if self.searchPresentationState.surfaceMode == .calendar,
+                   self.searchPresentationState.generation == generation {
+                    self.reduceSearchPresentationState(.cancelCalendar)
+                }
+            }
+        )
+    }
+
+    internal func removeChatSearchCalendarControllerImmediately() {
+        searchCalendarViewController?.reset()
+        searchCalendarViewController = nil
     }
     
     internal func scrollToSearchedMessage(primary: String) {
