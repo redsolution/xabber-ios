@@ -1913,7 +1913,6 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                 : "contacts_add_contact_bottom_button",
             accessibilityLabel: contactsCompactBottomBarPrimaryTitle
         )
-        contactsCompactBottomBarView.setCenterButtonEnabled(true)
         contactsCompactBottomBarView.isHidden = !shouldUseContactsCompactBottomBar ||
             bottomSearchHostView.hidesUnderlyingActions
         contactsCompactBottomBarView.refreshAppearance()

@@ -670,7 +670,6 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 isCenterVisible: false
             )
         )
-        callsCompactBottomBarView.setCenterButtonEnabled(false)
         callsCompactBottomBarView.isHidden = !shouldUseCallsCompactBottomBar ||
             bottomSearchHostView.hidesUnderlyingActions
         callsCompactBottomBarView.refreshAppearance()

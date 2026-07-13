@@ -187,6 +187,7 @@
 		4E1000022F66000000ABC001 /* FloatingBottomBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1000012F66000000ABC001 /* FloatingBottomBarView.swift */; };
 		4E1000042F66000000ABC001 /* FloatingBottomBarViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1000032F66000000ABC001 /* FloatingBottomBarViewTests.swift */; };
 		4E1200022F66100000ABC001 /* RootBottomBarInsetPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1200012F66100000ABC001 /* RootBottomBarInsetPolicyTests.swift */; };
+		4E1300022F66200000ABC001 /* RootBottomBarIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1300012F66200000ABC001 /* RootBottomBarIntegrationTests.swift */; };
 		4E1200042F66100000ABC001 /* BottomOverlayInsetCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1200032F66100000ABC001 /* BottomOverlayInsetCoordinator.swift */; };
 		4E1000062F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1000052F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift */; };
 		4E5600022F74000000ABC001 /* LeftMenuSelectionPresentationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5600012F74000000ABC001 /* LeftMenuSelectionPresentationPolicyTests.swift */; };
@@ -1263,6 +1264,7 @@
 		4E1000012F66000000ABC001 /* FloatingBottomBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingBottomBarView.swift; sourceTree = "<group>"; };
 		4E1000032F66000000ABC001 /* FloatingBottomBarViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingBottomBarViewTests.swift; sourceTree = "<group>"; };
 		4E1200012F66100000ABC001 /* RootBottomBarInsetPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootBottomBarInsetPolicyTests.swift; sourceTree = "<group>"; };
+		4E1300012F66200000ABC001 /* RootBottomBarIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootBottomBarIntegrationTests.swift; sourceTree = "<group>"; };
 		4E1200032F66100000ABC001 /* BottomOverlayInsetCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomOverlayInsetCoordinator.swift; sourceTree = "<group>"; };
 		4E1000052F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuSurfaceEffectFactoryTests.swift; sourceTree = "<group>"; };
 		4E5600012F74000000ABC001 /* LeftMenuSelectionPresentationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuSelectionPresentationPolicyTests.swift; sourceTree = "<group>"; };
@@ -3932,6 +3934,7 @@
 			children = (
 					4E1000032F66000000ABC001 /* FloatingBottomBarViewTests.swift */,
 					4E1200012F66100000ABC001 /* RootBottomBarInsetPolicyTests.swift */,
+					4E1300012F66200000ABC001 /* RootBottomBarIntegrationTests.swift */,
 					4E6000032F90000000ABC001 /* XabberGlassStyleTests.swift */,
 					4E1000052F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift */,
 					4E5600012F74000000ABC001 /* LeftMenuSelectionPresentationPolicyTests.swift */,
@@ -5971,6 +5974,7 @@
 						4E6000042F90000000ABC001 /* XabberGlassStyleTests.swift in Sources */,
 						4E1000042F66000000ABC001 /* FloatingBottomBarViewTests.swift in Sources */,
 						4E1200022F66100000ABC001 /* RootBottomBarInsetPolicyTests.swift in Sources */,
+						4E1300022F66200000ABC001 /* RootBottomBarIntegrationTests.swift in Sources */,
 					4E31000A2F69000000ABC001 /* CallsListCoordinatorTests.swift in Sources */,
 					4E3200022F6A000000ABC001 /* ContactsListAppearanceTests.swift in Sources */,
 					4E3300022F6A100000ABC001 /* NotificationsListAppearanceTests.swift in Sources */,

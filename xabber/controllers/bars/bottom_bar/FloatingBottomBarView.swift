@@ -106,15 +106,6 @@ final class FloatingBottomBarView: UIView {
         }
     }
 
-    // Transitional configuration API retained while root sections migrate to ActionPresentation.
-    func setCenterButtonEnabled(_ isEnabled: Bool) {
-        let effectiveValue = isEnabled && actionPresentation.isCenterVisible
-
-        centerButton.isEnabled = effectiveValue
-        centerEffectView.alpha = effectiveValue ? 1.0 : 0.55
-        centerButton.accessibilityValue = effectiveValue ? nil : "Disabled"
-    }
-
     func setCenterButtonTitle(
         _ title: String,
         accessibilityIdentifier: String,

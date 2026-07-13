@@ -792,7 +792,6 @@ class NotificationsListViewController: SimpleBaseViewController {
                 isCenterVisible: hasMatchingUnreadNotifications
             )
         )
-        notificationsCompactBottomBarView.setCenterButtonEnabled(hasMatchingUnreadNotifications)
         notificationsCompactBottomBarView.isHidden = !shouldUseNotificationsCompactBottomBar ||
             bottomSearchHostView.hidesUnderlyingActions
         notificationsCompactBottomBarView.refreshAppearance()
