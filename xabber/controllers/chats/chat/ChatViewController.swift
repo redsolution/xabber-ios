@@ -1675,6 +1675,7 @@ class ChatViewController: MessagesViewController {
     var searchMessagesQueue: [MessageStorageItem] = []
     var searchResultPresentations: [ChatSearchResult] = []
     var searchResultsListViewController: ChatSearchResultsListViewController? = nil
+    var searchModeTransitionCoordinator = ChatSearchModeTransitionCoordinator()
     var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var currentSearchQueryId: String? = nil
     var currentInChatSearchQueryContext: ChatInChatSearchQueryContext? = nil

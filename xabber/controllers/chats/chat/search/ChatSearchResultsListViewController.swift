@@ -364,11 +364,15 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
     }
 
     func prepareForModeSwitchToChat() {
+        retainVisibleAnchorForModeSwitch()
+        view.isUserInteractionEnabled = false
+        view.isHidden = true
+    }
+
+    func retainVisibleAnchorForModeSwitch() {
         if let visibleAnchor = captureVisibleAnchor() {
             retainedModeSwitchScrollAnchor = visibleAnchor
         }
-        view.isUserInteractionEnabled = false
-        view.isHidden = true
     }
 
     func prepareForModeSwitchToList(selectedID: ChatSearchResult.ID?) {

@@ -1054,6 +1054,7 @@ extension ChatViewController {
         _ event: ChatSearchPresentationState.Event
     ) -> ChatSearchPresentationState {
         assert(Thread.isMainThread, "Chat search presentation events must be reduced on the main thread")
+        let previousSurfaceMode = searchPresentationState.surfaceMode
         searchPresentationState.reduce(event)
         if isViewLoaded {
             searchNavigationView.render(
@@ -1063,12 +1064,32 @@ extension ChatViewController {
                 )
             )
             applyLegacySearchPanelStateFromPresentation()
-            renderSearchResultSurfaceFromPresentation()
+            renderSearchResultSurfaceFromPresentation(
+                animated: shouldAnimateSearchModeTransition(
+                    for: event,
+                    previousSurfaceMode: previousSurfaceMode
+                )
+            )
             renderSearchNavigationButtons(
                 animated: shouldAnimateSearchNavigationButtons(for: event)
             )
         }
         return searchPresentationState
+    }
+
+    private func shouldAnimateSearchModeTransition(
+        for event: ChatSearchPresentationState.Event,
+        previousSurfaceMode: ChatSearchPresentationState.SurfaceMode
+    ) -> Bool {
+        guard previousSurfaceMode != searchPresentationState.surfaceMode else {
+            return false
+        }
+        switch event {
+        case .openList, .closeList:
+            return true
+        default:
+            return false
+        }
     }
 
     private func shouldAnimateSearchNavigationButtons(
@@ -1082,13 +1103,14 @@ extension ChatViewController {
         }
     }
 
-    internal func renderSearchResultSurfaceFromPresentation() {
+    internal func renderSearchResultSurfaceFromPresentation(animated: Bool = false) {
         assert(Thread.isMainThread, "Chat search surfaces must render on the main thread")
         guard isViewLoaded else {
             return
         }
 
         guard searchPresentationState.isActive else {
+            searchModeTransitionCoordinator.reset(to: .chat)
             removeChatSearchResultsListController()
             setChatSearchTimelineHidden(false)
             return
@@ -1100,8 +1122,22 @@ extension ChatViewController {
         guard presentsListUnderCurrentSurface,
               let model = makeChatSearchResultsListRenderModel(),
               model.canPresent else {
-            searchResultsListViewController?.prepareForModeSwitchToChat()
-            setChatSearchTimelineHidden(false)
+            guard let listController = searchResultsListViewController else {
+                searchModeTransitionCoordinator.reset(to: .chat)
+                setChatSearchTimelineHidden(false)
+                return
+            }
+            if searchModeTransitionCoordinator.requestedMode != .chat ||
+                !listController.view.isHidden {
+                listController.retainVisibleAnchorForModeSwitch()
+                transitionSearchResultSurface(
+                    to: .chat,
+                    animated: animated,
+                    listController: listController
+                )
+            } else {
+                setChatSearchTimelineHidden(false)
+            }
             return
         }
 
@@ -1113,8 +1149,67 @@ extension ChatViewController {
         }
         listController.render(model, animated: false)
         installChatSearchResultsListController(listController)
-        setChatSearchTimelineHidden(true)
-        listController.prepareForModeSwitchToList(selectedID: model.selectedID)
+        if searchModeTransitionCoordinator.requestedMode != .list ||
+            listController.view.isHidden {
+            listController.prepareForModeSwitchToList(selectedID: model.selectedID)
+        }
+        transitionSearchResultSurface(
+            to: .list,
+            animated: animated,
+            listController: listController
+        )
+    }
+
+    private func transitionSearchResultSurface(
+        to mode: ChatSearchModeTransitionPlan.Mode,
+        animated: Bool,
+        listController: ChatSearchResultsListViewController
+    ) {
+        let generation = searchPresentationState.generation
+        let animationSpec = ChatSearchAnimationSpec.production.resolved(
+            for: .init(
+                reduceMotion: UIAccessibility.isReduceMotionEnabled,
+                reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
+            )
+        )
+        searchModeTransitionCoordinator.transition(
+            to: mode,
+            generation: generation,
+            animated: animated,
+            animationSpec: animationSpec,
+            containerView: view,
+            listContentView: listController.view,
+            timelineView: messagesCollectionView,
+            isGenerationCurrent: { [weak self] candidateGeneration in
+                guard let self else { return false }
+                return self.searchPresentationState.isActive &&
+                    self.searchPresentationState.generation == candidateGeneration
+            },
+            bringChromeToFront: { [weak self] in
+                self?.bringSearchModeChromeToFront()
+            },
+            applyFinalMode: { [weak self, weak listController] finalMode in
+                guard let self,
+                      let listController,
+                      self.searchPresentationState.generation == generation else {
+                    return
+                }
+                switch finalMode {
+                case .chat:
+                    listController.view.isHidden = true
+                    listController.view.isUserInteractionEnabled = false
+                    self.setChatSearchTimelineHidden(false)
+                case .list:
+                    listController.view.isHidden = false
+                    listController.view.isUserInteractionEnabled = true
+                    self.setChatSearchTimelineHidden(true)
+                }
+                self.bringSearchModeChromeToFront()
+            }
+        )
+    }
+
+    private func bringSearchModeChromeToFront() {
         view.bringSubviewToFront(xabberInputView)
         view.bringSubviewToFront(searchNavigationButtonsView)
         bringSearchInputOverlayToFront()
