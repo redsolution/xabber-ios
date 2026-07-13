@@ -93,6 +93,8 @@ struct ChatSearchCalendarModel: Equatable {
         let isMonthYearPickerPresented: Bool
         let pickerMonth: Int
         let pickerYear: Int
+        let pickerMonthSymbols: [String]
+        let pickerYearRange: ClosedRange<Int>
     }
 
     static let defaultMinimumDate = Date(timeIntervalSince1970: 0)
@@ -160,7 +162,9 @@ struct ChatSearchCalendarModel: Equatable {
             isDoneEnabled: isSelectable(selectedDate),
             isMonthYearPickerPresented: isMonthYearPickerPresented,
             pickerMonth: pickerMonth,
-            pickerYear: pickerYear
+            pickerYear: pickerYear,
+            pickerMonthSymbols: makePickerMonthSymbols(),
+            pickerYearRange: makePickerYearRange()
         )
     }
 
@@ -356,6 +360,24 @@ struct ChatSearchCalendarModel: Equatable {
         formatter.timeZone = calendar.timeZone
         formatter.setLocalizedDateFormatFromTemplate("LLLL yyyy")
         return formatter.string(from: visibleMonthStart)
+    }
+
+    private func makePickerMonthSymbols() -> [String] {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = locale
+        formatter.timeZone = calendar.timeZone
+        let symbols = formatter.standaloneMonthSymbols ?? formatter.monthSymbols ?? []
+        guard symbols.count == 12 else {
+            return (1...12).map(String.init)
+        }
+        return symbols
+    }
+
+    private func makePickerYearRange() -> ClosedRange<Int> {
+        let minimumYear = calendar.component(.year, from: minimumDate)
+        let maximumYear = calendar.component(.year, from: maximumDate)
+        return min(minimumYear, maximumYear)...max(minimumYear, maximumYear)
     }
 
     private func makeWeekdaySymbols() -> [String] {
