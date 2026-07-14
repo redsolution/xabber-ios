@@ -1889,11 +1889,9 @@ class ChatViewController: MessagesViewController {
     internal var pendingDeferredRemoteHistoryDirection: ChatHistoryPageDirection? = nil
     internal var pendingDeferredRemoteHistoryPreparation: ChatInteractiveHistoryPagingPreparation? = nil
     internal var interactiveRemoteArchiveRequestDispatcher: ChatInteractiveRemoteArchiveRequestDispatching = AccountSchedulerChatInteractiveRemoteArchiveRequestDispatcher()
+    internal let remoteHistoryQueryCoordinator = ChatRemoteHistoryQueryCoordinator()
     var interactiveHistoryPageLoadContext: ChatInteractiveHistoryPageLoadContext? = nil
     var interactiveHistoryCompletionRetryWorkItem: DispatchWorkItem? = nil
-    var interactiveRemoteArchiveRequestStartWorkItem: DispatchWorkItem? = nil
-    var interactiveRemoteArchiveRequestStartQueryId: String? = nil
-    var interactiveRemoteArchiveTimeoutWorkItem: DispatchWorkItem? = nil
     var remoteHistoryFinishingQueryId: String? = nil
     internal var remoteHistoryEndPageDispatcherTokens: [String: MessageArchiveEndPageDispatcher.Token] = [:]
     internal var remoteHistoryFailureDispatcherTokens: [String: MessageArchiveRequestFailureDispatcher.Token] = [:]
@@ -4984,6 +4982,7 @@ class ChatViewController: MessagesViewController {
         self.bag = DisposeBag()
         self.cancelInitialBootstrapLocalHistoryFallback()
         self.clearRemoteHistoryEndPageDispatchers()
+        self.remoteHistoryQueryCoordinator.cancelAll(reason: .cancelled)
         self.stopChatArchiveMainStallProbe(reason: "unsubscribe")
         self.finishChatOpenTimingSession(reason: "unsubscribe")
         VoiceMessagePlaybackCoordinator.shared.removeObserver(self.voiceMessageStateObserverToken)

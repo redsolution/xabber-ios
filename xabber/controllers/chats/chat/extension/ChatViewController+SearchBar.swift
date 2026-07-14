@@ -3523,12 +3523,6 @@ extension ChatViewController {
         state.didObserveContextPostIdleTick = false
     }
 
-    private func isMessagePipelineIdle(for queryIds: Set<String>) -> Bool {
-        !queryIds.contains {
-            ChatRemoteHistoryCompletionCoordinator.hasPendingMessages(owner: self.owner, queryId: $0)
-        }
-    }
-
     private func scheduleContextPrefetchObserverResumeIfNeeded(delay: TimeInterval = 0) {
         let work = { [weak self] in
             guard let self else {
@@ -3571,7 +3565,9 @@ extension ChatViewController {
             let action = ChatAnchorContextPrefetchPolicy.resumeAction(
                 pendingQueryIds: executionState.contextPrefetchPendingQueryIds,
                 totalPersistedMessageCount: executionState.contextPrefetchPersistedMessageCount,
-                areMessagePipelinesIdle: self.isMessagePipelineIdle(for: executionState.contextPrefetchQueryIds),
+                // A query leaves `contextPrefetchPendingQueryIds` only from the
+                // post-persistence-barrier final callback.
+                areMessagePipelinesIdle: executionState.contextPrefetchPendingQueryIds.isEmpty,
                 didObservePostIdleTick: executionState.didObserveContextPostIdleTick
             )
 
@@ -3649,7 +3645,7 @@ extension ChatViewController {
         self.performArchiveAction(queryIds: queryIds, { stream, mam in
             if let newerPageSize = plan.newerPageSize,
                let newerQueryId {
-                _ = mam.getPrevHistory(
+                _ = mam.requestNewerHistoryPage(
                     stream,
                     for: self.jid,
                     conversationType: self.conversationType,
@@ -3663,7 +3659,7 @@ extension ChatViewController {
 
             if let olderPageSize = plan.olderPageSize,
                let olderQueryId {
-                _ = mam.getNextHistory(
+                _ = mam.requestOlderHistoryPage(
                     stream,
                     for: self.jid,
                     conversationType: self.conversationType,
@@ -3714,7 +3710,7 @@ extension ChatViewController {
 
         self.performArchiveAction({ stream, mam in
             if let newerPageSize = plan.newerPageSize {
-                _ = mam.getPrevHistory(
+                _ = mam.requestNewerHistoryPage(
                     stream,
                     for: self.jid,
                     conversationType: self.conversationType,
@@ -3727,7 +3723,7 @@ extension ChatViewController {
             }
 
             if let olderPageSize = plan.olderPageSize {
-                _ = mam.getNextHistory(
+                _ = mam.requestOlderHistoryPage(
                     stream,
                     for: self.jid,
                     conversationType: self.conversationType,
@@ -4302,7 +4298,6 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             ("statePersisted", state.persistedMessageCount)
         ])
         DispatchQueue.main.async {
-            let enteredAt = Date()
             ChatArchiveDebugTrace.log("chatDidReceiveEndPageEnter", [
                 ("owner", self.owner),
                 ("jid", self.jid),
@@ -4332,6 +4327,75 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 ])
                 return
             }
+
+            let finalPage = ChatRemoteHistoryFinalPage(
+                state: state,
+                first: first,
+                last: last,
+                count: count
+            )
+            if let context = self.interactiveHistoryPageLoadContext,
+               context.queryId == queryId {
+                self.cancelInteractiveRemoteArchiveTimeout(queryId: queryId)
+                let disposition = self.remoteHistoryQueryCoordinator.receiveFinal(
+                    queryId: queryId,
+                    generation: context.generation,
+                    page: finalPage
+                ) { [weak self] result in
+                    guard let self else { return }
+                    switch result {
+                    case .success(let committedPage):
+                        guard committedPage.descriptor.conversationKey == self.chatTimelineConversationKey,
+                              self.interactiveHistoryPageLoadContext?.queryId == queryId,
+                              self.interactiveHistoryPageLoadContext?.generation == committedPage.descriptor.generation else {
+                            return
+                        }
+                        self.handleCommittedRemoteHistoryFinal(
+                            queryId: queryId,
+                            originalState: state,
+                            first: first,
+                            last: last,
+                            count: count,
+                            completion: committedPage.persistence,
+                            barrierDurationMs: ChatArchiveDebugTrace.milliseconds(since: enqueuedAt)
+                        )
+                    case .failure(let error):
+                        self.handleInteractiveRemoteArchiveFailure(
+                            queryId: queryId,
+                            reason: .serverError,
+                            streamKind: .unknown,
+                            errorDescription: error.localizedDescription
+                        )
+                    }
+                }
+                switch disposition {
+                case .accepted:
+                    _ = self.markRemoteHistoryEndPageCompletionIfNeeded(queryId: queryId)
+                    return
+                case .duplicate:
+                    DDLogDebug("ChatViewController.remoteHistoryFinalDuplicate queryId=\(queryId)")
+                    return
+                case .stale:
+                    DDLogDebug("ChatViewController.remoteHistoryFinalStale queryId=\(queryId) generation=\(context.generation)")
+                    return
+                case .unknown:
+                    break
+                }
+            }
+
+            switch self.remoteHistoryQueryCoordinator.classifyUnhandledFinal(queryId: queryId) {
+            case .duplicate:
+                self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+                DDLogDebug("ChatViewController.remoteHistoryFinalDuplicateWithoutContext queryId=\(queryId)")
+                return
+            case .stale:
+                self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+                DDLogDebug("ChatViewController.remoteHistoryFinalStaleWithoutContext queryId=\(queryId)")
+                return
+            case .accepted, .unknown:
+                break
+            }
+
             let shouldDedupeCompletion = self.remoteHistoryEndPageDispatcherTokens[queryId] != nil ||
                 self.completedRemoteHistoryEndPageQueryIds.contains(queryId)
             if shouldDedupeCompletion {
@@ -4340,91 +4404,103 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                     return
                 }
             }
-            let flushStartedAt = Date()
-            let completion = ChatRemoteHistoryCompletionCoordinator.flushQueryMessages(
+            let requestConversationKey = self.chatTimelineConversationKey
+            let barrierStartedAt = Date()
+            ChatRemoteHistoryCompletionCoordinator.flushQueryMessagesAsync(
                 owner: self.owner,
                 queryId: queryId,
                 state: state,
                 conversationJid: self.jid,
                 conversationType: self.conversationType
-            )
-            let flushDurationMs = ChatArchiveDebugTrace.milliseconds(since: flushStartedAt)
-            let effectiveState = completion.state
-            let visibleRows = completion.persistenceSummary.visibleRows(
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            ChatArchiveDebugTrace.log("chatDidReceiveEndPageAfterFlush", [
-                ("owner", self.owner),
-                ("jid", self.jid),
-                ("conversationType", self.conversationType.rawValue),
-                ("queryId", queryId),
-                ("flushMs", flushDurationMs),
-                ("flushed", completion.flushedMessageCount),
-                ("effectivePersisted", effectiveState.persistedMessageCount),
-                ("visibleRows", visibleRows),
-                ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count),
-                ("datasourceCount", self.datasource.count),
-                ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-")
-            ])
-            DDLogDebug("ChatViewController.remoteHistoryFinal queryId=\(queryId) statePersisted=\(state.persistedMessageCount) flushed=\(completion.flushedMessageCount) effectivePersisted=\(effectiveState.persistedMessageCount) count=\(count) received=\(completion.persistenceSummary.received) queued=\(completion.persistenceSummary.queued) savedNew=\(completion.persistenceSummary.savedNew) updatedExisting=\(completion.persistenceSummary.updatedExisting) skipped=\(completion.persistenceSummary.skipped) failed=\(completion.persistenceSummary.failed) visibleRows=\(visibleRows)")
-            if self.handleInitialBootstrapEndPageIfNeeded(
-                queryId: queryId,
-                state: effectiveState,
-                count: count,
-                persistedMessageCount: effectiveState.persistedMessageCount,
-                persistedRowsForQuery: completion.persistenceSummary.persistedRows,
-                visibleRowsForConversation: visibleRows
-            ) {
-                ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
-                    ("queryId", queryId),
-                    ("handler", "initialBootstrap")
-                ])
-                return
+            ) { [weak self] completion in
+                DispatchQueue.main.async {
+                    guard let self,
+                          self.chatTimelineConversationKey == requestConversationKey else {
+                        return
+                    }
+                    self.handleCommittedRemoteHistoryFinal(
+                        queryId: queryId,
+                        originalState: state,
+                        first: first,
+                        last: last,
+                        count: count,
+                        completion: completion,
+                        barrierDurationMs: ChatArchiveDebugTrace.milliseconds(since: barrierStartedAt)
+                    )
+                }
             }
-            if self.completeInteractiveHistoryPageLoadIfNeeded(
-                queryId: queryId,
-                state: effectiveState,
-                first: first,
-                last: last,
-                count: count,
-                persistedRowsForQuery: completion.persistenceSummary.persistedRows,
-                visibleRowsForConversation: visibleRows
-            ) {
-                ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
-                    ("queryId", queryId),
-                    ("handler", "interactivePaging")
-                ])
-                return
-            }
-            if self.handleAnchorContextPrefetchEndPageIfNeeded(queryId: queryId, state: effectiveState, count: count) {
-                ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
-                    ("queryId", queryId),
-                    ("handler", "anchorContextPrefetch")
-                ])
-                return
-            }
-            if self.handleAnchorRemoteFetchEndPageIfNeeded(queryId: queryId, state: effectiveState, count: count) {
-                ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
-                    ("queryId", queryId),
-                    ("handler", "anchorRemoteFetch")
-                ])
-                return
-            }
-            if self.finishInChatSearchQueryIfCurrent(queryId: queryId, emptyList: first == last) {
-                ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
-                    ("queryId", queryId),
-                    ("handler", "search")
-                ])
-                return
-            }
-            ChatArchiveDebugTrace.log("chatDidReceiveEndPageUnhandled", [
-                ("queryId", queryId),
-                ("count", count),
-                ("effectivePersisted", effectiveState.persistedMessageCount)
-            ])
         }
+    }
+
+    private func handleCommittedRemoteHistoryFinal(
+        queryId: String,
+        originalState: MessageArchivePageEndState,
+        first: String,
+        last: String,
+        count: Int,
+        completion: ChatRemoteHistoryCompletionResult,
+        barrierDurationMs: Int
+    ) {
+        let effectiveState = completion.state
+        let visibleRows = completion.persistenceSummary.visibleRows(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType
+        )
+        ChatArchiveDebugTrace.log("chatDidReceiveEndPageAfterFlush", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("queryId", queryId),
+            ("flushMs", barrierDurationMs),
+            ("flushed", completion.flushedMessageCount),
+            ("effectivePersisted", effectiveState.persistedMessageCount),
+            ("visibleRows", visibleRows),
+            ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count),
+            ("datasourceCount", self.datasource.count),
+            ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-")
+        ])
+        DDLogDebug("ChatViewController.remoteHistoryFinal queryId=\(queryId) statePersisted=\(originalState.persistedMessageCount) flushed=\(completion.flushedMessageCount) effectivePersisted=\(effectiveState.persistedMessageCount) count=\(count) received=\(completion.persistenceSummary.received) queued=\(completion.persistenceSummary.queued) savedNew=\(completion.persistenceSummary.savedNew) updatedExisting=\(completion.persistenceSummary.updatedExisting) skipped=\(completion.persistenceSummary.skipped) failed=\(completion.persistenceSummary.failed) visibleRows=\(visibleRows)")
+        if self.handleInitialBootstrapEndPageIfNeeded(
+            queryId: queryId,
+            state: effectiveState,
+            count: count,
+            persistedMessageCount: effectiveState.persistedMessageCount,
+            persistedRowsForQuery: completion.persistenceSummary.persistedRows,
+            visibleRowsForConversation: visibleRows
+        ) {
+            ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [("queryId", queryId), ("handler", "initialBootstrap")])
+            return
+        }
+        if self.completeInteractiveHistoryPageLoadIfNeeded(
+            queryId: queryId,
+            state: effectiveState,
+            first: first,
+            last: last,
+            count: count,
+            persistedRowsForQuery: completion.persistenceSummary.persistedRows,
+            visibleRowsForConversation: visibleRows
+        ) {
+            ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [("queryId", queryId), ("handler", "interactivePaging")])
+            return
+        }
+        if self.handleAnchorContextPrefetchEndPageIfNeeded(queryId: queryId, state: effectiveState, count: count) {
+            ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [("queryId", queryId), ("handler", "anchorContextPrefetch")])
+            return
+        }
+        if self.handleAnchorRemoteFetchEndPageIfNeeded(queryId: queryId, state: effectiveState, count: count) {
+            ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [("queryId", queryId), ("handler", "anchorRemoteFetch")])
+            return
+        }
+        if self.finishInChatSearchQueryIfCurrent(queryId: queryId, emptyList: first == last) {
+            ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [("queryId", queryId), ("handler", "search")])
+            return
+        }
+        ChatArchiveDebugTrace.log("chatDidReceiveEndPageUnhandled", [
+            ("queryId", queryId),
+            ("count", count),
+            ("effectivePersisted", effectiveState.persistedMessageCount)
+        ])
     }
     
     func didReceiveMessage(_ item: MessageStorageItem, queryId: String) {

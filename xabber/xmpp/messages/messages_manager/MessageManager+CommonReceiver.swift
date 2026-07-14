@@ -164,6 +164,12 @@ extension MessageManager {
         }
     }
 
+    internal func clearArchivePersistenceSummaryWithoutWaiting(forQueryId queryId: String) {
+        self.queue.async { [weak self] in
+            self?.archivePersistenceSummariesByQueryId.removeValue(forKey: queryId)
+        }
+    }
+
     internal func scheduleQueuedMessagesDrainIfNeeded() {
         self.performMessageQueueSync {
             self.scheduleQueuedMessagesDrainOnQueue()

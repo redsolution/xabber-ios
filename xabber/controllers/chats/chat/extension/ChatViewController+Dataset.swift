@@ -2929,6 +2929,7 @@ struct ChatVirtualTimelineEngine {
 
 struct ChatInteractiveHistoryPageLoadContext {
     let queryId: String
+    var generation: Int = 0
     let direction: ChatHistoryPageDirection
     let chatPrimaryKey: String
     let persistedCursorId: String?
@@ -3146,6 +3147,498 @@ struct ChatRemoteHistoryCompletionResult: Equatable {
     let persistenceSummary: MessageManager.ArchivePersistenceSummary
 }
 
+struct ChatRemoteHistoryQueryDescriptor: Equatable {
+    let conversationKey: ChatTimelineConversationKey
+    let queryId: String
+    let direction: ChatHistoryPageDirection
+    let cursorId: String?
+    let generation: Int
+}
+
+struct ChatRemoteHistoryFinalPage: Equatable {
+    let state: MessageArchivePageEndState
+    let first: String
+    let last: String
+    let count: Int
+}
+
+struct ChatRemoteHistoryCommittedPage: Equatable {
+    let descriptor: ChatRemoteHistoryQueryDescriptor
+    let finalPage: ChatRemoteHistoryFinalPage
+    let persistence: ChatRemoteHistoryCompletionResult
+}
+
+enum ChatRemoteHistoryFinalDisposition: Equatable {
+    case accepted
+    case duplicate
+    case stale
+    case unknown
+}
+
+enum ChatRemoteHistoryTerminalReason: Equatable {
+    case completed
+    case timeout
+    case iqError
+    case disconnected
+    case persistenceFailed
+    case cancelled
+    case superseded
+}
+
+struct ChatRemoteHistoryPersistenceBarrierError: LocalizedError {
+    let failedRows: Int
+
+    var errorDescription: String? {
+        "Remote MAM page persistence failed for \(failedRows) row(s)"
+    }
+}
+
+/// Owns final-IQ idempotency and the persist-before-resolve barrier for one
+/// controller's generation-scoped remote history requests. The persistence
+/// closure always starts on `workerQueue`; delivery is revalidated immediately
+/// before it reaches `callbackQueue`, so disappearance/supersession can cancel
+/// a result that was already prepared but not yet consumed by UI.
+final class ChatRemoteHistoryQueryCoordinator {
+    static let terminalTombstoneLimit = 64
+
+    typealias PersistenceBarrier = (
+        _ page: ChatRemoteHistoryFinalPage,
+        _ completion: @escaping (Result<ChatRemoteHistoryCompletionResult, Error>) -> Void
+    ) -> Void
+
+    private enum State {
+        case awaitingFinal
+        case persisting(UUID)
+        case ready(UUID, terminalReason: ChatRemoteHistoryTerminalReason)
+        case terminal(ChatRemoteHistoryTerminalReason)
+    }
+
+    private struct ScheduledTimeout {
+        let token: UUID
+        let workItem: DispatchWorkItem
+    }
+
+    private struct Entry {
+        let descriptor: ChatRemoteHistoryQueryDescriptor
+        let persistenceBarrier: PersistenceBarrier
+        var state: State
+        var scheduledTimeout: ScheduledTimeout?
+        var persistenceCleanup: (() -> Void)?
+    }
+
+    private let lock = NSLock()
+    private let workerQueue: DispatchQueue
+    private let callbackQueue: DispatchQueue
+    private var entriesByQueryId: [String: Entry] = [:]
+    private var terminalQueryIds: [String] = []
+
+    init(
+        workerQueue: DispatchQueue = DispatchQueue(
+            label: "com.xabber.chat.remote-history.persistence",
+            qos: .userInitiated,
+            autoreleaseFrequency: .workItem
+        ),
+        callbackQueue: DispatchQueue = .main
+    ) {
+        self.workerQueue = workerQueue
+        self.callbackQueue = callbackQueue
+    }
+
+    @discardableResult
+    func register(
+        _ descriptor: ChatRemoteHistoryQueryDescriptor,
+        persistenceCleanup: @escaping () -> Void = {},
+        persistenceBarrier: @escaping PersistenceBarrier
+    ) -> Bool {
+        guard descriptor.queryId.isNotEmpty else {
+            return false
+        }
+
+        lock.lock()
+        defer { lock.unlock() }
+        if let entry = entriesByQueryId[descriptor.queryId] {
+            switch entry.state {
+            case .awaitingFinal, .persisting, .ready:
+                return false
+            case .terminal:
+                terminalQueryIds.removeAll { $0 == descriptor.queryId }
+                break
+            }
+        }
+        entriesByQueryId[descriptor.queryId] = Entry(
+            descriptor: descriptor,
+            persistenceBarrier: persistenceBarrier,
+            state: .awaitingFinal,
+            scheduledTimeout: nil,
+            persistenceCleanup: persistenceCleanup
+        )
+        return true
+    }
+
+    @discardableResult
+    func receiveFinal(
+        queryId: String,
+        generation: Int,
+        page: ChatRemoteHistoryFinalPage,
+        completion: @escaping (Result<ChatRemoteHistoryCommittedPage, Error>) -> Void
+    ) -> ChatRemoteHistoryFinalDisposition {
+        let token = UUID()
+        let descriptor: ChatRemoteHistoryQueryDescriptor
+        let persistenceBarrier: PersistenceBarrier
+
+        lock.lock()
+        guard var entry = entriesByQueryId[queryId] else {
+            lock.unlock()
+            return .unknown
+        }
+        guard entry.descriptor.generation == generation else {
+            lock.unlock()
+            return .stale
+        }
+        switch entry.state {
+        case .awaitingFinal:
+            descriptor = entry.descriptor
+            persistenceBarrier = entry.persistenceBarrier
+            entry.scheduledTimeout?.workItem.cancel()
+            entry.scheduledTimeout = nil
+            entry.state = .persisting(token)
+            entriesByQueryId[queryId] = entry
+            lock.unlock()
+        case .persisting, .ready:
+            lock.unlock()
+            return .duplicate
+        case .terminal(let reason):
+            lock.unlock()
+            return reason == .completed ? .duplicate : .stale
+        }
+
+        workerQueue.async { [weak self] in
+            persistenceBarrier(page) { result in
+                self?.prepareDelivery(
+                    result,
+                    descriptor: descriptor,
+                    page: page,
+                    token: token,
+                    completion: completion
+                )
+            }
+        }
+        return .accepted
+    }
+
+    @discardableResult
+    func terminate(
+        queryId: String,
+        generation: Int,
+        reason: ChatRemoteHistoryTerminalReason
+    ) -> Bool {
+        guard reason != .completed else {
+            return false
+        }
+
+        let cleanup: (() -> Void)?
+        lock.lock()
+        guard var entry = entriesByQueryId[queryId],
+              entry.descriptor.generation == generation else {
+            lock.unlock()
+            return false
+        }
+        switch entry.state {
+        case .awaitingFinal, .persisting, .ready:
+            entry.scheduledTimeout?.workItem.cancel()
+            entry.scheduledTimeout = nil
+            cleanup = entry.persistenceCleanup
+            entry.persistenceCleanup = nil
+            entry.state = .terminal(reason)
+            entriesByQueryId[queryId] = entry
+            recordTerminalQueryLocked(queryId)
+            lock.unlock()
+            cleanup?()
+            return true
+        case .terminal:
+            lock.unlock()
+            return false
+        }
+    }
+
+    func remove(queryId: String) {
+        lock.lock()
+        let entry = entriesByQueryId.removeValue(forKey: queryId)
+        terminalQueryIds.removeAll { $0 == queryId }
+        lock.unlock()
+        entry?.scheduledTimeout?.workItem.cancel()
+        entry?.persistenceCleanup?()
+    }
+
+    func cancelAll(reason: ChatRemoteHistoryTerminalReason = .cancelled) {
+        var cleanups: [() -> Void] = []
+        lock.lock()
+        for queryId in Array(entriesByQueryId.keys) {
+            guard var entry = entriesByQueryId[queryId] else {
+                continue
+            }
+            entry.scheduledTimeout?.workItem.cancel()
+            entry.scheduledTimeout = nil
+            if let cleanup = entry.persistenceCleanup {
+                cleanups.append(cleanup)
+                entry.persistenceCleanup = nil
+            }
+            switch entry.state {
+            case .terminal:
+                entriesByQueryId[queryId] = entry
+                break
+            case .awaitingFinal, .persisting, .ready:
+                entry.state = .terminal(reason)
+                entriesByQueryId[queryId] = entry
+                recordTerminalQueryLocked(queryId)
+            }
+        }
+        lock.unlock()
+        cleanups.forEach { $0() }
+    }
+
+    var trackedQueryCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return entriesByQueryId.count
+    }
+
+    @discardableResult
+    func scheduleTimeout(
+        queryId: String,
+        generation: Int,
+        after interval: TimeInterval,
+        terminalReason: ChatRemoteHistoryTerminalReason,
+        onTimeout: @escaping () -> Void
+    ) -> Bool {
+        guard interval >= 0,
+              terminalReason != .completed else {
+            return false
+        }
+
+        let token = UUID()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard self?.fireTimeout(
+                queryId: queryId,
+                generation: generation,
+                token: token,
+                terminalReason: terminalReason
+            ) == true else {
+                return
+            }
+            onTimeout()
+        }
+
+        lock.lock()
+        guard var entry = entriesByQueryId[queryId],
+              entry.descriptor.generation == generation,
+              case .awaitingFinal = entry.state else {
+            lock.unlock()
+            return false
+        }
+        entry.scheduledTimeout?.workItem.cancel()
+        entry.scheduledTimeout = ScheduledTimeout(token: token, workItem: workItem)
+        entriesByQueryId[queryId] = entry
+        lock.unlock()
+
+        callbackQueue.asyncAfter(deadline: .now() + interval, execute: workItem)
+        return true
+    }
+
+    @discardableResult
+    func cancelTimeout(queryId: String) -> Bool {
+        lock.lock()
+        guard var entry = entriesByQueryId[queryId],
+              let scheduledTimeout = entry.scheduledTimeout else {
+            lock.unlock()
+            return false
+        }
+        entry.scheduledTimeout = nil
+        entriesByQueryId[queryId] = entry
+        lock.unlock()
+        scheduledTimeout.workItem.cancel()
+        return true
+    }
+
+    func cancelAllTimeouts() {
+        var workItems: [DispatchWorkItem] = []
+        lock.lock()
+        for queryId in Array(entriesByQueryId.keys) {
+            guard var entry = entriesByQueryId[queryId],
+                  let scheduledTimeout = entry.scheduledTimeout else {
+                continue
+            }
+            workItems.append(scheduledTimeout.workItem)
+            entry.scheduledTimeout = nil
+            entriesByQueryId[queryId] = entry
+        }
+        lock.unlock()
+        workItems.forEach { $0.cancel() }
+    }
+
+    func hasScheduledTimeout(queryId: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return entriesByQueryId[queryId]?.scheduledTimeout != nil
+    }
+
+    func terminalReason(queryId: String) -> ChatRemoteHistoryTerminalReason? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let entry = entriesByQueryId[queryId] else {
+            return nil
+        }
+        if case .terminal(let reason) = entry.state {
+            return reason
+        }
+        return nil
+    }
+
+    /// Classifies a final IQ that no longer has the controller context which
+    /// originally armed it. Such a query must never fall through to another
+    /// chat/search completion path after supersession or disappearance.
+    func classifyUnhandledFinal(queryId: String) -> ChatRemoteHistoryFinalDisposition {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let entry = entriesByQueryId[queryId] else {
+            return .unknown
+        }
+        switch entry.state {
+        case .terminal(.completed):
+            return .duplicate
+        case .terminal, .awaitingFinal, .persisting, .ready:
+            return .stale
+        }
+    }
+
+    private func prepareDelivery(
+        _ result: Result<ChatRemoteHistoryCompletionResult, Error>,
+        descriptor: ChatRemoteHistoryQueryDescriptor,
+        page: ChatRemoteHistoryFinalPage,
+        token: UUID,
+        completion: @escaping (Result<ChatRemoteHistoryCommittedPage, Error>) -> Void
+    ) {
+        let terminalReason: ChatRemoteHistoryTerminalReason
+        let delivery: Result<ChatRemoteHistoryCommittedPage, Error>
+        switch result {
+        case .success(let persistence):
+            terminalReason = .completed
+            delivery = .success(ChatRemoteHistoryCommittedPage(
+                descriptor: descriptor,
+                finalPage: page,
+                persistence: persistence
+            ))
+        case .failure(let error):
+            terminalReason = .persistenceFailed
+            delivery = .failure(error)
+        }
+
+        lock.lock()
+        guard var entry = entriesByQueryId[descriptor.queryId],
+              entry.descriptor == descriptor,
+              case .persisting(let activeToken) = entry.state,
+              activeToken == token else {
+            lock.unlock()
+            return
+        }
+        entry.state = .ready(token, terminalReason: terminalReason)
+        entriesByQueryId[descriptor.queryId] = entry
+        lock.unlock()
+
+        callbackQueue.async { [weak self] in
+            guard let self,
+                  self.consumeReadyDelivery(
+                    queryId: descriptor.queryId,
+                    descriptor: descriptor,
+                    token: token,
+                    terminalReason: terminalReason
+                  ) else {
+                return
+            }
+            completion(delivery)
+        }
+    }
+
+    private func consumeReadyDelivery(
+        queryId: String,
+        descriptor: ChatRemoteHistoryQueryDescriptor,
+        token: UUID,
+        terminalReason: ChatRemoteHistoryTerminalReason
+    ) -> Bool {
+        let cleanup: (() -> Void)?
+        lock.lock()
+        guard var entry = entriesByQueryId[queryId],
+              entry.descriptor == descriptor,
+              case .ready(let activeToken, let activeReason) = entry.state,
+              activeToken == token,
+              activeReason == terminalReason else {
+            lock.unlock()
+            return false
+        }
+        entry.scheduledTimeout?.workItem.cancel()
+        entry.scheduledTimeout = nil
+        cleanup = entry.persistenceCleanup
+        entry.persistenceCleanup = nil
+        entry.state = .terminal(terminalReason)
+        entriesByQueryId[queryId] = entry
+        recordTerminalQueryLocked(queryId)
+        lock.unlock()
+        cleanup?()
+        return true
+    }
+
+    private func fireTimeout(
+        queryId: String,
+        generation: Int,
+        token: UUID,
+        terminalReason: ChatRemoteHistoryTerminalReason
+    ) -> Bool {
+        let cleanup: (() -> Void)?
+        lock.lock()
+        guard var entry = entriesByQueryId[queryId],
+              entry.descriptor.generation == generation,
+              case .awaitingFinal = entry.state,
+              entry.scheduledTimeout?.token == token else {
+            lock.unlock()
+            return false
+        }
+        entry.scheduledTimeout = nil
+        cleanup = entry.persistenceCleanup
+        entry.persistenceCleanup = nil
+        entry.state = .terminal(terminalReason)
+        entriesByQueryId[queryId] = entry
+        recordTerminalQueryLocked(queryId)
+        lock.unlock()
+        cleanup?()
+        return true
+    }
+
+    private func recordTerminalQueryLocked(_ queryId: String) {
+        terminalQueryIds.removeAll { $0 == queryId }
+        terminalQueryIds.append(queryId)
+
+        while terminalQueryIds.count > Self.terminalTombstoneLimit {
+            let expiredQueryId = terminalQueryIds.removeFirst()
+            guard let entry = entriesByQueryId[expiredQueryId],
+                  case .terminal = entry.state else {
+                continue
+            }
+            entriesByQueryId.removeValue(forKey: expiredQueryId)
+        }
+    }
+}
+
+enum ChatBoundaryLoadingPresentationPolicy {
+    static let usesTimelineRow = false
+
+    static func geometryDelta(
+        messageRowCount: Int,
+        contentHeight: CGFloat
+    ) -> CGSize {
+        .zero
+    }
+}
+
 enum ChatRemoteHistoryCompletionCoordinator {
     private final class PersistenceSource {
         weak var manager: MessageManager?
@@ -3157,6 +3650,12 @@ enum ChatRemoteHistoryCompletionCoordinator {
 
     private static let persistenceSourcesLock = NSLock()
     private static var persistenceSourcesByKey: [String: PersistenceSource] = [:]
+    private static let persistenceBarrierQueue = DispatchQueue(
+        label: "com.xabber.chat.remote-history.persistence-barrier",
+        qos: .userInitiated,
+        attributes: .concurrent,
+        autoreleaseFrequency: .workItem
+    )
 
     private static func persistenceSourceKey(owner: String, queryId: String) -> String {
         "\(owner)\u{1F}remote-history\u{1F}\(queryId)"
@@ -3196,7 +3695,7 @@ enum ChatRemoteHistoryCompletionCoordinator {
             ("queryId", queryId),
             ("manager", source.map { ObjectIdentifier($0).hashValue } ?? 0)
         ])
-        source?.clearArchivePersistenceSummary(forQueryId: queryId)
+        source?.clearArchivePersistenceSummaryWithoutWaiting(forQueryId: queryId)
     }
 
     private static func registeredPersistenceSource(owner: String, queryId: String) -> MessageManager? {
@@ -3317,6 +3816,25 @@ enum ChatRemoteHistoryCompletionCoordinator {
             flushedMessageCount: persistenceSummary.persistedRows,
             persistenceSummary: persistenceSummary
         )
+    }
+
+    static func flushQueryMessagesAsync(
+        owner: String,
+        queryId: String,
+        state: MessageArchivePageEndState,
+        conversationJid: String? = nil,
+        conversationType: ClientSynchronizationManager.ConversationType? = nil,
+        completion: @escaping (ChatRemoteHistoryCompletionResult) -> Void
+    ) {
+        persistenceBarrierQueue.async {
+            completion(flushQueryMessages(
+                owner: owner,
+                queryId: queryId,
+                state: state,
+                conversationJid: conversationJid,
+                conversationType: conversationType
+            ))
+        }
     }
 }
 
@@ -7740,9 +8258,10 @@ extension ChatViewController {
         let persistedRowsForQuery = self.initialBootstrapPersistedRowsForQuery ?? 0
         let hasMessages = visibleRowsForLatestPage > 0 || persistedRowsForQuery > 0
         let didConfirmEmpty = self.initialBootstrapResultCount == 0
-        let isMessagePipelineIdle = queryId.flatMap {
-            !ChatRemoteHistoryCompletionCoordinator.hasPendingMessages(owner: self.owner, queryId: $0)
-        } ?? true
+        // `didReceiveInitialBootstrapEndPage` is set only after the async
+        // query-scoped persistence barrier has completed. Do not synchronously
+        // poll MessageManager's queue from the main-thread completion path.
+        let isMessagePipelineIdle = self.didReceiveInitialBootstrapEndPage
         let isArchivePagePersisted = visibleRowsForLatestPage > 0 || persistedRowsForQuery > 0
 
         let requiresObserverSettle = visibleRowsForLatestPage > 0
@@ -8091,6 +8610,12 @@ extension ChatViewController {
                 return
             }
 
+            _ = self.remoteHistoryQueryCoordinator.terminate(
+                queryId: queryId,
+                generation: context.generation,
+                reason: self.remoteHistoryTerminalReason(for: reason)
+            )
+
             if reason == .timeout {
                 let startedAt = self.remoteHistoryRequestStartedAtByQueryId[queryId]
                 ChatArchiveDebugTrace.log("interactiveRemoteArchiveTimeout", [
@@ -8189,18 +8714,26 @@ extension ChatViewController {
         let context = self.interactiveHistoryPageLoadContext
         let hadBoundaryPlaceholder = self.activeHistoryBoundaryPlaceholder != nil
         let hadVirtualPlaceholder = self.virtualTimelineState.activePlaceholder != nil
-        let direction = context?.direction ?? self.virtualTimelineState.activeRemoteLoad?.direction
-        let anchor = direction.flatMap { self.capturePagingAnchorIfNeeded(direction: $0) }
-        let applyPlan = direction.map {
-            ChatHistoryPageApplyPolicy.plan(
-                direction: $0,
-                hasCapturedAnchor: anchor != nil
+        if let context,
+           queryId == nil || queryId == context.queryId {
+            _ = self.remoteHistoryQueryCoordinator.terminate(
+                queryId: context.queryId,
+                generation: context.generation,
+                reason: self.remoteHistoryTerminalReason(for: reason)
             )
         }
         if let queryId {
             self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
             self.abortedRemoteHistoryQueryIds.insert(queryId)
-            _ = self.timelineSession?.abortRemoteLoad(queryId: queryId)
+            if let timelineSession = self.timelineSession {
+                _ = timelineSession.abortRemoteLoad(queryId: queryId)
+            } else {
+                let abortedState = self.virtualTimelineState.abortingRemoteLoad(queryId: queryId)
+                self.virtualTimelineState = abortedState
+                self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(
+                    virtualState: abortedState
+                )
+            }
             self.refreshScrollBoundaryAvailabilityCache(reason: "remoteLoadAbort")
         }
         self.cancelInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
@@ -8222,23 +8755,20 @@ extension ChatViewController {
             ("activeRemoteLoadCleared", self.virtualTimelineState.activeRemoteLoad == nil),
             ("coverageCommitted", false)
         ])
-        if hadBoundaryPlaceholder || hadVirtualPlaceholder {
-            self.mapAndApplyTimelineCurrent(
-                mode: .windowReload(keepOffset: applyPlan?.keepOffset ?? true),
-                animated: false,
-                invalidateLayout: false,
-                preserveBoundaryPlaceholder: false,
-                applyCategory: applyPlan?.applyCategory ?? .default,
-                anchorRestorePhase: applyPlan?.restorePhase ?? .none,
-                anchorPrimary: anchor?.primary,
-                restoreAnchor: anchor,
-                completion: {
-                    if applyPlan?.restorePhase == .completion,
-                       let anchor {
-                        self.restorePagingAnchor(anchor)
-                    }
-                }
-            )
+    }
+
+    private func remoteHistoryTerminalReason(
+        for reason: MessageArchiveRequestFailureReason
+    ) -> ChatRemoteHistoryTerminalReason {
+        switch reason {
+        case .timeout:
+            return .timeout
+        case .uiActionDisconnect:
+            return .disconnected
+        case .serverError:
+            return .iqError
+        case .requestStartFailed:
+            return .cancelled
         }
     }
 
@@ -8282,38 +8812,11 @@ extension ChatViewController {
             keepOffset: applyPlan.keepOffset
         )
         let applyAnimated = applyPlan.applyCategory == .olderAnchorReload ? false : animated
-        let hadBoundaryPlaceholder = self.activeHistoryBoundaryPlaceholder != nil
         self.activeHistoryBoundaryPlaceholder = nil
 
         guard shouldApplyWindow else {
-            guard hadBoundaryPlaceholder else {
-                self.endHistoryLoadingUI(unlockPage: false)
-                self.timelineInteractionState.unlock()
-                return
-            }
-
-            self.mapAndApplyTimelineCurrent(
-                mode: applyMode,
-                animated: false,
-                invalidateLayout: false,
-                preserveBoundaryPlaceholder: false,
-                applyCategory: applyPlan.applyCategory,
-                anchorRestorePhase: applyPlan.restorePhase,
-                anchorPrimary: anchor?.primary,
-                restoreAnchor: anchor,
-                completion: {
-                    if applyPlan.restorePhase == .completion,
-                       let anchor {
-                        self.restorePagingAnchor(anchor)
-                    }
-                    self.endHistoryLoadingUI(unlockPage: false)
-                    self.timelineInteractionState.unlock()
-                },
-                cancelledCompletion: {
-                    self.endHistoryLoadingUI(unlockPage: false)
-                    self.timelineInteractionState.unlock()
-                }
-            )
+            self.endHistoryLoadingUI(unlockPage: false)
+            self.timelineInteractionState.unlock()
             return
         }
 
@@ -8442,10 +8945,9 @@ extension ChatViewController {
             currentNewerLiveEdgeReached: currentArchiveState.newerLiveEdgeReached
         )
         let hasProviderVisibleRows = context.visibleRowsForConversation > 0
-        let isMessagePipelineIdle = !ChatRemoteHistoryCompletionCoordinator.hasPendingMessages(
-            owner: self.owner,
-            queryId: context.queryId
-        )
+        // The typed final is delivered here only after its persistence barrier.
+        // Treat that committed result as the proof instead of queue.sync polling.
+        let isMessagePipelineIdle = context.didReceiveEndPage
         let requiresObserverSettle = (context.persistedMessageCount ?? 0) > 0
         let persistenceReady = isMessagePipelineIdle || context.isArchivePagePersisted
 
@@ -8543,6 +9045,7 @@ extension ChatViewController {
                 self.endHistoryLoadingUI(unlockPage: false)
                 self.timelineInteractionState.unlock()
                 self.remoteHistoryFinishingQueryId = nil
+                self.remoteHistoryQueryCoordinator.remove(queryId: context.queryId)
                 DDLogDebug(
                     "ChatViewController.remoteHistoryApplySuccess queryId=\(context.queryId) direction=\(context.direction) didAdvance=\(applyResult.didAdvance) persistedRowsForQuery=\(context.persistedRowsForQuery) visibleRows=\(context.visibleRowsForConversation) persisted=\(context.persistedMessageCount ?? 0) items=\(applyResult.itemCount) oldOldest=\(applyResult.previousOldestArchivedId ?? "-") newOldest=\(applyResult.newOldestArchivedId ?? "-") oldNewest=\(applyResult.previousNewestArchivedId ?? "-") newNewest=\(applyResult.newNewestArchivedId ?? "-") queueWaitMs=\(applyResult.queueWaitMs) mapMs=\(applyResult.mapDurationMs)"
                 )
@@ -8553,6 +9056,7 @@ extension ChatViewController {
                     conversationKey: remoteApplyConversationKey
                 )
                 self.remoteHistoryFinishingQueryId = nil
+                self.remoteHistoryQueryCoordinator.remove(queryId: context.queryId)
                 self.endHistoryLoadingUI(unlockPage: false)
                 self.timelineInteractionState.unlock()
             }
@@ -8818,7 +9322,6 @@ extension ChatViewController {
         let generation = self.datasetMappingGeneration
         let committedSnapshot = session.commit(snapshot)
         let frozenItems = committedSnapshot.items
-        let nextVirtualState = committedSnapshot.state
         let mappingContext = self.captureDatasourceMappingContext()
 
         self.datasetMappingQueue.async {
@@ -8921,116 +9424,16 @@ extension ChatViewController {
         to datasource: [Datasource],
         position: ChatHistoryBoundaryPlaceholderPosition
     ) -> [Datasource] {
-        guard !self.showSkeletonObserver.value else {
-            return datasource
-        }
-
-        let placeholder = self.historyBoundaryPlaceholderDatasource(
-            position: position,
-            relativeTo: datasource
-        )
-        switch position {
-        case .top:
-            return [placeholder] + datasource
-        case .bottom:
-            return datasource + [placeholder]
-        }
-    }
-
-    private func historyBoundaryPlaceholderDatasource(
-        position: ChatHistoryBoundaryPlaceholderPosition,
-        relativeTo datasource: [Datasource]
-    ) -> Datasource {
-        let primary = "history-boundary-placeholder-\(position)"
-        let message = self.skeletonMessages.first ?? NSAttributedString(string: "")
-        let neighborDate: Date? = {
-            switch position {
-            case .top:
-                return datasource.first(where: { !$0.isFakeMessage })?.sentDate
-            case .bottom:
-                return datasource.last(where: { !$0.isFakeMessage })?.sentDate
-            }
-        }()
-        let sentDate: Date
-        switch position {
-        case .top:
-            sentDate = neighborDate?.addingTimeInterval(-1) ?? Date()
-        case .bottom:
-            sentDate = neighborDate?.addingTimeInterval(1) ?? Date()
-        }
-
-        return Datasource(
-            primary: primary,
-            jid: self.jid,
-            owner: self.owner,
-            outgoing: false,
-            sender: self.opponentSender,
-            messageId: primary,
-            sentDate: sentDate,
-            editDate: nil,
-            kind: .skeleton(message),
-            withAuthor: false,
-            withAvatar: false,
-            error: false,
-            errorType: "",
-            canPinMessage: false,
-            canEditMessage: false,
-            canDeleteMessage: false,
-            forwards: [],
-            isOutgoing: false,
-            isEdited: false,
-            groupchatAuthorRole: "",
-            groupchatAuthorId: "",
-            groupchatAuthorNickname: "",
-            groupchatAuthorBadge: "",
-            isHasAttachedMessages: false,
-            isDownloaded: true,
-            state: .none,
-            searchString: nil,
-            errorMetadata: nil,
-            burnDate: -1,
-            afterburnInterval: -1,
-            archivedId: primary,
-            queryIds: nil,
-            isRead: true,
-            selectedSearchResultId: nil,
-            isHadHistoryGap: false,
-            isFakeMessage: true,
-            images: [],
-            videos: [],
-            files: [],
-            audios: [],
-            timeMarkerText: NSAttributedString(),
-            indicator: .none,
-            avatarUrl: nil
-        )
+        _ = position
+        return datasource
     }
 
     internal func showHistoryBoundaryPlaceholder(
         direction: ChatHistoryPageDirection,
         currentWindow: ChatDatasetWindow
     ) {
-        let anchor = self.capturePagingAnchorIfNeeded(direction: direction)
-        let applyPlan = ChatHistoryPageApplyPolicy.plan(
-            direction: direction,
-            hasCapturedAnchor: anchor != nil
-        )
+        _ = currentWindow
         self.activeHistoryBoundaryPlaceholder = direction == .older ? .top : .bottom
-        self.mapAndApplyTimelineCurrent(
-            mode: .windowReload(keepOffset: applyPlan.keepOffset),
-            animated: false,
-            invalidateLayout: false,
-            applyCategory: applyPlan.applyCategory,
-            anchorRestorePhase: applyPlan.restorePhase,
-            anchorPrimary: anchor?.primary,
-            restoreAnchor: anchor,
-            completion: {
-                if applyPlan.restorePhase == .completion,
-                   let anchor {
-                    self.restorePagingAnchor(anchor)
-                }
-            }
-        )
     }
 
     internal var isShowingBootstrapPlaceholder: Bool {
@@ -10740,6 +11143,7 @@ extension ChatViewController {
         }
         self.remoteHistoryFailureDispatcherTokens.removeAll()
         self.abortedRemoteHistoryQueryIds.removeAll()
+        self.remoteHistoryQueryCoordinator.cancelAll(reason: .cancelled)
         self.cancelInitialBootstrapTimeout()
         self.cancelInteractiveRemoteArchiveRequestStartWatchdog()
         self.cancelInteractiveRemoteArchiveTimeout()
@@ -10772,16 +11176,25 @@ extension ChatViewController {
     }
 
     internal func scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: String) {
-        guard queryId.isNotEmpty else {
+        guard queryId.isNotEmpty,
+              let context = self.interactiveHistoryPageLoadContext,
+              context.queryId == queryId else {
             return
         }
 
         self.cancelInteractiveRemoteArchiveRequestStartWatchdog()
-        let workItem = DispatchWorkItem { [weak self] in
+        let didSchedule = self.remoteHistoryQueryCoordinator.scheduleTimeout(
+            queryId: queryId,
+            generation: context.generation,
+            after: ChatInteractiveRemoteArchiveTimeoutPolicy.requestStartTimeout,
+            terminalReason: .cancelled
+        ) { [weak self] in
             self?.handleInteractiveRemoteArchiveRequestStartTimeout(queryId: queryId)
         }
-        self.interactiveRemoteArchiveRequestStartWorkItem = workItem
-        self.interactiveRemoteArchiveRequestStartQueryId = queryId
+        guard didSchedule else {
+            assertionFailure("Unable to schedule request-start timeout for \(queryId)")
+            return
+        }
         ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestStartWatchdogScheduled", [
             ("owner", self.owner),
             ("jid", self.jid),
@@ -10791,15 +11204,10 @@ extension ChatViewController {
             ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
             ("interactiveQueryId", self.interactiveHistoryPageLoadContext?.queryId ?? "-")
         ])
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + ChatInteractiveRemoteArchiveTimeoutPolicy.requestStartTimeout,
-            execute: workItem
-        )
     }
 
     internal func cancelInteractiveRemoteArchiveRequestStartWatchdog(queryId: String? = nil) {
-        guard let activeQueryId = self.interactiveRemoteArchiveRequestStartQueryId,
-              self.interactiveRemoteArchiveRequestStartWorkItem != nil else {
+        guard let activeQueryId = self.interactiveHistoryPageLoadContext?.queryId else {
             return
         }
 
@@ -10817,9 +11225,9 @@ extension ChatViewController {
             return
         }
 
-        self.interactiveRemoteArchiveRequestStartWorkItem?.cancel()
-        self.interactiveRemoteArchiveRequestStartWorkItem = nil
-        self.interactiveRemoteArchiveRequestStartQueryId = nil
+        guard self.remoteHistoryQueryCoordinator.cancelTimeout(queryId: activeQueryId) else {
+            return
+        }
         ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestStartWatchdogCancelled", [
             ("owner", self.owner),
             ("jid", self.jid),
@@ -10894,10 +11302,27 @@ extension ChatViewController {
             return false
         }
 
+        self.cancelInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
+        let didScheduleTimeout = self.remoteHistoryQueryCoordinator.scheduleTimeout(
+            queryId: queryId,
+            generation: context.generation,
+            after: ChatInteractiveRemoteArchiveTimeoutPolicy.timeout,
+            terminalReason: .timeout
+        ) { [weak self] in
+            self?.handleInteractiveRemoteArchiveFailure(
+                queryId: queryId,
+                reason: .timeout,
+                streamKind: streamKind,
+                errorDescription: nil
+            )
+        }
+        guard didScheduleTimeout else {
+            assertionFailure("Unable to schedule response timeout for \(queryId)")
+            return false
+        }
+
         context.remoteFetchStarted = true
         self.interactiveHistoryPageLoadContext = context
-        self.cancelInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
-        self.cancelInteractiveRemoteArchiveTimeout(queryId: queryId)
         let startedAt = Date()
         self.remoteHistoryRequestStartedAtByQueryId[queryId] = startedAt
         ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestStart", [
@@ -10919,19 +11344,6 @@ extension ChatViewController {
             ("bootstrapActive", bootstrapActive),
             ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count)
         ])
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.handleInteractiveRemoteArchiveFailure(
-                queryId: queryId,
-                reason: .timeout,
-                streamKind: streamKind,
-                errorDescription: nil
-            )
-        }
-        self.interactiveRemoteArchiveTimeoutWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + ChatInteractiveRemoteArchiveTimeoutPolicy.timeout,
-            execute: workItem
-        )
         return true
     }
 
@@ -10948,11 +11360,11 @@ extension ChatViewController {
     internal func cancelInteractiveRemoteArchiveTimeout(queryId: String? = nil) {
         if let queryId {
             self.remoteHistoryRequestStartedAtByQueryId.removeValue(forKey: queryId)
+            _ = self.remoteHistoryQueryCoordinator.cancelTimeout(queryId: queryId)
         } else {
             self.remoteHistoryRequestStartedAtByQueryId.removeAll()
+            self.remoteHistoryQueryCoordinator.cancelAllTimeouts()
         }
-        self.interactiveRemoteArchiveTimeoutWorkItem?.cancel()
-        self.interactiveRemoteArchiveTimeoutWorkItem = nil
     }
 
     private func finishVirtualTimelineRemoteLoad(
@@ -11326,6 +11738,54 @@ extension ChatViewController {
             shortLocalRemainderRemoteFirst: shortLocalRemainderRemoteFirst,
             queryId: queryId
         )
+        guard let context = self.interactiveHistoryPageLoadContext,
+              context.queryId == queryId else {
+            assertionFailure("Remote MAM request must have a typed context before arming")
+            self.timelineInteractionState.unlock()
+            return
+        }
+        self.remoteHistoryQueryCoordinator.cancelAll(reason: .superseded)
+        let descriptor = ChatRemoteHistoryQueryDescriptor(
+            conversationKey: self.chatTimelineConversationKey,
+            queryId: queryId,
+            direction: direction,
+            cursorId: context.requestedCursorId,
+            generation: context.generation
+        )
+        let owner = self.owner
+        let jid = self.jid
+        let conversationType = self.conversationType
+        let didRegister = self.remoteHistoryQueryCoordinator.register(
+            descriptor,
+            persistenceCleanup: {
+                ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+                    owner: owner,
+                    queryId: queryId
+                )
+            }
+        ) { page, completion in
+            let result = ChatRemoteHistoryCompletionCoordinator.flushQueryMessages(
+                owner: owner,
+                queryId: queryId,
+                state: page.state,
+                conversationJid: jid,
+                conversationType: conversationType
+            )
+            if result.persistenceSummary.failed > 0,
+               result.persistenceSummary.persistedRows == 0,
+               result.persistenceSummary.received > 0 {
+                completion(.failure(ChatRemoteHistoryPersistenceBarrierError(
+                    failedRows: result.persistenceSummary.failed
+                )))
+            } else {
+                completion(.success(result))
+            }
+        }
+        guard didRegister else {
+            assertionFailure("Duplicate remote MAM query registration: \(queryId)")
+            self.timelineInteractionState.unlock()
+            return
+        }
         self.timelineInteractionState.locked = true
     }
 
@@ -11539,6 +11999,7 @@ extension ChatViewController {
             )
             self.interactiveHistoryPageLoadContext = ChatInteractiveHistoryPageLoadContext(
                 queryId: queryId,
+                generation: Int(self.timelineSession?.snapshot.generation ?? 0),
                 direction: direction,
                 chatPrimaryKey: chatArchiveState.primaryKey,
                 persistedCursorId: chatArchiveState.persistedCursorId,
@@ -11568,7 +12029,7 @@ extension ChatViewController {
             self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 
             let requestRemoteHistory: (XMPPStream, MessageArchiveManager, @escaping () -> Void) -> String = { stream, mam, finish in
-                mam.getNextHistory(
+                mam.requestOlderHistoryPage(
                     stream,
                     for: self.jid,
                     conversationType: self.conversationType,
@@ -11621,6 +12082,7 @@ extension ChatViewController {
             )
             self.interactiveHistoryPageLoadContext = ChatInteractiveHistoryPageLoadContext(
                 queryId: queryId,
+                generation: Int(self.timelineSession?.snapshot.generation ?? 0),
                 direction: direction,
                 chatPrimaryKey: chatArchiveState.primaryKey,
                 persistedCursorId: chatArchiveState.newestCursorId,
@@ -11647,7 +12109,7 @@ extension ChatViewController {
             self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 
             let requestRemoteHistory: (XMPPStream, MessageArchiveManager, @escaping () -> Void) -> String = { stream, mam, finish in
-                mam.getPrevHistory(
+                mam.requestNewerHistoryPage(
                     stream,
                     for: self.jid,
                     conversationType: self.conversationType,
@@ -11690,6 +12152,7 @@ extension ChatViewController {
             )
             self.interactiveHistoryPageLoadContext = ChatInteractiveHistoryPageLoadContext(
                 queryId: queryId,
+                generation: Int(self.timelineSession?.snapshot.generation ?? 0),
                 direction: direction,
                 chatPrimaryKey: chatArchiveState.primaryKey,
                 persistedCursorId: chatArchiveState.persistedCursorId,
@@ -11760,6 +12223,7 @@ extension ChatViewController {
             )
             self.interactiveHistoryPageLoadContext = ChatInteractiveHistoryPageLoadContext(
                 queryId: queryId,
+                generation: Int(self.timelineSession?.snapshot.generation ?? 0),
                 direction: direction,
                 chatPrimaryKey: chatArchiveState.primaryKey,
                 persistedCursorId: chatArchiveState.newestCursorId,

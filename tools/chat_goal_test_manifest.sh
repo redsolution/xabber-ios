@@ -76,8 +76,13 @@ SELECTORS
     G05B) cat <<'SELECTORS'
 xabberTests/MessageArchiveQueryCallbackTests
 xabberTests/MessageManagerQueueSynchronizationTests
+xabberTests/ChatRemoteMAMPersistenceCoordinatorTests
+xabberTests/ChatArchiveCoverageCommitPolicyTests
+xabberTests/ChatHistoryPagingPolicyTests
+xabberTests/ChatFirstFrameLocalHistoryRegressionTests
 xabberTests/ChatRemoteHistoryApplyPolicyTests
 xabberTests/ChatHistoryLoadingTimeoutPolicyTests
+xabberTests/ChatInteractiveRemoteArchiveAbortTests
 SELECTORS
       ;;
     G06) cat <<'SELECTORS'

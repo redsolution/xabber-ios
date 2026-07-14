@@ -2700,7 +2700,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     @discardableResult
-    internal func getPrevHistory(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String, pageSize: Int? = nil, queryId: String? = nil, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none, deferCoverageCommitUntilConsumerProof: Bool = false) -> String {
+    internal func requestNewerHistoryPage(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String, pageSize: Int? = nil, queryId: String? = nil, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none, deferCoverageCommitUntilConsumerProof: Bool = false) -> String {
         let effectivePageSize = conversationType == .regular
             ? Self.regularArchivePageSize(requested: pageSize, defaultPageSize: self.pageSize)
             : (pageSize ?? self.pageSize)
@@ -2745,7 +2745,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     @discardableResult
-    internal func getNextHistory(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String?, pageSize: Int? = nil, queryId: String? = nil, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none, deferCoverageCommitUntilConsumerProof: Bool = false) -> String {
+    internal func requestOlderHistoryPage(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String?, pageSize: Int? = nil, queryId: String? = nil, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none, deferCoverageCommitUntilConsumerProof: Bool = false) -> String {
         let effectivePageSize = conversationType == .regular
             ? Self.regularArchivePageSize(requested: pageSize, defaultPageSize: self.pageSize)
             : (pageSize ?? self.pageSize)

@@ -13887,7 +13887,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.loadViewIfNeeded()
         controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
         controller.beginInitialBootstrapTracking(queryId: bootstrapQueryId)
-        manager.getNextHistory(
+        manager.requestOlderHistoryPage(
             stream,
             for: jid,
             conversationType: conversationType,
@@ -14681,7 +14681,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertGreaterThan(expectedBottomOffset - controller.messagesCollectionView.contentOffset.y, 100)
     }
 
-    func testNewerBoundaryPlaceholderAppearsWithoutMovingVisibleAnchor() throws {
+    func testNewerBoundaryLoadingOverlayDoesNotAddRowOrMoveVisibleAnchor() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 1_000)
         let controller = makeController()
@@ -14703,19 +14703,22 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
         let lastRealPrimary = try XCTUnwrap(controller.datasource.last(where: { !$0.isFakeMessage })?.primary)
         let beforeViewportY = try viewportY(for: lastRealPrimary, in: controller)
+        let beforeRowCount = controller.datasource.count
+        let beforeContentHeight = controller.messagesCollectionView.contentSize.height
 
         controller.showHistoryBoundaryPlaceholder(
             direction: .newer,
             currentWindow: controller.visibleWindow()
         )
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-        controller.messagesCollectionView.layoutIfNeeded()
 
-        XCTAssertEqual(controller.datasource.last?.archivedId, "history-boundary-placeholder-bottom")
+        XCTAssertEqual(controller.activeHistoryBoundaryPlaceholder, .bottom)
+        XCTAssertEqual(controller.datasource.count, beforeRowCount)
+        XCTAssertEqual(controller.messagesCollectionView.contentSize.height, beforeContentHeight, accuracy: 0.01)
+        XCTAssertEqual(controller.datasource.last?.primary, lastRealPrimary)
         XCTAssertEqual(try viewportY(for: lastRealPrimary, in: controller), beforeViewportY, accuracy: 1.0)
     }
 
-    func testNewerApplyFromBottomPlaceholderAppendsRowsWithoutMovingVisibleAnchor() throws {
+    func testNewerApplyFromBottomOverlayAppendsRowsWithoutMovingVisibleAnchor() throws {
         let controller = makeController()
         controller.ownerSender = Sender(id: owner, displayName: owner)
         controller.opponentSender = Sender(id: jid, displayName: jid)
@@ -14755,7 +14758,9 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.messagesCollectionView.layoutIfNeeded()
 
         XCTAssertTrue(controller.isNearBottom(threshold: 1))
-        XCTAssertEqual(controller.datasource.last?.archivedId, "history-boundary-placeholder-bottom")
+        XCTAssertEqual(controller.datasource.count, initialItems.count)
+        XCTAssertEqual(controller.datasource.last?.primary, initialItems.last?.primary)
+        XCTAssertFalse(controller.datasource.contains(where: \.isFakeMessage))
 
         let anchor = try XCTUnwrap(controller.capturePagingAnchorIfNeeded(direction: .newer))
         let beforeViewportY = try viewportY(for: anchor.primary, in: controller)
@@ -16225,6 +16230,7 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
             queryId: "active-query",
             remoteFetchStarted: false
         )
+        registerCoordinator(for: controller)
 
         controller.markInteractiveRemoteArchiveRequestSent(
             queryId: "active-query",
@@ -16250,6 +16256,7 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
         controller.boundedTimelineWindowState = ChatBoundedTimelineWindowState(
             virtualState: controller.virtualTimelineState
         )
+        registerCoordinator(for: controller)
 
         controller.markInteractiveRemoteArchiveRequestSent(
             queryId: "active-query",
@@ -16271,12 +16278,16 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
 
     func testStaleRequestStartWatchdogCancelDoesNotCancelActiveQuery() {
         let controller = makeController()
+        controller.interactiveHistoryPageLoadContext = makeContext(
+            queryId: "active-query",
+            remoteFetchStarted: false
+        )
+        registerCoordinator(for: controller)
 
         controller.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: "active-query")
         controller.cancelInteractiveRemoteArchiveRequestStartWatchdog(queryId: "stale-query")
 
-        XCTAssertEqual(controller.interactiveRemoteArchiveRequestStartQueryId, "active-query")
-        XCTAssertNotNil(controller.interactiveRemoteArchiveRequestStartWorkItem)
+        XCTAssertTrue(controller.remoteHistoryQueryCoordinator.hasScheduledTimeout(queryId: "active-query"))
         controller.cancelInteractiveRemoteArchiveRequestStartWatchdog(queryId: "active-query")
     }
 
@@ -16316,6 +16327,27 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
         controller.jid = jid
         controller.conversationType = .regular
         return controller
+    }
+
+    private func registerCoordinator(for controller: ChatViewController) {
+        guard let context = controller.interactiveHistoryPageLoadContext else {
+            return XCTFail("Expected interactive history context")
+        }
+        XCTAssertTrue(controller.remoteHistoryQueryCoordinator.register(
+            ChatRemoteHistoryQueryDescriptor(
+                conversationKey: ChatTimelineConversationKey(
+                    owner: controller.owner,
+                    jid: controller.jid,
+                    conversationType: controller.conversationType
+                ),
+                queryId: context.queryId,
+                direction: context.direction,
+                cursorId: context.requestedCursorId,
+                generation: context.generation
+            )
+        ) { _, _ in
+            XCTFail("This timeout ownership test must not enter persistence")
+        })
     }
 
     private func makeContext(
@@ -17677,7 +17709,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             callbackExpectation.fulfill()
         }
 
-        manager.getNextHistory(
+        manager.requestOlderHistoryPage(
             stream,
             for: "romeo@example.com",
             conversationType: .regular,
@@ -17708,7 +17740,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         let stream = CapturingXMPPStream()
         let queryId = "MAM next history: failure-no-handler"
 
-        manager.getNextHistory(
+        manager.requestOlderHistoryPage(
             stream,
             for: "romeo@example.com",
             conversationType: .regular,
@@ -17750,7 +17782,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             endPageExpectation.fulfill()
         }
 
-        manager.getNextHistory(
+        manager.requestOlderHistoryPage(
             stream,
             for: "romeo@example.com",
             conversationType: .regular,
@@ -17794,7 +17826,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         let stream = CapturingXMPPStream()
         let queryId = "MAM next history: stale-final-after-failure"
 
-        manager.getNextHistory(
+        manager.requestOlderHistoryPage(
             stream,
             for: "romeo@example.com",
             conversationType: .regular,
@@ -17837,7 +17869,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             unexpectedExpectation.fulfill()
         }
 
-        manager.getNextHistory(
+        manager.requestOlderHistoryPage(
             stream,
             for: "romeo@example.com",
             conversationType: .regular,
@@ -17923,7 +17955,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             archivePurposeRegisteredAtSend = manager.shouldPersistArchiveQueryId(queryId)
         }
 
-        manager.getNextHistory(
+        manager.requestOlderHistoryPage(
             stream,
             for: "romeo@example.com",
             conversationType: .saved,
@@ -17949,7 +17981,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         var receivedCount: Int?
         let callbackExpectation = expectation(description: "orphan final iq callback")
 
-        requestManager.getNextHistory(
+        requestManager.requestOlderHistoryPage(
             stream,
             for: "romeo@example.com",
             conversationType: .regular,
@@ -18014,7 +18046,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             dispatcherExpectation.fulfill()
         }
 
-        manager.getNextHistory(
+        manager.requestOlderHistoryPage(
             stream,
             for: "romeo@example.com",
             conversationType: .regular,
@@ -18065,7 +18097,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             dispatcherExpectation.fulfill()
         }
 
-        requestManager.getNextHistory(
+        requestManager.requestOlderHistoryPage(
             stream,
             for: "romeo@example.com",
             conversationType: .regular,
@@ -18187,7 +18219,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         manager.currentJid = owner
         manager.mam = archiveManager
 
-        archiveManager.getNextHistory(
+        archiveManager.requestOlderHistoryPage(
             requestStream,
             for: "romeo@example.com",
             conversationType: .regular,
@@ -18238,7 +18270,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             failureExpectation.fulfill()
         }
 
-        archiveManager.getNextHistory(
+        archiveManager.requestOlderHistoryPage(
             requestStream,
             for: "romeo@example.com",
             conversationType: .regular,
@@ -18285,7 +18317,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         var receivedCount: Int?
         let callbackExpectation = expectation(description: "orphan error iq callback")
 
-        requestManager.getNextHistory(
+        requestManager.requestOlderHistoryPage(
             stream,
             for: "romeo@example.com",
             conversationType: .regular,
@@ -18337,7 +18369,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
 
         try insertLastChat(jid: jid)
 
-        manager.getNextHistory(
+        manager.requestOlderHistoryPage(
             stream,
             for: jid,
             conversationType: .regular,
@@ -18622,7 +18654,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
 
     func testGetNextHistoryUsesInjectedPageSize() {
         let manager = MessageArchiveManager(withOwner: owner)
-        let queryId = manager.getNextHistory(
+        let queryId = manager.requestOlderHistoryPage(
             XMPPStream(),
             for: "romeo@example.com",
             conversationType: .regular,
@@ -18635,7 +18667,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
 
     func testGetPrevHistoryUsesInjectedPageSize() {
         let manager = MessageArchiveManager(withOwner: owner)
-        let queryId = manager.getPrevHistory(
+        let queryId = manager.requestNewerHistoryPage(
             XMPPStream(),
             for: "romeo@example.com",
             conversationType: .regular,
@@ -18653,7 +18685,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         var receivedState: MessageArchivePageEndState?
         let callbackExpectation = expectation(description: "matching end-page callback")
 
-        _ = manager.getNextHistory(
+        _ = manager.requestOlderHistoryPage(
             stream,
             for: "romeo@example.com",
             conversationType: .regular,
@@ -18668,7 +18700,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
                 }
             )
         )
-        _ = manager.getNextHistory(
+        _ = manager.requestOlderHistoryPage(
             stream,
             for: "romeo@example.com",
             conversationType: .regular,
@@ -18765,7 +18797,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         var receivedState: MessageArchivePageEndState?
         let callbackExpectation = expectation(description: "eligible completion state")
 
-        _ = manager.getNextHistory(
+        _ = manager.requestOlderHistoryPage(
             stream,
             for: "romeo@example.com",
             conversationType: .regular,
@@ -24432,6 +24464,69 @@ final class ChatArchiveStateMutationPolicyTests: XCTestCase {
 
 final class ChatArchiveCoverageCommitPolicyTests: XCTestCase {
 
+    func testNonEmptyRsmPageWithoutPersistenceProofCannotCommitCoverageInEitherDirection() {
+        let snapshot = ChatArchiveStateSnapshot(
+            primaryKey: "chat-primary",
+            persistedCursorId: "cursor-1",
+            fullArchiveLoaded: false,
+            newestCursorId: "cursor-9",
+            newerLiveEdgeReached: false
+        )
+        let requests: [(ChatHistoryPageDirection, RegularArchiveCoverageUpdateKind)] = [
+            (.older, .pageOlder(cursorArchiveId: "cursor-1")),
+            (.newer, .pageNewer(cursorArchiveId: "cursor-9"))
+        ]
+
+        for (direction, updateKind) in requests {
+            let decision = ChatArchiveCoverageCommitPolicy.resolve(
+                direction: direction,
+                snapshot: snapshot,
+                requestedCursorId: direction == .older ? "cursor-1" : "cursor-9",
+                observedCursorId: direction == .older ? "cursor-1" : "cursor-9",
+                transportFirst: "rsm-first",
+                transportLast: "rsm-last",
+                resultCount: 25,
+                persistedRowsForQuery: 0,
+                visibleRowsForConversation: 0,
+                queryExhausted: true,
+                canMutateOlderArchiveEnd: true,
+                coverageUpdateKind: updateKind
+            )
+
+            XCTAssertFalse(decision.hasPersistenceProof, "direction=\(direction)")
+            XCTAssertFalse(decision.shouldCommitCoverage, "direction=\(direction)")
+            XCTAssertFalse(decision.shouldAdvanceOlderCursor, "direction=\(direction)")
+            XCTAssertFalse(decision.nextFullArchiveLoaded, "direction=\(direction)")
+            XCTAssertFalse(decision.shouldMarkNewerLiveEdgeReached, "direction=\(direction)")
+        }
+    }
+
+    func testPersistedRowsWithoutRsmRangeCannotCommitCoverage() {
+        let snapshot = ChatArchiveStateSnapshot(
+            primaryKey: "chat-primary",
+            persistedCursorId: "cursor-1",
+            fullArchiveLoaded: false
+        )
+
+        let decision = ChatArchiveCoverageCommitPolicy.resolve(
+            direction: .older,
+            snapshot: snapshot,
+            requestedCursorId: "cursor-1",
+            observedCursorId: "cursor-1",
+            transportFirst: "",
+            transportLast: "",
+            resultCount: 25,
+            persistedRowsForQuery: 25,
+            visibleRowsForConversation: 25,
+            queryExhausted: false,
+            canMutateOlderArchiveEnd: true,
+            coverageUpdateKind: .pageOlder(cursorArchiveId: "cursor-1")
+        )
+
+        XCTAssertTrue(decision.hasPersistenceProof)
+        XCTAssertFalse(decision.shouldCommitCoverage)
+    }
+
     func testOffWindowPersistedOlderPageCommitsCoverageAndAdvancesRsmCursor() {
         let snapshot = ChatArchiveStateSnapshot(
             primaryKey: "chat-primary",
@@ -24541,6 +24636,39 @@ final class ChatArchiveCoverageCommitPolicyTests: XCTestCase {
         XCTAssertEqual(decision.resolvedCursorId, "cursor-1")
         XCTAssertTrue(decision.shouldCommitCoverage)
         XCTAssertFalse(decision.nextFullArchiveLoaded)
+    }
+
+    func testNewerGapRepairCommitsCoverageAfterPersistenceProofWithoutMarkingEitherEnd() {
+        let snapshot = ChatArchiveStateSnapshot(
+            primaryKey: "chat-primary",
+            persistedCursorId: "cursor-1",
+            fullArchiveLoaded: false,
+            newestCursorId: "cursor-9",
+            newerLiveEdgeReached: false,
+            hasKnownNewerGap: true
+        )
+
+        let decision = ChatArchiveCoverageCommitPolicy.resolve(
+            direction: .newer,
+            snapshot: snapshot,
+            requestedCursorId: "gap-older",
+            observedCursorId: "gap-older",
+            transportFirst: "gap-first",
+            transportLast: "gap-last",
+            resultCount: 30,
+            persistedRowsForQuery: 30,
+            visibleRowsForConversation: 0,
+            queryExhausted: true,
+            canMutateOlderArchiveEnd: false,
+            coverageUpdateKind: .gapRepairNewer(cursorArchiveId: "gap-older")
+        )
+
+        XCTAssertEqual(decision.resolvedCursorId, "cursor-1")
+        XCTAssertTrue(decision.hasPersistenceProof)
+        XCTAssertTrue(decision.shouldCommitCoverage)
+        XCTAssertFalse(decision.shouldAdvanceOlderCursor)
+        XCTAssertFalse(decision.nextFullArchiveLoaded)
+        XCTAssertFalse(decision.shouldMarkNewerLiveEdgeReached)
     }
 }
 
@@ -25539,6 +25667,94 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(result.persistenceSummary.savedNew, 5)
         XCTAssertEqual(result.persistenceSummary.visibleRows(owner: "owner@example.com", jid: "romeo@example.com", conversationType: .regular), 5)
         XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
+    }
+
+    func testRemoteCoordinatorPersists250RowsOffMainInBoundedChunksWithoutBlockingFinal() throws {
+        let queryId = "async-250-row-query"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.messagePersistenceChunkSize = 25
+
+        for index in 1...250 {
+            manager.receiveArchived(try makeArchivedMessage(index: index, queryId: queryId))
+        }
+
+        ChatRemoteHistoryCompletionCoordinator.registerPersistenceSource(
+            manager,
+            owner: "owner@example.com",
+            queryId: queryId
+        )
+        defer {
+            ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+                owner: "owner@example.com",
+                queryId: queryId
+            )
+        }
+
+        let coordinator = ChatRemoteHistoryQueryCoordinator(callbackQueue: .main)
+        let descriptor = ChatRemoteHistoryQueryDescriptor(
+            conversationKey: ChatTimelineConversationKey(
+                owner: "owner@example.com",
+                jid: "romeo@example.com",
+                conversationType: .regular
+            ),
+            queryId: queryId,
+            direction: .older,
+            cursorId: "archive-251",
+            generation: 1
+        )
+        var everyChunkPersistedOffMain = true
+        manager.messagePersistenceChunkObserver = { _, _ in
+            everyChunkPersistedOffMain = everyChunkPersistedOffMain && !Thread.isMainThread
+        }
+        XCTAssertTrue(coordinator.register(descriptor) { page, completion in
+            XCTAssertFalse(Thread.isMainThread)
+            completion(.success(ChatRemoteHistoryCompletionCoordinator.flushQueryMessages(
+                owner: descriptor.conversationKey.owner,
+                queryId: descriptor.queryId,
+                state: page.state,
+                conversationJid: descriptor.conversationKey.jid,
+                conversationType: descriptor.conversationKey.conversationType
+            )))
+        })
+
+        let committed = expectation(description: "250 rows committed")
+        let finalStartedAt = Date()
+        XCTAssertEqual(
+            coordinator.receiveFinal(
+                queryId: queryId,
+                generation: descriptor.generation,
+                page: ChatRemoteHistoryFinalPage(
+                    state: MessageArchivePageEndState(
+                        queryExhausted: false,
+                        archiveEnded: false,
+                        persistedMessageCount: 0,
+                        requestCursorId: descriptor.cursorId
+                    ),
+                    first: "archive-250",
+                    last: "archive-1",
+                    count: 250
+                )
+            ) { result in
+                XCTAssertTrue(Thread.isMainThread)
+                guard case .success(let page) = result else {
+                    return XCTFail("Expected the persisted remote page")
+                }
+                XCTAssertEqual(page.persistence.persistenceSummary.persistedRows, 250)
+                XCTAssertEqual(page.persistence.state.persistedMessageCount, 250)
+                committed.fulfill()
+            },
+            .accepted
+        )
+        let finalDispatchDuration = Date().timeIntervalSince(finalStartedAt)
+
+        XCTAssertLessThan(finalDispatchDuration, 0.05)
+        wait(for: [committed], timeout: 10)
+        XCTAssertTrue(everyChunkPersistedOffMain)
+        XCTAssertEqual(manager.messagePersistenceChunkSizes, Array(repeating: 25, count: 10))
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 250)
     }
 
     func testRemoteCompletionFlushesRegisteredPersistenceSource() throws {
