@@ -2214,6 +2214,7 @@ class ChatViewController: MessagesViewController {
             duration: ChatUIResponsivenessGate.chatOpenHoldDuration
         )
         self.chatOpenTimingSession = session
+        ChatPerformanceSignposts.event(.openRequest)
         self.chatOpenFirstFrameSignpost = ChatPerformanceSignposts.begin(.chatOpenToFirstFrame)
         var fields = self.chatOpenTimingBaseFields(session: session, now: now)
         if let targetBounds {
@@ -2315,6 +2316,7 @@ class ChatViewController: MessagesViewController {
         let now = Date()
         session.didLogInitialDatasourceLoadFinish = true
         self.chatOpenTimingSession = session
+        ChatPerformanceSignposts.event(.localSnapshotReady)
         var fields = self.chatOpenTimingBaseFields(session: session, now: now)
         fields.append(("bootstrapState", "\(bootstrapState)"))
         fields.append(("performPendingOpenMessageRequest", performPendingOpenMessageRequest))
@@ -2375,6 +2377,7 @@ class ChatViewController: MessagesViewController {
         session.firstMessagesPreparedAt = now
         session.firstDatasourceApplyStartedAt = applyStartedAt
         self.chatOpenTimingSession = session
+        ChatPerformanceSignposts.event(.firstContentCommitted)
 
         var fields = self.chatOpenTimingBaseFields(session: session, now: now)
         fields.append(("reason", reason))
@@ -2439,6 +2442,7 @@ class ChatViewController: MessagesViewController {
         self.chatOpenTimingSession = session
         self.chatOpenFirstFrameSignpost?.end()
         self.chatOpenFirstFrameSignpost = nil
+        ChatPerformanceSignposts.event(.firstStableFrame)
 
         var fields = self.chatOpenTimingBaseFields(session: session, now: now)
         fields.append(("reason", reason))

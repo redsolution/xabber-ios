@@ -6,6 +6,10 @@ final class ChatPerformanceSignpostTests: XCTestCase {
         XCTAssertEqual(
             ChatPerformanceSignpostPhase.allCases.map(\.rawValue),
             [
+                "chat.open_request",
+                "chat.local_snapshot_ready",
+                "chat.first_content_committed",
+                "chat.first_stable_frame",
                 "chat.open_to_first_frame",
                 "chat.map_dataset",
                 "chat.datasource_diff",
@@ -18,6 +22,14 @@ final class ChatPerformanceSignpostTests: XCTestCase {
                 "chat.observer_refresh",
                 "chat.reference_prepare",
                 "chat.media_prefetch",
+                "chat.media_visible_hit",
+                "chat.page_plan",
+                "chat.page_query",
+                "chat.page_persist",
+                "chat.page_apply",
+                "chat.anchor_received",
+                "chat.anchor_resolved",
+                "chat.anchor_centered",
                 "chat.message_persistence"
             ]
         )
@@ -57,6 +69,10 @@ final class ChatPerformanceSignpostTests: XCTestCase {
         XCTAssertTrue(interval.end())
         XCTAssertFalse(interval.isActive)
         XCTAssertFalse(interval.end())
+    }
+
+    func testPointEventAcceptsStableMilestonePhase() {
+        ChatPerformanceSignposts.event(.firstContentCommitted)
     }
 
     func testMetricSnapshotsExposeOnlyPrivacySafeCounterFields() {

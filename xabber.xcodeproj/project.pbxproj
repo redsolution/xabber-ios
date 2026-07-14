@@ -30,6 +30,10 @@
 		4E7700022FC500000ABC001 /* ChatGroupMessageChromePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7700012FC500000ABC001 /* ChatGroupMessageChromePolicyTests.swift */; };
 		4E6800022FA700000ABC001 /* ChatTimelineCursorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6800012FA700000ABC001 /* ChatTimelineCursorTests.swift */; };
 		4E6900022FA800000ABC001 /* ChatPerformanceSignpostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6900012FA800000ABC001 /* ChatPerformanceSignpostTests.swift */; };
+		4E9000022FF000000ABC001 /* ChatPerformanceLabTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9000012FF000000ABC001 /* ChatPerformanceLabTests.swift */; };
+		4E9000042FF000000ABC001 /* ChatRenderOperationCounterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9000032FF000000ABC001 /* ChatRenderOperationCounterTests.swift */; };
+		4E9000062FF000000ABC001 /* ChatRenderOperationCounter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9000052FF000000ABC001 /* ChatRenderOperationCounter.swift */; };
+		4E9000082FF000000ABC001 /* ChatPerformanceFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9000072FF000000ABC001 /* ChatPerformanceFixtures.swift */; };
 		4E6900042FA800000ABC001 /* ChatPerformanceSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6900032FA800000ABC001 /* ChatPerformanceSignposts.swift */; };
 		4E6A00022FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6A00012FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift */; };
 		4E6A00042FA900000ABC001 /* ChatScrollBoundaryAvailabilityCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6A00032FA900000ABC001 /* ChatScrollBoundaryAvailabilityCache.swift */; };
@@ -942,6 +946,10 @@
 		4E6800012FA700000ABC001 /* ChatTimelineCursorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTimelineCursorTests.swift; sourceTree = "<group>"; };
 		4E6900012FA800000ABC001 /* ChatPerformanceSignpostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPerformanceSignpostTests.swift; sourceTree = "<group>"; };
 		4E6900032FA800000ABC001 /* ChatPerformanceSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPerformanceSignposts.swift; sourceTree = "<group>"; };
+		4E9000012FF000000ABC001 /* ChatPerformanceLabTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPerformanceLabTests.swift; sourceTree = "<group>"; };
+		4E9000032FF000000ABC001 /* ChatRenderOperationCounterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatRenderOperationCounterTests.swift; sourceTree = "<group>"; };
+		4E9000052FF000000ABC001 /* ChatRenderOperationCounter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatRenderOperationCounter.swift; sourceTree = "<group>"; };
+		4E9000072FF000000ABC001 /* ChatPerformanceFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPerformanceFixtures.swift; sourceTree = "<group>"; };
 		4E6A00012FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScrollBoundaryCacheTests.swift; sourceTree = "<group>"; };
 		4E6A00032FA900000ABC001 /* ChatScrollBoundaryAvailabilityCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScrollBoundaryAvailabilityCache.swift; sourceTree = "<group>"; };
 		4E6B00012FAA00000ABC001 /* ChatScrollCoalescingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScrollCoalescingTests.swift; sourceTree = "<group>"; };
@@ -3963,6 +3971,8 @@
 						4E7700012FC500000ABC001 /* ChatGroupMessageChromePolicyTests.swift */,
 						4E6800012FA700000ABC001 /* ChatTimelineCursorTests.swift */,
 					4E6900012FA800000ABC001 /* ChatPerformanceSignpostTests.swift */,
+					4E9000012FF000000ABC001 /* ChatPerformanceLabTests.swift */,
+					4E9000032FF000000ABC001 /* ChatRenderOperationCounterTests.swift */,
 					4E6A00012FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift */,
 					4E6B00012FAA00000ABC001 /* ChatScrollCoalescingTests.swift */,
 					4E6C00012FAB00000ABC001 /* ChatCollectionPrefetchTests.swift */,
@@ -4444,6 +4454,8 @@
 				666E1F462204201500172F55 /* delegate */,
 				66CB16C221F9C9D100CB03C2 /* ChatViewController.swift */,
 				4E6900032FA800000ABC001 /* ChatPerformanceSignposts.swift */,
+				4E9000052FF000000ABC001 /* ChatRenderOperationCounter.swift */,
+				4E9000072FF000000ABC001 /* ChatPerformanceFixtures.swift */,
 				4E6A00032FA900000ABC001 /* ChatScrollBoundaryAvailabilityCache.swift */,
 				4E6B00032FAA00000ABC001 /* ChatScrollWorkScheduler.swift */,
 				4E6C00032FAB00000ABC001 /* ChatCollectionPrefetcher.swift */,
@@ -5617,6 +5629,8 @@
 				4E8900022FE200000ABC001 /* ChatSearchResult.swift in Sources */,
 				4E8B00022FE300000ABC001 /* ChatSearchSession.swift in Sources */,
 				4E6900042FA800000ABC001 /* ChatPerformanceSignposts.swift in Sources */,
+				4E9000062FF000000ABC001 /* ChatRenderOperationCounter.swift in Sources */,
+				4E9000082FF000000ABC001 /* ChatPerformanceFixtures.swift in Sources */,
 				4E6A00042FA900000ABC001 /* ChatScrollBoundaryAvailabilityCache.swift in Sources */,
 				4E6B00042FAA00000ABC001 /* ChatScrollWorkScheduler.swift in Sources */,
 				4E6C00042FAB00000ABC001 /* ChatCollectionPrefetcher.swift in Sources */,
@@ -5998,6 +6012,8 @@
 						4E7700022FC500000ABC001 /* ChatGroupMessageChromePolicyTests.swift in Sources */,
 						4E6800022FA700000ABC001 /* ChatTimelineCursorTests.swift in Sources */,
 					4E6900022FA800000ABC001 /* ChatPerformanceSignpostTests.swift in Sources */,
+					4E9000022FF000000ABC001 /* ChatPerformanceLabTests.swift in Sources */,
+					4E9000042FF000000ABC001 /* ChatRenderOperationCounterTests.swift in Sources */,
 					4E6A00022FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift in Sources */,
 					4E6B00022FAA00000ABC001 /* ChatScrollCoalescingTests.swift in Sources */,
 					4E6C00022FAB00000ABC001 /* ChatCollectionPrefetchTests.swift in Sources */,
