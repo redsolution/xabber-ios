@@ -64,6 +64,9 @@ xabberTests/ChatUnreadMentionsTests
 SELECTORS
       ;;
     G05A) cat <<'SELECTORS'
+xabberTests/ChatAsyncLocalPagingTests
+xabberTests/ChatAsyncLocalPagingSourcePolicyTests
+xabberTests/ChatFirstFrameLocalHistoryRegressionTests
 xabberTests/ChatLocalHistoryPageProviderWindowingTests
 xabberTests/ChatVirtualTimelineEngineTests
 xabberTests/ChatHistoryPagingPolicyTests

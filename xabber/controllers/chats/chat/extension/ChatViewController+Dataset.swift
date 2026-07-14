@@ -2062,22 +2062,37 @@ enum ChatBoundaryPagingExecutionPolicy {
 }
 
 struct ChatPreparedLocalHistoryPage {
+    let preparedPage: ChatTimelinePreparedLocalPage
+    let baseVirtualState: ChatVirtualTimelineState
+    let baseWindow: ChatDatasetWindow
+
+    var id: String { preparedPage.id }
+    var direction: ChatHistoryPageDirection { preparedPage.direction }
+    var conversationKey: ChatTimelineConversationKey { preparedPage.conversationKey }
+    var snapshot: ChatTimelineSnapshot { preparedPage.snapshot }
+}
+
+struct ChatLocalHistoryPagingIntent {
     let id: String
     let direction: ChatHistoryPageDirection
     let conversationKey: ChatTimelineConversationKey
+    let baseGeneration: UInt64
     let baseVirtualState: ChatVirtualTimelineState
-    let baseWindow: ChatDatasetWindow
-    let snapshot: ChatTimelineSnapshot
+    let currentWindow: ChatDatasetWindow
+    let requestedWindow: ChatDatasetWindow
+    let deferUntilScrollRest: Bool
 }
 
-private struct ChatInteractiveHistoryPagingPreparation {
+struct ChatInteractiveHistoryPagingPreparation {
     let direction: ChatHistoryPageDirection
     let currentWindow: ChatDatasetWindow
     let requestedWindow: ChatDatasetWindow
     let archiveState: ChatArchiveStateSnapshot
     let virtualArchiveState: ChatArchiveStateSnapshot
-    let snapshot: ChatTimelineSnapshot
+    let preparedPage: ChatTimelinePreparedLocalPage
     let pagingPlan: ChatInteractiveHistoryPagingPlan
+
+    var snapshot: ChatTimelineSnapshot { preparedPage.snapshot }
 }
 
 private enum ChatPendingBoundaryPagingValidationPolicy {
@@ -2557,7 +2572,11 @@ struct ChatVirtualTimelineEngine {
             return openLatest()
         }
 
-        let newerItems = provider.newer(after: newest, limit: pageSize)
+        // Fetch one look-ahead row with the page so live-tail detection does not
+        // require a second directional store query at the same boundary.
+        let newerCandidates = provider.newer(after: newest, limit: pageSize + 1)
+        let hasNewerCandidateBeyondPage = newerCandidates.count > pageSize
+        let newerItems = Array(newerCandidates.prefix(pageSize))
         guard newerItems.isNotEmpty else {
             if archiveState.newerLiveEdgeReached || state.isResidentAtLiveTail {
                 return currentSnapshot(loadDecision: .endReached)
@@ -2587,9 +2606,7 @@ struct ChatVirtualTimelineEngine {
         let currentItems = provider.items(primaryKeys: state.residentPrimaryKeys)
         let candidateItems = currentItems + newerItems
         let trimmedItems = trimmed(candidateItems, direction: .newer)
-        let reachesKnownLiveTail = archiveState.newerLiveEdgeReached && (trimmedItems.last.map {
-            provider.newer(after: ChatTimelineBoundary(message: $0), limit: 1).isEmpty
-        } ?? false)
+        let reachesKnownLiveTail = archiveState.newerLiveEdgeReached && !hasNewerCandidateBeyondPage
 
         return apply(
             items: trimmedItems,
@@ -7123,54 +7140,20 @@ extension ChatViewController {
 
     private func messageWindowSliceForMapping(
         _ window: ChatDatasetWindow,
-        currentWindow: ChatDatasetWindow,
-        activePlaceholder: ChatHistoryBoundaryPlaceholderPosition?
+        currentWindow _: ChatDatasetWindow,
+        activePlaceholder _: ChatHistoryBoundaryPlaceholderPosition?,
+        timelineSnapshot: ChatTimelineSessionSnapshot? = nil
     ) -> (window: ChatDatasetWindow, items: [MessageStorageItem]) {
-        guard let timelineSession = self.timelineSession else {
+        guard let snapshot = timelineSnapshot ?? self.timelineSession?.snapshot else {
             return (.empty, [])
         }
-        timelineSession.updateArchiveState(self.loadChatArchiveStateSnapshot())
-        let currentSnapshot = timelineSession.snapshot
-        let residentAnchor: MessageStorageItem? = {
-            guard currentSnapshot.items.isNotEmpty else { return nil }
-            return currentSnapshot.items[currentSnapshot.items.count / 2]
-        }()
-        let direction = self.localHistoryDirection(
-            requestedWindow: window,
-            currentWindow: currentWindow,
-            timelineState: ChatBoundedTimelineWindowState(virtualState: currentSnapshot.state)
+        let lowerBound = min(max(0, window.minIndex), snapshot.items.count)
+        let upperBound = min(max(lowerBound, window.maxIndex), snapshot.items.count)
+        let items = Array(snapshot.items[lowerBound..<upperBound])
+        return (
+            ChatDatasetWindow(minIndex: 0, maxIndex: items.count),
+            items
         )
-
-        var snapshot: ChatTimelineSessionSnapshot
-        switch direction {
-        case .older:
-            snapshot = timelineSession.pageOlder()
-        case .newer:
-            snapshot = timelineSession.pageNewer()
-        case .none:
-            if !currentSnapshot.isEmpty && window == currentWindow {
-                snapshot = currentSnapshot
-            } else if currentSnapshot.isEmpty || window.maxIndex >= currentWindow.maxIndex {
-                snapshot = timelineSession.openLatest()
-            } else if let anchor = residentAnchor {
-                snapshot = timelineSession.openAround(
-                    anchor: ChatTimelineAnchor(
-                        primary: anchor.primary,
-                        archivedId: anchor.archivedId,
-                        messageId: anchor.messageId,
-                        date: anchor.date
-                    )
-                )
-            } else {
-                snapshot = timelineSession.openLatest()
-            }
-        }
-
-        if snapshot.state.activePlaceholder != activePlaceholder {
-            snapshot = timelineSession.applyRuntimePlaceholder(activePlaceholder)
-        }
-        let outputWindow = ChatDatasetWindow(minIndex: 0, maxIndex: snapshot.items.count)
-        return (outputWindow, snapshot.items)
     }
 
     internal func sliceForWindow(_ window: ChatDatasetWindow) -> [MessageStorageItem] {
@@ -7180,25 +7163,6 @@ extension ChatViewController {
             activePlaceholder: self.activeHistoryBoundaryPlaceholder
         )
         return mapped.items
-    }
-
-    private func localHistoryDirection(
-        requestedWindow: ChatDatasetWindow,
-        currentWindow: ChatDatasetWindow,
-        timelineState: ChatBoundedTimelineWindowState
-    ) -> ChatHistoryPageDirection? {
-        guard !timelineState.isEmpty,
-              !currentWindow.isEmpty else {
-            return nil
-        }
-
-        if requestedWindow.minIndex < currentWindow.minIndex {
-            return .older
-        }
-        if requestedWindow.maxIndex > currentWindow.maxIndex {
-            return .newer
-        }
-        return nil
     }
 
     private func deduplicatedChronologicalItems(_ items: [MessageStorageItem]) -> [MessageStorageItem] {
@@ -8378,10 +8342,10 @@ extension ChatViewController {
     }
 
     internal func finishPagingInteraction(
-        snapshot: ChatTimelineSnapshot,
-        direction: ChatHistoryPageDirection,
+        preparedPage: ChatPreparedLocalHistoryPage,
         animated: Bool = true
     ) {
+        let direction = preparedPage.direction
         let anchor = self.capturePagingAnchorIfNeeded(direction: direction)
         let applyPlan = ChatHistoryPageApplyPolicy.plan(
             direction: direction,
@@ -8393,8 +8357,8 @@ extension ChatViewController {
         let applyAnimated = applyPlan.applyCategory == .olderAnchorReload ? false : animated
         self.activeHistoryBoundaryPlaceholder = nil
 
-        self.mapAndApplyTimelineSnapshot(
-            snapshot,
+        self.mapAndApplyTimelinePreparedPage(
+            preparedPage.preparedPage,
             mode: applyMode,
             animated: applyAnimated,
             invalidateLayout: false,
@@ -8609,13 +8573,15 @@ extension ChatViewController {
         let generation = self.datasetMappingGeneration
         let boundaryPlaceholder = self.activeHistoryBoundaryPlaceholder
         let currentWindow = self.visibleWindow()
+        let timelineSnapshot = self.timelineSession?.snapshot
         let mappingContext = self.captureDatasourceMappingContext()
 
         self.datasetMappingQueue.async {
             let mappedWindow = self.messageWindowSliceForMapping(
                 window,
                 currentWindow: currentWindow,
-                activePlaceholder: boundaryPlaceholder
+                activePlaceholder: boundaryPlaceholder,
+                timelineSnapshot: timelineSnapshot
             )
             let normalizedWindow = mappedWindow.window
             let slice = mappedWindow.items
@@ -8873,6 +8839,60 @@ extension ChatViewController {
                 )
                 self.applyChatDatasource(
                     mappedDatasource,
+                    mode: mode,
+                    animated: animated,
+                    invalidateLayout: invalidateLayout,
+                    suppressDefaultBottomScroll: suppressDefaultBottomScroll,
+                    applyCategory: applyCategory,
+                    anchorRestorePhase: anchorRestorePhase,
+                    anchorPrimary: anchorPrimary,
+                    restoreAnchor: restoreAnchor,
+                    completion: completion
+                )
+            }
+        }
+    }
+
+    internal func mapAndApplyTimelinePreparedPage(
+        _ preparedPage: ChatTimelinePreparedLocalPage,
+        mode: ChatDatasourceApplyMode,
+        animated: Bool = true,
+        invalidateLayout: Bool = false,
+        suppressDefaultBottomScroll: Bool = false,
+        applyCategory: ChatDatasourceApplyCategory = .default,
+        anchorRestorePhase: ChatHistoryPageAnchorRestorePhase = .none,
+        anchorPrimary: String? = nil,
+        restoreAnchor: ChatHistoryPageAnchor? = nil,
+        completion: (() -> Void)? = nil,
+        cancelledCompletion: (() -> Void)? = nil
+    ) {
+        guard let session = self.timelineSession,
+              let committedSnapshot = session.commitPreparedLocalPage(preparedPage) else {
+            cancelledCompletion?()
+            return
+        }
+        self.datasetMappingGeneration += 1
+        let generation = self.datasetMappingGeneration
+        let frozenItems = committedSnapshot.items
+        let mappingContext = self.captureDatasourceMappingContext()
+
+        self.datasetMappingQueue.async {
+            let mappingResult = self.mapDataset(dataset: frozenItems, context: mappingContext)
+            DispatchQueue.main.async {
+                guard ChatDatasourceApplyGenerationPolicy.shouldApply(
+                    requestGeneration: generation,
+                    currentGeneration: self.datasetMappingGeneration
+                ) else {
+                    cancelledCompletion?()
+                    return
+                }
+
+                self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
+                self.invalidateEditedMessageLayoutCache(
+                    primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
+                )
+                self.applyChatDatasource(
+                    mappingResult.datasource,
                     mode: mode,
                     animated: animated,
                     invalidateLayout: invalidateLayout,
@@ -9905,25 +9925,30 @@ extension ChatViewController {
         guard self.timelineInteractionState.isUnlocked else {
             return
         }
+        _ = self.startLocalHistoryPagingPreparation(
+            direction: direction,
+            motionState: .resting,
+            trigger: "direct"
+        )
+    }
+
+    internal final func performInteractiveHistoryPaging(
+        preparation: ChatInteractiveHistoryPagingPreparation
+    ) {
+        guard self.timelineInteractionState.isUnlocked else {
+            return
+        }
         FeedbackManager.shared.generate(feedback: .success)
         self.setDatasourceLoadingEnabled(false)
         self.timelineInteractionState.locked = true
-        self.loadDatasource(direction: direction) { snapshot in
-            if let snapshot {
-                self.finishPagingInteraction(
-                    snapshot: snapshot,
-                    direction: direction,
-                    animated: false
-                )
-            } else {
-                let window = self.visibleWindow()
-                self.finishPagingInteraction(
-                    window: window,
-                    shouldApplyWindow: false,
-                    direction: direction,
-                    animated: false
-                )
-            }
+        self.loadDatasource(preparation: preparation) { _ in
+            let window = self.visibleWindow()
+            self.finishPagingInteraction(
+                window: window,
+                shouldApplyWindow: false,
+                direction: preparation.direction,
+                animated: false
+            )
         }
     }
 
@@ -10124,40 +10149,35 @@ extension ChatViewController {
         }
     }
 
-    private func virtualTimelinePageSnapshot(
+    private func armedRemoteSnapshot(
+        from snapshot: ChatTimelineSnapshot,
+        queryId: String,
         direction: ChatHistoryPageDirection,
-        queryId: String? = nil,
-        archiveState: ChatArchiveStateSnapshot
-    ) -> ChatTimelineSnapshot? {
-        guard let session = self.timelineSession else {
-            return nil
-        }
-        return session.previewPage(
-            direction: direction,
-            queryId: queryId,
-            archiveState: archiveState
+        decision: ChatHistoryPagingLoadDecision,
+        cursorId: String?
+    ) -> ChatTimelineSnapshot {
+        let stateWithoutPlaceholder = snapshot.state.withRuntimePlaceholder(nil)
+        let armedState = ChatVirtualTimelineState(
+            conversationKey: stateWithoutPlaceholder.conversationKey,
+            segments: stateWithoutPlaceholder.segments,
+            oldest: stateWithoutPlaceholder.oldest,
+            newest: stateWithoutPlaceholder.newest,
+            residentPrimaryKeys: stateWithoutPlaceholder.residentPrimaryKeys,
+            residentArchivedIds: stateWithoutPlaceholder.residentArchivedIds,
+            activeRemoteLoad: ChatTimelineRemoteLoad(
+                queryId: queryId,
+                direction: direction,
+                decision: decision,
+                cursorId: cursorId
+            ),
+            activePlaceholder: nil,
+            isResidentAtLiveTail: stateWithoutPlaceholder.isResidentAtLiveTail
         )
-    }
-
-    private func frozenSnapshot(_ snapshot: ChatTimelineSnapshot) -> ChatTimelineSnapshot {
-        ChatTimelineSnapshot(
-            items: snapshot.items.map { $0.realm == nil || $0.isFrozen ? $0 : $0.freeze() },
-            state: snapshot.state,
-            loadingState: snapshot.loadingState,
-            loadDecision: snapshot.loadDecision,
-            anchorRestore: snapshot.anchorRestore,
-            localOlderCandidateCount: snapshot.localOlderCandidateCount,
-            pageSize: snapshot.pageSize,
-            shortLocalRemainderRemoteFirst: snapshot.shortLocalRemainderRemoteFirst
-        )
-    }
-
-    private func armedRemoteSnapshotWithoutVisiblePlaceholder(_ snapshot: ChatTimelineSnapshot) -> ChatTimelineSnapshot {
-        ChatTimelineSnapshot(
+        return ChatTimelineSnapshot(
             items: snapshot.items,
-            state: snapshot.state.withRuntimePlaceholder(nil),
+            state: armedState,
             loadingState: .none,
-            loadDecision: snapshot.loadDecision,
+            loadDecision: decision,
             anchorRestore: snapshot.anchorRestore,
             localOlderCandidateCount: snapshot.localOlderCandidateCount,
             pageSize: snapshot.pageSize,
@@ -10165,115 +10185,241 @@ extension ChatViewController {
         )
     }
 
-    private func makeInteractiveHistoryPagingPreparation(
+    private func makeLocalHistoryPagingIntent(
         direction: ChatHistoryPageDirection,
-        first: Bool = false,
-        samePage: Bool = false
-    ) -> ChatInteractiveHistoryPagingPreparation? {
-        guard let residentSnapshot = self.timelineSession?.snapshot else {
+        motionState: ChatScrollMotionState
+    ) -> ChatLocalHistoryPagingIntent? {
+        guard let residentSnapshot = self.timelineSession?.snapshot,
+              residentSnapshot.state.activeRemoteLoad == nil else {
             return nil
         }
+        let currentWindow = self.visibleWindow()
+        let requestedWindow = self.datasetCoordinator.nextWindow(
+            from: currentWindow,
+            direction: direction
+        )
+        guard !requestedWindow.isEmpty else {
+            return nil
+        }
+        return ChatLocalHistoryPagingIntent(
+            id: "local-page-intent-\(NanoID.new(6))",
+            direction: direction,
+            conversationKey: self.chatTimelineConversationKey,
+            baseGeneration: residentSnapshot.generation,
+            baseVirtualState: residentSnapshot.state,
+            currentWindow: currentWindow,
+            requestedWindow: requestedWindow,
+            deferUntilScrollRest: motionState.isMoving
+        )
+    }
 
-        func getWindow() -> ChatDatasetWindow {
-            let currentWindow = self.visibleWindow()
+    @discardableResult
+    private func startLocalHistoryPagingPreparation(
+        direction: ChatHistoryPageDirection,
+        motionState: ChatScrollMotionState,
+        trigger: String
+    ) -> ChatBoundaryPagingExecutionAction {
+        guard let session = self.timelineSession,
+              let intent = self.makeLocalHistoryPagingIntent(
+                direction: direction,
+                motionState: motionState
+              ) else {
+            self.clearPendingLocalHistoryPagingPreparation()
+            return .none
+        }
 
-            if samePage {
-                return self.datasetCoordinator.clamp(
-                    currentWindow,
-                    totalCount: residentSnapshot.items.count
+        if let pending = self.pendingLocalHistoryPagingIntent,
+           pending.direction == intent.direction,
+           pending.conversationKey == intent.conversationKey,
+           pending.baseGeneration == intent.baseGeneration {
+            return .prepareLocal(direction)
+        }
+        if let prepared = self.pendingPreparedLocalHistoryPage,
+           prepared.direction == direction,
+           prepared.conversationKey == intent.conversationKey,
+           prepared.preparedPage.baseGeneration == intent.baseGeneration {
+            return .prepareLocal(direction)
+        }
+        if self.pendingDeferredRemoteHistoryDirection == direction,
+           self.pendingDeferredRemoteHistoryPreparation?.preparedPage.baseGeneration == intent.baseGeneration {
+            return motionState.isMoving ? .deferRemote(direction) : .applyNow(direction)
+        }
+
+        self.clearPendingLocalHistoryPagingPreparation()
+        self.pendingLocalHistoryPagingIntent = intent
+        let hasConfirmedArchiveEnd = self.hasConfirmedArchiveEndThisSession
+        let hasUsedArchiveEndVerificationProbe = self.hasUsedArchiveEndVerificationProbe
+        let fallbackArchiveState = ChatArchiveStateSnapshot(
+            primaryKey: LastChatsStorageItem.genPrimary(
+                jid: intent.conversationKey.jid,
+                owner: intent.conversationKey.owner,
+                conversationType: intent.conversationKey.conversationType
+            ),
+            persistedCursorId: nil,
+            fullArchiveLoaded: false
+        )
+        let archiveContextProvider: () -> ChatTimelineLocalPageArchiveContext = { [weak self] in
+            guard let self else {
+                return ChatTimelineLocalPageArchiveContext(
+                    persisted: fallbackArchiveState,
+                    paging: fallbackArchiveState
                 )
             }
-
-            return self.datasetCoordinator.nextWindow(
-                from: currentWindow,
-                direction: direction
+            let persisted = self.loadChatArchiveStateSnapshot()
+            let shouldProbe = ChatArchiveEndVerificationPolicy.shouldProbePersistedArchiveEnd(
+                persistedArchiveEnded: persisted.fullArchiveLoaded,
+                hasConfirmedArchiveEndThisSession: hasConfirmedArchiveEnd,
+                hasUsedVerificationProbe: hasUsedArchiveEndVerificationProbe
+            )
+            let paging = ChatArchiveStateSnapshot(
+                primaryKey: persisted.primaryKey,
+                persistedCursorId: persisted.persistedCursorId,
+                fullArchiveLoaded: ChatArchiveEndVerificationPolicy.effectiveArchiveEnded(
+                    persistedArchiveEnded: persisted.fullArchiveLoaded,
+                    shouldProbePersistedArchiveEnd: shouldProbe
+                ),
+                newestCursorId: persisted.newestCursorId,
+                newerLiveEdgeReached: persisted.newerLiveEdgeReached,
+                hasKnownNewerGap: persisted.hasKnownNewerGap,
+                knownGaps: persisted.knownGaps
+            )
+            return ChatTimelineLocalPageArchiveContext(persisted: persisted, paging: paging)
+        }
+        let completion: (ChatTimelineLocalPagePreparationResult) -> Void = { [weak self, weak session] result in
+            guard let self, let session, self.timelineSession === session else { return }
+            self.completeLocalHistoryPagingPreparation(
+                result,
+                intent: intent,
+                trigger: trigger
             )
         }
-
-        let currentWindow = self.visibleWindow()
-        let requestedWindow = getWindow()
-        guard !requestedWindow.isEmpty || first else {
-            return nil
+        let disposition: ChatTimelineLocalPageLoadDisposition
+        switch direction {
+        case .older:
+            guard let boundary = session.snapshot.oldest else {
+                self.clearPendingLocalHistoryPagingPreparation()
+                return .none
+            }
+            disposition = session.loadOlder(
+                before: boundary,
+                archiveContextProvider: archiveContextProvider,
+                expectedGeneration: intent.baseGeneration,
+                completion: completion
+            )
+        case .newer:
+            guard let boundary = session.snapshot.newest else {
+                self.clearPendingLocalHistoryPagingPreparation()
+                return .none
+            }
+            disposition = session.loadNewer(
+                after: boundary,
+                archiveContextProvider: archiveContextProvider,
+                expectedGeneration: intent.baseGeneration,
+                completion: completion
+            )
         }
-
-        let chatArchiveState = self.loadChatArchiveStateSnapshot()
-        let persistedArchiveEnded = chatArchiveState.fullArchiveLoaded
-        let shouldProbePersistedArchiveEnd = ChatArchiveEndVerificationPolicy.shouldProbePersistedArchiveEnd(
-            persistedArchiveEnded: persistedArchiveEnded,
-            hasConfirmedArchiveEndThisSession: self.hasConfirmedArchiveEndThisSession,
-            hasUsedVerificationProbe: self.hasUsedArchiveEndVerificationProbe
-        )
-        let effectiveArchiveEnded = ChatArchiveEndVerificationPolicy.effectiveArchiveEnded(
-            persistedArchiveEnded: persistedArchiveEnded,
-            shouldProbePersistedArchiveEnd: shouldProbePersistedArchiveEnd
-        )
-        let virtualArchiveState = ChatArchiveStateSnapshot(
-            primaryKey: chatArchiveState.primaryKey,
-            persistedCursorId: chatArchiveState.persistedCursorId,
-            fullArchiveLoaded: effectiveArchiveEnded,
-            newestCursorId: chatArchiveState.newestCursorId,
-            newerLiveEdgeReached: chatArchiveState.newerLiveEdgeReached,
-            hasKnownNewerGap: chatArchiveState.hasKnownNewerGap,
-            knownGaps: chatArchiveState.knownGaps
-        )
-
-        guard let virtualSnapshot = self.virtualTimelinePageSnapshot(
-            direction: direction,
-            archiveState: virtualArchiveState
-        ) else {
-            return nil
+        guard disposition != .rejectedStale else {
+            self.clearPendingLocalHistoryPagingPreparation()
+            return .none
         }
+        ChatArchiveDebugTrace.log("boundaryPagingPrepareLocalStart", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("trigger", trigger),
+            ("direction", direction),
+            ("preparedLocalPageId", intent.id),
+            ("scrollMotionState", motionState.rawValue),
+            ("baseGeneration", intent.baseGeneration),
+            ("disposition", "\(disposition)")
+        ])
+        return .prepareLocal(direction)
+    }
 
-        let decision = virtualSnapshot.loadDecision
-        let pagingPlan = ChatInteractiveHistoryPagingPlanPolicy.plan(for: decision)
+    private func completeLocalHistoryPagingPreparation(
+        _ result: ChatTimelineLocalPagePreparationResult,
+        intent: ChatLocalHistoryPagingIntent,
+        trigger: String
+    ) {
+        guard let pending = self.pendingLocalHistoryPagingIntent,
+              pending.id == intent.id,
+              self.chatTimelineConversationKey == intent.conversationKey else {
+            return
+        }
+        let releaseWhenPrepared = self.pendingLocalHistoryPagingReleaseWhenPrepared
+        self.pendingLocalHistoryPagingIntent = nil
+        self.pendingLocalHistoryPagingReleaseWhenPrepared = false
+        guard case .prepared(let page) = result,
+              page.baseGeneration == intent.baseGeneration else {
+            self.clearPendingLocalHistoryPagingPreparation()
+            return
+        }
+        let pagingPlan = ChatInteractiveHistoryPagingPlanPolicy.plan(for: page.snapshot.loadDecision)
+        let preparation = ChatInteractiveHistoryPagingPreparation(
+            direction: intent.direction,
+            currentWindow: intent.currentWindow,
+            requestedWindow: intent.requestedWindow,
+            archiveState: page.archiveContext.persisted,
+            virtualArchiveState: page.archiveContext.paging,
+            preparedPage: page,
+            pagingPlan: pagingPlan
+        )
         ChatArchiveDebugTrace.log("timelinePagingDecision", [
             ("owner", self.owner),
             ("jid", self.jid),
             ("conversationType", self.conversationType.rawValue),
-            ("direction", direction),
-            ("decision", "\(decision)"),
-            ("snapshotItems", virtualSnapshot.items.count),
-            ("snapshotOldest", virtualSnapshot.state.oldest?.archivedId ?? "-"),
-            ("snapshotNewest", virtualSnapshot.state.newest?.archivedId ?? "-"),
-            ("snapshotResident", virtualSnapshot.state.residentPrimaryKeys.count),
-            ("localOlderCandidateCount", virtualSnapshot.localOlderCandidateCount ?? -1),
-            ("pageSize", virtualSnapshot.pageSize ?? self.datasourcePageSize),
-            ("shortLocalRemainderRemoteFirst", virtualSnapshot.shortLocalRemainderRemoteFirst),
-            ("currentOldest", self.virtualTimelineState.oldest?.archivedId ?? "-"),
-            ("currentNewest", self.virtualTimelineState.newest?.archivedId ?? "-"),
-            ("currentResident", self.virtualTimelineState.residentPrimaryKeys.count),
-            ("boundedOldest", self.boundedTimelineWindowState.oldest?.archivedId ?? "-"),
-            ("boundedNewest", self.boundedTimelineWindowState.newest?.archivedId ?? "-"),
-            ("datasourceFirst", self.datasource.first?.archivedId ?? "-"),
-            ("datasourceLast", self.datasource.last?.archivedId ?? "-"),
-            ("residentCount", self.timelineSession?.snapshot.items.count ?? -1),
-            ("scrollMotionState", self.currentScrollMotionState().rawValue),
-            ("executionAction", "-"),
-            ("preparedLocalPageId", self.pendingPreparedLocalHistoryPage?.id ?? "-"),
-            ("pendingDirection", self.pendingDeferredRemoteHistoryDirection.map { "\($0)" } ?? "-"),
-            ("discardReason", "-")
+            ("direction", intent.direction),
+            ("decision", "\(page.snapshot.loadDecision)"),
+            ("snapshotItems", page.snapshot.items.count),
+            ("snapshotOldest", page.snapshot.state.oldest?.archivedId ?? "-"),
+            ("snapshotNewest", page.snapshot.state.newest?.archivedId ?? "-"),
+            ("snapshotResident", page.snapshot.state.residentPrimaryKeys.count),
+            ("localOlderCandidateCount", page.snapshot.localOlderCandidateCount ?? -1),
+            ("pageSize", page.snapshot.pageSize ?? self.datasourcePageSize),
+            ("shortLocalRemainderRemoteFirst", page.snapshot.shortLocalRemainderRemoteFirst),
+            ("preparedLocalPageId", page.id),
+            ("preparedOnMainThread", page.preparedOnMainThread)
         ])
-
+        switch pagingPlan {
+        case .local:
+            self.pendingPreparedLocalHistoryPage = ChatPreparedLocalHistoryPage(
+                preparedPage: page,
+                baseVirtualState: intent.baseVirtualState,
+                baseWindow: intent.currentWindow
+            )
+            self.pendingDeferredRemoteHistoryDirection = nil
+            self.pendingDeferredRemoteHistoryPreparation = nil
+        case .remote:
+            self.pendingPreparedLocalHistoryPage = nil
+            self.pendingDeferredRemoteHistoryDirection = intent.direction
+            self.pendingDeferredRemoteHistoryPreparation = preparation
+        case .endReached, .noOp:
+            self.clearPendingLocalHistoryPagingPreparation()
+            return
+        }
         if !pagingPlan.shouldShowOverlay {
             self.logInteractiveHistoryPagingPlan(
-                direction: direction,
+                direction: intent.direction,
                 plan: pagingPlan,
-                localItemCount: virtualSnapshot.items.count,
-                localOlderCandidateCount: virtualSnapshot.localOlderCandidateCount,
-                pageSize: virtualSnapshot.pageSize,
-                shortLocalRemainderRemoteFirst: virtualSnapshot.shortLocalRemainderRemoteFirst
+                localItemCount: page.snapshot.items.count,
+                localOlderCandidateCount: page.snapshot.localOlderCandidateCount,
+                pageSize: page.snapshot.pageSize,
+                shortLocalRemainderRemoteFirst: page.snapshot.shortLocalRemainderRemoteFirst
             )
         }
-
-        return ChatInteractiveHistoryPagingPreparation(
-            direction: direction,
-            currentWindow: currentWindow,
-            requestedWindow: requestedWindow,
-            archiveState: chatArchiveState,
-            virtualArchiveState: virtualArchiveState,
-            snapshot: virtualSnapshot,
-            pagingPlan: pagingPlan
-        )
+        ChatArchiveDebugTrace.log("boundaryPagingPrepareLocalFinish", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("trigger", trigger),
+            ("direction", intent.direction),
+            ("preparedLocalPageId", page.id),
+            ("pagingPlan", "\(pagingPlan)"),
+            ("releaseWhenPrepared", releaseWhenPrepared)
+        ])
+        if !intent.deferUntilScrollRest || releaseWhenPrepared {
+            _ = self.applyPendingBoundaryPagingAfterScrollRest(trigger: "\(trigger)-prepared")
+        }
     }
 
     @discardableResult
@@ -10283,65 +10429,10 @@ extension ChatViewController {
         motionState: ChatScrollMotionState,
         trigger: String
     ) -> ChatBoundaryPagingExecutionAction {
-        let currentConversationKey = self.chatTimelineConversationKey
-        let currentVirtualState = self.virtualTimelineState.normalized(
-            owner: currentConversationKey.owner,
-            jid: currentConversationKey.jid,
-            conversationType: currentConversationKey.conversationType
-        )
-        let currentWindow = self.visibleWindow()
-
-        if motionState.isMoving,
-           let pending = self.pendingPreparedLocalHistoryPage,
-           pending.direction == direction,
-           pending.conversationKey == currentConversationKey,
-           pending.baseVirtualState == currentVirtualState,
-           pending.baseWindow == currentWindow {
-            ChatArchiveDebugTrace.log("boundaryPagingPrepareLocalFinish", [
-                ("owner", self.owner),
-                ("jid", self.jid),
-                ("conversationType", self.conversationType.rawValue),
-                ("trigger", trigger),
-                ("direction", direction),
-                ("preparedLocalPageId", pending.id),
-                ("duplicate", true),
-                ("scrollMotionState", motionState.rawValue)
-            ])
-            return .prepareLocal(direction)
-        }
-
-        if motionState.isMoving,
-           self.pendingDeferredRemoteHistoryDirection == direction {
-            ChatArchiveDebugTrace.log("boundaryPagingDeferRemote", [
-                ("owner", self.owner),
-                ("jid", self.jid),
-                ("conversationType", self.conversationType.rawValue),
-                ("trigger", trigger),
-                ("direction", direction),
-                ("duplicate", true),
-                ("scrollMotionState", motionState.rawValue)
-            ])
-            return .deferRemote(direction)
-        }
-
-        guard let preparation = self.makeInteractiveHistoryPagingPreparation(direction: direction) else {
-            self.pendingPreparedLocalHistoryPage = nil
-            self.pendingDeferredRemoteHistoryDirection = nil
-            self.logBoundaryPagingExecution(
-                trigger: trigger,
-                direction: direction,
-                boundaryContext: boundaryContext,
-                motionState: motionState,
-                action: .none,
-                discardReason: "planningFailed"
-            )
-            return .none
-        }
-
-        let action = ChatBoundaryPagingExecutionPolicy.action(
+        let action = self.startLocalHistoryPagingPreparation(
             direction: direction,
-            pagingPlan: preparation.pagingPlan,
-            motionState: motionState
+            motionState: motionState,
+            trigger: trigger
         )
         self.logBoundaryPagingExecution(
             trigger: trigger,
@@ -10349,66 +10440,8 @@ extension ChatViewController {
             boundaryContext: boundaryContext,
             motionState: motionState,
             action: action,
-            discardReason: nil
+            discardReason: action == .none ? "planningFailed" : nil
         )
-
-        switch action {
-        case .applyNow:
-            self.pendingPreparedLocalHistoryPage = nil
-            self.pendingDeferredRemoteHistoryDirection = nil
-            self.performInteractiveHistoryPaging(direction: direction)
-        case .prepareLocal:
-            let preparedId = "local-page-\(NanoID.new(6))"
-            ChatArchiveDebugTrace.log("boundaryPagingPrepareLocalStart", [
-                ("owner", self.owner),
-                ("jid", self.jid),
-                ("conversationType", self.conversationType.rawValue),
-                ("trigger", trigger),
-                ("direction", direction),
-                ("preparedLocalPageId", preparedId),
-                ("scrollMotionState", motionState.rawValue),
-                ("baseOldest", currentVirtualState.oldest?.archivedId ?? "-"),
-                ("baseNewest", currentVirtualState.newest?.archivedId ?? "-"),
-                ("snapshotOldest", preparation.snapshot.state.oldest?.archivedId ?? "-"),
-                ("snapshotNewest", preparation.snapshot.state.newest?.archivedId ?? "-"),
-                ("snapshotItems", preparation.snapshot.items.count)
-            ])
-            self.pendingPreparedLocalHistoryPage = ChatPreparedLocalHistoryPage(
-                id: preparedId,
-                direction: direction,
-                conversationKey: currentConversationKey,
-                baseVirtualState: currentVirtualState,
-                baseWindow: currentWindow,
-                snapshot: self.frozenSnapshot(preparation.snapshot)
-            )
-            self.pendingDeferredRemoteHistoryDirection = nil
-            ChatArchiveDebugTrace.log("boundaryPagingPrepareLocalFinish", [
-                ("owner", self.owner),
-                ("jid", self.jid),
-                ("conversationType", self.conversationType.rawValue),
-                ("trigger", trigger),
-                ("direction", direction),
-                ("preparedLocalPageId", preparedId),
-                ("duplicate", false),
-                ("scrollMotionState", motionState.rawValue)
-            ])
-        case .deferRemote:
-            self.pendingPreparedLocalHistoryPage = nil
-            self.pendingDeferredRemoteHistoryDirection = direction
-            ChatArchiveDebugTrace.log("boundaryPagingDeferRemote", [
-                ("owner", self.owner),
-                ("jid", self.jid),
-                ("conversationType", self.conversationType.rawValue),
-                ("trigger", trigger),
-                ("direction", direction),
-                ("duplicate", false),
-                ("scrollMotionState", motionState.rawValue)
-            ])
-        case .none:
-            self.pendingPreparedLocalHistoryPage = nil
-            self.pendingDeferredRemoteHistoryDirection = nil
-        }
-
         return action
     }
 
@@ -10416,6 +10449,11 @@ extension ChatViewController {
     internal func applyPendingBoundaryPagingAfterScrollRest(trigger: String) -> Bool {
         let motionState = self.currentScrollMotionState()
         guard motionState == .resting else {
+            return false
+        }
+
+        if self.pendingLocalHistoryPagingIntent != nil {
+            self.pendingLocalHistoryPagingReleaseWhenPrepared = true
             return false
         }
 
@@ -10427,6 +10465,7 @@ extension ChatViewController {
 
             self.pendingPreparedLocalHistoryPage = nil
             self.pendingDeferredRemoteHistoryDirection = nil
+            self.pendingDeferredRemoteHistoryPreparation = nil
             self.setDatasourceLoadingEnabled(false)
             self.timelineInteractionState.locked = true
             ChatArchiveDebugTrace.log("boundaryPagingApplyPreparedLocal", [
@@ -10441,14 +10480,14 @@ extension ChatViewController {
                 ("snapshotNewest", prepared.snapshot.state.newest?.archivedId ?? "-")
             ])
             self.finishPagingInteraction(
-                snapshot: prepared.snapshot,
-                direction: prepared.direction,
+                preparedPage: prepared,
                 animated: false
             )
             return true
         }
 
-        if let direction = self.pendingDeferredRemoteHistoryDirection {
+        if let direction = self.pendingDeferredRemoteHistoryDirection,
+           let preparation = self.pendingDeferredRemoteHistoryPreparation {
             let boundaryContext = self.pagingBoundaryContext(
                 visibleSections: self.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
             )
@@ -10457,6 +10496,7 @@ extension ChatViewController {
                 boundaryContext: boundaryContext
             ) else {
                 self.pendingDeferredRemoteHistoryDirection = nil
+                self.pendingDeferredRemoteHistoryPreparation = nil
                 ChatArchiveDebugTrace.log("boundaryPagingDiscardPrepared", [
                     ("owner", self.owner),
                     ("jid", self.jid),
@@ -10469,6 +10509,7 @@ extension ChatViewController {
             }
 
             self.pendingDeferredRemoteHistoryDirection = nil
+            self.pendingDeferredRemoteHistoryPreparation = nil
             ChatArchiveDebugTrace.log("boundaryPagingDeferRemote", [
                 ("owner", self.owner),
                 ("jid", self.jid),
@@ -10478,7 +10519,7 @@ extension ChatViewController {
                 ("duplicate", false),
                 ("scrollMotionState", motionState.rawValue)
             ])
-            self.performInteractiveHistoryPaging(direction: direction)
+            self.performInteractiveHistoryPaging(preparation: preparation)
             return true
         }
 
@@ -10537,6 +10578,14 @@ extension ChatViewController {
             ("preparedLocalPageId", preparedId ?? "-"),
             ("discardReason", reason)
         ])
+    }
+
+    internal func clearPendingLocalHistoryPagingPreparation() {
+        self.pendingLocalHistoryPagingIntent = nil
+        self.pendingLocalHistoryPagingReleaseWhenPrepared = false
+        self.pendingPreparedLocalHistoryPage = nil
+        self.pendingDeferredRemoteHistoryDirection = nil
+        self.pendingDeferredRemoteHistoryPreparation = nil
     }
 
     private func logBoundaryPagingExecution(
@@ -11394,68 +11443,26 @@ extension ChatViewController {
         self.interactiveRemoteArchiveRequestDispatcher.enqueue(request)
     }
     
-    internal final func loadDatasource(direction: ChatHistoryPageDirection, first: Bool = false, ignoreGaps: Bool = false, samePage: Bool = false, callback: @escaping ((ChatTimelineSnapshot?) -> Void)) {
-        guard let residentSnapshot = self.timelineSession?.snapshot else {
+    internal final func loadDatasource(
+        preparation: ChatInteractiveHistoryPagingPreparation,
+        callback: @escaping ((ChatTimelineSnapshot?) -> Void)
+    ) {
+        guard let residentSnapshot = self.timelineSession?.snapshot,
+              residentSnapshot.generation == preparation.preparedPage.baseGeneration,
+              preparation.preparedPage.conversationKey == self.chatTimelineConversationKey else {
             self.setDatasourceLoadingEnabled(true)
             self.timelineInteractionState.unlock()
             callback(nil)
             return
         }
-
-        func getWindow() -> ChatDatasetWindow {
-            let currentWindow = self.visibleWindow()
-
-            if samePage {
-                return self.datasetCoordinator.clamp(
-                    currentWindow,
-                    totalCount: residentSnapshot.items.count
-                )
-            }
-
-            return self.datasetCoordinator.nextWindow(
-                from: currentWindow,
-                direction: direction
-            )
-        }
-        
-        let currentWindow = self.visibleWindow()
-        let requestedWindow = getWindow()
-        if requestedWindow.isEmpty && !first {
-            self.setDatasourceLoadingEnabled(true)
-            self.timelineInteractionState.unlock()
-            callback(nil)
-            return
-        }
-        let chatArchiveState = self.loadChatArchiveStateSnapshot()
+        let direction = preparation.direction
+        let currentWindow = preparation.currentWindow
+        let requestedWindow = preparation.requestedWindow
+        let chatArchiveState = preparation.archiveState
         let persistedArchiveEnded = chatArchiveState.fullArchiveLoaded
-        let shouldProbePersistedArchiveEnd = ChatArchiveEndVerificationPolicy.shouldProbePersistedArchiveEnd(
-            persistedArchiveEnded: persistedArchiveEnded,
-            hasConfirmedArchiveEndThisSession: self.hasConfirmedArchiveEndThisSession,
-            hasUsedVerificationProbe: self.hasUsedArchiveEndVerificationProbe
-        )
-        let effectiveArchiveEnded = ChatArchiveEndVerificationPolicy.effectiveArchiveEnded(
-            persistedArchiveEnded: persistedArchiveEnded,
-            shouldProbePersistedArchiveEnd: shouldProbePersistedArchiveEnd
-        )
-        let virtualArchiveState = ChatArchiveStateSnapshot(
-            primaryKey: chatArchiveState.primaryKey,
-            persistedCursorId: chatArchiveState.persistedCursorId,
-            fullArchiveLoaded: effectiveArchiveEnded,
-            newestCursorId: chatArchiveState.newestCursorId,
-            newerLiveEdgeReached: chatArchiveState.newerLiveEdgeReached,
-            hasKnownNewerGap: chatArchiveState.hasKnownNewerGap,
-            knownGaps: chatArchiveState.knownGaps
-        )
-        let virtualSnapshot = self.virtualTimelinePageSnapshot(
-            direction: direction,
-            archiveState: virtualArchiveState
-        )
-        guard let virtualSnapshot else {
-            self.setDatasourceLoadingEnabled(true)
-            self.timelineInteractionState.unlock()
-            callback(nil)
-            return
-        }
+        let effectiveArchiveEnded = preparation.virtualArchiveState.fullArchiveLoaded
+        let shouldProbePersistedArchiveEnd = persistedArchiveEnded && !effectiveArchiveEnded
+        let virtualSnapshot = preparation.snapshot
         let decision = virtualSnapshot.loadDecision
         ChatArchiveDebugTrace.log("timelinePagingDecision", [
             ("owner", self.owner),
@@ -11480,7 +11487,7 @@ extension ChatViewController {
             ("residentCount", self.timelineSession?.snapshot.items.count ?? -1)
         ])
 
-        let pagingPlan = ChatInteractiveHistoryPagingPlanPolicy.plan(for: decision)
+        let pagingPlan = preparation.pagingPlan
         if !pagingPlan.shouldShowOverlay {
             self.logInteractiveHistoryPagingPlan(
                 direction: direction,
@@ -11516,15 +11523,14 @@ extension ChatViewController {
             let queryId = "MAM next history: \(NanoID.new(6))"
             self.registerRemoteHistoryEndPageDispatcher(queryId: queryId)
             self.registerRemoteHistoryFailureDispatcher(queryId: queryId)
-            let remoteSnapshot = self.virtualTimelinePageSnapshot(
-                direction: direction,
+            let armedSnapshot = self.armedRemoteSnapshot(
+                from: virtualSnapshot,
                 queryId: queryId,
-                archiveState: virtualArchiveState
+                direction: direction,
+                decision: .remoteOlderPage,
+                cursorId: archivedId
             )
-            let armedSnapshot = remoteSnapshot.map(self.armedRemoteSnapshotWithoutVisiblePlaceholder)
-            if let armedSnapshot {
-                self.applyVirtualTimelineSnapshotState(armedSnapshot)
-            }
+            self.applyVirtualTimelineSnapshotState(armedSnapshot)
             let requestCallbacks = MessageArchiveManager.RequestCallbacks(
                 onMessage: nil,
                 onEndPage: { [weak self] queryId, state, first, last, count in
@@ -11554,10 +11560,10 @@ extension ChatViewController {
                 direction: direction,
                 decision: .remoteOlderPage,
                 queryId: queryId,
-                localItemCount: armedSnapshot?.items.count ?? 0,
-                localOlderCandidateCount: armedSnapshot?.localOlderCandidateCount,
-                pageSize: armedSnapshot?.pageSize,
-                shortLocalRemainderRemoteFirst: armedSnapshot?.shortLocalRemainderRemoteFirst ?? false
+                localItemCount: armedSnapshot.items.count,
+                localOlderCandidateCount: armedSnapshot.localOlderCandidateCount,
+                pageSize: armedSnapshot.pageSize,
+                shortLocalRemainderRemoteFirst: armedSnapshot.shortLocalRemainderRemoteFirst
             )
             self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 
@@ -11599,15 +11605,14 @@ extension ChatViewController {
             let queryId = "MAM prev history: \(NanoID.new(6))"
             self.registerRemoteHistoryEndPageDispatcher(queryId: queryId)
             self.registerRemoteHistoryFailureDispatcher(queryId: queryId)
-            let remoteSnapshot = self.virtualTimelinePageSnapshot(
-                direction: direction,
+            let armedSnapshot = self.armedRemoteSnapshot(
+                from: virtualSnapshot,
                 queryId: queryId,
-                archiveState: virtualArchiveState
+                direction: direction,
+                decision: .remoteNewerPage,
+                cursorId: archivedId
             )
-            let armedSnapshot = remoteSnapshot.map(self.armedRemoteSnapshotWithoutVisiblePlaceholder)
-            if let armedSnapshot {
-                self.applyVirtualTimelineSnapshotState(armedSnapshot)
-            }
+            self.applyVirtualTimelineSnapshotState(armedSnapshot)
             let requestCallbacks = MessageArchiveManager.RequestCallbacks(
                 onMessage: nil,
                 onEndPage: { [weak self] queryId, state, first, last, count in
@@ -11637,7 +11642,7 @@ extension ChatViewController {
                 direction: direction,
                 decision: .remoteNewerPage,
                 queryId: queryId,
-                localItemCount: armedSnapshot?.items.count ?? 0
+                localItemCount: armedSnapshot.items.count
             )
             self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 
@@ -11669,15 +11674,14 @@ extension ChatViewController {
             let queryId = "MAM gap repair history: \(NanoID.new(6))"
             self.registerRemoteHistoryEndPageDispatcher(queryId: queryId)
             self.registerRemoteHistoryFailureDispatcher(queryId: queryId)
-            let remoteSnapshot = self.virtualTimelinePageSnapshot(
-                direction: direction,
+            let armedSnapshot = self.armedRemoteSnapshot(
+                from: virtualSnapshot,
                 queryId: queryId,
-                archiveState: virtualArchiveState
+                direction: direction,
+                decision: .remoteGapRepairOlder(gap),
+                cursorId: archivedId
             )
-            let armedSnapshot = remoteSnapshot.map(self.armedRemoteSnapshotWithoutVisiblePlaceholder)
-            if let armedSnapshot {
-                self.applyVirtualTimelineSnapshotState(armedSnapshot)
-            }
+            self.applyVirtualTimelineSnapshotState(armedSnapshot)
             let requestCallbacks = MessageArchiveManager.RequestCallbacks(
                 onMessage: nil,
                 onEndPage: { [weak self] queryId, state, first, last, count in
@@ -11707,7 +11711,7 @@ extension ChatViewController {
                 direction: direction,
                 decision: .remoteGapRepairOlder(gap),
                 queryId: queryId,
-                localItemCount: armedSnapshot?.items.count ?? 0
+                localItemCount: armedSnapshot.items.count
             )
             self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 
@@ -11740,15 +11744,14 @@ extension ChatViewController {
             let queryId = "MAM gap repair history: \(NanoID.new(6))"
             self.registerRemoteHistoryEndPageDispatcher(queryId: queryId)
             self.registerRemoteHistoryFailureDispatcher(queryId: queryId)
-            let remoteSnapshot = self.virtualTimelinePageSnapshot(
-                direction: direction,
+            let armedSnapshot = self.armedRemoteSnapshot(
+                from: virtualSnapshot,
                 queryId: queryId,
-                archiveState: virtualArchiveState
+                direction: direction,
+                decision: .remoteGapRepairNewer(gap),
+                cursorId: archivedId
             )
-            let armedSnapshot = remoteSnapshot.map(self.armedRemoteSnapshotWithoutVisiblePlaceholder)
-            if let armedSnapshot {
-                self.applyVirtualTimelineSnapshotState(armedSnapshot)
-            }
+            self.applyVirtualTimelineSnapshotState(armedSnapshot)
             let requestCallbacks = MessageArchiveManager.RequestCallbacks(
                 onMessage: nil,
                 onEndPage: { [weak self] queryId, state, first, last, count in
@@ -11778,7 +11781,7 @@ extension ChatViewController {
                 direction: direction,
                 decision: .remoteGapRepairNewer(gap),
                 queryId: queryId,
-                localItemCount: armedSnapshot?.items.count ?? 0
+                localItemCount: armedSnapshot.items.count
             )
             self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 

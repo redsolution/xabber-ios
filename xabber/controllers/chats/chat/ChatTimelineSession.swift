@@ -188,6 +188,132 @@ struct ChatTimelineSessionSnapshot {
     }
 }
 
+enum ChatTimelineLocalPageLoadDisposition: Equatable {
+    case started
+    case coalesced
+    case rejectedStale
+}
+
+enum ChatTimelineLocalPagePreparationResult {
+    case prepared(ChatTimelinePreparedLocalPage)
+    case stale
+}
+
+struct ChatTimelineLocalPageArchiveContext {
+    let persisted: ChatArchiveStateSnapshot
+    let paging: ChatArchiveStateSnapshot
+}
+
+final class ChatTimelinePreparedLocalPage {
+    let id: String
+    let direction: ChatHistoryPageDirection
+    let conversationKey: ChatTimelineConversationKey
+    let baseGeneration: UInt64
+    let boundary: ChatTimelineBoundary
+    let archiveContext: ChatTimelineLocalPageArchiveContext
+    let snapshot: ChatTimelineSnapshot
+    let preparedOnMainThread: Bool
+
+    fileprivate let sessionID: UUID
+    private let consumeLock = NSLock()
+    private var consumed = false
+
+    fileprivate init(
+        id: String,
+        sessionID: UUID,
+        direction: ChatHistoryPageDirection,
+        conversationKey: ChatTimelineConversationKey,
+        baseGeneration: UInt64,
+        boundary: ChatTimelineBoundary,
+        archiveContext: ChatTimelineLocalPageArchiveContext,
+        snapshot: ChatTimelineSnapshot,
+        preparedOnMainThread: Bool
+    ) {
+        self.id = id
+        self.sessionID = sessionID
+        self.direction = direction
+        self.conversationKey = conversationKey
+        self.baseGeneration = baseGeneration
+        self.boundary = boundary
+        self.archiveContext = archiveContext
+        self.snapshot = snapshot
+        self.preparedOnMainThread = preparedOnMainThread
+    }
+
+    fileprivate func consumeOnce() -> Bool {
+        consumeLock.withLock {
+            guard !consumed else { return false }
+            consumed = true
+            return true
+        }
+    }
+}
+
+private final class ChatTimelineLocalPagePreparationProvider: ChatTimelinePageProviding {
+    private let upstream: ChatTimelinePageProviding
+    private var itemsByPrimary: [String: MessageStorageItem]
+
+    init(upstream: ChatTimelinePageProviding, residentItems: [MessageStorageItem]) {
+        self.upstream = upstream
+        self.itemsByPrimary = Dictionary(
+            residentItems.map { ($0.primary, $0) },
+            uniquingKeysWith: { _, newest in newest }
+        )
+    }
+
+    func latest(limit: Int) -> [MessageStorageItem] {
+        cache(upstream.latest(limit: limit))
+    }
+
+    func older(before boundary: ChatTimelineBoundary, limit: Int) -> [MessageStorageItem] {
+        cache(upstream.older(before: boundary, limit: limit))
+    }
+
+    func newer(after boundary: ChatTimelineBoundary, limit: Int) -> [MessageStorageItem] {
+        cache(upstream.newer(after: boundary, limit: limit))
+    }
+
+    func around(anchor: MessageStorageItem, before: Int, after: Int) -> [MessageStorageItem] {
+        cache(upstream.around(anchor: anchor, before: before, after: after))
+    }
+
+    func message(
+        primary: String?,
+        archivedId: String?,
+        messageId: String?
+    ) -> MessageStorageItem? {
+        if let primary, let item = itemsByPrimary[primary] {
+            return item
+        }
+        if let item = itemsByPrimary.values.first(where: {
+            (archivedId != nil && $0.archivedId == archivedId)
+                || (messageId != nil && $0.messageId == messageId)
+        }) {
+            return item
+        }
+        guard let item = upstream.message(
+            primary: primary,
+            archivedId: archivedId,
+            messageId: messageId
+        ) else {
+            return nil
+        }
+        itemsByPrimary[item.primary] = item
+        return item
+    }
+
+    func items(primaryKeys: [String]) -> [MessageStorageItem] {
+        primaryKeys.compactMap { itemsByPrimary[$0] }
+    }
+
+    private func cache(_ items: [MessageStorageItem]) -> [MessageStorageItem] {
+        for item in items {
+            itemsByPrimary[item.primary] = item
+        }
+        return items
+    }
+}
+
 final class ChatTimelineSession {
     typealias SnapshotHandler = (ChatTimelineSessionSnapshot) -> Void
 
@@ -196,6 +322,11 @@ final class ChatTimelineSession {
     private let store: ChatTimelineSessionStore
     private let pageSize: Int
     private let conversationKey: ChatTimelineConversationKey
+    private let sessionID = UUID()
+    private let localPagePreparationQueue: DispatchQueue
+    private let localPagePreparationLock = NSLock()
+    private var activeLocalPagePreparationKeys: Set<String> = []
+    private var localPagePreparationEpoch: UInt64 = 0
     private var archiveState: ChatArchiveStateSnapshot
     private var storedSnapshot: ChatTimelineSessionSnapshot
     private var observation: ChatTimelineStoreObservation?
@@ -220,6 +351,10 @@ final class ChatTimelineSession {
         self.store = store
         self.pageSize = max(1, pageSize)
         self.conversationKey = conversationKey
+        self.localPagePreparationQueue = DispatchQueue(
+            label: "com.xabber.chat.timeline.local-page.\(UUID().uuidString)",
+            qos: .userInitiated
+        )
         self.archiveState = archiveState
         let state = ChatVirtualTimelineState.empty(
             owner: conversationKey.owner,
@@ -248,6 +383,7 @@ final class ChatTimelineSession {
     }
 
     deinit {
+        cancelLocalPagePreparations()
         observation?.invalidate()
     }
 
@@ -290,6 +426,115 @@ final class ChatTimelineSession {
     }
 
     @discardableResult
+    func loadOlder(
+        before boundary: ChatTimelineBoundary,
+        archiveState: ChatArchiveStateSnapshot,
+        expectedGeneration: UInt64,
+        completion: @escaping (ChatTimelineLocalPagePreparationResult) -> Void
+    ) -> ChatTimelineLocalPageLoadDisposition {
+        startLocalPagePreparation(
+            direction: .older,
+            boundary: boundary,
+            archiveContextProvider: {
+                ChatTimelineLocalPageArchiveContext(
+                    persisted: archiveState,
+                    paging: archiveState
+                )
+            },
+            expectedGeneration: expectedGeneration,
+            completion: completion
+        )
+    }
+
+    @discardableResult
+    func loadOlder(
+        before boundary: ChatTimelineBoundary,
+        archiveContextProvider: @escaping () -> ChatTimelineLocalPageArchiveContext,
+        expectedGeneration: UInt64,
+        completion: @escaping (ChatTimelineLocalPagePreparationResult) -> Void
+    ) -> ChatTimelineLocalPageLoadDisposition {
+        startLocalPagePreparation(
+            direction: .older,
+            boundary: boundary,
+            archiveContextProvider: archiveContextProvider,
+            expectedGeneration: expectedGeneration,
+            completion: completion
+        )
+    }
+
+    @discardableResult
+    func loadNewer(
+        after boundary: ChatTimelineBoundary,
+        archiveState: ChatArchiveStateSnapshot,
+        expectedGeneration: UInt64,
+        completion: @escaping (ChatTimelineLocalPagePreparationResult) -> Void
+    ) -> ChatTimelineLocalPageLoadDisposition {
+        startLocalPagePreparation(
+            direction: .newer,
+            boundary: boundary,
+            archiveContextProvider: {
+                ChatTimelineLocalPageArchiveContext(
+                    persisted: archiveState,
+                    paging: archiveState
+                )
+            },
+            expectedGeneration: expectedGeneration,
+            completion: completion
+        )
+    }
+
+    @discardableResult
+    func loadNewer(
+        after boundary: ChatTimelineBoundary,
+        archiveContextProvider: @escaping () -> ChatTimelineLocalPageArchiveContext,
+        expectedGeneration: UInt64,
+        completion: @escaping (ChatTimelineLocalPagePreparationResult) -> Void
+    ) -> ChatTimelineLocalPageLoadDisposition {
+        startLocalPagePreparation(
+            direction: .newer,
+            boundary: boundary,
+            archiveContextProvider: archiveContextProvider,
+            expectedGeneration: expectedGeneration,
+            completion: completion
+        )
+    }
+
+    @discardableResult
+    func commitPreparedLocalPage(
+        _ preparedPage: ChatTimelinePreparedLocalPage
+    ) -> ChatTimelineSessionSnapshot? {
+        operationLock.withLock {
+            let current = snapshot
+            guard preparedPage.sessionID == sessionID,
+                  preparedPage.conversationKey == conversationKey,
+                  preparedPage.baseGeneration == current.generation,
+                  preparedPage.snapshot.loadDecision == .localOnly,
+                  preparedPage.consumeOnce() else {
+                return nil
+            }
+            let prepared = preparedPage.snapshot
+            return publish(
+                items: prepared.items,
+                state: prepared.state,
+                loadingState: prepared.loadingState,
+                loadDecision: prepared.loadDecision,
+                anchorRestore: prepared.anchorRestore,
+                localOlderCandidateCount: prepared.localOlderCandidateCount,
+                shortLocalRemainderRemoteFirst: prepared.shortLocalRemainderRemoteFirst,
+                readBoundary: current.readBoundary,
+                unreadMetadata: current.unreadMetadata
+            )
+        }
+    }
+
+    func cancelLocalPagePreparations() {
+        localPagePreparationLock.withLock {
+            localPagePreparationEpoch &+= 1
+            activeLocalPagePreparationKeys.removeAll(keepingCapacity: false)
+        }
+    }
+
+    @discardableResult
     func finishRemoteLoad(
         queryId: String,
         refetchDirection: ChatHistoryPageDirection? = nil
@@ -303,32 +548,6 @@ final class ChatTimelineSession {
     func abortRemoteLoad(queryId: String) -> ChatTimelineSessionSnapshot {
         mutateTimeline { engine in
             engine.abortRemoteLoad(queryId: queryId)
-        }
-    }
-
-    func previewPage(
-        direction: ChatHistoryPageDirection,
-        queryId: String? = nil,
-        archiveState: ChatArchiveStateSnapshot? = nil
-    ) -> ChatTimelineSnapshot {
-        operationLock.withLock {
-            let input = lock.withLock { (storedSnapshot, archiveState ?? self.archiveState) }
-            var engine = ChatVirtualTimelineEngine(
-                provider: store,
-                pageSize: pageSize,
-                state: input.0.state.normalized(
-                    owner: conversationKey.owner,
-                    jid: conversationKey.jid,
-                    conversationType: conversationKey.conversationType
-                ),
-                archiveState: input.1
-            )
-            switch direction {
-            case .older:
-                return engine.pageOlder(queryId: queryId)
-            case .newer:
-                return engine.pageNewer(queryId: queryId)
-            }
         }
     }
 
@@ -487,6 +706,146 @@ final class ChatTimelineSession {
         }
     }
 
+    private func startLocalPagePreparation(
+        direction: ChatHistoryPageDirection,
+        boundary: ChatTimelineBoundary,
+        archiveContextProvider: @escaping () -> ChatTimelineLocalPageArchiveContext,
+        expectedGeneration: UInt64,
+        completion: @escaping (ChatTimelineLocalPagePreparationResult) -> Void
+    ) -> ChatTimelineLocalPageLoadDisposition {
+        let base = snapshot
+        guard base.generation == expectedGeneration,
+              boundaryMatchesSnapshotEdge(boundary, direction: direction, snapshot: base) else {
+            return .rejectedStale
+        }
+
+        let key = localPagePreparationKey(
+            direction: direction,
+            boundary: boundary,
+            generation: expectedGeneration
+        )
+        let epochAndStarted = localPagePreparationLock.withLock { () -> (UInt64, Bool) in
+            guard activeLocalPagePreparationKeys.insert(key).inserted else {
+                return (localPagePreparationEpoch, false)
+            }
+            return (localPagePreparationEpoch, true)
+        }
+        guard epochAndStarted.1 else {
+            return .coalesced
+        }
+
+        localPagePreparationQueue.async { [weak self] in
+            guard let self else { return }
+            let preparedOnMainThread = Thread.isMainThread
+            let archiveContext = archiveContextProvider()
+            let timelineSnapshot = self.prepareLocalPageSnapshot(
+                direction: direction,
+                base: base,
+                archiveState: archiveContext.paging
+            )
+            let isCurrent = self.lock.withLock {
+                self.storedSnapshot.generation == expectedGeneration
+            }
+            let isActive = self.localPagePreparationLock.withLock { () -> Bool in
+                let epochMatches = self.localPagePreparationEpoch == epochAndStarted.0
+                let keyWasActive = self.activeLocalPagePreparationKeys.remove(key) != nil
+                return epochMatches && keyWasActive
+            }
+            let result: ChatTimelineLocalPagePreparationResult
+            if isCurrent, isActive {
+                result = .prepared(
+                    ChatTimelinePreparedLocalPage(
+                        id: "local-page-\(NanoID.new(6))",
+                        sessionID: self.sessionID,
+                        direction: direction,
+                        conversationKey: self.conversationKey,
+                        baseGeneration: expectedGeneration,
+                        boundary: boundary,
+                        archiveContext: archiveContext,
+                        snapshot: timelineSnapshot,
+                        preparedOnMainThread: preparedOnMainThread
+                    )
+                )
+            } else {
+                result = .stale
+            }
+            DispatchQueue.main.async {
+                completion(result)
+            }
+        }
+        return .started
+    }
+
+    private func prepareLocalPageSnapshot(
+        direction: ChatHistoryPageDirection,
+        base: ChatTimelineSessionSnapshot,
+        archiveState: ChatArchiveStateSnapshot
+    ) -> ChatTimelineSnapshot {
+        let preparationProvider = ChatTimelineLocalPagePreparationProvider(
+            upstream: store,
+            residentItems: base.items
+        )
+        var engine = ChatVirtualTimelineEngine(
+            provider: preparationProvider,
+            pageSize: pageSize,
+            state: base.state.normalized(
+                owner: conversationKey.owner,
+                jid: conversationKey.jid,
+                conversationType: conversationKey.conversationType
+            ),
+            archiveState: archiveState
+        )
+        let snapshot: ChatTimelineSnapshot
+        switch direction {
+        case .older:
+            snapshot = engine.pageOlder()
+        case .newer:
+            snapshot = engine.pageNewer()
+        }
+        return ChatTimelineSnapshot(
+            items: snapshot.items.map(Self.frozen),
+            state: snapshot.state,
+            loadingState: snapshot.loadingState,
+            loadDecision: snapshot.loadDecision,
+            anchorRestore: snapshot.anchorRestore,
+            localOlderCandidateCount: snapshot.localOlderCandidateCount,
+            pageSize: snapshot.pageSize,
+            shortLocalRemainderRemoteFirst: snapshot.shortLocalRemainderRemoteFirst
+        )
+    }
+
+    private func boundaryMatchesSnapshotEdge(
+        _ boundary: ChatTimelineBoundary,
+        direction: ChatHistoryPageDirection,
+        snapshot: ChatTimelineSessionSnapshot
+    ) -> Bool {
+        switch direction {
+        case .older:
+            return snapshot.oldest == boundary
+        case .newer:
+            return snapshot.newest == boundary
+        }
+    }
+
+    private func localPagePreparationKey(
+        direction: ChatHistoryPageDirection,
+        boundary: ChatTimelineBoundary,
+        generation: UInt64
+    ) -> String {
+        let directionKey = direction == .older ? "older" : "newer"
+        return [
+            conversationKey.owner,
+            conversationKey.jid,
+            conversationKey.conversationType.rawValue,
+            String(generation),
+            directionKey,
+            boundary.primary,
+            boundary.archivedId ?? "-",
+            boundary.messageId ?? "-",
+            String(boundary.date.timeIntervalSince1970)
+        ].map(String.init(describing:)).joined(separator: "|")
+    }
+
     private func mutateTimeline(
         _ mutation: (inout ChatVirtualTimelineEngine) -> ChatTimelineSnapshot
     ) -> ChatTimelineSessionSnapshot {
@@ -530,7 +889,8 @@ final class ChatTimelineSession {
         unreadMetadata: ChatTimelineUnreadMetadata
     ) -> ChatTimelineSessionSnapshot {
         let hardLimit = ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: pageSize)
-        let ordered = ChatTimelineOrdering.deduplicatedChronological(items)
+        let immutableItems = items.map(Self.frozen)
+        let ordered = ChatTimelineOrdering.deduplicatedChronological(immutableItems)
         let boundedItems = ordered.count > hardLimit ? Array(ordered.suffix(hardLimit)) : ordered
         let boundedState = boundedItems.count == ordered.count
             ? state
@@ -612,7 +972,8 @@ final class ChatTimelineSession {
         switch change {
         case .latestChanged:
             if snapshot.state.isResidentAtLiveTail {
-                _ = openLatest()
+                let currentResidentCount = snapshot.items.count
+                _ = openLatest(limit: currentResidentCount > 0 ? currentResidentCount : nil)
             } else {
                 _ = refreshResidentItems()
             }
@@ -622,6 +983,10 @@ final class ChatTimelineSession {
         case .unreadChanged:
             _ = refreshUnreadMetadata()
         }
+    }
+
+    private static func frozen(_ item: MessageStorageItem) -> MessageStorageItem {
+        item.realm == nil || item.isFrozen ? item : item.freeze()
     }
 }
 

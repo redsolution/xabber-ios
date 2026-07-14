@@ -2560,7 +2560,7 @@ extension ChatViewController {
         let decision = ChatUnreadBoundaryFirstFramePolicy.decision(
             requestSource: request.source,
             isSynced: isSynced,
-            observerCount: residentSnapshot.items.count,
+            observerCount: max(1, residentSnapshot.items.count),
             localAnchorIndex: localAnchor.index,
             isPageUnlocked: self.timelineInteractionState.isUnlocked
         )
@@ -2639,10 +2639,7 @@ extension ChatViewController {
               let localAnchor = self.searchFirstFrameLocalAnchor(
                 for: request,
                 residentSnapshot: residentSnapshot
-              ),
-              residentSnapshot.items.isNotEmpty,
-              localAnchor.index >= 0,
-              residentSnapshot.items.indices.contains(localAnchor.index) else {
+              ) else {
             return false
         }
 
@@ -2724,7 +2721,6 @@ extension ChatViewController {
         guard snapshot.items.isNotEmpty else {
             return false
         }
-
         var mappedDatasource = self.mapDataset(dataset: snapshot.items)
         if let boundaryPlaceholder {
             mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
@@ -3081,9 +3077,10 @@ extension ChatViewController {
         let snapshot = residentSnapshot ?? timelineSession.snapshot
         guard let message = timelineSession.firstIncoming(
             afterArchiveBoundaryId: boundaryArchivedId
-        ), let index = snapshot.residentIndex.index(primary: message.primary) else {
+        ) else {
             return nil
         }
+        let index = snapshot.residentIndex.index(primary: message.primary) ?? 0
         return (message, index)
     }
 
@@ -3097,13 +3094,14 @@ extension ChatViewController {
 
         guard let timelineSession = self.timelineSession else { return nil }
         let snapshot = residentSnapshot ?? timelineSession.snapshot
-        guard let message = self.sessionAnchorMessage(for: request)?.message,
-              let index = snapshot.residentIndex.index(primary: message.primary)
-                ?? RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(message.archivedId)
-                    .flatMap({ snapshot.residentIndex.index(archivedId: $0) })
-                ?? snapshot.residentIndex.index(messageId: message.messageId) else {
+        guard let message = self.sessionAnchorMessage(for: request)?.message else {
             return nil
         }
+        let index = snapshot.residentIndex.index(primary: message.primary)
+                ?? RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(message.archivedId)
+                    .flatMap({ snapshot.residentIndex.index(archivedId: $0) })
+                ?? snapshot.residentIndex.index(messageId: message.messageId)
+                ?? 0
         return (message, index)
     }
 

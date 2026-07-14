@@ -14563,7 +14563,8 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         )
 
         XCTAssertEqual(action, .prepareLocal(.older))
-        XCTAssertNotNil(controller.pendingPreparedLocalHistoryPage)
+        XCTAssertNotNil(controller.pendingLocalHistoryPagingIntent)
+        XCTAssertTrue(waitUntil { controller.pendingPreparedLocalHistoryPage != nil })
         XCTAssertNil(controller.pendingDeferredRemoteHistoryDirection)
         XCTAssertEqual(controller.datasource.map(\.primary), beforeDatasource)
         XCTAssertEqual(controller.residentDatasetWindow.minIndex, beforePage.minIndex)
@@ -14607,7 +14608,8 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let beforeViewportY = try viewportY(for: anchor.primary, in: controller)
         let previousFirstPrimary = try XCTUnwrap(controller.datasource.first(where: { !$0.isFakeMessage })?.primary)
 
-        XCTAssertTrue(controller.applyPendingBoundaryPagingAfterScrollRest(trigger: "test"))
+        _ = controller.applyPendingBoundaryPagingAfterScrollRest(trigger: "test")
+        XCTAssertTrue(waitUntil { controller.pendingPreparedLocalHistoryPage == nil && controller.pendingLocalHistoryPagingIntent == nil })
         RunLoop.current.run(until: Date().addingTimeInterval(0.4))
         controller.messagesCollectionView.layoutIfNeeded()
 
@@ -14658,9 +14660,12 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
         XCTAssertEqual(action, .prepareLocal(.newer))
         XCTAssertEqual(controller.datasource.last(where: { !$0.isFakeMessage })?.primary, beforeLastPrimary)
-        XCTAssertNotNil(controller.pendingPreparedLocalHistoryPage)
+        XCTAssertNotNil(controller.pendingLocalHistoryPagingIntent)
 
-        XCTAssertTrue(controller.applyPendingBoundaryPagingAfterScrollRest(trigger: "test"))
+        _ = controller.applyPendingBoundaryPagingAfterScrollRest(trigger: "test")
+        XCTAssertTrue(waitUntil {
+            controller.datasource.last(where: { !$0.isFakeMessage })?.primary == "first-frame-message-999"
+        })
         RunLoop.current.run(until: Date().addingTimeInterval(0.4))
         controller.messagesCollectionView.layoutIfNeeded()
 
@@ -14824,7 +14829,11 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             conversationType: controller.conversationType
         )
 
-        XCTAssertFalse(controller.applyPendingBoundaryPagingAfterScrollRest(trigger: "test"))
+        _ = controller.applyPendingBoundaryPagingAfterScrollRest(trigger: "test")
+        XCTAssertTrue(waitUntil {
+            controller.pendingLocalHistoryPagingIntent == nil &&
+            controller.pendingPreparedLocalHistoryPage == nil
+        })
         XCTAssertNil(controller.pendingPreparedLocalHistoryPage)
         XCTAssertEqual(controller.datasource.map(\.primary), beforeDatasource)
     }
@@ -14856,7 +14865,8 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             trigger: "test"
         )
 
-        XCTAssertEqual(action, .deferRemote(.older))
+        XCTAssertEqual(action, .prepareLocal(.older))
+        XCTAssertTrue(waitUntil { controller.pendingDeferredRemoteHistoryDirection == .older })
         XCTAssertNil(controller.pendingPreparedLocalHistoryPage)
         XCTAssertEqual(controller.pendingDeferredRemoteHistoryDirection, .older)
         XCTAssertEqual(controller.virtualTimelineState, beforeVirtualState)
@@ -14894,7 +14904,8 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             trigger: "test"
         )
 
-        XCTAssertEqual(action, .applyNow(.older))
+        XCTAssertEqual(action, .prepareLocal(.older))
+        XCTAssertTrue(waitUntil { dispatcher.requests.count == 1 })
         XCTAssertEqual(dispatcher.requests.count, 1)
         let request = try XCTUnwrap(dispatcher.requests.first)
         XCTAssertEqual(request.priority, .interactive)
@@ -14927,6 +14938,17 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.conversationType = .regular
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         return controller
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 2,
+        condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
     }
 
     private func makeWarmupRecordingController(
@@ -14980,8 +15002,18 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             isResidentAtLiveTail: false
         )
 
-        controller.virtualTimelineState = state
-        controller.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: state)
+        let session = try XCTUnwrap(controller.timelineSession)
+        _ = session.commit(
+            ChatTimelineSnapshot(
+                items: messages,
+                state: state,
+                loadingState: .none,
+                loadDecision: nil,
+                anchorRestore: nil,
+                pageSize: controller.datasourcePageSize
+            )
+        )
+        XCTAssertTrue(session.snapshot.items.allSatisfy(\.isFrozen))
         controller.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: messages.count))
         controller.applyChatDatasource(
             controller.mapDataset(dataset: messages),

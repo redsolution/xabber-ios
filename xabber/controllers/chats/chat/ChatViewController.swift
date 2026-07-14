@@ -1883,8 +1883,11 @@ class ChatViewController: MessagesViewController {
     var isMessageAnchorNavigationInFlight: Bool = false
     var searchAnchorNavigationWasScrollEnabled: Bool? = nil
     var hasRequestedMentionUsersRefresh: Bool = false
+    internal var pendingLocalHistoryPagingIntent: ChatLocalHistoryPagingIntent? = nil
+    internal var pendingLocalHistoryPagingReleaseWhenPrepared: Bool = false
     internal var pendingPreparedLocalHistoryPage: ChatPreparedLocalHistoryPage? = nil
     internal var pendingDeferredRemoteHistoryDirection: ChatHistoryPageDirection? = nil
+    internal var pendingDeferredRemoteHistoryPreparation: ChatInteractiveHistoryPagingPreparation? = nil
     internal var interactiveRemoteArchiveRequestDispatcher: ChatInteractiveRemoteArchiveRequestDispatching = AccountSchedulerChatInteractiveRemoteArchiveRequestDispatcher()
     var interactiveHistoryPageLoadContext: ChatInteractiveHistoryPageLoadContext? = nil
     var interactiveHistoryCompletionRetryWorkItem: DispatchWorkItem? = nil
@@ -4291,6 +4294,8 @@ class ChatViewController: MessagesViewController {
     
     
     final func configureDataset() {
+        self.timelineSession?.cancelLocalPagePreparations()
+        self.clearPendingLocalHistoryPagingPreparation()
         let store = RealmChatTimelineSessionStore(
             owner: self.owner,
             jid: self.jid,
@@ -5090,6 +5095,8 @@ class ChatViewController: MessagesViewController {
         })
         LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
         self.cancelPendingFirstFrameAuxiliaryRefresh(reason: "viewWillDisappear")
+        self.timelineSession?.cancelLocalPagePreparations()
+        self.clearPendingLocalHistoryPagingPreparation()
         self.flushPendingVisibleReadTarget()
         self.saveCurrentVisibleMessagePositionIfNeeded(reason: .viewWillDisappear)
 
@@ -5562,6 +5569,7 @@ class ChatViewController: MessagesViewController {
     }
     
     deinit {
+        self.timelineSession?.cancelLocalPagePreparations()
         self.scheduledMessagesComposerButtonToken?.invalidate()
         self.unsubscribe()
         self.removeObservers()
