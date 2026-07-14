@@ -1728,8 +1728,21 @@ class ChatViewController: MessagesViewController {
     
 // datasource
     var timelineSession: ChatTimelineSession?
-    var datasource: [Datasource] = []
+    var datasource: [Datasource] = [] {
+        didSet {
+            rebuildScrollResidentMetadata()
+        }
+    }
     var datasourceSnapshot: ChatDatasourceSnapshot = .empty
+    var scrollResidentMetadata: ChatScrollResidentMetadata = .empty
+    var scrollResidentMetadataGeneration: UInt64 = 0
+    internal let scrollFrameOperationCounter = ChatRenderOperationCounter(
+        isEnabled: _isDebugAssertConfiguration()
+    )
+    internal lazy var scrollFramePlanner = ChatScrollFramePlanner(
+        operationCounter: scrollFrameOperationCounter
+    )
+    var observerRefreshGenerationCoalescer = ChatObserverRefreshGenerationCoalescer()
     var pendingOutgoingAutoScrollRequest: ChatOutgoingAutoScrollRequest? = nil
     private(set) var chatObserversRegistered: Bool = false
     internal var chatNotificationCenter: NotificationCenter = .default
@@ -1973,6 +1986,7 @@ class ChatViewController: MessagesViewController {
     internal var messagesToReadObserver: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set())
     private var detachedViewportReadBoundaryPrimary: String?
     private var detachedViewportReadBoundaryIndex: Int?
+    private var detachedViewportReadBoundaryPosition: ChatTimelinePositionKey?
     
     internal let pinnedDateView: FloatDateView = {
         let view = FloatDateView(frame: .zero)
@@ -5021,39 +5035,62 @@ class ChatViewController: MessagesViewController {
         return self.detachedViewportReadBoundaryIndex
     }
 
+    internal func currentViewportReadBoundaryPosition() -> ChatTimelinePositionKey? {
+        self.timelineSession?.snapshot.readBoundary?.position
+            ?? self.detachedViewportReadBoundaryPosition
+    }
+
     internal func setViewportReadBoundaryTarget(_ target: ChatViewportReadBoundaryPolicy.OrderedMessage) {
         if let session = self.timelineSession {
             _ = session.advanceReadBoundary(toPrimary: target.primary)
         } else {
             self.detachedViewportReadBoundaryPrimary = target.primary
             self.detachedViewportReadBoundaryIndex = target.orderIndex
+            self.detachedViewportReadBoundaryPosition = self.scrollResidentMetadata.position(
+                primary: target.primary
+            )
         }
     }
 
     @discardableResult
-    internal func advanceReadBoundaryFromVisibleMessages(indexPaths: [IndexPath]) -> Bool {
-        let visiblePrimaries = Set(
-            indexPaths.compactMap { indexPath in
-                self.datasourceItem(at: indexPath)?.primary
+    internal func advanceReadBoundary(to target: ChatScrollVisibleRow) -> Bool {
+        let didAdvance: Bool
+        if let session = self.timelineSession {
+            didAdvance = session.advanceReadBoundary(toPrimary: target.primary)
+        } else {
+            guard self.detachedViewportReadBoundaryPosition.map({ target.position > $0 }) ?? true else {
+                return false
             }
-        )
-        guard visiblePrimaries.isNotEmpty else {
+            self.detachedViewportReadBoundaryPrimary = target.primary
+            self.detachedViewportReadBoundaryIndex = target.section
+            self.detachedViewportReadBoundaryPosition = target.position
+            didAdvance = true
+        }
+        guard didAdvance else {
             return false
         }
-
-        let orderedMessages = self.orderedViewportReadMessages()
-        let currentBoundaryIndex = self.currentViewportReadBoundaryIndex(in: orderedMessages)
-        guard let target = ChatViewportReadBoundaryPolicy.nextVisibleIncomingTarget(
-            visiblePrimaries: visiblePrimaries,
-            orderedMessages: orderedMessages,
-            currentBoundaryIndex: currentBoundaryIndex
-        ) else {
-            return false
-        }
-
-        self.setViewportReadBoundaryTarget(target)
         self.messagesToReadObserver.accept([target.primary])
         return true
+    }
+
+    @discardableResult
+    internal func advanceReadBoundaryFromVisibleMessages(indexPaths: [IndexPath]) -> Bool {
+        let visible = self.scrollResidentMetadata.capture(indexPaths: indexPaths)
+        let request = ChatScrollWorkRequest(
+            contentOffsetY: self.messagesCollectionView.contentOffset.y,
+            gestureTranslationY: 0,
+            isUserScrolling: false,
+            visibleIndexPaths: indexPaths,
+            visibleMetadata: visible,
+            work: [.advanceReadBoundary]
+        )
+        guard let target = ChatScrollFramePlanner().plan(
+            request: request,
+            currentReadPosition: self.currentViewportReadBoundaryPosition()
+        ).readTarget else {
+            return false
+        }
+        return self.advanceReadBoundary(to: target)
     }
 
     @discardableResult
@@ -5656,7 +5693,13 @@ extension ChatViewController {
     }
 
     internal func updateVisibleVoiceMessageQueue() {
-        VoiceMessagePlaybackCoordinator.shared.setVisibleVoiceMessages(self.visibleVoiceMessageDescriptors())
+        let visible = self.scrollResidentMetadata.capture(
+            indexPaths: self.messagesCollectionView.indexPathsForVisibleItems
+        )
+        guard let descriptors = self.scrollFramePlanner.voiceDescriptorsIfChanged(in: visible) else {
+            return
+        }
+        VoiceMessagePlaybackCoordinator.shared.setVisibleVoiceMessages(descriptors)
     }
 
     internal func voiceMessageDescriptor(referencePrimary: String) -> VoiceMessageDescriptor? {
@@ -5669,73 +5712,35 @@ extension ChatViewController {
     }
 
     internal func visibleVoiceMessageDescriptors() -> [VoiceMessageDescriptor] {
-        return messagesCollectionView.indexPathsForVisibleItems
-            .sorted {
-                if $0.section != $1.section {
-                    return $0.section < $1.section
-                }
-                return $0.item < $1.item
-            }
-            .compactMap { indexPath -> Datasource? in
-                datasourceItem(at: indexPath)
-            }
-            .flatMap { voiceMessageDescriptors(in: $0) }
-    }
-
-    private func voiceMessageDescriptors(in item: Datasource) -> [VoiceMessageDescriptor] {
-        var descriptors = item.audios.compactMap {
-            voiceMessageDescriptor(audio: $0, containerPrimary: item.primary, sentDate: item.sentDate)
-        }
-        item.forwards.forEach {
-            descriptors.append(contentsOf: voiceMessageDescriptors(in: $0, containerPrimary: item.primary, sentDate: item.sentDate))
-        }
-        return descriptors
+        self.scrollResidentMetadata
+            .capture(indexPaths: messagesCollectionView.indexPathsForVisibleItems)
+            .rows
+            .flatMap(\.voiceDescriptors)
     }
 
     private func voiceMessageDescriptor(referencePrimary: String, in item: Datasource) -> VoiceMessageDescriptor? {
         if let audio = item.audios.first(where: { $0.primary == referencePrimary }) {
             return voiceMessageDescriptor(audio: audio, containerPrimary: item.primary, sentDate: item.sentDate)
         }
-        for forward in item.forwards {
-            if let descriptor = voiceMessageDescriptor(referencePrimary: referencePrimary, in: forward, containerPrimary: item.primary, sentDate: item.sentDate) {
-                return descriptor
+        return ChatPreparedVoiceTraversal.prepare(
+            roots: item.forwards,
+            budget: ChatPreparedVoiceTraversalBudget(maxDepth: 6, maxVisitedNodes: 64),
+            children: \.subforwards,
+            descriptors: { attachment in
+                guard let audio = attachment.audios.first(where: { $0.primary == referencePrimary }),
+                      let descriptor = voiceMessageDescriptor(
+                        audio: audio,
+                        containerPrimary: item.primary,
+                        sentDate: item.sentDate
+                      ) else {
+                    return []
+                }
+                return [descriptor]
             }
-        }
-        return nil
+        ).descriptors.first
     }
 
-    private func voiceMessageDescriptor(
-        referencePrimary: String,
-        in attachment: MessageAttachment,
-        containerPrimary: String,
-        sentDate: Date
-    ) -> VoiceMessageDescriptor? {
-        if let audio = attachment.audios.first(where: { $0.primary == referencePrimary }) {
-            return voiceMessageDescriptor(audio: audio, containerPrimary: containerPrimary, sentDate: sentDate)
-        }
-        for forward in attachment.subforwards {
-            if let descriptor = voiceMessageDescriptor(referencePrimary: referencePrimary, in: forward, containerPrimary: containerPrimary, sentDate: sentDate) {
-                return descriptor
-            }
-        }
-        return nil
-    }
-
-    private func voiceMessageDescriptors(
-        in attachment: MessageAttachment,
-        containerPrimary: String,
-        sentDate: Date
-    ) -> [VoiceMessageDescriptor] {
-        var descriptors = attachment.audios.compactMap {
-            voiceMessageDescriptor(audio: $0, containerPrimary: containerPrimary, sentDate: sentDate)
-        }
-        attachment.subforwards.forEach {
-            descriptors.append(contentsOf: voiceMessageDescriptors(in: $0, containerPrimary: containerPrimary, sentDate: sentDate))
-        }
-        return descriptors
-    }
-
-    private func voiceMessageDescriptor(
+    internal func voiceMessageDescriptor(
         audio: AudioAttachment,
         containerPrimary: String,
         sentDate: Date

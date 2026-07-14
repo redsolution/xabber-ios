@@ -6842,48 +6842,42 @@ extension ChatViewController {
     internal func willUpdateFloatingDate() {
         self.updateFloatingDateObserverSignal.accept(true)
     }
-    
-    internal func updateFloatingDate() {
-        guard let topVisibleReasonableMessageIndex = self.messagesCollectionView.indexPathsForVisibleItems.compactMap ({
-            return $0.section
-        }).min() else {
+
+    internal func updateFloatingDate(_ update: ChatScrollFloatingDateUpdate) {
+        guard update.residentRowCount >= 5 else {
+            self.pinnedDateView.isHidden = true
             return
         }
-        let pinnOffset: CGFloat = 0//54
-//        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-//            pinnOffset += topInset
-//        }
         let frame = CGRect(
-            origin: CGPoint(
-                x: 0,
-                y: pinnOffset
-            ),
-            size: CGSize(
-                width: self.view.bounds.width,
-                height: 34
+            origin: CGPoint(x: 0, y: 0),
+            size: CGSize(width: self.view.bounds.width, height: 34)
+        )
+        let text = NSAttributedString(
+            string: sectionsDateFormatter.string(from: update.date),
+            attributes: [
+                .font: UIFont.preferredFont(forTextStyle: .caption1),
+                .foregroundColor: UIColor.white,
+            ]
+        )
+        self.pinnedDateView.isHidden = false
+        self.pinnedDateView.frame = frame
+        self.pinnedDateView.configure(text)
+    }
+    
+    internal func updateFloatingDate() {
+        let visible = self.scrollResidentMetadata.capture(
+            indexPaths: self.messagesCollectionView.indexPathsForVisibleItems
+        )
+        guard let top = visible.rows.first else {
+            return
+        }
+        self.updateFloatingDate(
+            ChatScrollFloatingDateUpdate(
+                section: top.section,
+                date: top.sentDate,
+                residentRowCount: visible.residentRowCount
             )
         )
-        if self.datasource.count < 5 {
-            self.pinnedDateView.isHidden = true
-//            self.pinnedDateView.hide()
-        } else {
-            let index = [topVisibleReasonableMessageIndex, self.datasource.count - 1].min() ?? 0
-            guard let item = self.datasourceItem(atSection: index) else {
-                self.pinnedDateView.isHidden = true
-                return
-            }
-//            self.pinnedDateView.show()
-            self.pinnedDateView.isHidden = false
-            let text = NSAttributedString(
-                string: sectionsDateFormatter.string(from: item.sentDate),
-                attributes: [
-                    .font: UIFont.preferredFont(forTextStyle: .caption1),
-                    .foregroundColor: UIColor.white,
-                ]
-            )
-            self.pinnedDateView.frame = frame
-            self.pinnedDateView.configure(text)
-        }
     }
     
     internal func mapAttachment(_ attachment: MessageForwardsInlineStorageItem) -> MessageAttachment {
@@ -8090,19 +8084,7 @@ extension ChatViewController {
     }
 
     internal func pagingBoundaryContext(visibleSections: [Int]) -> ChatHistoryPagingBoundaryContext {
-        let visibleRealSections = Array(Set(visibleSections.compactMap { section -> Int? in
-            guard let item = self.datasourceItem(atSection: section),
-                  !item.isFakeMessage else {
-                return nil
-            }
-            return section
-        })).sorted()
-
-        return ChatHistoryPagingBoundaryContext(
-            firstRealSection: self.datasource.firstIndex(where: { !$0.isFakeMessage }),
-            lastRealSection: self.datasource.lastIndex(where: { !$0.isFakeMessage }),
-            visibleRealSections: visibleRealSections
-        )
+        self.scrollResidentMetadata.boundaryContext(visibleSections: visibleSections)
     }
 
     internal func beginInitialBootstrapTracking(queryId: String) {
@@ -10340,6 +10322,29 @@ extension ChatViewController {
     }
 
     internal func handleTimelineSessionRefresh() {
+        let motionState = self.currentScrollMotionState()
+        if !self.showSkeletonObserver.value,
+           motionState.isMoving {
+            let generation = self.timelineSession?.snapshot.generation ?? 0
+            let disposition = self.observerRefreshGenerationCoalescer.receive(
+                generation: generation,
+                motionState: motionState
+            )
+            guard disposition == .deferred else {
+                return
+            }
+            self.pendingArchiveObserverRefresh = true
+            self.archiveObserverRefreshWorkItem?.cancel()
+            self.archiveObserverRefreshWorkItem = nil
+            self.logArchiveObserverRefreshBackpressure(action: "deferNewestGenerationUntilScrollRest")
+            return
+        }
+        if self.observerRefreshGenerationCoalescer.flush(motionState: motionState) != nil {
+            self.pendingArchiveObserverRefresh = false
+            self.archiveObserverRefreshWorkItem?.cancel()
+            self.archiveObserverRefreshWorkItem = nil
+            self.scrollFrameOperationCounter.record(.observerRefreshCommits)
+        }
         self.refreshPinnedMessagePanelIfNeeded()
         if self.showSkeletonObserver.value {
             let didRevealBootstrapContent = self.revealInitialBootstrapContentIfAvailable()
@@ -10413,9 +10418,10 @@ extension ChatViewController {
 
     @discardableResult
     internal func flushPendingArchiveObserverRefreshIfPossible(reason: String) -> Bool {
+        let motionState = self.currentScrollMotionState()
         let action = ChatObserverRefreshBackpressurePolicy.flushAction(
             hasPendingRefresh: self.pendingArchiveObserverRefresh,
-            motionState: self.currentScrollMotionState(),
+            motionState: motionState,
             isBlockedBySearchNavigation: self.hasActiveSearchNavigationTransaction
         )
 
@@ -10426,6 +10432,10 @@ extension ChatViewController {
             self.logArchiveObserverRefreshBackpressure(action: "flushDeferred:\(reason)")
             return false
         case .flush:
+            if self.observerRefreshGenerationCoalescer.flush(motionState: motionState) != nil {
+                self.scrollFrameOperationCounter.record(.observerRefreshCommits)
+                self.refreshPinnedMessagePanelIfNeeded()
+            }
             self.archiveObserverRefreshWorkItem?.cancel()
             self.archiveObserverRefreshWorkItem = nil
             self.pendingArchiveObserverRefresh = false
@@ -10446,6 +10456,7 @@ extension ChatViewController {
         self.archiveObserverRefreshWorkItem?.cancel()
         self.archiveObserverRefreshWorkItem = nil
         self.pendingArchiveObserverRefresh = false
+        self.observerRefreshGenerationCoalescer.cancel()
         self.logArchiveObserverRefreshBackpressure(action: "cancel:\(reason)")
     }
 

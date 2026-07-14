@@ -105,6 +105,7 @@ xabberTests/ChatComposerFrameUpdateTests
 SELECTORS
       ;;
     G08) cat <<'SELECTORS'
+xabberTests/ChatScrollFrameBudgetTests
 xabberTests/ChatScrollCoalescingTests
 xabberTests/ChatScrollBoundaryCacheTests
 xabberTests/ChatViewportReadBoundaryTests

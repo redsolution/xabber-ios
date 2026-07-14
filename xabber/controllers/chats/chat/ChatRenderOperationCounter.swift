@@ -29,6 +29,12 @@ enum ChatRenderOperation: String, CaseIterable {
     case mediaDecodes
     case activeTasks
     case activeTimers
+    case scrollFrames
+    case visibleRowsVisited
+    case storeQueries
+    case floatingDateUpdates
+    case voiceQueueUpdates
+    case observerRefreshCommits
 }
 
 struct ChatRenderOperationSnapshot: Equatable {

@@ -159,10 +159,37 @@ struct ChatScrollWorkRequest: Equatable {
     let gestureTranslationY: CGFloat
     let isUserScrolling: Bool
     let visibleIndexPaths: [IndexPath]
+    let visibleMetadata: ChatScrollVisibleMetadata
     let work: ChatScrollWorkOptions
 
-    func effectiveWork(isInteractionGateActive: Bool) -> ChatScrollWorkOptions {
+    init(
+        contentOffsetY: CGFloat,
+        gestureTranslationY: CGFloat,
+        isUserScrolling: Bool,
+        visibleIndexPaths: [IndexPath],
+        visibleMetadata: ChatScrollVisibleMetadata = .empty,
+        work: ChatScrollWorkOptions
+    ) {
+        self.contentOffsetY = contentOffsetY
+        self.gestureTranslationY = gestureTranslationY
+        self.isUserScrolling = isUserScrolling
+        self.visibleIndexPaths = visibleIndexPaths
+        self.visibleMetadata = visibleMetadata
+        self.work = work
+    }
+
+    func effectiveWork(
+        isInteractionGateActive: Bool,
+        currentVisibleMetadataGeneration: UInt64? = nil
+    ) -> ChatScrollWorkOptions {
         var effectiveWork = work
+        if let currentVisibleMetadataGeneration,
+           visibleMetadata.generation != currentVisibleMetadataGeneration {
+            effectiveWork.remove(.updateFloatingDate)
+            effectiveWork.remove(.advanceReadBoundary)
+            effectiveWork.remove(.updateVoiceQueue)
+            effectiveWork.remove(.evaluateBoundaryPaging)
+        }
         if !isUserScrolling {
             effectiveWork.remove(.evaluateBoundaryPaging)
         }
@@ -179,6 +206,7 @@ struct ChatScrollWorkRequest: Equatable {
             gestureTranslationY: newer.gestureTranslationY,
             isUserScrolling: newer.isUserScrolling,
             visibleIndexPaths: newer.visibleIndexPaths,
+            visibleMetadata: newer.visibleMetadata,
             work: work.union(newer.work)
         )
     }
