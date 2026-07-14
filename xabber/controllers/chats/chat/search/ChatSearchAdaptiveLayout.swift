@@ -376,8 +376,12 @@ extension UIView {
     }
 
     func updateChatSearchAccessibilityFrame() {
-        guard window != nil, let superview else { return }
-        accessibilityFrame = superview.convert(chatSearchAccessibilityFrame, to: nil)
+        // UIKit derives a UIView's accessibility frame from its current view
+        // hierarchy. Persisting an absolute screen-space override here makes
+        // the hit target stale when an ancestor follows the keyboard without
+        // laying out the control again. Controls smaller than 44 points must
+        // provide a dynamic override instead; see
+        // ChatSearchExpandedHitButton.
     }
 }
 

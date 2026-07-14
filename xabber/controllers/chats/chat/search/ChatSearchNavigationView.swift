@@ -22,6 +22,13 @@ import UIKit
 enum ChatSearchNavigationLayout {
     static let nominalHeight: CGFloat = 60
     static let controlHeight: CGFloat = 44
+    static let searchIconPointSize: CGFloat = 16
+    static let searchIconOpticalInsets = NSDirectionalEdgeInsets(
+        top: 8,
+        leading: 8,
+        bottom: 0,
+        trailing: 0
+    )
     static let horizontalInset: CGFloat = 16
     static let verticalInset: CGFloat = 6
     static let interItemSpacing: CGFloat = 8
@@ -130,7 +137,10 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
         button.accessibilityIdentifier = submitAccessibilityIdentifier
         button.tintColor = NativeGlassBarStyle.iconTintColor
         button.setImage(
-            imageLiteral("magnifyingglass", dimension: NativeGlassBarStyle.iconSize),
+            imageLiteral(
+                "magnifyingglass",
+                dimension: ChatSearchNavigationLayout.searchIconPointSize
+            ),
             for: .normal
         )
         return button
@@ -317,6 +327,12 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
             cancelButton,
             environment: environment
         )
+        // These controls are positioned with frames in layoutSubviews. The
+        // shared glass helpers opt into Auto Layout, including on every trait
+        // refresh, so restore this view's manual-layout contract afterwards.
+        [submitButton, clearButton, cancelButton].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = true
+        }
         setNeedsLayout()
     }
 
@@ -390,9 +406,20 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
         NativeGlassBarStyle.applyIconButtonStyle(
             to: submitButton,
             tintColor: NativeGlassBarStyle.iconTintColor,
-            image: imageLiteral("magnifyingglass", dimension: NativeGlassBarStyle.iconSize),
+            image: imageLiteral(
+                "magnifyingglass",
+                dimension: ChatSearchNavigationLayout.searchIconPointSize
+            ),
             prefersNativeGlass: false
         )
+        var submitConfiguration = UIButton.Configuration.plain()
+        submitConfiguration.image = imageLiteral(
+            "magnifyingglass",
+            dimension: ChatSearchNavigationLayout.searchIconPointSize
+        )
+        submitConfiguration.baseForegroundColor = NativeGlassBarStyle.iconTintColor
+        submitConfiguration.contentInsets = ChatSearchNavigationLayout.searchIconOpticalInsets
+        submitButton.configuration = submitConfiguration
         NativeGlassBarStyle.applyIconButtonStyle(
             to: clearButton,
             tintColor: .secondaryLabel,
@@ -404,7 +431,6 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
             tintColor: NativeGlassBarStyle.iconTintColor,
             image: UIImage(systemName: "xmark")
         )
-
         submitButton.addTarget(self, action: #selector(onSubmitButtonTouchUp), for: .touchUpInside)
         clearButton.addTarget(self, action: #selector(onClearButtonTouchUp), for: .touchUpInside)
         cancelButton.addTarget(self, action: #selector(onCancelButtonTouchUp), for: .touchUpInside)

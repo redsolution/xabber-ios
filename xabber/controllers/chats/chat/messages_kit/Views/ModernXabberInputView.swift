@@ -881,7 +881,14 @@ class ModernXabberInputView: UIView {
                 direction: counterDirection,
                 animated: animated
             )
-            counterLabel.accessibilityValue = hasCommittedCurrentResult ? counterText : nil
+            switch newState {
+            case .emptyResults:
+                counterLabel.accessibilityValue = counterText
+            case .results where hasCommittedCurrentResult:
+                counterLabel.accessibilityValue = counterText
+            case .idle, .loading, .results:
+                counterLabel.accessibilityValue = nil
+            }
 
             let viewModeTitle: String
             switch newSurfaceMode {

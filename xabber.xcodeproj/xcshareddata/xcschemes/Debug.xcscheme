@@ -118,6 +118,16 @@
             value = "1"
             isEnabled = "YES">
          </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "XABBER_LIVE_SEARCH_QA"
+            value = "$(XABBER_LIVE_SEARCH_QA)"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "XABBER_LIVE_SEARCH_DATE_JUMP_QA"
+            value = "$(XABBER_LIVE_SEARCH_DATE_JUMP_QA)"
+            isEnabled = "YES">
+         </EnvironmentVariable>
       </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction

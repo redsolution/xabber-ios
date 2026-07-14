@@ -198,7 +198,7 @@ final class ChatSearchAccessibilityTests: XCTestCase {
         try assertLocalizedButton(panel.viewModeButton)
 
         panel.applyRenderState(.emptyResults, surfaceMode: .chat, animated: false)
-        XCTAssertNil(panel.counterLabel.accessibilityValue)
+        XCTAssertEqual(panel.counterLabel.accessibilityValue, "No messages")
         XCTAssertTrue(panel.viewModeButton.accessibilityElementsHidden)
     }
 
@@ -227,7 +227,7 @@ final class ChatSearchAccessibilityTests: XCTestCase {
         XCTAssertEqual(view.previousButton.accessibilityValue, "Older message")
         XCTAssertEqual(view.nextButton.accessibilityLabel, "Next result")
         XCTAssertEqual(view.nextButton.accessibilityValue, "No newer results")
-        XCTAssertTrue(view.nextButton.accessibilityTraits.contains(.notEnabled))
+        XCTAssertFalse(view.nextButton.isEnabled)
         try assertLocalizedButton(view.previousButton)
         try assertLocalizedButton(view.nextButton)
 
@@ -235,6 +235,53 @@ final class ChatSearchAccessibilityTests: XCTestCase {
 
         XCTAssertTrue(view.accessibilityElementsHidden)
         XCTAssertFalse(view.isUserInteractionEnabled)
+    }
+
+    func testExpandedAccessibilityFrameTracksMovedAncestorWithoutRelayout() {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = UIView(frame: CGRect(x: 0, y: 600, width: 390, height: 100))
+        let navigationButtons = ChatSearchNavigationButtonsView(
+            frame: CGRect(
+                x: 334,
+                y: 0,
+                width: ChatSearchNavigationButtonsLayout.stackSize.width,
+                height: ChatSearchNavigationButtonsLayout.stackSize.height
+            ),
+            animationSpec: .immediate,
+            localization: localization
+        )
+        window.addSubview(container)
+        container.addSubview(navigationButtons)
+        window.isHidden = false
+        navigationButtons.render(
+            .init(
+                isVisible: true,
+                isPreviousEnabled: true,
+                isNextEnabled: false,
+                isBusy: false
+            ),
+            animated: false
+        )
+        navigationButtons.layoutIfNeeded()
+
+        XCTAssertEqual(
+            navigationButtons.previousButton.accessibilityFrame.size,
+            CGSize(width: 44, height: 44)
+        )
+        XCTAssertEqual(
+            navigationButtons.previousButton.accessibilityFrame.midY,
+            620,
+            accuracy: 0.5
+        )
+
+        container.frame.origin.y = 300
+
+        XCTAssertEqual(
+            navigationButtons.previousButton.accessibilityFrame.midY,
+            320,
+            accuracy: 0.5,
+            "The expanded hit frame must remain relative to its moved container instead of caching obsolete screen coordinates."
+        )
     }
 
     func testResultRowUsesAutomationPrefixAndCombinesPlainPresentation() throws {
@@ -519,7 +566,8 @@ final class ChatSearchAccessibilityTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        XCTAssertTrue(button.accessibilityTraits.contains(.button), file: file, line: line)
+        XCTAssertFalse(button.isHidden, file: file, line: line)
+        XCTAssertFalse(button.accessibilityElementsHidden, file: file, line: line)
         XCTAssertFalse(
             try XCTUnwrap(button.accessibilityLabel, file: file, line: line)
                 .trimmingCharacters(in: .whitespacesAndNewlines)

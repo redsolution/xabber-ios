@@ -9,6 +9,23 @@
 
 import UIKit
 
+private final class ChatSearchExpandedHitButton: UIButton {
+    override var accessibilityFrame: CGRect {
+        get {
+            guard window != nil, let superview else {
+                return super.accessibilityFrame
+            }
+            return superview.convert(
+                ChatSearchAdaptiveLayoutPolicy.accessibilityHitFrame(for: frame),
+                to: nil
+            )
+        }
+        set {
+            super.accessibilityFrame = newValue
+        }
+    }
+}
+
 struct ChatSearchNavigationButtonsLayout {
     struct Frames: Equatable {
         let previous: CGRect
@@ -201,8 +218,8 @@ final class ChatSearchNavigationButtonsView: UIView {
         )
     }
 
-    let previousButton = UIButton(type: .system)
-    let nextButton = UIButton(type: .system)
+    let previousButton: UIButton = ChatSearchExpandedHitButton(type: .system)
+    let nextButton: UIButton = ChatSearchExpandedHitButton(type: .system)
 
     var onPrevious: (() -> Void)?
     var onNext: (() -> Void)?

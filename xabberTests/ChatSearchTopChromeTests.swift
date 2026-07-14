@@ -59,6 +59,35 @@ final class ChatSearchTopChromeTests: XCTestCase {
         XCTAssertEqual(view.textField.accessibilityIdentifier, "chat_search_input")
     }
 
+    func testLeadingSearchIconUsesCompactOpticalInsetsInsideHitArea() throws {
+        let view = ChatSearchNavigationView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 60),
+            prefersNativeGlass: true
+        )
+
+        view.layoutIfNeeded()
+
+        XCTAssertEqual(
+            view.submitButton.frame,
+            CGRect(x: 0, y: 0, width: 44, height: 44)
+        )
+        XCTAssertTrue(
+            view.submitButton.translatesAutoresizingMaskIntoConstraints,
+            "The manually framed leading control must not be collapsed to its intrinsic image size by UIVisualEffectView Auto Layout."
+        )
+        XCTAssertTrue(view.clearButton.translatesAutoresizingMaskIntoConstraints)
+        XCTAssertTrue(view.cancelButton.translatesAutoresizingMaskIntoConstraints)
+        let configuration = try XCTUnwrap(view.submitButton.configuration)
+        XCTAssertEqual(configuration.contentInsets.top, 8, accuracy: 0.001)
+        XCTAssertEqual(configuration.contentInsets.leading, 8, accuracy: 0.001)
+        XCTAssertEqual(configuration.contentInsets.bottom, 0, accuracy: 0.001)
+        XCTAssertEqual(configuration.contentInsets.trailing, 0, accuracy: 0.001)
+
+        let image = try XCTUnwrap(configuration.image)
+        XCTAssertLessThanOrEqual(image.size.width, 20)
+        XCTAssertLessThanOrEqual(image.size.height, 20)
+    }
+
     func testRemoteSearchingSwapsLeadingIconForSpinnerWithoutMovingText() {
         let view = ChatSearchNavigationView(frame: CGRect(x: 0, y: 0, width: 390, height: 60))
         view.render(.init(query: "test", isRemoteSearching: false))

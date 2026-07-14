@@ -20,6 +20,70 @@
 import Foundation
 import XCTest
 
+enum ChatSearchLiveQATimeoutPolicy {
+    static let appShell: TimeInterval = 30
+    static let dialogLookupPerCandidate: TimeInterval = 20
+    static let searchEntry: TimeInterval = 10
+    static let searchInput: TimeInterval = 5
+    static let terminalResults: TimeInterval = 45
+    static let modeOrCalendarTransition: TimeInterval = 5
+    static let finalSignedInShell: TimeInterval = 10
+    static let globalBudget: TimeInterval = 180
+}
+
+enum ChatSearchLiveQACountParser {
+    struct Position: Equatable {
+        let current: Int
+        let total: Int
+    }
+
+    static func position(from rawValue: String) -> Position? {
+        let parts = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: { $0.isWhitespace })
+        guard parts.count == 3,
+              parts[1].lowercased() == "of",
+              let current = Int(parts[0]),
+              let total = Int(parts[2]),
+              current > 0,
+              total >= current else {
+            return nil
+        }
+        return Position(current: current, total: total)
+    }
+
+    static func messageCount(from rawValue: String) -> Int? {
+        let parts = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: { $0.isWhitespace })
+        guard parts.count >= 2,
+              parts[1].lowercased().hasPrefix("message"),
+              let count = Int(parts[0]),
+              count >= 0 else {
+            return nil
+        }
+        return count
+    }
+}
+
+enum ChatSearchLiveQAElementLookupPolicy {
+    enum Strategy: Equatable {
+        case stableIdentifier(String)
+        case visibleText(String)
+    }
+
+    static func strategy(
+        stableIdentifier: String?,
+        visibleTextFallback: String
+    ) -> Strategy {
+        if let stableIdentifier,
+           !stableIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .stableIdentifier(stableIdentifier)
+        }
+        return .visibleText(visibleTextFallback)
+    }
+}
+
 /// Pure, testable authorization policy for live-account search QA.
 ///
 /// Absolute safety contract: this policy never authorizes reset, erase, logout,
@@ -55,6 +119,7 @@ struct ChatSearchLiveQASafetyPolicy {
     }
 
     static let optInEnvironmentKey = "XABBER_LIVE_SEARCH_QA"
+    static let dateJumpOptInEnvironmentKey = "XABBER_LIVE_SEARCH_DATE_JUMP_QA"
     static let simulatorOverrideEnvironmentKey = "XABBER_LIVE_SEARCH_QA_ALLOW_ANY_SIMULATOR"
     static let expectedSimulatorUDID = "7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF"
     static let dialogCandidates = ["Andrew Nenakhov", "Alexey Boldin"]
@@ -107,11 +172,35 @@ struct ChatSearchLiveQASafetyPolicy {
         return .allowed
     }
 
+    static func dateJumpDecision(
+        environment: [String: String],
+        launchArguments: [String],
+        simulatorUDID: String?
+    ) -> Decision {
+        let baseDecision = decision(
+            environment: environment,
+            launchArguments: launchArguments,
+            simulatorUDID: simulatorUDID
+        )
+        guard baseDecision.isAllowed else {
+            return baseDecision
+        }
+        guard environment[dateJumpOptInEnvironmentKey] == "1" else {
+            return .skipBeforeApplicationCreation(
+                reason: "Set \(dateJumpOptInEnvironmentKey)=1 to authorize controlled date-jump QA."
+            )
+        }
+        return .allowed
+    }
+
     private static func firstDestructiveInput(
         environment: [String: String],
         launchArguments: [String]
     ) -> String? {
-        let inputs = launchArguments + environment.flatMap { [$0.key, $0.value] }
+        let xabberEnvironmentInputs = environment
+            .filter { key, _ in key.uppercased().hasPrefix("XABBER_") }
+            .flatMap { [$0.key, $0.value] }
+        let inputs = launchArguments + xabberEnvironmentInputs
         return inputs.first { input in
             let normalized = input
                 .lowercased()
@@ -140,6 +229,29 @@ struct ChatSearchLiveQASafetyGate {
         simulatorUDID: String? = ProcessInfo.processInfo.environment["SIMULATOR_UDID"]
     ) throws -> Authorization {
         switch ChatSearchLiveQASafetyPolicy.decision(
+            environment: environment,
+            launchArguments: launchArguments,
+            simulatorUDID: simulatorUDID
+        ) {
+        case .skipBeforeApplicationCreation(let reason):
+            throw XCTSkip(reason)
+        case .blockingFailure(let reason):
+            XCTFail(reason)
+            throw BlockingError(reason: reason)
+        case .allowed:
+            return Authorization(
+                dialogCandidates: ChatSearchLiveQASafetyPolicy.dialogCandidates,
+                query: ChatSearchLiveQASafetyPolicy.searchQuery
+            )
+        }
+    }
+
+    static func requireDateJumpAuthorization(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        launchArguments: [String] = [],
+        simulatorUDID: String? = ProcessInfo.processInfo.environment["SIMULATOR_UDID"]
+    ) throws -> Authorization {
+        switch ChatSearchLiveQASafetyPolicy.dateJumpDecision(
             environment: environment,
             launchArguments: launchArguments,
             simulatorUDID: simulatorUDID
