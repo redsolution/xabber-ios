@@ -33,7 +33,8 @@ enum ChatSearchNavigationLayout {
 
     static func frames(
         containerWidth: CGFloat,
-        safeAreaInsets: UIEdgeInsets = .zero
+        safeAreaInsets: UIEdgeInsets = .zero,
+        layoutDirection: UIUserInterfaceLayoutDirection = .leftToRight
     ) -> Frames {
         let leading = horizontalInset + safeAreaInsets.left
         let trailing = horizontalInset + safeAreaInsets.right
@@ -42,7 +43,7 @@ enum ChatSearchNavigationLayout {
             0,
             cancelX - interItemSpacing - leading
         )
-        return Frames(
+        let leftToRight = Frames(
             field: CGRect(
                 x: leading,
                 y: verticalInset,
@@ -55,6 +56,20 @@ enum ChatSearchNavigationLayout {
                 width: controlHeight,
                 height: controlHeight
             )
+        )
+        guard layoutDirection == .rightToLeft else { return leftToRight }
+        return Frames(
+            field: mirrored(leftToRight.field, in: containerWidth),
+            cancel: mirrored(leftToRight.cancel, in: containerWidth)
+        )
+    }
+
+    private static func mirrored(_ frame: CGRect, in width: CGFloat) -> CGRect {
+        CGRect(
+            x: width - frame.maxX,
+            y: frame.minY,
+            width: frame.width,
+            height: frame.height
         )
     }
 }
@@ -85,6 +100,11 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
 
     let surfaceView: UIVisualEffectView
     private let localization: ChatSearchLocalization
+    private let prefersNativeGlass: Bool
+    private(set) var adaptiveEnvironment = ChatSearchAdaptiveEnvironment.standard
+    private(set) var adaptiveSurfaceStyle = ChatSearchAdaptiveAppearance.surfaceStyle(
+        for: .standard
+    )
 
     let textField: ChatSearchSingleLineTextField = {
         let field = ChatSearchSingleLineTextField()
@@ -96,8 +116,7 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
         field.enablesReturnKeyAutomatically = false
         field.font = .preferredFont(forTextStyle: .body)
         field.adjustsFontForContentSizeCategory = true
-        field.adjustsFontSizeToFitWidth = true
-        field.minimumFontSize = 12
+        field.adjustsFontSizeToFitWidth = false
         field.textColor = .label
         field.tintColor = .systemBlue
         field.autocorrectionType = .no
@@ -164,6 +183,7 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
 
     override init(frame: CGRect) {
         localization = .production()
+        prefersNativeGlass = true
         surfaceView = UIVisualEffectView(
             effect: NativeGlassBarStyle.makeEffect(
                 role: .clearInputSurface,
@@ -180,6 +200,7 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
         localization: ChatSearchLocalization = .production()
     ) {
         self.localization = localization
+        self.prefersNativeGlass = prefersNativeGlass
         surfaceView = UIVisualEffectView(
             effect: NativeGlassBarStyle.makeEffect(
                 role: .clearInputSurface,
@@ -193,6 +214,7 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
 
     required init?(coder: NSCoder) {
         localization = .production()
+        prefersNativeGlass = true
         surfaceView = UIVisualEffectView(
             effect: NativeGlassBarStyle.makeEffect(
                 role: .clearInputSurface,
@@ -207,38 +229,95 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
         super.layoutSubviews()
         let frames = ChatSearchNavigationLayout.frames(
             containerWidth: bounds.width,
-            safeAreaInsets: safeAreaInsets
+            safeAreaInsets: safeAreaInsets,
+            layoutDirection: adaptiveEnvironment.layoutDirection
         )
         surfaceView.frame = frames.field
         cancelButton.frame = frames.cancel
 
         let fieldBounds = surfaceView.contentView.bounds
+        let isRightToLeft = adaptiveEnvironment.layoutDirection == .rightToLeft
         submitButton.frame = CGRect(
-            x: 0,
+            x: isRightToLeft
+                ? max(0, fieldBounds.width - ChatSearchNavigationLayout.controlHeight)
+                : 0,
             y: 0,
             width: ChatSearchNavigationLayout.controlHeight,
             height: ChatSearchNavigationLayout.controlHeight
         )
         loadingIndicator.frame = submitButton.frame
         clearButton.frame = CGRect(
-            x: max(0, fieldBounds.width - ChatSearchNavigationLayout.controlHeight),
+            x: isRightToLeft
+                ? 0
+                : max(0, fieldBounds.width - ChatSearchNavigationLayout.controlHeight),
             y: 0,
             width: ChatSearchNavigationLayout.controlHeight,
             height: ChatSearchNavigationLayout.controlHeight
         )
         textField.frame = CGRect(
-            x: submitButton.frame.maxX,
+            x: isRightToLeft ? clearButton.frame.maxX : submitButton.frame.maxX,
             y: 0,
-            width: max(0, clearButton.frame.minX - submitButton.frame.maxX),
+            width: max(
+                0,
+                isRightToLeft
+                    ? submitButton.frame.minX - clearButton.frame.maxX
+                    : clearButton.frame.minX - submitButton.frame.maxX
+            ),
             height: ChatSearchNavigationLayout.controlHeight
         )
         loadingAccessibilityElement.accessibilityFrameInContainerSpace =
             loadingIndicator.convert(loadingIndicator.bounds, to: self)
+        [submitButton, clearButton, cancelButton].forEach {
+            $0.updateChatSearchAccessibilityFrame()
+        }
+        cancelButton.layer.cornerRadius = ChatSearchNavigationLayout.controlHeight / 2
     }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
         fulfillPendingFocusRequestIfPossible()
+        [submitButton, clearButton, cancelButton].forEach {
+            $0.updateChatSearchAccessibilityFrame()
+        }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory ||
+                previousTraitCollection?.accessibilityContrast != traitCollection.accessibilityContrast ||
+                previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle ||
+                previousTraitCollection?.layoutDirection != traitCollection.layoutDirection else {
+            return
+        }
+        applyAdaptiveEnvironment(.current(for: self))
+    }
+
+    func applyAdaptiveEnvironment(_ environment: ChatSearchAdaptiveEnvironment) {
+        adaptiveEnvironment = environment
+        semanticContentAttribute = environment.layoutDirection == .rightToLeft
+            ? .forceRightToLeft
+            : .forceLeftToRight
+        surfaceView.semanticContentAttribute = semanticContentAttribute
+        textField.font = ChatSearchAdaptiveLayoutPolicy.scaledFont(
+            baseSize: 17,
+            weight: .regular,
+            textStyle: .body,
+            contentSizeCategory: environment.contentSizeCategory,
+            maximumPointSize: 28
+        )
+        adaptiveSurfaceStyle = ChatSearchAdaptiveAppearance.applySurface(
+            to: surfaceView,
+            role: .clearInputSurface,
+            cornerStyle: .capsule,
+            interactive: true,
+            prefersNativeGlass: prefersNativeGlass,
+            environment: environment
+        )
+        ChatSearchAdaptiveAppearance.applyDetachedButton(
+            cancelButton,
+            environment: environment
+        )
+        setNeedsLayout()
     }
 
     func render(_ state: RenderState) {
@@ -330,6 +409,7 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
         clearButton.addTarget(self, action: #selector(onClearButtonTouchUp), for: .touchUpInside)
         cancelButton.addTarget(self, action: #selector(onCancelButtonTouchUp), for: .touchUpInside)
         textField.addTarget(self, action: #selector(onTextFieldEditingChanged), for: .editingChanged)
+        applyAdaptiveEnvironment(.current(for: self))
         updateAccessibilityState()
     }
 

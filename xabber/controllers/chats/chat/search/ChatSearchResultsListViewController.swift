@@ -226,6 +226,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
     private let errorLabel = UILabel()
     private let pagingFooterView = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 44))
     private let localization: ChatSearchLocalization
+    private(set) var adaptiveEnvironment = ChatSearchAdaptiveEnvironment.standard
 
     init(localization: ChatSearchLocalization = .production()) {
         self.localization = localization
@@ -278,6 +279,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         super.viewDidLoad()
         prepareView()
         configureDataSourceIfNeeded()
+        applyAdaptiveEnvironment(.current(for: view))
         renderCurrentState()
     }
 
@@ -297,6 +299,34 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         view.setNeedsLayout()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory ||
+                previousTraitCollection?.accessibilityContrast != traitCollection.accessibilityContrast ||
+                previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle ||
+                previousTraitCollection?.layoutDirection != traitCollection.layoutDirection else {
+            return
+        }
+        applyAdaptiveEnvironment(.current(for: view))
+    }
+
+    func applyAdaptiveEnvironment(_ environment: ChatSearchAdaptiveEnvironment) {
+        adaptiveEnvironment = environment
+        guard isViewLoaded else { return }
+        view.semanticContentAttribute = environment.layoutDirection == .rightToLeft
+            ? .forceRightToLeft
+            : .forceLeftToRight
+        tableView.semanticContentAttribute = view.semanticContentAttribute
+        tableView.estimatedRowHeight = ChatSearchResultCellLayoutPolicy.rowHeight(
+            for: environment.contentSizeCategory
+        )
+        trackedCells.allObjects.forEach {
+            $0.applyAdaptiveEnvironment(environment)
+        }
+        tableView.beginUpdates()
+        tableView.endUpdates()
     }
 
     func render(_ model: ChatSearchResultsListRenderModel, animated: Bool = false) {
@@ -469,7 +499,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         ChatSearchResultCellLayoutPolicy.rowHeight(
-            for: traitCollection.preferredContentSizeCategory
+            for: adaptiveEnvironment.contentSizeCategory
         )
     }
 
@@ -602,6 +632,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
                   ) as? ChatSearchResultCell else {
                 return UITableViewCell(style: .default, reuseIdentifier: nil)
             }
+            cell.applyAdaptiveEnvironment(self.adaptiveEnvironment)
             cell.configure(with: result)
             cell.updateAccessibilityPosition(
                 self.localization.currentPosition(

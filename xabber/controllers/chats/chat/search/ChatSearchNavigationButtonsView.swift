@@ -207,8 +207,11 @@ final class ChatSearchNavigationButtonsView: UIView {
     var onPrevious: (() -> Void)?
     var onNext: (() -> Void)?
 
-    private let animationSpec: ChatSearchAnimationSpec
+    private var baseAnimationSpec: ChatSearchAnimationSpec
+    private var animationSpec: ChatSearchAnimationSpec
     private let localization: ChatSearchLocalization
+    private(set) var adaptiveEnvironment = ChatSearchAdaptiveEnvironment.standard
+    var resolvedAnimationSpec: ChatSearchAnimationSpec { animationSpec }
     private(set) var renderState: RenderState = .hidden
     private(set) var lastVisibilityTransition: ChatSearchAnimationSpec.Transition?
 
@@ -220,6 +223,7 @@ final class ChatSearchNavigationButtonsView: UIView {
                 reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
             )
         )
+        baseAnimationSpec = animationSpec
         super.init(frame: frame)
         setup()
     }
@@ -230,6 +234,7 @@ final class ChatSearchNavigationButtonsView: UIView {
         localization: ChatSearchLocalization = .production()
     ) {
         self.animationSpec = animationSpec
+        self.baseAnimationSpec = animationSpec
         self.localization = localization
         super.init(frame: frame)
         setup()
@@ -243,6 +248,7 @@ final class ChatSearchNavigationButtonsView: UIView {
                 reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
             )
         )
+        baseAnimationSpec = animationSpec
         super.init(coder: coder)
         setup()
     }
@@ -256,6 +262,48 @@ final class ChatSearchNavigationButtonsView: UIView {
         let frames = ChatSearchNavigationButtonsLayout.buttonFrames(in: bounds)
         previousButton.frame = frames.previous
         nextButton.frame = frames.next
+        [previousButton, nextButton].forEach {
+            $0.updateChatSearchAccessibilityFrame()
+            if adaptiveEnvironment.reduceTransparency {
+                $0.layer.cornerRadius = ChatSearchNavigationButtonsLayout.buttonSize / 2
+            }
+        }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        [previousButton, nextButton].forEach {
+            $0.updateChatSearchAccessibilityFrame()
+        }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard previousTraitCollection?.accessibilityContrast != traitCollection.accessibilityContrast ||
+                previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle ||
+                previousTraitCollection?.layoutDirection != traitCollection.layoutDirection else {
+            return
+        }
+        applyAdaptiveEnvironment(.current(for: self))
+    }
+
+    func applyAdaptiveEnvironment(_ environment: ChatSearchAdaptiveEnvironment) {
+        adaptiveEnvironment = environment
+        semanticContentAttribute = environment.layoutDirection == .rightToLeft
+            ? .forceRightToLeft
+            : .forceLeftToRight
+        animationSpec = baseAnimationSpec.resolved(
+            for: environment.animationPreferences
+        )
+        ChatSearchAdaptiveAppearance.applyDetachedButton(
+            previousButton,
+            environment: environment
+        )
+        ChatSearchAdaptiveAppearance.applyDetachedButton(
+            nextButton,
+            environment: environment
+        )
+        setNeedsLayout()
     }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
@@ -344,6 +392,7 @@ final class ChatSearchNavigationButtonsView: UIView {
         addSubview(nextButton)
         previousButton.addTarget(self, action: #selector(previousTapped), for: .touchUpInside)
         nextButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
+        applyAdaptiveEnvironment(.current(for: self))
         applyHiddenState()
     }
 

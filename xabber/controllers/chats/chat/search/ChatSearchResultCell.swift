@@ -426,6 +426,7 @@ final class ChatSearchResultCell: UITableViewCell {
     private var avatarRequest: ChatSearchResultAvatarLoadCancelling?
     private var deliveryAccessibilityLabel: String?
     private(set) var representedAvatarIdentity: String?
+    private(set) var adaptiveEnvironment = ChatSearchAdaptiveEnvironment.standard
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         avatarLoader = ChatSearchResultDefaultAvatarLoader.shared
@@ -530,8 +531,8 @@ final class ChatSearchResultCell: UITableViewCell {
             in: contentView.bounds,
             dateWidth: dateWidth,
             showsStatus: !statusImageView.isHidden,
-            layoutDirection: effectiveUserInterfaceLayoutDirection,
-            contentSizeCategory: traitCollection.preferredContentSizeCategory
+            layoutDirection: adaptiveEnvironment.layoutDirection,
+            contentSizeCategory: adaptiveEnvironment.contentSizeCategory
         )
         avatarImageView.frame = frames.avatar
         senderLabel.frame = frames.sender
@@ -545,7 +546,7 @@ final class ChatSearchResultCell: UITableViewCell {
         CGSize(
             width: size.width,
             height: ChatSearchResultCellLayoutPolicy.rowHeight(
-                for: traitCollection.preferredContentSizeCategory
+                for: adaptiveEnvironment.contentSizeCategory
             )
         )
     }
@@ -556,7 +557,20 @@ final class ChatSearchResultCell: UITableViewCell {
                 != traitCollection.preferredContentSizeCategory else {
             return
         }
-        applyFonts()
+        applyAdaptiveEnvironment(.current(for: self))
+        setNeedsLayout()
+    }
+
+    func applyAdaptiveEnvironment(_ environment: ChatSearchAdaptiveEnvironment) {
+        adaptiveEnvironment = environment
+        semanticContentAttribute = environment.layoutDirection == .rightToLeft
+            ? .forceRightToLeft
+            : .forceLeftToRight
+        contentView.semanticContentAttribute = semanticContentAttribute
+        applyFonts(contentSizeCategory: environment.contentSizeCategory)
+        separatorView.backgroundColor = environment.accessibilityContrast == .high
+            ? .secondaryLabel
+            : .separator
         setNeedsLayout()
     }
 
@@ -580,7 +594,7 @@ final class ChatSearchResultCell: UITableViewCell {
         isAccessibilityElement = true
         accessibilityTraits = [.button]
         restorePlainBackground()
-        applyFonts()
+        applyAdaptiveEnvironment(.current(for: self))
 
         contentView.addSubview(avatarImageView)
         contentView.addSubview(senderLabel)
@@ -595,18 +609,24 @@ final class ChatSearchResultCell: UITableViewCell {
         contentView.backgroundColor = .systemBackground
     }
 
-    private func applyFonts() {
-        senderLabel.font = UIFontMetrics(forTextStyle: .body).scaledFont(
-            for: UIFont.systemFont(ofSize: 17, weight: .semibold),
-            compatibleWith: traitCollection
+    private func applyFonts(contentSizeCategory: UIContentSizeCategory) {
+        senderLabel.font = ChatSearchAdaptiveLayoutPolicy.scaledFont(
+            baseSize: 17,
+            weight: .semibold,
+            textStyle: .body,
+            contentSizeCategory: contentSizeCategory
         )
-        snippetLabel.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
-            for: UIFont.systemFont(ofSize: 15, weight: .regular),
-            compatibleWith: traitCollection
+        snippetLabel.font = ChatSearchAdaptiveLayoutPolicy.scaledFont(
+            baseSize: 15,
+            weight: .regular,
+            textStyle: .subheadline,
+            contentSizeCategory: contentSizeCategory
         )
-        dateLabel.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(
-            for: UIFont.systemFont(ofSize: 12, weight: .regular),
-            compatibleWith: traitCollection
+        dateLabel.font = ChatSearchAdaptiveLayoutPolicy.scaledFont(
+            baseSize: 12,
+            weight: .regular,
+            textStyle: .caption1,
+            contentSizeCategory: contentSizeCategory
         )
     }
 

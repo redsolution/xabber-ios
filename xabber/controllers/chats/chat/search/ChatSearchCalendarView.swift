@@ -52,8 +52,12 @@ enum ChatSearchCalendarLayout {
         rowCount: Int,
         isMonthYearPickerPresented: Bool,
         safeAreaInsets: UIEdgeInsets,
-        layoutDirection: UIUserInterfaceLayoutDirection = .leftToRight
+        layoutDirection: UIUserInterfaceLayoutDirection = .leftToRight,
+        contentSizeCategory: UIContentSizeCategory = .large
     ) -> Frames {
+        let metrics = ChatSearchAdaptiveLayoutPolicy.calendarMetrics(
+            for: contentSizeCategory
+        )
         let contentWidth = min(maximumContentWidth, max(0, bounds.width))
         let contentX = bounds.minX + max(0, (bounds.width - contentWidth) / 2)
         let controlSize: CGFloat = 44
@@ -62,9 +66,9 @@ enum ChatSearchCalendarLayout {
             x: contentX + 60,
             y: bounds.minY,
             width: max(0, contentWidth - 120),
-            height: headerHeight
+            height: metrics.headerHeight
         )
-        let navigationY = bounds.minY + headerHeight
+        let navigationY = bounds.minY + metrics.headerHeight
         let leadingControl = CGRect(x: contentX + 16, y: navigationY + 4, width: controlSize, height: controlSize)
         let trailingControl = CGRect(
             x: contentX + contentWidth - 60,
@@ -80,27 +84,27 @@ enum ChatSearchCalendarLayout {
             width: max(0, contentWidth - 120),
             height: controlSize
         )
-        let weekdayY = navigationY + monthNavigationHeight
-        let weekdays = CGRect(x: contentX, y: weekdayY, width: contentWidth, height: weekdayHeight)
+        let weekdayY = navigationY + metrics.monthNavigationHeight
+        let weekdays = CGRect(x: contentX, y: weekdayY, width: contentWidth, height: metrics.weekdayHeight)
         let resolvedRows = min(6, max(4, rowCount))
         let grid = CGRect(
             x: contentX,
             y: weekdays.maxY,
             width: contentWidth,
-            height: CGFloat(resolvedRows) * dayHeight
+            height: CGFloat(resolvedRows) * metrics.dayHeight
         )
         let picker = CGRect(
             x: contentX + 16,
             y: weekdayY,
             width: max(0, contentWidth - 32),
-            height: pickerHeight
+            height: metrics.pickerHeight
         )
         let contentBottom = isMonthYearPickerPresented ? picker.maxY : grid.maxY
         let done = CGRect(
             x: contentX + doneHorizontalInset,
             y: contentBottom + contentSpacing,
             width: max(0, contentWidth - doneHorizontalInset * 2),
-            height: doneHeight
+            height: metrics.doneHeight
         )
         let sheetHeight = done.maxY - bounds.minY + bottomInset + max(0, safeAreaInsets.bottom)
         let surface = CGRect(
@@ -168,6 +172,8 @@ final class ChatSearchCalendarView: UIView {
     }
 
     let surfaceView: UIVisualEffectView
+    let contentScrollView = UIScrollView()
+    private let contentContainerView = UIView()
     let titleLabel = UILabel()
     let closeButton = UIButton(type: .system)
     let monthButton = UIButton(type: .system)
@@ -183,9 +189,16 @@ final class ChatSearchCalendarView: UIView {
     let pickerApplyButton = UIButton(type: .system)
     let doneButton = UIButton(type: .system)
 
-    private let animationSpec: ChatSearchAnimationSpec
+    private var baseAnimationSpec: ChatSearchAnimationSpec
+    private var animationSpec: ChatSearchAnimationSpec
     private let localization: ChatSearchLocalization
     private let accessibilityFormatting: ChatSearchFormatting
+    private let prefersNativeGlass: Bool
+    private(set) var adaptiveEnvironment = ChatSearchAdaptiveEnvironment.standard
+    private(set) var adaptiveSurfaceStyle = ChatSearchAdaptiveAppearance.surfaceStyle(
+        for: .standard
+    )
+    var resolvedAnimationSpec: ChatSearchAnimationSpec { animationSpec }
     private var runningMonthAnimator: UIViewPropertyAnimator?
     private weak var outgoingMonthSnapshotView: UIView?
 
@@ -197,7 +210,8 @@ final class ChatSearchCalendarView: UIView {
             in: CGRect(x: 0, y: 0, width: max(bounds.width, ChatSearchCalendarLayout.maximumContentWidth), height: 1_000),
             rowCount: renderedSnapshot.rowCount,
             isMonthYearPickerPresented: renderedSnapshot.isMonthYearPickerPresented,
-            safeAreaInsets: safeAreaInsets
+            safeAreaInsets: safeAreaInsets,
+            contentSizeCategory: adaptiveEnvironment.contentSizeCategory
         ).sheetHeight
         return CGSize(width: UIView.noIntrinsicMetric, height: height)
     }
@@ -209,6 +223,70 @@ final class ChatSearchCalendarView: UIView {
         }
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory ||
+                previousTraitCollection?.accessibilityContrast != traitCollection.accessibilityContrast ||
+                previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle ||
+                previousTraitCollection?.layoutDirection != traitCollection.layoutDirection else {
+            return
+        }
+        applyAdaptiveEnvironment(.current(for: self))
+    }
+
+    func applyAdaptiveEnvironment(_ environment: ChatSearchAdaptiveEnvironment) {
+        adaptiveEnvironment = environment
+        semanticContentAttribute = environment.layoutDirection == .rightToLeft
+            ? .forceRightToLeft
+            : .forceLeftToRight
+        animationSpec = baseAnimationSpec.resolved(
+            for: environment.animationPreferences
+        )
+        titleLabel.font = ChatSearchAdaptiveLayoutPolicy.scaledFont(
+            baseSize: 17,
+            weight: .semibold,
+            textStyle: .headline,
+            contentSizeCategory: environment.contentSizeCategory
+        )
+        monthButton.titleLabel?.font = titleLabel.font
+        doneButton.titleLabel?.font = titleLabel.font
+        pickerCloseButton.titleLabel?.font = ChatSearchAdaptiveLayoutPolicy.scaledFont(
+            baseSize: 17,
+            weight: .regular,
+            textStyle: .body,
+            contentSizeCategory: environment.contentSizeCategory
+        )
+        pickerApplyButton.titleLabel?.font = titleLabel.font
+        weekdayLabels.forEach {
+            $0.font = ChatSearchAdaptiveLayoutPolicy.scaledFont(
+                baseSize: 12,
+                weight: .regular,
+                textStyle: .caption1,
+                contentSizeCategory: environment.contentSizeCategory
+            )
+            $0.textColor = environment.accessibilityContrast == .high
+                ? .label
+                : .secondaryLabel
+        }
+        adaptiveSurfaceStyle = ChatSearchAdaptiveAppearance.applySurface(
+            to: surfaceView,
+            role: .sheet,
+            cornerStyle: .fixed(ChatSearchCalendarLayout.topCornerRadius),
+            interactive: false,
+            prefersNativeGlass: prefersNativeGlass,
+            environment: environment,
+            maskedCorners: [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        )
+        collectionView.visibleCells.compactMap {
+            $0 as? ChatSearchCalendarDayCell
+        }.forEach {
+            $0.applyAdaptiveEnvironment(environment)
+        }
+        synchronizeSemanticDirection()
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+    }
+
     init(
         frame: CGRect,
         snapshot: ChatSearchCalendarModel.Snapshot,
@@ -217,8 +295,10 @@ final class ChatSearchCalendarView: UIView {
         localization: ChatSearchLocalization = .production(),
         accessibilityFormatting: ChatSearchFormatting? = nil
     ) {
+        self.baseAnimationSpec = animationSpec
         self.animationSpec = animationSpec
         self.localization = localization
+        self.prefersNativeGlass = prefersNativeGlass
         self.accessibilityFormatting = accessibilityFormatting ?? ChatSearchFormatting(
             locale: localization.locale,
             calendar: .autoupdatingCurrent,
@@ -254,6 +334,8 @@ final class ChatSearchCalendarView: UIView {
                 reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
             )
         )
+        baseAnimationSpec = animationSpec
+        prefersNativeGlass = true
         surfaceView = UIVisualEffectView(
             effect: NativeGlassBarStyle.makeEffect(role: .sheet, interactive: false)
         )
@@ -277,9 +359,19 @@ final class ChatSearchCalendarView: UIView {
             rowCount: renderedSnapshot.rowCount,
             isMonthYearPickerPresented: renderedSnapshot.isMonthYearPickerPresented,
             safeAreaInsets: safeAreaInsets,
-            layoutDirection: direction
+            layoutDirection: direction,
+            contentSizeCategory: adaptiveEnvironment.contentSizeCategory
         )
         surfaceView.frame = frames.surface
+        contentScrollView.frame = frames.surface
+        contentScrollView.contentSize = CGSize(
+            width: contentScrollView.bounds.width,
+            height: max(contentScrollView.bounds.height, frames.sheetHeight)
+        )
+        contentContainerView.frame = CGRect(
+            origin: .zero,
+            size: contentScrollView.contentSize
+        )
         closeButton.frame = frames.close
         titleLabel.frame = frames.title
         monthButton.frame = frames.month
@@ -296,12 +388,17 @@ final class ChatSearchCalendarView: UIView {
            collectionView.bounds.width > 0 {
             layout.itemSize = CGSize(
                 width: collectionView.bounds.width / 7,
-                height: ChatSearchCalendarLayout.dayHeight
+                height: ChatSearchAdaptiveLayoutPolicy.calendarMetrics(
+                    for: adaptiveEnvironment.contentSizeCategory
+                ).dayHeight
             )
             layout.invalidateLayout()
         }
-        doneButton.layer.cornerRadius = ChatSearchCalendarLayout.doneHeight / 2
+        doneButton.layer.cornerRadius = frames.done.height / 2
         doneButton.layer.cornerCurve = .continuous
+        [closeButton, monthButton, previousButton, nextButton, pickerCloseButton, pickerApplyButton, doneButton].forEach {
+            $0.updateChatSearchAccessibilityFrame()
+        }
     }
 
     func render(
@@ -373,6 +470,15 @@ final class ChatSearchCalendarView: UIView {
         surfaceView.contentView.backgroundColor = .systemBackground
         addSubview(surfaceView)
 
+        contentScrollView.backgroundColor = .clear
+        contentScrollView.alwaysBounceHorizontal = false
+        contentScrollView.showsHorizontalScrollIndicator = false
+        contentScrollView.showsVerticalScrollIndicator = true
+        contentScrollView.contentInsetAdjustmentBehavior = .never
+        contentContainerView.backgroundColor = .clear
+        addSubview(contentScrollView)
+        contentScrollView.addSubview(contentContainerView)
+
         titleLabel.text = localization.text(.searchTitle)
         titleLabel.textAlignment = .center
         titleLabel.font = .preferredFont(forTextStyle: .headline)
@@ -381,7 +487,7 @@ final class ChatSearchCalendarView: UIView {
         titleLabel.minimumScaleFactor = 0.8
         titleLabel.isAccessibilityElement = true
         titleLabel.accessibilityTraits = .header
-        addSubview(titleLabel)
+        contentContainerView.addSubview(titleLabel)
 
         configureIconButton(
             closeButton,
@@ -404,9 +510,9 @@ final class ChatSearchCalendarView: UIView {
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         previousButton.addTarget(self, action: #selector(previousTapped), for: .touchUpInside)
         nextButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
-        addSubview(closeButton)
-        addSubview(previousButton)
-        addSubview(nextButton)
+        contentContainerView.addSubview(closeButton)
+        contentContainerView.addSubview(previousButton)
+        contentContainerView.addSubview(nextButton)
 
         monthButton.accessibilityIdentifier = Self.monthAccessibilityIdentifier
         monthButton.accessibilityLabel = localization.text(.chooseMonthYear)
@@ -416,12 +522,12 @@ final class ChatSearchCalendarView: UIView {
         monthButton.titleLabel?.minimumScaleFactor = 0.75
         monthButton.setTitleColor(.label, for: .normal)
         monthButton.setImage(UIImage(systemName: "chevron.down"), for: .normal)
-        monthButton.semanticContentAttribute = .forceRightToLeft
+        monthButton.semanticContentAttribute = .unspecified
         monthButton.tintColor = .secondaryLabel
         monthButton.addTarget(self, action: #selector(monthTapped), for: .touchUpInside)
-        addSubview(monthButton)
+        contentContainerView.addSubview(monthButton)
 
-        addSubview(weekdayContainerView)
+        contentContainerView.addSubview(weekdayContainerView)
         collectionView.backgroundColor = .clear
         collectionView.isScrollEnabled = false
         collectionView.showsVerticalScrollIndicator = false
@@ -431,7 +537,7 @@ final class ChatSearchCalendarView: UIView {
             ChatSearchCalendarDayCell.self,
             forCellWithReuseIdentifier: ChatSearchCalendarDayCell.reuseIdentifier
         )
-        addSubview(collectionView)
+        contentContainerView.addSubview(collectionView)
 
         monthYearPickerContainerView.backgroundColor = .secondarySystemBackground
         monthYearPickerContainerView.accessibilityIdentifier =
@@ -463,7 +569,7 @@ final class ChatSearchCalendarView: UIView {
             pickerCloseButton,
             pickerApplyButton
         ]
-        addSubview(monthYearPickerContainerView)
+        contentContainerView.addSubview(monthYearPickerContainerView)
 
         doneButton.accessibilityIdentifier = Self.doneAccessibilityIdentifier
         doneButton.accessibilityLabel = localization.text(.done)
@@ -474,7 +580,7 @@ final class ChatSearchCalendarView: UIView {
         doneButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
         doneButton.titleLabel?.adjustsFontForContentSizeCategory = true
         doneButton.addTarget(self, action: #selector(doneTapped), for: .touchUpInside)
-        addSubview(doneButton)
+        contentContainerView.addSubview(doneButton)
 
         let leftSwipe = UISwipeGestureRecognizer(target: self, action: #selector(swipedLeft))
         leftSwipe.direction = .left
@@ -483,6 +589,7 @@ final class ChatSearchCalendarView: UIView {
         collectionView.addGestureRecognizer(leftSwipe)
         collectionView.addGestureRecognizer(rightSwipe)
         synchronizeSemanticDirection()
+        applyAdaptiveEnvironment(.current(for: self))
         updateAccessibilityOrder()
     }
 
@@ -550,11 +657,18 @@ final class ChatSearchCalendarView: UIView {
             let label = UILabel()
             label.text = symbol
             label.textAlignment = .center
-            label.font = .preferredFont(forTextStyle: .caption1)
+            label.font = ChatSearchAdaptiveLayoutPolicy.scaledFont(
+                baseSize: 12,
+                weight: .regular,
+                textStyle: .caption1,
+                contentSizeCategory: adaptiveEnvironment.contentSizeCategory
+            )
             label.adjustsFontForContentSizeCategory = true
             label.adjustsFontSizeToFitWidth = true
             label.minimumScaleFactor = 0.6
-            label.textColor = .secondaryLabel
+            label.textColor = adaptiveEnvironment.accessibilityContrast == .high
+                ? .label
+                : .secondaryLabel
             label.isAccessibilityElement = false
             weekdayContainerView.addSubview(label)
             return label
@@ -583,18 +697,24 @@ final class ChatSearchCalendarView: UIView {
         let trailingFrame = CGRect(x: halfWidth, y: 0, width: halfWidth, height: pickerHeight)
         monthPicker.frame = direction == .rightToLeft ? trailingFrame : leadingFrame
         yearPicker.frame = direction == .rightToLeft ? leadingFrame : trailingFrame
-        pickerCloseButton.frame = CGRect(
+        let leadingActionFrame = CGRect(
             x: 8,
             y: pickerHeight,
             width: max(44, halfWidth - 8),
             height: actionHeight
         )
-        pickerApplyButton.frame = CGRect(
+        let trailingActionFrame = CGRect(
             x: halfWidth,
             y: pickerHeight,
             width: max(44, halfWidth - 8),
             height: actionHeight
         )
+        pickerCloseButton.frame = direction == .rightToLeft
+            ? trailingActionFrame
+            : leadingActionFrame
+        pickerApplyButton.frame = direction == .rightToLeft
+            ? leadingActionFrame
+            : trailingActionFrame
     }
 
     private func synchronizeSemanticDirection() {
@@ -608,7 +728,7 @@ final class ChatSearchCalendarView: UIView {
 
     private func makeMonthContentSnapshot() -> UIView? {
         guard window != nil else { return nil }
-        let container = UIView(frame: bounds)
+        let container = UIView(frame: contentContainerView.bounds)
         container.isUserInteractionEnabled = false
         var hasSnapshot = false
         for contentView in monthContentViews where !contentView.isHidden {
@@ -618,8 +738,8 @@ final class ChatSearchCalendarView: UIView {
             hasSnapshot = true
         }
         guard hasSnapshot else { return nil }
-        addSubview(container)
-        bringSubviewToFront(doneButton)
+        contentContainerView.addSubview(container)
+        contentContainerView.bringSubviewToFront(doneButton)
         outgoingMonthSnapshotView = container
         return container
     }
@@ -696,6 +816,7 @@ extension ChatSearchCalendarView: UICollectionViewDataSource, UICollectionViewDe
         let slot = renderedSnapshot?.daySlots[indexPath.item] else {
             return UICollectionViewCell()
         }
+        cell.applyAdaptiveEnvironment(adaptiveEnvironment)
         cell.configure(
             with: slot,
             localization: localization,

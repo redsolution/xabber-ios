@@ -21,16 +21,32 @@
 import UIKit
 
 final class ChatSearchCalendarDayCell: UICollectionViewCell {
+    enum VisualCue: Equatable {
+        case none
+        case todayRing
+        case selected
+        case selectedEmphasized
+    }
+
     enum Colors {
         static let day = UIColor.label
         static let today = UIColor.systemBlue
         static let disabled = UIColor.tertiaryLabel
         static let selectedFill = UIColor.systemBlue
-        static let selectedText = UIColor.white
+        static let selectedText = UIColor { traits in
+            let fill = selectedFill.resolvedColor(with: traits)
+            return ChatSearchContrastPolicy.passesLargeOrControlText(
+                foreground: .white,
+                background: fill,
+                compatibleWith: traits
+            ) ? .white : .black
+        }
     }
 
     static let reuseIdentifier = "ChatSearchCalendarDayCell"
     static let accessibilityIdentifier = ChatSearchAccessibilityIdentifier.calendarDay
+    private(set) var adaptiveEnvironment = ChatSearchAdaptiveEnvironment.standard
+    private(set) var visualCue: VisualCue = .none
 
     let selectionCircleView: UIView = {
         let view = UIView()
@@ -54,6 +70,7 @@ final class ChatSearchCalendarDayCell: UICollectionViewCell {
         isAccessibilityElement = true
         contentView.addSubview(selectionCircleView)
         contentView.addSubview(dayLabel)
+        applyAdaptiveEnvironment(.current(for: self))
     }
 
     required init?(coder: NSCoder) {
@@ -61,11 +78,15 @@ final class ChatSearchCalendarDayCell: UICollectionViewCell {
         isAccessibilityElement = true
         contentView.addSubview(selectionCircleView)
         contentView.addSubview(dayLabel)
+        applyAdaptiveEnvironment(.current(for: self))
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let diameter = min(36, min(contentView.bounds.width, contentView.bounds.height) - 4)
+        let diameter = min(
+            ChatSearchAdaptiveLayoutPolicy.calendarDayIndicatorDiameter,
+            max(0, min(contentView.bounds.width, contentView.bounds.height) - 4)
+        )
         selectionCircleView.frame = CGRect(
             x: contentView.bounds.midX - diameter / 2,
             y: contentView.bounds.midY - diameter / 2,
@@ -75,6 +96,36 @@ final class ChatSearchCalendarDayCell: UICollectionViewCell {
         selectionCircleView.layer.cornerRadius = diameter / 2
         selectionCircleView.layer.cornerCurve = .continuous
         dayLabel.frame = contentView.bounds.insetBy(dx: 2, dy: 2)
+        updateChatSearchAccessibilityFrame()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateChatSearchAccessibilityFrame()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory ||
+                previousTraitCollection?.accessibilityContrast != traitCollection.accessibilityContrast ||
+                previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle else {
+            return
+        }
+        applyAdaptiveEnvironment(.current(for: self))
+    }
+
+    func applyAdaptiveEnvironment(_ environment: ChatSearchAdaptiveEnvironment) {
+        adaptiveEnvironment = environment
+        semanticContentAttribute = environment.layoutDirection == .rightToLeft
+            ? .forceRightToLeft
+            : .forceLeftToRight
+        dayLabel.font = ChatSearchAdaptiveLayoutPolicy.scaledFont(
+            baseSize: 17,
+            weight: .regular,
+            textStyle: .body,
+            contentSizeCategory: environment.contentSizeCategory
+        )
+        setNeedsLayout()
     }
 
     override func prepareForReuse() {
@@ -124,20 +175,49 @@ final class ChatSearchCalendarDayCell: UICollectionViewCell {
         accessibilityValue = valueComponents.isEmpty ? nil : valueComponents.joined(separator: ", ")
 
         selectionCircleView.isHidden = !slot.isSelected && !slot.isToday
-        selectionCircleView.layer.borderWidth = slot.isToday && !slot.isSelected ? 1.5 : 0
-        selectionCircleView.layer.borderColor = Colors.today.cgColor
+        if slot.isSelected {
+            visualCue = adaptiveEnvironment.differentiateWithoutColor ||
+                adaptiveEnvironment.accessibilityContrast == .high
+                ? .selectedEmphasized
+                : .selected
+        } else if slot.isToday {
+            visualCue = .todayRing
+        }
+        switch visualCue {
+        case .selectedEmphasized:
+            selectionCircleView.layer.borderWidth = 2
+            selectionCircleView.layer.borderColor = selectedTextColor.cgColor
+        case .todayRing:
+            selectionCircleView.layer.borderWidth = adaptiveEnvironment.accessibilityContrast == .high
+                ? 2
+                : 1.5
+            selectionCircleView.layer.borderColor = Colors.today.cgColor
+        case .selected, .none:
+            selectionCircleView.layer.borderWidth = 0
+            selectionCircleView.layer.borderColor = nil
+        }
         selectionCircleView.backgroundColor = slot.isSelected ? Colors.selectedFill : .clear
 
         if slot.isSelected {
-            dayLabel.textColor = Colors.selectedText
+            dayLabel.textColor = selectedTextColor
         } else if !slot.isEnabled {
-            dayLabel.textColor = Colors.disabled
+            dayLabel.textColor = adaptiveEnvironment.accessibilityContrast == .high
+                ? .secondaryLabel
+                : Colors.disabled
         } else if slot.isToday {
             dayLabel.textColor = Colors.today
         } else {
             dayLabel.textColor = Colors.day
         }
         setNeedsLayout()
+    }
+
+    private var selectedTextColor: UIColor {
+        let traits = UITraitCollection(traitsFrom: [
+            UITraitCollection(userInterfaceStyle: adaptiveEnvironment.userInterfaceStyle),
+            UITraitCollection(accessibilityContrast: adaptiveEnvironment.accessibilityContrast)
+        ])
+        return Colors.selectedText.resolvedColor(with: traits)
     }
 
     private func resetState() {
@@ -153,5 +233,6 @@ final class ChatSearchCalendarDayCell: UICollectionViewCell {
         accessibilityLabel = nil
         accessibilityValue = nil
         accessibilityTraits = []
+        visualCue = .none
     }
 }

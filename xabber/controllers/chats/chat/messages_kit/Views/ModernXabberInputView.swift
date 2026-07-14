@@ -534,9 +534,14 @@ class ModernXabberInputView: UIView {
         private var lastCurrentResultIndex: Int = -1
         private var lastTotalResults: Int = 0
         private(set) var surfaceMode: SurfaceMode = .chat
+        private var baseAnimationSpec: ChatSearchAnimationSpec
         private var animationSpec: ChatSearchAnimationSpec
         private let localization: ChatSearchLocalization
         private let countFormatter: ChatSearchBottomCountFormatter
+        private(set) var adaptiveEnvironment = ChatSearchAdaptiveEnvironment.standard
+        private(set) var adaptiveSurfaceStyle = ChatSearchAdaptiveAppearance.surfaceStyle(
+            for: .standard
+        )
         private(set) var counterTransitionCount = 0
         private(set) var lastCounterTransition: CounterTransition?
         
@@ -654,6 +659,7 @@ class ModernXabberInputView: UIView {
                     reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
                 )
             )
+            self.baseAnimationSpec = self.animationSpec
             self.localization = localization
             self.countFormatter = ChatSearchBottomCountFormatter(localization: localization)
             super.init(frame: frame)
@@ -666,6 +672,7 @@ class ModernXabberInputView: UIView {
             localization: ChatSearchLocalization = .production()
         ) {
             self.animationSpec = animationSpec
+            self.baseAnimationSpec = animationSpec
             self.localization = localization
             self.countFormatter = ChatSearchBottomCountFormatter(localization: localization)
             super.init(frame: frame)
@@ -680,6 +687,7 @@ class ModernXabberInputView: UIView {
                     reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
                 )
             )
+            self.baseAnimationSpec = self.animationSpec
             self.localization = localization
             self.countFormatter = ChatSearchBottomCountFormatter(localization: localization)
             super.init(coder: coder)
@@ -694,17 +702,34 @@ class ModernXabberInputView: UIView {
             super.layoutSubviews()
             let frames = ChatSearchBottomActionBarLayout.frames(
                 in: bounds,
-                safeAreaInsets: safeAreaInsets
+                safeAreaInsets: safeAreaInsets,
+                layoutDirection: adaptiveEnvironment.layoutDirection
             )
             leadingSurfaceView.frame = frames.leadingCapsule
             trailingSurfaceView.frame = frames.trailingCapsule
             leadingSurfaceView.layer.cornerRadius = ChatSearchBottomActionBarLayout.height / 2
             trailingSurfaceView.layer.cornerRadius = ChatSearchBottomActionBarLayout.height / 2
+            leadingSurfaceView.contentView.layoutIfNeeded()
+            trailingSurfaceView.contentView.layoutIfNeeded()
+            [calendarButton, viewModeButton].forEach {
+                $0.updateChatSearchAccessibilityFrame()
+            }
         }
 
         override func safeAreaInsetsDidChange() {
             super.safeAreaInsetsDidChange()
             setNeedsLayout()
+        }
+
+        override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+            super.traitCollectionDidChange(previousTraitCollection)
+            guard previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory ||
+                    previousTraitCollection?.accessibilityContrast != traitCollection.accessibilityContrast ||
+                    previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle ||
+                    previousTraitCollection?.layoutDirection != traitCollection.layoutDirection else {
+                return
+            }
+            applyAdaptiveEnvironment(.current(for: self))
         }
         
         func activateConstraints() {
@@ -888,7 +913,51 @@ class ModernXabberInputView: UIView {
         }
 
         func updateAnimationSpec(_ animationSpec: ChatSearchAnimationSpec) {
+            self.baseAnimationSpec = animationSpec
             self.animationSpec = animationSpec
+        }
+
+        func applyAdaptiveEnvironment(_ environment: ChatSearchAdaptiveEnvironment) {
+            adaptiveEnvironment = environment
+            semanticContentAttribute = environment.layoutDirection == .rightToLeft
+                ? .forceRightToLeft
+                : .forceLeftToRight
+            leadingSurfaceView.semanticContentAttribute = semanticContentAttribute
+            trailingSurfaceView.semanticContentAttribute = semanticContentAttribute
+            animationSpec = baseAnimationSpec.resolved(
+                for: environment.animationPreferences
+            )
+            counterLabel.font = ChatSearchAdaptiveLayoutPolicy.scaledFont(
+                baseSize: 14,
+                weight: .regular,
+                textStyle: .subheadline,
+                contentSizeCategory: environment.contentSizeCategory,
+                maximumPointSize: 22
+            )
+            viewModeButton.titleLabel?.font = ChatSearchAdaptiveLayoutPolicy.scaledFont(
+                baseSize: 14,
+                weight: .semibold,
+                textStyle: .subheadline,
+                contentSizeCategory: environment.contentSizeCategory,
+                maximumPointSize: 22
+            )
+            adaptiveSurfaceStyle = ChatSearchAdaptiveAppearance.applySurface(
+                to: leadingSurfaceView,
+                role: .bar,
+                cornerStyle: .capsule,
+                interactive: true,
+                prefersNativeGlass: true,
+                environment: environment
+            )
+            _ = ChatSearchAdaptiveAppearance.applySurface(
+                to: trailingSurfaceView,
+                role: .bar,
+                cornerStyle: .capsule,
+                interactive: true,
+                prefersNativeGlass: true,
+                environment: environment
+            )
+            setNeedsLayout()
         }
 
         private func updateCounterText(
@@ -1029,6 +1098,7 @@ class ModernXabberInputView: UIView {
             self.viewModeButton.addTarget(self, action: #selector(onChangeViewStateTouchUp), for: .touchUpInside)
             self.cancelButton.isHidden = true
             self.activityIndicator.isHidden = true
+            self.applyAdaptiveEnvironment(.current(for: self))
             self.applyRenderState(.idle, surfaceMode: .chat, animated: false)
         }
     }

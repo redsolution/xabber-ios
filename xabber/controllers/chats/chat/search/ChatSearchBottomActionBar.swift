@@ -34,7 +34,8 @@ struct ChatSearchBottomActionBarLayout {
 
     static func frames(
         in bounds: CGRect,
-        safeAreaInsets: UIEdgeInsets
+        safeAreaInsets: UIEdgeInsets,
+        layoutDirection: UIUserInterfaceLayoutDirection = .leftToRight
     ) -> Frames {
         let minimumX = bounds.minX + max(0, safeAreaInsets.left)
         let maximumX = bounds.maxX - max(0, safeAreaInsets.right)
@@ -44,7 +45,7 @@ struct ChatSearchBottomActionBarLayout {
 
         guard availableWidth >= minimumControlWidth * 2 + minimumSpacing else {
             let width = max(0, (availableWidth - minimumSpacing) / 2)
-            return Frames(
+            let leftToRight = Frames(
                 leadingCapsule: CGRect(x: minimumX, y: originY, width: width, height: controlHeight),
                 trailingCapsule: CGRect(
                     x: maximumX - width,
@@ -53,6 +54,7 @@ struct ChatSearchBottomActionBarLayout {
                     height: controlHeight
                 )
             )
+            return resolved(leftToRight, in: bounds, layoutDirection: layoutDirection)
         }
 
         let trailingWidth = min(
@@ -63,7 +65,7 @@ struct ChatSearchBottomActionBarLayout {
             preferredLeadingWidth,
             availableWidth - minimumSpacing - trailingWidth
         )
-        return Frames(
+        let leftToRight = Frames(
             leadingCapsule: CGRect(
                 x: minimumX,
                 y: originY,
@@ -76,6 +78,27 @@ struct ChatSearchBottomActionBarLayout {
                 width: trailingWidth,
                 height: controlHeight
             )
+        )
+        return resolved(leftToRight, in: bounds, layoutDirection: layoutDirection)
+    }
+
+    private static func resolved(
+        _ leftToRight: Frames,
+        in bounds: CGRect,
+        layoutDirection: UIUserInterfaceLayoutDirection
+    ) -> Frames {
+        guard layoutDirection == .rightToLeft else { return leftToRight }
+        func mirrored(_ frame: CGRect) -> CGRect {
+            CGRect(
+                x: bounds.minX + bounds.maxX - frame.maxX,
+                y: frame.minY,
+                width: frame.width,
+                height: frame.height
+            )
+        }
+        return Frames(
+            leadingCapsule: mirrored(leftToRight.leadingCapsule),
+            trailingCapsule: mirrored(leftToRight.trailingCapsule)
         )
     }
 }

@@ -210,7 +210,8 @@ final class ChatSearchCalendarViewController: UIViewController {
             safeAreaInsets: view.safeAreaInsets,
             layoutDirection: UIView.userInterfaceLayoutDirection(
                 for: calendarView.semanticContentAttribute
-            )
+            ),
+            contentSizeCategory: calendarView.adaptiveEnvironment.contentSizeCategory
         )
         let sheetHeight = min(view.bounds.height, frames.sheetHeight)
         calendarView.frame = CGRect(
