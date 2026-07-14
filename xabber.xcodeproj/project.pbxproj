@@ -102,6 +102,10 @@
 		4EAD00022FF700000ABC001 /* ChatSearchAccessibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAD00012FF700000ABC001 /* ChatSearchAccessibilityTests.swift */; };
 		4EAE00022FF800000ABC001 /* ChatSearchAdaptiveLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAE00012FF800000ABC001 /* ChatSearchAdaptiveLayoutTests.swift */; };
 		4EAE00042FF800000ABC001 /* ChatSearchAdaptiveLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAE00032FF800000ABC001 /* ChatSearchAdaptiveLayout.swift */; };
+		4EB000022FF900000ABC001 /* ChatSearchLiveQASafetyPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB000012FF900000ABC001 /* ChatSearchLiveQASafetyPolicyTests.swift */; };
+		4EB000062FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB000032FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift */; };
+		4EB000072FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB000032FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift */; };
+		4EB000082FF900000ABC001 /* ChatSearchLiveSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB000042FF900000ABC001 /* ChatSearchLiveSmokeTests.swift */; };
 		4EAD00042FF700000ABC001 /* ChatSearchAccessibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAD00032FF700000ABC001 /* ChatSearchAccessibility.swift */; };
 		4EA900042FF300000ABC001 /* ChatSearchTimestampMAMResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA900032FF300000ABC001 /* ChatSearchTimestampMAMResolver.swift */; };
 		4EA600062FF000000ABC001 /* ChatSearchCalendarDayCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA600052FF000000ABC001 /* ChatSearchCalendarDayCell.swift */; };
@@ -934,6 +938,13 @@
 			remoteGlobalIDString = 66159DEF201EDC7D00B1CF92;
 			remoteInfo = xabber;
 		};
+		4EB0000F2FF900000ABC001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 66159DE8201EDC7D00B1CF92 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 66159DEF201EDC7D00B1CF92;
+			remoteInfo = xabber;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -1008,6 +1019,10 @@
 		4EAC00032FF600000ABC001 /* ChatSearchFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchFormatting.swift; sourceTree = "<group>"; };
 		4EAD00012FF700000ABC001 /* ChatSearchAccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchAccessibilityTests.swift; sourceTree = "<group>"; };
 		4EAE00012FF800000ABC001 /* ChatSearchAdaptiveLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchAdaptiveLayoutTests.swift; sourceTree = "<group>"; };
+		4EB000012FF900000ABC001 /* ChatSearchLiveQASafetyPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchLiveQASafetyPolicyTests.swift; sourceTree = "<group>"; };
+		4EB000032FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchLiveQASafetyGate.swift; sourceTree = "<group>"; };
+		4EB000042FF900000ABC001 /* ChatSearchLiveSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchLiveSmokeTests.swift; sourceTree = "<group>"; };
+		4EB000052FF900000ABC001 /* xabberUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = xabberUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4EAE00032FF800000ABC001 /* ChatSearchAdaptiveLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchAdaptiveLayout.swift; sourceTree = "<group>"; };
 		4EAD00032FF700000ABC001 /* ChatSearchAccessibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchAccessibility.swift; sourceTree = "<group>"; };
 		4EA900032FF300000ABC001 /* ChatSearchTimestampMAMResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = chat_search/ChatSearchTimestampMAMResolver.swift; sourceTree = "<group>"; };
@@ -2122,6 +2137,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4EB0000C2FF900000ABC001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -2452,12 +2474,23 @@
 				66159DF2201EDC7D00B1CF92 /* xabber */,
 				5912C14D9B333C86586E9907 /* Pods */,
 				66AE4E7624E12F7C00FF11DC /* xabberTests */,
+				4EB000092FF900000ABC001 /* xabberUITests */,
 				666161FF2F1FBA8700FA2CD1 /* xabber-push-extension */,
 				398932F02EDAFDA326181FBA /* Frameworks */,
 				663F041F2F238E780078F2ED /* xabber-push-extension.appex */,
 				663F04202F238E780078F2ED /* xabber.app */,
 				663F04212F238E780078F2ED /* xabberTests.xctest */,
+				4EB000052FF900000ABC001 /* xabberUITests.xctest */,
 			);
+			sourceTree = "<group>";
+		};
+		4EB000092FF900000ABC001 /* xabberUITests */ = {
+			isa = PBXGroup;
+			children = (
+				4EB000032FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift */,
+				4EB000042FF900000ABC001 /* ChatSearchLiveSmokeTests.swift */,
+			);
+			path = xabberUITests;
 			sourceTree = "<group>";
 		};
 		66159DF2201EDC7D00B1CF92 /* xabber */ = {
@@ -4057,6 +4090,7 @@
 					4EAC00012FF600000ABC001 /* ChatSearchLocalizationTests.swift */,
 					4EAD00012FF700000ABC001 /* ChatSearchAccessibilityTests.swift */,
 					4EAE00012FF800000ABC001 /* ChatSearchAdaptiveLayoutTests.swift */,
+					4EB000012FF900000ABC001 /* ChatSearchLiveQASafetyPolicyTests.swift */,
 						4E7200012FC000000ABC001 /* DeviceDetailSecurityActionTests.swift */,
 						4E7300012FC100000ABC001 /* AccountDeletionCleanupTests.swift */,
 						4E7400012FC200000ABC001 /* QuitAccountFlowStateTests.swift */,
@@ -5015,6 +5049,24 @@
 			productReference = 663F04212F238E780078F2ED /* xabberTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		4EB0000A2FF900000ABC001 /* xabberUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4EB000122FF900000ABC001 /* Build configuration list for PBXNativeTarget "xabberUITests" */;
+			buildPhases = (
+				4EB0000B2FF900000ABC001 /* Sources */,
+				4EB0000C2FF900000ABC001 /* Frameworks */,
+				4EB0000D2FF900000ABC001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4EB0000E2FF900000ABC001 /* PBXTargetDependency */,
+			);
+			name = xabberUITests;
+			productName = xabberUITests;
+			productReference = 4EB000052FF900000ABC001 /* xabberUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -5049,6 +5101,11 @@
 					};
 					66AE4E7424E12F7C00FF11DC = {
 						CreatedOnToolsVersion = 11.5;
+						ProvisioningStyle = Automatic;
+						TestTargetID = 66159DEF201EDC7D00B1CF92;
+					};
+					4EB0000A2FF900000ABC001 = {
+						CreatedOnToolsVersion = 26.0;
 						ProvisioningStyle = Automatic;
 						TestTargetID = 66159DEF201EDC7D00B1CF92;
 					};
@@ -5144,6 +5201,7 @@
 			targets = (
 				66159DEF201EDC7D00B1CF92 /* xabber */,
 				66AE4E7424E12F7C00FF11DC /* xabberTests */,
+				4EB0000A2FF900000ABC001 /* xabberUITests */,
 				666161FD2F1FBA8700FA2CD1 /* xabber-push-extension */,
 			);
 		};
@@ -5195,6 +5253,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				66D2B580253ECBD200299578 /* icons.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4EB0000D2FF900000ABC001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6146,6 +6211,8 @@
 					4EAC00022FF600000ABC001 /* ChatSearchLocalizationTests.swift in Sources */,
 					4EAD00022FF700000ABC001 /* ChatSearchAccessibilityTests.swift in Sources */,
 					4EAE00022FF800000ABC001 /* ChatSearchAdaptiveLayoutTests.swift in Sources */,
+					4EB000022FF900000ABC001 /* ChatSearchLiveQASafetyPolicyTests.swift in Sources */,
+					4EB000062FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift in Sources */,
 						4E7200022FC000000ABC001 /* DeviceDetailSecurityActionTests.swift in Sources */,
 						4E7300022FC100000ABC001 /* AccountDeletionCleanupTests.swift in Sources */,
 						4E7400022FC200000ABC001 /* QuitAccountFlowStateTests.swift in Sources */,
@@ -6211,6 +6278,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4EB0000B2FF900000ABC001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4EB000072FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift in Sources */,
+				4EB000082FF900000ABC001 /* ChatSearchLiveSmokeTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -6223,6 +6299,11 @@
 			isa = PBXTargetDependency;
 			target = 66159DEF201EDC7D00B1CF92 /* xabber */;
 			targetProxy = 66AE4E7A24E12F7C00FF11DC /* PBXContainerItemProxy */;
+		};
+		4EB0000E2FF900000ABC001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 66159DEF201EDC7D00B1CF92 /* xabber */;
+			targetProxy = 4EB0000F2FF900000ABC001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -6859,6 +6940,54 @@
 			};
 			name = Release;
 		};
+		4EB000102FF900000ABC001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = C423LXVKU5;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = xabber.ios.xabberUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = xabber;
+			};
+			name = Debug;
+		};
+		4EB000112FF900000ABC001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = C423LXVKU5;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = xabber.ios.xabberUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = xabber;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -6894,6 +7023,15 @@
 			buildConfigurations = (
 				66AE4E7D24E12F7C00FF11DC /* Debug */,
 				66AE4E7E24E12F7C00FF11DC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4EB000122FF900000ABC001 /* Build configuration list for PBXNativeTarget "xabberUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4EB000102FF900000ABC001 /* Debug */,
+				4EB000112FF900000ABC001 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

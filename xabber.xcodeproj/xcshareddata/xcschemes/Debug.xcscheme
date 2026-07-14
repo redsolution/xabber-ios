@@ -59,6 +59,16 @@
                ReferencedContainer = "container:xabber.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "4EB0000A2FF900000ABC001"
+               BuildableName = "xabberUITests.xctest"
+               BlueprintName = "xabberUITests"
+               ReferencedContainer = "container:xabber.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

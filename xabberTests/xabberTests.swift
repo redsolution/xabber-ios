@@ -1662,6 +1662,8 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
         controller.messagesObserver = nil
         controller.inSearchMode.accept(true)
         controller.searchTextObserver.accept("needle")
+        controller.reduceSearchPresentationState(.activate)
+        controller.reduceSearchPresentationState(.queryChanged("needle"))
         controller.currentSearchQueryId = "query-1"
         let olderArchivedId = "1756120975490655"
         let newestArchivedId = "1783493923727774"
@@ -1707,7 +1709,7 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
         XCTAssertNil(controller.selectedSearchResultId)
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
-            .results(current: 0, total: 2, isLoadingContext: true)
+            .results(current: -1, total: 2, isLoadingContext: true)
         )
 
         try XCTUnwrap(controller.activeAnchorExecutionHooks?.onPositioned)()
