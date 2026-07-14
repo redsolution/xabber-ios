@@ -109,6 +109,7 @@ open class MessagesCollectionViewLayoutAttributes: UICollectionViewLayoutAttribu
             && attributes.messageContainerPadding == messageContainerPadding
             && attributes.messageLabelInsets == messageLabelInsets
             && attributes.forwardsContainerViewSize == forwardsContainerViewSize
+            && attributes.forwardsInlineViewSize == forwardsInlineViewSize
             && attributes.audioInlineViewSize == audioInlineViewSize
             && attributes.imagesInlineViewSize == imagesInlineViewSize
             && attributes.videosInlineViewSize == videosInlineViewSize
@@ -133,5 +134,101 @@ open class MessagesCollectionViewLayoutAttributes: UICollectionViewLayoutAttribu
         } else {
             return false
         }
+    }
+
+    open override var hash: Int {
+        var hasher = Hasher()
+        hasher.combine(super.hash)
+        hasher.combine(messagePrimary)
+        combine(avatarSize, into: &hasher)
+        combine(avatarPosition, into: &hasher)
+        combine(side, into: &hasher)
+        combine(messageContainerSize, into: &hasher)
+        combine(messageContainerMargin, into: &hasher)
+        combine(messageContainerPadding, into: &hasher)
+        combine(messageLabelInsets, into: &hasher)
+        combine(forwardsContainerViewSize, into: &hasher)
+        forwardsInlineViewSize.forEach { combine($0, into: &hasher) }
+        combine(audioInlineViewSize, into: &hasher)
+        combine(imagesInlineViewSize, into: &hasher)
+        combine(videosInlineViewSize, into: &hasher)
+        combine(locationsInlineViewSize, into: &hasher)
+        combine(contactsInlineViewSize, into: &hasher)
+        combine(filesInlineViewSize, into: &hasher)
+        combine(textInlineViewSize, into: &hasher)
+        combine(warningInlineViewSize, into: &hasher)
+        combine(authorInlineSize, into: &hasher)
+        hasher.combine(tail)
+        hasher.combine(cornerRadius)
+        hasher.combine(tailWidth)
+        combine(timeMarkerSize, into: &hasher)
+        combine(timeMarkerIndicator, into: &hasher)
+        hasher.combine(timeMarkerRadius)
+        combine(timeMarkerInsets, into: &hasher)
+        hasher.combine(timeMarkerWithBackplate)
+        combine(inlineContainerSizeInsets, into: &hasher)
+        combine(inlineContainerSizePadding, into: &hasher)
+        hasher.combine(isImageMessage)
+        return hasher.finalize()
+    }
+
+    private func combine(_ size: CGSize, into hasher: inout Hasher) {
+        hasher.combine(size.width)
+        hasher.combine(size.height)
+    }
+
+    private func combine(_ insets: UIEdgeInsets, into hasher: inout Hasher) {
+        hasher.combine(insets.top)
+        hasher.combine(insets.left)
+        hasher.combine(insets.bottom)
+        hasher.combine(insets.right)
+    }
+
+    private func combine(_ position: AvatarPosition, into hasher: inout Hasher) {
+        switch position.horizontal {
+        case .cellLeading: hasher.combine(0)
+        case .cellTrailing: hasher.combine(1)
+        case .natural: hasher.combine(2)
+        }
+        switch position.vertical {
+        case .cellTop: hasher.combine(0)
+        case .messageLabelTop: hasher.combine(1)
+        case .messageTop: hasher.combine(2)
+        case .messageCenter: hasher.combine(3)
+        case .messageBottom: hasher.combine(4)
+        case .cellBottom: hasher.combine(5)
+        }
+    }
+
+    private func combine(_ side: MessageSide, into hasher: inout Hasher) {
+        switch side {
+        case .left: hasher.combine(0)
+        case .right: hasher.combine(1)
+        }
+    }
+
+    private func combine(_ indicator: IndicatorType, into hasher: inout Hasher) {
+        switch indicator {
+        case .none: hasher.combine(0)
+        case .sending: hasher.combine(1)
+        case .sended: hasher.combine(2)
+        case .received: hasher.combine(3)
+        case .read: hasher.combine(4)
+        case .error: hasher.combine(5)
+        }
+    }
+
+    private func combine(_ sizes: MessageAttachmentSizes, into hasher: inout Hasher) {
+        combine(sizes.textLabelSize, into: &hasher)
+        combine(sizes.imagesContainerSize, into: &hasher)
+        combine(sizes.videosContainerSize, into: &hasher)
+        combine(sizes.locationsContainerSize, into: &hasher)
+        combine(sizes.contactsContainerSize, into: &hasher)
+        combine(sizes.filesContainerSize, into: &hasher)
+        combine(sizes.audiosContainerSize, into: &hasher)
+        combine(sizes.containerSize, into: &hasher)
+        combine(sizes.authorSize, into: &hasher)
+        combine(sizes.messageContainer, into: &hasher)
+        combine(sizes.timeMarker, into: &hasher)
     }
 }

@@ -357,10 +357,47 @@ class InlineMessageAttachmentView: ModernContainerView {
             self.layer.backgroundColor = palette.tint100.cgColor//MDCPalette.blue.tint100.cgColor
         }
         self.quoteLine.backgroundColor = palette.tint500
-        self.layoutSubviews()
+        self.setNeedsLayout()
 //        configure(tail: "none", side: .left, radiusLU: 12, radiusRU: 12, radiusRB: 10, radiusLB: 12, padding: 0)
 //        self.bubble.layer.backgroundColor = MDCPalette.green.tint100.cgColor
         
+    }
+
+    func reflowAttachmentFrames(for message: MessageAttachment) {
+        reflow(
+            views: imagesView.views,
+            frames: imagesView.prepareGrid(message.images)
+        )
+        reflow(
+            views: videosView.views,
+            frames: videosView.prepareGrid(message.videos)
+        )
+        reflow(
+            views: locationsView.views,
+            frames: locationsView.prepareGrid(message.locations)
+        )
+        reflow(
+            views: contactsView.views,
+            frames: contactsView.prepareGrid(message.contacts)
+        )
+        reflow(
+            views: audiosView.views,
+            frames: audiosView.prepareGrid(message.audios)
+        )
+        reflow(
+            views: filesView.views,
+            frames: filesView.prepareGrid(message.files)
+        )
+    }
+
+    private func reflow<View: UIView>(
+        views: [View],
+        frames: [CGRect]
+    ) {
+        for (viewIndex, view) in views.enumerated() {
+            guard frames.indices.contains(viewIndex) else { continue }
+            view.frame = frames[viewIndex]
+        }
     }
     
     func handleTouch(at touchPoint: CGPoint) -> Bool {
@@ -430,6 +467,9 @@ extension Array {
 class InlineForwardsContainerView: InlineAttachmentView {
     
     var inlineViews: [InlineMessageAttachmentView] = []
+    private var representedMessages: [MessageAttachment] = []
+    private var representedPalette: MDCPalette = .amber
+    private weak var representedDelegate: MessageCellDelegate?
     
     func layout(with attributes: MessagesCollectionViewLayoutAttributes) {
         // Do not remove all subviews immediately; only adjust as needed
@@ -482,6 +522,15 @@ class InlineForwardsContainerView: InlineAttachmentView {
                 radiusRB: radius.rightBottom,
                 radiusLB: radius.leftBottom
             )
+
+            if let message = representedMessages[safe: index],
+               view.messagePrimary != message.primary {
+                view.delegate = representedDelegate
+                view.configure(message, palette: representedPalette)
+            }
+            if let message = representedMessages[safe: index] {
+                view.reflowAttachmentFrames(for: message)
+            }
         }
         
         // Trim excess views
@@ -541,7 +590,13 @@ class InlineForwardsContainerView: InlineAttachmentView {
 //    }
     
     func configure(_ messages: [MessageAttachment], palette: MDCPalette, delegate: MessageCellDelegate?) {
-        if messages.isEmpty { return }
+        representedMessages = messages
+        representedPalette = palette
+        representedDelegate = delegate
+        if messages.isEmpty {
+            resetState()
+            return
+        }
         
         messages.enumerated().forEach {
             (index, message) in
@@ -554,6 +609,9 @@ class InlineForwardsContainerView: InlineAttachmentView {
     }
 
     func updateContent(_ messages: [MessageAttachment], palette: MDCPalette, delegate: MessageCellDelegate?) {
+        representedMessages = messages
+        representedPalette = palette
+        representedDelegate = delegate
         if messages.isEmpty {
             resetState()
             return
@@ -572,6 +630,8 @@ class InlineForwardsContainerView: InlineAttachmentView {
     }
     
     func resetState() {
+        representedMessages = []
+        representedDelegate = nil
         inlineViews.forEach { view in
             view.messageLabel.attributedText = nil
             view.authorLabel.attributedText = nil

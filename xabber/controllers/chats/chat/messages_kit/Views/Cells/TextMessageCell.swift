@@ -357,6 +357,7 @@ public class TextMessageCell: MessageContentCell {
     
     
     public override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
+        super.apply(layoutAttributes)
         if let attributes = layoutAttributes as? MessagesCollectionViewLayoutAttributes {
             layoutAuthorView(with: attributes)
             layoutForwardsContainer(with: attributes)
@@ -369,8 +370,23 @@ public class TextMessageCell: MessageContentCell {
             layoutLabelView(with: attributes)
             layoutWarningLabel(with: attributes)
             layoutTimeMarker(with: attributes)
+            ChatMessageFrameGeometryValidator.assertValid(
+                frames: [
+                    .init(name: "author", frame: authorView.frame),
+                    .init(name: "forwards", frame: forwardsContainer.frame),
+                    .init(name: "images", frame: imagesView.frame),
+                    .init(name: "videos", frame: videosView.frame),
+                    .init(name: "locations", frame: locationsView.frame),
+                    .init(name: "contacts", frame: contactsView.frame),
+                    .init(name: "audios", frame: audiosView.frame),
+                    .init(name: "files", frame: filesView.frame),
+                    .init(name: "text", frame: labelContainer.frame),
+                    .init(name: "warning", frame: warningLabel.frame),
+                    .init(name: "time", frame: timeMarker.frame)
+                ],
+                containerBounds: CGRect(origin: .zero, size: attributes.messageContainerSize)
+            )
         }
-        super.apply(layoutAttributes)
     }
     
     func layoutAuthorView(with attributes: MessagesCollectionViewLayoutAttributes) {
@@ -705,7 +721,7 @@ public class TextMessageCell: MessageContentCell {
             origin: CGPoint(x: 0, y: offset),
             size: CGSize(
                 width: attributes.textInlineViewSize.width + attributes.messageLabelInsets.horizontal,
-                height: attributes.textInlineViewSize.width + attributes.messageLabelInsets.vertical
+                height: attributes.textInlineViewSize.height + attributes.messageLabelInsets.vertical
             )
         )
         messageLabel.frame = CGRect(

@@ -21,7 +21,7 @@
 import Foundation
 import UIKit
 
-public struct MessageAttachmentSizes {
+public struct MessageAttachmentSizes: Equatable {
     let textLabelSize: CGSize
     let imagesContainerSize: CGSize
     let videosContainerSize: CGSize

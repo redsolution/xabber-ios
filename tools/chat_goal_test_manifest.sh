@@ -213,6 +213,17 @@ xabberTests/ChatPerformanceSignpostTests
 SELECTORS
     return
   fi
+  if [[ "$1" == "G01" ]]; then
+    cat <<'SELECTORS'
+xabberTests/TextMessageCellLayoutTests
+xabberTests/MessagesCollectionViewLayoutAttributesTests
+xabberTests/InlineForwardLayoutOrderingTests
+xabberTests/TextMessageCellReuseTests
+xabberTests/ChatReloadInvalidationPolicyTests
+xabberTests/ChatInitialMessageOverlayLayoutTests
+SELECTORS
+    return
+  fi
   chat_goal_preflight_selectors "$1"
 }
 
