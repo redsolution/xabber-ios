@@ -142,7 +142,7 @@ final class ChatReloadInvalidationPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             ChatObserverRefreshAnchorRestorePolicy.restorePhase(hasCapturedAnchor: true),
-            .completion
+            .applyTransaction
         )
     }
 

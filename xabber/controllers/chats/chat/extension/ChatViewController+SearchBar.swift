@@ -1247,7 +1247,12 @@ extension ChatViewController {
         updateChatCollectionInsets(inputHeight: inputHeight)
         becomeFirstResponder()
         navigationItem.setHidesBackButton(false, animated: false)
-        messagesCollectionView.reloadDataAndKeepOffset()
+        applyChatDatasource(
+            datasource,
+            mode: .fullReload(keepOffset: true),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
         UIView.performWithoutAnimation {
             configureNavbar()
         }

@@ -3776,7 +3776,6 @@ class ChatViewController: MessagesViewController {
 
         self.messagesCollectionView.layoutIfNeeded()
         self.updateChatCollectionInsets()
-        self.messagesCollectionView.layoutIfNeeded()
 
         let targetMaxY = self.bottomAlignmentTargetMaxY(for: targetIndexPath)
             ?? self.messagesCollectionView.contentSize.height
@@ -3813,15 +3812,6 @@ class ChatViewController: MessagesViewController {
             ?? self.messagesCollectionView.cellForItem(at: indexPath)?.frame.maxY
     }
 
-    internal func scheduleOutgoingBottomRealignment(targetIndexPath: IndexPath) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.isViewLoaded else {
-                return
-            }
-            self.scrollToBottomAligned(targetIndexPath: targetIndexPath, animated: false)
-        }
-    }
-        
     @objc
     func clearAttachments() {
         self.forwardedIds.accept(Set<String>())

@@ -14512,10 +14512,10 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.messagesCollectionView.layoutIfNeeded()
 
         let anchorPrimary = initialItems[12].primary
-        let offsetFromViewportTop = try viewportY(for: anchorPrimary, in: controller)
+        let viewportRelativeMinY = try viewportY(for: anchorPrimary, in: controller)
         let anchor = ChatHistoryPageAnchor(
             primary: anchorPrimary,
-            offsetFromViewportTop: offsetFromViewportTop
+            viewportRelativeMinY: viewportRelativeMinY
         )
         var completionViewportY: CGFloat?
 
@@ -14532,7 +14532,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(try XCTUnwrap(completionViewportY), offsetFromViewportTop, accuracy: 1.0)
+        XCTAssertEqual(try XCTUnwrap(completionViewportY), viewportRelativeMinY, accuracy: 1.0)
     }
 
     func testBoundaryPagingDuringDecelerationPreparesLocalOlderWithoutMutatingDatasourceState() throws {
@@ -14791,9 +14791,6 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             anchorPrimary: anchor.primary,
             restoreAnchor: anchor,
             completion: {
-                if applyPlan.restorePhase == .completion {
-                    controller.restorePagingAnchor(anchor)
-                }
                 completionViewportY = try? self.viewportY(for: anchor.primary, in: controller)
             }
         )
@@ -24838,7 +24835,7 @@ final class ChatHistoryPageApplyPolicyTests: XCTestCase {
 
         XCTAssertFalse(plan.keepOffset)
         XCTAssertTrue(plan.shouldRestoreAnchor)
-        XCTAssertEqual(plan.restorePhase, .completion)
+        XCTAssertEqual(plan.restorePhase, .applyTransaction)
         XCTAssertEqual(plan.applyCategory, .default)
     }
 }
@@ -24849,7 +24846,7 @@ final class ChatHistoryPageAnchorRestorePolicyTests: XCTestCase {
         XCTAssertEqual(
             ChatHistoryPageAnchorRestorePolicy.targetContentOffsetY(
                 anchorMinY: 420,
-                offsetFromViewportTop: 120,
+                viewportRelativeMinY: 120,
                 minContentOffsetY: 0,
                 maxContentOffsetY: 800
             ),
@@ -24861,7 +24858,7 @@ final class ChatHistoryPageAnchorRestorePolicyTests: XCTestCase {
         XCTAssertEqual(
             ChatHistoryPageAnchorRestorePolicy.targetContentOffsetY(
                 anchorMinY: 40,
-                offsetFromViewportTop: 120,
+                viewportRelativeMinY: 120,
                 minContentOffsetY: -16,
                 maxContentOffsetY: 200
             ),

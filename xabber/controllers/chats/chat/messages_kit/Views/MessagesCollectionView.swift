@@ -111,41 +111,6 @@ class MessagesCollectionView: UICollectionView {
         cell?.handleLongTapGesture(gesture)
     }
 
-    func scrollToBottom(animated: Bool = false) {
-        let lastSection = numberOfSections - 1
-        guard lastSection >= 0, numberOfItems(inSection: lastSection) > 0 else {
-            return
-        }
-        performBatchUpdates(nil) { _ in
-            self.scrollToItem(at: IndexPath(item: 0, section: lastSection), at: .bottom, animated: animated)
-        }
-    }
-    
-    func scrollToTop(animated: Bool = false) {
-        performBatchUpdates(nil) { _ in
-            self.scrollRectToVisible(CGRect(0.0, 0.0, 1.0, 1.0), animated: animated)
-        }
-    }
-    
-    func reloadDataAndKeepOffset() {
-        // stop scrolling
-        setContentOffset(contentOffset, animated: false)
-        let offset = contentOffset.y
-        // calculate the offset and reloadData
-        let beforeContentSize = contentSize
-        reloadData()
-//        reloadData()
-        layoutIfNeeded()
-        setNeedsLayout()
-        let afterContentSize = contentSize
-        
-        // reset the contentOffset after data is updated
-        let newOffset = CGPoint(
-            x: contentOffset.x + (afterContentSize.width - beforeContentSize.width),
-            y: contentOffset.y - (beforeContentSize.height - afterContentSize.height))
-        setContentOffset(newOffset, animated: false)
-    }
-
     /// Registers a particular cell using its reuse-identifier
     func register<T: UICollectionViewCell>(_ cellClass: T.Type) {
         register(cellClass, forCellWithReuseIdentifier: String(describing: T.self))

@@ -682,7 +682,12 @@ extension ChatViewController: MessageCellDelegate {
             }
         }
         self.disableSelectMode()
-        self.messagesCollectionView.reloadDataAndKeepOffset()
+        self.applyChatDatasource(
+            self.datasource,
+            mode: .fullReload(keepOffset: true),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
     }
     
     func downloadVideo(_ primary: String) {

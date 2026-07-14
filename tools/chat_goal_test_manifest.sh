@@ -97,6 +97,7 @@ xabberTests/ChatOpenTimingPolicyTests
 SELECTORS
       ;;
     G07) cat <<'SELECTORS'
+xabberTests/ChatCollectionAnchorPreservationTests
 xabberTests/ChatReloadInvalidationPolicyTests
 xabberTests/ChatBottomScrollAlignmentPolicyTests
 xabberTests/ChatHistoryPageAnchorRestorePolicyTests
