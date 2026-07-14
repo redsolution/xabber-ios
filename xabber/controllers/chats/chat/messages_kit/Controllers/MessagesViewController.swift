@@ -291,5 +291,6 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
     @objc
     public final func clearMemoryCache() {
         MessageStyle.bubbleImageCache.removeAllObjects()
+        (self as? ChatViewController)?.handleChatSearchMemoryWarning()
     }
 }

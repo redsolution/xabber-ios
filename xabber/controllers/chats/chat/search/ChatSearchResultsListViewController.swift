@@ -153,12 +153,14 @@ enum ChatSearchResultsListContainment {
         parent.addChild(controller)
         containerView.addSubview(controller.view)
         controller.view.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
+        let constraints = [
             controller.view.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             controller.view.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             controller.view.topAnchor.constraint(equalTo: containerView.topAnchor),
             controller.view.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
-        ])
+        ]
+        controller.containmentConstraints = constraints
+        NSLayoutConstraint.activate(constraints)
         controller.didMove(toParent: parent)
     }
 
@@ -168,6 +170,8 @@ enum ChatSearchResultsListContainment {
         if hadParent {
             controller.willMove(toParent: nil)
         }
+        NSLayoutConstraint.deactivate(controller.containmentConstraints)
+        controller.containmentConstraints.removeAll()
         controller.view.removeFromSuperview()
         if hadParent {
             controller.removeFromParent()
@@ -244,6 +248,11 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
     private(set) var isPreparedForRemoval = false
     private(set) var isPagingIndicatorVisible = false
     private(set) var lastAppliedPreparedResults: ChatSearchPreparedResults?
+    fileprivate var containmentConstraints: [NSLayoutConstraint] = []
+
+    var containmentConstraintCount: Int {
+        containmentConstraints.count
+    }
 
     private var currentResults: [ChatSearchResult] = []
     private var resultsByID: [ChatSearchResult.ID: ChatSearchResult] = [:]
@@ -511,6 +520,11 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         stopPagingIndicators()
         view.accessibilityElementsHidden = true
         isPreparedForRemoval = true
+    }
+
+    func handleMemoryWarning() {
+        trackedCells.allObjects.forEach { $0.cancelAvatarRequestForMemoryPressure() }
+        lastAppliedPreparedResults = nil
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

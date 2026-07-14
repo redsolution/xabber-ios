@@ -475,6 +475,11 @@ final class ChatSearchResultCell: UITableViewCell {
         accessibilityTraits = [.button]
     }
 
+    func cancelAvatarRequestForMemoryPressure() {
+        avatarRequest?.cancel()
+        avatarRequest = nil
+    }
+
     func configure(with result: ChatSearchResult) {
         avatarRequest?.cancel()
         avatarRequest = nil

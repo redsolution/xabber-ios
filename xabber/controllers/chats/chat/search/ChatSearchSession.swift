@@ -108,6 +108,10 @@ struct ChatSearchSession: Sendable {
         providerPhase == .searching
     }
 
+    var activeScope: Scope? {
+        scope
+    }
+
     func isCurrentRequest(_ request: Request) -> Bool {
         request.generation == generation &&
         request.query == normalizedQuery &&
@@ -246,6 +250,24 @@ struct ChatSearchSession: Sendable {
         resultIds = []
         isDateResolverActive = false
         hasPendingNavigation = false
+        return effects
+    }
+
+    mutating func interruptForLifecycle() -> [Effect] {
+        let effects = cancellationEffects()
+        scheduledRequest = nil
+        activeRequest = nil
+        isDateResolverActive = false
+        hasPendingNavigation = false
+        pendingTarget = nil
+        isContextLoading = false
+        if normalizedQuery == nil {
+            providerPhase = .idle
+        } else if resultIds.isEmpty {
+            providerPhase = .failed
+        } else {
+            providerPhase = .finished
+        }
         return effects
     }
 

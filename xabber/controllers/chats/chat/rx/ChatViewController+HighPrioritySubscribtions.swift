@@ -150,8 +150,9 @@ extension ChatViewController {
                     }
                 }
             )
-            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                guard self.searchSession.isCurrentRequest(request),
+            XMPPUIActionManager.shared.performRequest(owner: self.owner) { [weak self] stream, session in
+                guard let self,
+                      self.searchSession.isCurrentRequest(request),
                       self.isCurrentInChatSearchQuery(queryId: context.queryId) else {
                     return
                 }
@@ -170,8 +171,9 @@ extension ChatViewController {
                 )
                 self.searchArchiveManagersByQueryId[queryId] = mam
                 self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
-            } fail: {
-                guard self.searchSession.isCurrentRequest(request),
+            } fail: { [weak self] in
+                guard let self,
+                      self.searchSession.isCurrentRequest(request),
                       self.isCurrentInChatSearchQuery(queryId: context.queryId) else {
                     return
                 }
@@ -179,8 +181,9 @@ extension ChatViewController {
                     self.handleInChatSearchQueryFailure(queryId: context.queryId)
                     return
                 }
-                account.action({ user, stream in
-                    guard self.searchSession.isCurrentRequest(request),
+                account.action({ [weak self] user, stream in
+                    guard let self,
+                          self.searchSession.isCurrentRequest(request),
                           self.isCurrentInChatSearchQuery(queryId: context.queryId) else {
                         return
                     }

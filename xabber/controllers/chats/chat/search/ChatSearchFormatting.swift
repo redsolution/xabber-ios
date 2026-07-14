@@ -460,6 +460,19 @@ final class ChatSearchFormatterCache {
     private var dateFormatters: [DateKey: DateFormatter] = [:]
     private var numberFormatters: [String: NumberFormatter] = [:]
 
+    var cachedFormatterCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return dateFormatters.count + numberFormatters.count
+    }
+
+    func removeAll() {
+        lock.lock()
+        dateFormatters.removeAll(keepingCapacity: false)
+        numberFormatters.removeAll(keepingCapacity: false)
+        lock.unlock()
+    }
+
     func dateString(
         _ date: Date,
         role: DateRole,

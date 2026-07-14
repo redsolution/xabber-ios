@@ -72,6 +72,12 @@ final class ChatSearchHighlightCache {
         return storedComputationCount
     }
 
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries.count
+    }
+
     func applying(
         to source: NSAttributedString,
         query: String?,
@@ -177,6 +183,14 @@ enum ChatSearchHighlighter {
     static let markerAttribute = NSAttributedString.Key("xabber.chat.search.highlight")
 
     private static let sharedCache = ChatSearchHighlightCache(countLimit: 256)
+
+    static var cachedEntryCount: Int {
+        sharedCache.count
+    }
+
+    static func removeCachedResults() {
+        sharedCache.removeAll()
+    }
 
     private static let originalBackgroundAttribute =
         NSAttributedString.Key("xabber.chat.search.original-background")

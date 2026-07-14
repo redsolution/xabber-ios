@@ -1048,7 +1048,149 @@ enum ChatEditPreviewNavigationPolicy {
     }
 }
 
+enum ChatSearchLifecycleTeardownReason: Equatable {
+    case navigationAway
+    case scopeChanged
+    case deinitializing
+}
+
 extension ChatViewController {
+    internal func teardownChatSearchLifecycle(
+        reason: ChatSearchLifecycleTeardownReason
+    ) {
+        assert(Thread.isMainThread, "Chat search teardown must run on the main thread")
+
+        searchSessionDebounceWorkItem?.cancel()
+        searchSessionDebounceWorkItem = nil
+        searchSessionDebounceGeneration = nil
+        applySearchSessionEffects(searchSession.cancel())
+
+        for (queryID, manager) in searchArchiveManagersByQueryId {
+            manager.cancelSearch(queryId: queryID)
+            unregisterRemoteHistoryPersistenceSource(queryId: queryID)
+        }
+        searchArchiveManagersByQueryId.removeAll()
+        searchSessionGenerationByQueryId.removeAll()
+        _ = searchLocalProvider.cancelAll()
+
+        _ = searchCalendarCompletionCoordinator?.cancel()
+        searchCalendarCompletionCoordinator = nil
+        searchCalendarTimestampMAMTransport = nil
+        pendingSearchCalendarCompletionRequest = nil
+        activeSearchCalendarCompletionRequest = nil
+        isChatSearchCalendarDateResolutionLoading = false
+
+        searchCalendarViewController?.onCancel = nil
+        searchCalendarViewController?.onComplete = nil
+        searchCalendarViewController?.onAccessibilityFocusRequest = nil
+        removeChatSearchCalendarControllerImmediately()
+        cleanupSearchAnimationsForLifecycle()
+        searchChromeTransitionCoordinator.cleanupAnimations(finalState: .hidden)
+        searchModeTransitionCoordinator.cleanupAnimations(finalState: .chat)
+        searchNavigationFeedbackCoordinator.cancel()
+
+        let hadPresentationState = searchPresentationState.isActive ||
+            searchPresentationState.positioningPhase != .idle ||
+            searchPresentationState.query.isNotEmpty
+        if hadPresentationState {
+            reduceSearchPresentationState(.cancelSearch)
+        }
+        clearInChatSearchQuery(clearResults: true, panelState: .idle)
+        removeChatSearchResultsListController()
+        searchOlderPageNavigationGate.reset(generation: searchSession.generation)
+        searchResultNavigationState = .idle
+        pendingOpenMessageRequest = nil
+        pendingSearchActivationRequest = nil
+        searchMessagesQueue.removeAll()
+        searchResultPresentations.removeAll()
+        searchTextObserver.accept(nil)
+        inSearchMode.accept(false)
+        searchBar.text = nil
+        chatSearchCalendarDateAnnouncementHandler = nil
+        chatSearchCalendarDateErrorHandler = nil
+        chatSearchAccessibilityAnnouncementHandler = nil
+        chatSearchAccessibilityAnnouncementState = .init()
+
+        if isViewLoaded {
+            searchInputBar.text = nil
+            searchInputBar.endEditing(true)
+            searchBar.endEditing(true)
+            hideSearchInputOverlay()
+            xabberInputView.changeState(to: .normal)
+            navigationItem.setHidesBackButton(false, animated: false)
+            setChatSearchTimelineHidden(false)
+            refreshChatSearchAccessibilityOrder()
+        }
+
+        if reason == .navigationAway || reason == .deinitializing {
+            removeObservers()
+        }
+    }
+
+    internal func handleChatSearchApplicationDidEnterBackground() {
+        assert(Thread.isMainThread, "Chat search background handling must run on the main thread")
+        let interruptedPhase = searchPresentationState.resultPhase
+        let interruptedPositioning = searchPresentationState.positioningPhase
+        applySearchSessionEffects(searchSession.interruptForLifecycle())
+
+        if interruptedPhase == .debouncing || interruptedPhase == .searching {
+            reduceSearchPresentationState(
+                .failed(generation: searchPresentationState.generation)
+            )
+        }
+        if interruptedPositioning != .idle {
+            reduceSearchPresentationState(
+                .navigationFinished(generation: searchPresentationState.generation)
+            )
+        }
+        searchCalendarViewController?.settleTransitionForLifecycleInterruption()
+        cleanupSearchAnimationsForLifecycle()
+        _ = cancelChatSearchCalendarDateResolution()
+    }
+
+    internal func handleChatSearchApplicationWillEnterForeground() {
+        assert(Thread.isMainThread, "Chat search foreground handling must run on the main thread")
+        guard !invalidateChatSearchForCurrentScopeIfNeeded() else { return }
+        searchCalendarViewController?.settleTransitionForLifecycleInterruption()
+        cleanupSearchAnimationsForLifecycle()
+        if isViewLoaded {
+            renderSearchResultSurfaceFromPresentation(animated: false)
+            renderSearchNavigationButtons(animated: false)
+            refreshChatSearchAccessibilityOrder()
+        }
+    }
+
+    internal func handleChatSearchLayoutInterruption() {
+        assert(Thread.isMainThread, "Chat search layout interruption must run on the main thread")
+        searchCalendarViewController?.settleTransitionForLifecycleInterruption()
+        cleanupSearchAnimationsForLifecycle()
+        guard isViewLoaded else { return }
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        renderSearchResultSurfaceFromPresentation(animated: false)
+        bringSearchModeChromeToFront()
+    }
+
+    internal func handleChatSearchMemoryWarning() {
+        ChatSearchHighlighter.removeCachedResults()
+        ChatSearchFormatterCache.shared.removeAll()
+        searchResultsListViewController?.handleMemoryWarning()
+    }
+
+    @discardableResult
+    internal func invalidateChatSearchForCurrentScopeIfNeeded() -> Bool {
+        let scope = currentSearchSessionScope
+        let sessionMismatch = searchSession.activeScope.map { $0 != scope } ?? false
+        let resultMismatch = searchResultPresentations.contains { result in
+            result.scope.owner != scope.owner ||
+                result.scope.jid != scope.jid ||
+                result.scope.conversationTypeRawValue != scope.conversationTypeRawValue
+        }
+        guard sessionMismatch || resultMismatch else { return false }
+        teardownChatSearchLifecycle(reason: .scopeChanged)
+        return true
+    }
+
     internal func transitionSearchChrome(
         to finalState: ChatSearchChromeTransitionPlan.FinalState,
         animated: Bool,
@@ -1298,6 +1440,9 @@ extension ChatViewController {
     }
 
     internal func makeChatSearchResultsListRenderModel() -> ChatSearchResultsListRenderModel? {
+        guard !invalidateChatSearchForCurrentScopeIfNeeded() else {
+            return nil
+        }
         guard searchPresentationState.isActive,
               searchPresentationState.resultPhase == .results,
               searchResultPresentations.isNotEmpty,

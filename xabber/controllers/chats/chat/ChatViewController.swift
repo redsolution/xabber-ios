@@ -1574,6 +1574,7 @@ class ChatViewController: MessagesViewController {
     var observerLookupSignature: ObserverLookupSignature? = nil
     private(set) var chatObserversRegistered: Bool = false
     internal var chatNotificationCenter: NotificationCenter = .default
+    internal var chatSearchObserverRemovalCount: Int = 0
     var virtualTimelineState: ChatVirtualTimelineState = .empty
     var boundedTimelineWindowState: ChatBoundedTimelineWindowState = .empty
     var scrollBoundaryAvailabilityCache: ChatScrollBoundaryAvailabilityCache = .empty
@@ -4531,9 +4532,15 @@ class ChatViewController: MessagesViewController {
             visibleKeyboardHeight: self.xabberInputView.keyboardHeight
         )
         self.xabberInputView.searchPanel.conversationType = self.conversationType
-        self.xabberInputView.searchPanel.onChangeConversationTypeCallback = onSearchPanelChangeConversationType
-        self.xabberInputView.searchPanel.onChangeViewStateCallback = self.onSearchPanelChangeChatViewState
-        self.xabberInputView.searchPanel.onCalendarCallback = self.onSearchPanelOpenCalendar
+        self.xabberInputView.searchPanel.onChangeConversationTypeCallback = { [weak self] conversationType in
+            self?.onSearchPanelChangeConversationType(conversationType)
+        }
+        self.xabberInputView.searchPanel.onChangeViewStateCallback = { [weak self] in
+            self?.onSearchPanelChangeChatViewState()
+        }
+        self.xabberInputView.searchPanel.onCalendarCallback = { [weak self] in
+            self?.onSearchPanelOpenCalendar()
+        }
         self.xabberInputView.searchPanel.onCancelCallback = nil
         self.xabberInputView.mentionConversationType = self.conversationType
         self.xabberInputView.mentionCandidatesProvider = { [weak self] query in
@@ -4908,8 +4915,7 @@ class ChatViewController: MessagesViewController {
         }
         self.didRunNavigationDisappearanceCleanup = true
         self.didScheduleNavigationDisappearanceCleanup = false
-        self.cleanupSearchAnimationsForLifecycle()
-        self.cancelChatSearchCalendarDateResolution()
+        self.teardownChatSearchLifecycle(reason: .navigationAway)
         AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             user.mam.allowHistoryFixTask = false
@@ -4994,6 +5000,7 @@ class ChatViewController: MessagesViewController {
     
     @objc
     internal func willEnterForeground() {
+        self.handleChatSearchApplicationWillEnterForeground()
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
         AccountManager.shared.find(for: self.owner)?.chatMarkers.updateDeleteEphemeralMessagesTimer()
     }
@@ -5005,8 +5012,7 @@ class ChatViewController: MessagesViewController {
 
     internal func handleApplicationDidEnterBackground() {
         NotifyManager.shared.currentDialog = nil
-        self.cleanupSearchAnimationsForLifecycle()
-        self.cancelChatSearchCalendarDateResolution()
+        self.handleChatSearchApplicationDidEnterBackground()
         self.cancelActiveAudioRecordingForLifecycle()
         self.flushPendingVisibleReadTarget()
         do {
@@ -5032,6 +5038,7 @@ class ChatViewController: MessagesViewController {
         guard self.chatObserversRegistered else {
             return
         }
+        self.chatSearchObserverRemovalCount += 1
         self.lastAppliedChatKeyboardLayoutSignature = nil
         self.chatObserversRegistered = false
         super.removeObservers()
@@ -5335,6 +5342,19 @@ class ChatViewController: MessagesViewController {
         if !self.didScheduleNavigationDisappearanceCleanup {
             self.runNavigationDisappearanceCleanupIfNeeded()
         }
+    }
+
+    override func viewWillTransition(
+        to size: CGSize,
+        with coordinator: UIViewControllerTransitionCoordinator
+    ) {
+        super.viewWillTransition(to: size, with: coordinator)
+        handleChatSearchLayoutInterruption()
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            self?.view.layoutIfNeeded()
+        }, completion: { [weak self] _ in
+            self?.handleChatSearchLayoutInterruption()
+        })
     }
     
     static func getColorsForGradient(forColor color: BackgroundColor) -> [CGColor] {

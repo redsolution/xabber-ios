@@ -234,6 +234,19 @@ final class ChatSearchLocalProvider {
         return true
     }
 
+    @discardableResult
+    func cancelAll() -> Bool {
+        stateLock.lock()
+        guard let activeRequest else {
+            stateLock.unlock()
+            return false
+        }
+        self.activeRequest = nil
+        stateLock.unlock()
+        deliverCancellation(activeRequest)
+        return true
+    }
+
     private func replaceActiveRequest(with request: ActiveRequest) -> ActiveRequest? {
         stateLock.lock()
         let replaced = activeRequest
