@@ -43,9 +43,9 @@ enum AppLaunchEnvironmentPolicy {
     // xcodebuild strips TEST_RUNNER_ before forwarding these variables to a
     // hosted test process. Keep the runtime keys here; shell commands use the
     // corresponding TEST_RUNNER_XABBER_* names.
-    static let hostedXCTestEnvironmentKey = "XCTestConfigurationFilePath"
-    static let disableAccountAutoconnectEnvironmentKey = "XABBER_DISABLE_ACCOUNT_AUTOCONNECT"
-    static let isolatedStorageEnvironmentKey = "XABBER_ISOLATED_STORAGE"
+    static let hostedXCTestEnvironmentKey = HostedXCTestIsolationPolicy.hostedXCTestEnvironmentKey
+    static let disableAccountAutoconnectEnvironmentKey = HostedXCTestIsolationPolicy.disableAccountAutoconnectEnvironmentKey
+    static let isolatedStorageEnvironmentKey = HostedXCTestIsolationPolicy.isolatedStorageEnvironmentKey
 
     static func shouldAutoconnectAccounts(
         isPushKit: Bool,
@@ -62,9 +62,7 @@ enum AppLaunchEnvironmentPolicy {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier
     ) -> IsolatedStorageDescriptor? {
-        guard environment[hostedXCTestEnvironmentKey] != nil,
-              environment[disableAccountAutoconnectEnvironmentKey] == "1",
-              environment[isolatedStorageEnvironmentKey] == "1" else {
+        guard HostedXCTestIsolationPolicy.isEnabled(environment: environment) else {
             return nil
         }
 

@@ -42,6 +42,18 @@ private func credentialsDiagnosticHash(_ value: String) -> String {
     return String(format: "%016llx", hash)
 }
 
+enum HostedXCTestIsolationPolicy {
+    static let hostedXCTestEnvironmentKey = "XCTestConfigurationFilePath"
+    static let disableAccountAutoconnectEnvironmentKey = "XABBER_DISABLE_ACCOUNT_AUTOCONNECT"
+    static let isolatedStorageEnvironmentKey = "XABBER_ISOLATED_STORAGE"
+
+    static func isEnabled(environment: [String: String]) -> Bool {
+        environment[hostedXCTestEnvironmentKey] != nil
+            && environment[disableAccountAutoconnectEnvironmentKey] == "1"
+            && environment[isolatedStorageEnvironmentKey] == "1"
+    }
+}
+
 class CredentialsManager: NSObject {
     private static var testDataStore: [String: Data] = [:]
     private static var testIntStore: [String: Int] = [:]
@@ -69,24 +81,44 @@ class CredentialsManager: NSObject {
         var uniqueServiceName: String
         var uniqueAccessGroup: String
     }
-    
-    
-    static func  uniqueServiceName() -> String {
+
+    static let hostedXCTestServiceSuffix = ".hosted-xctest"
+
+    static func resolvedCredentialsStore(
+        base: CredentialsStore,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier
+    ) -> CredentialsStore {
+        // The test-only service must be stable between hosted test processes so
+        // their cleanup can reach prior test data without ever reaching the app service.
+        _ = processIdentifier
+        guard HostedXCTestIsolationPolicy.isEnabled(environment: environment) else {
+            return base
+        }
+
+        return CredentialsStore(
+            uniqueServiceName: base.uniqueServiceName + hostedXCTestServiceSuffix,
+            uniqueAccessGroup: base.uniqueAccessGroup
+        )
+    }
+
+    private static func bundledCredentialsStore() -> CredentialsStore? {
         guard let path = Bundle.main.path(forResource: "credential_store", ofType: "plist"),
               let xml = FileManager.default.contents(atPath: path),
               let value = try? PropertyListDecoder().decode(CredentialsStore.self, from: xml) else {
-              return ""
+            return nil
         }
-        return value.uniqueServiceName
+        return value
+    }
+
+    static func uniqueServiceName() -> String {
+        guard let base = bundledCredentialsStore() else { return "" }
+        return resolvedCredentialsStore(base: base).uniqueServiceName
     }// = "clandestino.keychain"
-    
+
     static func uniqueAccessGroup() -> String {
-        guard let path = Bundle.main.path(forResource: "credential_store", ofType: "plist"),
-              let xml = FileManager.default.contents(atPath: path),
-              let value = try? PropertyListDecoder().decode(CredentialsStore.self, from: xml) else {
-              return ""
-        }
-        return value.uniqueAccessGroup
+        guard let base = bundledCredentialsStore() else { return "" }
+        return resolvedCredentialsStore(base: base).uniqueAccessGroup
     }
     
 //    var uniqueAccessGroup: String = "group.clandestino.shared.data"
