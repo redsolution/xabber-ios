@@ -12876,53 +12876,6 @@ final class ChatBootstrapStateTests: XCTestCase {
         )
     }
 
-    func testUnreadBoundaryFirstFramePolicyRequiresLocalAnchorIndex() {
-        XCTAssertEqual(
-            ChatUnreadBoundaryFirstFramePolicy.decision(
-                requestSource: .initialUnreadBoundary,
-                isSynced: true,
-                observerCount: 20,
-                localAnchorIndex: 5,
-                isPageUnlocked: true
-            ),
-            .unreadBoundary(anchorIndex: 5)
-        )
-        XCTAssertEqual(
-            ChatUnreadBoundaryFirstFramePolicy.decision(
-                requestSource: .initialUnreadBoundary,
-                isSynced: true,
-                observerCount: 20,
-                localAnchorIndex: nil,
-                isPageUnlocked: true
-            ),
-            .wait
-        )
-    }
-
-    func testUnreadBoundaryFirstFramePolicyAppliesOnlyForContentBootstrapPlaceholder() {
-        XCTAssertTrue(
-            ChatUnreadBoundaryFirstFramePolicy.shouldApplySynchronously(
-                bootstrapState: .content,
-                isShowingBootstrapPlaceholder: true,
-                decision: .unreadBoundary(anchorIndex: 5)
-            )
-        )
-        XCTAssertFalse(
-            ChatUnreadBoundaryFirstFramePolicy.shouldApplySynchronously(
-                bootstrapState: .skeleton,
-                isShowingBootstrapPlaceholder: true,
-                decision: .unreadBoundary(anchorIndex: 5)
-            )
-        )
-        XCTAssertFalse(
-            ChatUnreadBoundaryFirstFramePolicy.shouldApplySynchronously(
-                bootstrapState: .content,
-                isShowingBootstrapPlaceholder: false,
-                decision: .unreadBoundary(anchorIndex: 5)
-            )
-        )
-    }
-
     func testSavedVisiblePositionWithSyncedLocalAnchorDoesNotKeepBootstrapSkeleton() {
         let hasPendingInitialAnchorRequest = ChatInitialAnchorBootstrapPolicy.shouldBlockBootstrap(
             source: .savedVisiblePosition,
@@ -13433,69 +13386,42 @@ final class ChatBootstrapSkeletonRenderPolicyTests: XCTestCase {
 }
 
 final class ChatFirstFrameLocalHistoryPolicyTests: XCTestCase {
-    func testSynchronousLocalHistoryRequiresContentStateAndPlaceholderDatasource() {
-        XCTAssertTrue(
-            ChatFirstFrameLocalHistoryPolicy.shouldApplySynchronously(
-                bootstrapState: .content,
-                localMessageCount: 1,
-                isShowingBootstrapPlaceholder: true,
-                hasPendingOpenMessageRequest: false,
-                hasPendingInitialAnchorRequest: false
-            )
-        )
-
-        XCTAssertFalse(
-            ChatFirstFrameLocalHistoryPolicy.shouldApplySynchronously(
-                bootstrapState: .skeleton,
-                localMessageCount: 1,
-                isShowingBootstrapPlaceholder: true,
-                hasPendingOpenMessageRequest: false,
-                hasPendingInitialAnchorRequest: false
-            )
-        )
-
-        XCTAssertFalse(
-            ChatFirstFrameLocalHistoryPolicy.shouldApplySynchronously(
-                bootstrapState: .content,
-                localMessageCount: 0,
-                isShowingBootstrapPlaceholder: true,
-                hasPendingOpenMessageRequest: false,
-                hasPendingInitialAnchorRequest: false
-            )
-        )
-
-        XCTAssertFalse(
-            ChatFirstFrameLocalHistoryPolicy.shouldApplySynchronously(
-                bootstrapState: .content,
-                localMessageCount: 1,
-                isShowingBootstrapPlaceholder: false,
-                hasPendingOpenMessageRequest: false,
-                hasPendingInitialAnchorRequest: false
-            )
+    func testSyncedInitialArchivePreparesLocalFrameOffMain() {
+        XCTAssertEqual(
+            ChatLocalFirstFrameAvailabilityPolicy.decision(
+                isSynced: true,
+                isInitialArchiveLoaded: true,
+                isInitialBootstrapInFlight: false,
+                allowsStaleLocalHistory: false,
+                allowsBootstrapFailureFallback: false
+            ),
+            .prepareLocal
         )
     }
 
-    func testSynchronousLocalHistorySkipsBootstrapBlockingAnchorRequests() {
-        XCTAssertFalse(
-            ChatFirstFrameLocalHistoryPolicy.shouldApplySynchronously(
-                bootstrapState: .content,
-                localMessageCount: 1,
-                isShowingBootstrapPlaceholder: true,
-                hasPendingOpenMessageRequest: false,
-                hasPendingInitialAnchorRequest: true
-            )
+    func testRequiredArchiveBootstrapBlocksLocalFramePreparation() {
+        XCTAssertEqual(
+            ChatLocalFirstFrameAvailabilityPolicy.decision(
+                isSynced: false,
+                isInitialArchiveLoaded: false,
+                isInitialBootstrapInFlight: true,
+                allowsStaleLocalHistory: false,
+                allowsBootstrapFailureFallback: false
+            ),
+            .blockForArchiveBootstrap
         )
     }
 
-    func testSynchronousLocalHistorySkipsAnyPendingOpenMessageRequest() {
-        XCTAssertFalse(
-            ChatFirstFrameLocalHistoryPolicy.shouldApplySynchronously(
-                bootstrapState: .content,
-                localMessageCount: 1,
-                isShowingBootstrapPlaceholder: true,
-                hasPendingOpenMessageRequest: true,
-                hasPendingInitialAnchorRequest: false
-            )
+    func testExplicitFailureFallbackAllowsBoundedLocalPreparation() {
+        XCTAssertEqual(
+            ChatLocalFirstFrameAvailabilityPolicy.decision(
+                isSynced: false,
+                isInitialArchiveLoaded: false,
+                isInitialBootstrapInFlight: false,
+                allowsStaleLocalHistory: false,
+                allowsBootstrapFailureFallback: true
+            ),
+            .prepareLocal
         )
     }
 }
@@ -13619,6 +13545,20 @@ private final class FakeChatInteractiveRemoteArchiveRequestDispatcher: ChatInter
 }
 
 @MainActor
+private func waitForInitialDatasource(
+    _ controller: ChatViewController,
+    timeout: TimeInterval = 2
+) {
+    var completed = false
+    controller.loadInitialDatasource(performPendingOpenMessageRequest: false) {
+        completed = true
+    }
+    let deadline = Date().addingTimeInterval(timeout)
+    while !completed && RunLoop.current.run(mode: .default, before: deadline) && Date() < deadline {}
+    XCTAssertTrue(completed, "Initial local first frame did not complete before timeout")
+}
+
+@MainActor
 final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
     private var previousRealmConfiguration: Realm.Configuration!
     private let owner = "first-frame-owner@example.com"
@@ -13646,13 +13586,13 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         super.tearDown()
     }
 
-    func testSyncedChatWithLocalMessagesPopulatesDatasourceBeforeRunloopDeferredApply() throws {
+    func testSyncedChatWithLocalMessagesCompletesPreparedFrameBeforePresentationCallback() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 2)
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
 
         XCTAssertFalse(controller.datasource.isEmpty)
         XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.count, 2)
@@ -13660,13 +13600,35 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertEqual(controller.messagesCollectionView.numberOfSections, controller.datasource.count)
     }
 
-    func testSavedPositionLocalAnchorIsSuppressedToLatestFirstFrame() throws {
+    func testStackedNavigationPresentationWaitsForTheOnlyPreparedContentFrame() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 320)
+        let controller = makeController()
+        var completed = false
+
+        controller.prepareForStackedNavigationPresentation(
+            targetBounds: CGRect(x: 0, y: 0, width: 390, height: 844)
+        ) {
+            XCTAssertFalse(controller.showSkeletonObserver.value)
+            XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.count, 80)
+            XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.last?.primary, "first-frame-message-319")
+            XCTAssertEqual(controller.initialFirstContentApplyCount, 1)
+            XCTAssertFalse(controller.isPreparingStackedNavigationPresentation)
+            completed = true
+        }
+
+        let deadline = Date().addingTimeInterval(2)
+        while !completed && RunLoop.current.run(mode: .default, before: deadline) && Date() < deadline {}
+        XCTAssertTrue(completed)
+    }
+
+    func testDefaultOpenUsesLatestFirstFrame() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 320)
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
 
         let realMessages = controller.datasource.filter { !$0.isFakeMessage }
         XCTAssertEqual(realMessages.count, ChatInitialFirstFrameHistoryConfiguration.pageSize)
@@ -13686,7 +13648,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
 
         XCTAssertTrue(controller.datasource.contains { $0.primary == "first-frame-message-319" })
         XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
@@ -13707,7 +13669,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
 
         let realMessages = controller.datasource.filter { !$0.isFakeMessage }
         XCTAssertEqual(realMessages.count, ChatInitialFirstFrameHistoryConfiguration.pageSize)
@@ -13722,7 +13684,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertTrue(controller.isNearBottom(threshold: 1))
     }
 
-    func testSavedVisiblePositionPresentUsesLatestFirstFrame() throws {
+    func testSavedVisiblePositionPresentUsesAnchoredFirstFrame() throws {
         try seedChat(
             isSynced: true,
             isInitialArchiveLoaded: true,
@@ -13739,24 +13701,32 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             chat.lastVisiblePositionSavedAtSnapshotLastArchiveId = "snapshot-last"
         }
         let controller = makeController()
+        controller.queueOpenMessageRequest(
+            makeSavedPositionRequest(
+                primary: "first-frame-message-50",
+                archivedId: "archive-50",
+                messageId: "message-50",
+                sourceDate: Date(timeIntervalSince1970: 1_700_000_050)
+            )
+        )
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
 
         let realMessages = controller.datasource.filter { !$0.isFakeMessage }
         XCTAssertEqual(realMessages.count, ChatInitialFirstFrameHistoryConfiguration.pageSize)
-        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-319")
-        XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-50" })
-        XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
+        XCTAssertTrue(realMessages.contains { $0.primary == "first-frame-message-50" })
+        XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-319" })
+        XCTAssertFalse(controller.virtualTimelineState.isResidentAtLiveTail)
         XCTAssertNil(controller.pendingOpenMessageRequest)
         XCTAssertNil(controller.activeAnchorExecutionState)
 
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
-        XCTAssertTrue(controller.isNearBottom(threshold: 1))
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 1)
     }
 
-    func testMissingLocalAnchorOpenRequestIsSuppressedToLatestLocalHistory() throws {
+    func testMissingLocalAnchorOpenRequestKeepsBlockingSkeletonWithoutLatest() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 5)
         let controller = ChatViewController()
@@ -13772,12 +13742,13 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
 
         let realMessages = controller.datasource.filter { !$0.isFakeMessage }
-        XCTAssertEqual(realMessages.count, 5)
-        XCTAssertEqual(realMessages.last?.primary, "first-frame-message-4")
-        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertTrue(realMessages.isEmpty)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertFalse(controller.datasource.contains { $0.primary == "first-frame-message-4" })
+        XCTAssertNotNil(controller.pendingOpenMessageRequest)
         XCTAssertNil(controller.activeAnchorExecutionState)
     }
 
@@ -13787,7 +13758,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
 
         XCTAssertTrue(controller.showSkeletonObserver.value)
         XCTAssertTrue(controller.datasource.isEmpty || controller.datasource.allSatisfy(\.isFakeMessage))
@@ -13800,7 +13771,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeWarmupRecordingController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
 
         XCTAssertTrue(controller.showSkeletonObserver.value)
         XCTAssertTrue(controller.datasource.isEmpty || controller.datasource.allSatisfy(\.isFakeMessage))
@@ -13818,7 +13789,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertFalse(controller.showSkeletonObserver.value)
         XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.last?.primary, "first-frame-message-319")
         XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
-        XCTAssertEqual(controller.latestBottomScrollCallCount, 1)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
         XCTAssertTrue(controller.isNearBottom(threshold: 1))
         XCTAssertNil(controller.pendingOpenMessageRequest)
         XCTAssertNil(controller.activeAnchorExecutionState)
@@ -13831,7 +13802,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeWarmupRecordingController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         controller.beginInitialBootstrapTracking(queryId: bootstrapQueryId)
         controller.applyBootstrapViewState(controller.currentBootstrapViewState(), forceRender: true)
 
@@ -13872,7 +13843,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-0" })
         XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
         XCTAssertTrue(controller.isNearBottom(threshold: 1))
-        XCTAssertEqual(controller.latestBottomScrollCallCount, 1)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
     }
 
     func testActiveMamErrorDuringInitialBootstrapRevealsLocalRowsInsteadOfLeavingSkeleton() throws {
@@ -13885,7 +13856,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let stream = CapturingXMPPStream()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         controller.beginInitialBootstrapTracking(queryId: bootstrapQueryId)
         manager.requestOlderHistoryPage(
             stream,
@@ -13928,7 +13899,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeWarmupRecordingController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         controller.beginInitialBootstrapTracking(queryId: bootstrapQueryId)
         controller.pendingArchiveObserverRefresh = true
 
@@ -13956,7 +13927,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
         XCTAssertTrue(controller.isNearBottom(threshold: 1))
         XCTAssertFalse(controller.pendingArchiveObserverRefresh)
-        XCTAssertEqual(controller.latestBottomScrollCallCount, 1)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
     }
 
     func testSkeletonRevealDoesNotClearUnreadCountersBeforeVisibleReadBoundary() throws {
@@ -13970,7 +13941,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeWarmupRecordingController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
 
         try assertSeededUnreadState(runtime: 3, sync: 0, after: nil)
         XCTAssertTrue(controller.showSkeletonObserver.value)
@@ -13988,7 +13959,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertFalse(controller.showSkeletonObserver.value)
         XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.last?.primary, "first-frame-message-319")
         XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
-        XCTAssertEqual(controller.latestBottomScrollCallCount, 1)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
         try assertSeededUnreadState(runtime: 3, sync: 0, after: nil)
     }
 
@@ -13998,7 +13969,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
 
         let realMessages = controller.datasource.filter { !$0.isFakeMessage }
         XCTAssertEqual(realMessages.count, ChatInitialFirstFrameHistoryConfiguration.pageSize)
@@ -14020,7 +13991,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         controller.messagesCollectionView.layoutIfNeeded()
         controller.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
 
@@ -14031,7 +14002,6 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertTrue(controller.virtualTimelineState.isResidentAtLiveTail)
 
         controller.hasCompletedInitialHistoryViewAppearance = true
-        controller.performInitialFirstFrameLatestWarmupIfNeeded(trigger: "test-visible")
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         controller.messagesCollectionView.layoutIfNeeded()
 
@@ -14052,7 +14022,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeWarmupRecordingController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         controller.messagesCollectionView.layoutIfNeeded()
         controller.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
 
@@ -14064,7 +14034,6 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
         controller.shouldRecordLatestBottomScroll = true
         controller.hasCompletedInitialHistoryViewAppearance = true
-        controller.performInitialFirstFrameLatestWarmupIfNeeded(trigger: "test-visible")
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         controller.messagesCollectionView.layoutIfNeeded()
 
@@ -14085,7 +14054,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         controller.pendingOpenMessageRequest = makeSavedPositionRequest(
             primary: "first-frame-message-120",
@@ -14096,7 +14065,6 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let before = controller.datasource.filter { !$0.isFakeMessage }.map(\.primary)
 
         controller.hasCompletedInitialHistoryViewAppearance = true
-        controller.performInitialFirstFrameLatestWarmupIfNeeded(trigger: "test-saved-position")
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
 
         XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.map(\.primary), before)
@@ -14112,7 +14080,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
         controller.queueOpenMessageRequest(request)
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
 
         let realMessages = controller.datasource.filter { !$0.isFakeMessage }
         XCTAssertTrue(realMessages.contains { $0.primary == "first-frame-message-151" })
@@ -14120,6 +14088,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertFalse(controller.virtualTimelineState.isResidentAtLiveTail)
         XCTAssertFalse(controller.showSkeletonObserver.value)
         XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 1)
 
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
@@ -14146,7 +14115,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
         controller.queueOpenMessageRequest(request)
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
 
         XCTAssertTrue(controller.showSkeletonObserver.value)
         XCTAssertTrue(controller.datasource.isEmpty || controller.datasource.allSatisfy(\.isFakeMessage))
@@ -14177,7 +14146,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
         controller.queueOpenMessageRequest(request)
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
 
         let realMessages = controller.datasource.filter { !$0.isFakeMessage }
         XCTAssertTrue(realMessages.contains { $0.primary == "first-frame-message-120" })
@@ -14208,7 +14177,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
         controller.queueOpenMessageRequest(request)
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
 
         XCTAssertTrue(controller.showSkeletonObserver.value)
         XCTAssertTrue(controller.datasource.isEmpty || controller.datasource.allSatisfy(\.isFakeMessage))
@@ -14219,6 +14188,42 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             XCTAssertTrue(activeAnchorExecutionState.isRemoteFetchInFlight)
         }
         XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
+    }
+
+    func testExternalLocalTargetIsTheOnlyFirstContentFrame() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 320)
+        let controller = makeWarmupRecordingController()
+        let request = ChatOpenMessageRequest(
+            chatJid: jid,
+            owner: owner,
+            conversationType: .regular,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: "first-frame-message-120",
+                archivedId: "archive-120",
+                messageId: "message-120",
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: Date(timeIntervalSince1970: 1_700_000_120)
+            ),
+            highlight: true,
+            markReadOnVisible: false,
+            source: .external
+        )
+
+        controller.queueOpenMessageRequest(request)
+        controller.loadViewIfNeeded()
+        waitForInitialDatasource(controller)
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertTrue(realMessages.contains { $0.primary == "first-frame-message-120" })
+        XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-319" })
+        XCTAssertFalse(controller.virtualTimelineState.isResidentAtLiveTail)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 1)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
+        XCTAssertNil(controller.pendingOpenMessageRequest)
     }
 
     func testLegacyDefaultScrollDoesNotClearQueuedInitialAnchorRequests() throws {
@@ -14249,7 +14254,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         controller.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
@@ -14270,7 +14275,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         controller.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
@@ -14291,7 +14296,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         controller.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
@@ -14434,7 +14439,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         controller.messagesCollectionView.setContentOffset(
@@ -14465,7 +14470,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         controller.messagesCollectionView.setContentOffset(
@@ -14536,7 +14541,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         controller.messagesCollectionView.setContentOffset(
@@ -14582,7 +14587,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         controller.messagesCollectionView.setContentOffset(
@@ -14629,7 +14634,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         try applyResidentWindow(300..<900, to: controller)
@@ -14687,7 +14692,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         try applyResidentWindow(300..<900, to: controller)
@@ -14805,7 +14810,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         controller.messagesCollectionView.setContentOffset(
@@ -14849,7 +14854,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         let controller = makeController()
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         controller.messagesCollectionView.setContentOffset(
@@ -14889,7 +14894,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.interactiveRemoteArchiveRequestDispatcher = dispatcher
 
         controller.loadViewIfNeeded()
-        controller.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        waitForInitialDatasource(controller)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         controller.messagesCollectionView.setContentOffset(
@@ -15707,108 +15712,6 @@ final class ChatInitialHistoryAppearancePolicyTests: XCTestCase {
         )
     }
 
-    func testFirstFrameLatestWarmupDoesNotArmForSmallLiveTailLatestWindow() {
-        XCTAssertFalse(
-            ChatFirstFrameLatestWarmupPolicy.shouldArm(
-                appliedRealMessageCount: 80,
-                availableLocalMessageCount: 320,
-                initialLimit: 80,
-                normalLimit: 250,
-                isResidentAtLiveTail: true,
-                hasPendingAnchorRequest: false,
-                hasActiveAnchorExecution: false
-            )
-        )
-        XCTAssertFalse(
-            ChatFirstFrameLatestWarmupPolicy.shouldArm(
-                appliedRealMessageCount: 250,
-                availableLocalMessageCount: 320,
-                initialLimit: 80,
-                normalLimit: 250,
-                isResidentAtLiveTail: true,
-                hasPendingAnchorRequest: false,
-                hasActiveAnchorExecution: false
-            )
-        )
-        XCTAssertFalse(
-            ChatFirstFrameLatestWarmupPolicy.shouldArm(
-                appliedRealMessageCount: 80,
-                availableLocalMessageCount: 320,
-                initialLimit: 80,
-                normalLimit: 250,
-                isResidentAtLiveTail: false,
-                hasPendingAnchorRequest: false,
-                hasActiveAnchorExecution: false
-            )
-        )
-    }
-
-    func testFirstFrameLatestWarmupDoesNotRunForAnchorRequests() {
-        XCTAssertFalse(
-            ChatFirstFrameLatestWarmupPolicy.shouldRun(
-                state: .armed,
-                currentRealMessageCount: 80,
-                normalLimit: 250,
-                isResidentAtLiveTail: true,
-                hasPendingAnchorRequest: true,
-                hasActiveAnchorExecution: false,
-                hasViewAppeared: true,
-                didLogFirstMessagesVisible: true
-            )
-        )
-        XCTAssertFalse(
-            ChatFirstFrameLatestWarmupPolicy.shouldRun(
-                state: .armed,
-                currentRealMessageCount: 80,
-                normalLimit: 250,
-                isResidentAtLiveTail: true,
-                hasPendingAnchorRequest: false,
-                hasActiveAnchorExecution: true,
-                hasViewAppeared: true,
-                didLogFirstMessagesVisible: true
-            )
-        )
-    }
-
-    func testFirstFrameLatestWarmupDoesNotRunAfterVisibleOrViewAppear() {
-        XCTAssertFalse(
-            ChatFirstFrameLatestWarmupPolicy.shouldRun(
-                state: .armed,
-                currentRealMessageCount: 80,
-                normalLimit: 250,
-                isResidentAtLiveTail: true,
-                hasPendingAnchorRequest: false,
-                hasActiveAnchorExecution: false,
-                hasViewAppeared: true,
-                didLogFirstMessagesVisible: false
-            )
-        )
-        XCTAssertFalse(
-            ChatFirstFrameLatestWarmupPolicy.shouldRun(
-                state: .armed,
-                currentRealMessageCount: 80,
-                normalLimit: 250,
-                isResidentAtLiveTail: true,
-                hasPendingAnchorRequest: false,
-                hasActiveAnchorExecution: false,
-                hasViewAppeared: false,
-                didLogFirstMessagesVisible: true
-            )
-        )
-        XCTAssertFalse(
-            ChatFirstFrameLatestWarmupPolicy.shouldRun(
-                state: .completed,
-                currentRealMessageCount: 80,
-                normalLimit: 250,
-                isResidentAtLiveTail: true,
-                hasPendingAnchorRequest: false,
-                hasActiveAnchorExecution: false,
-                hasViewAppeared: true,
-                didLogFirstMessagesVisible: true
-            )
-        )
-    }
-
     func testSavedPositionFirstFrameUsesAnchorWindowForSyncedLocalAnchor() {
         XCTAssertEqual(
             ChatSavedPositionFirstFramePolicy.decision(
@@ -15982,34 +15885,6 @@ final class ChatInitialHistoryAppearancePolicyTests: XCTestCase {
         }
     }
 
-    func testSavedPositionFirstFrameCancellationKeepsPendingRequest() {
-        XCTAssertEqual(
-            ChatSavedPositionFirstFrameCompletionPolicy.mappingCancellationAction(
-                requestSource: .savedVisiblePosition
-            ),
-            .recoverPendingRequest
-        )
-    }
-
-    func testSavedPositionFirstFrameMissingRenderedAnchorKeepsPendingRequest() {
-        XCTAssertEqual(
-            ChatSavedPositionFirstFrameCompletionPolicy.renderedWindowAction(
-                requestSource: .savedVisiblePosition,
-                targetExistsInSnapshot: false
-            ),
-            .recoverPendingRequest
-        )
-    }
-
-    func testSavedPositionFirstFrameRenderedAnchorFinishesPendingRequest() {
-        XCTAssertEqual(
-            ChatSavedPositionFirstFrameCompletionPolicy.renderedWindowAction(
-                requestSource: .savedVisiblePosition,
-                targetExistsInSnapshot: true
-            ),
-            .finishRequest
-        )
-    }
 }
 
 final class ChatHistoryLoadActivityRegistryTests: XCTestCase {
@@ -21915,9 +21790,9 @@ final class ChatVirtualTimelineEngineTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(snapshot.items.count, 101)
+        XCTAssertEqual(snapshot.items.count, 100)
         XCTAssertEqual(snapshot.items.first?.primary, "p0450")
-        XCTAssertEqual(snapshot.items.last?.primary, "p0550")
+        XCTAssertEqual(snapshot.items.last?.primary, "p0549")
         XCTAssertEqual(snapshot.anchorRestore?.primary, "p0500")
         XCTAssertEqual(provider.calls.first, "message::500:")
     }
@@ -22076,7 +21951,7 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
         )
     }
 
-    func testDirectOpenAtMessageRequestOpensBottomWhenMessageAnchorsAreDisabled() throws {
+    func testDirectOpenAtMessageRequestIsHonoredForLocalFirstFrameResolution() throws {
         let request = try XCTUnwrap(
             ChatOpenMessageRequest.openAtMessage(
                 jid: jid,
@@ -22087,7 +21962,7 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(ChatInitialPositionPolicy.decision(for: makeState(), explicitRequest: request), .bottom)
+        XCTAssertEqual(ChatInitialPositionPolicy.decision(for: makeState(), explicitRequest: request), .open(request))
     }
 
     func testAutomaticUnreadAndSavedPositionUsesServerUnreadBoundary() {
@@ -22118,7 +21993,7 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
         XCTAssertFalse(request.markReadOnVisible)
     }
 
-    func testAutomaticSavedPositionOpensBottomEvenWhenChatEdgesMatch() {
+    func testAutomaticSavedPositionIsRestoredWhenChatEdgesMatch() {
         let saved = ChatSavedVisiblePosition(
             messagePrimary: "saved-primary",
             archivedId: "saved-archived",
@@ -22132,7 +22007,13 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
             savedAtSnapshotLastArchiveId: "snapshot-last"
         )
 
-        XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
+        let decision = ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil)
+        guard case .open(let request) = decision else {
+            return XCTFail("Expected saved first-frame request, got \(decision)")
+        }
+        XCTAssertEqual(request.source, .savedVisiblePosition)
+        XCTAssertEqual(request.anchor.messagePrimary, "saved-primary")
+        XCTAssertEqual(request.anchor.archivedId, "saved-archived")
     }
 
     func testZeroUnreadWithUnreadAfterIdAndNoSavedPositionOpensBottom() {
@@ -22145,7 +22026,7 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
         XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
     }
 
-    func testZeroUnreadWithUnreadAfterIdAndSavedPositionOpensBottom() {
+    func testZeroUnreadWithUnreadAfterIdAndSavedPositionRestoresSavedAnchor() {
         let saved = ChatSavedVisiblePosition(
             messagePrimary: "saved-primary",
             archivedId: "saved-archived",
@@ -22161,7 +22042,12 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
             savedAtSnapshotLastArchiveId: "snapshot-last"
         )
 
-        XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
+        let decision = ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil)
+        guard case .open(let request) = decision else {
+            return XCTFail("Expected saved first-frame request, got \(decision)")
+        }
+        XCTAssertEqual(request.source, .savedVisiblePosition)
+        XCTAssertEqual(request.anchor.messagePrimary, "saved-primary")
     }
 
     func testSavedPositionIsIgnoredWhenLastMessageEdgeChanged() {
@@ -22302,20 +22188,28 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
         let zeroServerUnreadStates = [
             makeState(unread: 0, syncUnreadCount: 0, syncUnreadAfterId: nil),
             makeState(unread: 0, syncUnreadCount: 0, syncUnreadAfterId: "1711283295000000"),
-            makeState(unread: 3, syncUnreadCount: 0, syncUnreadAfterId: "1711283295000000"),
-            makeState(
+            makeState(unread: 3, syncUnreadCount: 0, syncUnreadAfterId: "1711283295000000")
+        ]
+
+        zeroServerUnreadStates.forEach { state in
+            XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
+        }
+
+        let savedDecision = ChatInitialPositionPolicy.decision(
+            for: makeState(
                 unread: 0,
                 syncUnreadCount: 0,
                 syncUnreadAfterId: "1711283295000000",
                 savedPosition: saved,
                 savedAtLastMessageId: "last-message",
                 savedAtSnapshotLastArchiveId: "snapshot-last"
-            )
-        ]
-
-        zeroServerUnreadStates.forEach { state in
-            XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
+            ),
+            explicitRequest: nil
+        )
+        guard case .open(let savedRequest) = savedDecision else {
+            return XCTFail("Expected saved first-frame request, got \(savedDecision)")
         }
+        XCTAssertEqual(savedRequest.source, .savedVisiblePosition)
 
         let unreadDecision = ChatInitialPositionPolicy.decision(
             for: makeState(
@@ -22522,64 +22416,14 @@ final class ChatOpenAtMessageRequestBuilderTests: XCTestCase {
 
 final class ChatFirstFrameAuxiliaryWorkPolicyTests: XCTestCase {
 
-    func testAuxiliaryWorkIsDeferredDuringInitialAppearanceBeforeVisibleMessages() {
+    func testAuxiliaryWorkIsSkippedForTheInitialContentCommit() {
         XCTAssertEqual(
             ChatFirstFrameAuxiliaryWorkPolicy.datasourceApplyDecision(
                 isInitialHistoryAppearancePending: true,
                 containsRealMessages: true,
                 containsOnlyFakeMessages: false
             ),
-            .deferUntilPostVisible
-        )
-        XCTAssertFalse(
-            ChatFirstFrameAuxiliaryWorkPolicy.shouldRunDeferredFlush(
-                hasPendingRefresh: true,
-                hasViewAppeared: false,
-                didLogFirstMessagesVisible: false
-            )
-        )
-    }
-
-    func testDeferredAuxiliaryWorkFlushesAfterFirstVisibleOrViewDidAppear() {
-        XCTAssertTrue(
-            ChatFirstFrameAuxiliaryWorkPolicy.shouldRunDeferredFlush(
-                hasPendingRefresh: true,
-                hasViewAppeared: false,
-                didLogFirstMessagesVisible: true
-            )
-        )
-        XCTAssertTrue(
-            ChatFirstFrameAuxiliaryWorkPolicy.shouldRunDeferredFlush(
-                hasPendingRefresh: true,
-                hasViewAppeared: true,
-                didLogFirstMessagesVisible: false
-            )
-        )
-        XCTAssertFalse(
-            ChatFirstFrameAuxiliaryWorkPolicy.shouldRunDeferredFlush(
-                hasPendingRefresh: false,
-                hasViewAppeared: true,
-                didLogFirstMessagesVisible: true
-            )
-        )
-    }
-
-    func testRepeatedInitialDatasourceAppliesCoalesceIntoOneFlush() {
-        XCTAssertTrue(
-            ChatFirstFrameAuxiliaryWorkPolicy.shouldScheduleDeferredFlush(
-                hasPendingRefresh: true,
-                isFlushScheduled: false,
-                hasViewAppeared: true,
-                didLogFirstMessagesVisible: false
-            )
-        )
-        XCTAssertFalse(
-            ChatFirstFrameAuxiliaryWorkPolicy.shouldScheduleDeferredFlush(
-                hasPendingRefresh: true,
-                isFlushScheduled: true,
-                hasViewAppeared: true,
-                didLogFirstMessagesVisible: false
-            )
+            .skipInitialCommit
         )
     }
 
@@ -22602,56 +22446,19 @@ final class ChatFirstFrameAuxiliaryWorkPolicyTests: XCTestCase {
         )
     }
 
-    func testPendingAuxiliaryWorkCancelsOnDisappear() {
-        XCTAssertTrue(
-            ChatFirstFrameAuxiliaryWorkPolicy.shouldCancelPendingRefreshOnDisappear(
-                hasPendingRefresh: true
-            )
-        )
-        XCTAssertFalse(
-            ChatFirstFrameAuxiliaryWorkPolicy.shouldCancelPendingRefreshOnDisappear(
-                hasPendingRefresh: false
-            )
-        )
-    }
-
-    func testControllerCoalescesRepeatedInitialAppliesIntoOnePostVisibleFlush() {
-        let controller = ChatViewController()
-        controller.initialHistoryAppearancePending = true
-
-        controller.handleChatDatasourceAuxiliaryRefreshAfterApply(
-            containsRealMessages: true,
-            containsOnlyFakeMessages: false
-        )
-        controller.handleChatDatasourceAuxiliaryRefreshAfterApply(
-            containsRealMessages: true,
-            containsOnlyFakeMessages: false
+    func testViewAppearanceSourceContainsNoDeferredAuxiliaryFlush() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "xabber/controllers/chats/chat/ChatViewController.swift"
+            ),
+            encoding: .utf8
         )
 
-        XCTAssertTrue(controller.pendingFirstFrameAuxiliaryRefresh)
-        XCTAssertFalse(controller.isFirstFrameAuxiliaryRefreshFlushScheduled)
-
-        controller.hasCompletedInitialHistoryViewAppearance = true
-        controller.schedulePendingFirstFrameAuxiliaryRefreshFlushIfNeeded(trigger: "test-visible")
-        controller.schedulePendingFirstFrameAuxiliaryRefreshFlushIfNeeded(trigger: "test-visible")
-
-        XCTAssertTrue(controller.isFirstFrameAuxiliaryRefreshFlushScheduled)
-        controller.cancelPendingFirstFrameAuxiliaryRefresh(reason: "test-cleanup")
-    }
-
-    func testControllerCancelPreventsScheduledPostVisibleFlush() {
-        let controller = ChatViewController()
-        controller.initialHistoryAppearancePending = true
-        controller.hasCompletedInitialHistoryViewAppearance = true
-
-        controller.handleChatDatasourceAuxiliaryRefreshAfterApply(
-            containsRealMessages: true,
-            containsOnlyFakeMessages: false
-        )
-        controller.cancelPendingFirstFrameAuxiliaryRefresh(reason: "test-disappear")
-
-        XCTAssertFalse(controller.pendingFirstFrameAuxiliaryRefresh)
-        XCTAssertFalse(controller.isFirstFrameAuxiliaryRefreshFlushScheduled)
+        XCTAssertFalse(source.contains("schedulePendingFirstFrameAuxiliaryRefreshFlushIfNeeded"))
+        XCTAssertFalse(source.contains("performInitialFirstFrameLatestWarmupIfNeeded"))
     }
 }
 
@@ -22672,12 +22479,17 @@ final class ChatOpenMessageRequestHandlingPolicyTests: XCTestCase {
         .mediaGallery
     ]
 
-    func testSearchUnreadBoundaryAndMediaGalleryRequestsAreHonoredWhileOtherAnchorsAreSuppressed() {
+    func testLocalFirstFrameAnchorSourcesAreHonoredWhileUnownedLegacySourcesRemainSuppressed() {
         allSources.forEach { source in
-            if source == .search || source == .initialUnreadBoundary || source == .mediaGallery {
+            if source == .search ||
+                source == .initialUnreadBoundary ||
+                source == .savedVisiblePosition ||
+                source == .external ||
+                source == .directOpenAtMessage ||
+                source == .mediaGallery {
                 XCTAssertTrue(
                     ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: source),
-                    "\(source) should use archive anchor navigation"
+                    "\(source) should use the bounded local first-frame anchor pipeline"
                 )
             } else {
                 XCTAssertFalse(
@@ -22688,9 +22500,9 @@ final class ChatOpenMessageRequestHandlingPolicyTests: XCTestCase {
         }
     }
 
-    func testSuppressedAnchorsForceLatestOnOpenAndSkipSavedFirstFramePosition() {
+    func testDefaultOpenStillForcesLatestAndSavedFirstFrameRestoreIsEnabled() {
         XCTAssertTrue(ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen())
-        XCTAssertFalse(ChatOpenMessageRequestHandlingPolicy.shouldRestoreSavedFirstFramePosition())
+        XCTAssertTrue(ChatOpenMessageRequestHandlingPolicy.shouldRestoreSavedFirstFramePosition())
     }
 
     func testScrollDownUnreadBoundaryTargetIsNormalizedToLatest() {
@@ -23486,7 +23298,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testQueueDirectOpenAtMessageRequestUsesSuppressedForceLatestPath() throws {
+    func testQueueDirectOpenAtMessageRequestKeepsAnchorForLocalFirstFrameResolution() throws {
         let controller = ChatViewController()
         controller.owner = "owner@example.com"
         controller.jid = "group@xabber.example"
@@ -23502,11 +23314,11 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         )
         controller.queueOpenMessageRequest(request)
 
-        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
         XCTAssertNil(controller.activeAnchorExecutionState)
         XCTAssertFalse(controller.isExecutingOpenMessageRequest)
-        XCTAssertFalse(controller.isMessageAnchorNavigationInFlight)
-        XCTAssertTrue(controller.pendingForceLatestOpen)
+        XCTAssertTrue(controller.isMessageAnchorNavigationInFlight)
+        XCTAssertFalse(controller.pendingForceLatestOpen)
     }
 
     func testLoadedPinnedMessageLookupResolvesBeforeAnchorExecution() {
@@ -28152,7 +27964,7 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         XCTAssertNil(request)
     }
 
-    func testLastChatsNormalSelectionOpensLatestWhenSavedPositionExists() throws {
+    func testLastChatsNormalSelectionQueuesSavedPositionWhenEdgesMatch() throws {
         try insertLastChat(
             jid: "romeo@example.com",
             conversationType: .regular,
@@ -28176,7 +27988,7 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
             chat.lastVisiblePositionSavedAtSnapshotLastArchiveId = "snapshot-last"
         }
 
-        XCTAssertNil(
+        let request = try XCTUnwrap(
             LastChatsViewController.initialOpenRequest(
                 owner: owner,
                 jid: "romeo@example.com",
@@ -28185,6 +27997,10 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
                 in: realm
             )
         )
+        XCTAssertEqual(request.source, .savedVisiblePosition)
+        XCTAssertEqual(request.anchor.messagePrimary, "saved-primary")
+        XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
+        XCTAssertEqual(request.anchor.messageId, "saved-message-id")
     }
 
     @MainActor

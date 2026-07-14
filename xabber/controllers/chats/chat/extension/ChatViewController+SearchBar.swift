@@ -227,52 +227,13 @@ enum ChatInitialAnchorBootstrapPolicy {
     }
 }
 
-enum ChatUnreadBoundaryFirstFramePolicy {
-    enum Decision: Equatable {
-        case wait
-        case unreadBoundary(anchorIndex: Int)
-    }
-
-    static func decision(
-        requestSource: ChatOpenMessageRequestSource,
-        isSynced: Bool,
-        observerCount: Int,
-        localAnchorIndex: Int?,
-        isPageUnlocked: Bool
-    ) -> Decision {
-        guard requestSource == .initialUnreadBoundary,
-              isSynced,
-              observerCount > 0,
-              let localAnchorIndex,
-              localAnchorIndex >= 0,
-              localAnchorIndex < observerCount,
-              isPageUnlocked else {
-            return .wait
-        }
-
-        return .unreadBoundary(anchorIndex: localAnchorIndex)
-    }
-
-    static func shouldApplySynchronously(
-        bootstrapState: ChatBootstrapViewState,
-        isShowingBootstrapPlaceholder: Bool,
-        decision: Decision
-    ) -> Bool {
-        guard case .unreadBoundary = decision else {
-            return false
-        }
-
-        return bootstrapState == .content && isShowingBootstrapPlaceholder
-    }
-}
-
 enum ChatInitialAutomaticOpenPolicy {
     static func shouldOpenUnreadBoundaryOnChatOpen() -> Bool {
         true
     }
 
     static func shouldRestoreSavedVisiblePositionOnChatOpen() -> Bool {
-        false
+        true
     }
 }
 
@@ -290,11 +251,16 @@ enum ChatOpenMessageRequestHandlingPolicy {
     }
 
     static func shouldRestoreSavedFirstFramePosition() -> Bool {
-        return shouldHonorMessageAnchors()
+        true
     }
 
     static func shouldHonorMessageAnchorRequest(source: ChatOpenMessageRequestSource) -> Bool {
-        if source == .search || source == .initialUnreadBoundary || source == .mediaGallery {
+        if source == .search ||
+            source == .initialUnreadBoundary ||
+            source == .savedVisiblePosition ||
+            source == .external ||
+            source == .directOpenAtMessage ||
+            source == .mediaGallery {
             return true
         }
 
@@ -2446,385 +2412,36 @@ extension ChatViewController {
             ?? snapshot.residentIndex.index(messageId: message.messageId)
     }
 
-    @discardableResult
-    internal func applySavedPositionFirstFrameWindowIfNeeded(isSynced: Bool) -> Bool {
-        guard ChatOpenMessageRequestHandlingPolicy.shouldRestoreSavedFirstFramePosition(),
-              let request = self.pendingOpenMessageRequest,
-              request.owner == self.owner,
-              request.chatJid == self.jid,
-              request.conversationType == self.conversationType,
-              let residentSnapshot = self.timelineSession?.snapshot,
-              self.timelineInteractionState.isUnlocked else {
-            return false
-        }
-
-        let localAnchorIndex = self.savedPositionFirstFrameObserverIndex(
-            for: request,
-            residentSnapshot: residentSnapshot
+    internal func beginPreparedLocalFirstFrameAnchor(request: ChatOpenMessageRequest) {
+        var executionState = ChatAnchorExecutionState(
+            request: request,
+            usesBootstrapLoading: false
         )
-        let archiveCoverageContext = self.savedPositionFirstFrameArchiveCoverageContext(
-            localAnchorIndex: localAnchorIndex,
-            residentSnapshot: residentSnapshot
-        )
-        let decision = ChatSavedPositionFirstFramePolicy.decision(
-            requestSource: request.source,
-            isSynced: isSynced,
-            observerCount: residentSnapshot.items.count,
-            localAnchorIndex: localAnchorIndex,
-            pageSize: self.datasourcePageSize,
-            isPageUnlocked: self.timelineInteractionState.isUnlocked,
-            archivedIdsByIndex: archiveCoverageContext.archivedIdsByIndex,
-            knownGaps: archiveCoverageContext.knownGaps
-        )
-
-        guard ChatSavedPositionFirstFramePolicy.shouldApplySynchronously(
-                bootstrapState: self.currentBootstrapViewState(),
-                isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
-                decision: decision
-              ),
-              case .savedPosition(let anchorIndex, _) = decision,
-              residentSnapshot.items.indices.contains(anchorIndex) else {
-            return false
-        }
-
-        let message = residentSnapshot.items[anchorIndex]
-        let target = ResolvedJumpTarget(
-            primary: message.primary,
-            archivedId: message.archivedId.isNotEmpty ? message.archivedId : nil
-        )
-        let hooks = self.activeAnchorExecutionHooks
-
-        return self.timelineInteractionState.performLocked {
-            var executionState = ChatAnchorExecutionState(
-                request: request,
-                usesBootstrapLoading: false
-            )
-            executionState.isPositioning = true
-            self.activeAnchorExecutionState = executionState
-            self.syncAnchorExecutionFlags()
-            self.isApplyingBootstrapAnchorWindow = true
-            self.setShouldShowInitialMessage(false)
-            self.setLoadingIndicatorVisible(false)
-            self.setArchiveLoading(false)
-            self.setDatasourceLoadingEnabled(false)
-
-            guard self.applyFirstFrameAnchorSnapshot(message: message, target: target),
-                  ChatSavedPositionFirstFrameCompletionPolicy.renderedWindowAction(
-                    requestSource: request.source,
-                    targetExistsInSnapshot: self.datasourceSnapshotContainsTarget(target)
-                  ) == .finishRequest else {
-                self.recoverSavedPositionFirstFrameRequest(trigger: .manual)
-                return
-            }
-
-            self.positionMessage(
-                primary: target.primary,
-                archivedId: target.archivedId,
-                highlight: false,
-                animated: false,
-                completion: {
-                    self.finishActiveAnchorExecution()
-                    self.scheduleMentionReadOnVisibleIfNeeded(
-                        for: request,
-                        positionedPrimary: target.primary
-                    )
-                    hooks?.onPositioned?()
-                    self.startBackgroundContextPrefetchIfNeeded(
-                        around: target,
-                        request: request
-                    )
-                }
-            )
-        }
-    }
-
-    @discardableResult
-    internal func applyUnreadBoundaryFirstFrameWindowIfNeeded(isSynced: Bool) -> Bool {
-        guard let request = self.pendingOpenMessageRequest,
-              request.source == .initialUnreadBoundary,
-              request.owner == self.owner,
-              request.chatJid == self.jid,
-              request.conversationType == self.conversationType,
-              let residentSnapshot = self.timelineSession?.snapshot,
-              self.timelineInteractionState.isUnlocked else {
-            return false
-        }
-
-        guard let localAnchor = self.unreadBoundaryFirstFrameLocalAnchor(
-            for: request,
-            residentSnapshot: residentSnapshot
-        ) else {
-            return false
-        }
-
-        let decision = ChatUnreadBoundaryFirstFramePolicy.decision(
-            requestSource: request.source,
-            isSynced: isSynced,
-            observerCount: max(1, residentSnapshot.items.count),
-            localAnchorIndex: localAnchor.index,
-            isPageUnlocked: self.timelineInteractionState.isUnlocked
-        )
-
-        guard ChatUnreadBoundaryFirstFramePolicy.shouldApplySynchronously(
-                bootstrapState: self.currentBootstrapViewState(),
-                isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
-                decision: decision
-              ),
-              case .unreadBoundary(let anchorIndex) = decision else {
-            return false
-        }
-
-        let message = localAnchor.message
-        let target = ResolvedJumpTarget(
-            primary: message.primary,
-            archivedId: message.archivedId.isNotEmpty ? message.archivedId : nil
-        )
-        let hooks = self.activeAnchorExecutionHooks
-
-        return self.timelineInteractionState.performLocked {
-            var executionState = ChatAnchorExecutionState(
-                request: request,
-                usesBootstrapLoading: false
-            )
-            executionState.isPositioning = true
-            self.activeAnchorExecutionState = executionState
-            self.syncAnchorExecutionFlags()
-            self.isApplyingBootstrapAnchorWindow = true
-            self.setShouldShowInitialMessage(false)
-            self.setLoadingIndicatorVisible(false)
-            self.setArchiveLoading(false)
-            self.setSkeletonVisible(false)
-            self.setDatasourceLoadingEnabled(false)
-
-            guard self.applyFirstFrameAnchorSnapshot(message: message, target: target),
-                  self.datasourceSnapshotContainsTarget(target) else {
-                self.recoverUnreadBoundaryFirstFrameRequest(trigger: .manual)
-                return
-            }
-
-            self.positionMessage(
-                primary: target.primary,
-                archivedId: target.archivedId,
-                highlight: false,
-                animated: false,
-                completion: {
-                    self.finishActiveAnchorExecution()
-                    self.scheduleMentionReadOnVisibleIfNeeded(
-                        for: request,
-                        positionedPrimary: target.primary
-                    )
-                    hooks?.onPositioned?()
-                    self.startBackgroundContextPrefetchIfNeeded(
-                        around: target,
-                        request: request
-                    )
-                }
-            )
-        }
-    }
-
-    @discardableResult
-    internal func applySearchFirstFrameWindowIfNeeded(isSynced: Bool) -> Bool {
-        guard let request = self.pendingOpenMessageRequest,
-              request.source == .search,
-              request.owner == self.owner,
-              request.chatJid == self.jid,
-              request.conversationType == self.conversationType,
-              let residentSnapshot = self.timelineSession?.snapshot,
-              self.timelineInteractionState.isUnlocked else {
-            return false
-        }
-
-        guard isSynced,
-              let localAnchor = self.searchFirstFrameLocalAnchor(
-                for: request,
-                residentSnapshot: residentSnapshot
-              ) else {
-            return false
-        }
-
-        guard self.currentBootstrapViewState() == .content,
-              self.isShowingBootstrapPlaceholder else {
-            return false
-        }
-
-        let message = localAnchor.message
-        let target = ResolvedJumpTarget(
-            primary: message.primary,
-            archivedId: message.archivedId.isNotEmpty ? message.archivedId : nil
-        )
-        let hooks = self.activeAnchorExecutionHooks
-
-        return self.timelineInteractionState.performLocked {
-            var executionState = ChatAnchorExecutionState(
-                request: request,
-                usesBootstrapLoading: false
-            )
-            executionState.isPositioning = true
-            self.activeAnchorExecutionState = executionState
-            self.syncAnchorExecutionFlags()
-            self.isApplyingBootstrapAnchorWindow = true
-            self.setShouldShowInitialMessage(false)
-            self.setLoadingIndicatorVisible(false)
-            self.setArchiveLoading(false)
-            self.setSkeletonVisible(false)
-            self.setDatasourceLoadingEnabled(false)
-
-            guard self.applyFirstFrameAnchorSnapshot(message: message, target: target),
-                  self.datasourceSnapshotContainsTarget(target) else {
-                self.recoverSearchFirstFrameRequest(trigger: .manual)
-                return
-            }
-
-            self.positionMessage(
-                primary: target.primary,
-                archivedId: target.archivedId,
-                highlight: request.highlight,
-                animated: false,
-                completion: {
-                    self.finishActiveAnchorExecution()
-                    self.scheduleMentionReadOnVisibleIfNeeded(
-                        for: request,
-                        positionedPrimary: target.primary
-                    )
-                    hooks?.onPositioned?()
-                    self.startBackgroundContextPrefetchIfNeeded(
-                        around: target,
-                        request: request
-                    )
-                }
-            )
-        }
-    }
-
-    private func applyFirstFrameAnchorSnapshot(
-        message: MessageStorageItem,
-        target: ResolvedJumpTarget
-    ) -> Bool {
-        guard let session = self.timelineSession else {
-            return false
-        }
-        self.datasetMappingGeneration += 1
-        let boundaryPlaceholder = self.activeHistoryBoundaryPlaceholder
-        session.updateArchiveState(self.loadChatArchiveStateSnapshot())
-        var snapshot = session.openAround(
-            anchor: ChatTimelineAnchor(
-                primary: message.primary,
-                archivedId: message.archivedId,
-                messageId: message.messageId,
-                date: message.date
-            )
-        )
-        if let boundaryPlaceholder {
-            snapshot = session.applyRuntimePlaceholder(boundaryPlaceholder)
-        }
-        guard snapshot.items.isNotEmpty else {
-            return false
-        }
-        var mappedDatasource = self.mapDataset(dataset: snapshot.items)
-        if let boundaryPlaceholder {
-            mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
-                to: mappedDatasource,
-                position: boundaryPlaceholder
-            )
-        }
-
-        self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: snapshot.items.count))
-        self.applyChatDatasource(
-            mappedDatasource,
-            mode: .fullReload(),
-            animated: false,
-            invalidateLayout: false
-        )
-        return self.datasourceSnapshotContainsTarget(target)
-    }
-
-    private func datasourceSnapshotContainsTarget(_ target: ResolvedJumpTarget) -> Bool {
-        self.datasourceSnapshot.primaryIndex[target.primary] != nil
-            || (target.archivedId.flatMap { self.datasourceSnapshot.archivedIdIndex[$0] } != nil)
-    }
-
-    private func recoverSavedPositionFirstFrameRequest(trigger: ChatAnchorExecutionResumeTrigger) {
-        guard let state = self.activeAnchorExecutionState,
-              state.request.source == .savedVisiblePosition else {
-            self.failActiveAnchorExecution()
-            return
-        }
-
-        var recoveredState = state
-        recoveredState.isPositioning = false
-        recoveredState.isRemoteFetchInFlight = false
-        self.activeAnchorExecutionState = recoveredState
-        self.isApplyingBootstrapAnchorWindow = false
-        self.syncAnchorExecutionFlags()
-        self.setLoadingIndicatorVisible(false)
-        self.setArchiveLoading(false)
-        self.setDatasourceLoadingEnabled(true)
-        self.timelineInteractionState.unlock()
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  self.pendingOpenMessageRequest == recoveredState.request else {
-                return
-            }
-            self.performPendingOpenMessageRequestIfNeeded(trigger: trigger)
-        }
-    }
-
-    private func recoverUnreadBoundaryFirstFrameRequest(trigger: ChatAnchorExecutionResumeTrigger) {
-        guard let state = self.activeAnchorExecutionState,
-              state.request.source == .initialUnreadBoundary else {
-            self.failActiveAnchorExecution()
-            return
-        }
-
-        var recoveredState = state
-        recoveredState.usesBootstrapLoading = true
-        recoveredState.isPositioning = false
-        recoveredState.isRemoteFetchInFlight = false
-        self.activeAnchorExecutionState = recoveredState
-        self.isApplyingBootstrapAnchorWindow = false
+        executionState.isPositioning = true
+        self.activeAnchorExecutionState = executionState
+        self.isApplyingBootstrapAnchorWindow = true
         self.syncAnchorExecutionFlags()
         self.setLoadingIndicatorVisible(false)
         self.setArchiveLoading(false)
         self.setDatasourceLoadingEnabled(false)
-        self.timelineInteractionState.unlock()
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  self.pendingOpenMessageRequest == recoveredState.request else {
-                return
-            }
-            self.performPendingOpenMessageRequestIfNeeded(trigger: trigger)
-        }
+        self.activeAnchorExecutionHooks?.onPositioningStarted?()
     }
 
-    private func recoverSearchFirstFrameRequest(trigger: ChatAnchorExecutionResumeTrigger) {
-        guard let state = self.activeAnchorExecutionState,
-              state.request.source == .search else {
-            self.failActiveAnchorExecution()
-            return
+    internal func finishPreparedLocalFirstFrameAnchor(
+        request: ChatOpenMessageRequest,
+        primary: String,
+        archivedId: String?
+    ) {
+        let hooks = self.activeAnchorExecutionHooks
+        if request.highlight {
+            self.applyTransientMessageHighlight(primary: primary)
         }
-
-        var recoveredState = state
-        recoveredState.usesBootstrapLoading = true
-        recoveredState.isPositioning = false
-        recoveredState.isRemoteFetchInFlight = false
-        self.activeAnchorExecutionState = recoveredState
-        self.isApplyingBootstrapAnchorWindow = false
-        self.syncAnchorExecutionFlags()
-        self.setLoadingIndicatorVisible(false)
-        self.setArchiveLoading(false)
-        self.setDatasourceLoadingEnabled(false)
-        self.timelineInteractionState.unlock()
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  self.pendingOpenMessageRequest == recoveredState.request else {
-                return
-            }
-            self.performPendingOpenMessageRequestIfNeeded(trigger: trigger)
-        }
+        self.scheduleMentionReadOnVisibleIfNeeded(
+            for: request,
+            positionedPrimary: primary
+        )
+        self.finishActiveAnchorExecution()
+        hooks?.onPositioned?()
     }
 
     private func initialAnchorExecutionState(

@@ -1789,9 +1789,10 @@ class ChatViewController: MessagesViewController {
     var hasRenderedStableInitialHistory: Bool = false
     var hasCompletedInitialHistoryViewAppearance: Bool = false
     var initialLatestOpenStabilizationState: ChatInitialLatestOpenStabilizationState = .inactive
-    var initialFirstFrameLatestWarmupState: ChatFirstFrameLatestWarmupState = .inactive
-    var pendingFirstFrameAuxiliaryRefresh: Bool = false
-    var isFirstFrameAuxiliaryRefreshFlushScheduled: Bool = false
+    var initialLocalFirstFramePhase: ChatLocalFirstFramePhase = .idle
+    var initialLocalFirstFrameCompletions: [() -> Void] = []
+    var initialLocalFirstFrameShouldPerformPendingRequest: Bool = false
+    var initialFirstContentApplyCount: Int = 0
     var pendingArchiveObserverRefresh: Bool = false
     var archiveObserverRefreshWorkItem: DispatchWorkItem? = nil
     var activeChatHistoryLoadActivityKeys: Set<ChatHistoryLoadActivityKey> = []
@@ -2411,8 +2412,6 @@ class ChatViewController: MessagesViewController {
             to: now
         )))
         ChatArchiveDebugTrace.log("chatOpenTimingFirstMessagesVisible", fields)
-        self.schedulePendingFirstFrameAuxiliaryRefreshFlushIfNeeded(trigger: reason)
-        self.performInitialFirstFrameLatestWarmupIfNeeded(trigger: reason)
     }
 
     internal func finishChatOpenTimingSession(reason: String) {
@@ -4292,8 +4291,13 @@ class ChatViewController: MessagesViewController {
     
     
     final func configureDataset() {
+        self.timelineSession?.cancelInitialFramePreparations()
         self.timelineSession?.cancelLocalPagePreparations()
         self.clearPendingLocalHistoryPagingPreparation()
+        self.initialLocalFirstFramePhase = .idle
+        self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)
+        self.initialLocalFirstFrameShouldPerformPendingRequest = false
+        self.initialFirstContentApplyCount = 0
         let store = RealmChatTimelineSessionStore(
             owner: self.owner,
             jid: self.jid,
@@ -4324,8 +4328,8 @@ class ChatViewController: MessagesViewController {
             }
         }
         self.timelineSession = session
-        _ = session.refreshUnreadMetadata()
-        self.rebuildUnreadMentionItems()
+        self.unreadMentionItems = []
+        self.unreadMentionsState = .empty
     }
     
     final func configureBackground() {
@@ -5093,7 +5097,7 @@ class ChatViewController: MessagesViewController {
             user.mam.allowHistoryFixTask = false
         })
         LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
-        self.cancelPendingFirstFrameAuxiliaryRefresh(reason: "viewWillDisappear")
+        self.timelineSession?.cancelInitialFramePreparations()
         self.timelineSession?.cancelLocalPagePreparations()
         self.clearPendingLocalHistoryPagingPreparation()
         self.flushPendingVisibleReadTarget()
@@ -5459,8 +5463,6 @@ class ChatViewController: MessagesViewController {
             reason: "viewDidAppear",
             modeDescription: "appearance"
         )
-        self.schedulePendingFirstFrameAuxiliaryRefreshFlushIfNeeded(trigger: "viewDidAppear")
-        self.performInitialFirstFrameLatestWarmupIfNeeded(trigger: "viewDidAppear")
 //        self.topPanelState.accept(.audioPlayer)
         
 //        DispatchQueue.main.async {
@@ -5796,8 +5798,18 @@ extension ChatViewController {
     }
 }
 
-extension ChatViewController: StackedNavigationPresentationPreparing {
+extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStackedNavigationPresentationPreparing {
     func prepareForStackedNavigationPresentation(targetBounds: CGRect?) {
+        self.prepareForStackedNavigationPresentation(
+            targetBounds: targetBounds,
+            completion: {}
+        )
+    }
+
+    func prepareForStackedNavigationPresentation(
+        targetBounds: CGRect?,
+        completion: @escaping () -> Void
+    ) {
         self.beginChatOpenTimingSessionIfNeeded(
             trigger: "stackedNavigationPreparation",
             targetBounds: targetBounds
@@ -5815,6 +5827,7 @@ extension ChatViewController: StackedNavigationPresentationPreparing {
             }
         }
 
+        var shouldLoadInitialDatasource = false
         UIView.performWithoutAnimation {
             self.configureNavbar()
             self.initialHistoryAppearancePending = ChatInitialHistoryAppearancePolicy.shouldStart(
@@ -5824,15 +5837,21 @@ extension ChatViewController: StackedNavigationPresentationPreparing {
             self.hasCompletedInitialHistoryViewAppearance = false
             self.updateChatCollectionInsets()
             self.setFloatingDateVisible(false)
-            if ChatStackedNavigationPreparationPolicy.shouldLoadInitialDatasource(
+            shouldLoadInitialDatasource = ChatStackedNavigationPreparationPolicy.shouldLoadInitialDatasource(
                 isDatasourceEmpty: self.datasource.isEmpty,
                 isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
-            ) {
-                self.loadInitialDatasource(performPendingOpenMessageRequest: false)
-            }
+            )
         }
 
-        self.isPreparingStackedNavigationPresentation = false
+        guard shouldLoadInitialDatasource else {
+            self.isPreparingStackedNavigationPresentation = false
+            completion()
+            return
+        }
+        self.loadInitialDatasource(performPendingOpenMessageRequest: false) { [weak self] in
+            self?.isPreparingStackedNavigationPresentation = false
+            completion()
+        }
     }
 }
 

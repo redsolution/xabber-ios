@@ -249,6 +249,109 @@ final class ChatTimelinePreparedLocalPage {
     }
 }
 
+enum ChatTimelineInitialFrameTarget: Equatable {
+    case latest
+    case message(ChatTimelineAnchor)
+    case firstIncomingAfterBoundary(String)
+}
+
+enum ChatTimelineInitialFrameAlignment: Equatable {
+    case bottom
+    case anchor(primary: String, archivedId: String?)
+}
+
+enum ChatTimelineInitialFrameBlockingReason: Equatable {
+    case targetMissing(ChatTimelineInitialFrameTarget)
+}
+
+struct ChatTimelineInitialFramePreparationMetrics: Equatable {
+    let storeQueryCount: Int
+    let fullScanCount: Int
+    let maxCandidateCount: Int
+    let preparedMessageCount: Int
+    let preparedOnMainThread: Bool
+}
+
+enum ChatTimelineInitialFrameLoadDisposition: Equatable {
+    case started
+    case rejectedStale
+}
+
+enum ChatTimelineInitialFramePreparationResult {
+    case prepared(ChatTimelinePreparedInitialFrame)
+    case blocked(ChatTimelineInitialFrameBlockingReason)
+    case stale
+}
+
+final class ChatTimelinePreparedInitialFrame {
+    let target: ChatTimelineInitialFrameTarget
+    let conversationKey: ChatTimelineConversationKey
+    let baseGeneration: UInt64
+    let snapshot: ChatTimelineSnapshot
+    let alignment: ChatTimelineInitialFrameAlignment
+    let metrics: ChatTimelineInitialFramePreparationMetrics
+    let unreadMetadata: ChatTimelineUnreadMetadata
+
+    fileprivate let sessionID: UUID
+    private let consumeLock = NSLock()
+    private var consumed = false
+
+    fileprivate init(
+        sessionID: UUID,
+        target: ChatTimelineInitialFrameTarget,
+        conversationKey: ChatTimelineConversationKey,
+        baseGeneration: UInt64,
+        snapshot: ChatTimelineSnapshot,
+        alignment: ChatTimelineInitialFrameAlignment,
+        metrics: ChatTimelineInitialFramePreparationMetrics,
+        unreadMetadata: ChatTimelineUnreadMetadata
+    ) {
+        self.sessionID = sessionID
+        self.target = target
+        self.conversationKey = conversationKey
+        self.baseGeneration = baseGeneration
+        self.snapshot = snapshot
+        self.alignment = alignment
+        self.metrics = metrics
+        self.unreadMetadata = unreadMetadata
+    }
+
+    fileprivate func consumeOnce() -> Bool {
+        consumeLock.withLock {
+            guard !consumed else { return false }
+            consumed = true
+            return true
+        }
+    }
+}
+
+struct ChatFirstFrameMappedValue<Value> {
+    let value: Value
+    let mappedOnMainThread: Bool
+}
+
+enum ChatFirstFrameDisplayMappingExecutor {
+    static func map<Input, Output>(
+        _ input: Input,
+        on queue: DispatchQueue,
+        transform: @escaping (Input) -> Output,
+        completion: @escaping (ChatFirstFrameMappedValue<Output>) -> Void
+    ) {
+        queue.async {
+            let mappedOnMainThread = Thread.isMainThread
+            let value = transform(input)
+            DispatchQueue.main.async {
+                completion(
+                    ChatFirstFrameMappedValue(
+                        value: value,
+                        mappedOnMainThread: mappedOnMainThread
+                    )
+                )
+            }
+        }
+    }
+}
+
 private final class ChatTimelineLocalPagePreparationProvider: ChatTimelinePageProviding {
     private let upstream: ChatTimelinePageProviding
     private var itemsByPrimary: [String: MessageStorageItem]
@@ -327,6 +430,8 @@ final class ChatTimelineSession {
     private let localPagePreparationLock = NSLock()
     private var activeLocalPagePreparationKeys: Set<String> = []
     private var localPagePreparationEpoch: UInt64 = 0
+    private let initialFramePreparationLock = NSLock()
+    private var initialFramePreparationEpoch: UInt64 = 0
     private var archiveState: ChatArchiveStateSnapshot
     private var storedSnapshot: ChatTimelineSessionSnapshot
     private var observation: ChatTimelineStoreObservation?
@@ -383,6 +488,7 @@ final class ChatTimelineSession {
     }
 
     deinit {
+        cancelInitialFramePreparations()
         cancelLocalPagePreparations()
         observation?.invalidate()
     }
@@ -481,6 +587,81 @@ final class ChatTimelineSession {
             expectedGeneration: expectedGeneration,
             completion: completion
         )
+    }
+
+    @discardableResult
+    func prepareInitialFrame(
+        target: ChatTimelineInitialFrameTarget,
+        limit: Int,
+        expectedGeneration: UInt64,
+        completion: @escaping (ChatTimelineInitialFramePreparationResult) -> Void
+    ) -> ChatTimelineInitialFrameLoadDisposition {
+        let base = snapshot
+        guard base.generation == expectedGeneration else {
+            return .rejectedStale
+        }
+
+        let epoch = initialFramePreparationLock.withLock { () -> UInt64 in
+            initialFramePreparationEpoch &+= 1
+            return initialFramePreparationEpoch
+        }
+        let boundedLimit = min(
+            max(1, limit),
+            ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: pageSize)
+        )
+
+        localPagePreparationQueue.async { [weak self] in
+            guard let self else { return }
+            let result = self.prepareInitialFrameResult(
+                target: target,
+                limit: boundedLimit,
+                base: base
+            )
+            let isCurrent = self.lock.withLock {
+                self.storedSnapshot.generation == expectedGeneration
+            }
+            let isActive = self.initialFramePreparationLock.withLock {
+                self.initialFramePreparationEpoch == epoch
+            }
+            let deliveredResult = isCurrent && isActive ? result : .stale
+            DispatchQueue.main.async {
+                completion(deliveredResult)
+            }
+        }
+        return .started
+    }
+
+    @discardableResult
+    func commitPreparedInitialFrame(
+        _ preparedFrame: ChatTimelinePreparedInitialFrame
+    ) -> ChatTimelineSessionSnapshot? {
+        operationLock.withLock {
+            let current = snapshot
+            guard preparedFrame.sessionID == sessionID,
+                  preparedFrame.conversationKey == conversationKey,
+                  preparedFrame.baseGeneration == current.generation,
+                  preparedFrame.consumeOnce() else {
+                return nil
+            }
+            let prepared = preparedFrame.snapshot
+            return publish(
+                items: prepared.items,
+                state: prepared.state,
+                loadingState: prepared.loadingState,
+                loadDecision: prepared.loadDecision,
+                anchorRestore: prepared.anchorRestore,
+                localOlderCandidateCount: prepared.localOlderCandidateCount,
+                shortLocalRemainderRemoteFirst: prepared.shortLocalRemainderRemoteFirst,
+                readBoundary: current.readBoundary,
+                unreadMetadata: preparedFrame.unreadMetadata
+            )
+        }
+    }
+
+    func cancelInitialFramePreparations() {
+        initialFramePreparationLock.withLock {
+            initialFramePreparationEpoch &+= 1
+        }
     }
 
     @discardableResult
@@ -811,6 +992,109 @@ final class ChatTimelineSession {
             localOlderCandidateCount: snapshot.localOlderCandidateCount,
             pageSize: snapshot.pageSize,
             shortLocalRemainderRemoteFirst: snapshot.shortLocalRemainderRemoteFirst
+        )
+    }
+
+    private func prepareInitialFrameResult(
+        target: ChatTimelineInitialFrameTarget,
+        limit: Int,
+        base: ChatTimelineSessionSnapshot
+    ) -> ChatTimelineInitialFramePreparationResult {
+        let diagnosticsBefore = store.diagnosticsSnapshot
+        let preparedOnMainThread = Thread.isMainThread
+        let resolvedMessage: MessageStorageItem?
+        switch target {
+        case .latest:
+            resolvedMessage = nil
+        case .message(let anchor):
+            resolvedMessage = store.message(
+                primary: anchor.primary,
+                archivedId: anchor.archivedId,
+                messageId: anchor.messageId
+            )
+        case .firstIncomingAfterBoundary(let boundaryArchivedId):
+            resolvedMessage = store.firstIncoming(afterArchiveBoundaryId: boundaryArchivedId)
+        }
+
+        if target != .latest, resolvedMessage == nil {
+            return .blocked(.targetMissing(target))
+        }
+
+        let seededItems = base.items + (resolvedMessage.map { [$0] } ?? [])
+        let preparationProvider = ChatTimelineLocalPagePreparationProvider(
+            upstream: store,
+            residentItems: seededItems
+        )
+        var engine = ChatVirtualTimelineEngine(
+            provider: preparationProvider,
+            pageSize: limit,
+            state: base.state.normalized(
+                owner: conversationKey.owner,
+                jid: conversationKey.jid,
+                conversationType: conversationKey.conversationType
+            ),
+            archiveState: lock.withLock { archiveState }
+        )
+
+        let snapshot: ChatTimelineSnapshot
+        let alignment: ChatTimelineInitialFrameAlignment
+        switch target {
+        case .latest:
+            snapshot = engine.openLatest(limit: limit)
+            alignment = .bottom
+        case .message, .firstIncomingAfterBoundary:
+            guard let resolvedMessage else {
+                return .blocked(.targetMissing(target))
+            }
+            snapshot = engine.openAround(
+                anchor: ChatTimelineAnchor(
+                    primary: resolvedMessage.primary,
+                    archivedId: resolvedMessage.archivedId,
+                    messageId: resolvedMessage.messageId,
+                    date: resolvedMessage.date
+                )
+            )
+            alignment = .anchor(
+                primary: resolvedMessage.primary,
+                archivedId: RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
+                    resolvedMessage.archivedId
+                )
+            )
+        }
+
+        let frozenSnapshot = ChatTimelineSnapshot(
+            items: snapshot.items.map(Self.frozen),
+            state: snapshot.state,
+            loadingState: snapshot.loadingState,
+            loadDecision: snapshot.loadDecision,
+            anchorRestore: snapshot.anchorRestore,
+            localOlderCandidateCount: snapshot.localOlderCandidateCount,
+            pageSize: snapshot.pageSize,
+            shortLocalRemainderRemoteFirst: snapshot.shortLocalRemainderRemoteFirst
+        )
+        let unreadMetadata = store.unreadMetadata(
+            limit: ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: pageSize)
+        )
+        let diagnosticsAfter = store.diagnosticsSnapshot
+        let metrics = ChatTimelineInitialFramePreparationMetrics(
+            storeQueryCount: max(0, diagnosticsAfter.queryCount - diagnosticsBefore.queryCount),
+            fullScanCount: max(0, diagnosticsAfter.fullScanCount - diagnosticsBefore.fullScanCount),
+            maxCandidateCount: diagnosticsAfter.maxCandidateCount,
+            preparedMessageCount: frozenSnapshot.items.count,
+            preparedOnMainThread: preparedOnMainThread
+        )
+
+        return .prepared(
+            ChatTimelinePreparedInitialFrame(
+                sessionID: sessionID,
+                target: target,
+                conversationKey: conversationKey,
+                baseGeneration: base.generation,
+                snapshot: frozenSnapshot,
+                alignment: alignment,
+                metrics: metrics,
+                unreadMetadata: unreadMetadata
+            )
         )
     }
 

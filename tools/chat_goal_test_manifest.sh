@@ -86,9 +86,13 @@ xabberTests/ChatInteractiveRemoteArchiveAbortTests
 SELECTORS
       ;;
     G06) cat <<'SELECTORS'
+xabberTests/ChatSingleFrameLocalOpenTests
 xabberTests/ChatInitialHistoryAppearancePolicyTests
 xabberTests/ChatBootstrapStateTests
 xabberTests/ChatFirstFrameLocalHistoryPolicyTests
+xabberTests/ChatFirstFrameLocalHistoryRegressionTests
+xabberTests/ChatFirstFrameAuxiliaryWorkPolicyTests
+xabberTests/ChatOpenMessageRequestHandlingPolicyTests
 xabberTests/ChatOpenTimingPolicyTests
 SELECTORS
       ;;
