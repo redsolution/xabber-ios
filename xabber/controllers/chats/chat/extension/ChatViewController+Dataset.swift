@@ -1358,15 +1358,16 @@ struct ChatTimelineAnchor: Equatable {
 
 struct ChatTimelinePositionKey: Comparable, Equatable {
     let date: Date
-    let cursorId: String
-    let messageId: String
-    let primary: String
+    let orderKey: MessageHistoryOrderKey
 
     init(primary: String, archivedId: String?, messageId: String?, date: Date) {
         self.date = date
-        self.cursorId = Self.normalized(archivedId) ?? Self.normalized(messageId) ?? primary
-        self.messageId = Self.normalized(messageId) ?? ""
-        self.primary = primary
+        self.orderKey = MessageHistoryOrderKey(
+            primary: primary,
+            archivedId: archivedId,
+            messageId: messageId,
+            date: date
+        )
     }
 
     init(message: MessageStorageItem) {
@@ -1388,32 +1389,7 @@ struct ChatTimelinePositionKey: Comparable, Equatable {
     }
 
     static func < (lhs: ChatTimelinePositionKey, rhs: ChatTimelinePositionKey) -> Bool {
-        if lhs.date != rhs.date {
-            return lhs.date < rhs.date
-        }
-
-        let cursorComparison = compareIdentifier(lhs.cursorId, rhs.cursorId)
-        if cursorComparison != .orderedSame {
-            return cursorComparison == .orderedAscending
-        }
-
-        let messageComparison = compareIdentifier(lhs.messageId, rhs.messageId)
-        if messageComparison != .orderedSame {
-            return messageComparison == .orderedAscending
-        }
-
-        return compareIdentifier(lhs.primary, rhs.primary) == .orderedAscending
-    }
-
-    private static func normalized(_ value: String?) -> String? {
-        guard let value, value.isNotEmpty else {
-            return nil
-        }
-        return value
-    }
-
-    private static func compareIdentifier(_ lhs: String, _ rhs: String) -> ComparisonResult {
-        lhs.compare(rhs, options: [.numeric, .caseInsensitive])
+        lhs.orderKey < rhs.orderKey
     }
 }
 
@@ -1581,6 +1557,10 @@ final class ChatLocalHistoryPageProviderDiagnostics {
     private let lock = NSLock()
     private var storedRecords: [Record] = []
     private var storedFullScanCount = 0
+    private var storedCountQueryCount = 0
+    private var storedOffsetQueryCount = 0
+    private var storedExpansionCount = 0
+    private var storedFullSameDateBucketMaterializationCount = 0
 
     var records: [Record] {
         lock.lock()
@@ -1594,6 +1574,36 @@ final class ChatLocalHistoryPageProviderDiagnostics {
         return storedFullScanCount
     }
 
+    var queryCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedRecords.count
+    }
+
+    var countQueryCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedCountQueryCount
+    }
+
+    var offsetQueryCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedOffsetQueryCount
+    }
+
+    var expansionCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedExpansionCount
+    }
+
+    var fullSameDateBucketMaterializationCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedFullSameDateBucketMaterializationCount
+    }
+
     var maxCandidateCount: Int {
         lock.lock()
         defer { lock.unlock() }
@@ -1604,6 +1614,10 @@ final class ChatLocalHistoryPageProviderDiagnostics {
         lock.lock()
         let recordCount = storedRecords.count
         let fullScanCount = storedFullScanCount
+        let countQueryCount = storedCountQueryCount
+        let offsetQueryCount = storedOffsetQueryCount
+        let expansionCount = storedExpansionCount
+        let fullSameDateBucketMaterializationCount = storedFullSameDateBucketMaterializationCount
         let maxCandidateCount = storedRecords.map(\.candidateCount).max() ?? 0
         lock.unlock()
         return ChatPerformanceMetricSnapshot(
@@ -1611,6 +1625,10 @@ final class ChatLocalHistoryPageProviderDiagnostics {
             counters: [
                 "recordCount": recordCount,
                 "fullScanCount": fullScanCount,
+                "countQueryCount": countQueryCount,
+                "offsetQueryCount": offsetQueryCount,
+                "expansionCount": expansionCount,
+                "fullSameDateBucketMaterializationCount": fullSameDateBucketMaterializationCount,
                 "maxCandidateCount": maxCandidateCount
             ]
         )
@@ -1630,38 +1648,47 @@ final class ChatLocalHistoryPageProviderDiagnostics {
 }
 
 final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
-    private static let candidateMultiplier = 2
+    /// A fixed oversampling budget absorbs normal live/MAM duplicate rows without
+    /// turning a page request into count/offset or exponentially growing queries.
+    private static let candidateMultiplier = 4
 
     private let realm: Realm
     private let owner: String
     private let jid: String
     private let conversationType: ClientSynchronizationManager.ConversationType
     private let diagnostics: ChatLocalHistoryPageProviderDiagnostics?
+    private let isCancelled: () -> Bool
 
     init(
         realm: Realm,
         owner: String,
         jid: String,
         conversationType: ClientSynchronizationManager.ConversationType,
-        diagnostics: ChatLocalHistoryPageProviderDiagnostics? = nil
+        diagnostics: ChatLocalHistoryPageProviderDiagnostics? = nil,
+        isCancelled: @escaping () -> Bool = { false }
     ) {
         self.realm = realm
         self.owner = owner
         self.jid = jid
         self.conversationType = conversationType
         self.diagnostics = diagnostics
-    }
-
-    var totalCount: Int {
-        baseQuery().count
+        self.isCancelled = isCancelled
     }
 
     func latest(limit: Int) -> [MessageStorageItem] {
         guard limit > 0 else { return [] }
+        if let candidates = linkedCandidates(
+            startingAt: linkedIndexState()?.newestMessagePrimary,
+            direction: .previous,
+            requestedLimit: limit
+        ) {
+            diagnostics?.record(operation: "latest", candidateCount: candidates.count)
+            return Array(Self.deduplicatedChronologicalItems(candidates).suffix(limit))
+        }
         return boundedCandidateWindow(
             operation: "latest",
             scoped: baseQuery(),
-            sortedAscending: false,
+            sortDescriptors: Self.sortDescriptors(ascending: false),
             requestedLimit: limit
         ) { candidates in
             Array(Self.deduplicatedChronologicalItems(candidates).suffix(limit))
@@ -1670,39 +1697,47 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
 
     func older(before boundary: ChatTimelineBoundary, limit: Int) -> [MessageStorageItem] {
         guard limit > 0 else { return [] }
-        let boundaryKey = ChatTimelinePositionKey(boundary: boundary)
+        if let anchor = linkedMessage(primary: boundary.primary),
+           let candidates = linkedCandidates(
+                startingAt: anchor.historyPreviousMessagePrimary,
+                direction: .previous,
+                requestedLimit: limit
+           ) {
+            diagnostics?.record(operation: "older", candidateCount: candidates.count)
+            return Array(Self.deduplicatedChronologicalItems(candidates).suffix(limit))
+        }
         let scoped = baseQuery()
-            .filter("date <= %@", boundary.date)
+            .filter(Self.cursorPredicate(before: boundary))
         return boundedCandidateWindow(
             operation: "older",
             scoped: scoped,
-            sortedAscending: false,
+            sortDescriptors: Self.sortDescriptors(ascending: false),
             requestedLimit: limit
         ) { candidates in
-            Array(
-                Self.deduplicatedChronologicalItems(candidates)
-                .filter { ChatTimelinePositionKey(message: $0) < boundaryKey }
-                .suffix(limit)
-            )
+            Array(Self.deduplicatedChronologicalItems(candidates).suffix(limit))
         }
     }
 
     func newer(after boundary: ChatTimelineBoundary, limit: Int) -> [MessageStorageItem] {
         guard limit > 0 else { return [] }
-        let boundaryKey = ChatTimelinePositionKey(boundary: boundary)
+        if let anchor = linkedMessage(primary: boundary.primary),
+           let candidates = linkedCandidates(
+                startingAt: anchor.historyNextMessagePrimary,
+                direction: .next,
+                requestedLimit: limit
+           ) {
+            diagnostics?.record(operation: "newer", candidateCount: candidates.count)
+            return Array(Self.deduplicatedChronologicalItems(candidates).prefix(limit))
+        }
         let scoped = baseQuery()
-            .filter("date >= %@", boundary.date)
+            .filter(Self.cursorPredicate(after: boundary))
         return boundedCandidateWindow(
             operation: "newer",
             scoped: scoped,
-            sortedAscending: true,
+            sortDescriptors: Self.sortDescriptors(ascending: true),
             requestedLimit: limit
         ) { candidates in
-            Array(
-                Self.deduplicatedChronologicalItems(candidates)
-                .filter { ChatTimelinePositionKey(message: $0) > boundaryKey }
-                .prefix(limit)
-            )
+            Array(Self.deduplicatedChronologicalItems(candidates).prefix(limit))
         }
     }
 
@@ -1718,7 +1753,6 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
         let olderItems = older(before: boundary, limit: max(0, before))
         let newerItems = newer(after: boundary, limit: max(0, after))
         let items = olderItems + [anchor] + newerItems
-        diagnostics?.record(operation: "around", candidateCount: items.count)
         let deduplicated = Self.deduplicatedChronologicalItems(items)
         guard deduplicated.contains(where: { $0.primary == anchor.primary }) else {
             return []
@@ -1726,39 +1760,12 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
         return deduplicated
     }
 
-    func item(at index: Int) -> MessageStorageItem? {
-        let results = baseQuery().sorted(byKeyPath: "date", ascending: true)
-        guard index >= 0, index < results.count else {
-            return nil
-        }
-        diagnostics?.record(operation: "item", candidateCount: 1)
-        return results[index]
-    }
-
-    func index(of message: MessageStorageItem) -> Int {
-        index(of: ChatTimelineBoundary(message: message))
-    }
-
-    func index(of boundary: ChatTimelineBoundary) -> Int {
-        let boundaryKey = ChatTimelinePositionKey(boundary: boundary)
-        let earlierCount = baseQuery()
-            .filter("date < %@", boundary.date)
-            .count
-        let sameDateItems = Array(
-            baseQuery()
-                .filter("date == %@", boundary.date)
-        )
-        diagnostics?.record(operation: "indexSameDate", candidateCount: sameDateItems.count)
-        return earlierCount + Self.deduplicatedChronologicalItems(sameDateItems)
-            .filter { ChatTimelinePositionKey(message: $0) < boundaryKey }
-            .count
-    }
-
     func message(
         primary: String?,
         archivedId: String?,
         messageId: String?
     ) -> MessageStorageItem? {
+        guard !isCancelled() else { return nil }
         if let primary,
            primary.isNotEmpty,
            let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
@@ -1795,25 +1802,20 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
             messageId: nil,
             date: boundaryDate
         )
-        let boundaryKey = ChatTimelinePositionKey(boundary: boundary)
         return boundedCandidateWindow(
             operation: "firstIncoming",
             scoped: baseQuery()
-                .filter("date >= %@ AND outgoing == false", boundary.date),
-            sortedAscending: true,
+                .filter(Self.cursorPredicate(after: boundary))
+                .filter("outgoing == false"),
+            sortDescriptors: Self.sortDescriptors(ascending: true),
             requestedLimit: 1
         ) { candidates in
-            Array(Self.deduplicatedChronologicalItems(candidates)
-                .filter {
-                $0.outgoing == false &&
-                    ChatTimelinePositionKey(message: $0) > boundaryKey
-                }
-                .prefix(1))
+            Array(Self.deduplicatedChronologicalItems(candidates).prefix(1))
         }.first
     }
 
     func items(primaryKeys: [String]) -> [MessageStorageItem] {
-        guard primaryKeys.isNotEmpty else { return [] }
+        guard primaryKeys.isNotEmpty, !isCancelled() else { return [] }
         let results = realm.objects(MessageStorageItem.self)
             .filter("primary IN %@", primaryKeys)
         let byPrimary = Dictionary(uniqueKeysWithValues: results.map { ($0.primary, $0) })
@@ -1830,51 +1832,119 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
             )
     }
 
+    private enum LinkedDirection {
+        case previous
+        case next
+    }
+
+    private func linkedIndexState() -> ChatLocalHistoryIndexStorageItem? {
+        guard !isCancelled(),
+              let state = ChatLocalHistoryLinkedIndex.state(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                in: realm
+              ),
+              state.version == ChatLocalHistoryIndexStorageItem.currentVersion else {
+            return nil
+        }
+        return state
+    }
+
+    private func linkedMessage(primary: String) -> MessageStorageItem? {
+        guard linkedIndexState() != nil,
+              let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+              message.owner == owner,
+              message.opponent == jid,
+              message.conversationType == conversationType,
+              message.historyLinkedIndexVersion == ChatLocalHistoryIndexStorageItem.currentVersion else {
+            return nil
+        }
+        return message
+    }
+
+    private func linkedCandidates(
+        startingAt initialPrimary: String?,
+        direction: LinkedDirection,
+        requestedLimit: Int
+    ) -> [MessageStorageItem]? {
+        guard linkedIndexState() != nil else { return nil }
+        return ChatPerformanceSignposts.measure(.localHistoryQuery) { () -> [MessageStorageItem]? in
+            guard !isCancelled() else { return [] }
+            let traversalLimit = max(requestedLimit, requestedLimit * Self.candidateMultiplier)
+            var currentPrimary = initialPrimary
+            var visitedPrimaries = Set<String>()
+            var candidates: [MessageStorageItem] = []
+            candidates.reserveCapacity(min(traversalLimit, requestedLimit))
+
+            while let primary = currentPrimary, visitedPrimaries.count < traversalLimit {
+                guard visitedPrimaries.insert(primary).inserted,
+                      let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+                      message.owner == owner,
+                      message.opponent == jid,
+                      message.conversationType == conversationType,
+                      message.historyLinkedIndexVersion == ChatLocalHistoryIndexStorageItem.currentVersion else {
+                    return nil
+                }
+                currentPrimary = direction == .previous
+                    ? message.historyPreviousMessagePrimary
+                    : message.historyNextMessagePrimary
+                if !message.isDeleted {
+                    candidates.append(message)
+                }
+                if isCancelled() { return [] }
+            }
+            return candidates
+        }
+    }
+
     private func boundedCandidateWindow(
         operation: String,
         scoped: Results<MessageStorageItem>,
-        sortedAscending: Bool,
+        sortDescriptors: [RealmSwift.SortDescriptor],
         requestedLimit: Int,
         transform: ([MessageStorageItem]) -> [MessageStorageItem]
     ) -> [MessageStorageItem] {
         ChatPerformanceSignposts.measure(.localHistoryQuery) {
-            let totalCount = scoped.count
-            guard totalCount > 0 else {
-                diagnostics?.record(operation: operation, candidateCount: 0)
-                return []
-            }
-
-            var candidateLimit = min(totalCount, max(requestedLimit, requestedLimit * Self.candidateMultiplier))
-            var lastResult: [MessageStorageItem] = []
-
-            while candidateLimit > 0 {
-                let candidates = Array(
-                    scoped
-                        .sorted(byKeyPath: "date", ascending: sortedAscending)
-                        .prefix(candidateLimit)
-                )
-                diagnostics?.record(operation: operation, candidateCount: candidates.count)
-                let result = transform(candidates)
-                lastResult = result
-
-                if result.count >= requestedLimit || candidates.count >= totalCount {
-                    return result
-                }
-
-                let nextLimit = min(totalCount, max(candidateLimit + 1, candidateLimit * 2))
-                guard nextLimit > candidateLimit else {
-                    return result
-                }
-                candidateLimit = nextLimit
-            }
-
-            return lastResult
+            guard !isCancelled() else { return [] }
+            let candidateLimit = max(requestedLimit, requestedLimit * Self.candidateMultiplier)
+            let candidates = Array(scoped.sorted(by: sortDescriptors).prefix(candidateLimit))
+            guard !isCancelled() else { return [] }
+            diagnostics?.record(operation: operation, candidateCount: candidates.count)
+            return transform(candidates)
         }
     }
 
-    private func scopedChronologicalItems() -> [MessageStorageItem] {
-        diagnostics?.recordFullScan()
-        return Self.deduplicatedChronologicalItems(Array(baseQuery()))
+    private static func sortDescriptors(ascending: Bool) -> [RealmSwift.SortDescriptor] {
+        [
+            RealmSwift.SortDescriptor(keyPath: "historyPositionOrdinal", ascending: ascending)
+        ]
+    }
+
+    private static func cursorPredicate(before boundary: ChatTimelineBoundary) -> NSPredicate {
+        let position = MessageHistoryPositionComponents.make(
+            primary: boundary.primary,
+            archivedId: boundary.archivedId,
+            messageId: boundary.messageId,
+            date: boundary.date
+        )
+        return NSPredicate(
+            format: "historyPositionOrdinal < %@",
+            NSNumber(value: position.ordinal)
+        )
+    }
+
+    private static func cursorPredicate(after boundary: ChatTimelineBoundary) -> NSPredicate {
+        let position = MessageHistoryPositionComponents.make(
+            primary: boundary.primary,
+            archivedId: boundary.archivedId,
+            messageId: boundary.messageId,
+            date: boundary.date
+        )
+        return NSPredicate(
+            format: "historyPositionOrdinal > %@",
+            NSNumber(value: position.ordinal)
+        )
     }
 
     private static func deduplicatedChronologicalItems(_ items: [MessageStorageItem]) -> [MessageStorageItem] {
@@ -7158,6 +7228,15 @@ extension ChatViewController {
                 state: normalizedVirtualState,
                 archiveState: archiveState
             )
+            let residentAnchor: MessageStorageItem? = {
+                guard normalizedVirtualState.residentPrimaryKeys.isNotEmpty else { return nil }
+                let middleIndex = normalizedVirtualState.residentPrimaryKeys.count / 2
+                return provider.message(
+                    primary: normalizedVirtualState.residentPrimaryKeys[middleIndex],
+                    archivedId: nil,
+                    messageId: nil
+                )
+            }()
             let direction = self.localHistoryDirection(
                 requestedWindow: window,
                 currentWindow: currentWindow,
@@ -7175,7 +7254,7 @@ extension ChatViewController {
                     snapshot = engine.currentSnapshot()
                 } else if normalizedVirtualState.isEmpty || window.maxIndex >= currentWindow.maxIndex {
                     snapshot = engine.openLatest()
-                } else if let anchor = provider.item(at: max(0, window.minIndex + window.count / 2)) {
+                } else if let anchor = residentAnchor {
                     snapshot = engine.openAround(
                         anchor: ChatTimelineAnchor(
                             primary: anchor.primary,

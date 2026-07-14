@@ -705,7 +705,7 @@ class ApplicationStateManager: NSObject {
                 
                 try realm.write {
                     oldMessagesCollection.forEach {
-                        $0.isDeleted = true
+                        $0.markDeleted()
                         $0.body = ""
                         $0.legacyBody = ""
                     }

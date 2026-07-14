@@ -115,7 +115,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         let isolatedStorage = AppLaunchEnvironmentPolicy.isolatedStorageDescriptor()
         realmMigrations(
-            scheme: 11,
+            scheme: XabberRealmSchema.current,
             inMemoryIdentifier: isolatedStorage?.inMemoryIdentifier
         )
         #if RELEASE

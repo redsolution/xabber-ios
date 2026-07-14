@@ -27,6 +27,183 @@ import MaterialComponents.MDCPalettes
 import CryptoSwift
 import CryptoKit
 
+struct MessageHistoryOrderKey: Comparable, Equatable {
+    let date: Date
+    let cursorId: String
+    let messageId: String
+    let primary: String
+
+    init(primary: String, archivedId: String?, messageId: String?, date: Date) {
+        self.date = date
+        self.cursorId = Self.normalized(archivedId) ?? Self.normalized(messageId) ?? primary
+        self.messageId = Self.normalized(messageId) ?? ""
+        self.primary = primary
+    }
+
+    init(message: MessageStorageItem) {
+        self.init(
+            primary: message.primary,
+            archivedId: message.archivedId,
+            messageId: message.messageId,
+            date: message.date
+        )
+    }
+
+    static func < (lhs: MessageHistoryOrderKey, rhs: MessageHistoryOrderKey) -> Bool {
+        if lhs.date != rhs.date {
+            return lhs.date < rhs.date
+        }
+
+        let cursorComparison = compareIdentifier(lhs.cursorId, rhs.cursorId)
+        if cursorComparison != .orderedSame {
+            return cursorComparison == .orderedAscending
+        }
+
+        let messageComparison = compareIdentifier(lhs.messageId, rhs.messageId)
+        if messageComparison != .orderedSame {
+            return messageComparison == .orderedAscending
+        }
+
+        let primaryComparison = compareIdentifier(lhs.primary, rhs.primary)
+        if primaryComparison != .orderedSame {
+            return primaryComparison == .orderedAscending
+        }
+        return lhs.primary < rhs.primary
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value, value.isNotEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private static func compareIdentifier(_ lhs: String, _ rhs: String) -> ComparisonResult {
+        lhs.compare(rhs, options: [.numeric, .caseInsensitive])
+    }
+}
+
+struct MessageHistoryPositionComponents: Comparable, Equatable {
+    let ordinal: Int64
+    let kind: Int
+    let high: Int64
+    let low: Int64
+    let discriminator: Int64
+
+    static func make(
+        primary: String,
+        archivedId: String?,
+        messageId: String?,
+        date: Date
+    ) -> MessageHistoryPositionComponents {
+        let archivedId = archivedId?.isNotEmpty == true ? archivedId! : ""
+        let messageId = messageId?.isNotEmpty == true ? messageId! : ""
+        let identity = archivedId + "\u{1F}" + messageId + "\u{1F}" + primary
+
+        if let numericArchiveId = Int64(archivedId), archivedId.isNotEmpty {
+            return MessageHistoryPositionComponents(
+                ordinal: chronologicalOrdinal(date: date, numericArchiveId: numericArchiveId, cursor: archivedId),
+                kind: 1,
+                high: numericArchiveId,
+                low: 0,
+                discriminator: stableDiscriminator(identity)
+            )
+        }
+
+        let cursor = archivedId.isNotEmpty ? archivedId : (messageId.isNotEmpty ? messageId : primary)
+        let bytes = Array(cursor.utf8)
+        return MessageHistoryPositionComponents(
+            ordinal: chronologicalOrdinal(date: date, numericArchiveId: nil, cursor: cursor),
+            kind: archivedId.isNotEmpty ? 2 : 0,
+            high: lexicographicChunk(bytes, offset: 0),
+            low: lexicographicChunk(bytes, offset: 7),
+            discriminator: stableDiscriminator(identity)
+        )
+    }
+
+    static func < (lhs: MessageHistoryPositionComponents, rhs: MessageHistoryPositionComponents) -> Bool {
+        if lhs.ordinal != rhs.ordinal { return lhs.ordinal < rhs.ordinal }
+        if lhs.kind != rhs.kind { return lhs.kind < rhs.kind }
+        if lhs.high != rhs.high { return lhs.high < rhs.high }
+        if lhs.low != rhs.low { return lhs.low < rhs.low }
+        return lhs.discriminator < rhs.discriminator
+    }
+
+    private static func lexicographicChunk(_ bytes: [UInt8], offset: Int) -> Int64 {
+        var value: UInt64 = 0
+        for index in 0..<7 {
+            value <<= 8
+            let sourceIndex = offset + index
+            if sourceIndex < bytes.count {
+                value |= UInt64(bytes[sourceIndex])
+            }
+        }
+        return Int64(value)
+    }
+
+    private static func stableDiscriminator(_ identity: String) -> Int64 {
+        let digest = CryptoKit.SHA256.hash(data: Data(identity.utf8))
+        var value: UInt64 = 0
+        for byte in digest.prefix(8) {
+            value = (value << 8) | UInt64(byte)
+        }
+        return Int64(value & UInt64(Int64.max))
+    }
+
+    private static func chronologicalOrdinal(
+        date: Date,
+        numericArchiveId: Int64?,
+        cursor: String
+    ) -> Int64 {
+        let millisecondsSinceUnixEpoch = Int64((date.timeIntervalSince1970 * 1_000).rounded(.towardZero))
+        let millisecondsAtReferenceEpoch: Int64 = 946_684_800_000 // 2000-01-01T00:00:00Z
+        let timeComponent = millisecondsSinceUnixEpoch - millisecondsAtReferenceEpoch
+        let scale: Int64 = 1_048_576
+        let tieRange: Int64 = 1_000_000
+        let tie: Int64
+        if let numericArchiveId {
+            tie = ((numericArchiveId % tieRange) + tieRange) % tieRange
+        } else {
+            var suffix: UInt64 = 0
+            for byte in cursor.utf8.suffix(3) {
+                suffix = (suffix << 8) | UInt64(byte)
+            }
+            tie = Int64(suffix % UInt64(tieRange))
+        }
+        let (scaled, overflow) = timeComponent.multipliedReportingOverflow(by: scale)
+        guard !overflow else {
+            return timeComponent >= 0 ? Int64.max - tieRange + tie : Int64.min + tie
+        }
+        return scaled + tie
+    }
+}
+
+final class ChatLocalHistoryIndexStorageItem: Object {
+    static let currentVersion = 1
+
+    override static func primaryKey() -> String? { "primary" }
+    override static func indexedProperties() -> [String] {
+        ["owner", "jid", "conversationType_"]
+    }
+
+    @objc dynamic var primary: String = ""
+    @objc dynamic var owner: String = ""
+    @objc dynamic var jid: String = ""
+    @objc dynamic var conversationType_: String = ClientSynchronizationManager.ConversationType.regular.rawValue
+    @objc dynamic var oldestMessagePrimary: String? = nil
+    @objc dynamic var newestMessagePrimary: String? = nil
+    @objc dynamic var indexedVisibleCount: Int = 0
+    @objc dynamic var version: Int = 0
+
+    static func genPrimary(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> String {
+        ["chat-local-history-index", owner, jid, conversationType.rawValue].prp()
+    }
+}
+
 
 class MessageStorageItem: Object {
     
@@ -65,10 +242,16 @@ class MessageStorageItem: Object {
     }
     
     override static func indexedProperties() -> [String] {
-        return ["opponent", "owner", "date", "conversationType_", "archivedId", "messageId", "deleteState_"]
+        return [
+            "opponent", "owner", "date", "conversationType_", "archivedId", "messageId",
+            "isDeleted", "deleteState_", "historyPositionOrdinal", "historyPositionKind",
+            "historyPositionHigh", "historyPositionLow", "historyPositionDiscriminator"
+        ]
     }
     
-    @objc dynamic var primary: String = ""
+    @objc dynamic var primary: String = "" {
+        didSet { refreshHistoryPositionComponents() }
+    }
     
     @objc dynamic var owner: String = ""
     @objc dynamic var opponent: String = ""
@@ -76,7 +259,9 @@ class MessageStorageItem: Object {
     @objc dynamic var body: String = ""
     @objc dynamic var legacyBody: String = ""
     
-    @objc dynamic var date: Date = Date()
+    @objc dynamic var date: Date = Date() {
+        didSet { refreshHistoryPositionComponents() }
+    }
     @objc dynamic var sentDate: Date = Date()
     @objc dynamic var editDate: Date? = nil
     @objc dynamic var outgoing: Bool = false
@@ -84,13 +269,26 @@ class MessageStorageItem: Object {
     
     @objc dynamic var messageType: String = MessageDisplayType.text.rawValue
     
-    @objc dynamic var messageId: String = ""
+    @objc dynamic var messageId: String = "" {
+        didSet { refreshHistoryPositionComponents() }
+    }
     
     @objc dynamic var trustedSource: Bool = false
     @objc dynamic var previousId: String? = nil
     @objc dynamic var queryIds: String? = nil
     
-    @objc dynamic var archivedId: String = ""
+    @objc dynamic var archivedId: String = "" {
+        didSet { refreshHistoryPositionComponents() }
+    }
+
+    @objc dynamic var historyPositionOrdinal: Int64 = 0
+    @objc dynamic var historyPositionKind: Int = 0
+    @objc dynamic var historyPositionHigh: Int64 = 0
+    @objc dynamic var historyPositionLow: Int64 = 0
+    @objc dynamic var historyPositionDiscriminator: Int64 = 0
+    @objc dynamic var historyPreviousMessagePrimary: String? = nil
+    @objc dynamic var historyNextMessagePrimary: String? = nil
+    @objc dynamic var historyLinkedIndexVersion: Int = 0
     
     @objc dynamic var isDeleted: Bool = false
     @objc dynamic var state_: Int = 0
@@ -123,6 +321,27 @@ class MessageStorageItem: Object {
     @objc dynamic var conversationType_: String = ClientSynchronizationManager.ConversationType.regular.rawValue
     
     var inlineForwards: List<MessageForwardsInlineStorageItem> = List<MessageForwardsInlineStorageItem>()
+
+    func refreshHistoryPositionComponents() {
+        let components = MessageHistoryPositionComponents.make(
+            primary: primary,
+            archivedId: archivedId,
+            messageId: messageId,
+            date: date
+        )
+        guard historyPositionOrdinal != components.ordinal
+                || historyPositionKind != components.kind
+                || historyPositionHigh != components.high
+                || historyPositionLow != components.low
+                || historyPositionDiscriminator != components.discriminator else {
+            return
+        }
+        historyPositionOrdinal = components.ordinal
+        historyPositionKind = components.kind
+        historyPositionHigh = components.high
+        historyPositionLow = components.low
+        historyPositionDiscriminator = components.discriminator
+    }
     
     var conversationType: ClientSynchronizationManager.ConversationType {
         get {
@@ -370,6 +589,20 @@ class MessageStorageItem: Object {
         self.body = ""
         self.legacyBody = ""
         self.deleteState = .autoDeleted
+        synchronizeLocalHistoryIndexAfterVisibilityChange()
+    }
+
+    func markDeleted() {
+        self.isDeleted = true
+        synchronizeLocalHistoryIndexAfterVisibilityChange()
+    }
+
+    private func synchronizeLocalHistoryIndexAfterVisibilityChange() {
+        guard let realm = self.realm,
+              realm.isInWriteTransaction else {
+            return
+        }
+        ChatLocalHistoryLinkedIndex.upsert(self, in: realm)
     }
 
     private var visibleGeolocReferences: [MessageReferenceStorageItem] {
@@ -1176,6 +1409,7 @@ class MessageStorageItem: Object {
                     instance.queryIds = newQueryIds
                 }
             }
+            ChatLocalHistoryLinkedIndex.upsert(instance, in: realm)
             return nil
         }
 
@@ -1327,6 +1561,13 @@ class MessageStorageItem: Object {
             } else {
                 LastChatUnreadCounter.recordRuntimeUnread(for: self, in: instance)
             }
+        }
+
+        if let storedMessage = realm.object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: self.primary
+        ) {
+            ChatLocalHistoryLinkedIndex.upsert(storedMessage, in: realm)
         }
 
         let notification: SaveNotificationPayload?
@@ -1842,6 +2083,239 @@ class MessageStorageItem: Object {
     public static func groupchatMessageAuthorId(_ references: [MessageReferenceStorageItem]) -> String? {
         let groupchatMetadata = references.first(where: { $0.kind == .groupchat })?.metadata
         return groupchatMetadata?["id"] as? String
+    }
+}
+
+enum ChatLocalHistoryLinkedIndex {
+    static func state(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        in realm: Realm
+    ) -> ChatLocalHistoryIndexStorageItem? {
+        realm.object(
+            ofType: ChatLocalHistoryIndexStorageItem.self,
+            forPrimaryKey: ChatLocalHistoryIndexStorageItem.genPrimary(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType
+            )
+        )
+    }
+
+    static func upsert(_ message: MessageStorageItem, in realm: Realm) {
+        precondition(realm.isInWriteTransaction, "History index updates must share the message write transaction")
+        guard message.primary.isNotEmpty,
+              message.owner.isNotEmpty,
+              message.opponent.isNotEmpty else {
+            return
+        }
+
+        if state(
+            owner: message.owner,
+            jid: message.opponent,
+            conversationType: message.conversationType,
+            in: realm
+        ) == nil,
+        scopedMessages(for: message, in: realm).first != nil {
+            try? rebuildConversation(
+                owner: message.owner,
+                jid: message.opponent,
+                conversationType: message.conversationType,
+                in: realm
+            )
+            return
+        }
+
+        let state = ensureState(for: message, in: realm)
+        if message.historyLinkedIndexVersion == ChatLocalHistoryIndexStorageItem.currentVersion {
+            detach(message, state: state, in: realm)
+        }
+        guard !message.isDeleted else { return }
+
+        guard let newestPrimary = state.newestMessagePrimary,
+              let newest = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: newestPrimary) else {
+            linkOnly(message, state: state)
+            return
+        }
+
+        let messageOrder = MessageHistoryOrderKey(message: message)
+        if !(messageOrder < MessageHistoryOrderKey(message: newest)) {
+            newest.historyNextMessagePrimary = message.primary
+            message.historyPreviousMessagePrimary = newest.primary
+            message.historyNextMessagePrimary = nil
+            message.historyLinkedIndexVersion = ChatLocalHistoryIndexStorageItem.currentVersion
+            state.newestMessagePrimary = message.primary
+            state.indexedVisibleCount += 1
+            return
+        }
+
+        if let oldestPrimary = state.oldestMessagePrimary,
+           let oldest = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: oldestPrimary),
+           !(MessageHistoryOrderKey(message: oldest) < messageOrder) {
+            oldest.historyPreviousMessagePrimary = message.primary
+            message.historyPreviousMessagePrimary = nil
+            message.historyNextMessagePrimary = oldest.primary
+            message.historyLinkedIndexVersion = ChatLocalHistoryIndexStorageItem.currentVersion
+            state.oldestMessagePrimary = message.primary
+            state.indexedVisibleCount += 1
+            return
+        }
+
+        let orderedCandidates = scopedMessages(for: message, in: realm).sorted {
+            MessageHistoryOrderKey(message: $0) < MessageHistoryOrderKey(message: $1)
+        }
+        let insertionIndex = orderedCandidates.firstIndex {
+            !(MessageHistoryOrderKey(message: $0) < messageOrder)
+        } ?? orderedCandidates.endIndex
+        let previous = insertionIndex > orderedCandidates.startIndex
+            ? orderedCandidates[orderedCandidates.index(before: insertionIndex)]
+            : nil
+        let next = insertionIndex < orderedCandidates.endIndex
+            ? orderedCandidates[insertionIndex]
+            : nil
+
+        message.historyPreviousMessagePrimary = previous?.primary
+        message.historyNextMessagePrimary = next?.primary
+        message.historyLinkedIndexVersion = ChatLocalHistoryIndexStorageItem.currentVersion
+        previous?.historyNextMessagePrimary = message.primary
+        next?.historyPreviousMessagePrimary = message.primary
+        state.indexedVisibleCount += 1
+    }
+
+    static func rebuildConversation(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        in realm: Realm
+    ) throws {
+        let all = realm.objects(MessageStorageItem.self).filter(
+            "owner == %@ AND opponent == %@ AND conversationType_ == %@",
+            owner,
+            jid,
+            conversationType.rawValue
+        )
+        let orderedVisible = all
+            .filter("isDeleted == false")
+            .sorted {
+                MessageHistoryOrderKey(message: $0) < MessageHistoryOrderKey(message: $1)
+            }
+        let update = {
+            for message in all {
+                message.historyPreviousMessagePrimary = nil
+                message.historyNextMessagePrimary = nil
+                message.historyLinkedIndexVersion = 0
+            }
+
+            let state = ensureState(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                in: realm
+            )
+            for (index, message) in orderedVisible.enumerated() {
+                message.historyPreviousMessagePrimary = index > 0 ? orderedVisible[index - 1].primary : nil
+                message.historyNextMessagePrimary = index + 1 < orderedVisible.count ? orderedVisible[index + 1].primary : nil
+                message.historyLinkedIndexVersion = ChatLocalHistoryIndexStorageItem.currentVersion
+            }
+            state.oldestMessagePrimary = orderedVisible.first?.primary
+            state.newestMessagePrimary = orderedVisible.last?.primary
+            state.indexedVisibleCount = orderedVisible.count
+            state.version = ChatLocalHistoryIndexStorageItem.currentVersion
+        }
+
+        if realm.isInWriteTransaction {
+            update()
+        } else {
+            try realm.write(update)
+        }
+    }
+
+    private static func ensureState(
+        for message: MessageStorageItem,
+        in realm: Realm
+    ) -> ChatLocalHistoryIndexStorageItem {
+        ensureState(
+            owner: message.owner,
+            jid: message.opponent,
+            conversationType: message.conversationType,
+            in: realm
+        )
+    }
+
+    private static func ensureState(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        in realm: Realm
+    ) -> ChatLocalHistoryIndexStorageItem {
+        let primary = ChatLocalHistoryIndexStorageItem.genPrimary(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType
+        )
+        if let state = realm.object(ofType: ChatLocalHistoryIndexStorageItem.self, forPrimaryKey: primary) {
+            state.version = ChatLocalHistoryIndexStorageItem.currentVersion
+            return state
+        }
+        let state = ChatLocalHistoryIndexStorageItem()
+        state.primary = primary
+        state.owner = owner
+        state.jid = jid
+        state.conversationType_ = conversationType.rawValue
+        state.version = ChatLocalHistoryIndexStorageItem.currentVersion
+        realm.add(state, update: .modified)
+        return state
+    }
+
+    private static func linkOnly(
+        _ message: MessageStorageItem,
+        state: ChatLocalHistoryIndexStorageItem
+    ) {
+        message.historyPreviousMessagePrimary = nil
+        message.historyNextMessagePrimary = nil
+        message.historyLinkedIndexVersion = ChatLocalHistoryIndexStorageItem.currentVersion
+        state.oldestMessagePrimary = message.primary
+        state.newestMessagePrimary = message.primary
+        state.indexedVisibleCount = 1
+    }
+
+    private static func detach(
+        _ message: MessageStorageItem,
+        state: ChatLocalHistoryIndexStorageItem,
+        in realm: Realm
+    ) {
+        let previous = message.historyPreviousMessagePrimary.flatMap {
+            realm.object(ofType: MessageStorageItem.self, forPrimaryKey: $0)
+        }
+        let next = message.historyNextMessagePrimary.flatMap {
+            realm.object(ofType: MessageStorageItem.self, forPrimaryKey: $0)
+        }
+        previous?.historyNextMessagePrimary = next?.primary
+        next?.historyPreviousMessagePrimary = previous?.primary
+        if state.oldestMessagePrimary == message.primary {
+            state.oldestMessagePrimary = next?.primary
+        }
+        if state.newestMessagePrimary == message.primary {
+            state.newestMessagePrimary = previous?.primary
+        }
+        state.indexedVisibleCount = max(0, state.indexedVisibleCount - 1)
+        message.historyPreviousMessagePrimary = nil
+        message.historyNextMessagePrimary = nil
+        message.historyLinkedIndexVersion = 0
+    }
+
+    private static func scopedMessages(
+        for message: MessageStorageItem,
+        in realm: Realm
+    ) -> Results<MessageStorageItem> {
+        realm.objects(MessageStorageItem.self).filter(
+            "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND isDeleted == false AND primary != %@",
+            message.owner,
+            message.opponent,
+            message.conversationType.rawValue,
+            message.primary
+        )
     }
 }
 

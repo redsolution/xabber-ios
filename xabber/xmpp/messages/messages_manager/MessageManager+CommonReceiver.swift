@@ -729,7 +729,7 @@ extension MessageManager {
                 if isEncryptedMessage {
                     if !errorMetadata.isEmpty {
                         if omemoError {
-                            instance.isDeleted = true
+                            instance.markDeleted()
                         }
                     }
                 }

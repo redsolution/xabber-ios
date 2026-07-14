@@ -351,7 +351,7 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
                     return
                 }
                 try realm.write {
-                    instance.isDeleted = true
+                    instance.markDeleted()
                 }
                 modifiedIds.insert(primary)
                 (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?

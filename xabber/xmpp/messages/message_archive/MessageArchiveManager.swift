@@ -3103,7 +3103,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 if isEncryptedMessage {
                     if !errorMetadata.isEmpty {
                         if omemoError {
-                            instance.isDeleted = true
+                            instance.markDeleted()
                         }
                     }
                 }

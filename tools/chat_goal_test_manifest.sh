@@ -237,6 +237,17 @@ xabberTests/ChatAttachmentXMPPCompatibilityTests
 SELECTORS
     return
   fi
+  if [[ "$1" == "G03" ]]; then
+    cat <<'SELECTORS'
+xabberTests/ChatCursorNativeHistoryProviderTests
+xabberTests/ChatCursorNativeHistoryScaleTests
+xabberTests/ChatHistoryRealmMigrationTests
+xabberTests/ChatLocalHistoryPageProviderWindowingTests
+xabberTests/ChatTimelineCursorTests
+xabberTests/ChatLocalHistoryPageProviderTests
+SELECTORS
+    return
+  fi
   chat_goal_preflight_selectors "$1"
 }
 

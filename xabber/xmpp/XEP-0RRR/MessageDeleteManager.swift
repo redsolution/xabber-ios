@@ -431,7 +431,7 @@ class MessageDeleteManager: AbstractXMPPManager {
                     if let chat {
                         LastChatUnreadCounter.removeUnreadContribution(for: $0, from: chat)
                     }
-                    $0.isDeleted = true
+                    $0.markDeleted()
                 }
             }
             LastChats.updateErrorState(for: jid, owner: self.owner, conversationType: conversationType)

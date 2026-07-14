@@ -21,6 +21,12 @@
 import Foundation
 import RealmSwift
 
+enum XabberRealmSchema {
+    /// Schema 12 adds the indexes and deterministic numeric position fields
+    /// used by every visible chat-history cursor query.
+    static let current: UInt64 = 12
+}
+
 
 func makeRealmMigrationConfiguration(
     scheme: UInt64,
@@ -172,8 +178,89 @@ func makeRealmMigrationConfiguration(
                 // XMPPMessageScheduleStorageItem is a new table for pending/failed scheduled messages.
                 // Existing accounts have no local schedule rows to backfill.
             }
+            if oldSchemaVersion < 12 {
+                // Realm creates indexes from indexedProperties. The position
+                // components are derived only from stable message identity and
+                // can be rebuilt safely without changing row identity or order.
+                var rowsByConversation: [String: [(
+                    object: MigrationObject,
+                    primary: String,
+                    orderKey: MessageHistoryOrderKey,
+                    owner: String,
+                    jid: String,
+                    conversationType: ClientSynchronizationManager.ConversationType
+                )]] = [:]
+                migration.enumerateObjects(ofType: MessageStorageItem.className()) { oldObject, newObject in
+                    guard let newObject else { return }
+                    let primary = oldObject?["primary"] as? String ?? ""
+                    let owner = oldObject?["owner"] as? String ?? ""
+                    let jid = oldObject?["opponent"] as? String ?? ""
+                    let conversationType = ClientSynchronizationManager.ConversationType(
+                        rawValue: oldObject?["conversationType_"] as? String
+                            ?? ClientSynchronizationManager.ConversationType.regular.rawValue
+                    ) ?? .regular
+                    let components = MessageHistoryPositionComponents.make(
+                        primary: primary,
+                        archivedId: oldObject?["archivedId"] as? String,
+                        messageId: oldObject?["messageId"] as? String,
+                        date: oldObject?["date"] as? Date ?? Date(timeIntervalSince1970: 0)
+                    )
+                    newObject["historyPositionOrdinal"] = components.ordinal
+                    newObject["historyPositionKind"] = components.kind
+                    newObject["historyPositionHigh"] = components.high
+                    newObject["historyPositionLow"] = components.low
+                    newObject["historyPositionDiscriminator"] = components.discriminator
+                    newObject["historyPreviousMessagePrimary"] = nil
+                    newObject["historyNextMessagePrimary"] = nil
+                    newObject["historyLinkedIndexVersion"] = 0
+
+                    let isDeleted = oldObject?["isDeleted"] as? Bool ?? false
+                    guard !isDeleted, primary.isNotEmpty, owner.isNotEmpty, jid.isNotEmpty else { return }
+                    let conversationPrimary = ChatLocalHistoryIndexStorageItem.genPrimary(
+                        owner: owner,
+                        jid: jid,
+                        conversationType: conversationType
+                    )
+                    rowsByConversation[conversationPrimary, default: []].append((
+                        object: newObject,
+                        primary: primary,
+                        orderKey: MessageHistoryOrderKey(
+                            primary: primary,
+                            archivedId: oldObject?["archivedId"] as? String,
+                            messageId: oldObject?["messageId"] as? String,
+                            date: oldObject?["date"] as? Date ?? Date(timeIntervalSince1970: 0)
+                        ),
+                        owner: owner,
+                        jid: jid,
+                        conversationType: conversationType
+                    ))
+                }
+
+                for (conversationPrimary, unsortedRows) in rowsByConversation {
+                    let rows = unsortedRows.sorted { $0.orderKey < $1.orderKey }
+                    for (index, row) in rows.enumerated() {
+                        row.object["historyPreviousMessagePrimary"] = index > 0 ? rows[index - 1].primary : nil
+                        row.object["historyNextMessagePrimary"] = index + 1 < rows.count ? rows[index + 1].primary : nil
+                        row.object["historyLinkedIndexVersion"] = ChatLocalHistoryIndexStorageItem.currentVersion
+                    }
+                    guard let first = rows.first, let last = rows.last else { continue }
+                    migration.create(
+                        ChatLocalHistoryIndexStorageItem.className(),
+                        value: [
+                            "primary": conversationPrimary,
+                            "owner": first.owner,
+                            "jid": first.jid,
+                            "conversationType_": first.conversationType.rawValue,
+                            "oldestMessagePrimary": first.primary,
+                            "newestMessagePrimary": last.primary,
+                            "indexedVisibleCount": rows.count,
+                            "version": ChatLocalHistoryIndexStorageItem.currentVersion
+                        ]
+                    )
+                }
+            }
         },
-        deleteRealmIfMigrationNeeded: inMemoryIdentifier == nil) { total, used in
+        deleteRealmIfMigrationNeeded: false) { total, used in
             let limit = 100 * 1024 * 1024
             return total > limit && Double(used) / Double(total) < 0/5
         }

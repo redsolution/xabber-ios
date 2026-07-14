@@ -764,7 +764,7 @@ extension MessageManager {
             try realm.write {
                 _ = instance.save(commitTransaction: false)
                 if isReport {
-                    instance.isDeleted = true
+                    instance.markDeleted()
                 }
                 let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: conversationJID, owner: self.owner, conversationType: conversationType))
                 chat?.draftMessage = nil

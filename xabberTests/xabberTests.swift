@@ -20973,7 +20973,7 @@ final class ChatLocalHistoryPageProviderTests: XCTestCase {
         )
     }
 
-    func testIndexOfMessageUsesDatePrimaryOrdering() throws {
+    func testResolvedMessageUsesCompoundCursorForAdjacentPages() throws {
         try insertMessages([
             (primary: "p1", archivedId: "1", timestamp: 100),
             (primary: "p2", archivedId: "2", timestamp: 200),
@@ -20982,7 +20982,11 @@ final class ChatLocalHistoryPageProviderTests: XCTestCase {
         ])
         let message = try XCTUnwrap(try provider().message(primary: "p3", archivedId: nil, messageId: nil))
 
-        XCTAssertEqual(try provider().index(of: message), 2)
+        let provider = try provider()
+        let boundary = ChatTimelineBoundary(message: message)
+
+        XCTAssertEqual(provider.older(before: boundary, limit: 2).map(\.primary), ["p1", "p2"])
+        XCTAssertEqual(provider.newer(after: boundary, limit: 2).map(\.primary), ["p4"])
     }
 }
 

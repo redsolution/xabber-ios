@@ -2445,7 +2445,11 @@ extension ChatViewController {
             ) else {
                 return nil
             }
-            return provider.index(of: message)
+            self.ensureObserverLookupMaps()
+            return self.observerPrimaryIndexMap[message.primary]
+                ?? RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(message.archivedId)
+                    .flatMap { self.observerArchivedIdIndexMap[$0] }
+                ?? (message.messageId.isNotEmpty ? self.observerMessageIdIndexMap[message.messageId] : nil)
         } catch {
             DDLogDebug("ChatViewController.savedPositionFirstFrameObserverIndex: \(error.localizedDescription)")
             return nil
@@ -3106,7 +3110,11 @@ extension ChatViewController {
                 return nil
             }
 
-            return (message, provider.index(of: message))
+            self.ensureObserverLookupMaps()
+            guard let index = self.observerPrimaryIndexMap[message.primary] else {
+                return nil
+            }
+            return (message, index)
         } catch {
             DDLogDebug("ChatViewController.unreadBoundaryFirstFrameLocalAnchor: \(error.localizedDescription)")
             return nil
@@ -3132,7 +3140,14 @@ extension ChatViewController {
                 return nil
             }
 
-            return (message, provider.index(of: message))
+            self.ensureObserverLookupMaps()
+            guard let index = self.observerPrimaryIndexMap[message.primary]
+                ?? RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(message.archivedId)
+                    .flatMap({ self.observerArchivedIdIndexMap[$0] })
+                ?? (message.messageId.isNotEmpty ? self.observerMessageIdIndexMap[message.messageId] : nil) else {
+                return nil
+            }
+            return (message, index)
         } catch {
             DDLogDebug("ChatViewController.searchFirstFrameLocalAnchor: \(error.localizedDescription)")
             return nil
@@ -3329,20 +3344,12 @@ extension ChatViewController {
         ])
 
         var archivedIdsByIndex: [Int: String] = [:]
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            for index in sampledIndices {
-                if let archiveId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(provider.item(at: index)?.archivedId) {
-                    archivedIdsByIndex[index] = archiveId
-                }
+        for index in sampledIndices where index >= 0 && index < self.messagesObserver.count {
+            if let archiveId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
+                self.messagesObserver[index].archivedId
+            ) {
+                archivedIdsByIndex[index] = archiveId
             }
-        } catch {
-            DDLogDebug("ChatViewController.savedPositionFirstFrameArchiveCoverageContext: \(error.localizedDescription)")
         }
 
         return (archivedIdsByIndex, archiveState.knownGaps)
