@@ -1,5 +1,7 @@
 # Telegram-style in-chat search verification
 
+Durable product/provider/state semantics are documented in [In-chat search](../features/in-chat-search.md).
+
 ## Scope and safety contract
 
 - Repository: `/Users/igor.boldin/projects/xabber/fabric/xabber/xabber_ios_whitelabel/xabber/xabber_ios_core`.
@@ -187,3 +189,12 @@ The reference visibly uses `Test`, while acceptance intentionally uses exact low
 - Static live inspection covered normal iPhone 16e geometry. VoiceOver order, maximum Dynamic Type, RTL, Reduce Motion and Reduce Transparency were not toggled during the signed-in recording, so the recording is not claimed as evidence for those modes.
 - `ChatSearchAccessibilityTests` and `ChatSearchAdaptiveLayoutTests` passed in both the 124-test preflight and 89-test postflight. The suites cover semantic order/labels, 44 pt hit targets, RTL mirroring, Dynamic Type growth and reduced-motion/transparency policy. `ChatSearchModeTransitionTests` covers the reduced-motion choreography.
 - Final ordinary launch used wrapper `EACCA696-16C1-4CDB-9B1D-C7FAD40F2B54`. Realm retained inode `171969950` and size `19,087,360` bytes; its mtime advanced normally to `2026-07-14T16:42:40+0500` during signed-in runtime activity. The Chats screen still showed Andrew Nenakhov and Alexey Boldin. The account therefore remained present after all tests and the acceptance build.
+
+## Task 26C closure verification
+
+- Documentation-only pre-task gate passed 109/109 with 0 failures/skips under the hosted autoconnect/storage isolation flags. It included the authentication-safety suites in addition to the required presentation/calendar/accessibility/lifecycle/live-safety selectors.
+- Required post-task gate passed 74/74 with 0 failures/skips under the same hosted isolation flags.
+- The final cached production build for the exact iPhone 16e ended with `** BUILD SUCCEEDED **`; no compiler or linker error was reported.
+- Before the Task 26C source commit, the external ledger contained 38 prior task rows with 38 unique, reachable commit objects and exact task subjects. Verification corrected one external-ledger transcription for Task 18 from a nonexistent suffix to the reachable commit `1db9df7a4e7a6d954e085fe4dad62337dd0741e0`; source history was unchanged.
+- The previously recorded post-F3 install-over remains the final installation gate: bundle `xabber.ios` installed over the existing app in 1.440 s without uninstall and preserved Realm inode/size. Task 26B then recorded and compared the accepted strict-center build.
+- Final ordinary launch after Task 26C tests/build still used wrapper `EACCA696-16C1-4CDB-9B1D-C7FAD40F2B54`, Realm inode `171969950`, size `19,087,360` bytes and a signed-in Chats screen containing Andrew Nenakhov and Alexey Boldin. No destructive/account/credential operation ran.
