@@ -24,9 +24,9 @@ enum ChatSearchNavigationLayout {
     static let controlHeight: CGFloat = 44
     static let searchIconPointSize: CGFloat = 16
     static let searchIconOpticalInsets = NSDirectionalEdgeInsets(
-        top: 8,
+        top: 0,
         leading: 8,
-        bottom: 0,
+        bottom: 8,
         trailing: 0
     )
     static let horizontalInset: CGFloat = 16

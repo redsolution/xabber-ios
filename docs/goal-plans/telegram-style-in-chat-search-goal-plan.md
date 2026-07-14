@@ -18,7 +18,7 @@ runtime-device:: iPhone 16e, iOS 26.0, UDID 7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF
 Рабочий репозиторий:
 /Users/igor.boldin/projects/xabber/fabric/xabber/xabber_ios_whitelabel/xabber/xabber_ios_core
 
-Выполняй задачи строго в таком порядке: Task 00; Task 01–05; Task 05A; Task 06–21; Task 22A–22C; Task 23; Task 25D; Task 25E; Task 24; Task 25A–25C; Task 26A–26C. Это 36 отдельных задач/commit. Task 25D и Task 25E являются аварийными safety-fix, вставленными перед продолжением уже начатого Task 24: первый запрещает ложное удаление аккаунта при локально отсутствующем credential, второй изолирует Keychain hosted XCTest после подтвержденной очистки production service тестовым onboarding. Не объединяй задачи и не переходи к следующей, пока текущая не прошла все свои критерии принятия, focused XCTest, обязательную simulator build и отдельный focused commit. Перед каждой задачей обязательно запускай перечисленные pre-task tests. Для изменения поведения сначала добавляй или обновляй XCTest и, когда текущий код способен проявить дефект, фиксируй ожидаемое red-падение до production-изменения.
+Выполняй задачи строго в таком порядке: Task 00; Task 01–05; Task 05A; Task 06–21; Task 22A–22C; Task 23; Task 25D; Task 25E; Task 24; Task 25A–25C; Task 26A; Task 26B-F1; Task 26B–26C. Это 37 отдельных задач/commit. Task 25D и Task 25E являются аварийными safety-fix, вставленными перед продолжением уже начатого Task 24: первый запрещает ложное удаление аккаунта при локально отсутствующем credential, второй изолирует Keychain hosted XCTest после подтвержденной очистки production service тестовым onboarding. Task 26B-F1 — отдельный visual-fix, обнаруженный во время отклонённой pre-commit попытки Task 26B; после его commit обязательны повтор Task 26A gate без второго 26A commit и полный перезапуск Task 26B. Не объединяй задачи и не переходи к следующей, пока текущая не прошла все свои критерии принятия, focused XCTest, обязательную simulator build и отдельный focused commit. Перед каждой задачей обязательно запускай перечисленные pre-task tests. Для изменения поведения сначала добавляй или обновляй XCTest и, когда текущий код способен проявить дефект, фиксируй ожидаемое red-падение до production-изменения.
 
 После каждой задачи:
 1. запусти ее post-task tests;
@@ -51,7 +51,7 @@ runtime-device:: iPhone 16e, iOS 26.0, UDID 7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF
 - выполняй независимую UIKit-реализацию наблюдаемого поведения; не копируй исходный код, структуру реализации, ассеты, generated icon paths или брендинг Telegram и не используй private Apple API;
 - не добавляй third-party dependencies и не переписывай UIKit flow на SwiftUI.
 
-Не отмечай Goal complete, пока Task 26C не зафиксирует: все focused tests прошли, simulator build прошла, новая сборка установлена поверх существующей без uninstall, сценарий в Andrew Nenakhov/Alexey Boldin с query test записан и сравнен с референсом, аккаунт остался на месте, ложное локальное отсутствие credential не трактуется как подтвержденный server revoke, hosted XCTest не может адресовать production Keychain service, vault task/handoff закрыты, а внешний vault execution ledger содержит отдельный source commit hash для всех 36 задач, включая Task 26C.
+Не отмечай Goal complete, пока Task 26C не зафиксирует: все focused tests прошли, simulator build прошла, новая сборка установлена поверх существующей без uninstall, сценарий в Andrew Nenakhov/Alexey Boldin с query test записан и сравнен с референсом, аккаунт остался на месте, ложное локальное отсутствие credential не трактуется как подтвержденный server revoke, hosted XCTest не может адресовать production Keychain service, vault task/handoff закрыты, а внешний vault execution ledger содержит отдельный source commit hash для всех 37 задач, включая Task 26B-F1 и Task 26C.
 ~~~
 
 ## 1. Цель и границы
@@ -418,7 +418,7 @@ Source repository и vault — разные git roots. Source task commit ник
 | Calendar/date jump | 15–20 | Model, UI, presentation, local/MAM resolver, Done semantics |
 | Motion/quality | 21, 22A–22C | Cross-flow choreography, localization, accessibility, adaptive layout |
 | Automation/performance | 23–25C | UI target, live smoke, stress/cancellation/performance/lifecycle |
-| Closure | 26A–26C | Final gate/install, video QA, docs/vault closure |
+| Closure | 26A, 26B-F1, 26B–26C | Final gate/install, emergency visual fix, repeated video QA, docs/vault closure |
 
 ### Индекс задач
 
@@ -2879,11 +2879,65 @@ env -u TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT \
 
 ---
 
+## Task 26B-F1 — Исправить вертикальное optical alignment лупы
+
+**Owner:** xabber-ui
+**Secondary:** xabber-tests, xabber-lead
+**Depends on:** Task 26A и отклонённая pre-commit runtime попытка Task 26B
+**Commit:** fix(chat-search): align search magnifier optically
+
+### Цель
+
+Устранить подтверждённый runtime-дефект из screenshot `/Users/igor.boldin/Desktop/Simulator Screenshot - iPhone 16e - 2026-07-14 at 15.14.41.png`: `magnifyingglass` визуально расположен слишком низко внутри 44 pt leading control. Поднять только image content, не меняя hit-area, горизонтальную геометрию, размер символа, text-field frame или accessibility contract.
+
+### Файлы
+
+- `xabber/controllers/chats/chat/search/ChatSearchNavigationView.swift`;
+- `xabberTests/ChatSearchTopChromeTests.swift`;
+- этот plan/Execution journal;
+- рабочие vault task/UI/tests notes, handoff и внешний execution ledger.
+
+### Pre-task tests
+
+- TEST[ChatSearchTopChromeTests, ChatSearchAdaptiveLayoutTests, ChatSearchAccessibilityTests, ChatSearchLiveQASafetyPolicyTests, ChatSearchModeTransitionTests, SearchChatListKeyboardLayoutTests].
+- Обе hosted-isolation переменные обязательны; использовать только exact iPhone 16e UDID.
+
+### Tests-first
+
+- Сначала изменить focused XCTest так, чтобы он требовал `top=0`, `bottom=8`, `leading=8`, `trailing=0` и vertical optical offset `-4 pt` внутри неизменного 44×44 frame.
+- На production-коде с `top=8`, `bottom=0` зафиксировать ожидаемое red-падение: offset остаётся `+4 pt`, то есть изображение смещено вниз.
+- После red менять production-константу; не ослаблять допуски и не заменять geometry assertion snapshot-only проверкой.
+
+### Реализация
+
+1. Перенести существующий 8 pt vertical content inset с верхней стороны на нижнюю; horizontal leading inset оставить 8 pt.
+2. Сохранить 16 pt image point size, 44×44 button frame, manual framing и `translatesAutoresizingMaskIntoConstraints=true`.
+3. Не менять glass surface, text field, cancel/clear/spinner, transitions, query/search behavior или XMPP/storage код.
+4. После focused green повторить полный pre-task allowlist и mandatory cached simulator build без `clean`.
+5. После отдельного source commit повторить Task 26A final union/build/install-over safety gate без нового Task 26A commit, затем перезапустить Task 26B с новой записью видео.
+
+### Критерии принятия
+
+- Конфигурация лупы имеет `top=0`, `bottom=8`, `leading=8`, `trailing=0`; vertical optical offset равен `-4 pt`.
+- Дефектная версия доказанно падает focused test по top/bottom/offset, исправленная проходит.
+- `submitButton.frame` остаётся 44×44 и символ не превышает 20×20; text field и остальные controls не двигаются.
+- Полный post-task allowlist проходит без failures/skips.
+- Cached build проходит на UDID `7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF`.
+- Account/container/Realm не удаляются и не сбрасываются; runtime acceptance выполняется повтором Task 26A–26B после этого commit.
+
+### Post-task verification
+
+- TEST[ChatSearchTopChromeTests, ChatSearchAdaptiveLayoutTests, ChatSearchAccessibilityTests, ChatSearchLiveQASafetyPolicyTests, ChatSearchModeTransitionTests, SearchChatListKeyboardLayoutTests].
+- Обязательная simulator build.
+- Обновить journal/vault notes до `ready-to-commit`, выполнить `git diff --check`, создать один focused source commit и только затем записать его actual SHA во внешний ledger.
+
+---
+
 ## Task 26B — Провести live/video parity QA
 
 **Owner:** xabber-ui
 **Secondary:** xabber-tests, xabber-lead
-**Depends on:** Task 26A
+**Depends on:** Task 26B-F1 и повторённый Task 26A regression/build/install-over gate
 **Commit:** docs(chat-search): record visual parity evidence
 
 ### Цель
@@ -2980,7 +3034,7 @@ test "$TEST_STATUS" -eq 0
 
 ### Цель
 
-Свести стабильный behavior/architecture/test contract в source docs и vault, закрыть task/handoff и доказать наличие 36 отдельных source commits без попытки вписать собственный будущий SHA в tracked commit.
+Свести стабильный behavior/architecture/test contract в source docs и vault, закрыть task/handoff и доказать наличие 37 отдельных source commits без попытки вписать собственный будущий SHA в tracked commit.
 
 ### Файлы
 
@@ -2999,8 +3053,8 @@ test "$TEST_STATUS" -eq 0
 ### Tests-first
 
 - Это documentation-only closure; production behavior не меняется.
-- Проверить все absolute/relative links, 36 journal rows, expected commit subjects и evidence paths скриптом/rg до commit.
-- Проверить `git log --format` и `git show --stat` для предыдущих 34 source task commits; unrelated commits не засчитываются.
+- Проверить все absolute/relative links, 37 journal rows, expected commit subjects и evidence paths скриптом/rg до commit.
+- Проверить `git log --format` и `git show --stat` для предыдущих 36 source task commits; unrelated commits не засчитываются.
 - Любой новый code defect/изменение запрещено прятать в docs commit: создать follow-up Task и повторить 26A–26C.
 
 ### Реализация
@@ -3008,14 +3062,14 @@ test "$TEST_STATUS" -eq 0
 1. Обновить durable source feature/QA docs: observable UI, state machine, provider ownership, calendar exact-timestamp semantics, Xabber-independent implementation/no private API, tests и known accepted deviations.
 2. В tracked Execution journal для Task 26C записать `ready-to-commit` + expected subject; actual SHA там не требуется.
 3. Обновить vault owner/secondary agent notes/tasks, shared interface, standalone handoff; переместить standalone task `tasks/open` → `tasks/done` только после всех checks.
-4. Создать/обновить внешний vault execution ledger с 34 уже существующими source SHA и placeholder `awaiting Task 26C source commit`.
+4. Создать/обновить внешний vault execution ledger с 36 уже существующими source SHA и placeholder `awaiting Task 26C source commit`.
 5. Source и vault — отдельные dirty git roots: source commit stage-ит только source docs; vault commit stage-ит только точно проверенные task/handoff/ledger/docs paths. Не stage-ить целиком dashboard-файлы с чужими hunks.
 6. После source commit Task 26C получить actual SHA, заменить только vault placeholder и сделать отдельный focused vault commit. Это не дополнительный source task commit.
-7. Goal complete разрешен только после проверки 36 unique source SHA во внешнем ledger и чистого staged state относительно наших файлов.
+7. Goal complete разрешен только после проверки 37 unique source SHA во внешнем ledger и чистого staged state относительно наших файлов.
 
 ### Критерии принятия
 
-- Все 36 Task labels выполнены последовательно и имеют отдельный unique source SHA во внешнем vault ledger.
+- Все 37 Task labels выполнены последовательно и имеют отдельный unique source SHA во внешнем vault ledger.
 - Source journal содержит final test/build/status/expected subjects без логической попытки self-record SHA.
 - Verification doc содержит final unit/build/install/live/video/accessibility evidence.
 - Vault task находится done, handoff закрыт, ownership notes/shared contract обновлены без захвата чужих изменений.
@@ -3027,7 +3081,7 @@ test "$TEST_STATUS" -eq 0
 - TEST[AppLaunchEnvironmentPolicyTests, ChatSearchGoalSafetyPolicyTests, ChatSearchPresentationStateTests, ChatSearchCalendarCompletionTests, ChatSearchAccessibilityTests, ChatSearchLifecycleTests, ChatSearchLiveQASafetyPolicyTests].
 - Обязательная simulator build.
 - Проверить links, `git diff --check`, source staged diff и commit; после source commit проверить `git show --stat --oneline HEAD`.
-- Записать Task 26C SHA во внешний vault ledger, проверить 36 unique hashes и сделать безопасный vault commit; только затем отметить Goal complete.
+- Записать Task 26C SHA во внешний vault ledger, проверить 37 unique hashes и сделать безопасный vault commit; только затем отметить Goal complete.
 
 ---
 
@@ -3035,7 +3089,7 @@ test "$TEST_STATUS" -eq 0
 
 Goal завершен только когда одновременно выполнено все:
 
-- Все 36 Task labels (00; 01–05; 05A; 06–21; 22A–22C; 23; 25D; 25E; 24; 25A–25C; 26A–26C) выполнены строго в зафиксированном порядке и не объединены.
+- Все 37 Task labels (00; 01–05; 05A; 06–21; 22A–22C; 23; 25D; 25E; 24; 25A–25C; 26A; 26B-F1; 26B–26C) выполнены строго в зафиксированном порядке и не объединены.
 - У каждого Task есть отдельный source commit; tracked journal заполнен до `ready-to-commit`, а actual SHA записан во внешнем vault execution ledger.
 - Перед каждым Task в journal записан результат pre-task tests.
 - Для каждого behavioral change существует focused red/green XCTest или явно доказанная причина невозможности red phase.
@@ -3116,6 +3170,7 @@ Goal завершен только когда одновременно выпо�
 | 25B | ready-to-commit | Required stress/presentation/local/highlighting/list/reload/cache pre-task allowlist passed 75/75 with both hosted-isolation flags | Measured current-code baseline passed 4/4 and recorded 7.743 ms/15.945 ms preparation, 2.059x scaling, 8.758 ms snapshot construction and 28.074 ms main apply. Expected compile-red then proved immutable prepared-result reuse, list ownership and bounded highlight-cache contracts were absent. | Focused performance/highlighting/list slice passed 34/34; final performance slice passed 8/8 with 7.468 ms/16.222 ms preparation, 2.172x scaling, 0.963 ms snapshot construction and 1.984 ms main apply; required post allowlist plus result-cell/safety regressions passed 118/118 | pass — `tools/xcodebuild_cached.sh build`, iPhone 16e `7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF` | perf(chat-search): optimize large result flows | Added one immutable normalized result batch reused by render model, snapshot plan and controller, eliminating duplicate mapping/dedup/index construction. Added bounded immutable highlighting reuse for unchanged source/query/locale/style, preserved four-page anchors and unchanged-row behavior, and kept avatar work lazy/cancellable. Preparation remains off-main-capable and UIKit apply main-only; ordering/dedup correctness is unchanged. Durable budgets and before/after numbers are recorded in `docs/testing/chat-search-performance-budgets.md`. No live UI, install, reset, logout, credential or production-storage operation ran. |
 | 25C | ready-to-commit | Required performance/stress/mode/calendar/list/first-frame/datasource pre-task allowlist passed 102/102 with both hosted-isolation flags | Expected compile-red: lifecycle interruption/session-scope/cache/observer-removal APIs were absent. First implementation run passed 22/25 and exposed retained removed list/keyboard hierarchy; after constraint cleanup and deterministic autorelease boundaries, 9/10 passed and exposed the remaining controller retain cycle through composer delegates and search-panel method callbacks. | Focused lifecycle suite passed 10/10; required post-task allowlist plus safety passed 154/154 | pass — `tools/xcodebuild_cached.sh build`, iPhone 16e `7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF` | fix(chat-search): close lifecycle leaks | Added one idempotent lifecycle owner for navigation, background/foreground, rotation, memory warning and scope changes. It cancels debounce/local/MAM/timestamp work, unregisters callbacks, releases child controllers/constraints/avatar requests, clears only expendable search caches and restores normal chat UI. Remote callbacks and composer/search-panel ownership are weak; 50 open/cancel cycles and weak deallocation assertions pass without sleeps. No live UI, install, uninstall, reset, logout, credential or production-storage operation ran. |
 | 26A | ready-to-commit | Exact deduplicated 58-suite union: 715/715 pass, 0 skipped | Verification-only task; no production/test defect and no red phase required | Exact post-documentation/install union: 715/715 pass, 0 skipped | pass — cached production build before install-over and repeated after final union, iPhone 16e `7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF` | test(chat-search): record final regression gate | Bundle ID `xabber.ios` verified; install-over completed in 1.878 s without uninstall; main Realm inode `171969950`/size `19,087,360` preserved across container-wrapper rotation and ordinary sync; signed-in Chats shell with Andrew/Alexey and `authSucceeded`, no false revoke/deletion. |
+| 26B-F1 | ready-to-commit | Required top/adaptive/accessibility/safety/mode/keyboard allowlist: 66/66 pass, 0 skipped | Focused test-first run: 27 passed, 1 failed, 0 skipped; expected assertions proved defect values `top=8`, `bottom=0`, vertical offset `+4 pt` instead of `top=0`, `bottom=8`, offset `-4 pt` | Focused top/safety green: 28/28 pass; required post allowlist: 66/66 pass, 0 skipped | pass — `tools/xcodebuild_cached.sh build`, iPhone 16e `7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF` | fix(chat-search): align search magnifier optically | User screenshot at 15:14 confirmed the magnifier was too low. Moving the 8 pt vertical inset from top to bottom raises only image content by 8 pt while preserving the 44×44 frame, 16 pt symbol and horizontal geometry. No install/account/storage action ran; main container wrapper is `67D25BF2-1970-4B00-BF3F-36DBA66B47FD`, Realm inode `171969950`, size `19,087,360`. Task 26A gate and Task 26B live/video QA must be repeated after this commit. |
 | 26B | pending | — | — | — | — | — | — |
 | 26C | pending | — | — | — | — | — | — |
 
