@@ -35,6 +35,10 @@ enum ChatRenderOperation: String, CaseIterable {
     case floatingDateUpdates
     case voiceQueueUpdates
     case observerRefreshCommits
+    case datasourceApplies
+    case structuralInserts
+    case structuralDeletes
+    case structuralMoves
 }
 
 struct ChatRenderOperationSnapshot: Equatable {

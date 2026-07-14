@@ -2,10 +2,14 @@ import Foundation
 import RealmSwift
 import CocoaLumberjack
 
-enum ChatTimelineStoreChange: Equatable {
+enum ChatTimelineStoreChange {
     case latestChanged
     case residentChanged
     case unreadChanged
+    case incremental(
+        ChatIncrementalMessageMutationBatch<MessageStorageItem>,
+        refreshUnread: Bool
+    )
 }
 
 protocol ChatTimelineStoreObservation: AnyObject {
@@ -150,6 +154,7 @@ struct ChatTimelineSessionSnapshot {
     let readBoundary: ChatTimelineReadBoundary?
     let unreadMetadata: ChatTimelineUnreadMetadata
     let residentHardLimit: Int
+    let residentChangeSet: ChatIncrementalResidentChangeSet?
 
     var oldest: ChatTimelineBoundary? {
         state.oldest
@@ -437,6 +442,7 @@ final class ChatTimelineSession {
     private var observation: ChatTimelineStoreObservation?
     private var storedSnapshotHandler: SnapshotHandler?
     private var storeChangeDepth = 0
+    private var incrementalResidentReducer = ChatIncrementalResidentReducer()
 
     var snapshot: ChatTimelineSessionSnapshot {
         lock.withLock { storedSnapshot }
@@ -480,7 +486,8 @@ final class ChatTimelineSession {
             residentIndex: ChatTimelineResidentIndex(items: []),
             readBoundary: nil,
             unreadMetadata: .empty,
-            residentHardLimit: ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: self.pageSize)
+            residentHardLimit: ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: self.pageSize),
+            residentChangeSet: nil
         )
         self.observation = store.observe(residentPrimaryKeys: []) { [weak self] change in
             self?.handleStoreChange(change)
@@ -1170,7 +1177,8 @@ final class ChatTimelineSession {
         localOlderCandidateCount: Int?,
         shortLocalRemainderRemoteFirst: Bool,
         readBoundary: ChatTimelineReadBoundary?,
-        unreadMetadata: ChatTimelineUnreadMetadata
+        unreadMetadata: ChatTimelineUnreadMetadata,
+        residentChangeSet: ChatIncrementalResidentChangeSet? = nil
     ) -> ChatTimelineSessionSnapshot {
         let hardLimit = ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: pageSize)
         let immutableItems = items.map(Self.frozen)
@@ -1195,7 +1203,8 @@ final class ChatTimelineSession {
                 residentIndex: ChatTimelineResidentIndex(items: boundedItems),
                 readBoundary: readBoundary,
                 unreadMetadata: unreadMetadata,
-                residentHardLimit: hardLimit
+                residentHardLimit: hardLimit,
+                residentChangeSet: residentChangeSet
             )
             storedSnapshot = next
             return (next, storedSnapshotHandler)
@@ -1266,6 +1275,49 @@ final class ChatTimelineSession {
             _ = refreshResidentItems()
         case .unreadChanged:
             _ = refreshUnreadMetadata()
+        case .incremental(let batch, let refreshUnread):
+            _ = applyIncrementalStoreChange(batch, refreshUnread: refreshUnread)
+        }
+    }
+
+    private func applyIncrementalStoreChange(
+        _ batch: ChatIncrementalMessageMutationBatch<MessageStorageItem>,
+        refreshUnread: Bool
+    ) -> ChatTimelineSessionSnapshot {
+        operationLock.withLock {
+            let base = snapshot
+            let result = incrementalResidentReducer.apply(
+                currentItems: base.items,
+                mutations: batch.mutations,
+                isResidentAtLiveTail: base.state.isResidentAtLiveTail,
+                hardLimit: base.residentHardLimit
+            )
+            let unreadMetadata: ChatTimelineUnreadMetadata
+            if refreshUnread {
+                let metadata = store.unreadMetadata(limit: base.residentHardLimit)
+                unreadMetadata = ChatTimelineUnreadMetadata(
+                    unreadCount: max(0, metadata.unreadCount),
+                    mentions: Array(metadata.mentions.prefix(base.residentHardLimit)),
+                    candidateCount: min(max(0, metadata.candidateCount), base.residentHardLimit)
+                )
+            } else {
+                unreadMetadata = base.unreadMetadata
+            }
+            guard !result.changeSet.isEmpty || refreshUnread else {
+                return base
+            }
+            return publish(
+                items: result.items,
+                state: stateByReplacingResidentItems(result.items, in: base.state),
+                loadingState: base.loadingState,
+                loadDecision: base.loadDecision,
+                anchorRestore: base.anchorRestore,
+                localOlderCandidateCount: base.localOlderCandidateCount,
+                shortLocalRemainderRemoteFirst: base.shortLocalRemainderRemoteFirst,
+                readBoundary: base.readBoundary,
+                unreadMetadata: unreadMetadata,
+                residentChangeSet: result.changeSet
+            )
         }
     }
 
@@ -1483,6 +1535,12 @@ private final class RealmChatTimelineStoreObservation: ChatTimelineStoreObservat
     private var requestedResidentPrimaryKeys: [String]
     private var lastChatsToken: NotificationToken?
     private var residentToken: NotificationToken?
+    private var lastObservedLatestIdentity: ChatIncrementalMessageIdentity?
+    private var residentIdentitiesByIndex: [ChatIncrementalMessageIdentity] = []
+    private var mutationAccumulator = ChatIncrementalMessageMutationAccumulator<MessageStorageItem>()
+    private var mutationFlushScheduled = false
+    private var pendingUnreadRefresh = false
+    private var mutationRevision: UInt64 = 0
 
     init(
         owner: String,
@@ -1543,17 +1601,51 @@ private final class RealmChatTimelineStoreObservation: ChatTimelineStoreObservat
                 owner: owner,
                 conversationType: conversationType
             )
-            var deliveredInitial = false
             let token = realm.objects(LastChatsStorageItem.self)
                 .filter("primary == %@", primary)
                 .observe { [weak self] change in
                     guard let self else { return }
-                    if case .initial = change {
-                        deliveredInitial = true
-                        return
+                    switch change {
+                    case .initial(let collection):
+                        self.lastObservedLatestIdentity = collection.first?.lastMessage.map(
+                            ChatIncrementalMessageIdentity.init(message:)
+                        )
+                    case .update(let collection, _, _, _):
+                        let currentMessage = collection.first?.lastMessage
+                        let currentIdentity = currentMessage.map(ChatIncrementalMessageIdentity.init(message:))
+                        let action = ChatIncrementalLatestObservationPolicy.action(
+                            previous: self.lastObservedLatestIdentity,
+                            current: currentIdentity
+                        )
+                        switch action {
+                        case .upsert:
+                            guard let currentMessage else { break }
+                            let frozen = currentMessage.isFrozen ? currentMessage : currentMessage.freeze()
+                            self.enqueueMutation(
+                                .upsert(
+                                    identity: ChatIncrementalMessageIdentity(message: frozen),
+                                    revision: self.nextMutationRevision(),
+                                    payload: frozen
+                                ),
+                                refreshUnread: true
+                            )
+                        case .delete:
+                            guard let previousIdentity = self.lastObservedLatestIdentity else { break }
+                            self.enqueueMutation(
+                                .delete(
+                                    identity: previousIdentity,
+                                    revision: self.nextMutationRevision()
+                                ),
+                                refreshUnread: true
+                            )
+                        case .metadataOnly:
+                            self.pendingUnreadRefresh = true
+                            self.scheduleMutationFlush()
+                        }
+                        self.lastObservedLatestIdentity = currentIdentity
+                    case .error(let error):
+                        DDLogDebug("RealmChatTimelineStoreObservation.lastChats change: \(error.localizedDescription)")
                     }
-                    guard deliveredInitial else { return }
-                    self.onChange(.latestChanged)
                 }
             lock.withLock {
                 if invalidated {
@@ -1577,17 +1669,44 @@ private final class RealmChatTimelineStoreObservation: ChatTimelineStoreObservat
         guard !keys.isEmpty, !lock.withLock({ invalidated }) else { return }
         do {
             let realm = try WRealm.safe()
-            var deliveredInitial = false
             let token = realm.objects(MessageStorageItem.self)
                 .filter("primary IN %@", keys)
                 .observe { [weak self] change in
                     guard let self else { return }
-                    if case .initial = change {
-                        deliveredInitial = true
-                        return
+                    switch change {
+                    case .initial(let collection):
+                        self.residentIdentitiesByIndex = collection.map(
+                            ChatIncrementalMessageIdentity.init(message:)
+                        )
+                    case .update(let collection, let deletions, let insertions, let modifications):
+                        let previousIdentities = self.residentIdentitiesByIndex
+                        deletions.compactMap {
+                            previousIdentities.indices.contains($0) ? previousIdentities[$0] : nil
+                        }.forEach {
+                            self.enqueueMutation(
+                                .delete(identity: $0, revision: self.nextMutationRevision()),
+                                refreshUnread: false
+                            )
+                        }
+                        Set(insertions + modifications).sorted().forEach { index in
+                            guard collection.indices.contains(index) else { return }
+                            let message = collection[index]
+                            let frozen = message.isFrozen ? message : message.freeze()
+                            self.enqueueMutation(
+                                .upsert(
+                                    identity: ChatIncrementalMessageIdentity(message: frozen),
+                                    revision: self.nextMutationRevision(),
+                                    payload: frozen
+                                ),
+                                refreshUnread: false
+                            )
+                        }
+                        self.residentIdentitiesByIndex = collection.map(
+                            ChatIncrementalMessageIdentity.init(message:)
+                        )
+                    case .error(let error):
+                        DDLogDebug("RealmChatTimelineStoreObservation.resident change: \(error.localizedDescription)")
                     }
-                    guard deliveredInitial else { return }
-                    self.onChange(.residentChanged)
                 }
             lock.withLock {
                 if invalidated {
@@ -1606,6 +1725,43 @@ private final class RealmChatTimelineStoreObservation: ChatTimelineStoreObservat
             work()
         } else {
             DispatchQueue.main.async(execute: work)
+        }
+    }
+
+    private func nextMutationRevision() -> UInt64 {
+        lock.withLock {
+            mutationRevision &+= 1
+            return mutationRevision
+        }
+    }
+
+    private func enqueueMutation(
+        _ mutation: ChatIncrementalMessageMutation<MessageStorageItem>,
+        refreshUnread: Bool
+    ) {
+        mutationAccumulator.enqueue(mutation)
+        pendingUnreadRefresh = pendingUnreadRefresh || refreshUnread
+        scheduleMutationFlush()
+    }
+
+    private func scheduleMutationFlush() {
+        guard !mutationFlushScheduled else { return }
+        mutationFlushScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.flushMutations()
+        }
+    }
+
+    private func flushMutations() {
+        mutationFlushScheduled = false
+        guard !lock.withLock({ invalidated }) else { return }
+        let batch = mutationAccumulator.drain()
+        let refreshUnread = pendingUnreadRefresh
+        pendingUnreadRefresh = false
+        if batch.mutations.isNotEmpty {
+            onChange(.incremental(batch, refreshUnread: refreshUnread))
+        } else if refreshUnread {
+            onChange(.unreadChanged)
         }
     }
 }

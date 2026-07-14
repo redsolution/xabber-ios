@@ -241,6 +241,16 @@ public class MessageContentCell: MessageCollectionViewCell {
         applyBaseContent(with: message, at: indexPath, and: messagesCollectionView)
     }
 
+    override func reconfigureContent(
+        with message: MessageType,
+        at indexPath: IndexPath,
+        and messagesCollectionView: MessagesCollectionView,
+        changeMask: ChatMessageChangeMask
+    ) {
+        _ = changeMask
+        applyBaseContent(with: message, at: indexPath, and: messagesCollectionView)
+    }
+
     open func hilghlightCell(color: UIColor, duration: TimeInterval) {
         let endColor = contentView.backgroundColor
         contentView.backgroundColor = color

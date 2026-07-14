@@ -32,6 +32,16 @@ public class MessageCollectionViewCell: UICollectionViewCell {
     func reconfigureContent(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
         configure(with: message, at: indexPath, and: messagesCollectionView)
     }
+
+    func reconfigureContent(
+        with message: MessageType,
+        at indexPath: IndexPath,
+        and messagesCollectionView: MessagesCollectionView,
+        changeMask: ChatMessageChangeMask
+    ) {
+        _ = changeMask
+        reconfigureContent(with: message, at: indexPath, and: messagesCollectionView)
+    }
     
     public override init(frame: CGRect) {
         super.init(frame: frame)

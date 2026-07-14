@@ -1593,7 +1593,7 @@ class ChatViewController: MessagesViewController {
         
         var diffId: String {
             get {
-                return primary
+                return ChatDatasourceStableIdentity.diffKey(for: self)
             }
         }
         

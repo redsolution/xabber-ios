@@ -153,6 +153,31 @@ final class ChatTimelineSessionTests: XCTestCase {
         XCTAssertEqual(Set(publishedGenerations).count, publishedGenerations.count)
     }
 
+    func testIncrementalStoreBatchPublishesOnceWithoutLatestOrResidentRefetch() throws {
+        let store = FakeChatTimelineSessionStore(messages: makeMessages(count: 12))
+        let session = makeSession(store: store, pageSize: 2)
+        let opened = session.openLatest()
+        let queryCountBeforeMutation = store.diagnosticsSnapshot.queryCount
+        var publishedSnapshots: [ChatTimelineSessionSnapshot] = []
+        session.onSnapshot = { publishedSnapshots.append($0) }
+        let incoming = try XCTUnwrap(makeMessages(count: 13).last)
+        var accumulator = ChatIncrementalMessageMutationAccumulator<MessageStorageItem>()
+        accumulator.enqueue(.upsert(
+            identity: ChatIncrementalMessageIdentity(message: incoming),
+            revision: 1,
+            payload: incoming
+        ))
+
+        store.emit(.incremental(accumulator.drain(), refreshUnread: false))
+
+        XCTAssertEqual(store.diagnosticsSnapshot.queryCount, queryCountBeforeMutation)
+        XCTAssertEqual(publishedSnapshots.count, 1)
+        XCTAssertEqual(session.snapshot.generation, opened.generation + 1)
+        XCTAssertEqual(session.snapshot.items.last?.primary, "primary-12")
+        XCTAssertEqual(session.snapshot.residentChangeSet?.insertedPrimaries, ["primary-12"])
+        XCTAssertEqual(store.observation?.residentPrimaryKeys, session.snapshot.items.map(\.primary))
+    }
+
     func testSessionDeinitInvalidatesBoundedObservation() {
         let store = FakeChatTimelineSessionStore(messages: makeMessages(count: 4))
         weak var weakSession: ChatTimelineSession?

@@ -804,6 +804,40 @@ public class TextMessageCell: MessageContentCell {
         applyTextContent(with: message, at: indexPath, and: messagesCollectionView, reuseInlineViews: true)
     }
 
+    override func reconfigureContent(
+        with message: MessageType,
+        at indexPath: IndexPath,
+        and messagesCollectionView: MessagesCollectionView,
+        changeMask: ChatMessageChangeMask
+    ) {
+        if changeMask == [.chrome] {
+            applyChromeUpdate(with: message, at: indexPath, and: messagesCollectionView)
+            return
+        }
+        applyTextContent(with: message, at: indexPath, and: messagesCollectionView, reuseInlineViews: true)
+    }
+
+    private func applyChromeUpdate(
+        with message: MessageType,
+        at indexPath: IndexPath,
+        and messagesCollectionView: MessagesCollectionView
+    ) {
+        messagePrimary = message.primary
+        super.reconfigureContent(
+            with: message,
+            at: indexPath,
+            and: messagesCollectionView,
+            changeMask: [.chrome]
+        )
+        warningLabel.text = message.messageWarningText
+        warningLabel.isHidden = message.messageWarningText == nil
+        timeMarker.configure(
+            text: message.timeMarkerText,
+            indicator: message.indicator,
+            withBackplate: usesTimeMarkerBackplate(for: message)
+        )
+    }
+
     private func applyTextContent(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView, reuseInlineViews: Bool) {
         self.messagePrimary = message.primary
         super.configure(with: message, at: indexPath, and: messagesCollectionView)
@@ -818,22 +852,12 @@ public class TextMessageCell: MessageContentCell {
         authorView.attributedText = message.attributedAuthor
         warningLabel.text = message.messageWarningText
         warningLabel.isHidden = message.messageWarningText == nil
-        var timeMarkerWithBackplate: Bool = false
-        if message.images.isNotEmpty || message.videos.isNotEmpty || message.locations.isNotEmpty,
-           message.files.isEmpty,
-           message.contacts.isEmpty,
-           message.audios.isEmpty {
-            switch message.kind {
-                case .attributedText(let text):
-                    if text.string.isEmpty {
-                        timeMarkerWithBackplate = true
-                    }
-                default:
-                    break
-            }
-        }
         let palette = AccountColorManager.shared.palette(for: message.owner)
-        self.timeMarker.configure(text: message.timeMarkerText, indicator: message.indicator, withBackplate: timeMarkerWithBackplate)
+        self.timeMarker.configure(
+            text: message.timeMarkerText,
+            indicator: message.indicator,
+            withBackplate: usesTimeMarkerBackplate(for: message)
+        )
         if reuseInlineViews {
             self.imagesView.updateContent(message.images)
             self.locationsView.updateContent(message.locations)
@@ -859,6 +883,17 @@ public class TextMessageCell: MessageContentCell {
         
         ensureLongPressGestureInstalled()
         configureAvatar(for: message)
+    }
+
+    private func usesTimeMarkerBackplate(for message: MessageType) -> Bool {
+        guard message.images.isNotEmpty || message.videos.isNotEmpty || message.locations.isNotEmpty,
+              message.files.isEmpty,
+              message.contacts.isEmpty,
+              message.audios.isEmpty,
+              case .attributedText(let text) = message.kind else {
+            return false
+        }
+        return text.string.isEmpty
     }
 
     private func resetReusableAttachmentState() {

@@ -208,8 +208,8 @@ final class ChatBottomScrollAlignmentPolicyTests: XCTestCase {
         )
     }
 
-    func testOutgoingScrollUsesImmediateReloadPath() {
-        XCTAssertTrue(
+    func testOutgoingScrollUsesTargetedBatchPath() {
+        XCTAssertFalse(
             ChatOutgoingAutoScrollApplyPolicy.shouldUseImmediateReload(
                 outgoingAutoScrollDecision: .scroll(IndexPath(item: 0, section: 10))
             )

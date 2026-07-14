@@ -113,6 +113,9 @@ xabberTests/VoiceMessagePlaybackCoordinatorTests
 SELECTORS
       ;;
     G09) cat <<'SELECTORS'
+xabberTests/ChatIncrementalMessageApplyTests
+xabberTests/TextMessageCellGranularUpdateTests
+xabberTests/ChatTimelineSessionTests/testIncrementalStoreBatchPublishesOnceWithoutLatestOrResidentRefetch
 xabberTests/ChatDiffKeySignatureTests
 xabberTests/ChatDatasourceMappingThreadingTests
 xabberTests/ChatOutgoingAutoScrollPolicyTests

@@ -5644,12 +5644,8 @@ enum ChatOutgoingAutoScrollApplyPolicy {
     static func shouldUseImmediateReload(
         outgoingAutoScrollDecision: ChatOutgoingAutoScrollDecision
     ) -> Bool {
-        switch outgoingAutoScrollDecision {
-        case .scroll:
-            return true
-        case .notHandled, .useDefaultAndClear, .handledNoScroll:
-            return false
-        }
+        _ = outgoingAutoScrollDecision
+        return false
     }
 
     static func shouldAnimateStructuralApply(
@@ -6373,7 +6369,7 @@ enum ChatMessageUpdatePolicy {
         oldSize: CGSize?,
         newSize: CGSize?
     ) -> ChatMessageUpdateClassification {
-        guard oldMessage.primary == newMessage.primary else {
+        guard ChatDatasourceStableIdentity.matches(oldMessage, newMessage) else {
             return .layout
         }
         guard ChatMessageLayoutSignature(oldMessage) == ChatMessageLayoutSignature(newMessage) else {
@@ -6383,6 +6379,56 @@ enum ChatMessageUpdatePolicy {
             return .layout
         }
         return .contentOnly
+    }
+
+    static func changeMask(
+        old oldMessage: ChatViewController.Datasource,
+        new newMessage: ChatViewController.Datasource,
+        oldSize: CGSize?,
+        newSize: CGSize?
+    ) -> ChatMessageChangeMask {
+        let oldSignature = contentSignature(for: oldMessage)
+        let newSignature = contentSignature(for: newMessage)
+        var mask: ChatMessageChangeMask = []
+
+        if oldMessage.primary != newMessage.primary ||
+            oldMessage.state != newMessage.state ||
+            oldMessage.indicator != newMessage.indicator ||
+            oldMessage.error != newMessage.error ||
+            oldMessage.errorType != newMessage.errorType ||
+            oldMessage.isRead != newMessage.isRead ||
+            oldMessage.archivedId != newMessage.archivedId ||
+            oldMessage.queryIds != newMessage.queryIds ||
+            oldMessage.messageWarningText != newMessage.messageWarningText ||
+            oldMessage.editDate != newMessage.editDate ||
+            oldSignature.timeMarkerText != newSignature.timeMarkerText ||
+            ChatViewController.Datasource.iconForMetadata(for: oldMessage.errorMetadata) !=
+                ChatViewController.Datasource.iconForMetadata(for: newMessage.errorMetadata) {
+            mask.insert(.chrome)
+        }
+        if oldSignature.kind != newSignature.kind {
+            mask.insert(.text)
+        }
+        if oldSignature.attachments != newSignature.attachments {
+            mask.insert(.attachments)
+        }
+        if oldMessage.avatarUrl != newMessage.avatarUrl ||
+            oldMessage.withAvatar != newMessage.withAvatar ||
+            oldMessage.reservesAvatarSpace != newMessage.reservesAvatarSpace ||
+            oldMessage.groupchatAuthorId != newMessage.groupchatAuthorId ||
+            oldMessage.groupchatAuthorNickname != newMessage.groupchatAuthorNickname ||
+            oldMessage.groupchatAuthorBadge != newMessage.groupchatAuthorBadge ||
+            oldMessage.attributedAuthor?.string != newMessage.attributedAuthor?.string {
+            mask.insert(.avatar)
+        }
+        if ChatMessageLayoutSignature(oldMessage) != ChatMessageLayoutSignature(newMessage) ||
+            !equalOptionalSizes(oldSize, newSize) {
+            mask.insert(.layout)
+        }
+        if mask.isEmpty && shouldUpdateContent(old: oldMessage, new: newMessage) {
+            mask.insert(.chrome)
+        }
+        return mask
     }
 
     static func shouldUpdateContent(
@@ -6402,6 +6448,17 @@ enum ChatMessageUpdatePolicy {
         abs(lhs.width - rhs.width) <= sizeTolerance &&
         abs(lhs.height - rhs.height) <= sizeTolerance
     }
+
+    private static func equalOptionalSizes(_ lhs: CGSize?, _ rhs: CGSize?) -> Bool {
+        switch (lhs, rhs) {
+        case let (lhs?, rhs?):
+            return sizesAreEqual(lhs, rhs)
+        case (nil, nil):
+            return true
+        case (.some, .none), (.none, .some):
+            return false
+        }
+    }
 }
 
 struct ChatDatasourceCoordinator {
@@ -6411,6 +6468,7 @@ struct ChatDatasourceCoordinator {
         let reloads: [IndexPath]
         let contentOnlyUpdates: [ChatMessageContentUpdate]
         let moves: [(from: IndexPath, to: IndexPath)]
+        let changeMasksByPrimary: [String: ChatMessageChangeMask]
 
         var isEmpty: Bool {
             inserts.isEmpty && deletes.isEmpty && reloads.isEmpty && contentOnlyUpdates.isEmpty && moves.isEmpty
@@ -6445,6 +6503,7 @@ struct ChatDatasourceCoordinator {
 
         var contentOnlyUpdates: [ChatMessageContentUpdate] = []
         var reloads: [IndexPath] = []
+        var changeMasksByPrimary: [String: ChatMessageChangeMask] = [:]
         var handledSections = Set<Int>()
 
         changes.compactMap(\.replace).forEach { replace in
@@ -6456,18 +6515,26 @@ struct ChatDatasourceCoordinator {
             guard !deletes.contains(index), !inserts.contains(index) else { continue }
             let oldItem = old.items[index]
             let newItem = new.items[index]
-            guard oldItem.primary == newItem.primary else { continue }
+            guard ChatDatasourceStableIdentity.matches(oldItem, newItem) else { continue }
             guard handledSections.contains(index) ||
                     ChatMessageUpdatePolicy.shouldUpdateContent(old: oldItem, new: newItem) else {
                 continue
             }
 
             let indexPath = IndexPath(row: 0, section: index)
+            let oldSize = oldSizeProvider?(oldItem)
+            let newSize = newSizeProvider?(newItem)
+            changeMasksByPrimary[newItem.primary] = ChatMessageUpdatePolicy.changeMask(
+                old: oldItem,
+                new: newItem,
+                oldSize: oldSize,
+                newSize: newSize
+            )
             let classification = ChatMessageUpdatePolicy.classify(
                 old: oldItem,
                 new: newItem,
-                oldSize: oldSizeProvider?(oldItem),
-                newSize: newSizeProvider?(newItem)
+                oldSize: oldSize,
+                newSize: newSize
             )
             switch classification {
             case .contentOnly:
@@ -6482,7 +6549,8 @@ struct ChatDatasourceCoordinator {
             deletes: deletes,
             reloads: reloads,
             contentOnlyUpdates: contentOnlyUpdates,
-            moves: moves
+            moves: moves,
+            changeMasksByPrimary: changeMasksByPrimary
         )
     }
 
@@ -7075,6 +7143,10 @@ extension ChatViewController {
         } else {
             targetedDiff = nil
         }
+        self.scrollFrameOperationCounter.record(.datasourceApplies)
+        self.scrollFrameOperationCounter.record(.structuralInserts, by: targetedDiff?.inserts.count ?? 0)
+        self.scrollFrameOperationCounter.record(.structuralDeletes, by: targetedDiff?.deletes.count ?? 0)
+        self.scrollFrameOperationCounter.record(.structuralMoves, by: targetedDiff?.moves.count ?? 0)
         let containsOnlyFakeMessages = !items.isEmpty && items.allSatisfy(\.isFakeMessage)
         let containsRealMessages = items.contains { !$0.isFakeMessage }
         let wasNearBottom = self.isNearBottom()
@@ -7114,6 +7186,14 @@ extension ChatViewController {
                 containsOnlyFakeMessages: containsOnlyFakeMessages,
                 outgoingAutoScrollDecision: outgoingAutoScrollDecision
             )
+        let insertedItems = targetedDiff?.inserts.compactMap { section in
+            items.indices.contains(section) ? items[section] : nil
+        } ?? []
+        let incrementalViewportDecision = ChatIncrementalViewportPolicy.decision(
+            insertedItems: insertedItems,
+            wasNearBottom: wasNearBottom,
+            isResidentAtLiveTail: isResidentAtLiveTail
+        )
         let effectiveApplyCategory: ChatDatasourceApplyCategory = shouldTailAppendBottomPin
             ? .tailAppendBottomPinned
             : applyCategory
@@ -7379,6 +7459,11 @@ extension ChatViewController {
                 self.hasRenderedStableInitialHistory = true
                 self.finishInitialHistoryAppearanceIfPossible()
             }
+            if case .preserveViewport(let showNewMessageBadge) = incrementalViewportDecision,
+               showNewMessageBadge,
+               !self.shouldShowScrollDownButton.value {
+                self.shouldShowScrollDownButton.accept(true)
+            }
             let applyDurationMs = ChatArchiveDebugTrace.milliseconds(since: applyStartedAt)
             let realMessageCount = self.chatOpenTimingRealMessageCount(in: items)
             self.recordChatOpenTimingFirstMessagesPreparedIfNeeded(
@@ -7459,7 +7544,10 @@ extension ChatViewController {
                 self.messagesCollectionView.reconfigureItems(at: targetedDiff.reloads)
             }
             targetedDiff.contentOnlyUpdates.forEach { update in
-                self.updateVisibleMessageContent(primary: update.primary)
+                self.updateVisibleMessageContent(
+                    primary: update.primary,
+                    changeMask: targetedDiff.changeMasksByPrimary[update.primary] ?? .all
+                )
             }
         }
 
@@ -7469,6 +7557,7 @@ extension ChatViewController {
             self.datasourceSnapshot = newSnapshot
             let updates = {
                 let reloadStartedAt = Date()
+                self.scrollFrameOperationCounter.record(.reloads)
                 self.messagesCollectionView.reloadData()
                 ChatArchiveDebugTrace.log("chatDatasourceReload", [
                     ("owner", self.owner),
@@ -7490,13 +7579,19 @@ extension ChatViewController {
             self.datasource = items
             self.datasourceSnapshot = newSnapshot
             guard let targetedDiff else {
-                let reload = { self.messagesCollectionView.reloadData() }
+                let reload = {
+                    self.scrollFrameOperationCounter.record(.reloads)
+                    self.messagesCollectionView.reloadData()
+                }
                 shouldAnimateApply ? reload() : runWithoutAnimation(reload)
                 finish()
                 return
             }
             if ChatOutgoingAutoScrollApplyPolicy.shouldUseImmediateReload(outgoingAutoScrollDecision: outgoingAutoScrollDecision) {
-                runWithoutAnimation { self.messagesCollectionView.reloadData() }
+                runWithoutAnimation {
+                    self.scrollFrameOperationCounter.record(.reloads)
+                    self.messagesCollectionView.reloadData()
+                }
                 finish()
                 return
             }
@@ -7554,7 +7649,10 @@ extension ChatViewController {
     }
 
     @discardableResult
-    internal func updateVisibleMessageContent(primary: String) -> Bool {
+    internal func updateVisibleMessageContent(
+        primary: String,
+        changeMask: ChatMessageChangeMask = .all
+    ) -> Bool {
         guard let section = datasourceSnapshot.primaryIndex[primary],
               let item = self.datasourceItem(atSection: section) else {
             return false
@@ -7565,8 +7663,16 @@ extension ChatViewController {
             return false
         }
 
+        ChatMessageCellUpdatePlan(changeMask: changeMask).operations.forEach {
+            self.scrollFrameOperationCounter.record($0)
+        }
         UIView.performWithoutAnimation {
-            cell.reconfigureContent(with: item, at: indexPath, and: messagesCollectionView)
+            cell.reconfigureContent(
+                with: item,
+                at: indexPath,
+                and: messagesCollectionView,
+                changeMask: changeMask
+            )
             cell.setNeedsLayout()
         }
         return true
@@ -9158,8 +9264,9 @@ extension ChatViewController {
         let mappingContext = self.captureDatasourceMappingContext()
 
         self.datasetMappingQueue.async {
-            _ = session.refreshResidentItems()
-            let snapshot = session.applyRuntimePlaceholder(boundaryPlaceholder)
+            let snapshot = boundaryPlaceholder.map {
+                session.applyRuntimePlaceholder($0)
+            } ?? session.snapshot
             let mappingResult = self.mapDataset(dataset: snapshot.items, context: mappingContext)
 
             DispatchQueue.main.async {
@@ -10322,6 +10429,17 @@ extension ChatViewController {
     }
 
     internal func handleTimelineSessionRefresh() {
+        if let snapshot = self.timelineSession?.snapshot,
+           case .preserveViewport(let showNewMessageBadge) = ChatIncrementalViewportPolicy.decision(
+               insertedItems: [],
+               wasNearBottom: false,
+               isResidentAtLiveTail: snapshot.state.isResidentAtLiveTail,
+               nonResidentIncomingCount: snapshot.residentChangeSet?.nonResidentIncomingPrimaries.count ?? 0
+           ),
+           showNewMessageBadge,
+           !self.shouldShowScrollDownButton.value {
+            self.shouldShowScrollDownButton.accept(true)
+        }
         let motionState = self.currentScrollMotionState()
         if !self.showSkeletonObserver.value,
            motionState.isMoving {
@@ -12381,28 +12499,48 @@ extension ChatViewController {
                 completion: currentWindowCompletion
             )
         case .openLatestNonAnimated:
-            self.mapAndApplyTimelineLatest(
-                mode: .targetedDiff,
-                animated: false,
-                invalidateLayout: false,
-                limit: self.initialFirstFramePageSize,
-                suppressDefaultBottomScroll: true,
-                forceBottomAlignmentTarget: .newestRealMessage,
-                completion: {
-                    completion()
-                    self.finishLatestBottomScroll(
-                        animated: false,
-                        consumePendingForceLatest: self.pendingForceLatestOpen
-                    )
-                }
-            )
+            let applyCompletion = {
+                completion()
+                self.finishLatestBottomScroll(
+                    animated: false,
+                    consumePendingForceLatest: self.pendingForceLatestOpen
+                )
+            }
+            if normalizedState.isResidentAtLiveTail {
+                self.mapAndApplyTimelineCurrent(
+                    mode: .targetedDiff,
+                    animated: false,
+                    invalidateLayout: false,
+                    suppressDefaultBottomScroll: true,
+                    completion: applyCompletion
+                )
+            } else {
+                self.mapAndApplyTimelineLatest(
+                    mode: .targetedDiff,
+                    animated: false,
+                    invalidateLayout: false,
+                    limit: self.initialFirstFramePageSize,
+                    suppressDefaultBottomScroll: true,
+                    forceBottomAlignmentTarget: .newestRealMessage,
+                    completion: applyCompletion
+                )
+            }
         case .followDefault where shouldOpenLatest:
-            self.mapAndApplyTimelineLatest(
-                mode: .targetedDiff,
-                animated: self.shouldAnimateInitialHistoryAppearance,
-                invalidateLayout: false,
-                completion: completion
-            )
+            if normalizedState.isResidentAtLiveTail {
+                self.mapAndApplyTimelineCurrent(
+                    mode: .targetedDiff,
+                    animated: self.shouldAnimateInitialHistoryAppearance,
+                    invalidateLayout: false,
+                    completion: completion
+                )
+            } else {
+                self.mapAndApplyTimelineLatest(
+                    mode: .targetedDiff,
+                    animated: self.shouldAnimateInitialHistoryAppearance,
+                    invalidateLayout: false,
+                    completion: completion
+                )
+            }
         case .followDefault:
             self.mapAndApplyTimelineCurrent(
                 mode: .targetedDiff,

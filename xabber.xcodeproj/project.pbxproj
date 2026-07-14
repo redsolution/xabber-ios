@@ -48,6 +48,9 @@
 		4E9700022FF700000ABC001 /* ChatSingleFrameLocalOpenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9700012FF700000ABC001 /* ChatSingleFrameLocalOpenTests.swift */; };
 		4E9800022FF800000ABC001 /* ChatCollectionAnchorPreservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9800012FF800000ABC001 /* ChatCollectionAnchorPreservationTests.swift */; };
 		4E9900022FF900000ABC001 /* ChatScrollFrameBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9900012FF900000ABC001 /* ChatScrollFrameBudgetTests.swift */; };
+		4EA900032FFA00000ABC001 /* ChatIncrementalMessageApplyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA900012FFA00000ABC001 /* ChatIncrementalMessageApplyTests.swift */; };
+		4EA900042FFA00000ABC001 /* TextMessageCellGranularUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA900022FFA00000ABC001 /* TextMessageCellGranularUpdateTests.swift */; };
+		4EA900062FFA00000ABC001 /* ChatIncrementalMessageUpdates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA900052FFA00000ABC001 /* ChatIncrementalMessageUpdates.swift */; };
 		4E9900042FF900000ABC001 /* ChatScrollFrameMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9900032FF900000ABC001 /* ChatScrollFrameMetadata.swift */; };
 		4E9000062FF000000ABC001 /* ChatRenderOperationCounter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9000052FF000000ABC001 /* ChatRenderOperationCounter.swift */; };
 		4E9000082FF000000ABC001 /* ChatPerformanceFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9000072FF000000ABC001 /* ChatPerformanceFixtures.swift */; };
@@ -982,6 +985,9 @@
 		4E9700012FF700000ABC001 /* ChatSingleFrameLocalOpenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSingleFrameLocalOpenTests.swift; sourceTree = "<group>"; };
 		4E9800012FF800000ABC001 /* ChatCollectionAnchorPreservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCollectionAnchorPreservationTests.swift; sourceTree = "<group>"; };
 		4E9900012FF900000ABC001 /* ChatScrollFrameBudgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScrollFrameBudgetTests.swift; sourceTree = "<group>"; };
+		4EA900012FFA00000ABC001 /* ChatIncrementalMessageApplyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatIncrementalMessageApplyTests.swift; sourceTree = "<group>"; };
+		4EA900022FFA00000ABC001 /* TextMessageCellGranularUpdateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextMessageCellGranularUpdateTests.swift; sourceTree = "<group>"; };
+		4EA900052FFA00000ABC001 /* ChatIncrementalMessageUpdates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatIncrementalMessageUpdates.swift; sourceTree = "<group>"; };
 		4E9900032FF900000ABC001 /* ChatScrollFrameMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScrollFrameMetadata.swift; sourceTree = "<group>"; };
 		4E9000052FF000000ABC001 /* ChatRenderOperationCounter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatRenderOperationCounter.swift; sourceTree = "<group>"; };
 		4E9000072FF000000ABC001 /* ChatPerformanceFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPerformanceFixtures.swift; sourceTree = "<group>"; };
@@ -4023,6 +4029,8 @@
 					4E9700012FF700000ABC001 /* ChatSingleFrameLocalOpenTests.swift */,
 					4E9800012FF800000ABC001 /* ChatCollectionAnchorPreservationTests.swift */,
 					4E9900012FF900000ABC001 /* ChatScrollFrameBudgetTests.swift */,
+					4EA900012FFA00000ABC001 /* ChatIncrementalMessageApplyTests.swift */,
+					4EA900022FFA00000ABC001 /* TextMessageCellGranularUpdateTests.swift */,
 					4E6A00012FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift */,
 					4E6B00012FAA00000ABC001 /* ChatScrollCoalescingTests.swift */,
 					4E6C00012FAB00000ABC001 /* ChatCollectionPrefetchTests.swift */,
@@ -4508,6 +4516,7 @@
 				4E9000072FF000000ABC001 /* ChatPerformanceFixtures.swift */,
 				4E9800032FF800000ABC001 /* ChatViewportTransaction.swift */,
 				4E9900032FF900000ABC001 /* ChatScrollFrameMetadata.swift */,
+				4EA900052FFA00000ABC001 /* ChatIncrementalMessageUpdates.swift */,
 				4E9200052FF200000ABC001 /* ChatAttributedBodyFormatter.swift */,
 				4E6A00032FA900000ABC001 /* ChatScrollBoundaryAvailabilityCache.swift */,
 				4E6B00032FAA00000ABC001 /* ChatScrollWorkScheduler.swift */,
@@ -5687,6 +5696,7 @@
 				4E9000082FF000000ABC001 /* ChatPerformanceFixtures.swift in Sources */,
 				4E9800042FF800000ABC001 /* ChatViewportTransaction.swift in Sources */,
 				4E9900042FF900000ABC001 /* ChatScrollFrameMetadata.swift in Sources */,
+				4EA900062FFA00000ABC001 /* ChatIncrementalMessageUpdates.swift in Sources */,
 				4E9200062FF200000ABC001 /* ChatAttributedBodyFormatter.swift in Sources */,
 				4E6A00042FA900000ABC001 /* ChatScrollBoundaryAvailabilityCache.swift in Sources */,
 				4E6B00042FAA00000ABC001 /* ChatScrollWorkScheduler.swift in Sources */,
@@ -6086,6 +6096,8 @@
 					4E9700022FF700000ABC001 /* ChatSingleFrameLocalOpenTests.swift in Sources */,
 					4E9800022FF800000ABC001 /* ChatCollectionAnchorPreservationTests.swift in Sources */,
 					4E9900022FF900000ABC001 /* ChatScrollFrameBudgetTests.swift in Sources */,
+					4EA900032FFA00000ABC001 /* ChatIncrementalMessageApplyTests.swift in Sources */,
+					4EA900042FFA00000ABC001 /* TextMessageCellGranularUpdateTests.swift in Sources */,
 					4E6A00022FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift in Sources */,
 					4E6B00022FAA00000ABC001 /* ChatScrollCoalescingTests.swift in Sources */,
 					4E6C00022FAB00000ABC001 /* ChatCollectionPrefetchTests.swift in Sources */,
