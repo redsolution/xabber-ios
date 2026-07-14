@@ -41,6 +41,7 @@ final class ChatSearchLocalProvider {
         case batch([ChatSearchResult])
         case completed(total: Int)
         case failed(Failure)
+        case cancelled
     }
 
     struct Event: Equatable, Sendable {
@@ -59,12 +60,17 @@ final class ChatSearchLocalProvider {
         let queryId: String
     }
 
+    private struct ActiveRequest {
+        let identity: Identity
+        let onEvent: EventHandler
+    }
+
     private let realmConfiguration: Realm.Configuration
     private let batchSize: Int
     private let workQueue: DispatchQueue
     private let realmFactory: RealmFactory
     private let stateLock = NSLock()
-    private var activeIdentity: Identity?
+    private var activeRequest: ActiveRequest?
 
     init(
         realmConfiguration: Realm.Configuration = Realm.Configuration.defaultConfiguration,
@@ -91,7 +97,11 @@ final class ChatSearchLocalProvider {
             generation: request.generation,
             queryId: request.queryId
         )
-        replaceActiveIdentity(with: identity)
+        if let replaced = replaceActiveRequest(
+            with: ActiveRequest(identity: identity, onEvent: onEvent)
+        ) {
+            deliverCancellation(replaced)
+        }
 
         guard let conversationType = ClientSynchronizationManager.ConversationType(
             rawValue: request.mappingContext.scope.conversationTypeRawValue
@@ -213,32 +223,52 @@ final class ChatSearchLocalProvider {
     func cancel(queryId: String, generation: UInt64) -> Bool {
         let identity = Identity(generation: generation, queryId: queryId)
         stateLock.lock()
-        defer { stateLock.unlock() }
-        guard activeIdentity == identity else {
+        guard let activeRequest,
+              activeRequest.identity == identity else {
+            stateLock.unlock()
             return false
         }
-        activeIdentity = nil
+        self.activeRequest = nil
+        stateLock.unlock()
+        deliverCancellation(activeRequest)
         return true
     }
 
-    private func replaceActiveIdentity(with identity: Identity) {
+    private func replaceActiveRequest(with request: ActiveRequest) -> ActiveRequest? {
         stateLock.lock()
-        activeIdentity = identity
+        let replaced = activeRequest
+        activeRequest = request
         stateLock.unlock()
+        return replaced
     }
 
     private func isActive(_ identity: Identity) -> Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
-        return activeIdentity == identity
+        return activeRequest?.identity == identity
     }
 
     private func finish(_ identity: Identity) {
         stateLock.lock()
-        if activeIdentity == identity {
-            activeIdentity = nil
+        if activeRequest?.identity == identity {
+            activeRequest = nil
         }
         stateLock.unlock()
+    }
+
+    private func deliverCancellation(_ request: ActiveRequest) {
+        let event = Event(
+            generation: request.identity.generation,
+            queryId: request.identity.queryId,
+            phase: .cancelled
+        )
+        if Thread.isMainThread {
+            request.onEvent(event)
+        } else {
+            DispatchQueue.main.async {
+                request.onEvent(event)
+            }
+        }
     }
 
     private func emit(

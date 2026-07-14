@@ -68,6 +68,8 @@ final class ChatSearchLocalProviderTests: XCTestCase {
                 completed.fulfill()
             case .failed(let failure):
                 XCTFail("Unexpected failure: \(failure)")
+            case .cancelled:
+                XCTFail("Unexpected cancellation")
             }
         }
 
@@ -95,6 +97,8 @@ final class ChatSearchLocalProviderTests: XCTestCase {
                 completed.fulfill()
             case .failed(let failure):
                 XCTFail("Unexpected failure: \(failure)")
+            case .cancelled:
+                XCTFail("Unexpected cancellation")
             }
         }
 
@@ -127,6 +131,8 @@ final class ChatSearchLocalProviderTests: XCTestCase {
                 completed.fulfill()
             case .failed(let failure):
                 XCTFail("Unexpected failure: \(failure)")
+            case .cancelled:
+                XCTFail("Unexpected cancellation")
             }
         }
 
@@ -170,6 +176,8 @@ final class ChatSearchLocalProviderTests: XCTestCase {
                 completed.fulfill()
             case .failed(let failure):
                 XCTFail("Unexpected failure: \(failure)")
+            case .cancelled:
+                XCTFail("Unexpected cancellation")
             }
         }
 
@@ -192,6 +200,7 @@ final class ChatSearchLocalProviderTests: XCTestCase {
         let replacementCompleted = expectation(description: "replacement completed")
         let oldCompleted = expectation(description: "old must not complete")
         oldCompleted.isInverted = true
+        let oldCancelled = expectation(description: "old receives typed cancellation")
         var oldBatchCount = 0
         var replacementResults: [ChatSearchResult] = []
 
@@ -208,6 +217,8 @@ final class ChatSearchLocalProviderTests: XCTestCase {
                             replacementCompleted.fulfill()
                         case .failed(let failure):
                             XCTFail("Unexpected replacement failure: \(failure)")
+                        case .cancelled:
+                            XCTFail("Replacement must remain current")
                         }
                     }
                 }
@@ -215,10 +226,12 @@ final class ChatSearchLocalProviderTests: XCTestCase {
                 oldCompleted.fulfill()
             case .failed(let failure):
                 XCTFail("Unexpected old failure: \(failure)")
+            case .cancelled:
+                oldCancelled.fulfill()
             }
         }
 
-        wait(for: [replacementCompleted, oldCompleted], timeout: 2)
+        wait(for: [replacementCompleted, oldCancelled, oldCompleted], timeout: 2)
         XCTAssertEqual(oldBatchCount, 1)
         XCTAssertEqual(replacementResults.map(\.anchor.primary), ["replacement"])
     }
@@ -231,6 +244,7 @@ final class ChatSearchLocalProviderTests: XCTestCase {
         let firstBatch = expectation(description: "first batch")
         let terminal = expectation(description: "cancelled query must not complete")
         terminal.isInverted = true
+        let cancelled = expectation(description: "cancelled query has typed terminal")
         let request = makeRequest(queryId: "cancel")
         var batchCount = 0
 
@@ -246,10 +260,12 @@ final class ChatSearchLocalProviderTests: XCTestCase {
                 terminal.fulfill()
             case .failed(let failure):
                 XCTFail("Unexpected failure: \(failure)")
+            case .cancelled:
+                cancelled.fulfill()
             }
         }
 
-        wait(for: [firstBatch, terminal], timeout: 1)
+        wait(for: [firstBatch, cancelled, terminal], timeout: 1)
         XCTAssertEqual(batchCount, 1)
     }
 
@@ -274,6 +290,8 @@ final class ChatSearchLocalProviderTests: XCTestCase {
                 completed.fulfill()
             case .failed(let failure):
                 XCTFail("Unexpected failure: \(failure)")
+            case .cancelled:
+                XCTFail("Unexpected cancellation")
             }
         }
 
@@ -306,6 +324,8 @@ final class ChatSearchLocalProviderTests: XCTestCase {
                     )
                 )
                 failed.fulfill()
+            case .cancelled:
+                XCTFail("Unexpected cancellation")
             }
         }
 
@@ -329,6 +349,8 @@ final class ChatSearchLocalProviderTests: XCTestCase {
                 completed.fulfill()
             case .failed(let failure):
                 XCTFail("Unexpected failure: \(failure)")
+            case .cancelled:
+                XCTFail("Unexpected cancellation")
             }
         }
 

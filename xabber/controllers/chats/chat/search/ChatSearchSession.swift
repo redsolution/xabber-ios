@@ -124,9 +124,8 @@ struct ChatSearchSession: Sendable {
             return cancel()
         }
 
-        guard normalized != normalizedQuery || scope != self.scope else {
-            return []
-        }
+        let isSameRequest = normalized == normalizedQuery && scope == self.scope
+        guard !isSameRequest || providerPhase == .failed else { return [] }
 
         var effects = cancellationEffects()
         generation &+= 1

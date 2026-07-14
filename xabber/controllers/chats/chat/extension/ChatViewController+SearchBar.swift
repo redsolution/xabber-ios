@@ -2460,7 +2460,7 @@ extension ChatViewController {
         searchResultNavigationState = .pending(index: index, scrollDirection: scrollDirection)
         renderSearchNavigationButtons(animated: true)
         if hasActiveSearchResultAnchorWork() ||
-            xabberInputView.searchPanel.renderState.isLoadingContext {
+            (xabberInputView?.searchPanel.renderState.isLoadingContext ?? false) {
             setSearchResultsPanelContextLoading(true)
         }
     }

@@ -301,11 +301,11 @@ final class ChatSearchTimestampMAMResolverTests: XCTestCase {
         let harness = ChatTimestampRequestHarness()
         let resolver = ChatSearchTimestampMAMResolver(dependencies: harness.dependencies())
         let completed = expectation(description: "new generation only")
-        var oldCount = 0
+        var oldOutcomes: [ChatSearchTimestampMAMResolutionOutcome] = []
         var newOutcomes: [ChatSearchTimestampMAMResolutionOutcome] = []
 
-        resolver.resolve(fallback(), requestID: requestID, generation: generation) { _ in
-            oldCount += 1
+        resolver.resolve(fallback(), requestID: requestID, generation: generation) {
+            oldOutcomes.append($0)
         }
         let stale = harness.attempts[0]
         resolver.resolve(fallback(), requestID: requestID, generation: generation + 1) {
@@ -320,7 +320,7 @@ final class ChatSearchTimestampMAMResolverTests: XCTestCase {
         finishEmpty(harness.attempts[2])
 
         wait(for: [completed], timeout: 1)
-        XCTAssertEqual(oldCount, 0)
+        XCTAssertEqual(oldOutcomes, [.cancelled])
         XCTAssertEqual(newOutcomes, [.noMessage])
     }
 

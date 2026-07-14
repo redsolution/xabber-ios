@@ -97,6 +97,8 @@ extension ChatViewController {
                 case .failed(let failure):
                     DDLogDebug("ChatViewController: local search failed: \(failure)")
                     _ = self.handleInChatSearchQueryFailure(queryId: context.queryId)
+                case .cancelled:
+                    break
                 }
             }
         } else {

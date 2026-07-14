@@ -164,15 +164,17 @@ final class ChatSearchTimestampMAMResolver: ChatSearchTimestampMAMResolving {
         }
 
         stateLock.lock()
-        let replacedQueryId = activeRequests[requestID]?.queryId
-        activeRequests[requestID] = ActiveRequest(
+        let replaced = activeRequests.updateValue(ActiveRequest(
             fallback: fallback,
             generation: generation,
             completion: completion
-        )
+        ), forKey: requestID)
         stateLock.unlock()
-        if let replacedQueryId {
+        if let replacedQueryId = replaced?.queryId {
             dependencies.cancel(replacedQueryId)
+        }
+        if let replaced {
+            deliver(replaced.completion, outcome: .cancelled)
         }
         startAttempt(
             requestID: requestID,
