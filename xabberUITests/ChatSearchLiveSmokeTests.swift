@@ -176,8 +176,136 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
     func testCalendarDateJumpForKnownResult() throws {
         // Separate opt-in is evaluated before XCUIApplication exists. Task 24
         // only compiles this controlled scenario; Task 26B performs the run.
-        _ = try ChatSearchLiveQASafetyGate.requireDateJumpAuthorization()
-        throw XCTSkip("Controlled calendar date-jump execution is reserved for Task 26B.")
+        let authorization = try ChatSearchLiveQASafetyGate.requireDateJumpAuthorization()
+        executionTimeAllowance = ChatSearchLiveQATimeoutPolicy.globalBudget
+        try executeControlledCalendarDateJump(
+            authorization: authorization
+        )
+    }
+
+    private func executeControlledCalendarDateJump(
+        authorization: ChatSearchLiveQASafetyGate.Authorization
+    ) throws {
+        let app = XCUIApplication()
+        let startedAt = Date()
+        app.launch()
+        addTeardownBlock {
+            if app.state != .notRunning {
+                app.terminate()
+            }
+        }
+
+        do {
+            try assertGlobalBudget(startedAt: startedAt, stage: "date-jump-launch")
+            try waitForSignedInShell(in: app)
+
+            var selectedDialog: String?
+            var initialPosition: ChatSearchLiveQACountParser.Position?
+
+            for candidate in authorization.dialogCandidates {
+                try assertGlobalBudget(startedAt: startedAt, stage: "date-jump-dialog-\(candidate)")
+                guard try openDialog(named: candidate, in: app) else {
+                    continue
+                }
+
+                try openInChatSearch(in: app)
+                try enterExactQuery(authorization.query, in: app)
+
+                switch try waitForTerminalOutcome(in: app) {
+                case .empty:
+                    try closeSearchAndReturnToChats(in: app)
+                    continue
+                case .error(let reason):
+                    throw LiveQAError(
+                        message: "Live date-jump search returned a typed error in \(candidate): \(reason)"
+                    )
+                case .results(let position):
+                    selectedDialog = candidate
+                    initialPosition = position
+                }
+                break
+            }
+
+            guard let selectedDialog, let initialPosition else {
+                throw LiveQAError(
+                    message: "Neither Andrew Nenakhov nor Alexey Boldin produced a known result for exact query test."
+                )
+            }
+            XCTAssertEqual(initialPosition.current, 1)
+            XCTAssertEqual(
+                stringValue(of: element(AccessibilityID.input, in: app)),
+                authorization.query
+            )
+
+            let calendarButton = element(AccessibilityID.calendarButton, in: app)
+            guard calendarButton.waitForExistence(
+                timeout: ChatSearchLiveQATimeoutPolicy.modeOrCalendarTransition
+            ), calendarButton.isHittable else {
+                throw LiveQAError(message: "Calendar entry is unavailable for controlled date-jump QA.")
+            }
+            calendarButton.tap()
+
+            let calendar = element(AccessibilityID.calendar, in: app)
+            try wait(
+                description: "controlled date-jump calendar presentation",
+                timeout: ChatSearchLiveQATimeoutPolicy.modeOrCalendarTransition,
+                app: app
+            ) {
+                calendar.exists && !app.keyboards.firstMatch.exists
+            }
+
+            let selectedDays = calendarDays(in: app).filter(\.isSelected)
+            guard selectedDays.count == 1, let selectedDay = selectedDays.first else {
+                throw LiveQAError(
+                    message: "Expected exactly one calendar day selected from the current known result; got \(selectedDays.count)."
+                )
+            }
+            let selectedDayIdentifier = selectedDay.identifier
+            let selectedDayLabel = selectedDay.label
+            XCTAssertTrue(selectedDayIdentifier.hasPrefix(AccessibilityID.calendarDayPrefix))
+            XCTAssertFalse(selectedDayLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            let done = element(AccessibilityID.calendarDone, in: app)
+            guard done.exists, done.isEnabled, done.isHittable else {
+                throw LiveQAError(message: "Calendar Done is not enabled and hittable for the selected day.")
+            }
+            attachScreenshot(named: "05-date-jump-calendar", app: app)
+            done.tap()
+
+            try wait(
+                description: "calendar Done closes search and restores the signed-in chat",
+                timeout: ChatSearchLiveQATimeoutPolicy.terminalResults,
+                app: app
+            ) {
+                !calendar.exists
+                    && !self.element(AccessibilityID.input, in: app).exists
+                    && !self.element(AccessibilityID.resultsCount, in: app).exists
+                    && !self.isAnySearchLoading(in: app)
+                    && self.element(AccessibilityID.chatAvatar, in: app).exists
+                    && !self.hasLoginOrOnboarding(in: app)
+            }
+            XCTAssertTrue(app.staticTexts[selectedDialog].firstMatch.exists)
+            attachScreenshot(named: "06-date-jump-restored", app: app)
+
+            let evidence = XCTAttachment(
+                string: [
+                    "dialog=\(selectedDialog)",
+                    "query=\(authorization.query)",
+                    "initialPosition=\(initialPosition.current) of \(initialPosition.total)",
+                    "selectedDayIdentifier=\(selectedDayIdentifier)",
+                    "selectedDayLabel=\(selectedDayLabel)",
+                    "searchClosed=true",
+                    "signedInChatPreserved=true"
+                ].joined(separator: "\n")
+            )
+            evidence.name = "controlled-calendar-date-jump-evidence"
+            evidence.lifetime = .keepAlways
+            add(evidence)
+            try assertGlobalBudget(startedAt: startedAt, stage: "date-jump-finished")
+        } catch {
+            attachDiagnostics(named: "calendar-date-jump-failure", app: app)
+            XCTFail(error.localizedDescription)
+        }
     }
 
     // MARK: - Signed-in shell and chat routing
