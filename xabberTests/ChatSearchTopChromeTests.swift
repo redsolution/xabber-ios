@@ -59,7 +59,7 @@ final class ChatSearchTopChromeTests: XCTestCase {
         XCTAssertEqual(view.textField.accessibilityIdentifier, "chat_search_input")
     }
 
-    func testLeadingSearchIconUsesUpwardOpticalInsetsInsideHitArea() throws {
+    func testLeadingSearchIconIsStrictlyCenteredInsideHitArea() throws {
         let view = ChatSearchNavigationView(
             frame: CGRect(x: 0, y: 0, width: 390, height: 60),
             prefersNativeGlass: true
@@ -80,7 +80,7 @@ final class ChatSearchTopChromeTests: XCTestCase {
         let configuration = try XCTUnwrap(view.submitButton.configuration)
         XCTAssertEqual(configuration.contentInsets.top, 0, accuracy: 0.001)
         XCTAssertEqual(configuration.contentInsets.leading, 8, accuracy: 0.001)
-        XCTAssertEqual(configuration.contentInsets.bottom, 8, accuracy: 0.001)
+        XCTAssertEqual(configuration.contentInsets.bottom, 0, accuracy: 0.001)
         XCTAssertEqual(configuration.contentInsets.trailing, 0, accuracy: 0.001)
 
         let image = try XCTUnwrap(configuration.image)
@@ -88,9 +88,9 @@ final class ChatSearchTopChromeTests: XCTestCase {
         XCTAssertLessThanOrEqual(image.size.height, 20)
         XCTAssertEqual(
             (configuration.contentInsets.top - configuration.contentInsets.bottom) / 2,
-            -4,
+            0,
             accuracy: 0.001,
-            "The magnifier must be optically centered above the geometric midpoint without shrinking its 44 pt hit area."
+            "The magnifier must be strictly centered on the geometric midpoint without shrinking its 44 pt hit area."
         )
     }
 
