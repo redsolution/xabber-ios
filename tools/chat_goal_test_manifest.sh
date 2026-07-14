@@ -132,8 +132,10 @@ xabberTests/ChatDatasetPerformanceHelpersTests
 SELECTORS
       ;;
     G11) cat <<'SELECTORS'
+xabberTests/ChatDisplayRevisionCancellationTests
 xabberTests/ChatDisplayModelCacheTests
 xabberTests/ChatDatasourceMappingThreadingTests
+xabberTests/ChatMessageLayoutCacheTests
 xabberTests/ChatObserverLifecycleTests
 SELECTORS
       ;;

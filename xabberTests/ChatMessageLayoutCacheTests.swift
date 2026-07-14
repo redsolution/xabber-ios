@@ -2,6 +2,31 @@ import XCTest
 @testable import xabber
 
 final class ChatMessageLayoutCacheTests: XCTestCase {
+    func testCooperativePrewarmStopsAtSixteenItemBatchBoundary() {
+        let items = (0..<100).map { makeDatasource(primary: "cancel-\($0)") }
+        var continuationChecks = 0
+        var measurements = 0
+
+        let snapshot = ChatMessageLayoutPrewarmer.prewarm(
+            items: items,
+            context: context(width: 390),
+            reuse: .empty,
+            capacity: 128,
+            shouldContinue: {
+                continuationChecks += 1
+                return continuationChecks == 1
+            },
+            measure: { message, context in
+                measurements += 1
+                return self.measuredFixture(message: message, context: context)
+            }
+        )
+
+        XCTAssertEqual(continuationChecks, 2)
+        XCTAssertEqual(measurements, 16)
+        XCTAssertEqual(snapshot.count, 16)
+    }
+
     func testDuplicateLayoutKeyIsMeasuredOnce() {
         let message = makeDatasource(primary: "same", text: "same")
         let counter = ChatMessageLayoutOperationCounter()

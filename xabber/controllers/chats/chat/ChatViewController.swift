@@ -1783,7 +1783,7 @@ class ChatViewController: MessagesViewController {
         }
     }
     var scrollBoundaryAvailabilityCache: ChatScrollBoundaryAvailabilityCache = .empty
-    var displayModelCache: ChatDisplayModelCache = ChatDisplayModelCache(capacity: 512)
+    var displayModelCache: ChatDisplayModelCache = ChatDisplayModelCache(capacity: 2_048)
     
     
     var sharedPlayerPaneldelegae: SharedAudioPlayerPanelDelegate? = nil
@@ -2759,16 +2759,12 @@ class ChatViewController: MessagesViewController {
         return queue
     }()
 
-    internal let datasetMappingQueue: DispatchQueue = {
-        let queue = DispatchQueue(
-            label: "com.xabber.chat.dataset.mapping",
-            qos: .userInitiated,
-            attributes: [],
-            autoreleaseFrequency: .workItem,
-            target: nil
-        )
-        return queue
-    }()
+    internal let datasetMappingQueue = ChatDatasetMappingQueueFactory.make(
+        label: "com.xabber.chat.dataset.mapping"
+    )
+    internal let datasetMappingJobCoordinator = ChatDatasetMappingJobCoordinator(
+        cancellationCheckInterval: 16
+    )
     internal let remoteHistoryApplyQueue: DispatchQueue = {
         let queue = DispatchQueue(
             label: "com.xabber.chat.remote-history.apply",
@@ -5534,6 +5530,7 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        self.cancelDatasetMappingJobs()
         self.flushPendingScrollWork()
         self.collectionPrefetchCoordinator.cancelAll()
         self.beginNavigationTransitionDeferralIfNeeded()
@@ -5566,6 +5563,12 @@ class ChatViewController: MessagesViewController {
         if !self.didScheduleNavigationDisappearanceCleanup {
             self.runNavigationDisappearanceCleanupIfNeeded()
         }
+    }
+
+    override func didReceiveMemoryWarning() {
+        super.didReceiveMemoryWarning()
+        self.displayModelCache.removeAll()
+        self.cancelDatasetMappingJobs()
     }
     
     static func getColorsForGradient(forColor color: BackgroundColor) -> [CGColor] {
@@ -5621,6 +5624,7 @@ class ChatViewController: MessagesViewController {
     }
     
     deinit {
+        self.cancelDatasetMappingJobs()
         self.timelineSession?.cancelLocalPagePreparations()
         self.scheduledMessagesComposerButtonToken?.invalidate()
         self.unsubscribe()

@@ -455,6 +455,24 @@ struct ChatMessageReferenceSnapshot {
     }
 }
 
+struct ChatForwardSnapshotLimits: Equatable {
+    static let `default` = ChatForwardSnapshotLimits(
+        maxDepth: 8,
+        maxNodes: 256,
+        maxBytes: 256 * 1_024
+    )
+
+    let maxDepth: Int
+    let maxNodes: Int
+    let maxBytes: Int
+
+    init(maxDepth: Int, maxNodes: Int, maxBytes: Int) {
+        self.maxDepth = max(0, maxDepth)
+        self.maxNodes = max(1, maxNodes)
+        self.maxBytes = max(1, maxBytes)
+    }
+}
+
 struct ChatMessageForwardSnapshot {
     let primary: String
     let messageId: String
@@ -470,23 +488,210 @@ struct ChatMessageForwardSnapshot {
     let originalDate: Date?
     let references: [ChatMessageReferenceSnapshot]
     let subforwards: [ChatMessageForwardSnapshot]
+    let isTruncated: Bool
+    let truncationReason: String?
 
-    init(_ forward: MessageForwardsInlineStorageItem) {
-        self.primary = forward.primary
-        self.messageId = forward.messageId
-        self.owner = forward.owner
-        self.opponent = forward.opponent
-        self.jid = forward.jid
-        self.parentId = forward.parentId
-        self.body = forward.body
-        self.forwardJid = forward.forwardJid
-        self.forwardNickname = forward.forwardNickname
-        self.authorName = forward.tryToLoadNickname()
-        self.isOutgoing = forward.isOutgoing
-        self.originalDate = forward.originalDate
-        self.references = forward.references.map(ChatMessageReferenceSnapshot.init)
-        self.subforwards = forward.subforwards.map(ChatMessageForwardSnapshot.init)
+    var containsTruncatedContent: Bool {
+        isTruncated || subforwards.contains(where: \.containsTruncatedContent)
     }
+
+    var nodeCount: Int {
+        1 + subforwards.reduce(0) { $0 + $1.nodeCount }
+    }
+
+    var maximumObservedDepth: Int {
+        guard let childDepth = subforwards.map(\.maximumObservedDepth).max() else {
+            return 0
+        }
+        return 1 + childDepth
+    }
+
+    init(
+        _ forward: MessageForwardsInlineStorageItem,
+        limits: ChatForwardSnapshotLimits = .default
+    ) {
+        var state = BuildState(limits: limits)
+        self = Self.build(forward, depth: 0, path: [], state: &state)
+    }
+
+    private init(
+        primary: String,
+        messageId: String,
+        owner: String,
+        opponent: String,
+        jid: String,
+        parentId: String,
+        body: String,
+        forwardJid: String,
+        forwardNickname: String,
+        authorName: String,
+        isOutgoing: Bool,
+        originalDate: Date?,
+        references: [ChatMessageReferenceSnapshot],
+        subforwards: [ChatMessageForwardSnapshot],
+        isTruncated: Bool,
+        truncationReason: String?
+    ) {
+        self.primary = primary
+        self.messageId = messageId
+        self.owner = owner
+        self.opponent = opponent
+        self.jid = jid
+        self.parentId = parentId
+        self.body = body
+        self.forwardJid = forwardJid
+        self.forwardNickname = forwardNickname
+        self.authorName = authorName
+        self.isOutgoing = isOutgoing
+        self.originalDate = originalDate
+        self.references = references
+        self.subforwards = subforwards
+        self.isTruncated = isTruncated
+        self.truncationReason = truncationReason
+    }
+
+    private struct BuildState {
+        let limits: ChatForwardSnapshotLimits
+        var nodes = 0
+        var bytes = 0
+    }
+
+    private static func build(
+        _ forward: MessageForwardsInlineStorageItem,
+        depth: Int,
+        path: Set<String>,
+        state: inout BuildState
+    ) -> ChatMessageForwardSnapshot {
+        let identity = forward.primary.isNotEmpty
+            ? "primary:\(forward.primary)"
+            : "object:\(ObjectIdentifier(forward).hashValue)"
+        if path.contains(identity) {
+            return placeholder(forward, reason: "cycle")
+        }
+        guard depth <= state.limits.maxDepth else {
+            return placeholder(forward, reason: "depth limit")
+        }
+        guard state.nodes < state.limits.maxNodes else {
+            return placeholder(forward, reason: "node limit")
+        }
+
+        let scalarBytes = estimatedScalarBytes(forward)
+        guard state.bytes + scalarBytes <= state.limits.maxBytes else {
+            return placeholder(forward, reason: "byte limit")
+        }
+        state.nodes += 1
+        state.bytes += scalarBytes
+
+        var didTruncateReferences = false
+        var references: [ChatMessageReferenceSnapshot] = []
+        references.reserveCapacity(min(forward.references.count, 32))
+        for reference in forward.references {
+            let referenceBytes = estimatedReferenceBytes(reference)
+            guard state.bytes + referenceBytes <= state.limits.maxBytes else {
+                didTruncateReferences = true
+                break
+            }
+            state.bytes += referenceBytes
+            references.append(ChatMessageReferenceSnapshot(reference))
+        }
+
+        var nextPath = path
+        nextPath.insert(identity)
+        var children: [ChatMessageForwardSnapshot] = []
+        let didTruncateDepth = depth >= state.limits.maxDepth && forward.subforwards.isNotEmpty
+        var didTruncateChildren = false
+        var childTruncationReason: String?
+        if !didTruncateDepth {
+            children.reserveCapacity(min(forward.subforwards.count, state.limits.maxNodes - state.nodes))
+            for child in forward.subforwards {
+                if state.nodes >= state.limits.maxNodes || state.bytes >= state.limits.maxBytes {
+                    didTruncateChildren = true
+                    childTruncationReason = state.nodes >= state.limits.maxNodes ? "node limit" : "byte limit"
+                    break
+                }
+                children.append(build(child, depth: depth + 1, path: nextPath, state: &state))
+            }
+        }
+
+        let truncationReason = didTruncateReferences
+            ? "byte limit"
+            : (didTruncateDepth ? "depth limit" : childTruncationReason)
+        let displayBody: String
+        if let truncationReason {
+            let separator = forward.body.isEmpty ? "" : "\n"
+            displayBody = "\(forward.body)\(separator)[Forward content unavailable: \(truncationReason)]"
+        } else {
+            displayBody = forward.body
+        }
+        return ChatMessageForwardSnapshot(
+            primary: forward.primary,
+            messageId: forward.messageId,
+            owner: forward.owner,
+            opponent: forward.opponent,
+            jid: forward.jid,
+            parentId: forward.parentId,
+            body: displayBody,
+            forwardJid: forward.forwardJid,
+            forwardNickname: forward.forwardNickname,
+            authorName: forward.tryToLoadNickname(),
+            isOutgoing: forward.isOutgoing,
+            originalDate: forward.originalDate,
+            references: references,
+            subforwards: children,
+            isTruncated: didTruncateReferences || didTruncateDepth || didTruncateChildren,
+            truncationReason: truncationReason
+        )
+    }
+
+    private static func placeholder(
+        _ forward: MessageForwardsInlineStorageItem,
+        reason: String
+    ) -> ChatMessageForwardSnapshot {
+        ChatMessageForwardSnapshot(
+            primary: forward.primary,
+            messageId: forward.messageId,
+            owner: forward.owner,
+            opponent: forward.opponent,
+            jid: forward.jid,
+            parentId: forward.parentId,
+            body: "[Forward content unavailable: \(reason)]",
+            forwardJid: forward.forwardJid,
+            forwardNickname: forward.forwardNickname,
+            authorName: forward.forwardNickname.isNotEmpty ? forward.forwardNickname : forward.forwardJid,
+            isOutgoing: forward.isOutgoing,
+            originalDate: forward.originalDate,
+            references: [],
+            subforwards: [],
+            isTruncated: true,
+            truncationReason: reason
+        )
+    }
+
+    private static func estimatedScalarBytes(_ forward: MessageForwardsInlineStorageItem) -> Int {
+        [
+            forward.primary,
+            forward.messageId,
+            forward.owner,
+            forward.opponent,
+            forward.jid,
+            forward.parentId,
+            forward.body,
+            forward.forwardJid,
+            forward.forwardNickname
+        ].reduce(0) { $0 + $1.utf8.count }
+    }
+
+    private static func estimatedReferenceBytes(_ reference: MessageReferenceStorageItem) -> Int {
+        reference.primary.utf8.count +
+        reference.owner.utf8.count +
+        reference.jid.utf8.count +
+        reference.messageId.utf8.count +
+        reference.kind_.utf8.count +
+        reference.mimeType.utf8.count +
+        (reference.url?.utf8.count ?? 0) +
+        reference.metadata_.utf8.count
+    }
+
 }
 
 struct ChatMessageDisplaySnapshot {
@@ -519,10 +724,7 @@ struct ChatMessageDisplaySnapshot {
     let conversationType: ClientSynchronizationManager.ConversationType
     let outgoing: Bool
     let messageId: String
-    let archivedId: String
-    let queryIds: String?
     let displayAs: MessageStorageItem.MessageDisplayType
-    let state: MessageStorageItem.MessageSendingState
     let body: String
     let legacyBody: String
     let bodyForAttachmentRendering: String
@@ -536,14 +738,11 @@ struct ChatMessageDisplaySnapshot {
     let isDeleted: Bool
     let isLocallyHiddenByReport: Bool
     let messageWarningText: String?
-    let messageError: String?
     let groupchatAuthorId: String?
     let groupchatAuthorNickname: String?
     let groupchatAuthorBadge: String?
     let groupchatMetadata: [String: Any]?
-    let errorMetadata: [String: Any]?
     let isHasAttachedMessages: Bool
-    let isRead: Bool
     let presentation: Presentation
 
     init(item: MessageStorageItem, presentation: SavedMessageDisplayPolicy.Presentation) {
@@ -553,10 +752,7 @@ struct ChatMessageDisplaySnapshot {
         self.conversationType = item.conversationType
         self.outgoing = item.outgoing
         self.messageId = item.messageId
-        self.archivedId = item.archivedId
-        self.queryIds = item.queryIds
         self.displayAs = item.displayAs
-        self.state = item.state
         self.body = item.body
         self.legacyBody = item.legacyBody
         self.bodyForAttachmentRendering = item.bodyForAttachmentRendering
@@ -570,16 +766,13 @@ struct ChatMessageDisplaySnapshot {
         self.isDeleted = item.isDeleted
         self.isLocallyHiddenByReport = item.isLocallyHiddenByReport
         self.messageWarningText = item.messageWarningText
-        self.messageError = item.messageError
         self.groupchatAuthorId = item.groupchatAuthorId
         self.groupchatAuthorNickname = item.groupchatAuthorNickname
         self.groupchatAuthorBadge = item.groupchatAuthorBadge
         self.groupchatMetadata = item.groupchatMetadata
-        self.errorMetadata = item.errorMetadata
         self.isHasAttachedMessages = item.isHasAttachedMessages
-        self.isRead = item.isRead
         let visibleReferences = presentation.visibleReferences.map(ChatMessageReferenceSnapshot.init)
-        let visibleForwards = presentation.visibleForwards.map(ChatMessageForwardSnapshot.init)
+        let visibleForwards = presentation.visibleForwards.map { ChatMessageForwardSnapshot($0) }
         self.presentation = Presentation(
             isSavedMessage: presentation.isSavedMessage,
             isSavedForward: presentation.isSavedForward,
@@ -604,66 +797,6 @@ struct ChatMessageDisplaySnapshot {
         )
     }
 
-    func displayModelCacheKey(
-        context: ChatDisplayModelCacheContext,
-        revealedSensitiveMediaPrimaries: Set<String>
-    ) -> ChatDisplayModelCacheKey {
-        var hasher = ChatDisplayModelRevisionHasher()
-        hasher.combine(messageId)
-        hasher.combine(archivedId)
-        hasher.combine(queryIds)
-        hasher.combine(displayAs.rawValue)
-        hasher.combine(state.rawValue)
-        hasher.combine(body)
-        hasher.combine(legacyBody)
-        hasher.combine(bodyForAttachmentRendering)
-        hasher.combine(localReportPlaceholderText)
-        hasher.combine(date.timeIntervalSinceReferenceDate)
-        hasher.combine(sentDate.timeIntervalSinceReferenceDate)
-        hasher.combine(editDate?.timeIntervalSinceReferenceDate)
-        hasher.combine(afterburnInterval)
-        hasher.combine(burnDate)
-        hasher.combine(deleteState.rawValue)
-        hasher.combine(isDeleted)
-        hasher.combine(isLocallyHiddenByReport)
-        hasher.combine(messageWarningText)
-        hasher.combine(messageError)
-        hasher.combine(groupchatAuthorId)
-        hasher.combine(groupchatAuthorNickname)
-        hasher.combine(groupchatAuthorBadge)
-        Self.combineMetadata(groupchatMetadata, into: &hasher)
-        Self.combineMetadata(errorMetadata, into: &hasher)
-
-        hasher.combine(presentation.isSavedMessage)
-        hasher.combine(presentation.isSavedForward)
-        hasher.combine(presentation.isDirectSavedNote)
-        hasher.combine(presentation.displayAuthorJid)
-        hasher.combine(presentation.displayAuthorName)
-        hasher.combine(presentation.displayAvatarSource)
-        hasher.combine(presentation.displayOutgoing)
-        hasher.combine(presentation.visibleBody)
-        hasher.combine(presentation.visibleDate.timeIntervalSinceReferenceDate)
-        hasher.combine(presentation.groupchatAuthorRole)
-        hasher.combine(presentation.groupchatAuthorId)
-        hasher.combine(presentation.groupchatAuthorNickname)
-        hasher.combine(presentation.groupchatAuthorBadge)
-        hasher.combine(presentation.isDeleted)
-        hasher.combine(presentation.deleteState.rawValue)
-        hasher.combine(presentation.authorColorKey)
-
-        hasher.combine(presentation.visibleReferences.count)
-        hasher.combine(presentation.visibleReferencesRevision)
-        hasher.combine(presentation.visibleForwards.count)
-        hasher.combine(presentation.visibleForwardsRevision)
-        revealedSensitiveMediaPrimaries.sorted().forEach { hasher.combine($0) }
-
-        return ChatDisplayModelCacheKey(
-            messagePrimary: primary,
-            displayRevision: hasher.revision,
-            context: context
-        )
-    }
-
     func forwardDisplayRevision(
         revealedSensitiveMediaPrimaries: Set<String>,
         context: ChatDisplayModelCacheContext
@@ -671,7 +804,15 @@ struct ChatMessageDisplaySnapshot {
         var hasher = ChatDisplayModelRevisionHasher()
         hasher.combine(presentation.visibleForwards.count)
         hasher.combine(presentation.visibleForwardsRevision)
-        revealedSensitiveMediaPrimaries.sorted().forEach { hasher.combine($0) }
+        func combineRevealedTargets(_ forward: ChatMessageForwardSnapshot) {
+            forward.references
+                .filter { revealedSensitiveMediaPrimaries.contains($0.primary) }
+                .map(\.primary)
+                .sorted()
+                .forEach { hasher.combine($0) }
+            forward.subforwards.forEach(combineRevealedTargets)
+        }
+        presentation.visibleForwards.forEach(combineRevealedTargets)
         hasher.combine(context.searchText)
         hasher.combine(context.localeIdentifier)
         hasher.combine(context.contentSizeCategory)
@@ -681,7 +822,11 @@ struct ChatMessageDisplaySnapshot {
         return hasher.revision
     }
 
-    func statePresentation(currentUserJid: String) -> SavedMessageStatePolicy.Presentation {
+    func statePresentation(
+        currentUserJid: String,
+        state: MessageStorageItem.MessageSendingState,
+        archivedId: String
+    ) -> SavedMessageStatePolicy.Presentation {
         guard conversationType == .saved else {
             return SavedMessageStatePolicy.Presentation(
                 effectiveState: state,
@@ -997,6 +1142,7 @@ struct ChatDatasourceMappingResult {
     let datasource: [ChatViewController.Datasource]
     let editedMessagePrimariesNeedingLayoutInvalidation: [String]
     let layoutSnapshot: ChatMessageLayoutSnapshot
+    var wasCancelled: Bool = false
 }
 
 private struct ChatDatasourceMappingDateFormatters {
@@ -1084,6 +1230,7 @@ final class ChatLazyForwardDisplayModel {
 }
 
 final class ChatCachedDisplayModel {
+    let displaySnapshot: ChatMessageDisplaySnapshot?
     let kind: MessageKind
     let mappedReferences: ChatMappedReferenceAttachments
     let lazyForwards: ChatLazyForwardDisplayModel
@@ -1128,12 +1275,14 @@ final class ChatCachedDisplayModel {
     }
 
     init(
+        displaySnapshot: ChatMessageDisplaySnapshot? = nil,
         kind: MessageKind,
         mappedReferences: ChatMappedReferenceAttachments,
         lazyForwards: ChatLazyForwardDisplayModel,
         isDownloaded: Bool,
         timeMarkerText: NSAttributedString
     ) {
+        self.displaySnapshot = displaySnapshot
         self.kind = kind
         self.mappedReferences = mappedReferences
         self.lazyForwards = lazyForwards
@@ -1148,6 +1297,8 @@ final class ChatDisplayModelCache {
         let misses: Int
         let stores: Int
         let evictions: Int
+        let entryCount: Int
+        let linearRecencyScanSteps: Int
 
         var performanceSnapshot: ChatPerformanceMetricSnapshot {
             ChatPerformanceMetricSnapshot(
@@ -1156,20 +1307,36 @@ final class ChatDisplayModelCache {
                     "hits": hits,
                     "misses": misses,
                     "stores": stores,
-                    "evictions": evictions
+                    "evictions": evictions,
+                    "entryCount": entryCount,
+                    "linearRecencyScanSteps": linearRecencyScanSteps
                 ]
             )
         }
     }
 
+    private final class Entry {
+        let key: ChatDisplayModelCacheKey
+        let model: ChatCachedDisplayModel
+        weak var previous: Entry?
+        var next: Entry?
+
+        init(key: ChatDisplayModelCacheKey, model: ChatCachedDisplayModel) {
+            self.key = key
+            self.model = model
+        }
+    }
+
     private let capacity: Int
     private let lock = NSLock()
-    private var models: [ChatDisplayModelCacheKey: ChatCachedDisplayModel] = [:]
-    private var keysByRecency: [ChatDisplayModelCacheKey] = []
+    private var entries: [ChatDisplayModelCacheKey: Entry] = [:]
+    private var leastRecent: Entry?
+    private var mostRecent: Entry?
     private var hitCount: Int = 0
     private var missCount: Int = 0
     private var storeCount: Int = 0
     private var evictionCount: Int = 0
+    private var invalidationGeneration: UInt64 = 0
 
     var statistics: Statistics {
         lock.lock()
@@ -1178,7 +1345,9 @@ final class ChatDisplayModelCache {
             hits: hitCount,
             misses: missCount,
             stores: storeCount,
-            evictions: evictionCount
+            evictions: evictionCount,
+            entryCount: entries.count,
+            linearRecencyScanSteps: 0
         )
     }
 
@@ -1192,13 +1361,14 @@ final class ChatDisplayModelCache {
     ) -> ChatCachedDisplayModel {
         ChatPerformanceSignposts.measure(.displayModelCache) {
             lock.lock()
-            if let cached = models[key] {
+            if let cached = entries[key] {
                 hitCount += 1
-                markRecentlyUsed(key)
+                markRecentlyUsed(cached)
                 lock.unlock()
-                return cached
+                return cached.model
             }
             missCount += 1
+            let buildGeneration = invalidationGeneration
             lock.unlock()
 
             let built = build()
@@ -1207,14 +1377,19 @@ final class ChatDisplayModelCache {
             }
 
             lock.lock()
-            if let cached = models[key] {
-                hitCount += 1
-                markRecentlyUsed(key)
+            guard buildGeneration == invalidationGeneration else {
                 lock.unlock()
-                return cached
+                return built
             }
-            models[key] = built
-            keysByRecency.append(key)
+            if let cached = entries[key] {
+                hitCount += 1
+                markRecentlyUsed(cached)
+                lock.unlock()
+                return cached.model
+            }
+            let entry = Entry(key: key, model: built)
+            entries[key] = entry
+            appendAsMostRecent(entry)
             storeCount += 1
             evictIfNeeded()
             lock.unlock()
@@ -1224,23 +1399,50 @@ final class ChatDisplayModelCache {
 
     func removeAll() {
         lock.lock()
-        models.removeAll()
-        keysByRecency.removeAll()
+        entries.removeAll()
+        leastRecent = nil
+        mostRecent = nil
+        invalidationGeneration &+= 1
         lock.unlock()
     }
 
-    private func markRecentlyUsed(_ key: ChatDisplayModelCacheKey) {
-        keysByRecency.removeAll { $0 == key }
-        keysByRecency.append(key)
+    private func markRecentlyUsed(_ entry: Entry) {
+        guard mostRecent !== entry else { return }
+        unlink(entry)
+        appendAsMostRecent(entry)
     }
 
     private func evictIfNeeded() {
-        while models.count > capacity,
-              let oldest = keysByRecency.first {
-            keysByRecency.removeFirst()
-            if models.removeValue(forKey: oldest) != nil {
-                evictionCount += 1
-            }
+        while entries.count > capacity,
+              let oldest = leastRecent {
+            unlink(oldest)
+            entries.removeValue(forKey: oldest.key)
+            evictionCount += 1
+        }
+    }
+
+    private func unlink(_ entry: Entry) {
+        let previous = entry.previous
+        let next = entry.next
+        previous?.next = next
+        next?.previous = previous
+        if leastRecent === entry {
+            leastRecent = next
+        }
+        if mostRecent === entry {
+            mostRecent = previous
+        }
+        entry.previous = nil
+        entry.next = nil
+    }
+
+    private func appendAsMostRecent(_ entry: Entry) {
+        entry.previous = mostRecent
+        entry.next = nil
+        mostRecent?.next = entry
+        mostRecent = entry
+        if leastRecent == nil {
+            leastRecent = entry
         }
     }
 }
@@ -1296,6 +1498,306 @@ private struct ChatDisplayModelRevisionHasher {
     private mutating func combineByte(_ byte: UInt8) {
         value ^= UInt64(byte)
         value = value &* ChatDisplayModelRevisionHasher.prime
+    }
+}
+
+struct ChatMessageRichStorageRevision: Hashable {
+    let rawValue: String
+
+    static func capture(
+        _ item: MessageStorageItem,
+        revealedSensitiveMediaPrimaries: Set<String>,
+        forwardLimits: ChatForwardSnapshotLimits = .default
+    ) -> ChatMessageRichStorageRevision {
+        var hasher = ChatDisplayModelRevisionHasher()
+        hasher.combine(item.primary)
+        hasher.combine(item.messageId)
+        hasher.combine(item.owner)
+        hasher.combine(item.opponent)
+        hasher.combine(item.conversationType_)
+        hasher.combine(item.outgoing)
+        hasher.combine(item.messageType)
+        hasher.combine(item.body)
+        hasher.combine(item.legacyBody)
+        hasher.combine(item.date.timeIntervalSinceReferenceDate)
+        hasher.combine(item.sentDate.timeIntervalSinceReferenceDate)
+        hasher.combine(item.editDate?.timeIntervalSinceReferenceDate)
+        hasher.combine(item.afterburnInterval)
+        hasher.combine(item.burnDate)
+        hasher.combine(item.deleteState_)
+        hasher.combine(item.isDeleted)
+        hasher.combine(item.isLocallyHiddenByReport)
+        hasher.combine(item.localReportState)
+        hasher.combine(item.systemMetadata_)
+        if let card = item.groupchatCard {
+            hasher.combine(card.primary)
+            hasher.combine(card.jid)
+            hasher.combine(card.userId)
+            hasher.combine(card.nickname)
+            hasher.combine(card.avatarURI)
+            hasher.combine(card.badge)
+            hasher.combine(card.role.rawValue)
+        } else {
+            hasher.combine("group-card:nil")
+        }
+
+        hasher.combine(item.references.count)
+        for reference in item.references {
+            combineReference(
+                reference,
+                revealedSensitiveMediaPrimaries: revealedSensitiveMediaPrimaries,
+                into: &hasher
+            )
+        }
+
+        var traversal = ForwardRevisionTraversal(limits: forwardLimits)
+        hasher.combine(item.inlineForwards.count)
+        for forward in item.inlineForwards {
+            guard traversal.nodes < traversal.limits.maxNodes,
+                  traversal.bytes < traversal.limits.maxBytes else {
+                hasher.combine("forward-root:budget-limit")
+                break
+            }
+            combineForward(
+                forward,
+                depth: 0,
+                path: [],
+                revealedSensitiveMediaPrimaries: revealedSensitiveMediaPrimaries,
+                traversal: &traversal,
+                into: &hasher
+            )
+        }
+        return ChatMessageRichStorageRevision(rawValue: hasher.revision)
+    }
+
+    private struct ForwardRevisionTraversal {
+        let limits: ChatForwardSnapshotLimits
+        var nodes = 0
+        var bytes = 0
+    }
+
+    private static func combineReference(
+        _ reference: MessageReferenceStorageItem,
+        revealedSensitiveMediaPrimaries: Set<String>,
+        into hasher: inout ChatDisplayModelRevisionHasher
+    ) {
+        hasher.combine(reference.primary)
+        hasher.combine(reference.messageId)
+        hasher.combine(reference.owner)
+        hasher.combine(reference.jid)
+        hasher.combine(reference.kind_)
+        hasher.combine(reference.mimeType)
+        hasher.combine(reference.begin)
+        hasher.combine(reference.end)
+        hasher.combine(reference.url)
+        hasher.combine(reference.metadata_)
+        hasher.combine(reference.isDownloaded)
+        hasher.combine(reference.isSensitive)
+        hasher.combine(reference.isSensitiveChecked)
+        hasher.combine(reference.isLocallyHiddenByReport)
+        hasher.combine(revealedSensitiveMediaPrimaries.contains(reference.primary))
+    }
+
+    private static func combineForward(
+        _ forward: MessageForwardsInlineStorageItem,
+        depth: Int,
+        path: Set<String>,
+        revealedSensitiveMediaPrimaries: Set<String>,
+        traversal: inout ForwardRevisionTraversal,
+        into hasher: inout ChatDisplayModelRevisionHasher
+    ) {
+        let identity = forward.primary.isNotEmpty
+            ? "primary:\(forward.primary)"
+            : "object:\(ObjectIdentifier(forward).hashValue)"
+        guard !path.contains(identity) else {
+            hasher.combine("forward:cycle")
+            return
+        }
+        guard depth <= traversal.limits.maxDepth else {
+            hasher.combine("forward:depth-limit")
+            return
+        }
+        guard traversal.nodes < traversal.limits.maxNodes else {
+            hasher.combine("forward:node-limit")
+            return
+        }
+        let scalarBytes = forward.primary.utf8.count +
+            forward.messageId.utf8.count +
+            forward.parentId.utf8.count +
+            forward.body.utf8.count +
+            forward.forwardJid.utf8.count +
+            forward.forwardNickname.utf8.count
+        guard traversal.bytes + scalarBytes <= traversal.limits.maxBytes else {
+            hasher.combine("forward:byte-limit")
+            return
+        }
+        traversal.nodes += 1
+        traversal.bytes += scalarBytes
+
+        hasher.combine(forward.primary)
+        hasher.combine(forward.messageId)
+        hasher.combine(forward.owner)
+        hasher.combine(forward.opponent)
+        hasher.combine(forward.jid)
+        hasher.combine(forward.parentId)
+        hasher.combine(forward.body)
+        hasher.combine(forward.forwardJid)
+        hasher.combine(forward.forwardNickname)
+        hasher.combine(forward.isOutgoing)
+        hasher.combine(forward.originalDate?.timeIntervalSinceReferenceDate)
+        hasher.combine(forward.references.count)
+        for reference in forward.references {
+            let referenceBytes = reference.primary.utf8.count + reference.metadata_.utf8.count
+            guard traversal.bytes + referenceBytes <= traversal.limits.maxBytes else {
+                hasher.combine("forward-reference:byte-limit")
+                break
+            }
+            traversal.bytes += referenceBytes
+            combineReference(
+                reference,
+                revealedSensitiveMediaPrimaries: revealedSensitiveMediaPrimaries,
+                into: &hasher
+            )
+        }
+        var nextPath = path
+        nextPath.insert(identity)
+        hasher.combine(forward.subforwards.count)
+        guard depth < traversal.limits.maxDepth else {
+            if forward.subforwards.isNotEmpty {
+                hasher.combine("forward:depth-limit")
+            }
+            return
+        }
+        for child in forward.subforwards {
+            guard traversal.nodes < traversal.limits.maxNodes,
+                  traversal.bytes < traversal.limits.maxBytes else {
+                hasher.combine("forward-child:budget-limit")
+                break
+            }
+            combineForward(
+                child,
+                depth: depth + 1,
+                path: nextPath,
+                revealedSensitiveMediaPrimaries: revealedSensitiveMediaPrimaries,
+                traversal: &traversal,
+                into: &hasher
+            )
+        }
+    }
+}
+
+struct ChatMessageChromeStorageRevision: Hashable {
+    let rawValue: String
+
+    static func capture(_ item: MessageStorageItem) -> ChatMessageChromeStorageRevision {
+        var hasher = ChatDisplayModelRevisionHasher()
+        hasher.combine(item.primary)
+        hasher.combine(item.state_)
+        hasher.combine(item.isRead)
+        hasher.combine(item.messageError)
+        hasher.combine(item.messageErrorCode)
+        hasher.combine(item.errorMetadata_)
+        hasher.combine(item.archivedId)
+        hasher.combine(item.queryIds)
+        return ChatMessageChromeStorageRevision(rawValue: hasher.revision)
+    }
+}
+
+final class ChatDatasetMappingCancellationToken {
+    struct Statistics: Equatable {
+        let rowsProcessed: Int
+        let rowsProcessedAfterCancellation: Int
+    }
+
+    let generation: Int
+    private let cancellationCheckInterval: Int
+    private let lock = NSLock()
+    private var cancelled = false
+    private var rowsProcessed = 0
+    private var rowsProcessedAtCancellation: Int?
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    var statistics: Statistics {
+        lock.lock()
+        defer { lock.unlock() }
+        return Statistics(
+            rowsProcessed: rowsProcessed,
+            rowsProcessedAfterCancellation: rowsProcessedAtCancellation.map {
+                max(0, rowsProcessed - $0)
+            } ?? 0
+        )
+    }
+
+    init(generation: Int, cancellationCheckInterval: Int) {
+        self.generation = generation
+        self.cancellationCheckInterval = max(1, cancellationCheckInterval)
+    }
+
+    func cancel() {
+        lock.lock()
+        if !cancelled {
+            cancelled = true
+            rowsProcessedAtCancellation = rowsProcessed
+        }
+        lock.unlock()
+    }
+
+    func shouldProcessNextRow() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if cancelled && rowsProcessed.isMultiple(of: cancellationCheckInterval) {
+            return false
+        }
+        rowsProcessed += 1
+        return true
+    }
+}
+
+final class ChatDatasetMappingJobCoordinator {
+    private let cancellationCheckInterval: Int
+    private let lock = NSLock()
+    private var current: ChatDatasetMappingCancellationToken?
+
+    init(cancellationCheckInterval: Int = 16) {
+        self.cancellationCheckInterval = max(1, cancellationCheckInterval)
+    }
+
+    func begin(generation: Int) -> ChatDatasetMappingCancellationToken {
+        let token = ChatDatasetMappingCancellationToken(
+            generation: generation,
+            cancellationCheckInterval: cancellationCheckInterval
+        )
+        lock.lock()
+        let obsolete = current
+        current = token
+        lock.unlock()
+        obsolete?.cancel()
+        return token
+    }
+
+    func cancelAll() {
+        lock.lock()
+        let token = current
+        current = nil
+        lock.unlock()
+        token?.cancel()
+    }
+}
+
+enum ChatDatasetMappingQueueFactory {
+    static func make(label: String) -> DispatchQueue {
+        DispatchQueue(
+            label: label,
+            qos: .userInitiated,
+            attributes: .concurrent,
+            autoreleaseFrequency: .workItem,
+            target: nil
+        )
     }
 }
 
@@ -7076,15 +7578,26 @@ extension ChatViewController {
     }
 
     private func cachedDisplayModel(
-        for snapshot: ChatMessageDisplaySnapshot,
+        for item: MessageStorageItem,
         context: ChatDatasourceMappingContext,
         formatters: ChatDatasourceMappingDateFormatters
     ) -> ChatCachedDisplayModel {
-        let key = snapshot.displayModelCacheKey(
-            context: context.displayCacheContext,
+        let richRevision = ChatMessageRichStorageRevision.capture(
+            item,
             revealedSensitiveMediaPrimaries: context.revealedSensitiveMediaPrimaries
         )
+        let key = ChatDisplayModelCacheKey(
+            messagePrimary: item.primary,
+            displayRevision: richRevision.rawValue,
+            context: context.displayCacheContext
+        )
         return displayModelCache.model(for: key) {
+            let presentation = SavedMessageDisplayPolicy.presentation(
+                for: item,
+                currentUserJid: context.owner,
+                currentUserName: context.ownerSender.displayName
+            )
+            let snapshot = ChatMessageDisplaySnapshot(item: item, presentation: presentation)
             let kind = self.displayKind(
                 for: snapshot,
                 context: context
@@ -7110,6 +7623,7 @@ extension ChatViewController {
                 formatters: formatters
             )
             return ChatCachedDisplayModel(
+                displaySnapshot: snapshot,
                 kind: kind,
                 mappedReferences: mappedReferences,
                 lazyForwards: lazyForwards,
@@ -9166,14 +9680,19 @@ extension ChatViewController {
         completion: (() -> Void)? = nil,
         cancelledCompletion: (() -> Void)? = nil
     ) {
-        self.datasetMappingGeneration += 1
-        let generation = self.datasetMappingGeneration
+        let mappingJob = self.beginDatasetMappingJob()
+        let generation = mappingJob.generation
+        let cancellationToken = mappingJob.token
         let boundaryPlaceholder = self.activeHistoryBoundaryPlaceholder
         let currentWindow = self.visibleWindow()
         let timelineSnapshot = self.timelineSession?.snapshot
         let mappingContext = self.captureDatasourceMappingContext()
 
-        self.datasetMappingQueue.async {
+        self.datasetMappingQueue.async { [weak self] in
+            guard let self, !cancellationToken.isCancelled else {
+                DispatchQueue.main.async { cancelledCompletion?() }
+                return
+            }
             let mappedWindow = self.messageWindowSliceForMapping(
                 window,
                 currentWindow: currentWindow,
@@ -9182,10 +9701,16 @@ extension ChatViewController {
             )
             let normalizedWindow = mappedWindow.window
             let slice = mappedWindow.items
-            let mappingResult = self.mapDataset(dataset: slice, context: mappingContext)
+            let mappingResult = self.mapDataset(
+                dataset: slice,
+                context: mappingContext,
+                cancellationToken: cancellationToken
+            )
 
             DispatchQueue.main.async {
-                guard ChatDatasourceApplyGenerationPolicy.shouldApply(
+                guard !mappingResult.wasCancelled,
+                      !cancellationToken.isCancelled,
+                      ChatDatasourceApplyGenerationPolicy.shouldApply(
                     requestGeneration: generation,
                     currentGeneration: self.datasetMappingGeneration
                 ) else {
@@ -9227,22 +9752,33 @@ extension ChatViewController {
             cancelledCompletion?()
             return
         }
-        self.datasetMappingGeneration += 1
-        let generation = self.datasetMappingGeneration
+        let mappingJob = self.beginDatasetMappingJob()
+        let generation = mappingJob.generation
+        let cancellationToken = mappingJob.token
         let boundaryPlaceholder = self.activeHistoryBoundaryPlaceholder
         let archiveState = self.loadChatArchiveStateSnapshot()
         let mappingContext = self.captureDatasourceMappingContext()
 
-        self.datasetMappingQueue.async {
+        self.datasetMappingQueue.async { [weak self] in
+            guard let self, !cancellationToken.isCancelled else {
+                DispatchQueue.main.async { cancelledCompletion?() }
+                return
+            }
             session.updateArchiveState(archiveState)
             var snapshot = session.openAround(anchor: anchor)
             if let boundaryPlaceholder {
                 snapshot = session.applyRuntimePlaceholder(boundaryPlaceholder)
             }
-            let mappingResult = self.mapDataset(dataset: snapshot.items, context: mappingContext)
+            let mappingResult = self.mapDataset(
+                dataset: snapshot.items,
+                context: mappingContext,
+                cancellationToken: cancellationToken
+            )
 
             DispatchQueue.main.async {
-                guard ChatDatasourceApplyGenerationPolicy.shouldApply(
+                guard !mappingResult.wasCancelled,
+                      !cancellationToken.isCancelled,
+                      ChatDatasourceApplyGenerationPolicy.shouldApply(
                     requestGeneration: generation,
                     currentGeneration: self.datasetMappingGeneration
                 ) else {
@@ -9287,18 +9823,29 @@ extension ChatViewController {
             cancelledCompletion?()
             return
         }
-        self.datasetMappingGeneration += 1
-        let generation = self.datasetMappingGeneration
+        let mappingJob = self.beginDatasetMappingJob()
+        let generation = mappingJob.generation
+        let cancellationToken = mappingJob.token
         let archiveState = self.loadChatArchiveStateSnapshot()
         let mappingContext = self.captureDatasourceMappingContext()
 
-        self.datasetMappingQueue.async {
+        self.datasetMappingQueue.async { [weak self] in
+            guard let self, !cancellationToken.isCancelled else {
+                DispatchQueue.main.async { cancelledCompletion?() }
+                return
+            }
             session.updateArchiveState(archiveState)
             let snapshot = session.scrollToLatest(limit: limit)
-            let mappingResult = self.mapDataset(dataset: snapshot.items, context: mappingContext)
+            let mappingResult = self.mapDataset(
+                dataset: snapshot.items,
+                context: mappingContext,
+                cancellationToken: cancellationToken
+            )
 
             DispatchQueue.main.async {
-                guard ChatDatasourceApplyGenerationPolicy.shouldApply(
+                guard !mappingResult.wasCancelled,
+                      !cancellationToken.isCancelled,
+                      ChatDatasourceApplyGenerationPolicy.shouldApply(
                     requestGeneration: generation,
                     currentGeneration: self.datasetMappingGeneration
                 ) else {
@@ -9343,19 +9890,30 @@ extension ChatViewController {
             cancelledCompletion?()
             return
         }
-        self.datasetMappingGeneration += 1
-        let generation = self.datasetMappingGeneration
+        let mappingJob = self.beginDatasetMappingJob()
+        let generation = mappingJob.generation
+        let cancellationToken = mappingJob.token
         let boundaryPlaceholder = preserveBoundaryPlaceholder ? self.activeHistoryBoundaryPlaceholder : nil
         let mappingContext = self.captureDatasourceMappingContext()
 
-        self.datasetMappingQueue.async {
+        self.datasetMappingQueue.async { [weak self] in
+            guard let self, !cancellationToken.isCancelled else {
+                DispatchQueue.main.async { cancelledCompletion?() }
+                return
+            }
             let snapshot = boundaryPlaceholder.map {
                 session.applyRuntimePlaceholder($0)
             } ?? session.snapshot
-            let mappingResult = self.mapDataset(dataset: snapshot.items, context: mappingContext)
+            let mappingResult = self.mapDataset(
+                dataset: snapshot.items,
+                context: mappingContext,
+                cancellationToken: cancellationToken
+            )
 
             DispatchQueue.main.async {
-                guard ChatDatasourceApplyGenerationPolicy.shouldApply(
+                guard !mappingResult.wasCancelled,
+                      !cancellationToken.isCancelled,
+                      ChatDatasourceApplyGenerationPolicy.shouldApply(
                     requestGeneration: generation,
                     currentGeneration: self.datasetMappingGeneration
                 ) else {
@@ -9408,16 +9966,27 @@ extension ChatViewController {
             cancelledCompletion?()
             return
         }
-        self.datasetMappingGeneration += 1
-        let generation = self.datasetMappingGeneration
+        let mappingJob = self.beginDatasetMappingJob()
+        let generation = mappingJob.generation
+        let cancellationToken = mappingJob.token
         let committedSnapshot = session.commit(snapshot)
         let frozenItems = committedSnapshot.items
         let mappingContext = self.captureDatasourceMappingContext()
 
-        self.datasetMappingQueue.async {
-            let mappingResult = self.mapDataset(dataset: frozenItems, context: mappingContext)
+        self.datasetMappingQueue.async { [weak self] in
+            guard let self, !cancellationToken.isCancelled else {
+                DispatchQueue.main.async { cancelledCompletion?() }
+                return
+            }
+            let mappingResult = self.mapDataset(
+                dataset: frozenItems,
+                context: mappingContext,
+                cancellationToken: cancellationToken
+            )
             DispatchQueue.main.async {
-                guard ChatDatasourceApplyGenerationPolicy.shouldApply(
+                guard !mappingResult.wasCancelled,
+                      !cancellationToken.isCancelled,
+                      ChatDatasourceApplyGenerationPolicy.shouldApply(
                     requestGeneration: generation,
                     currentGeneration: self.datasetMappingGeneration
                 ) else {
@@ -9465,15 +10034,26 @@ extension ChatViewController {
             cancelledCompletion?()
             return
         }
-        self.datasetMappingGeneration += 1
-        let generation = self.datasetMappingGeneration
+        let mappingJob = self.beginDatasetMappingJob()
+        let generation = mappingJob.generation
+        let cancellationToken = mappingJob.token
         let frozenItems = committedSnapshot.items
         let mappingContext = self.captureDatasourceMappingContext()
 
-        self.datasetMappingQueue.async {
-            let mappingResult = self.mapDataset(dataset: frozenItems, context: mappingContext)
+        self.datasetMappingQueue.async { [weak self] in
+            guard let self, !cancellationToken.isCancelled else {
+                DispatchQueue.main.async { cancelledCompletion?() }
+                return
+            }
+            let mappingResult = self.mapDataset(
+                dataset: frozenItems,
+                context: mappingContext,
+                cancellationToken: cancellationToken
+            )
             DispatchQueue.main.async {
-                guard ChatDatasourceApplyGenerationPolicy.shouldApply(
+                guard !mappingResult.wasCancelled,
+                      !cancellationToken.isCancelled,
+                      ChatDatasourceApplyGenerationPolicy.shouldApply(
                     requestGeneration: generation,
                     currentGeneration: self.datasetMappingGeneration
                 ) else {
@@ -9786,8 +10366,9 @@ extension ChatViewController {
         }
 
         session.cancelInitialFramePreparations()
-        self.datasetMappingGeneration += 1
-        let mappingGeneration = self.datasetMappingGeneration
+        let mappingJob = self.beginDatasetMappingJob()
+        let mappingGeneration = mappingJob.generation
+        let mappingToken = mappingJob.token
         let expectedSessionGeneration = session.snapshot.generation
         self.initialLocalFirstFramePhase = .preparing(descriptor)
         session.updateArchiveState(self.loadChatArchiveStateSnapshot())
@@ -9801,13 +10382,16 @@ extension ChatViewController {
                 return
             }
             guard self.initialLocalFirstFramePhase == .preparing(descriptor),
+                  !mappingToken.isCancelled,
                   ChatDatasourceApplyGenerationPolicy.shouldApply(
                     requestGeneration: mappingGeneration,
                     currentGeneration: self.datasetMappingGeneration
                   ) else {
                 if case .preparing = self.initialLocalFirstFramePhase {
                     self.initialLocalFirstFramePhase = .idle
-                    self.retryInitialLocalFirstFramePreparation()
+                    if !mappingToken.isCancelled {
+                        self.retryInitialLocalFirstFramePreparation()
+                    }
                 }
                 return
             }
@@ -9815,7 +10399,8 @@ extension ChatViewController {
                 result,
                 descriptor: descriptor,
                 session: session,
-                mappingGeneration: mappingGeneration
+                mappingGeneration: mappingGeneration,
+                mappingToken: mappingToken
             )
         }
 
@@ -9830,7 +10415,8 @@ extension ChatViewController {
         _ result: ChatTimelineInitialFramePreparationResult,
         descriptor: ChatLocalFirstFrameDescriptor,
         session: ChatTimelineSession,
-        mappingGeneration: Int
+        mappingGeneration: Int,
+        mappingToken: ChatDatasetMappingCancellationToken
     ) {
         switch result {
         case .stale:
@@ -9856,22 +10442,30 @@ extension ChatViewController {
                 preparedFrame.snapshot.items,
                 on: self.datasetMappingQueue,
                 transform: { [weak self] items in
-                    self?.mapDataset(dataset: items, context: mappingContext)
+                    self?.mapDataset(
+                        dataset: items,
+                        context: mappingContext,
+                        cancellationToken: mappingToken
+                    )
                 }
             ) { [weak self, weak session] mapped in
                 guard let self,
                       let session,
                       self.timelineSession === session,
                       self.initialLocalFirstFramePhase == .preparing(descriptor),
+                      !mappingToken.isCancelled,
                       ChatDatasourceApplyGenerationPolicy.shouldApply(
                         requestGeneration: mappingGeneration,
                         currentGeneration: self.datasetMappingGeneration
                       ),
                       let mappingResult = mapped.value,
+                      !mappingResult.wasCancelled,
                       !mapped.mappedOnMainThread,
                       let committedSnapshot = session.commitPreparedInitialFrame(preparedFrame) else {
                     self?.initialLocalFirstFramePhase = .idle
-                    self?.retryInitialLocalFirstFramePreparation()
+                    if !mappingToken.isCancelled {
+                        self?.retryInitialLocalFirstFramePreparation()
+                    }
                     return
                 }
                 self.commitInitialLocalFirstFrame(
@@ -10041,14 +10635,22 @@ extension ChatViewController {
                 isDatasourceEmpty: self.datasource.isEmpty,
                 isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
             ) {
-                let generation = self.datasetMappingGeneration
+                let mappingJob = self.beginDatasetMappingJob()
+                let generation = mappingJob.generation
+                let cancellationToken = mappingJob.token
                 let mappingContext = self.captureDatasourceMappingContext()
                 let animated = self.shouldAnimateInitialHistoryAppearance
                 self.datasetMappingQueue.async { [weak self] in
-                    guard let self else { return }
-                    let mappingResult = self.mapDataset(dataset: [], context: mappingContext)
+                    guard let self, !cancellationToken.isCancelled else { return }
+                    let mappingResult = self.mapDataset(
+                        dataset: [],
+                        context: mappingContext,
+                        cancellationToken: cancellationToken
+                    )
                     DispatchQueue.main.async { [weak self] in
                         guard let self,
+                              !mappingResult.wasCancelled,
+                              !cancellationToken.isCancelled,
                               ChatDatasourceApplyGenerationPolicy.shouldApply(
                                 requestGeneration: generation,
                                 currentGeneration: self.datasetMappingGeneration
@@ -10103,9 +10705,31 @@ extension ChatViewController {
         ).datasource
     }
 
+    internal final func beginDatasetMappingJob() -> (
+        generation: Int,
+        token: ChatDatasetMappingCancellationToken
+    ) {
+        self.datasetMappingGeneration += 1
+        let generation = self.datasetMappingGeneration
+        return (
+            generation,
+            self.datasetMappingJobCoordinator.begin(generation: generation)
+        )
+    }
+
+    internal final func beginDatasetMappingJobForTesting() -> ChatDatasetMappingCancellationToken {
+        beginDatasetMappingJob().token
+    }
+
+    internal final func cancelDatasetMappingJobs() {
+        self.datasetMappingGeneration += 1
+        self.datasetMappingJobCoordinator.cancelAll()
+    }
+
     internal final func mapDataset(
         dataset: Array<MessageStorageItem>,
-        context: ChatDatasourceMappingContext
+        context: ChatDatasourceMappingContext,
+        cancellationToken: ChatDatasetMappingCancellationToken? = nil
     ) -> ChatDatasourceMappingResult {
         var mapSignpost = ChatPerformanceSignposts.begin(.mapDataset)
         defer {
@@ -10114,10 +10738,11 @@ extension ChatViewController {
         let formatters = ChatDatasourceMappingDateFormatters()
 
         if context.showSkeleton {
-            let datasource = context.skeletonMessages.enumerated().compactMap {
-                (offset, item) in
+            var datasource: [Datasource] = []
+            for (offset, item) in context.skeletonMessages.enumerated() {
+                guard cancellationToken?.shouldProcessNextRow() ?? true else { break }
                 let date = Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(((context.skeletonMessages.count - offset) * 1000)))
-                return Datasource(
+                datasource.append(Datasource(
                     primary: UUID().uuidString,
                     jid: context.jid,
                     owner: context.owner,
@@ -10156,18 +10781,31 @@ extension ChatViewController {
                     audios: [],
                     timeMarkerText: NSAttributedString(),
                     indicator: .none
+                ))
+            }
+            if cancellationToken?.isCancelled == true {
+                return ChatDatasourceMappingResult(
+                    datasource: datasource,
+                    editedMessagePrimariesNeedingLayoutInvalidation: [],
+                    layoutSnapshot: context.layoutReuseSnapshot,
+                    wasCancelled: true
                 )
             }
+            let layoutSnapshot = ChatMessageLayoutPrewarmer.prewarm(
+                items: datasource,
+                context: context.layoutContext,
+                reuse: context.layoutReuseSnapshot,
+                capacity: context.layoutCacheCapacity,
+                operationCounter: context.layoutOperationCounter,
+                shouldContinue: { cancellationToken?.isCancelled != true }
+            )
             return ChatDatasourceMappingResult(
                 datasource: datasource,
                 editedMessagePrimariesNeedingLayoutInvalidation: [],
-                layoutSnapshot: ChatMessageLayoutPrewarmer.prewarm(
-                    items: datasource,
-                    context: context.layoutContext,
-                    reuse: context.layoutReuseSnapshot,
-                    capacity: context.layoutCacheCapacity,
-                    operationCounter: context.layoutOperationCounter
-                )
+                layoutSnapshot: cancellationToken?.isCancelled == true
+                    ? context.layoutReuseSnapshot
+                    : layoutSnapshot,
+                wasCancelled: cancellationToken?.isCancelled == true
             )
         }
         var out: [Datasource] = []
@@ -10230,18 +10868,24 @@ extension ChatViewController {
             ))
         }
 
-        var displaySnapshotCache: [String: ChatMessageDisplaySnapshot] = [:]
-        func displaySnapshot(for item: MessageStorageItem) -> ChatMessageDisplaySnapshot {
-            if let cached = displaySnapshotCache[item.primary] {
+        var displayModelPassCache: [String: ChatCachedDisplayModel] = [:]
+        func displayModel(for item: MessageStorageItem) -> ChatCachedDisplayModel {
+            if let cached = displayModelPassCache[item.primary] {
                 return cached
             }
-            let presentation = SavedMessageDisplayPolicy.presentation(
+            let model = self.cachedDisplayModel(
                 for: item,
-                currentUserJid: context.owner,
-                currentUserName: context.ownerSender.displayName
+                context: context,
+                formatters: formatters
             )
-            let snapshot = ChatMessageDisplaySnapshot(item: item, presentation: presentation)
-            displaySnapshotCache[item.primary] = snapshot
+            displayModelPassCache[item.primary] = model
+            return model
+        }
+
+        func displaySnapshot(for item: MessageStorageItem) -> ChatMessageDisplaySnapshot {
+            guard let snapshot = displayModel(for: item).displaySnapshot else {
+                preconditionFailure("Production display cache entries must carry their immutable rich snapshot")
+            }
             return snapshot
         }
 
@@ -10277,22 +10921,20 @@ extension ChatViewController {
             return groupAuthorKey(for: lhs) == groupAuthorKey(for: rhs)
         }
                 
-        dataset.enumerated().forEach {
-            (offset, item) in
+        for (offset, item) in dataset.enumerated() {
+            guard cancellationToken?.shouldProcessNextRow() ?? true else { break }
             appendDateSeparatorIfNeeded(before: item, at: offset)
 //            let references = Array(item.references.toArray().compactMap { $0.loadModel() })
 //            let inlineForwards = Array(item.inlineForwards.sorted(byKeyPath: "originalDate", ascending: true).toArray().compactMap { $0.loadModel() })
             
-            let snapshot = displaySnapshot(for: item)
+            let cachedDisplayModel = displayModel(for: item)
+            guard let snapshot = cachedDisplayModel.displaySnapshot else {
+                continue
+            }
             let presentation = snapshot.presentation
             let displaySender = presentation.isSavedMessage
                 ? Sender(id: presentation.displayAuthorJid, displayName: presentation.displayAuthorName)
                 : (snapshot.outgoing ? context.ownerSender : context.opponentSender)
-            let cachedDisplayModel = self.cachedDisplayModel(
-                for: snapshot,
-                context: context,
-                formatters: formatters
-            )
             let kind = cachedDisplayModel.kind
             let isDownloaded = cachedDisplayModel.isDownloaded
             
@@ -10388,7 +11030,11 @@ extension ChatViewController {
             
             let mappedReferences = cachedDisplayModel.mappedReferences
             let forwards = cachedDisplayModel.forwards
-            let statePresentation = snapshot.statePresentation(currentUserJid: context.owner)
+            let statePresentation = snapshot.statePresentation(
+                currentUserJid: context.owner,
+                state: item.state,
+                archivedId: item.archivedId
+            )
             let effectiveState = statePresentation.effectiveState
             let indicator = Self.messageIndicator(
                 for: effectiveState,
@@ -10419,9 +11065,9 @@ extension ChatViewController {
                 withAvatar: withAvatar,
                 reservesAvatarSpace: reservesAvatarSpace,
                 error: effectiveState == .error,
-                errorType: snapshot.messageError ?? "",
+                errorType: item.messageError ?? "",
                 canPinMessage: [.system, .sticker].contains(snapshot.displayAs) ? false : context.canUnpinMessage,
-                canEditMessage: snapshot.archivedId.isNotEmpty ? snapshot.displayAs == .text && presentation.displayOutgoing : false,
+                canEditMessage: item.archivedId.isNotEmpty ? snapshot.displayAs == .text && presentation.displayOutgoing : false,
                 canDeleteMessage: [MessageStorageItem.MessageSendingState.deliver, MessageStorageItem.MessageSendingState.read].contains(effectiveState),
                 forwards: forwards,
                 isOutgoing: presentation.displayOutgoing,
@@ -10434,13 +11080,13 @@ extension ChatViewController {
                 isDownloaded: isDownloaded,
                 state: snapshot.displayAs == .call ? .none : effectiveState,
                 searchString:  searchString,
-                errorMetadata: snapshot.errorMetadata,
+                errorMetadata: item.errorMetadata,
                 messageWarningText: snapshot.messageWarningText,
                 burnDate: snapshot.burnDate,
                 afterburnInterval: snapshot.afterburnInterval,
-                archivedId: snapshot.archivedId,
-                queryIds: snapshot.queryIds,
-                isRead: snapshot.isRead,
+                archivedId: item.archivedId,
+                queryIds: item.queryIds,
+                isRead: item.isRead,
                 selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
                 isHadHistoryGap: false,
                 tailed: tailed,
@@ -10456,13 +11102,30 @@ extension ChatViewController {
                 attributedAuthor: attributedAuthor
             ))
         }
+        if cancellationToken?.isCancelled == true {
+            return ChatDatasourceMappingResult(
+                datasource: out,
+                editedMessagePrimariesNeedingLayoutInvalidation: editedMessagePrimariesNeedingLayoutInvalidation,
+                layoutSnapshot: context.layoutReuseSnapshot,
+                wasCancelled: true
+            )
+        }
         let layoutSnapshot = ChatMessageLayoutPrewarmer.prewarm(
             items: out,
             context: context.layoutContext,
             reuse: context.layoutReuseSnapshot,
             capacity: context.layoutCacheCapacity,
-            operationCounter: context.layoutOperationCounter
+            operationCounter: context.layoutOperationCounter,
+            shouldContinue: { cancellationToken?.isCancelled != true }
         )
+        if cancellationToken?.isCancelled == true {
+            return ChatDatasourceMappingResult(
+                datasource: out,
+                editedMessagePrimariesNeedingLayoutInvalidation: editedMessagePrimariesNeedingLayoutInvalidation,
+                layoutSnapshot: context.layoutReuseSnapshot,
+                wasCancelled: true
+            )
+        }
         return ChatDatasourceMappingResult(
             datasource: out,
             editedMessagePrimariesNeedingLayoutInvalidation: editedMessagePrimariesNeedingLayoutInvalidation,
@@ -11754,11 +12417,18 @@ extension ChatViewController {
         let previousOldestArchivedId = currentTimelineState.oldest?.archivedId
         let previousNewestArchivedId = currentTimelineState.newest?.archivedId
         let mappingContext = self.captureDatasourceMappingContext()
+        let mappingJob = self.beginDatasetMappingJob()
+        let mappingGeneration = mappingJob.generation
+        let cancellationToken = mappingJob.token
         DDLogDebug(
             "ChatViewController.remoteHistoryApplyStart queryId=\(queryId) direction=\(refetchDirection) visibleRows=\(visibleRows) count=\(resultCount) oldest=\(previousOldestArchivedId ?? "-") newest=\(previousNewestArchivedId ?? "-")"
         )
 
-        self.remoteHistoryApplyQueue.async {
+        self.remoteHistoryApplyQueue.async { [weak self, weak session] in
+            guard let self, let session, !cancellationToken.isCancelled else {
+                DispatchQueue.main.async { cancelledCompletion?() }
+                return
+            }
             let startedAt = Date()
             let queueWaitMs = Int(startedAt.timeIntervalSince(enqueuedAt) * 1000)
             ChatArchiveDebugTrace.log("remoteHistoryApplyWorkerStart", [
@@ -11781,7 +12451,11 @@ extension ChatViewController {
             let frozenItems = snapshot.items
             let nextVirtualState = snapshot.state
             let mapStartedAt = Date()
-            let mappingResult = self.mapDataset(dataset: frozenItems, context: mappingContext)
+            let mappingResult = self.mapDataset(
+                dataset: frozenItems,
+                context: mappingContext,
+                cancellationToken: cancellationToken
+            )
             let mapDurationMs = ChatArchiveDebugTrace.milliseconds(since: mapStartedAt)
             let workerDurationMs = ChatArchiveDebugTrace.milliseconds(since: startedAt)
             ChatArchiveDebugTrace.log("remoteHistoryApplyRefetchDone", [
@@ -11815,7 +12489,13 @@ extension ChatViewController {
                         jid: self.jid,
                         conversationType: self.conversationType
                     )
-                    guard self.timelineSession === session,
+                    guard !mappingResult.wasCancelled,
+                          !cancellationToken.isCancelled,
+                          ChatDatasourceApplyGenerationPolicy.shouldApply(
+                            requestGeneration: mappingGeneration,
+                            currentGeneration: self.datasetMappingGeneration
+                          ),
+                          self.timelineSession === session,
                           ChatRemoteHistoryApplyGuardPolicy.shouldApply(
                         requestConversationKey: requestConversationKey,
                         currentConversationKey: currentConversationKey,

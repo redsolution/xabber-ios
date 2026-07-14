@@ -350,6 +350,7 @@ enum ChatMessageLayoutPrewarmer {
         reuse: ChatMessageLayoutSnapshot,
         capacity: Int,
         operationCounter: ChatMessageLayoutOperationCounter? = nil,
+        shouldContinue: (() -> Bool)? = nil,
         measure: Measure = ChatMessageLayoutCalculator.measure
     ) -> ChatMessageLayoutSnapshot {
         let limit = max(0, capacity)
@@ -362,7 +363,11 @@ enum ChatMessageLayoutPrewarmer {
         var orderedKeys: [ChatMessageLayoutKey] = []
         orderedKeys.reserveCapacity(min(items.count, limit))
 
-        for item in items {
+        for (index, item) in items.enumerated() {
+            if index.isMultiple(of: 16),
+               shouldContinue?() == false {
+                break
+            }
             let key = ChatMessageLayoutKey(message: item, context: context)
             activeKeyByPrimary[item.primary] = key
             if layoutsByKey[key] != nil {

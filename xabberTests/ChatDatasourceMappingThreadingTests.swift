@@ -51,6 +51,29 @@ final class ChatDatasourceMappingThreadingTests: XCTestCase {
         XCTAssertTrue(ChatDatasourceApplyGenerationPolicy.shouldApply(requestGeneration: 2, currentGeneration: 2))
     }
 
+    func testMapDatasetCooperativelyStopsAnObsoleteTokenWithinOneBatch() throws {
+        let controller = makeController()
+        let context = controller.captureDatasourceMappingContext()
+        let rows = try seedMessages(count: 64)
+        let coordinator = ChatDatasetMappingJobCoordinator(cancellationCheckInterval: 16)
+        let obsolete = coordinator.begin(generation: 1)
+        for _ in 0..<7 {
+            XCTAssertTrue(obsolete.shouldProcessNextRow())
+        }
+        _ = coordinator.begin(generation: 2)
+
+        let result = controller.mapDataset(
+            dataset: rows,
+            context: context,
+            cancellationToken: obsolete
+        )
+
+        XCTAssertTrue(result.wasCancelled)
+        XCTAssertLessThanOrEqual(obsolete.statistics.rowsProcessedAfterCancellation, 16)
+        XCTAssertLessThan(result.datasource.filter { !$0.isFakeMessage }.count, rows.count)
+        XCTAssertEqual(result.layoutSnapshot.count, context.layoutReuseSnapshot.count)
+    }
+
     func testEditedMessageLayoutInvalidationIsReturnedByMappingResult() throws {
         let controller = makeController()
         let context = controller.captureDatasourceMappingContext()
@@ -79,6 +102,85 @@ final class ChatDatasourceMappingThreadingTests: XCTestCase {
 
         XCTAssertEqual(afterFirst.misses, 1)
         XCTAssertGreaterThan(afterSecond.hits, afterFirst.hits)
+    }
+
+    func testRepeatedMappingOfFifteenHundredRowsKeepsAtLeastNinetyFivePercentRichHits() throws {
+        let controller = makeController()
+        let context = controller.captureDatasourceMappingContext()
+        let frozen = try seedMessages(count: 1_500)
+
+        _ = controller.mapDataset(dataset: frozen, context: context)
+        let afterFirst = controller.displayModelCache.statistics
+        _ = controller.mapDataset(dataset: frozen, context: context)
+        let afterSecond = controller.displayModelCache.statistics
+
+        let secondPassHits = afterSecond.hits - afterFirst.hits
+        let secondPassMisses = afterSecond.misses - afterFirst.misses
+        XCTAssertGreaterThanOrEqual(Double(secondPassHits) / 1_500.0, 0.95)
+        XCTAssertEqual(secondPassMisses, 0)
+        XCTAssertEqual(afterSecond.entryCount, 1_500)
+        XCTAssertEqual(afterSecond.linearRecencyScanSteps, 0)
+    }
+
+    func testReceiptOnlyMutationReusesRichModelAndRefreshesChrome() throws {
+        let controller = makeController()
+        let context = controller.captureDatasourceMappingContext()
+        let message = try seedMessage(primary: "receipt-cache", body: "Stable body")
+        let first = controller.mapDataset(dataset: [message.freeze()], context: context)
+        let firstRow = try XCTUnwrap(first.datasource.first { $0.primary == message.primary })
+        let afterFirst = controller.displayModelCache.statistics
+
+        let realm = try WRealm.safe()
+        try realm.write {
+            message.state = .read
+            message.isRead = true
+            message.messageError = "updated chrome"
+            message.errorMetadata = ["receipt": true]
+        }
+        let second = controller.mapDataset(dataset: [message.freeze()], context: context)
+        let secondRow = try XCTUnwrap(second.datasource.first { $0.primary == message.primary })
+        let afterSecond = controller.displayModelCache.statistics
+
+        XCTAssertEqual(afterSecond.misses, afterFirst.misses)
+        XCTAssertEqual(afterSecond.hits - afterFirst.hits, 1)
+        XCTAssertEqual(messageText(firstRow.kind), messageText(secondRow.kind))
+        XCTAssertEqual(secondRow.state, .read)
+        XCTAssertTrue(secondRow.isRead)
+        XCTAssertEqual(secondRow.errorMetadata?["receipt"] as? Bool, true)
+    }
+
+    func testRevealOneSensitiveReferenceInvalidatesOnlyItsOwningRichModel() throws {
+        let controller = makeController()
+        let baseContext = controller.captureDatasourceMappingContext()
+        let first = try seedMessage(
+            primary: "reveal-first",
+            body: "First",
+            reference: sensitiveImageReference(primary: "reveal-first-media")
+        )
+        let second = try seedMessage(
+            primary: "reveal-second",
+            body: "Second",
+            reference: sensitiveImageReference(primary: "reveal-second-media")
+        )
+        let rows = [first.freeze(), second.freeze()]
+        _ = controller.mapDataset(dataset: rows, context: baseContext)
+        let beforeReveal = controller.displayModelCache.statistics
+
+        var revealedContext = baseContext
+        revealedContext.revealedSensitiveMediaPrimaries = ["reveal-first-media"]
+        let revealed = controller.mapDataset(dataset: rows, context: revealedContext)
+        let afterReveal = controller.displayModelCache.statistics
+
+        XCTAssertEqual(afterReveal.misses - beforeReveal.misses, 1)
+        XCTAssertEqual(afterReveal.hits - beforeReveal.hits, 1)
+        XCTAssertEqual(
+            revealed.datasource.first { $0.primary == "reveal-first" }?.images.first?.isSensitiveRevealed,
+            true
+        )
+        XCTAssertEqual(
+            revealed.datasource.first { $0.primary == "reveal-second" }?.images.first?.isSensitiveRevealed,
+            false
+        )
     }
 
     func testMappingContextInvalidatesDisplayModelsForSearchTraitStyleAndSensitiveRevealChanges() throws {
@@ -177,8 +279,6 @@ final class ChatDatasourceMappingThreadingTests: XCTestCase {
     }
 
     func testDisplaySnapshotRevisionTracksReferenceForwardAndRevealInputs() throws {
-        let controller = makeController()
-        let context = controller.captureDatasourceMappingContext()
         let message = try seedMessage(
             primary: "revision-message",
             body: "Revision body",
@@ -195,12 +295,12 @@ final class ChatDatasourceMappingThreadingTests: XCTestCase {
             currentUserName: "Owner"
         )
         let original = ChatMessageDisplaySnapshot(item: message, presentation: originalPresentation)
-        let originalKey = original.displayModelCacheKey(
-            context: context.displayCacheContext,
+        let originalRevision = ChatMessageRichStorageRevision.capture(
+            message,
             revealedSensitiveMediaPrimaries: []
         )
-        let revealedKey = original.displayModelCacheKey(
-            context: context.displayCacheContext,
+        let revealedRevision = ChatMessageRichStorageRevision.capture(
+            message,
             revealedSensitiveMediaPrimaries: ["revision-image"]
         )
 
@@ -214,15 +314,15 @@ final class ChatDatasourceMappingThreadingTests: XCTestCase {
             currentUserName: "Owner"
         )
         let edited = ChatMessageDisplaySnapshot(item: message, presentation: editedPresentation)
-        let editedKey = edited.displayModelCacheKey(
-            context: context.displayCacheContext,
+        let editedRevision = ChatMessageRichStorageRevision.capture(
+            message,
             revealedSensitiveMediaPrimaries: []
         )
 
         XCTAssertNotEqual(original.presentation.visibleReferencesRevision, edited.presentation.visibleReferencesRevision)
         XCTAssertNotEqual(original.presentation.visibleForwardsRevision, edited.presentation.visibleForwardsRevision)
-        XCTAssertNotEqual(originalKey.displayRevision, revealedKey.displayRevision)
-        XCTAssertNotEqual(originalKey.displayRevision, editedKey.displayRevision)
+        XCTAssertNotEqual(originalRevision, revealedRevision)
+        XCTAssertNotEqual(originalRevision, editedRevision)
     }
 
     private func makeController() -> ChatViewController {
@@ -236,6 +336,15 @@ final class ChatDatasourceMappingThreadingTests: XCTestCase {
         controller.inSearchMode.accept(false)
         controller.searchTextObserver.accept(nil)
         return controller
+    }
+
+    private func messageText(_ kind: MessageKind) -> String? {
+        switch kind {
+        case .attributedText(let text), .system(let text):
+            return text.string
+        default:
+            return nil
+        }
     }
 
     private func seedMessage(
@@ -271,6 +380,33 @@ final class ChatDatasourceMappingThreadingTests: XCTestCase {
             realm.add(message, update: .modified)
         }
         return try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+    }
+
+    private func seedMessages(count: Int) throws -> [MessageStorageItem] {
+        let realm = try WRealm.safe()
+        try realm.write {
+            for index in 0..<count {
+                let primary = "bulk-\(index)"
+                let message = MessageStorageItem()
+                message.primary = primary
+                message.owner = owner
+                message.opponent = jid
+                message.conversationType = .regular
+                message.messageId = "\(primary)-message-id"
+                message.archivedId = "\(primary)-archive-id"
+                message.body = "Bulk body \(index)"
+                message.legacyBody = message.body
+                message.date = Date(timeIntervalSince1970: 1_700_000_000 + Double(index))
+                message.sentDate = message.date
+                message.outgoing = index.isMultiple(of: 3)
+                message.displayAs = .text
+                message.state = .deliver
+                realm.add(message, update: .modified)
+            }
+        }
+        return (0..<count).compactMap { index in
+            realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "bulk-\(index)")?.freeze()
+        }
     }
 
     private func sensitiveImageReference(primary: String) -> MessageReferenceStorageItem {
