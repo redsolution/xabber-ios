@@ -987,11 +987,16 @@ struct ChatDatasourceMappingContext {
     let avatarVerticalPosition: String
     let canUnpinMessage: Bool
     var revealedSensitiveMediaPrimaries: Set<String>
+    let layoutContext: ChatMessageLayoutContext
+    let layoutReuseSnapshot: ChatMessageLayoutSnapshot
+    let layoutCacheCapacity: Int
+    let layoutOperationCounter: ChatMessageLayoutOperationCounter?
 }
 
 struct ChatDatasourceMappingResult {
     let datasource: [ChatViewController.Datasource]
     let editedMessagePrimariesNeedingLayoutInvalidation: [String]
+    let layoutSnapshot: ChatMessageLayoutSnapshot
 }
 
 private struct ChatDatasourceMappingDateFormatters {
@@ -6622,8 +6627,15 @@ extension ChatViewController {
         return formatter
     }
 
-    internal func captureDatasourceMappingContext() -> ChatDatasourceMappingContext {
+    internal func captureDatasourceMappingContext(
+        layoutWidthOverride: CGFloat? = nil
+    ) -> ChatDatasourceMappingContext {
         let traitCollection = self.traitCollection
+        let flowLayout = self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout
+        let layoutWidth = max(
+            1,
+            layoutWidthOverride ?? flowLayout?.itemWidth ?? self.messagesCollectionView.bounds.width
+        )
         let bodyFont = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
         let captionFont = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: traitCollection)
         let bodyColor = UIColor.label.resolvedColor(with: traitCollection)
@@ -6664,8 +6676,75 @@ extension ChatViewController {
             searchHighlightColor: searchHighlightColor,
             avatarVerticalPosition: self.avatarVerticalPosition,
             canUnpinMessage: self.canUnpinMessage.value,
-            revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries
+            revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries,
+            layoutContext: ChatMessageLayoutContext(
+                width: layoutWidth,
+                contentSizeCategory: traitCollection.preferredContentSizeCategory.rawValue,
+                localeIdentifier: Locale.current.identifier,
+                interfaceStyleRawValue: traitCollection.userInterfaceStyle.rawValue,
+                messageStyle: self.messageCorner.rawValue,
+                cornerRadius: self.cornerRadius,
+                avatarMode: self.avatarVerticalPosition
+            ),
+            layoutReuseSnapshot: flowLayout?.cache.reuseSnapshot() ?? .empty,
+            layoutCacheCapacity: flowLayout?.cache.capacity ?? 2_048,
+            layoutOperationCounter: flowLayout?.cache.operationCounter
         )
+    }
+
+    internal func prepareAndApplyCurrentDatasourceLayouts(
+        layoutWidthOverride: CGFloat? = nil,
+        completion: (() -> Void)? = nil
+    ) {
+        guard isViewLoaded else {
+            completion?()
+            return
+        }
+        layoutPreparationGeneration += 1
+        let generation = layoutPreparationGeneration
+        let items = datasource
+        let context = captureDatasourceMappingContext(
+            layoutWidthOverride: layoutWidthOverride
+        )
+        datasetMappingQueue.async { [weak self] in
+            let preparedLayouts = ChatMessageLayoutPrewarmer.prewarm(
+                items: items,
+                context: context.layoutContext,
+                reuse: context.layoutReuseSnapshot,
+                capacity: context.layoutCacheCapacity,
+                operationCounter: context.layoutOperationCounter
+            )
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      generation == self.layoutPreparationGeneration else { return }
+                let stillRepresentsCurrentDatasource = self.datasource.count == items.count &&
+                    zip(self.datasource, items).allSatisfy { current, captured in
+                        ChatMessageLayoutKey(
+                            message: current,
+                            context: context.layoutContext
+                        ) == ChatMessageLayoutKey(
+                            message: captured,
+                            context: context.layoutContext
+                        )
+                    }
+                guard stillRepresentsCurrentDatasource else {
+                    self.prepareAndApplyCurrentDatasourceLayouts(
+                        layoutWidthOverride: layoutWidthOverride,
+                        completion: completion
+                    )
+                    return
+                }
+                self.applyChatDatasource(
+                    items,
+                    mode: .fullReload(keepOffset: true),
+                    animated: false,
+                    invalidateLayout: true,
+                    preparedLayouts: preparedLayouts,
+                    suppressDefaultBottomScroll: true,
+                    completion: completion
+                )
+            }
+        }
     }
 
     internal func requestOutgoingAutoScrollAfterDatasourceUpdate() {
@@ -7094,6 +7173,7 @@ extension ChatViewController {
         mode: ChatDatasourceApplyMode,
         animated: Bool = true,
         invalidateLayout: Bool = false,
+        preparedLayouts: ChatMessageLayoutSnapshot? = nil,
         suppressDefaultBottomScroll: Bool = false,
         forceBottomAlignmentTarget: ChatBottomAlignmentTarget? = nil,
         applyCategory: ChatDatasourceApplyCategory = .default,
@@ -7128,6 +7208,8 @@ extension ChatViewController {
         let newSnapshot = ChatDatasourceCoordinator.makeSnapshot(items: items)
         let previousSnapshot = datasourceSnapshot
         let flowLayout = self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout
+        let previousLayoutSnapshot = flowLayout?.cache.reuseSnapshot() ?? .empty
+        let nextLayoutSnapshot = preparedLayouts ?? previousLayoutSnapshot
         let targetedDiff: ChatDatasourceCoordinator.DiffResult?
         if case .targetedDiff = mode,
            !previousSnapshot.items.isEmpty,
@@ -7136,8 +7218,8 @@ extension ChatViewController {
                 ChatDatasourceCoordinator.diff(
                     old: previousSnapshot,
                     new: newSnapshot,
-                    oldSizeProvider: { flowLayout?.sizeForMessage($0) },
-                    newSizeProvider: { flowLayout?.sizeForMessage($0) }
+                    oldSizeProvider: { previousLayoutSnapshot.layout(forPrimary: $0.primary)?.cellSize },
+                    newSizeProvider: { nextLayoutSnapshot.layout(forPrimary: $0.primary)?.cellSize }
                 )
             }
         } else {
@@ -7536,10 +7618,6 @@ extension ChatViewController {
 
         let applyNonStructuralUpdates: () -> Void = {
             guard let targetedDiff else { return }
-            targetedDiff.reloads.forEach { indexPath in
-                guard items.indices.contains(indexPath.section) else { return }
-                flowLayout?.invalidateLastMessageCachedSize(primary: items[indexPath.section].primary)
-            }
             if !targetedDiff.reloads.isEmpty {
                 self.messagesCollectionView.reconfigureItems(at: targetedDiff.reloads)
             }
@@ -7549,6 +7627,10 @@ extension ChatViewController {
                     changeMask: targetedDiff.changeMasksByPrimary[update.primary] ?? .all
                 )
             }
+        }
+
+        if let preparedLayouts {
+            flowLayout?.cache.install(preparedLayouts)
         }
 
         switch mode {
@@ -9126,6 +9208,7 @@ extension ChatViewController {
                     mode: mode,
                     animated: animated,
                     invalidateLayout: invalidateLayout,
+                    preparedLayouts: mappingResult.layoutSnapshot,
                     completion: completion
                 )
             }
@@ -9183,6 +9266,7 @@ extension ChatViewController {
                     mode: mode,
                     animated: animated,
                     invalidateLayout: invalidateLayout,
+                    preparedLayouts: mappingResult.layoutSnapshot,
                     completion: completion
                 )
             }
@@ -9233,6 +9317,7 @@ extension ChatViewController {
                     mode: mode,
                     animated: animated,
                     invalidateLayout: invalidateLayout,
+                    preparedLayouts: mappingResult.layoutSnapshot,
                     suppressDefaultBottomScroll: suppressDefaultBottomScroll,
                     forceBottomAlignmentTarget: forceBottomAlignmentTarget,
                     completion: completion
@@ -9294,6 +9379,7 @@ extension ChatViewController {
                     mode: mode,
                     animated: animated,
                     invalidateLayout: invalidateLayout,
+                    preparedLayouts: mappingResult.layoutSnapshot,
                     suppressDefaultBottomScroll: suppressDefaultBottomScroll,
                     applyCategory: applyCategory,
                     anchorRestorePhase: anchorRestorePhase,
@@ -9349,6 +9435,7 @@ extension ChatViewController {
                     mode: mode,
                     animated: animated,
                     invalidateLayout: invalidateLayout,
+                    preparedLayouts: mappingResult.layoutSnapshot,
                     suppressDefaultBottomScroll: suppressDefaultBottomScroll,
                     applyCategory: applyCategory,
                     anchorRestorePhase: anchorRestorePhase,
@@ -9403,6 +9490,7 @@ extension ChatViewController {
                     mode: mode,
                     animated: animated,
                     invalidateLayout: invalidateLayout,
+                    preparedLayouts: mappingResult.layoutSnapshot,
                     suppressDefaultBottomScroll: suppressDefaultBottomScroll,
                     applyCategory: applyCategory,
                     anchorRestorePhase: anchorRestorePhase,
@@ -9894,6 +9982,7 @@ extension ChatViewController {
                 mode: .fullReload(),
                 animated: false,
                 invalidateLayout: false,
+                preparedLayouts: mappingResult.layoutSnapshot,
                 suppressDefaultBottomScroll: true,
                 forceBottomAlignmentTarget: committedSnapshot.items.isEmpty ? nil : .newestRealMessage,
                 completion: completion
@@ -9907,6 +9996,7 @@ extension ChatViewController {
                 mode: .fullReload(),
                 animated: false,
                 invalidateLayout: false,
+                preparedLayouts: mappingResult.layoutSnapshot,
                 suppressDefaultBottomScroll: true,
                 applyCategory: .default,
                 anchorRestorePhase: .applyTransaction,
@@ -9951,7 +10041,26 @@ extension ChatViewController {
                 isDatasourceEmpty: self.datasource.isEmpty,
                 isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
             ) {
-                self.applyChatDatasource(self.mapDataset(dataset: []), mode: .fullReload(), animated: self.shouldAnimateInitialHistoryAppearance)
+                let generation = self.datasetMappingGeneration
+                let mappingContext = self.captureDatasourceMappingContext()
+                let animated = self.shouldAnimateInitialHistoryAppearance
+                self.datasetMappingQueue.async { [weak self] in
+                    guard let self else { return }
+                    let mappingResult = self.mapDataset(dataset: [], context: mappingContext)
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self,
+                              ChatDatasourceApplyGenerationPolicy.shouldApply(
+                                requestGeneration: generation,
+                                currentGeneration: self.datasetMappingGeneration
+                              ) else { return }
+                        self.applyChatDatasource(
+                            mappingResult.datasource,
+                            mode: .fullReload(),
+                            animated: animated,
+                            preparedLayouts: mappingResult.layoutSnapshot
+                        )
+                    }
+                }
             }
         case .content, .empty:
             self.reloadInitialWindowAfterBootstrapIfNeeded(force: forceRender)
@@ -9984,6 +10093,9 @@ extension ChatViewController {
         }
     }
 
+    /// Compatibility helper for focused mapping tests. Production mapping paths
+    /// capture the context on main and execute the result, including layout
+    /// prewarming, on `datasetMappingQueue`.
     internal final func mapDataset(dataset: Array<MessageStorageItem>) -> [Datasource] {
         mapDataset(
             dataset: dataset,
@@ -10048,7 +10160,14 @@ extension ChatViewController {
             }
             return ChatDatasourceMappingResult(
                 datasource: datasource,
-                editedMessagePrimariesNeedingLayoutInvalidation: []
+                editedMessagePrimariesNeedingLayoutInvalidation: [],
+                layoutSnapshot: ChatMessageLayoutPrewarmer.prewarm(
+                    items: datasource,
+                    context: context.layoutContext,
+                    reuse: context.layoutReuseSnapshot,
+                    capacity: context.layoutCacheCapacity,
+                    operationCounter: context.layoutOperationCounter
+                )
             )
         }
         var out: [Datasource] = []
@@ -10337,9 +10456,17 @@ extension ChatViewController {
                 attributedAuthor: attributedAuthor
             ))
         }
+        let layoutSnapshot = ChatMessageLayoutPrewarmer.prewarm(
+            items: out,
+            context: context.layoutContext,
+            reuse: context.layoutReuseSnapshot,
+            capacity: context.layoutCacheCapacity,
+            operationCounter: context.layoutOperationCounter
+        )
         return ChatDatasourceMappingResult(
             datasource: out,
-            editedMessagePrimariesNeedingLayoutInvalidation: editedMessagePrimariesNeedingLayoutInvalidation
+            editedMessagePrimariesNeedingLayoutInvalidation: editedMessagePrimariesNeedingLayoutInvalidation,
+            layoutSnapshot: layoutSnapshot
         )
     }
     
@@ -11751,6 +11878,7 @@ extension ChatViewController {
                         mode: mode,
                         animated: animated,
                         invalidateLayout: false,
+                        preparedLayouts: mappingResult.layoutSnapshot,
                         applyCategory: applyCategory,
                         anchorRestorePhase: anchorRestorePhase,
                         anchorPrimary: anchorPrimary,

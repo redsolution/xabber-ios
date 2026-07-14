@@ -2780,6 +2780,7 @@ class ChatViewController: MessagesViewController {
         return queue
     }()
     internal var datasetMappingGeneration: Int = 0
+    internal var layoutPreparationGeneration: Int = 0
     
     let sectionsDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -5357,7 +5358,30 @@ class ChatViewController: MessagesViewController {
     
     override func reloadDatasource() {
         updateCornerStyle()
-        self.applyChatDatasource(self.datasource, mode: .fullReload())
+        self.prepareAndApplyCurrentDatasourceLayouts()
+    }
+
+    override func viewWillTransition(
+        to size: CGSize,
+        with coordinator: UIViewControllerTransitionCoordinator
+    ) {
+        super.viewWillTransition(to: size, with: coordinator)
+        guard isViewLoaded else { return }
+        let sectionInsets = (messagesCollectionView.collectionViewLayout as? UICollectionViewFlowLayout)?
+            .sectionInset.horizontal ?? 0
+        prepareAndApplyCurrentDatasourceLayouts(
+            layoutWidthOverride: max(1, size.width - sectionInsets)
+        )
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard isViewLoaded,
+              previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory ||
+                previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle else {
+            return
+        }
+        prepareAndApplyCurrentDatasourceLayouts()
     }
     
     override func viewWillAppear(_ animated: Bool) {

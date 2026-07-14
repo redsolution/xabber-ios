@@ -123,6 +123,8 @@ xabberTests/ChatVirtualTimelineEngineTests
 SELECTORS
       ;;
     G10) cat <<'SELECTORS'
+xabberTests/ChatMessageLayoutCacheTests
+xabberTests/MessagesCollectionViewFlowLayoutTests
 xabberTests/ChatDisplayModelCacheTests
 xabberTests/ChatReloadInvalidationPolicyTests
 xabberTests/ChatInitialMessageOverlayLayoutTests
