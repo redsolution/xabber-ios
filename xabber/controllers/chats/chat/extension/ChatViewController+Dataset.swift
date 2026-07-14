@@ -246,73 +246,26 @@ struct SavedMessageDisplayPolicy {
         searchedText: String? = nil,
         searchedTextColor: UIColor? = nil
     ) -> NSAttributedString {
-        let body = presentation.visibleBody
-        let string = NSMutableAttributedString(string: body.trimmingCharacters(in: .newlines))
-        if string.length > 0 {
-            string.addAttributes(attributes, range: NSRange(location: 0, length: string.length))
+        let mentionColor = AccountColorManager.shared
+            .palette(for: presentation.displayAuthorJid)
+            .tint700
+        let references = presentation.visibleReferences.compactMap { reference -> ChatAttributedBodyReference? in
+            guard !reference.isLocallyHiddenByReport,
+                  reference.kind == .markup || reference.kind == .mention else {
+                return nil
+            }
+            return ChatAttributedBodyReference(
+                storageReference: reference,
+                mentionColor: mentionColor
+            )
         }
-
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = .byWordWrapping
-        paragraph.lineSpacing = 1.5
-        paragraph.allowsDefaultTighteningForTruncation = true
-
-        for reference in presentation.visibleReferences where !reference.isLocallyHiddenByReport {
-            if reference.end <= reference.begin { continue }
-            if reference.end > body.utf16.count { continue }
-            switch reference.kind {
-            case .markup:
-                applyMarkup(reference, to: string)
-            case .mention:
-                string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .semibold), range: reference.range)
-                string.addAttribute(.foregroundColor, value: AccountColorManager.shared.palette(for: presentation.displayAuthorJid).tint700, range: reference.range)
-                if let url = reference.metadata?["uri"] as? String ?? reference.url {
-                    string.addAttribute(.link, value: url, range: reference.range)
-                }
-            default:
-                break
-            }
-        }
-
-        if let searchedText = searchedText, searchedText.isNotEmpty {
-            let range = (string.string as NSString).range(of: searchedText, options: [.caseInsensitive, .diacriticInsensitive])
-            if range.location != NSNotFound {
-                string.addAttribute(.backgroundColor, value: searchedTextColor ?? MDCPalette.blue.tint200, range: range)
-            }
-        }
-        if string.length > 0 {
-            string.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: string.length))
-        }
-        if string.string.starts(with: "\n") {
-            string.deleteCharacters(in: NSRange(0..<"\n".count))
-        }
-        return string
-    }
-
-    private static func applyMarkup(_ reference: MessageReferenceStorageItem, to string: NSMutableAttributedString) {
-        guard let styles = reference.metadata?["styles"] as? [String] else { return }
-        for style in styles {
-            if style == "bold" {
-                string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).bold(), range: reference.range)
-            }
-            if style == "italic" {
-                if styles.contains("bold") {
-                    string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).boldItalic(), range: reference.range)
-                } else {
-                    string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).italic(), range: reference.range)
-                }
-            }
-            if style == "underline" {
-                string.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: reference.range)
-            }
-            if style == "strike" {
-                string.addAttribute(.strikethroughStyle, value: 1, range: reference.range)
-            }
-            if style == "uri",
-               let url = reference.metadata?["uri"] as? String {
-                string.addAttribute(.link, value: url, range: reference.range)
-            }
-        }
+        return ChatAttributedBodyFormatter.format(
+            body: presentation.visibleBody,
+            references: references,
+            attributes: attributes,
+            searchedText: searchedText,
+            searchedTextColor: searchedTextColor
+        )
     }
 
     private static func isSyntheticSavedForwardCard(_ card: GroupchatUserStorageItem?) -> Bool {
@@ -845,71 +798,38 @@ struct ChatMessageDisplaySnapshot {
         searchedTextColor: UIColor?,
         skipsHiddenReferences: Bool
     ) -> NSAttributedString {
-        let string = NSMutableAttributedString(string: body.trimmingCharacters(in: .newlines))
-        if string.length > 0 {
-            string.addAttributes(attributes, range: NSRange(location: 0, length: string.length))
-        }
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = .byWordWrapping
-        paragraph.lineSpacing = 1.5
-        paragraph.allowsDefaultTighteningForTruncation = true
-
-        for reference in references {
-            if skipsHiddenReferences && reference.isLocallyHiddenByReport { continue }
-            if reference.end <= reference.begin { continue }
-            if reference.end > body.utf16.count { continue }
+        let mentionColor = AccountColorManager.shared.palette(for: authorJid).tint700
+        let formattedReferences = references.compactMap { reference -> ChatAttributedBodyReference? in
+            guard (!skipsHiddenReferences || !reference.isLocallyHiddenByReport),
+                  reference.kind == .markup || reference.kind == .mention else {
+                return nil
+            }
             switch reference.kind {
-            case .markup:
-                applyMarkup(reference, to: string)
             case .mention:
-                string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .semibold), range: reference.range)
-                string.addAttribute(.foregroundColor, value: AccountColorManager.shared.palette(for: authorJid).tint700, range: reference.range)
-                if let url = reference.metadata?["uri"] as? String ?? reference.url {
-                    string.addAttribute(.link, value: url, range: reference.range)
-                }
+                return .mention(
+                    begin: reference.begin,
+                    end: reference.end,
+                    destination: reference.metadata?["uri"] as? String ?? reference.url,
+                    color: mentionColor
+                )
+            case .markup:
+                return .markup(
+                    begin: reference.begin,
+                    end: reference.end,
+                    styles: reference.metadata?["styles"] as? [String] ?? [],
+                    destination: reference.metadata?["uri"] as? String ?? reference.url
+                )
             default:
-                break
+                return nil
             }
         }
-        if let searchedText, searchedText.isNotEmpty {
-            let range = (string.string as NSString).range(of: searchedText, options: [.caseInsensitive, .diacriticInsensitive])
-            if range.location != NSNotFound {
-                string.addAttribute(.backgroundColor, value: searchedTextColor ?? MDCPalette.blue.tint200, range: range)
-            }
-        }
-        if string.length > 0 {
-            string.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: string.length))
-        }
-        if string.string.starts(with: "\n") {
-            string.deleteCharacters(in: NSRange(0..<"\n".count))
-        }
-        return string
-    }
-
-    private static func applyMarkup(_ reference: ChatMessageReferenceSnapshot, to string: NSMutableAttributedString) {
-        guard let styles = reference.metadata?["styles"] as? [String] else { return }
-        for style in styles {
-            if style == "bold" {
-                string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).bold(), range: reference.range)
-            }
-            if style == "italic" {
-                if styles.contains("bold") {
-                    string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).boldItalic(), range: reference.range)
-                } else {
-                    string.addAttribute(.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).italic(), range: reference.range)
-                }
-            }
-            if style == "underline" {
-                string.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: reference.range)
-            }
-            if style == "strike" {
-                string.addAttribute(.strikethroughStyle, value: 1, range: reference.range)
-            }
-            if style == "uri",
-               let url = reference.metadata?["uri"] as? String {
-                string.addAttribute(.link, value: url, range: reference.range)
-            }
-        }
+        return ChatAttributedBodyFormatter.format(
+            body: body,
+            references: formattedReferences,
+            attributes: attributes,
+            searchedText: searchedText,
+            searchedTextColor: searchedTextColor
+        )
     }
 
     private static func combineReference(
@@ -5454,8 +5374,59 @@ struct ChatDiffContentSignature: Equatable, CustomStringConvertible {
     }
 }
 
+struct ChatAttributedTextContentSignature: Equatable, CustomStringConvertible {
+    struct Run: Equatable {
+        let location: Int
+        let length: Int
+        let fontName: String?
+        let fontPointSize: CGFloat?
+        let fontTraitsRawValue: UInt32?
+        let linkDestination: String?
+    }
+
+    let text: String
+    let runs: [Run]
+
+    init(_ attributedText: NSAttributedString) {
+        self.text = attributedText.string
+        var runs: [Run] = []
+        let fullRange = NSRange(location: 0, length: attributedText.length)
+        if fullRange.length > 0 {
+            attributedText.enumerateAttributes(in: fullRange) { attributes, range, _ in
+                let font = attributes[.font] as? UIFont
+                runs.append(Run(
+                    location: range.location,
+                    length: range.length,
+                    fontName: font?.fontName,
+                    fontPointSize: font?.pointSize,
+                    fontTraitsRawValue: font?.fontDescriptor.symbolicTraits.rawValue,
+                    linkDestination: Self.linkDestination(from: attributes[.link])
+                ))
+            }
+        }
+        self.runs = runs
+    }
+
+    var description: String {
+        "attributed(length:\(text.count),runs:\(runs.count))"
+    }
+
+    private static func linkDestination(from value: Any?) -> String? {
+        switch value {
+        case let value as URL:
+            return value.absoluteString
+        case let value as NSURL:
+            return (value as URL).absoluteString
+        case let value as String:
+            return value
+        default:
+            return nil
+        }
+    }
+}
+
 enum ChatMessageKindContentSignature: Equatable, CustomStringConvertible {
-    case attributedText(String)
+    case attributedText(ChatAttributedTextContentSignature)
     case emoji(String)
     case sticker(ChatImageAttachmentSignature)
     case call(primary: String, incoming: Bool, missed: Bool)
@@ -5467,8 +5438,8 @@ enum ChatMessageKindContentSignature: Equatable, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case .attributedText(let text):
-            return "attributedText(length:\(text.count))"
+        case .attributedText(let signature):
+            return signature.description
         case .emoji(let text):
             return "emoji(length:\(text.count))"
         case .sticker(let signature):
@@ -5658,12 +5629,12 @@ struct ChatForwardAttachmentSignature: Equatable, CustomStringConvertible {
     let author: String
     let jid: String
     let outgoing: Bool
-    let textMessage: String
+    let textMessage: ChatAttributedTextContentSignature
     let timeMarker: String
     let attachments: ChatAttachmentContentSignature
 
     var description: String {
-        "forward(primary:\(primary),outgoing:\(outgoing),textLength:\(textMessage.count),attachments:\(attachments))"
+        "forward(primary:\(primary),outgoing:\(outgoing),textLength:\(textMessage.text.count),attachments:\(attachments))"
     }
 }
 
@@ -5706,6 +5677,7 @@ private struct ChatStableSignatureHasher {
 
 private final class ChatDiffSignatureBuilder {
     private var textCache: [ObjectIdentifier: String] = [:]
+    private var attributedTextCache: [ObjectIdentifier: ChatAttributedTextContentSignature] = [:]
     private var imageCache: [ObjectIdentifier: ChatImageAttachmentSignature] = [:]
     private var videoCache: [ObjectIdentifier: ChatVideoAttachmentSignature] = [:]
     private var locationCache: [ObjectIdentifier: ChatLocationAttachmentSignature] = [:]
@@ -5733,7 +5705,7 @@ private final class ChatDiffSignatureBuilder {
     private func kindSignature(_ kind: MessageKind) -> ChatMessageKindContentSignature {
         switch kind {
         case .attributedText(let text):
-            return .attributedText(textString(text))
+            return .attributedText(attributedTextSignature(text))
         case .emoji(let text):
             return .emoji(text)
         case .sticker(let attachment):
@@ -5785,6 +5757,21 @@ private final class ChatDiffSignatureBuilder {
         }
         let value = text.string
         textCache[key] = value
+        return value
+    }
+
+    private func attributedTextSignature(
+        _ text: NSAttributedString?
+    ) -> ChatAttributedTextContentSignature {
+        guard let text else {
+            return ChatAttributedTextContentSignature(NSAttributedString(string: ""))
+        }
+        let key = ObjectIdentifier(text)
+        if let cached = attributedTextCache[key] {
+            return cached
+        }
+        let value = ChatAttributedTextContentSignature(text)
+        attributedTextCache[key] = value
         return value
     }
 
@@ -5858,7 +5845,7 @@ private final class ChatDiffSignatureBuilder {
             author: attachment.author,
             jid: attachment.jid,
             outgoing: attachment.outgoing,
-            textMessage: textString(attachment.textMessage),
+            textMessage: attributedTextSignature(attachment.textMessage),
             timeMarker: textString(attachment.timeMarker),
             attachments: attachmentSignature(
                 images: attachment.images,
@@ -10023,7 +10010,10 @@ extension ChatViewController {
                snapshot.displayAs == .text,
                let str = context.searchText,
                str.isNotEmpty,
-               presentation.visibleBody.contains(str) {
+               ChatAttributedBodyFormatter.containsMatch(
+                    in: presentation.visibleBody,
+                    query: str
+               ) {
                 searchString = str
             }
             

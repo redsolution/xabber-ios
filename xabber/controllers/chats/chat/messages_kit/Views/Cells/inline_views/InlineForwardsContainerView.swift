@@ -451,8 +451,8 @@ class InlineMessageAttachmentView: ModernContainerView {
                 return true
             }
         } else {
-            let translatedPoint = touchPoint.translate(x: -self.messageLabel.frame.minX, y: -self.messageLabel.frame.minY)
-            return messageLabel.handleGesture(translatedPoint)
+            let labelPoint = convert(touchPoint, to: messageLabel)
+            return messageLabel.handleGesture(labelPoint)
         }
         return false
     }
@@ -644,18 +644,13 @@ class InlineForwardsContainerView: InlineAttachmentView {
         }
     }
     
-    func handleTouch(at touchPoint: CGPoint) {
-        var isMyTouch: Bool = false
-        self.inlineViews.forEach {
-            item in
-            if !isMyTouch {
-                if item.frame.contains(touchPoint) {
-                    let translatedPoint = touchPoint.translate(x: -item.frame.minX, y: -item.frame.minY)
-                    if item.handleTouch(at: translatedPoint) {
-                        isMyTouch = true
-                    }
-                }
+    func handleTouch(at touchPoint: CGPoint) -> Bool {
+        for item in inlineViews where item.frame.contains(touchPoint) {
+            let itemPoint = convert(touchPoint, to: item)
+            if item.handleTouch(at: itemPoint) {
+                return true
             }
         }
+        return false
     }
 }

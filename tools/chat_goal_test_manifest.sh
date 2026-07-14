@@ -224,6 +224,19 @@ xabberTests/ChatInitialMessageOverlayLayoutTests
 SELECTORS
     return
   fi
+  if [[ "$1" == "G02" ]]; then
+    cat <<'SELECTORS'
+xabberTests/ChatAttributedBodyFormattingTests
+xabberTests/MessageLabelLinkHitTestingTests
+xabberTests/ChatDiffKeySignatureTests
+xabberTests/ChatDatasetPerformanceHelpersTests
+xabberTests/ChatSearchResultPresentationTests
+xabberTests/ComposerMentionsTests
+xabberTests/TextMessageCellReuseTests
+xabberTests/ChatAttachmentXMPPCompatibilityTests
+SELECTORS
+    return
+  fi
   chat_goal_preflight_selectors "$1"
 }
 

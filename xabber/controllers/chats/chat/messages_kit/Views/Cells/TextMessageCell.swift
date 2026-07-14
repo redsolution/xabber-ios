@@ -986,10 +986,13 @@ public class TextMessageCell: MessageContentCell {
             }
         }
         if self.forwardsContainer.frame.contains(touchPoint) {
-            let translatedPoint = touchPoint.translate(x: -self.forwardsContainer.frame.minX, y: -self.forwardsContainer.frame.minY)
-            self.forwardsContainer.handleTouch(at: translatedPoint)
+            let forwardPoint = messageContainerView.convert(touchPoint, to: forwardsContainer)
+            if forwardsContainer.handleTouch(at: forwardPoint) {
+                return true
+            }
         }
-        return messageLabel.handleGesture(touchPoint)
+        let labelPoint = messageContainerView.convert(touchPoint, to: messageLabel)
+        return messageLabel.handleGesture(labelPoint)
     }
     
 }
