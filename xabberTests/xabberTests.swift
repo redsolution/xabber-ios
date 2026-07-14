@@ -1645,7 +1645,6 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
     func testApplySearchResultsRoutesInitialResultThroughNavigationStateMachine() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()
-        controller.messagesObserver = nil
         controller.inSearchMode.accept(true)
         controller.searchTextObserver.accept("needle")
         controller.currentSearchQueryId = "query-1"
@@ -1709,7 +1708,6 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
     func testFinishSearchQueryKeepsInitialResultNavigationInFlight() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()
-        controller.messagesObserver = nil
         controller.inSearchMode.accept(true)
         controller.searchTextObserver.accept("needle")
         _ = try XCTUnwrap(controller.beginInChatSearchQueryIfNeeded(text: "needle", queryId: "query-1"))
@@ -1741,7 +1739,6 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
     func testInitialSearchResultOpenRetriesWhenFirstAnchorWorkDisappearsBeforePositioning() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()
-        controller.messagesObserver = nil
         controller.inSearchMode.accept(true)
         controller.searchTextObserver.accept("needle")
         let targetArchivedId = "1783493923727774"
@@ -1810,7 +1807,7 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
     func testSeekWhileSearchContextLoadingRecordsLatestPendingIndexAndKeepsActivePanelResult() {
         let controller = makeControllerWithSearchResults(count: 4, selectedIndex: 0)
         controller.loadViewIfNeeded()
-        controller.currentPage.locked = true
+        controller.timelineInteractionState.locked = true
         controller.searchResultNavigationState = .loadingContext(index: 0)
         controller.xabberInputView.searchPanel.applyRenderState(.results(current: 0, total: 4, isLoadingContext: true))
 
@@ -1836,7 +1833,7 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
     func testPendingSeekUsesPendingIndexAsBaseAndCoalescesToLatestIntent() {
         let controller = makeControllerWithSearchResults(count: 5, selectedIndex: 0)
         controller.loadViewIfNeeded()
-        controller.currentPage.locked = true
+        controller.timelineInteractionState.locked = true
         controller.searchResultNavigationState = .pending(index: 2, scrollDirection: .up)
         controller.xabberInputView.searchPanel.applyRenderState(.results(current: 0, total: 5, isLoadingContext: true))
 
@@ -2018,7 +2015,7 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         let controller = makeControllerWithSearchResults(count: 17, selectedIndex: 16)
         controller.loadViewIfNeeded()
         controller.inSearchMode.accept(true)
-        controller.currentPage.locked = true
+        controller.timelineInteractionState.locked = true
         controller.xabberInputView.searchPanel.applyRenderState(.results(current: 16, total: 17, isLoadingContext: false))
 
         controller.onSearchPanelSeekUp()
@@ -2036,7 +2033,7 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         let controller = makeControllerWithSearchResults(count: 17, selectedIndex: 0)
         controller.loadViewIfNeeded()
         controller.inSearchMode.accept(true)
-        controller.currentPage.locked = true
+        controller.timelineInteractionState.locked = true
         controller.xabberInputView.searchPanel.applyRenderState(.results(current: 0, total: 17, isLoadingContext: false))
 
         controller.onSearchPanelSeekDown()
@@ -2059,7 +2056,7 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
 
         controller.markSearchResultNavigationPositioningStarted(index: 16)
         controller.commitSearchResultNavigationPositioned(index: 16)
-        controller.currentPage.locked = true
+        controller.timelineInteractionState.locked = true
         controller.onSearchPanelSeekUp()
 
         XCTAssertEqual(controller.searchResultNavigationState, .pending(index: 0, scrollDirection: .down))
@@ -13843,7 +13840,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertFalse(controller.datasource.contains { $0.primary == "first-frame-message-0" })
 
         try seedMessages(range: 1..<321)
-        controller.handleMessagesObserverRefresh()
+        controller.handleTimelineSessionRefresh()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
 
@@ -14481,7 +14478,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.4))
         controller.messagesCollectionView.layoutIfNeeded()
 
-        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.timelineInteractionState.isLoading)
         XCTAssertFalse(controller.showLoadingIndicator.value)
         XCTAssertNil(controller.activeHistoryBoundaryPlaceholder)
         XCTAssertNil(controller.virtualTimelineState.activePlaceholder)
@@ -14550,8 +14547,8 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
         let beforeDatasource = controller.datasource.map(\.primary)
         let beforePage = ChatDatasetWindow(
-            minIndex: controller.currentPage.minIndex,
-            maxIndex: controller.currentPage.maxIndex
+            minIndex: controller.residentDatasetWindow.minIndex,
+            maxIndex: controller.residentDatasetWindow.maxIndex
         )
         let beforeVirtualState = controller.virtualTimelineState
         let context = controller.pagingBoundaryContext(
@@ -14569,10 +14566,10 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertNotNil(controller.pendingPreparedLocalHistoryPage)
         XCTAssertNil(controller.pendingDeferredRemoteHistoryDirection)
         XCTAssertEqual(controller.datasource.map(\.primary), beforeDatasource)
-        XCTAssertEqual(controller.currentPage.minIndex, beforePage.minIndex)
-        XCTAssertEqual(controller.currentPage.maxIndex, beforePage.maxIndex)
+        XCTAssertEqual(controller.residentDatasetWindow.minIndex, beforePage.minIndex)
+        XCTAssertEqual(controller.residentDatasetWindow.maxIndex, beforePage.maxIndex)
         XCTAssertEqual(controller.virtualTimelineState, beforeVirtualState)
-        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.timelineInteractionState.isLoading)
         XCTAssertFalse(controller.showLoadingIndicator.value)
         XCTAssertNil(controller.activeHistoryBoundaryPlaceholder)
         XCTAssertNil(controller.interactiveHistoryPageLoadContext)
@@ -14603,7 +14600,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
             trigger: "test"
         )
         XCTAssertEqual(action, .prepareLocal(.older))
-        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.timelineInteractionState.isLoading)
         XCTAssertFalse(controller.showLoadingIndicator.value)
 
         let anchor = try XCTUnwrap(controller.capturePagingAnchorIfNeeded(direction: .older))
@@ -14615,7 +14612,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         controller.messagesCollectionView.layoutIfNeeded()
 
         XCTAssertNil(controller.pendingPreparedLocalHistoryPage)
-        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.timelineInteractionState.isLoading)
         XCTAssertFalse(controller.showLoadingIndicator.value)
         XCTAssertNil(controller.activeHistoryBoundaryPlaceholder)
         XCTAssertNil(controller.virtualTimelineState.activePlaceholder)
@@ -14863,7 +14860,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertNil(controller.pendingPreparedLocalHistoryPage)
         XCTAssertEqual(controller.pendingDeferredRemoteHistoryDirection, .older)
         XCTAssertEqual(controller.virtualTimelineState, beforeVirtualState)
-        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.timelineInteractionState.isLoading)
         XCTAssertFalse(controller.showLoadingIndicator.value)
         XCTAssertNil(controller.activeHistoryBoundaryPlaceholder)
         XCTAssertNil(controller.interactiveHistoryPageLoadContext)
@@ -14906,7 +14903,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertEqual(controller.interactiveHistoryPageLoadContext?.queryId, request.queryId)
         XCTAssertFalse(controller.interactiveHistoryPageLoadContext?.remoteFetchStarted ?? true)
         XCTAssertEqual(controller.virtualTimelineState.activeRemoteLoad?.queryId, request.queryId)
-        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.timelineInteractionState.isLoading)
         XCTAssertFalse(controller.showLoadingIndicator.value)
         XCTAssertNil(controller.activeHistoryBoundaryPlaceholder)
         XCTAssertNil(controller.virtualTimelineState.activePlaceholder)
@@ -14916,7 +14913,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
         XCTAssertTrue(controller.interactiveHistoryPageLoadContext?.remoteFetchStarted == true)
-        XCTAssertTrue(controller.currentPage.isLoading)
+        XCTAssertTrue(controller.timelineInteractionState.isLoading)
         XCTAssertTrue(controller.showLoadingIndicator.value)
         XCTAssertNotNil(controller.activeHistoryBoundaryPlaceholder)
 
@@ -16094,8 +16091,8 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
         controller.boundedTimelineWindowState = ChatBoundedTimelineWindowState(
             virtualState: controller.virtualTimelineState
         )
-        controller.currentPage.locked = true
-        controller.currentPage.isLoading = true
+        controller.timelineInteractionState.locked = true
+        controller.timelineInteractionState.isLoading = true
         controller.canLoadDatasource = false
 
         controller.handleInteractiveRemoteArchiveFailure(
@@ -16106,8 +16103,8 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
         )
 
         XCTAssertNil(controller.interactiveHistoryPageLoadContext)
-        XCTAssertFalse(controller.currentPage.locked)
-        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.timelineInteractionState.locked)
+        XCTAssertFalse(controller.timelineInteractionState.isLoading)
         XCTAssertTrue(controller.canLoadDatasource)
         XCTAssertNil(controller.virtualTimelineState.activeRemoteLoad)
         XCTAssertNil(controller.virtualTimelineState.activePlaceholder)
@@ -16121,8 +16118,8 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
         controller.boundedTimelineWindowState = ChatBoundedTimelineWindowState(
             virtualState: controller.virtualTimelineState
         )
-        controller.currentPage.locked = true
-        controller.currentPage.isLoading = true
+        controller.timelineInteractionState.locked = true
+        controller.timelineInteractionState.isLoading = true
         controller.canLoadDatasource = false
 
         controller.handleInteractiveRemoteArchiveFailure(
@@ -16133,8 +16130,8 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
         )
 
         XCTAssertEqual(controller.interactiveHistoryPageLoadContext?.queryId, "active-query")
-        XCTAssertTrue(controller.currentPage.locked)
-        XCTAssertTrue(controller.currentPage.isLoading)
+        XCTAssertTrue(controller.timelineInteractionState.locked)
+        XCTAssertTrue(controller.timelineInteractionState.isLoading)
         XCTAssertFalse(controller.canLoadDatasource)
         XCTAssertEqual(controller.virtualTimelineState.activeRemoteLoad?.queryId, "active-query")
         XCTAssertEqual(controller.virtualTimelineState.activePlaceholder, .top)
@@ -16150,15 +16147,15 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
         controller.boundedTimelineWindowState = ChatBoundedTimelineWindowState(
             virtualState: controller.virtualTimelineState
         )
-        controller.currentPage.locked = true
-        controller.currentPage.isLoading = false
+        controller.timelineInteractionState.locked = true
+        controller.timelineInteractionState.isLoading = false
         controller.canLoadDatasource = false
 
         controller.handleInteractiveRemoteArchiveRequestStartTimeout(queryId: "active-query")
 
         XCTAssertNil(controller.interactiveHistoryPageLoadContext)
-        XCTAssertFalse(controller.currentPage.locked)
-        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.timelineInteractionState.locked)
+        XCTAssertFalse(controller.timelineInteractionState.isLoading)
         XCTAssertTrue(controller.canLoadDatasource)
         XCTAssertNil(controller.virtualTimelineState.activeRemoteLoad)
         XCTAssertNil(controller.virtualTimelineState.activePlaceholder)
@@ -16175,16 +16172,16 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
         controller.boundedTimelineWindowState = ChatBoundedTimelineWindowState(
             virtualState: controller.virtualTimelineState
         )
-        controller.currentPage.locked = true
-        controller.currentPage.isLoading = true
+        controller.timelineInteractionState.locked = true
+        controller.timelineInteractionState.isLoading = true
         controller.canLoadDatasource = false
 
         controller.handleInteractiveRemoteArchiveRequestStartTimeout(queryId: "active-query")
 
         XCTAssertEqual(controller.interactiveHistoryPageLoadContext?.queryId, "active-query")
         XCTAssertTrue(controller.interactiveHistoryPageLoadContext?.remoteFetchStarted == true)
-        XCTAssertTrue(controller.currentPage.locked)
-        XCTAssertTrue(controller.currentPage.isLoading)
+        XCTAssertTrue(controller.timelineInteractionState.locked)
+        XCTAssertTrue(controller.timelineInteractionState.isLoading)
         XCTAssertFalse(controller.canLoadDatasource)
         XCTAssertEqual(controller.virtualTimelineState.activeRemoteLoad?.queryId, "active-query")
         XCTAssertEqual(controller.virtualTimelineState.activePlaceholder, .top)
@@ -16233,7 +16230,7 @@ final class ChatInteractiveRemoteArchiveAbortTests: XCTestCase {
         )
 
         XCTAssertTrue(controller.interactiveHistoryPageLoadContext?.remoteFetchStarted == true)
-        XCTAssertFalse(controller.currentPage.isLoading)
+        XCTAssertFalse(controller.timelineInteractionState.isLoading)
         XCTAssertFalse(controller.showLoadingIndicator.value)
         XCTAssertNil(controller.activeHistoryBoundaryPlaceholder)
         XCTAssertNil(controller.virtualTimelineState.activePlaceholder)
@@ -20821,31 +20818,6 @@ final class ChatHistoryCursorSelectionPolicyTests: XCTestCase {
     }
 }
 
-final class ChatObserverLookupPolicyTests: XCTestCase {
-
-    private func makeMessage(primary: String, archivedId: String) -> MessageStorageItem {
-        let message = MessageStorageItem()
-        message.primary = primary
-        message.archivedId = archivedId
-        return message
-    }
-
-    func testObserverLookupBuildCapturesOldestArchivedIdDuringSinglePass() {
-        let lookup = ChatObserverLookupPolicy.build(
-            from: [
-                makeMessage(primary: "primary-1", archivedId: "archived-1"),
-                makeMessage(primary: "primary-2", archivedId: ""),
-                makeMessage(primary: "primary-3", archivedId: "archived-2"),
-                makeMessage(primary: "primary-4", archivedId: "archived-3")
-            ]
-        )
-
-        XCTAssertEqual(lookup.primaryIndex["primary-2"], 1)
-        XCTAssertEqual(lookup.archivedIdIndex["archived-1"], 0)
-        XCTAssertEqual(lookup.oldestArchivedId, "archived-1")
-    }
-}
-
 final class ChatLocalHistoryPageProviderTests: XCTestCase {
     private var previousRealmConfiguration: Realm.Configuration!
     private let owner = "owner@example.com"
@@ -23016,7 +22988,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         let isLiveBottom = ChatVisiblePositionPersistencePolicy.isLiveBottom(
             isNearBottom: true,
             lastRealDatasourcePrimary: "newest",
-            observerPrimaryIndexMap: ["older": 0, "newest": 1],
+            residentPrimaryPositions: ["older": 0, "newest": 1],
             observerCount: 2
         )
 
@@ -23040,7 +23012,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         let isLiveBottom = ChatVisiblePositionPersistencePolicy.isLiveBottom(
             isNearBottom: true,
             lastRealDatasourcePrimary: "window-bottom",
-            observerPrimaryIndexMap: ["older": 0, "window-bottom": 1, "newest": 2],
+            residentPrimaryPositions: ["older": 0, "window-bottom": 1, "newest": 2],
             observerCount: 3
         )
 
@@ -23663,14 +23635,6 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         controller.conversationType = .regular
         controller.loadViewIfNeeded()
         controller.showSkeletonObserver.accept(false)
-        controller.messagesObserver = realm.objects(MessageStorageItem.self)
-            .filter(
-                "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@",
-                owner,
-                jid,
-                ClientSynchronizationManager.ConversationType.regular.rawValue
-            )
-            .sorted(byKeyPath: "date", ascending: true)
 
         let request = ChatOpenMessageRequest(
             chatJid: jid,
@@ -36062,6 +36026,22 @@ final class ChatUnreadMentionsTests: XCTestCase {
         return notification
     }
 
+    private func resolvedMessagePrimary(
+        for notification: NotificationStorageItem,
+        in realm: Realm
+    ) -> String? {
+        ChatLocalHistoryPageProvider(
+            realm: realm,
+            owner: owner,
+            jid: groupchatJid,
+            conversationType: .group
+        ).message(
+            primary: nil,
+            archivedId: notification.sourceArchivedId,
+            messageId: notification.sourceMessageId
+        )?.primary
+    }
+
     func testUnreadMentionMatcherUsesUnreadNotificationStateInsteadOfMessageReadState() throws {
         let message = makeMessage(
             primary: "m1",
@@ -36090,9 +36070,9 @@ final class ChatUnreadMentionsTests: XCTestCase {
 
         let item = ChatUnreadMentionMatcher.unreadMentionItem(
             from: notification,
-            messagesObserver: messages,
-            observerLookupMaps: ChatObserverLookupPolicy.build(from: messages),
-            in: realm,
+            resolveMessagePrimary: { [self] notification in
+                resolvedMessagePrimary(for: notification, in: realm)
+            },
             chatPrimary: "chat-1",
             currentMemberId: currentMemberId,
             groupchatJid: groupchatJid
@@ -36155,9 +36135,9 @@ final class ChatUnreadMentionsTests: XCTestCase {
 
         let item = ChatUnreadMentionMatcher.unreadMentionItem(
             from: notification,
-            messagesObserver: messages,
-            observerLookupMaps: ChatObserverLookupPolicy.build(from: messages),
-            in: realm,
+            resolveMessagePrimary: { [self] notification in
+                resolvedMessagePrimary(for: notification, in: realm)
+            },
             chatPrimary: "chat-1",
             currentMemberId: MentionNotificationSync.currentGroupMemberId(
                 owner: owner,
@@ -36191,9 +36171,9 @@ final class ChatUnreadMentionsTests: XCTestCase {
 
         let item = ChatUnreadMentionMatcher.unreadMentionItem(
             from: notification,
-            messagesObserver: messages,
-            observerLookupMaps: ChatObserverLookupPolicy.build(from: messages),
-            in: realm,
+            resolveMessagePrimary: { [self] notification in
+                resolvedMessagePrimary(for: notification, in: realm)
+            },
             chatPrimary: "chat-1",
             currentMemberId: nil,
             groupchatJid: groupchatJid
@@ -36232,9 +36212,9 @@ final class ChatUnreadMentionsTests: XCTestCase {
 
         let item = ChatUnreadMentionMatcher.unreadMentionItem(
             from: notification,
-            messagesObserver: messages,
-            observerLookupMaps: ChatObserverLookupPolicy.build(from: messages),
-            in: realm,
+            resolveMessagePrimary: { [self] notification in
+                resolvedMessagePrimary(for: notification, in: realm)
+            },
             chatPrimary: "chat-1",
             currentMemberId: currentMemberId,
             groupchatJid: groupchatJid
@@ -36271,9 +36251,9 @@ final class ChatUnreadMentionsTests: XCTestCase {
 
         let item = ChatUnreadMentionMatcher.unreadMentionItem(
             from: notification,
-            messagesObserver: messages,
-            observerLookupMaps: ChatObserverLookupPolicy.build(from: messages),
-            in: realm,
+            resolveMessagePrimary: { [self] notification in
+                resolvedMessagePrimary(for: notification, in: realm)
+            },
             chatPrimary: "chat-1",
             currentMemberId: currentMemberId,
             groupchatJid: groupchatJid
@@ -36301,9 +36281,9 @@ final class ChatUnreadMentionsTests: XCTestCase {
 
         let item = ChatUnreadMentionMatcher.unreadMentionItem(
             from: notification,
-            messagesObserver: messages,
-            observerLookupMaps: ChatObserverLookupPolicy.build(from: messages),
-            in: realm,
+            resolveMessagePrimary: { [self] notification in
+                resolvedMessagePrimary(for: notification, in: realm)
+            },
             chatPrimary: "chat-1",
             currentMemberId: currentMemberId,
             groupchatJid: groupchatJid
@@ -36340,9 +36320,9 @@ final class ChatUnreadMentionsTests: XCTestCase {
 
         let item = ChatUnreadMentionMatcher.unreadMentionItem(
             from: notification,
-            messagesObserver: messages,
-            observerLookupMaps: ChatObserverLookupPolicy.build(from: messages),
-            in: realm,
+            resolveMessagePrimary: { [self] notification in
+                resolvedMessagePrimary(for: notification, in: realm)
+            },
             chatPrimary: "chat-1",
             currentMemberId: currentMemberId,
             groupchatJid: groupchatJid
@@ -36487,9 +36467,9 @@ final class ChatUnreadMentionsTests: XCTestCase {
 
         let items = ChatUnreadMentionIndexPolicy.rebuild(
             from: notifications,
-            messagesObserver: messages,
-            observerLookupMaps: ChatObserverLookupPolicy.build(from: messages),
-            in: realm,
+            resolveMessagePrimary: { [self] notification in
+                resolvedMessagePrimary(for: notification, in: realm)
+            },
             chatPrimary: "chat-1",
             currentMemberId: currentMemberId,
             groupchatJid: groupchatJid
@@ -36525,7 +36505,7 @@ final class ChatUnreadMentionsTests: XCTestCase {
 
         let state = ChatUnreadMentionNavigationPolicy.resolveState(
             items: [first, second],
-            observerPrimaryIndexMap: ["m1": 0, "m2": 2],
+            residentPrimaryPositions: ["m1": 0, "m2": 2],
             visiblePrimaries: ["m2"]
         )
 
@@ -36541,7 +36521,7 @@ final class ChatUnreadMentionsTests: XCTestCase {
                 ChatUnreadMentionItem(notificationPrimary: "n2", messagePrimary: "m2", archivedId: "a2", messageId: "mid-2", chatPrimary: "chat-1", authorId: "other", date: Date(timeIntervalSince1970: 20), targetMemberId: currentMemberId, groupchatJid: groupchatJid),
                 ChatUnreadMentionItem(notificationPrimary: "n3", messagePrimary: "m3", archivedId: "a3", messageId: "mid-3", chatPrimary: "chat-1", authorId: "other", date: Date(timeIntervalSince1970: 30), targetMemberId: currentMemberId, groupchatJid: groupchatJid)
             ],
-            observerPrimaryIndexMap: ["m1": 0, "m2": 1, "m3": 2],
+            residentPrimaryPositions: ["m1": 0, "m2": 1, "m3": 2],
             visiblePrimaries: [],
             selectedNotificationPrimary: "n2"
         )
@@ -36556,7 +36536,7 @@ final class ChatUnreadMentionsTests: XCTestCase {
                 ChatUnreadMentionItem(notificationPrimary: "n1", messagePrimary: nil, archivedId: "a1", messageId: nil, chatPrimary: "chat-1", authorId: "other", date: Date(timeIntervalSince1970: 10), targetMemberId: currentMemberId, groupchatJid: groupchatJid),
                 ChatUnreadMentionItem(notificationPrimary: "n2", messagePrimary: nil, archivedId: "a2", messageId: nil, chatPrimary: "chat-1", authorId: "other", date: Date(timeIntervalSince1970: 20), targetMemberId: currentMemberId, groupchatJid: groupchatJid)
             ],
-            observerPrimaryIndexMap: [:],
+            residentPrimaryPositions: [:],
             visiblePrimaries: [],
             preferredArchivedId: "a2"
         )
@@ -36575,7 +36555,7 @@ final class ChatUnreadMentionsTests: XCTestCase {
         )
         let state = ChatUnreadMentionNavigationPolicy.resolveState(
             items: item.map { [$0] } ?? [],
-            observerPrimaryIndexMap: [:],
+            residentPrimaryPositions: [:],
             visiblePrimaries: []
         )
 
@@ -36602,7 +36582,7 @@ final class ChatUnreadMentionsTests: XCTestCase {
         )
         let state = ChatUnreadMentionNavigationPolicy.resolveState(
             items: item.map { [$0] } ?? [],
-            observerPrimaryIndexMap: [:],
+            residentPrimaryPositions: [:],
             visiblePrimaries: ["m1"]
         )
 
@@ -36615,7 +36595,7 @@ final class ChatUnreadMentionsTests: XCTestCase {
             items: [
                 ChatUnreadMentionItem(notificationPrimary: "n1", messagePrimary: "m1", archivedId: "a1", messageId: "mid-1", chatPrimary: "chat-1", authorId: "other", date: Date(timeIntervalSince1970: 10), targetMemberId: currentMemberId, groupchatJid: groupchatJid)
             ],
-            observerPrimaryIndexMap: ["m1": 0],
+            residentPrimaryPositions: ["m1": 0],
             visiblePrimaries: []
         )
 
@@ -36630,7 +36610,7 @@ final class ChatUnreadMentionsTests: XCTestCase {
                 ChatUnreadMentionItem(notificationPrimary: "n2", messagePrimary: "m2", archivedId: "a2", messageId: "mid-2", chatPrimary: "chat-1", authorId: "other", date: Date(timeIntervalSince1970: 20), targetMemberId: currentMemberId, groupchatJid: groupchatJid),
                 ChatUnreadMentionItem(notificationPrimary: "n3", messagePrimary: "m3", archivedId: "a3", messageId: "mid-3", chatPrimary: "chat-1", authorId: "other", date: Date(timeIntervalSince1970: 30), targetMemberId: currentMemberId, groupchatJid: groupchatJid)
             ],
-            observerPrimaryIndexMap: ["m1": 0, "m2": 1, "m3": 2],
+            residentPrimaryPositions: ["m1": 0, "m2": 1, "m3": 2],
             visiblePrimaries: ["m2"]
         )
 
@@ -36644,7 +36624,7 @@ final class ChatUnreadMentionsTests: XCTestCase {
                 ChatUnreadMentionItem(notificationPrimary: "n1", messagePrimary: "m1", archivedId: "a1", messageId: "mid-1", chatPrimary: "chat-1", authorId: "other", date: Date(timeIntervalSince1970: 10), targetMemberId: currentMemberId, groupchatJid: groupchatJid),
                 ChatUnreadMentionItem(notificationPrimary: "n2", messagePrimary: "m2", archivedId: "a2", messageId: "mid-2", chatPrimary: "chat-1", authorId: "other", date: Date(timeIntervalSince1970: 20), targetMemberId: currentMemberId, groupchatJid: groupchatJid)
             ],
-            observerPrimaryIndexMap: ["m1": 0, "m2": 1],
+            residentPrimaryPositions: ["m1": 0, "m2": 1],
             visiblePrimaries: ["m1"]
         )
 
@@ -37041,9 +37021,9 @@ final class ChatUnreadMentionsTests: XCTestCase {
 
         let item = ChatUnreadMentionMatcher.unreadMentionItem(
             from: notification,
-            messagesObserver: messages,
-            observerLookupMaps: ChatObserverLookupPolicy.build(from: messages),
-            in: realm,
+            resolveMessagePrimary: { [self] notification in
+                resolvedMessagePrimary(for: notification, in: realm)
+            },
             chatPrimary: "chat-1",
             currentMemberId: currentMemberId,
             groupchatJid: groupchatJid

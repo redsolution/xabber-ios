@@ -22,7 +22,7 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
     }
 
     func testCurrentSchemaIsNonDestructiveAndIndexesActualHistoryPredicates() {
-        XCTAssertEqual(XabberRealmSchema.current, 12)
+        XCTAssertEqual(XabberRealmSchema.current, 13)
         let configuration = makeRealmMigrationConfiguration(
             scheme: XabberRealmSchema.current
         )
@@ -42,6 +42,55 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
             "historyPositionLow",
             "historyPositionDiscriminator"
         ]))
+        XCTAssertTrue(Set(NotificationStorageItem.indexedProperties()).isSuperset(of: [
+            "owner",
+            "category_",
+            "isRead",
+            "associatedJid",
+            "date"
+        ]))
+    }
+
+    func testSchema12MentionNotificationBackfillsIndexedConversationIdentity() throws {
+        var legacyConfiguration = makeRealmMigrationConfiguration(scheme: 12)
+        legacyConfiguration.fileURL = realmURL
+        legacyConfiguration.deleteRealmIfMigrationNeeded = false
+        autoreleasepool {
+            let realm = try! Realm(configuration: legacyConfiguration)
+            let notification = NotificationStorageItem()
+            notification.primary = "legacy-mention"
+            notification.owner = "migration-owner"
+            notification.category_ = XMPPNotificationsManager.Category.mention.rawValue
+            notification.isRead = false
+            notification.associatedJid = nil
+            notification.date = Date(timeIntervalSince1970: 100)
+            notification.metadata_ = #"{"sourceChatJid":"room@example.com","sourceArchivedId":"archive-1"}"#
+            try! realm.write {
+                realm.add(notification)
+            }
+        }
+
+        var upgradedConfiguration = makeRealmMigrationConfiguration(
+            scheme: XabberRealmSchema.current
+        )
+        upgradedConfiguration.fileURL = realmURL
+        upgradedConfiguration.deleteRealmIfMigrationNeeded = false
+        try autoreleasepool {
+            let realm = try Realm(configuration: upgradedConfiguration)
+            let migrated = try XCTUnwrap(
+                realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: "legacy-mention")
+            )
+            XCTAssertEqual(migrated.associatedJid, "room@example.com")
+            let boundedCandidates = realm.objects(NotificationStorageItem.self)
+                .filter(
+                    "owner == %@ AND category_ == %@ AND isRead == false AND associatedJid == %@",
+                    "migration-owner",
+                    XMPPNotificationsManager.Category.mention.rawValue,
+                    "room@example.com"
+                )
+                .sorted(byKeyPath: "date", ascending: true)
+            XCTAssertEqual(boundedCandidates.count, 1)
+        }
     }
 
     func testSchema11HistoryMigratesAndReopensWithoutLosingIdentityOrderOrDeleteState() throws {

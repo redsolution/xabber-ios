@@ -3717,47 +3717,6 @@ struct ChatArchiveStateMutationPlan: Equatable {
     }
 }
 
-struct ChatObserverLookupMaps: Equatable {
-    let primaryIndex: [String: Int]
-    let archivedIdIndex: [String: Int]
-    let messageIdIndex: [String: Int]
-    let oldestArchivedId: String?
-    let newestArchivedId: String?
-}
-
-enum ChatObserverLookupPolicy {
-    static func build<T: Sequence>(from items: T) -> ChatObserverLookupMaps where T.Element == MessageStorageItem {
-        var primaryIndex: [String: Int] = [:]
-        var archivedIdIndex: [String: Int] = [:]
-        var messageIdIndex: [String: Int] = [:]
-        var oldestArchivedId: String?
-        var newestArchivedId: String?
-
-        for (offset, item) in items.enumerated() {
-            primaryIndex[item.primary] = offset
-            if item.archivedId.isNotEmpty {
-                let archivedId = item.archivedId
-                archivedIdIndex[archivedId] = offset
-                if oldestArchivedId == nil {
-                    oldestArchivedId = archivedId
-                }
-                newestArchivedId = archivedId
-            }
-            if item.messageId.isNotEmpty {
-                messageIdIndex[item.messageId] = offset
-            }
-        }
-
-        return ChatObserverLookupMaps(
-            primaryIndex: primaryIndex,
-            archivedIdIndex: archivedIdIndex,
-            messageIdIndex: messageIdIndex,
-            oldestArchivedId: oldestArchivedId,
-            newestArchivedId: newestArchivedId
-        )
-    }
-}
-
 enum ChatUnreadMentionNavigatorMode: Equatable {
     case hidden
     case indicator
@@ -3813,34 +3772,9 @@ struct ChatUnreadMentionsState: Equatable {
 }
 
 enum ChatUnreadMentionMatcher {
-    private static func resolveMessagePrimary(
-        for notification: NotificationStorageItem,
-        messagesObserver: Results<MessageStorageItem>,
-        observerLookupMaps: ChatObserverLookupMaps,
-        in realm: Realm
-    ) -> String? {
-        if let archivedId = notification.sourceArchivedId,
-           archivedId.isNotEmpty,
-           let observerIndex = observerLookupMaps.archivedIdIndex[archivedId],
-           observerIndex < messagesObserver.count {
-            return messagesObserver[observerIndex].primary
-        }
-
-        if let messageId = notification.sourceMessageId,
-           messageId.isNotEmpty,
-           let observerIndex = observerLookupMaps.messageIdIndex[messageId],
-           observerIndex < messagesObserver.count {
-            return messagesObserver[observerIndex].primary
-        }
-
-        return MentionNotificationSync.matchingMessage(for: notification, in: realm)?.primary
-    }
-
     static func unreadMentionItem(
         from notification: NotificationStorageItem,
-        messagesObserver: Results<MessageStorageItem>,
-        observerLookupMaps: ChatObserverLookupMaps,
-        in realm: Realm,
+        resolveMessagePrimary: (NotificationStorageItem) -> String?,
         chatPrimary: String,
         currentMemberId: String?,
         groupchatJid: String
@@ -3873,12 +3807,7 @@ enum ChatUnreadMentionMatcher {
 
         return ChatUnreadMentionItem(
             notificationPrimary: notification.primary,
-            messagePrimary: resolveMessagePrimary(
-                for: notification,
-                messagesObserver: messagesObserver,
-                observerLookupMaps: observerLookupMaps,
-                in: realm
-            ),
+            messagePrimary: resolveMessagePrimary(notification),
             archivedId: archivedId,
             messageId: messageId,
             chatPrimary: chatPrimary,
@@ -3891,22 +3820,18 @@ enum ChatUnreadMentionMatcher {
 }
 
 enum ChatUnreadMentionIndexPolicy {
-    static func rebuild(
-        from notifications: Results<NotificationStorageItem>,
-        messagesObserver: Results<MessageStorageItem>,
-        observerLookupMaps: ChatObserverLookupMaps,
-        in realm: Realm,
+    static func rebuild<Notifications: Sequence>(
+        from notifications: Notifications,
+        resolveMessagePrimary: (NotificationStorageItem) -> String?,
         chatPrimary: String,
         currentMemberId: String?,
         groupchatJid: String
-    ) -> [ChatUnreadMentionItem] {
+    ) -> [ChatUnreadMentionItem] where Notifications.Element == NotificationStorageItem {
         var seenKeys: Set<String> = []
         return notifications.compactMap {
             ChatUnreadMentionMatcher.unreadMentionItem(
                 from: $0,
-                messagesObserver: messagesObserver,
-                observerLookupMaps: observerLookupMaps,
-                in: realm,
+                resolveMessagePrimary: resolveMessagePrimary,
                 chatPrimary: chatPrimary,
                 currentMemberId: currentMemberId,
                 groupchatJid: groupchatJid
@@ -3964,7 +3889,7 @@ enum ChatUnreadMentionNavigationPolicy {
 
     static func resolveState(
         items: [ChatUnreadMentionItem],
-        observerPrimaryIndexMap: [String: Int],
+        residentPrimaryPositions: [String: Int],
         visiblePrimaries: Set<String>,
         preferredArchivedId: String? = nil,
         selectedNotificationPrimary: String? = nil
@@ -3978,7 +3903,7 @@ enum ChatUnreadMentionNavigationPolicy {
                     messageId: item.messageId,
                     authorId: item.authorId,
                     date: item.date,
-                    observerIndex: item.messagePrimary.flatMap { observerPrimaryIndexMap[$0] }
+                    observerIndex: item.messagePrimary.flatMap { residentPrimaryPositions[$0] }
                 )
             }
             .sorted(by: order)
@@ -6105,9 +6030,6 @@ struct ChatDatasetCoordinator {
         }
     }
 
-    func visibleWindow(currentPage: ChatViewController.ChatPage) -> ChatDatasetWindow {
-        ChatDatasetWindow(minIndex: currentPage.minIndex, maxIndex: currentPage.maxIndex)
-    }
 }
 
 extension ChatViewController {
@@ -7191,110 +7113,72 @@ extension ChatViewController {
     }
 
     internal func syncCurrentPage(with window: ChatDatasetWindow) {
-        self.currentPage.minIndex = window.minIndex
-        self.currentPage.maxIndex = window.maxIndex
+        self.residentDatasetWindow = window
         self.refreshScrollBoundaryAvailabilityCache(reason: "syncCurrentPage")
     }
 
     internal func visibleWindow() -> ChatDatasetWindow {
-        self.datasetCoordinator.visibleWindow(currentPage: self.currentPage)
+        self.residentDatasetWindow
     }
 
     private func messageWindowSliceForMapping(
         _ window: ChatDatasetWindow,
         currentWindow: ChatDatasetWindow,
-        timelineState: ChatBoundedTimelineWindowState,
-        virtualTimelineState: ChatVirtualTimelineState,
-        activePlaceholder: ChatHistoryBoundaryPlaceholderPosition?,
-        isPagingLocked: Bool
-    ) -> (window: ChatDatasetWindow, items: [MessageStorageItem], timelineState: ChatBoundedTimelineWindowState, virtualState: ChatVirtualTimelineState) {
-        do {
-            let realm = try WRealm.safe()
-            let provider = ChatLocalHistoryPageProvider(
-                realm: realm,
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            let archiveState = self.loadChatArchiveStateSnapshot()
-            let normalizedVirtualState = virtualTimelineState.normalized(
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            var engine = ChatVirtualTimelineEngine(
-                provider: provider,
-                pageSize: self.datasourcePageSize,
-                state: normalizedVirtualState,
-                archiveState: archiveState
-            )
-            let residentAnchor: MessageStorageItem? = {
-                guard normalizedVirtualState.residentPrimaryKeys.isNotEmpty else { return nil }
-                let middleIndex = normalizedVirtualState.residentPrimaryKeys.count / 2
-                return provider.message(
-                    primary: normalizedVirtualState.residentPrimaryKeys[middleIndex],
-                    archivedId: nil,
-                    messageId: nil
-                )
-            }()
-            let direction = self.localHistoryDirection(
-                requestedWindow: window,
-                currentWindow: currentWindow,
-                timelineState: ChatBoundedTimelineWindowState(virtualState: normalizedVirtualState)
-            )
-
-            let snapshot: ChatTimelineSnapshot
-            switch direction {
-            case .older:
-                snapshot = engine.pageOlder()
-            case .newer:
-                snapshot = engine.pageNewer()
-            case .none:
-                if !normalizedVirtualState.isEmpty && window == currentWindow {
-                    snapshot = engine.currentSnapshot()
-                } else if normalizedVirtualState.isEmpty || window.maxIndex >= currentWindow.maxIndex {
-                    snapshot = engine.openLatest()
-                } else if let anchor = residentAnchor {
-                    snapshot = engine.openAround(
-                        anchor: ChatTimelineAnchor(
-                            primary: anchor.primary,
-                            archivedId: anchor.archivedId,
-                            messageId: anchor.messageId,
-                            date: anchor.date
-                        )
-                    )
-                } else {
-                    snapshot = engine.openLatest()
-                }
-            }
-
-            let frozenItems = snapshot.items.map { $0.freeze() }
-            let nextVirtualState = snapshot.state.withRuntimePlaceholder(activePlaceholder)
-            let outputWindow = ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count)
-
-            return (
-                outputWindow,
-                frozenItems,
-                ChatBoundedTimelineWindowState(virtualState: nextVirtualState),
-                nextVirtualState
-            )
-        } catch {
-            DDLogDebug("ChatViewController.messageWindowSliceForMapping: \(error.localizedDescription)")
-            return (.empty, [], .empty, .empty)
+        activePlaceholder: ChatHistoryBoundaryPlaceholderPosition?
+    ) -> (window: ChatDatasetWindow, items: [MessageStorageItem]) {
+        guard let timelineSession = self.timelineSession else {
+            return (.empty, [])
         }
+        timelineSession.updateArchiveState(self.loadChatArchiveStateSnapshot())
+        let currentSnapshot = timelineSession.snapshot
+        let residentAnchor: MessageStorageItem? = {
+            guard currentSnapshot.items.isNotEmpty else { return nil }
+            return currentSnapshot.items[currentSnapshot.items.count / 2]
+        }()
+        let direction = self.localHistoryDirection(
+            requestedWindow: window,
+            currentWindow: currentWindow,
+            timelineState: ChatBoundedTimelineWindowState(virtualState: currentSnapshot.state)
+        )
+
+        var snapshot: ChatTimelineSessionSnapshot
+        switch direction {
+        case .older:
+            snapshot = timelineSession.pageOlder()
+        case .newer:
+            snapshot = timelineSession.pageNewer()
+        case .none:
+            if !currentSnapshot.isEmpty && window == currentWindow {
+                snapshot = currentSnapshot
+            } else if currentSnapshot.isEmpty || window.maxIndex >= currentWindow.maxIndex {
+                snapshot = timelineSession.openLatest()
+            } else if let anchor = residentAnchor {
+                snapshot = timelineSession.openAround(
+                    anchor: ChatTimelineAnchor(
+                        primary: anchor.primary,
+                        archivedId: anchor.archivedId,
+                        messageId: anchor.messageId,
+                        date: anchor.date
+                    )
+                )
+            } else {
+                snapshot = timelineSession.openLatest()
+            }
+        }
+
+        if snapshot.state.activePlaceholder != activePlaceholder {
+            snapshot = timelineSession.applyRuntimePlaceholder(activePlaceholder)
+        }
+        let outputWindow = ChatDatasetWindow(minIndex: 0, maxIndex: snapshot.items.count)
+        return (outputWindow, snapshot.items)
     }
 
     internal func sliceForWindow(_ window: ChatDatasetWindow) -> [MessageStorageItem] {
         let mapped = self.messageWindowSliceForMapping(
             window,
             currentWindow: self.visibleWindow(),
-            timelineState: self.boundedTimelineWindowState,
-            virtualTimelineState: self.virtualTimelineState,
-            activePlaceholder: self.activeHistoryBoundaryPlaceholder,
-            isPagingLocked: self.currentPage.locked
+            activePlaceholder: self.activeHistoryBoundaryPlaceholder
         )
-        self.virtualTimelineState = mapped.virtualState
-        self.boundedTimelineWindowState = mapped.timelineState
         return mapped.items
     }
 
@@ -7333,36 +7217,6 @@ extension ChatViewController {
             }
     }
 
-    internal func ensureObserverLookupMaps(force: Bool = false) {
-        guard self.messagesObserver != nil else {
-            self.observerPrimaryIndexMap = [:]
-            self.observerArchivedIdIndexMap = [:]
-            self.observerMessageIdIndexMap = [:]
-            self.observerOldestArchivedId = nil
-            self.observerNewestArchivedId = nil
-            self.observerLookupSignature = nil
-            return
-        }
-
-        let signature = ObserverLookupSignature(
-            count: self.messagesObserver.count,
-            firstPrimary: self.messagesObserver.first?.primary,
-            lastPrimary: self.messagesObserver.last?.primary
-        )
-
-        guard force || self.observerLookupSignature != signature else {
-            return
-        }
-
-        let lookupMaps = ChatObserverLookupPolicy.build(from: self.messagesObserver)
-        self.observerPrimaryIndexMap = lookupMaps.primaryIndex
-        self.observerArchivedIdIndexMap = lookupMaps.archivedIdIndex
-        self.observerMessageIdIndexMap = lookupMaps.messageIdIndex
-        self.observerOldestArchivedId = lookupMaps.oldestArchivedId
-        self.observerNewestArchivedId = lookupMaps.newestArchivedId
-        self.observerLookupSignature = signature
-    }
-
     internal func setArchiveLoading(_ isLoading: Bool) {
         DispatchQueue.main.async {
             self.messageLoadingActivityIndicator.isHidden = !isLoading
@@ -7370,55 +7224,32 @@ extension ChatViewController {
     }
 
     internal func oldestObservedArchivedId(persistedCursorId: String? = nil) -> String? {
-        if let residentOldest = self.virtualTimelineState.oldest?.archivedId {
-            return residentOldest
+        if let oldest = self.virtualTimelineState.oldest?.archivedId {
+            return oldest
         }
-        if let residentOldest = self.boundedTimelineWindowState.oldest?.archivedId {
-            return residentOldest
-        }
-        guard self.messagesObserver != nil else { return nil }
-        self.ensureObserverLookupMaps()
-        return self.observerOldestArchivedId ?? persistedCursorId ?? self.persistedHistoryCursorId()
+        guard self.timelineSession != nil else { return nil }
+        return persistedCursorId ?? self.persistedHistoryCursorId()
     }
 
     internal func observedOldestArchivedId() -> String? {
-        if let residentOldest = self.virtualTimelineState.oldest?.archivedId {
-            return residentOldest
-        }
-        if let residentOldest = self.boundedTimelineWindowState.oldest?.archivedId {
-            return residentOldest
-        }
-        guard self.messagesObserver != nil else { return nil }
-        self.ensureObserverLookupMaps()
-        return self.observerOldestArchivedId
+        self.virtualTimelineState.oldest?.archivedId
     }
 
     internal func observedNewestArchivedId() -> String? {
-        if let residentNewest = self.virtualTimelineState.newest?.archivedId {
-            return residentNewest
-        }
-        if let residentNewest = self.boundedTimelineWindowState.newest?.archivedId {
-            return residentNewest
-        }
-        guard self.messagesObserver != nil else { return nil }
-        self.ensureObserverLookupMaps()
-        return self.observerNewestArchivedId
+        self.virtualTimelineState.newest?.archivedId
     }
 
     internal func observedArchivedIds(in window: ChatDatasetWindow) -> [String] {
+        let timelineState = self.virtualTimelineState
         if window == self.visibleWindow(),
-           self.virtualTimelineState.residentArchivedIds.isNotEmpty {
-            return self.virtualTimelineState.residentArchivedIds
+           timelineState.residentArchivedIds.isNotEmpty {
+            return timelineState.residentArchivedIds
         }
-        if window == self.visibleWindow(),
-           self.boundedTimelineWindowState.residentArchivedIds.isNotEmpty {
-            return self.boundedTimelineWindowState.residentArchivedIds
-        }
-        guard self.messagesObserver != nil else { return [] }
-        let normalized = self.datasetCoordinator.clamp(window, totalCount: self.messagesObserver.count)
+        guard let items = self.timelineSession?.snapshot.items else { return [] }
+        let normalized = self.datasetCoordinator.clamp(window, totalCount: items.count)
         guard normalized.count > 0 else { return [] }
         return (normalized.minIndex..<normalized.maxIndex).compactMap { index in
-            RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(self.messagesObserver[index].archivedId)
+            RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(items[index].archivedId)
         }
     }
 
@@ -7506,44 +7337,26 @@ extension ChatViewController {
 
     internal func rebuildUnreadMentionItems() {
         guard self.conversationType == .group,
-              self.messagesObserver != nil else {
+              let timelineSession = self.timelineSession else {
             self.unreadMentionItems = []
             self.unreadMentionsState = .empty
             self.currentUnreadMentionNotificationPrimary = nil
             return
         }
 
+        let unreadSnapshot = timelineSession.snapshot
+        self.unreadMentionItems = unreadSnapshot.unreadMetadata.mentions
+        guard self.unreadMentionItems.isEmpty else { return }
+
         do {
             let realm = try WRealm.safe()
-            self.ensureObserverLookupMaps()
             let currentMemberId = self.currentGroupchatMemberId(in: realm)
-            let notifications = realm.objects(NotificationStorageItem.self)
-                .filter("owner == %@ AND category_ == %@", self.owner, XMPPNotificationsManager.Category.mention.rawValue)
-
             let chatPrimary = LastChatsStorageItem.genPrimary(
                 jid: self.jid,
                 owner: self.owner,
                 conversationType: self.conversationType
             )
-            let lookupMaps = ChatObserverLookupMaps(
-                primaryIndex: self.observerPrimaryIndexMap,
-                archivedIdIndex: self.observerArchivedIdIndexMap,
-                messageIdIndex: self.observerMessageIdIndexMap,
-                oldestArchivedId: self.observerOldestArchivedId,
-                newestArchivedId: self.observerNewestArchivedId
-            )
-            let notificationBackedItems = ChatUnreadMentionIndexPolicy.rebuild(
-                from: notifications,
-                messagesObserver: self.messagesObserver,
-                observerLookupMaps: lookupMaps,
-                in: realm,
-                chatPrimary: chatPrimary,
-                currentMemberId: currentMemberId,
-                groupchatJid: self.jid
-            )
-            self.unreadMentionItems = notificationBackedItems
-            if self.unreadMentionItems.isEmpty,
-               let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: chatPrimary),
+            if let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: chatPrimary),
                let fallbackItem = ChatUnreadMentionFallbackPolicy.fallbackItem(
                 mentionId: chat.mentionId,
                 chatPrimary: chatPrimary,
@@ -7575,10 +7388,9 @@ extension ChatViewController {
             return
         }
 
-        self.ensureObserverLookupMaps()
         let state = ChatUnreadMentionNavigationPolicy.resolveState(
             items: self.unreadMentionItems,
-            observerPrimaryIndexMap: self.observerPrimaryIndexMap,
+            residentPrimaryPositions: self.timelineSession?.snapshot.residentIndex.primaryIndexByID ?? [:],
             visiblePrimaries: self.visibleRealMessagePrimaries(),
             preferredArchivedId: self.unreadMentionHintArchivedId(),
             selectedNotificationPrimary: self.currentUnreadMentionNotificationPrimary
@@ -7949,18 +7761,7 @@ extension ChatViewController {
     }
 
     internal func localHistoryMessageCountForBootstrap() -> Int {
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            return provider.latest(limit: 1).isEmpty ? 0 : 1
-        } catch {
-            DDLogDebug("ChatViewController.localHistoryMessageCountForBootstrap: \(error.localizedDescription)")
-            return self.messagesObserver?.count ?? 0
-        }
+        self.timelineSession?.hasAnyLocalMessage() == true ? 1 : 0
     }
 
     @discardableResult
@@ -8337,7 +8138,7 @@ extension ChatViewController {
                     ("direction", context.direction),
                     ("cursor", context.requestedCursorId ?? "-"),
                     ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
-                    ("pageLocked", self.currentPage.locked)
+                    ("pageLocked", self.timelineInteractionState.locked)
                 ])
             } else if reason == .uiActionDisconnect {
                 ChatArchiveDebugTrace.log("interactiveRemoteArchiveDisconnect", [
@@ -8348,7 +8149,7 @@ extension ChatViewController {
                     ("streamKind", streamKind.rawValue),
                     ("disconnectError", errorDescription ?? "none"),
                     ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
-                    ("pageLocked", self.currentPage.locked)
+                    ("pageLocked", self.timelineInteractionState.locked)
                 ])
             }
 
@@ -8387,7 +8188,7 @@ extension ChatViewController {
                     ("direction", context.direction),
                     ("cursor", context.requestedCursorId ?? "-"),
                     ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
-                    ("pageLocked", self.currentPage.locked)
+                    ("pageLocked", self.timelineInteractionState.locked)
                 ])
                 return
             }
@@ -8400,9 +8201,9 @@ extension ChatViewController {
                 ("direction", context.direction),
                 ("cursor", context.requestedCursorId ?? "-"),
                 ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
-                ("pageLocked", self.currentPage.locked),
+                ("pageLocked", self.timelineInteractionState.locked),
                 ("remoteFetchStarted", context.remoteFetchStarted),
-                ("visibleLoader", self.currentPage.isLoading),
+                ("visibleLoader", self.timelineInteractionState.isLoading),
                 ("placeholderState", self.activeHistoryBoundaryPlaceholder != nil || self.virtualTimelineState.activePlaceholder != nil),
                 ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count)
             ])
@@ -8435,8 +8236,7 @@ extension ChatViewController {
         if let queryId {
             self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
             self.abortedRemoteHistoryQueryIds.insert(queryId)
-            self.virtualTimelineState = self.virtualTimelineState.abortingRemoteLoad(queryId: queryId)
-            self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: self.virtualTimelineState)
+            _ = self.timelineSession?.abortRemoteLoad(queryId: queryId)
             self.refreshScrollBoundaryAvailabilityCache(reason: "remoteLoadAbort")
         }
         self.cancelInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
@@ -8445,7 +8245,7 @@ extension ChatViewController {
         self.activeHistoryBoundaryPlaceholder = nil
         self.endHistoryLoadingUI(unlockPage: false)
         self.setArchiveLoading(false)
-        self.currentPage.unlock()
+        self.timelineInteractionState.unlock()
         ChatArchiveDebugTrace.log("interactiveRemoteArchiveAbort", [
             ("owner", self.owner),
             ("jid", self.jid),
@@ -8524,7 +8324,7 @@ extension ChatViewController {
         guard shouldApplyWindow else {
             guard hadBoundaryPlaceholder else {
                 self.endHistoryLoadingUI(unlockPage: false)
-                self.currentPage.unlock()
+                self.timelineInteractionState.unlock()
                 return
             }
 
@@ -8543,11 +8343,11 @@ extension ChatViewController {
                         self.restorePagingAnchor(anchor)
                     }
                     self.endHistoryLoadingUI(unlockPage: false)
-                    self.currentPage.unlock()
+                    self.timelineInteractionState.unlock()
                 },
                 cancelledCompletion: {
                     self.endHistoryLoadingUI(unlockPage: false)
-                    self.currentPage.unlock()
+                    self.timelineInteractionState.unlock()
                 }
             )
             return
@@ -8568,11 +8368,11 @@ extension ChatViewController {
                     self.restorePagingAnchor(anchor)
                 }
                 self.endHistoryLoadingUI(unlockPage: false)
-                self.currentPage.unlock()
+                self.timelineInteractionState.unlock()
             },
             cancelledCompletion: {
                 self.endHistoryLoadingUI(unlockPage: false)
-                self.currentPage.unlock()
+                self.timelineInteractionState.unlock()
             }
         )
     }
@@ -8608,11 +8408,11 @@ extension ChatViewController {
                     self.restorePagingAnchor(anchor)
                 }
                 self.endHistoryLoadingUI(unlockPage: false)
-                self.currentPage.unlock()
+                self.timelineInteractionState.unlock()
             },
             cancelledCompletion: {
                 self.endHistoryLoadingUI(unlockPage: false)
-                self.currentPage.unlock()
+                self.timelineInteractionState.unlock()
             }
         )
     }
@@ -8661,7 +8461,7 @@ extension ChatViewController {
         }
 
         let currentArchiveState = self.loadChatArchiveStateSnapshot()
-        let currentCount = self.messagesObserver?.count ?? 0
+        let currentCount = self.timelineSession?.snapshot.items.count ?? 0
         let currentOldestArchivedId = self.observedOldestArchivedId()
         let currentNewestArchivedId = self.observedNewestArchivedId()
         let didAdvance = ChatHistoryPageCompletionPolicy.didAdvance(
@@ -8777,7 +8577,7 @@ extension ChatViewController {
                     self.restorePagingAnchor(anchor)
                 }
                 self.endHistoryLoadingUI(unlockPage: false)
-                self.currentPage.unlock()
+                self.timelineInteractionState.unlock()
                 self.remoteHistoryFinishingQueryId = nil
                 DDLogDebug(
                     "ChatViewController.remoteHistoryApplySuccess queryId=\(context.queryId) direction=\(context.direction) didAdvance=\(applyResult.didAdvance) persistedRowsForQuery=\(context.persistedRowsForQuery) visibleRows=\(context.visibleRowsForConversation) persisted=\(context.persistedMessageCount ?? 0) items=\(applyResult.itemCount) oldOldest=\(applyResult.previousOldestArchivedId ?? "-") newOldest=\(applyResult.newOldestArchivedId ?? "-") oldNewest=\(applyResult.previousNewestArchivedId ?? "-") newNewest=\(applyResult.newNewestArchivedId ?? "-") queueWaitMs=\(applyResult.queueWaitMs) mapMs=\(applyResult.mapDurationMs)"
@@ -8790,7 +8590,7 @@ extension ChatViewController {
                 )
                 self.remoteHistoryFinishingQueryId = nil
                 self.endHistoryLoadingUI(unlockPage: false)
-                self.currentPage.unlock()
+                self.timelineInteractionState.unlock()
             }
         )
 
@@ -8808,25 +8608,17 @@ extension ChatViewController {
         self.datasetMappingGeneration += 1
         let generation = self.datasetMappingGeneration
         let boundaryPlaceholder = self.activeHistoryBoundaryPlaceholder
-        let isPagingLocked = self.currentPage.locked
         let currentWindow = self.visibleWindow()
-        let timelineState = self.boundedTimelineWindowState
-        let virtualTimelineState = self.virtualTimelineState
         let mappingContext = self.captureDatasourceMappingContext()
 
         self.datasetMappingQueue.async {
             let mappedWindow = self.messageWindowSliceForMapping(
                 window,
                 currentWindow: currentWindow,
-                timelineState: timelineState,
-                virtualTimelineState: virtualTimelineState,
-                activePlaceholder: boundaryPlaceholder,
-                isPagingLocked: isPagingLocked
+                activePlaceholder: boundaryPlaceholder
             )
             let normalizedWindow = mappedWindow.window
             let slice = mappedWindow.items
-            let nextTimelineState = mappedWindow.timelineState
-            let nextVirtualTimelineState = mappedWindow.virtualState
             let mappingResult = self.mapDataset(dataset: slice, context: mappingContext)
 
             DispatchQueue.main.async {
@@ -8844,8 +8636,6 @@ extension ChatViewController {
                         position: boundaryPlaceholder
                     )
                 }
-                self.virtualTimelineState = nextVirtualTimelineState
-                self.boundedTimelineWindowState = nextTimelineState
                 self.syncCurrentPage(with: normalizedWindow)
                 self.invalidateEditedMessageLayoutCache(
                     primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
@@ -8869,70 +8659,51 @@ extension ChatViewController {
         completion: (() -> Void)? = nil,
         cancelledCompletion: (() -> Void)? = nil
     ) {
+        guard let session = self.timelineSession else {
+            cancelledCompletion?()
+            return
+        }
         self.datasetMappingGeneration += 1
         let generation = self.datasetMappingGeneration
         let boundaryPlaceholder = self.activeHistoryBoundaryPlaceholder
-        let virtualTimelineState = self.virtualTimelineState.normalized(
-            owner: self.owner,
-            jid: self.jid,
-            conversationType: self.conversationType
-        )
+        let archiveState = self.loadChatArchiveStateSnapshot()
         let mappingContext = self.captureDatasourceMappingContext()
 
         self.datasetMappingQueue.async {
-            do {
-                let provider = ChatLocalHistoryPageProvider(
-                    realm: try WRealm.safe(),
-                    owner: self.owner,
-                    jid: self.jid,
-                    conversationType: self.conversationType
-                )
-                var engine = ChatVirtualTimelineEngine(
-                    provider: provider,
-                    pageSize: self.datasourcePageSize,
-                    state: virtualTimelineState,
-                    archiveState: self.loadChatArchiveStateSnapshot()
-                )
-                let snapshot = engine.openAround(anchor: anchor)
-                let frozenItems = snapshot.items.map { $0.freeze() }
-                let nextVirtualState = snapshot.state.withRuntimePlaceholder(boundaryPlaceholder)
-                let mappingResult = self.mapDataset(dataset: frozenItems, context: mappingContext)
+            session.updateArchiveState(archiveState)
+            var snapshot = session.openAround(anchor: anchor)
+            if let boundaryPlaceholder {
+                snapshot = session.applyRuntimePlaceholder(boundaryPlaceholder)
+            }
+            let mappingResult = self.mapDataset(dataset: snapshot.items, context: mappingContext)
 
-                DispatchQueue.main.async {
-                    guard ChatDatasourceApplyGenerationPolicy.shouldApply(
-                        requestGeneration: generation,
-                        currentGeneration: self.datasetMappingGeneration
-                    ) else {
-                        cancelledCompletion?()
-                        return
-                    }
-
-                    var mappedDatasource = mappingResult.datasource
-                    if let boundaryPlaceholder {
-                        mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
-                            to: mappedDatasource,
-                            position: boundaryPlaceholder
-                        )
-                    }
-                    self.virtualTimelineState = nextVirtualState
-                    self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
-                    self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
-                    self.invalidateEditedMessageLayoutCache(
-                        primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
-                    )
-                    self.applyChatDatasource(
-                        mappedDatasource,
-                        mode: mode,
-                        animated: animated,
-                        invalidateLayout: invalidateLayout,
-                        completion: completion
-                    )
-                }
-            } catch {
-                DDLogDebug("ChatViewController.mapAndApplyTimelineAnchor: \(error.localizedDescription)")
-                DispatchQueue.main.async {
+            DispatchQueue.main.async {
+                guard ChatDatasourceApplyGenerationPolicy.shouldApply(
+                    requestGeneration: generation,
+                    currentGeneration: self.datasetMappingGeneration
+                ) else {
                     cancelledCompletion?()
+                    return
                 }
+
+                var mappedDatasource = mappingResult.datasource
+                if let boundaryPlaceholder {
+                    mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
+                        to: mappedDatasource,
+                        position: boundaryPlaceholder
+                    )
+                }
+                self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: snapshot.items.count))
+                self.invalidateEditedMessageLayoutCache(
+                    primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
+                )
+                self.applyChatDatasource(
+                    mappedDatasource,
+                    mode: mode,
+                    animated: animated,
+                    invalidateLayout: invalidateLayout,
+                    completion: completion
+                )
             }
         }
     }
@@ -8947,74 +8718,52 @@ extension ChatViewController {
         completion: (() -> Void)? = nil,
         cancelledCompletion: (() -> Void)? = nil
     ) {
+        guard let session = self.timelineSession else {
+            cancelledCompletion?()
+            return
+        }
         self.datasetMappingGeneration += 1
         let generation = self.datasetMappingGeneration
-        let virtualTimelineState = self.virtualTimelineState.normalized(
-            owner: self.owner,
-            jid: self.jid,
-            conversationType: self.conversationType
-        )
+        let archiveState = self.loadChatArchiveStateSnapshot()
         let mappingContext = self.captureDatasourceMappingContext()
 
         self.datasetMappingQueue.async {
-            do {
-                let provider = ChatLocalHistoryPageProvider(
-                    realm: try WRealm.safe(),
-                    owner: self.owner,
-                    jid: self.jid,
-                    conversationType: self.conversationType
-                )
-                var engine = ChatVirtualTimelineEngine(
-                    provider: provider,
-                    pageSize: self.datasourcePageSize,
-                    state: virtualTimelineState,
-                    archiveState: self.loadChatArchiveStateSnapshot()
-                )
-                let snapshot = engine.scrollToLatest(limit: limit)
-                let frozenItems = snapshot.items.map { $0.freeze() }
-                let nextVirtualState = snapshot.state
-                let mappingResult = self.mapDataset(dataset: frozenItems, context: mappingContext)
+            session.updateArchiveState(archiveState)
+            let snapshot = session.scrollToLatest(limit: limit)
+            let mappingResult = self.mapDataset(dataset: snapshot.items, context: mappingContext)
 
-                DispatchQueue.main.async {
-                    guard ChatDatasourceApplyGenerationPolicy.shouldApply(
-                        requestGeneration: generation,
-                        currentGeneration: self.datasetMappingGeneration
-                    ) else {
-                        cancelledCompletion?()
-                        return
-                    }
-
-                    let mappedDatasource = mappingResult.datasource
-                    self.activeHistoryBoundaryPlaceholder = nil
-                    self.virtualTimelineState = nextVirtualState
-                    self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
-                    self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
-                    self.invalidateEditedMessageLayoutCache(
-                        primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
-                    )
-                    if let limit,
-                       limit == self.initialFirstFramePageSize {
-                        self.armInitialFirstFrameLatestWarmupIfNeeded(
-                            appliedRealMessageCount: frozenItems.count,
-                            availableLocalMessageCount: self.messagesObserver?.count ?? frozenItems.count,
-                            isResidentAtLiveTail: nextVirtualState.isResidentAtLiveTail
-                        )
-                    }
-                    self.applyChatDatasource(
-                        mappedDatasource,
-                        mode: mode,
-                        animated: animated,
-                        invalidateLayout: invalidateLayout,
-                        suppressDefaultBottomScroll: suppressDefaultBottomScroll,
-                        forceBottomAlignmentTarget: forceBottomAlignmentTarget,
-                        completion: completion
-                    )
-                }
-            } catch {
-                DDLogDebug("ChatViewController.mapAndApplyTimelineLatest: \(error.localizedDescription)")
-                DispatchQueue.main.async {
+            DispatchQueue.main.async {
+                guard ChatDatasourceApplyGenerationPolicy.shouldApply(
+                    requestGeneration: generation,
+                    currentGeneration: self.datasetMappingGeneration
+                ) else {
                     cancelledCompletion?()
+                    return
                 }
+
+                let mappedDatasource = mappingResult.datasource
+                self.activeHistoryBoundaryPlaceholder = nil
+                self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: snapshot.items.count))
+                self.invalidateEditedMessageLayoutCache(
+                    primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
+                )
+                if let limit,
+                   limit == self.initialFirstFramePageSize {
+                    self.armInitialFirstFrameLatestWarmupIfNeeded(
+                        appliedRealMessageCount: snapshot.items.count,
+                        availableLocalMessageCount: self.timelineSession?.snapshot.items.count ?? snapshot.items.count,
+                        isResidentAtLiveTail: snapshot.state.isResidentAtLiveTail
+                    )
+                }
+                self.applyChatDatasource(
+                    mappedDatasource,
+                    mode: mode,
+                    animated: animated,
+                    invalidateLayout: invalidateLayout,
+                    suppressDefaultBottomScroll: suppressDefaultBottomScroll,
+                    forceBottomAlignmentTarget: forceBottomAlignmentTarget,
+                    completion: completion
+                )
             }
         }
     }
@@ -9032,75 +8781,52 @@ extension ChatViewController {
         completion: (() -> Void)? = nil,
         cancelledCompletion: (() -> Void)? = nil
     ) {
+        guard let session = self.timelineSession else {
+            cancelledCompletion?()
+            return
+        }
         self.datasetMappingGeneration += 1
         let generation = self.datasetMappingGeneration
         let boundaryPlaceholder = preserveBoundaryPlaceholder ? self.activeHistoryBoundaryPlaceholder : nil
-        let virtualTimelineState = self.virtualTimelineState.normalized(
-            owner: self.owner,
-            jid: self.jid,
-            conversationType: self.conversationType
-        )
         let mappingContext = self.captureDatasourceMappingContext()
 
         self.datasetMappingQueue.async {
-            do {
-                let provider = ChatLocalHistoryPageProvider(
-                    realm: try WRealm.safe(),
-                    owner: self.owner,
-                    jid: self.jid,
-                    conversationType: self.conversationType
-                )
-                let engine = ChatVirtualTimelineEngine(
-                    provider: provider,
-                    pageSize: self.datasourcePageSize,
-                    state: virtualTimelineState,
-                    archiveState: self.loadChatArchiveStateSnapshot()
-                )
-                let snapshot = engine.currentSnapshot()
-                let frozenItems = snapshot.items.map { $0.freeze() }
-                let nextVirtualState = snapshot.state.withRuntimePlaceholder(boundaryPlaceholder)
-                let mappingResult = self.mapDataset(dataset: frozenItems, context: mappingContext)
+            _ = session.refreshResidentItems()
+            let snapshot = session.applyRuntimePlaceholder(boundaryPlaceholder)
+            let mappingResult = self.mapDataset(dataset: snapshot.items, context: mappingContext)
 
-                DispatchQueue.main.async {
-                    guard ChatDatasourceApplyGenerationPolicy.shouldApply(
-                        requestGeneration: generation,
-                        currentGeneration: self.datasetMappingGeneration
-                    ) else {
-                        cancelledCompletion?()
-                        return
-                    }
-
-                    var mappedDatasource = mappingResult.datasource
-                    if let boundaryPlaceholder {
-                        mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
-                            to: mappedDatasource,
-                            position: boundaryPlaceholder
-                        )
-                    }
-                    self.virtualTimelineState = nextVirtualState
-                    self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
-                    self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
-                    self.invalidateEditedMessageLayoutCache(
-                        primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
-                    )
-                    self.applyChatDatasource(
-                        mappedDatasource,
-                        mode: mode,
-                        animated: animated,
-                        invalidateLayout: invalidateLayout,
-                        suppressDefaultBottomScroll: suppressDefaultBottomScroll,
-                        applyCategory: applyCategory,
-                        anchorRestorePhase: anchorRestorePhase,
-                        anchorPrimary: anchorPrimary,
-                        restoreAnchor: restoreAnchor,
-                        completion: completion
-                    )
-                }
-            } catch {
-                DDLogDebug("ChatViewController.mapAndApplyTimelineCurrent: \(error.localizedDescription)")
-                DispatchQueue.main.async {
+            DispatchQueue.main.async {
+                guard ChatDatasourceApplyGenerationPolicy.shouldApply(
+                    requestGeneration: generation,
+                    currentGeneration: self.datasetMappingGeneration
+                ) else {
                     cancelledCompletion?()
+                    return
                 }
+
+                var mappedDatasource = mappingResult.datasource
+                if let boundaryPlaceholder {
+                    mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
+                        to: mappedDatasource,
+                        position: boundaryPlaceholder
+                    )
+                }
+                self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: snapshot.items.count))
+                self.invalidateEditedMessageLayoutCache(
+                    primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
+                )
+                self.applyChatDatasource(
+                    mappedDatasource,
+                    mode: mode,
+                    animated: animated,
+                    invalidateLayout: invalidateLayout,
+                    suppressDefaultBottomScroll: suppressDefaultBottomScroll,
+                    applyCategory: applyCategory,
+                    anchorRestorePhase: anchorRestorePhase,
+                    anchorPrimary: anchorPrimary,
+                    restoreAnchor: restoreAnchor,
+                    completion: completion
+                )
             }
         }
     }
@@ -9118,10 +8844,15 @@ extension ChatViewController {
         completion: (() -> Void)? = nil,
         cancelledCompletion: (() -> Void)? = nil
     ) {
+        guard let session = self.timelineSession else {
+            cancelledCompletion?()
+            return
+        }
         self.datasetMappingGeneration += 1
         let generation = self.datasetMappingGeneration
-        let frozenItems = snapshot.items.map { $0.freeze() }
-        let nextVirtualState = snapshot.state
+        let committedSnapshot = session.commit(snapshot)
+        let frozenItems = committedSnapshot.items
+        let nextVirtualState = committedSnapshot.state
         let mappingContext = self.captureDatasourceMappingContext()
 
         self.datasetMappingQueue.async {
@@ -9136,8 +8867,6 @@ extension ChatViewController {
                 }
 
                 let mappedDatasource = mappingResult.datasource
-                self.virtualTimelineState = nextVirtualState
-                self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
                 self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
                 self.invalidateEditedMessageLayoutCache(
                     primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
@@ -9628,58 +9357,38 @@ extension ChatViewController {
             return false
         }
 
-        do {
-            self.datasetMappingGeneration += 1
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            var engine = ChatVirtualTimelineEngine(
-                provider: provider,
-                pageSize: self.datasourcePageSize,
-                state: self.virtualTimelineState.normalized(
-                    owner: self.owner,
-                    jid: self.jid,
-                    conversationType: self.conversationType
-                ),
-                archiveState: self.loadChatArchiveStateSnapshot()
-            )
-            let snapshot = engine.scrollToLatest(limit: self.initialFirstFramePageSize)
-            let frozenItems = snapshot.items.map { $0.freeze() }
-            guard !frozenItems.isEmpty else {
-                return false
-            }
-
-            if forceLatestBottom {
-                self.beginInitialLatestOpenStabilizationIfNeeded()
-            }
-            self.activeHistoryBoundaryPlaceholder = nil
-            self.virtualTimelineState = snapshot.state
-            self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: snapshot.state)
-            self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
-            self.armInitialFirstFrameLatestWarmupIfNeeded(
-                appliedRealMessageCount: frozenItems.count,
-                availableLocalMessageCount: self.messagesObserver?.count ?? frozenItems.count,
-                isResidentAtLiveTail: snapshot.state.isResidentAtLiveTail
-            )
-            self.applyChatDatasource(
-                self.mapDataset(dataset: frozenItems),
-                mode: .fullReload(),
-                animated: false,
-                invalidateLayout: forceLatestBottom,
-                suppressDefaultBottomScroll: forceLatestBottom,
-                forceBottomAlignmentTarget: forceLatestBottom ? .newestRealMessage : nil,
-                completion: forceLatestBottom ? {
-                    self.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
-                } : nil
-            )
-            return true
-        } catch {
-            DDLogDebug("ChatViewController.applyFirstFrameLocalHistoryIfNeeded: \(error.localizedDescription)")
+        guard let session = self.timelineSession else {
             return false
         }
+        self.datasetMappingGeneration += 1
+        session.updateArchiveState(self.loadChatArchiveStateSnapshot())
+        let snapshot = session.scrollToLatest(limit: self.initialFirstFramePageSize)
+        guard !snapshot.items.isEmpty else {
+            return false
+        }
+
+        if forceLatestBottom {
+            self.beginInitialLatestOpenStabilizationIfNeeded()
+        }
+        self.activeHistoryBoundaryPlaceholder = nil
+        self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: snapshot.items.count))
+        self.armInitialFirstFrameLatestWarmupIfNeeded(
+            appliedRealMessageCount: snapshot.items.count,
+            availableLocalMessageCount: self.timelineSession?.snapshot.items.count ?? snapshot.items.count,
+            isResidentAtLiveTail: snapshot.state.isResidentAtLiveTail
+        )
+        self.applyChatDatasource(
+            self.mapDataset(dataset: snapshot.items),
+            mode: .fullReload(),
+            animated: false,
+            invalidateLayout: forceLatestBottom,
+            suppressDefaultBottomScroll: forceLatestBottom,
+            forceBottomAlignmentTarget: forceLatestBottom ? .newestRealMessage : nil,
+            completion: forceLatestBottom ? {
+                self.finishLatestBottomScroll(animated: false, consumePendingForceLatest: true)
+            } : nil
+        )
+        return true
     }
 
     @discardableResult
@@ -10193,12 +9902,12 @@ extension ChatViewController {
     }
 
     internal final func performInteractiveHistoryPaging(direction: ChatHistoryPageDirection) {
-        guard self.currentPage.isUnlocked else {
+        guard self.timelineInteractionState.isUnlocked else {
             return
         }
         FeedbackManager.shared.generate(feedback: .success)
         self.setDatasourceLoadingEnabled(false)
-        self.currentPage.locked = true
+        self.timelineInteractionState.locked = true
         self.loadDatasource(direction: direction) { snapshot in
             if let snapshot {
                 self.finishPagingInteraction(
@@ -10241,7 +9950,7 @@ extension ChatViewController {
 
     internal var isArchiveObserverRefreshPressureActive: Bool {
         self.isInitialBootstrapInFlight ||
-        self.currentPage.isLoading ||
+        self.timelineInteractionState.isLoading ||
         self.interactiveHistoryPageLoadContext != nil ||
         self.virtualTimelineState.activeRemoteLoad != nil ||
         self.activeChatHistoryLoadActivityKeys.isNotEmpty
@@ -10253,7 +9962,7 @@ extension ChatViewController {
         self.searchResultNavigationState.isBusy
     }
 
-    internal func handleMessagesObserverRefresh() {
+    internal func handleTimelineSessionRefresh() {
         self.refreshPinnedMessagePanelIfNeeded()
         if self.showSkeletonObserver.value {
             let didRevealBootstrapContent = self.revealInitialBootstrapContentIfAvailable()
@@ -10268,7 +9977,7 @@ extension ChatViewController {
            self.applyObserverRefreshBackpressureIfNeeded() {
             return
         }
-        if self.currentPage.locked {
+        if self.timelineInteractionState.locked {
             _ = self.tryFinishInteractiveHistoryPageLoadIfReady()
             return
         }
@@ -10344,7 +10053,7 @@ extension ChatViewController {
             self.archiveObserverRefreshWorkItem = nil
             self.pendingArchiveObserverRefresh = false
             self.logArchiveObserverRefreshBackpressure(action: "flush:\(reason)")
-            if self.currentPage.locked {
+            if self.timelineInteractionState.locked {
                 _ = self.tryFinishInteractiveHistoryPageLoadIfReady()
                 return true
             }
@@ -10370,14 +10079,14 @@ extension ChatViewController {
             ("conversationType", self.conversationType.rawValue),
             ("action", action),
             ("isInitialBootstrapInFlight", self.isInitialBootstrapInFlight),
-            ("isPageLoading", self.currentPage.isLoading),
+            ("isPageLoading", self.timelineInteractionState.isLoading),
             ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
             ("interactiveQueryId", self.interactiveHistoryPageLoadContext?.queryId ?? "-"),
             ("scrollMotionState", self.currentScrollMotionState().rawValue),
             ("pendingRefresh", self.pendingArchiveObserverRefresh),
             ("scheduledRefresh", self.archiveObserverRefreshWorkItem != nil),
             ("datasourceCount", self.datasource.count),
-            ("observerCount", self.messagesObserver?.count ?? -1)
+            ("residentCount", self.timelineSession?.snapshot.items.count ?? -1)
         ])
     }
 
@@ -10415,49 +10124,24 @@ extension ChatViewController {
         }
     }
 
-    private func makeVirtualTimelineEngine(
-        archiveState: ChatArchiveStateSnapshot
-    ) throws -> ChatVirtualTimelineEngine {
-        let provider = ChatLocalHistoryPageProvider(
-            realm: try WRealm.safe(),
-            owner: self.owner,
-            jid: self.jid,
-            conversationType: self.conversationType
-        )
-        return ChatVirtualTimelineEngine(
-            provider: provider,
-            pageSize: self.datasourcePageSize,
-            state: self.virtualTimelineState.normalized(
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            ),
-            archiveState: archiveState
-        )
-    }
-
     private func virtualTimelinePageSnapshot(
         direction: ChatHistoryPageDirection,
         queryId: String? = nil,
         archiveState: ChatArchiveStateSnapshot
     ) -> ChatTimelineSnapshot? {
-        do {
-            var engine = try self.makeVirtualTimelineEngine(archiveState: archiveState)
-            switch direction {
-            case .older:
-                return engine.pageOlder(queryId: queryId)
-            case .newer:
-                return engine.pageNewer(queryId: queryId)
-            }
-        } catch {
-            DDLogDebug("ChatViewController.virtualTimelinePageSnapshot: \(error.localizedDescription)")
+        guard let session = self.timelineSession else {
             return nil
         }
+        return session.previewPage(
+            direction: direction,
+            queryId: queryId,
+            archiveState: archiveState
+        )
     }
 
     private func frozenSnapshot(_ snapshot: ChatTimelineSnapshot) -> ChatTimelineSnapshot {
         ChatTimelineSnapshot(
-            items: snapshot.items.map { $0.freeze() },
+            items: snapshot.items.map { $0.realm == nil || $0.isFrozen ? $0 : $0.freeze() },
             state: snapshot.state,
             loadingState: snapshot.loadingState,
             loadDecision: snapshot.loadDecision,
@@ -10486,21 +10170,24 @@ extension ChatViewController {
         first: Bool = false,
         samePage: Bool = false
     ) -> ChatInteractiveHistoryPagingPreparation? {
+        guard let residentSnapshot = self.timelineSession?.snapshot else {
+            return nil
+        }
+
         func getWindow() -> ChatDatasetWindow {
             let currentWindow = self.visibleWindow()
 
             if samePage {
-                return self.datasetCoordinator.clamp(currentWindow, totalCount: self.messagesObserver.count)
+                return self.datasetCoordinator.clamp(
+                    currentWindow,
+                    totalCount: residentSnapshot.items.count
+                )
             }
 
             return self.datasetCoordinator.nextWindow(
                 from: currentWindow,
                 direction: direction
             )
-        }
-
-        guard self.messagesObserver != nil else {
-            return nil
         }
 
         let currentWindow = self.visibleWindow()
@@ -10559,7 +10246,7 @@ extension ChatViewController {
             ("boundedNewest", self.boundedTimelineWindowState.newest?.archivedId ?? "-"),
             ("datasourceFirst", self.datasource.first?.archivedId ?? "-"),
             ("datasourceLast", self.datasource.last?.archivedId ?? "-"),
-            ("observerCount", self.messagesObserver?.count ?? -1),
+            ("residentCount", self.timelineSession?.snapshot.items.count ?? -1),
             ("scrollMotionState", self.currentScrollMotionState().rawValue),
             ("executionAction", "-"),
             ("preparedLocalPageId", self.pendingPreparedLocalHistoryPage?.id ?? "-"),
@@ -10741,7 +10428,7 @@ extension ChatViewController {
             self.pendingPreparedLocalHistoryPage = nil
             self.pendingDeferredRemoteHistoryDirection = nil
             self.setDatasourceLoadingEnabled(false)
-            self.currentPage.locked = true
+            self.timelineInteractionState.locked = true
             ChatArchiveDebugTrace.log("boundaryPagingApplyPreparedLocal", [
                 ("owner", self.owner),
                 ("jid", self.jid),
@@ -10815,7 +10502,7 @@ extension ChatViewController {
         guard normalizedState.activeRemoteLoad == nil else {
             return "remoteInFlight"
         }
-        guard self.currentPage.isUnlocked else {
+        guard self.timelineInteractionState.isUnlocked else {
             return "pageLocked"
         }
         guard self.visibleWindow() == prepared.baseWindow else {
@@ -10897,8 +10584,7 @@ extension ChatViewController {
             ("newActiveRemoteLoad", snapshot.state.activeRemoteLoad?.queryId ?? "-"),
             ("itemCount", snapshot.items.count)
         ])
-        self.virtualTimelineState = snapshot.state
-        self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: snapshot.state)
+        _ = self.timelineSession?.commit(snapshot)
         self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: snapshot.items.count))
     }
 
@@ -11225,16 +10911,13 @@ extension ChatViewController {
         archiveState: ChatArchiveStateSnapshot,
         refetchDirection: ChatHistoryPageDirection? = nil
     ) {
-        do {
-            var engine = try self.makeVirtualTimelineEngine(archiveState: archiveState)
-            let snapshot = engine.finishRemoteLoad(
-                queryId: queryId,
-                refetchDirection: refetchDirection
-            )
-            self.applyVirtualTimelineSnapshotState(snapshot)
-        } catch {
-            DDLogDebug("ChatViewController.finishVirtualTimelineRemoteLoad: \(error.localizedDescription)")
-        }
+        guard let session = self.timelineSession else { return }
+        session.updateArchiveState(archiveState)
+        let snapshot = session.finishRemoteLoad(
+            queryId: queryId,
+            refetchDirection: refetchDirection
+        )
+        self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: snapshot.items.count))
     }
 
     private func commitRemoteHistoryArchiveStateAfterApply(
@@ -11350,28 +11033,11 @@ extension ChatViewController {
             return
         }
 
-        let clearedState = ChatVirtualTimelineState(
-            conversationKey: normalizedState.conversationKey,
-            segments: normalizedState.segments.filter {
-                if case .loadingPlaceholder = $0 {
-                    return false
-                }
-                return true
-            },
-            oldest: normalizedState.oldest,
-            newest: normalizedState.newest,
-            residentPrimaryKeys: normalizedState.residentPrimaryKeys,
-            residentArchivedIds: normalizedState.residentArchivedIds,
-            activeRemoteLoad: nil,
-            activePlaceholder: nil,
-            isResidentAtLiveTail: normalizedState.isResidentAtLiveTail
-        )
         self.activeHistoryBoundaryPlaceholder = nil
-        self.virtualTimelineState = clearedState
-        self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: clearedState)
+        let clearedSnapshot = self.timelineSession?.abortRemoteLoad(queryId: queryId)
         self.refreshScrollBoundaryAvailabilityCache(reason: "remoteLoadCleared")
         DDLogDebug(
-            "ChatViewController.remoteHistoryApplyCancelled queryId=\(queryId) reason=clearedRuntimeState oldest=\(clearedState.oldest?.archivedId ?? "-") newest=\(clearedState.newest?.archivedId ?? "-")"
+            "ChatViewController.remoteHistoryApplyCancelled queryId=\(queryId) reason=clearedRuntimeState oldest=\(clearedSnapshot?.state.oldest?.archivedId ?? "-") newest=\(clearedSnapshot?.state.newest?.archivedId ?? "-")"
         )
     }
 
@@ -11391,6 +11057,10 @@ extension ChatViewController {
         completion: ((ChatRemoteHistoryApplyResult) -> Void)? = nil,
         cancelledCompletion: (() -> Void)? = nil
     ) {
+        guard let session = self.timelineSession else {
+            cancelledCompletion?()
+            return
+        }
         let enqueuedAt = Date()
         let requestOwner = self.owner
         let requestJid = self.jid
@@ -11400,23 +11070,22 @@ extension ChatViewController {
             jid: requestJid,
             conversationType: requestConversationType
         )
-        let virtualTimelineState = self.virtualTimelineState.normalized(
+        let currentTimelineState = session.snapshot.state.normalized(
             owner: requestOwner,
             jid: requestJid,
             conversationType: requestConversationType
         )
-        let previousOldestArchivedId = virtualTimelineState.oldest?.archivedId
-        let previousNewestArchivedId = virtualTimelineState.newest?.archivedId
+        let previousOldestArchivedId = currentTimelineState.oldest?.archivedId
+        let previousNewestArchivedId = currentTimelineState.newest?.archivedId
         let mappingContext = self.captureDatasourceMappingContext()
         DDLogDebug(
             "ChatViewController.remoteHistoryApplyStart queryId=\(queryId) direction=\(refetchDirection) visibleRows=\(visibleRows) count=\(resultCount) oldest=\(previousOldestArchivedId ?? "-") newest=\(previousNewestArchivedId ?? "-")"
         )
 
         self.remoteHistoryApplyQueue.async {
-            do {
-                let startedAt = Date()
-                let queueWaitMs = Int(startedAt.timeIntervalSince(enqueuedAt) * 1000)
-                ChatArchiveDebugTrace.log("remoteHistoryApplyWorkerStart", [
+            let startedAt = Date()
+            let queueWaitMs = Int(startedAt.timeIntervalSince(enqueuedAt) * 1000)
+            ChatArchiveDebugTrace.log("remoteHistoryApplyWorkerStart", [
                     ("owner", requestOwner),
                     ("jid", requestJid),
                     ("conversationType", requestConversationType.rawValue),
@@ -11425,32 +11094,21 @@ extension ChatViewController {
                     ("queueWaitMs", queueWaitMs),
                     ("oldOldest", previousOldestArchivedId ?? "-"),
                     ("oldNewest", previousNewestArchivedId ?? "-")
-                ])
-                let refetchStartedAt = Date()
-                let provider = ChatLocalHistoryPageProvider(
-                    realm: try WRealm.safe(),
-                    owner: requestOwner,
-                    jid: requestJid,
-                    conversationType: requestConversationType
-                )
-                var engine = ChatVirtualTimelineEngine(
-                    provider: provider,
-                    pageSize: self.datasourcePageSize,
-                    state: virtualTimelineState,
-                    archiveState: archiveState
-                )
-                let snapshot = engine.finishRemoteLoad(
-                    queryId: queryId,
-                    refetchDirection: refetchDirection
-                )
-                let refetchMs = ChatArchiveDebugTrace.milliseconds(since: refetchStartedAt)
-                let frozenItems = snapshot.items.map { $0.freeze() }
-                let nextVirtualState = snapshot.state
-                let mapStartedAt = Date()
-                let mappingResult = self.mapDataset(dataset: frozenItems, context: mappingContext)
-                let mapDurationMs = ChatArchiveDebugTrace.milliseconds(since: mapStartedAt)
-                let workerDurationMs = ChatArchiveDebugTrace.milliseconds(since: startedAt)
-                ChatArchiveDebugTrace.log("remoteHistoryApplyRefetchDone", [
+            ])
+            let refetchStartedAt = Date()
+            session.updateArchiveState(archiveState)
+            let snapshot = session.finishRemoteLoad(
+                queryId: queryId,
+                refetchDirection: refetchDirection
+            )
+            let refetchMs = ChatArchiveDebugTrace.milliseconds(since: refetchStartedAt)
+            let frozenItems = snapshot.items
+            let nextVirtualState = snapshot.state
+            let mapStartedAt = Date()
+            let mappingResult = self.mapDataset(dataset: frozenItems, context: mappingContext)
+            let mapDurationMs = ChatArchiveDebugTrace.milliseconds(since: mapStartedAt)
+            let workerDurationMs = ChatArchiveDebugTrace.milliseconds(since: startedAt)
+            ChatArchiveDebugTrace.log("remoteHistoryApplyRefetchDone", [
                     ("owner", requestOwner),
                     ("jid", requestJid),
                     ("conversationType", requestConversationType.rawValue),
@@ -11461,9 +11119,9 @@ extension ChatViewController {
                     ("newOldest", nextVirtualState.oldest?.archivedId ?? "-"),
                     ("newNewest", nextVirtualState.newest?.archivedId ?? "-"),
                     ("activeRemoteLoad", nextVirtualState.activeRemoteLoad?.queryId ?? "-")
-                ])
-                let mainEnqueuedAt = Date()
-                DispatchQueue.main.async {
+            ])
+            let mainEnqueuedAt = Date()
+            DispatchQueue.main.async {
                     ChatArchiveDebugTrace.log("remoteHistoryApplyMainStart", [
                         ("owner", requestOwner),
                         ("jid", requestJid),
@@ -11481,7 +11139,8 @@ extension ChatViewController {
                         jid: self.jid,
                         conversationType: self.conversationType
                     )
-                    guard ChatRemoteHistoryApplyGuardPolicy.shouldApply(
+                    guard self.timelineSession === session,
+                          ChatRemoteHistoryApplyGuardPolicy.shouldApply(
                         requestConversationKey: requestConversationKey,
                         currentConversationKey: currentConversationKey,
                         requestQueryId: queryId,
@@ -11520,8 +11179,6 @@ extension ChatViewController {
                         ("datasourceItems", mappedDatasource.count)
                     ])
                     self.activeHistoryBoundaryPlaceholder = nil
-                    self.virtualTimelineState = nextVirtualState
-                    self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
                     self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
                     self.invalidateEditedMessageLayoutCache(
                         primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
@@ -11553,20 +11210,6 @@ extension ChatViewController {
                             completion?(applyResult)
                         }
                     )
-                }
-            } catch {
-                ChatArchiveDebugTrace.log("remoteHistoryApplyWorkerError", [
-                    ("owner", requestOwner),
-                    ("jid", requestJid),
-                    ("conversationType", requestConversationType.rawValue),
-                    ("queryId", queryId),
-                    ("direction", refetchDirection),
-                    ("error", error.localizedDescription)
-                ])
-                DDLogDebug("ChatViewController.mapAndApplyFinishedVirtualTimelineRemoteLoad: \(error.localizedDescription)")
-                DispatchQueue.main.async {
-                    cancelledCompletion?()
-                }
             }
         }
     }
@@ -11608,10 +11251,10 @@ extension ChatViewController {
             ("datasourceFirst", self.datasource.first?.archivedId ?? "-"),
             ("datasourceLast", self.datasource.last?.archivedId ?? "-"),
             ("datasourceCount", self.datasource.count),
-            ("observerCount", self.messagesObserver?.count ?? -1),
+            ("residentCount", self.timelineSession?.snapshot.items.count ?? -1),
             ("activeRemoteLoad", normalizedState.activeRemoteLoad?.queryId ?? "-"),
             ("activePlaceholder", self.activeHistoryBoundaryPlaceholder != nil),
-            ("currentPageLocked", self.currentPage.locked),
+            ("currentPageLocked", self.timelineInteractionState.locked),
             ("canLoadDatasource", self.canLoadDatasource)
         ])
     }
@@ -11634,7 +11277,7 @@ extension ChatViewController {
             shortLocalRemainderRemoteFirst: shortLocalRemainderRemoteFirst,
             queryId: queryId
         )
-        self.currentPage.locked = true
+        self.timelineInteractionState.locked = true
     }
 
     private func beginVisibleRemoteHistoryLoading(
@@ -11651,7 +11294,7 @@ extension ChatViewController {
             ("direction", direction),
             ("decision", "\(decision)"),
             ("cursor", self.interactiveHistoryPageLoadContext?.requestedCursorId ?? "-"),
-            ("visibleLoaderBefore", self.currentPage.isLoading),
+            ("visibleLoaderBefore", self.timelineInteractionState.isLoading),
             ("placeholderBefore", self.activeHistoryBoundaryPlaceholder != nil || self.virtualTimelineState.activePlaceholder != nil)
         ])
         self.beginHistoryLoadingUI(queryId: queryId)
@@ -11741,7 +11384,7 @@ extension ChatViewController {
                         ("direction", direction),
                         ("cursor", cursorId ?? "-"),
                         ("reason", reason),
-                        ("visibleLoader", self.currentPage.isLoading),
+                        ("visibleLoader", self.timelineInteractionState.isLoading),
                         ("placeholderState", self.activeHistoryBoundaryPlaceholder != nil || self.virtualTimelineState.activePlaceholder != nil)
                     ])
                     self.abortInteractiveHistoryPageLoad()
@@ -11752,11 +11395,21 @@ extension ChatViewController {
     }
     
     internal final func loadDatasource(direction: ChatHistoryPageDirection, first: Bool = false, ignoreGaps: Bool = false, samePage: Bool = false, callback: @escaping ((ChatTimelineSnapshot?) -> Void)) {
+        guard let residentSnapshot = self.timelineSession?.snapshot else {
+            self.setDatasourceLoadingEnabled(true)
+            self.timelineInteractionState.unlock()
+            callback(nil)
+            return
+        }
+
         func getWindow() -> ChatDatasetWindow {
             let currentWindow = self.visibleWindow()
 
             if samePage {
-                return self.datasetCoordinator.clamp(currentWindow, totalCount: self.messagesObserver.count)
+                return self.datasetCoordinator.clamp(
+                    currentWindow,
+                    totalCount: residentSnapshot.items.count
+                )
             }
 
             return self.datasetCoordinator.nextWindow(
@@ -11765,17 +11418,11 @@ extension ChatViewController {
             )
         }
         
-        guard self.messagesObserver != nil else {
-            self.setDatasourceLoadingEnabled(true)
-            self.currentPage.unlock()
-            callback(nil)
-            return
-        }
         let currentWindow = self.visibleWindow()
         let requestedWindow = getWindow()
         if requestedWindow.isEmpty && !first {
             self.setDatasourceLoadingEnabled(true)
-            self.currentPage.unlock()
+            self.timelineInteractionState.unlock()
             callback(nil)
             return
         }
@@ -11805,7 +11452,7 @@ extension ChatViewController {
         )
         guard let virtualSnapshot else {
             self.setDatasourceLoadingEnabled(true)
-            self.currentPage.unlock()
+            self.timelineInteractionState.unlock()
             callback(nil)
             return
         }
@@ -11830,7 +11477,7 @@ extension ChatViewController {
             ("boundedNewest", self.boundedTimelineWindowState.newest?.archivedId ?? "-"),
             ("datasourceFirst", self.datasource.first?.archivedId ?? "-"),
             ("datasourceLast", self.datasource.last?.archivedId ?? "-"),
-            ("observerCount", self.messagesObserver?.count ?? -1)
+            ("residentCount", self.timelineSession?.snapshot.items.count ?? -1)
         ])
 
         let pagingPlan = ChatInteractiveHistoryPagingPlanPolicy.plan(for: decision)
@@ -11892,7 +11539,7 @@ extension ChatViewController {
                 persistedFullArchiveLoaded: chatArchiveState.fullArchiveLoaded,
                 requestedCursorId: archivedId,
                 requestedWindow: requestedWindow,
-                preLoadObserverCount: self.messagesObserver.count,
+                preLoadObserverCount: residentSnapshot.items.count,
                 preLoadOldestArchivedId: self.observedOldestArchivedId(),
                 preLoadNewestArchivedId: self.observedNewestArchivedId(),
                 preLoadFullArchiveLoaded: shouldProbePersistedArchiveEnd ? false : persistedArchiveEnded,
@@ -11945,7 +11592,7 @@ extension ChatViewController {
             guard let archivedId = self.visibleNewerPagingCursorId(in: currentWindow, persistedCursorId: chatArchiveState.newestCursorId),
                   archivedId.isNotEmpty else {
                 self.setDatasourceLoadingEnabled(true)
-                self.currentPage.unlock()
+                self.timelineInteractionState.unlock()
                 callback(nil)
                 return
             }
@@ -11975,7 +11622,7 @@ extension ChatViewController {
                 persistedFullArchiveLoaded: chatArchiveState.fullArchiveLoaded,
                 requestedCursorId: archivedId,
                 requestedWindow: requestedWindow,
-                preLoadObserverCount: self.messagesObserver.count,
+                preLoadObserverCount: residentSnapshot.items.count,
                 preLoadOldestArchivedId: self.observedOldestArchivedId(),
                 preLoadNewestArchivedId: self.observedNewestArchivedId(),
                 preLoadFullArchiveLoaded: effectiveArchiveEnded,
@@ -12045,7 +11692,7 @@ extension ChatViewController {
                 persistedFullArchiveLoaded: chatArchiveState.fullArchiveLoaded,
                 requestedCursorId: archivedId,
                 requestedWindow: requestedWindow,
-                preLoadObserverCount: self.messagesObserver.count,
+                preLoadObserverCount: residentSnapshot.items.count,
                 preLoadOldestArchivedId: self.observedOldestArchivedId(),
                 preLoadNewestArchivedId: self.observedNewestArchivedId(),
                 preLoadFullArchiveLoaded: effectiveArchiveEnded,
@@ -12116,7 +11763,7 @@ extension ChatViewController {
                 persistedFullArchiveLoaded: chatArchiveState.fullArchiveLoaded,
                 requestedCursorId: archivedId,
                 requestedWindow: requestedWindow,
-                preLoadObserverCount: self.messagesObserver.count,
+                preLoadObserverCount: residentSnapshot.items.count,
                 preLoadOldestArchivedId: self.observedOldestArchivedId(),
                 preLoadNewestArchivedId: self.observedNewestArchivedId(),
                 preLoadFullArchiveLoaded: effectiveArchiveEnded,
@@ -12161,56 +11808,12 @@ extension ChatViewController {
             )
         case .endReached, .noOp, .remote(.localOnly), .remote(.endReached):
             self.setDatasourceLoadingEnabled(true)
-            self.currentPage.unlock()
+            self.timelineInteractionState.unlock()
             callback(nil)
             return
         }
     }
 
-    private func boundaryGapPagingDecision(
-        direction: ChatHistoryPageDirection,
-        knownGaps: [RegularChatArchiveGap]
-    ) -> ChatHistoryPagingLoadDecision? {
-        guard self.conversationType == .regular,
-              knownGaps.isNotEmpty,
-              let currentOldest = self.boundedTimelineWindowState.oldest,
-              let currentNewest = self.boundedTimelineWindowState.newest else {
-            return nil
-        }
-
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            let requestedItems: [MessageStorageItem]
-            switch direction {
-            case .older:
-                requestedItems = provider.older(before: currentOldest, limit: self.datasourcePageSize)
-            case .newer:
-                requestedItems = provider.newer(after: currentNewest, limit: self.datasourcePageSize)
-            }
-            guard let requestedOldest = requestedItems.first.map(ChatTimelineBoundary.init(message:)),
-                  let requestedNewest = requestedItems.last.map(ChatTimelineBoundary.init(message:)) else {
-                return nil
-            }
-
-            return ChatArchiveBoundaryGapPagingPolicy.loadDecision(
-                direction: direction,
-                currentOldestArchiveId: currentOldest.archivedId,
-                currentNewestArchiveId: currentNewest.archivedId,
-                requestedOldestArchiveId: requestedOldest.archivedId,
-                requestedNewestArchiveId: requestedNewest.archivedId,
-                knownGaps: knownGaps
-            )
-        } catch {
-            DDLogDebug("ChatViewController.boundaryGapPagingDecision: \(error.localizedDescription)")
-            return nil
-        }
-    }
-    
     
     func didReceiveChangeset() {
         var observerRefreshSignpost = ChatPerformanceSignposts.begin(.observerRefresh)

@@ -53,9 +53,12 @@ xabberTests/ChatLocalHistoryPageProviderTests
 SELECTORS
       ;;
     G04) cat <<'SELECTORS'
+xabberTests/ChatTimelineSessionTests
+xabberTests/ChatTimelineSessionSourcePolicyTests
+xabberTests/ChatHistoryRealmMigrationTests
+xabberTests/ChatCursorNativeHistoryScaleTests/testMillionRowTimelineSessionKeepsResidentAndOperationsBounded
 xabberTests/ChatVirtualTimelineEngineTests
 xabberTests/ChatDatasourceBoundsTests
-xabberTests/ChatObserverLookupPolicyTests
 xabberTests/ChatViewportReadBoundaryTests
 xabberTests/ChatUnreadMentionsTests
 SELECTORS

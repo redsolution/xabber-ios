@@ -557,13 +557,13 @@ enum ChatVisiblePositionPersistencePolicy {
     static func isLiveBottom(
         isNearBottom: Bool,
         lastRealDatasourcePrimary: String?,
-        observerPrimaryIndexMap: [String: Int],
+        residentPrimaryPositions: [String: Int],
         observerCount: Int
     ) -> Bool {
         guard isNearBottom,
               observerCount > 0,
               let lastRealDatasourcePrimary,
-              let observerIndex = observerPrimaryIndexMap[lastRealDatasourcePrimary] else {
+              let observerIndex = residentPrimaryPositions[lastRealDatasourcePrimary] else {
             return false
         }
 
@@ -1796,7 +1796,7 @@ extension ChatViewController {
     }
 
     private func hasActiveSearchResultAnchorWork() -> Bool {
-        currentPage.locked ||
+        timelineInteractionState.locked ||
         pendingOpenMessageRequest != nil ||
         activeAnchorExecutionState != nil ||
         isApplyingBootstrapAnchorWindow ||
@@ -2017,7 +2017,7 @@ extension ChatViewController {
 
         FeedbackManager.shared.generate(feedback: .success)
 
-        if currentPage.locked || searchResultNavigationState.isBusy {
+        if timelineInteractionState.locked || searchResultNavigationState.isBusy {
             recordPendingSearchResultNavigation(index: nextIndex, scrollDirection: scrollDirection)
             return
         }
@@ -2083,7 +2083,7 @@ extension ChatViewController {
         self.setLoadingIndicatorVisible(false)
         self.setArchiveLoading(false)
         self.setDatasourceLoadingEnabled(true)
-        self.currentPage.unlock()
+        self.timelineInteractionState.unlock()
     }
 
     private func syncAnchorExecutionFlags() {
@@ -2129,13 +2129,13 @@ extension ChatViewController {
         }
 
         let candidates = self.visiblePositionPersistenceCandidates()
+        let residentSnapshot = self.timelineSession?.snapshot
         let viewportCenterY = self.messagesCollectionView.contentOffset.y + (self.messagesCollectionView.bounds.height / 2)
-        self.ensureObserverLookupMaps()
         let isLiveBottom = ChatVisiblePositionPersistencePolicy.isLiveBottom(
             isNearBottom: self.isNearBottom(),
             lastRealDatasourcePrimary: self.lastRealDatasourceMessagePrimary(),
-            observerPrimaryIndexMap: self.observerPrimaryIndexMap,
-            observerCount: self.messagesObserver?.count ?? 0
+            residentPrimaryPositions: residentSnapshot?.residentIndex.primaryIndexByID ?? [:],
+            observerCount: residentSnapshot?.items.count ?? 0
         )
         let isBlockedByAnchorNavigation = self.isApplyingBootstrapAnchorWindow
             || self.pendingOpenMessageRequest != nil
@@ -2394,7 +2394,7 @@ extension ChatViewController {
         self.setLoadingIndicatorVisible(false)
         self.setArchiveLoading(false)
         self.setDatasourceLoadingEnabled(true)
-        self.currentPage.unlock()
+        self.timelineInteractionState.unlock()
 
         activeHooks?.onPositioningStarted?()
         self.positionMessage(
@@ -2424,36 +2424,26 @@ extension ChatViewController {
     }
 
     private func savedPositionFirstFrameObserverIndex(
-        for request: ChatOpenMessageRequest
+        for request: ChatOpenMessageRequest,
+        residentSnapshot: ChatTimelineSessionSnapshot? = nil
     ) -> Int? {
         guard request.source == .savedVisiblePosition,
-              self.messagesObserver != nil else {
+              let timelineSession = self.timelineSession else {
             return nil
         }
+        let snapshot = residentSnapshot ?? timelineSession.snapshot
 
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            guard let message = provider.message(
-                primary: request.anchor.messagePrimary,
-                archivedId: request.anchor.archivedId,
-                messageId: request.anchor.messageId
-            ) else {
-                return nil
-            }
-            self.ensureObserverLookupMaps()
-            return self.observerPrimaryIndexMap[message.primary]
-                ?? RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(message.archivedId)
-                    .flatMap { self.observerArchivedIdIndexMap[$0] }
-                ?? (message.messageId.isNotEmpty ? self.observerMessageIdIndexMap[message.messageId] : nil)
-        } catch {
-            DDLogDebug("ChatViewController.savedPositionFirstFrameObserverIndex: \(error.localizedDescription)")
+        guard let message = timelineSession.resolvedMessage(
+            primary: request.anchor.messagePrimary,
+            archivedId: request.anchor.archivedId,
+            messageId: request.anchor.messageId
+        ) else {
             return nil
         }
+        return snapshot.residentIndex.index(primary: message.primary)
+            ?? RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(message.archivedId)
+                .flatMap { snapshot.residentIndex.index(archivedId: $0) }
+            ?? snapshot.residentIndex.index(messageId: message.messageId)
     }
 
     @discardableResult
@@ -2463,20 +2453,26 @@ extension ChatViewController {
               request.owner == self.owner,
               request.chatJid == self.jid,
               request.conversationType == self.conversationType,
-              self.messagesObserver != nil,
-              self.currentPage.isUnlocked else {
+              let residentSnapshot = self.timelineSession?.snapshot,
+              self.timelineInteractionState.isUnlocked else {
             return false
         }
 
-        let localAnchorIndex = self.savedPositionFirstFrameObserverIndex(for: request)
-        let archiveCoverageContext = self.savedPositionFirstFrameArchiveCoverageContext(localAnchorIndex: localAnchorIndex)
+        let localAnchorIndex = self.savedPositionFirstFrameObserverIndex(
+            for: request,
+            residentSnapshot: residentSnapshot
+        )
+        let archiveCoverageContext = self.savedPositionFirstFrameArchiveCoverageContext(
+            localAnchorIndex: localAnchorIndex,
+            residentSnapshot: residentSnapshot
+        )
         let decision = ChatSavedPositionFirstFramePolicy.decision(
             requestSource: request.source,
             isSynced: isSynced,
-            observerCount: self.messagesObserver.count,
+            observerCount: residentSnapshot.items.count,
             localAnchorIndex: localAnchorIndex,
             pageSize: self.datasourcePageSize,
-            isPageUnlocked: self.currentPage.isUnlocked,
+            isPageUnlocked: self.timelineInteractionState.isUnlocked,
             archivedIdsByIndex: archiveCoverageContext.archivedIdsByIndex,
             knownGaps: archiveCoverageContext.knownGaps
         )
@@ -2487,18 +2483,18 @@ extension ChatViewController {
                 decision: decision
               ),
               case .savedPosition(let anchorIndex, _) = decision,
-              anchorIndex < self.messagesObserver.count else {
+              residentSnapshot.items.indices.contains(anchorIndex) else {
             return false
         }
 
-        let message = self.messagesObserver[anchorIndex]
+        let message = residentSnapshot.items[anchorIndex]
         let target = ResolvedJumpTarget(
             primary: message.primary,
             archivedId: message.archivedId.isNotEmpty ? message.archivedId : nil
         )
         let hooks = self.activeAnchorExecutionHooks
 
-        return self.currentPage.setCustomPage(anchorIndex / self.datasourcePageSize) {
+        return self.timelineInteractionState.performLocked {
             var executionState = ChatAnchorExecutionState(
                 request: request,
                 usesBootstrapLoading: false
@@ -2549,21 +2545,24 @@ extension ChatViewController {
               request.owner == self.owner,
               request.chatJid == self.jid,
               request.conversationType == self.conversationType,
-              self.messagesObserver != nil,
-              self.currentPage.isUnlocked else {
+              let residentSnapshot = self.timelineSession?.snapshot,
+              self.timelineInteractionState.isUnlocked else {
             return false
         }
 
-        guard let localAnchor = self.unreadBoundaryFirstFrameLocalAnchor(for: request) else {
+        guard let localAnchor = self.unreadBoundaryFirstFrameLocalAnchor(
+            for: request,
+            residentSnapshot: residentSnapshot
+        ) else {
             return false
         }
 
         let decision = ChatUnreadBoundaryFirstFramePolicy.decision(
             requestSource: request.source,
             isSynced: isSynced,
-            observerCount: self.messagesObserver.count,
+            observerCount: residentSnapshot.items.count,
             localAnchorIndex: localAnchor.index,
-            isPageUnlocked: self.currentPage.isUnlocked
+            isPageUnlocked: self.timelineInteractionState.isUnlocked
         )
 
         guard ChatUnreadBoundaryFirstFramePolicy.shouldApplySynchronously(
@@ -2582,7 +2581,7 @@ extension ChatViewController {
         )
         let hooks = self.activeAnchorExecutionHooks
 
-        return self.currentPage.setCustomPage(anchorIndex / self.datasourcePageSize) {
+        return self.timelineInteractionState.performLocked {
             var executionState = ChatAnchorExecutionState(
                 request: request,
                 usesBootstrapLoading: false
@@ -2631,16 +2630,19 @@ extension ChatViewController {
               request.owner == self.owner,
               request.chatJid == self.jid,
               request.conversationType == self.conversationType,
-              self.messagesObserver != nil,
-              self.currentPage.isUnlocked else {
+              let residentSnapshot = self.timelineSession?.snapshot,
+              self.timelineInteractionState.isUnlocked else {
             return false
         }
 
         guard isSynced,
-              let localAnchor = self.searchFirstFrameLocalAnchor(for: request),
-              self.messagesObserver.count > 0,
+              let localAnchor = self.searchFirstFrameLocalAnchor(
+                for: request,
+                residentSnapshot: residentSnapshot
+              ),
+              residentSnapshot.items.isNotEmpty,
               localAnchor.index >= 0,
-              localAnchor.index < self.messagesObserver.count else {
+              residentSnapshot.items.indices.contains(localAnchor.index) else {
             return false
         }
 
@@ -2656,7 +2658,7 @@ extension ChatViewController {
         )
         let hooks = self.activeAnchorExecutionHooks
 
-        return self.currentPage.setCustomPage(localAnchor.index / self.datasourcePageSize) {
+        return self.timelineInteractionState.performLocked {
             var executionState = ChatAnchorExecutionState(
                 request: request,
                 usesBootstrapLoading: false
@@ -2702,61 +2704,43 @@ extension ChatViewController {
         message: MessageStorageItem,
         target: ResolvedJumpTarget
     ) -> Bool {
-        do {
-            self.datasetMappingGeneration += 1
-            let boundaryPlaceholder = self.activeHistoryBoundaryPlaceholder
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            var engine = ChatVirtualTimelineEngine(
-                provider: provider,
-                pageSize: self.datasourcePageSize,
-                state: self.virtualTimelineState.normalized(
-                    owner: self.owner,
-                    jid: self.jid,
-                    conversationType: self.conversationType
-                ),
-                archiveState: self.loadChatArchiveStateSnapshot()
-            )
-            let snapshot = engine.openAround(
-                anchor: ChatTimelineAnchor(
-                    primary: message.primary,
-                    archivedId: message.archivedId,
-                    messageId: message.messageId,
-                    date: message.date
-                )
-            )
-            let frozenItems = snapshot.items.map { $0.freeze() }
-            guard frozenItems.isNotEmpty else {
-                return false
-            }
-
-            let nextVirtualState = snapshot.state.withRuntimePlaceholder(boundaryPlaceholder)
-            var mappedDatasource = self.mapDataset(dataset: frozenItems)
-            if let boundaryPlaceholder {
-                mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
-                    to: mappedDatasource,
-                    position: boundaryPlaceholder
-                )
-            }
-
-            self.virtualTimelineState = nextVirtualState
-            self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
-            self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
-            self.applyChatDatasource(
-                mappedDatasource,
-                mode: .fullReload(),
-                animated: false,
-                invalidateLayout: false
-            )
-            return self.datasourceSnapshotContainsTarget(target)
-        } catch {
-            DDLogDebug("ChatViewController.applyFirstFrameAnchorSnapshot: \(error.localizedDescription)")
+        guard let session = self.timelineSession else {
             return false
         }
+        self.datasetMappingGeneration += 1
+        let boundaryPlaceholder = self.activeHistoryBoundaryPlaceholder
+        session.updateArchiveState(self.loadChatArchiveStateSnapshot())
+        var snapshot = session.openAround(
+            anchor: ChatTimelineAnchor(
+                primary: message.primary,
+                archivedId: message.archivedId,
+                messageId: message.messageId,
+                date: message.date
+            )
+        )
+        if let boundaryPlaceholder {
+            snapshot = session.applyRuntimePlaceholder(boundaryPlaceholder)
+        }
+        guard snapshot.items.isNotEmpty else {
+            return false
+        }
+
+        var mappedDatasource = self.mapDataset(dataset: snapshot.items)
+        if let boundaryPlaceholder {
+            mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
+                to: mappedDatasource,
+                position: boundaryPlaceholder
+            )
+        }
+
+        self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: snapshot.items.count))
+        self.applyChatDatasource(
+            mappedDatasource,
+            mode: .fullReload(),
+            animated: false,
+            invalidateLayout: false
+        )
+        return self.datasourceSnapshotContainsTarget(target)
     }
 
     private func datasourceSnapshotContainsTarget(_ target: ResolvedJumpTarget) -> Bool {
@@ -2780,7 +2764,7 @@ extension ChatViewController {
         self.setLoadingIndicatorVisible(false)
         self.setArchiveLoading(false)
         self.setDatasourceLoadingEnabled(true)
-        self.currentPage.unlock()
+        self.timelineInteractionState.unlock()
 
         DispatchQueue.main.async { [weak self] in
             guard let self,
@@ -2808,7 +2792,7 @@ extension ChatViewController {
         self.setLoadingIndicatorVisible(false)
         self.setArchiveLoading(false)
         self.setDatasourceLoadingEnabled(false)
-        self.currentPage.unlock()
+        self.timelineInteractionState.unlock()
 
         DispatchQueue.main.async { [weak self] in
             guard let self,
@@ -2836,7 +2820,7 @@ extension ChatViewController {
         self.setLoadingIndicatorVisible(false)
         self.setArchiveLoading(false)
         self.setDatasourceLoadingEnabled(false)
-        self.currentPage.unlock()
+        self.timelineInteractionState.unlock()
 
         DispatchQueue.main.async { [weak self] in
             guard let self,
@@ -3076,82 +3060,51 @@ extension ChatViewController {
     private func firstLoadedIncomingMessageAfterUnreadBoundary(
         _ boundaryArchivedId: String
     ) -> MessageStorageItem? {
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
+        self.timelineSession?.firstIncoming(afterArchiveBoundaryId: boundaryArchivedId)
+            ?? self.timelineSession?.resolvedMessage(
+                primary: nil,
+                archivedId: boundaryArchivedId,
+                messageId: nil
             )
-            return provider.firstIncoming(afterArchiveBoundaryId: boundaryArchivedId)
-                ?? provider.message(primary: nil, archivedId: boundaryArchivedId, messageId: nil)
-        } catch {
-            DDLogDebug("ChatViewController.firstLoadedIncomingMessageAfterUnreadBoundary: \(error.localizedDescription)")
-            return nil
-        }
     }
 
     private func unreadBoundaryFirstFrameLocalAnchor(
-        for request: ChatOpenMessageRequest
+        for request: ChatOpenMessageRequest,
+        residentSnapshot: ChatTimelineSessionSnapshot? = nil
     ) -> (message: MessageStorageItem, index: Int)? {
         guard request.source == .initialUnreadBoundary,
               case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution else {
             return nil
         }
 
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            guard let message = provider.firstIncoming(afterArchiveBoundaryId: boundaryArchivedId) else {
-                return nil
-            }
-
-            self.ensureObserverLookupMaps()
-            guard let index = self.observerPrimaryIndexMap[message.primary] else {
-                return nil
-            }
-            return (message, index)
-        } catch {
-            DDLogDebug("ChatViewController.unreadBoundaryFirstFrameLocalAnchor: \(error.localizedDescription)")
+        guard let timelineSession = self.timelineSession else { return nil }
+        let snapshot = residentSnapshot ?? timelineSession.snapshot
+        guard let message = timelineSession.firstIncoming(
+            afterArchiveBoundaryId: boundaryArchivedId
+        ), let index = snapshot.residentIndex.index(primary: message.primary) else {
             return nil
         }
+        return (message, index)
     }
 
     private func searchFirstFrameLocalAnchor(
-        for request: ChatOpenMessageRequest
+        for request: ChatOpenMessageRequest,
+        residentSnapshot: ChatTimelineSessionSnapshot? = nil
     ) -> (message: MessageStorageItem, index: Int)? {
         guard request.source == .search else {
             return nil
         }
 
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            let anchor = request.anchor
-            guard let message = self.searchProviderMessage(for: anchor, provider: provider) else {
-                return nil
-            }
-
-            self.ensureObserverLookupMaps()
-            guard let index = self.observerPrimaryIndexMap[message.primary]
+        guard let timelineSession = self.timelineSession else { return nil }
+        let snapshot = residentSnapshot ?? timelineSession.snapshot
+        guard let message = self.sessionAnchorMessage(for: request)?.message,
+              let index = snapshot.residentIndex.index(primary: message.primary)
                 ?? RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(message.archivedId)
-                    .flatMap({ self.observerArchivedIdIndexMap[$0] })
-                ?? (message.messageId.isNotEmpty ? self.observerMessageIdIndexMap[message.messageId] : nil) else {
-                return nil
-            }
-            return (message, index)
-        } catch {
-            DDLogDebug("ChatViewController.searchFirstFrameLocalAnchor: \(error.localizedDescription)")
+                    .flatMap({ snapshot.residentIndex.index(archivedId: $0) })
+                ?? snapshot.residentIndex.index(messageId: message.messageId) else {
             return nil
         }
+        return (message, index)
     }
 
     private func resolvedTargetAfterContextPrefetch(
@@ -3170,107 +3123,47 @@ extension ChatViewController {
     private func localAnchorMessage(
         for request: ChatOpenMessageRequest
     ) -> (message: MessageStorageItem, matchSource: ChatAnchorLookupMatchSource)? {
-        if let providerMatch = self.providerAnchorMessage(for: request) {
-            return providerMatch
-        }
-
-        if let observerMatch = self.observerAnchorMessage(for: request) {
-            return observerMatch
-        }
-
-        if let savedPositionMatch = self.savedVisiblePositionMessageFromLocalRealm(for: request) {
-            return savedPositionMatch
-        }
-
-        guard request.source != .savedVisiblePosition else {
-            return nil
-        }
-
-        return self.metadataFallbackAnchorMessage(for: request)
+        self.sessionAnchorMessage(for: request)
     }
 
-    private func providerAnchorMessage(
+    private func sessionAnchorMessage(
         for request: ChatOpenMessageRequest
     ) -> (message: MessageStorageItem, matchSource: ChatAnchorLookupMatchSource)? {
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
+        guard let timelineSession = self.timelineSession else { return nil }
 
-            if case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution,
-               let message = provider.firstIncoming(afterArchiveBoundaryId: boundaryArchivedId)
-                    ?? provider.message(primary: nil, archivedId: boundaryArchivedId, messageId: nil) {
-                return (message, .unreadBoundaryAfter)
+        if case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution,
+           let message = timelineSession.firstIncoming(afterArchiveBoundaryId: boundaryArchivedId)
+                ?? timelineSession.resolvedMessage(primary: nil, archivedId: boundaryArchivedId, messageId: nil) {
+            return (message, .unreadBoundaryAfter)
+        }
+
+        let anchor = request.anchor
+        let orderedLookups: [(ChatAnchorLookupMatchSource, String?, String?, String?)]
+        if request.source == .search {
+            orderedLookups = [
+                (.archivedId, nil, anchor.archivedId, nil),
+                (.messageId, nil, nil, anchor.messageId),
+                (.primary, anchor.messagePrimary, nil, nil)
+            ]
+        } else {
+            orderedLookups = [
+                (.primary, anchor.messagePrimary, nil, nil),
+                (.archivedId, nil, anchor.archivedId, nil),
+                (.messageId, nil, nil, anchor.messageId)
+            ]
+        }
+
+        for (source, primary, archivedId, messageId) in orderedLookups {
+            guard primary?.isNotEmpty == true || archivedId?.isNotEmpty == true || messageId?.isNotEmpty == true else {
+                continue
             }
-
-            let anchor = request.anchor
-            if request.source == .search,
-               let message = self.searchProviderMessage(for: anchor, provider: provider) {
-                if let archivedId = anchor.archivedId,
-                   archivedId.isNotEmpty,
-                   message.archivedId == archivedId {
-                    return (message, .archivedId)
-                }
-                if let messageId = anchor.messageId,
-                   messageId.isNotEmpty,
-                   message.messageId == messageId {
-                    return (message, .messageId)
-                }
-                return (message, .primary)
-            }
-
-            if let message = provider.message(
-                primary: anchor.messagePrimary,
-                archivedId: anchor.archivedId,
-                messageId: anchor.messageId
+            if let message = timelineSession.resolvedMessage(
+                primary: primary,
+                archivedId: archivedId,
+                messageId: messageId
             ) {
-                if let messagePrimary = anchor.messagePrimary,
-                   messagePrimary.isNotEmpty,
-                   message.primary == messagePrimary {
-                    return (message, .primary)
-                }
-                if let archivedId = anchor.archivedId,
-                   archivedId.isNotEmpty,
-                   message.archivedId == archivedId {
-                    return (message, .archivedId)
-                }
-                if let messageId = anchor.messageId,
-                   messageId.isNotEmpty,
-                   message.messageId == messageId {
-                    return (message, .messageId)
-                }
-                return (message, .metadataFallback)
+                return (message, source)
             }
-        } catch {
-            DDLogDebug("ChatViewController.providerAnchorMessage: \(error.localizedDescription)")
-        }
-
-        return nil
-    }
-
-    private func searchProviderMessage(
-        for anchor: ChatMessageAnchorRef,
-        provider: ChatLocalHistoryPageProvider
-    ) -> MessageStorageItem? {
-        if let archivedId = anchor.archivedId,
-           archivedId.isNotEmpty,
-           let message = provider.message(primary: nil, archivedId: archivedId, messageId: nil) {
-            return message
-        }
-
-        if let messageId = anchor.messageId,
-           messageId.isNotEmpty,
-           let message = provider.message(primary: nil, archivedId: nil, messageId: messageId) {
-            return message
-        }
-
-        if let messagePrimary = anchor.messagePrimary,
-           messagePrimary.isNotEmpty,
-           let message = provider.message(primary: messagePrimary, archivedId: nil, messageId: nil) {
-            return message
         }
 
         return nil
@@ -3290,12 +3183,18 @@ extension ChatViewController {
         }
 
         guard request.source == .savedVisiblePosition,
-              self.messagesObserver != nil,
-              let localAnchorIndex = self.savedPositionFirstFrameObserverIndex(for: request) else {
+              let residentSnapshot = self.timelineSession?.snapshot,
+              let localAnchorIndex = self.savedPositionFirstFrameObserverIndex(
+                for: request,
+                residentSnapshot: residentSnapshot
+              ) else {
             return true
         }
 
-        let archiveCoverageContext = self.savedPositionFirstFrameArchiveCoverageContext(localAnchorIndex: localAnchorIndex)
+        let archiveCoverageContext = self.savedPositionFirstFrameArchiveCoverageContext(
+            localAnchorIndex: localAnchorIndex,
+            residentSnapshot: residentSnapshot
+        )
         guard archiveCoverageContext.knownGaps.isNotEmpty else {
             return true
         }
@@ -3303,7 +3202,7 @@ extension ChatViewController {
         if case .savedPosition = ChatSavedPositionFirstFramePolicy.decision(
             requestSource: request.source,
             isSynced: true,
-            observerCount: self.messagesObserver.count,
+            observerCount: residentSnapshot.items.count,
             localAnchorIndex: localAnchorIndex,
             pageSize: self.datasourcePageSize,
             isPageUnlocked: true,
@@ -3320,8 +3219,21 @@ extension ChatViewController {
         archivedIdsByIndex: [Int: String],
         knownGaps: [RegularChatArchiveGap]
     ) {
+        self.savedPositionFirstFrameArchiveCoverageContext(
+            localAnchorIndex: localAnchorIndex,
+            residentSnapshot: self.timelineSession?.snapshot
+        )
+    }
+
+    private func savedPositionFirstFrameArchiveCoverageContext(
+        localAnchorIndex: Int?,
+        residentSnapshot: ChatTimelineSessionSnapshot?
+    ) -> (
+        archivedIdsByIndex: [Int: String],
+        knownGaps: [RegularChatArchiveGap]
+    ) {
         guard self.conversationType == .regular,
-              self.messagesObserver != nil else {
+              let residentSnapshot else {
             return ([:], [])
         }
 
@@ -3336,7 +3248,7 @@ extension ChatViewController {
         }
 
         let window = ChatDatasetCoordinator(pageSize: self.datasourcePageSize)
-            .replacementWindow(around: localAnchorIndex, totalCount: self.messagesObserver.count)
+            .replacementWindow(around: localAnchorIndex, totalCount: residentSnapshot.items.count)
         let sampledIndices = Set([
             window.minIndex,
             localAnchorIndex,
@@ -3344,9 +3256,9 @@ extension ChatViewController {
         ])
 
         var archivedIdsByIndex: [Int: String] = [:]
-        for index in sampledIndices where index >= 0 && index < self.messagesObserver.count {
+        for index in sampledIndices where residentSnapshot.items.indices.contains(index) {
             if let archiveId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                self.messagesObserver[index].archivedId
+                residentSnapshot.items[index].archivedId
             ) {
                 archivedIdsByIndex[index] = archiveId
             }
@@ -3355,151 +3267,17 @@ extension ChatViewController {
         return (archivedIdsByIndex, archiveState.knownGaps)
     }
 
-    private func observerAnchorMessage(
-        for request: ChatOpenMessageRequest
-    ) -> (message: MessageStorageItem, matchSource: ChatAnchorLookupMatchSource)? {
-        self.ensureObserverLookupMaps()
-        let anchor = request.anchor
-
-        if case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution,
-           let message = self.firstLoadedIncomingMessageAfterUnreadBoundary(boundaryArchivedId) {
-            return (message, .unreadBoundaryAfter)
-        }
-
-        if request.source == .search {
-            if let archivedId = anchor.archivedId,
-               archivedId.isNotEmpty,
-               let observerIndex = self.observerArchivedIdIndexMap[archivedId],
-               observerIndex < self.messagesObserver.count {
-                return (self.messagesObserver[observerIndex], .archivedId)
-            }
-
-            if let messageId = anchor.messageId,
-               messageId.isNotEmpty,
-               let observerIndex = self.observerMessageIdIndexMap[messageId],
-               observerIndex < self.messagesObserver.count {
-                return (self.messagesObserver[observerIndex], .messageId)
-            }
-        }
-
-        if let messagePrimary = anchor.messagePrimary,
-           messagePrimary.isNotEmpty,
-           let observerIndex = self.observerPrimaryIndexMap[messagePrimary],
-           observerIndex < self.messagesObserver.count {
-            return (self.messagesObserver[observerIndex], .primary)
-        }
-
-        if let archivedId = anchor.archivedId,
-           archivedId.isNotEmpty,
-           let observerIndex = self.observerArchivedIdIndexMap[archivedId],
-           observerIndex < self.messagesObserver.count {
-            return (self.messagesObserver[observerIndex], .archivedId)
-        }
-
-        if let messageId = anchor.messageId,
-           messageId.isNotEmpty,
-           let observerIndex = self.observerMessageIdIndexMap[messageId],
-           observerIndex < self.messagesObserver.count {
-            return (self.messagesObserver[observerIndex], .messageId)
-        }
-
-        return nil
-    }
-
-    private func savedVisiblePositionMessageFromLocalRealm(
-        for request: ChatOpenMessageRequest
-    ) -> (message: MessageStorageItem, matchSource: ChatAnchorLookupMatchSource)? {
-        guard request.source == .savedVisiblePosition else {
-            return nil
-        }
-
-        let anchor = request.anchor
-
-        do {
-            let realm = try WRealm.safe()
-            let messages = realm
-                .objects(MessageStorageItem.self)
-                .filter(
-                    "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@",
-                    request.owner,
-                    request.chatJid,
-                    request.conversationType.rawValue
-                )
-
-            if let messagePrimary = anchor.messagePrimary,
-               messagePrimary.isNotEmpty,
-               let message = messages.filter("primary == %@", messagePrimary).first {
-                self.ensureObserverLookupMaps(force: true)
-                guard self.observerPrimaryIndexMap[message.primary] != nil else {
-                    return nil
-                }
-                return (message, .primary)
-            }
-
-            if let archivedId = anchor.archivedId,
-               archivedId.isNotEmpty,
-               let message = messages.filter("archivedId == %@", archivedId).first {
-                self.ensureObserverLookupMaps(force: true)
-                guard self.observerPrimaryIndexMap[message.primary] != nil else {
-                    return nil
-                }
-                return (message, .archivedId)
-            }
-
-            if let messageId = anchor.messageId,
-               messageId.isNotEmpty,
-               let message = messages.filter("messageId == %@", messageId).first {
-                self.ensureObserverLookupMaps(force: true)
-                guard self.observerPrimaryIndexMap[message.primary] != nil else {
-                    return nil
-                }
-                return (message, .messageId)
-            }
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-        }
-
-        return nil
-    }
-
-    private func metadataFallbackAnchorMessage(
-        for request: ChatOpenMessageRequest
-    ) -> (message: MessageStorageItem, matchSource: ChatAnchorLookupMatchSource)? {
-        let anchor = request.anchor
-
-        do {
-            let realm = try WRealm.safe()
-            if let message = MentionNotificationSync.matchingMessage(
-                owner: request.owner,
-                sourceChatJid: request.chatJid,
-                conversationType: request.conversationType,
-                sourceArchivedId: anchor.archivedId,
-                sourceMessageId: anchor.messageId,
-                sourceMessageDate: anchor.sourceDate,
-                sourceSenderId: anchor.authorId,
-                sourceBodyFingerprint: anchor.bodyFingerprint,
-                in: realm
-            ) {
-                return (message, .metadataFallback)
-            }
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-        }
-
-        return nil
-    }
-
     private func resolvedJumpTarget(
         primary: String? = nil,
         archivedId: String? = nil,
         messageId: String? = nil
     ) -> ResolvedJumpTarget? {
-        self.ensureObserverLookupMaps()
+        guard let snapshot = self.timelineSession?.snapshot else { return nil }
 
         if let primary,
-           let observerIndex = self.observerPrimaryIndexMap[primary],
-           observerIndex < self.messagesObserver.count {
-            let item = self.messagesObserver[observerIndex]
+           let observerIndex = snapshot.residentIndex.index(primary: primary),
+           snapshot.items.indices.contains(observerIndex) {
+            let item = snapshot.items[observerIndex]
             return ResolvedJumpTarget(
                 primary: item.primary,
                 archivedId: item.archivedId.isNotEmpty ? item.archivedId : nil
@@ -3508,9 +3286,9 @@ extension ChatViewController {
 
         if let archivedId,
            archivedId.isNotEmpty,
-           let observerIndex = self.observerArchivedIdIndexMap[archivedId],
-           observerIndex < self.messagesObserver.count {
-            let item = self.messagesObserver[observerIndex]
+           let observerIndex = snapshot.residentIndex.index(archivedId: archivedId),
+           snapshot.items.indices.contains(observerIndex) {
+            let item = snapshot.items[observerIndex]
             return ResolvedJumpTarget(
                 primary: item.primary,
                 archivedId: item.archivedId.isNotEmpty ? item.archivedId : nil
@@ -3519,9 +3297,9 @@ extension ChatViewController {
 
         if let messageId,
            messageId.isNotEmpty,
-           let observerIndex = self.observerMessageIdIndexMap[messageId],
-           observerIndex < self.messagesObserver.count {
-            let item = self.messagesObserver[observerIndex]
+           let observerIndex = snapshot.residentIndex.index(messageId: messageId),
+           snapshot.items.indices.contains(observerIndex) {
+            let item = snapshot.items[observerIndex]
             return ResolvedJumpTarget(
                 primary: item.primary,
                 archivedId: item.archivedId.isNotEmpty ? item.archivedId : nil
@@ -3557,15 +3335,30 @@ extension ChatViewController {
         direction: ChatDirection,
         completion: @escaping (ResolvedJumpTarget) -> Void
     ) {
-        self.ensureObserverLookupMaps()
-        guard let observerIndex = self.observerPrimaryIndexMap[target.primary] else {
-            completion(target)
+        guard let snapshot = self.timelineSession?.snapshot,
+              let observerIndex = snapshot.residentIndex.index(primary: target.primary) else {
+            self.chatScrollDirection = direction
+            self.mapAndApplyTimelineAnchor(
+                ChatTimelineAnchor(
+                    primary: target.primary,
+                    archivedId: target.archivedId,
+                    messageId: nil,
+                    date: nil
+                ),
+                mode: .fullReload(),
+                animated: false,
+                completion: { completion(target) },
+                cancelledCompletion: { completion(target) }
+            )
             return
         }
 
-        let window = self.datasetCoordinator.replacementWindow(around: observerIndex, totalCount: self.messagesObserver.count)
+        let window = self.datasetCoordinator.replacementWindow(
+            around: observerIndex,
+            totalCount: snapshot.items.count
+        )
         self.chatScrollDirection = direction
-        self.currentPage.setCustomPage(observerIndex / self.datasourcePageSize) {
+        self.timelineInteractionState.performLocked {
             self.syncCurrentPage(with: window)
             self.mapAndApplyWindow(window, mode: .fullReload(), completion: {
                 completion(target)
@@ -3593,7 +3386,7 @@ extension ChatViewController {
             ?? archivedId.flatMap({ self.datasourceSnapshot.archivedIdIndex[$0] }) else {
             self.preventHidingDate = false
             self.setDatasourceLoadingEnabled(true)
-            self.currentPage.unlock()
+            self.timelineInteractionState.unlock()
             completion?()
             return
         }
@@ -3619,7 +3412,7 @@ extension ChatViewController {
                 self.refreshVisibleSearchSelection()
             }
             self.preventHidingDate = false
-            self.currentPage.unlock()
+            self.timelineInteractionState.unlock()
             self.setFloatingDateVisible(true)
             self.setFloatingDateHidden(true)
             self.setDatasourceLoadingEnabled(true)
@@ -3805,8 +3598,8 @@ extension ChatViewController {
         self.resetContextPrefetchState(&executionState, anchorKey: anchorKey)
         self.activeAnchorExecutionState = executionState
 
-        self.ensureObserverLookupMaps()
-        guard let observerIndex = self.observerPrimaryIndexMap[target.primary] else {
+        guard let residentSnapshot = self.timelineSession?.snapshot,
+              let observerIndex = residentSnapshot.residentIndex.index(primary: target.primary) else {
             self.syncAnchorExecutionFlags()
             return false
         }
@@ -3814,7 +3607,7 @@ extension ChatViewController {
         let effectiveArchivedId = request.anchor.archivedId ?? target.archivedId
         let plan = ChatAnchorContextPrefetchPolicy.plan(
             observerIndex: observerIndex,
-            totalCount: self.messagesObserver.count,
+            totalCount: residentSnapshot.items.count,
             pageSize: self.datasourcePageSize,
             archivedId: effectiveArchivedId
         )
@@ -3902,19 +3695,15 @@ extension ChatViewController {
         around target: ResolvedJumpTarget,
         request: ChatOpenMessageRequest
     ) {
-        guard self.messagesObserver != nil else {
-            return
-        }
-
-        self.ensureObserverLookupMaps()
-        guard let observerIndex = self.observerPrimaryIndexMap[target.primary] else {
+        guard let residentSnapshot = self.timelineSession?.snapshot,
+              let observerIndex = residentSnapshot.residentIndex.index(primary: target.primary) else {
             return
         }
 
         let effectiveArchivedId = request.anchor.archivedId ?? target.archivedId
         let plan = ChatAnchorContextPrefetchPolicy.plan(
             observerIndex: observerIndex,
-            totalCount: self.messagesObserver.count,
+            totalCount: residentSnapshot.items.count,
             pageSize: self.datasourcePageSize,
             archivedId: effectiveArchivedId
         )
@@ -4116,7 +3905,7 @@ extension ChatViewController {
         guard request.owner == self.owner,
               request.chatJid == self.jid,
               request.conversationType == self.conversationType,
-              self.messagesObserver != nil else {
+              self.timelineSession != nil else {
             return
         }
 
@@ -4136,16 +3925,19 @@ extension ChatViewController {
     ) {
         func update() {
             self.setLoadingIndicatorVisible(false)
-            self.ensureObserverLookupMaps()
-            guard let index = self.observerArchivedIdIndexMap[archivedId] else {
+            guard let snapshot = self.timelineSession?.snapshot,
+                  let index = snapshot.residentIndex.index(archivedId: archivedId) else {
                 notFound?()
                 return
             }
-            let window = self.datasetCoordinator.replacementWindow(around: index, totalCount: self.messagesObserver.count)
-            self.currentPage.setCustomPage(index / self.datasourcePageSize) {
+            let window = self.datasetCoordinator.replacementWindow(
+                around: index,
+                totalCount: snapshot.items.count
+            )
+            self.timelineInteractionState.performLocked {
                 self.syncCurrentPage(with: window)
                 callback(self.sliceForWindow(window), index - window.minIndex)
-                self.currentPage.unlock()
+                self.timelineInteractionState.unlock()
                 self.setFloatingDateVisible(true)
             }
         }
@@ -4183,8 +3975,7 @@ extension ChatViewController {
         
         self.setFloatingDateVisible(false)
         self.pinnedDateView.hide(withoutAnimation: true)
-        self.ensureObserverLookupMaps()
-        if self.observerArchivedIdIndexMap[archivedId] != nil {
+        if self.timelineSession?.snapshot.residentIndex.index(archivedId: archivedId) != nil {
             update()
             self.setDatasourceLoadingEnabled(true)
         } else {
@@ -4326,7 +4117,10 @@ extension ChatViewController {
         guard let target = self.unreadMentionsState.jumpTarget else {
             return
         }
-        let direction: ChatDirection = (target.observerIndex ?? Int.max) < (self.visibleRealMessagePrimaries().compactMap { self.observerPrimaryIndexMap[$0] }.min() ?? Int.max)
+        let residentIndex = self.timelineSession?.snapshot.residentIndex
+        let direction: ChatDirection = (target.observerIndex ?? Int.max) < (self.visibleRealMessagePrimaries().compactMap {
+            residentIndex?.index(primary: $0)
+        }.min() ?? Int.max)
             ? .down
             : .up
         self.navigateToUnreadMention(target, direction: direction)
@@ -4341,7 +4135,7 @@ extension ChatViewController {
             return
         }
 
-        guard self.currentPage.isUnlocked else {
+        guard self.timelineInteractionState.isUnlocked else {
             return
         }
 
@@ -4522,7 +4316,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count),
                 ("datasourceCount", self.datasource.count),
                 ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
-                ("currentPageLocked", self.currentPage.locked)
+                ("currentPageLocked", self.timelineInteractionState.locked)
             ])
             if self.abortedRemoteHistoryQueryIds.contains(queryId),
                self.interactiveHistoryPageLoadContext?.queryId != queryId {

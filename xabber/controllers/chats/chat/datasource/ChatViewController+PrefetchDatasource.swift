@@ -262,7 +262,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         )
 
         if effectiveWork.contains(.updateScrollPosition) {
-            if self.currentPage.isUnlocked {
+            if self.timelineInteractionState.isUnlocked {
                 if request.contentOffsetY > self.previousContentOffsetY {
                     self.chatScrollDirection = .down
                 } else {
@@ -275,7 +275,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
 
         if effectiveWork.contains(.evaluateBoundaryPaging),
            request.isUserScrolling,
-           self.currentPage.isUnlocked {
+           self.timelineInteractionState.isUnlocked {
             self.triggerInteractiveBoundaryPagingIfNeeded(request)
         }
 
@@ -323,18 +323,6 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
 //                self.canLoadDatasource = false
 //                self.onTouchEndPage(direction: .up)
 //            } 
-//        }
-//        if self.canLoadDatasource {
-//            if self.currentPage.minIndex > 0 {
-//                if let datasourcePrimary = self.datasource.first?.primary,
-//                   let observerPrimary = self.messagesObserver.first?.primary,
-//                   datasourcePrimary != observerPrimary {
-//                    if self.messagesCollectionView.contentOffset.y < 0 {
-//                        self.canLoadDatasource = false
-//                        self.onTouchStartPage(direction: .down)
-//                    }
-//                }
-//            }
 //        }
         
         self.enqueueScrollWork(

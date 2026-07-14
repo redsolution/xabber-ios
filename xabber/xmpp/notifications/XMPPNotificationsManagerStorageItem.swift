@@ -106,6 +106,10 @@ class NotificationStorageItem: Object {
     override static func primaryKey() -> String? {
         return "primary"
     }
+
+    override static func indexedProperties() -> [String] {
+        ["owner", "category_", "isRead", "associatedJid", "date"]
+    }
     
     @objc dynamic var primary: String = ""
     @objc dynamic var owner: String = ""

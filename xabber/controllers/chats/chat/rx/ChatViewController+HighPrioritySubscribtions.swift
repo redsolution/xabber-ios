@@ -235,38 +235,17 @@ extension ChatViewController {
             })
         }
         
-        Observable
-            .collection(from: self.messagesObserver, synchronousStart: true)
-            .skip(1)
-            .debounce(.milliseconds(30), scheduler: MainScheduler.asyncInstance)
-            .observe(on: MainScheduler.asyncInstance)
-            .subscribe {
-                (_) in
-                self.handleMessagesObserverRefresh()
-            }
-            .disposed(by: self.bag)
-
         if self.conversationType == .group {
             do {
                 let realm = try WRealm.safe()
                 let myGroupUser = realm.objects(GroupchatUserStorageItem.self)
                     .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp())
-                let mentionNotifications = realm.objects(NotificationStorageItem.self)
-                    .filter("owner == %@ AND category_ == %@", self.owner, XMPPNotificationsManager.Category.mention.rawValue)
                 Observable
                     .collection(from: myGroupUser, synchronousStart: true)
                     .debounce(.milliseconds(30), scheduler: MainScheduler.asyncInstance)
                     .observe(on: MainScheduler.asyncInstance)
                     .subscribe(onNext: { _ in
-                        self.rebuildUnreadMentionItems()
-                        self.refreshUnreadMentionsNavigatorState(animated: true)
-                    })
-                    .disposed(by: self.bag)
-                Observable
-                    .collection(from: mentionNotifications, synchronousStart: true)
-                    .debounce(.milliseconds(30), scheduler: MainScheduler.asyncInstance)
-                    .observe(on: MainScheduler.asyncInstance)
-                    .subscribe(onNext: { _ in
+                        _ = self.timelineSession?.refreshUnreadMetadata()
                         self.rebuildUnreadMentionItems()
                         self.refreshUnreadMentionsNavigatorState(animated: true)
                     })

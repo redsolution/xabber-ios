@@ -369,6 +369,95 @@ final class ChatCursorNativeHistoryProviderTests: XCTestCase {
 }
 
 final class ChatCursorNativeHistoryScaleTests: XCTestCase {
+    func testMillionRowTimelineSessionKeepsResidentAndOperationsBounded() throws {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        let configuration = Realm.Configuration(
+            inMemoryIdentifier: "ChatTimelineSessionScaleTests-million-\(UUID().uuidString)"
+        )
+        Realm.Configuration.defaultConfiguration = configuration
+        defer { Realm.Configuration.defaultConfiguration = previousConfiguration }
+
+        let realm = try Realm(configuration: configuration)
+        let fixtureStore = CursorRealmFixtureStore(realm: realm)
+        let run = try ChatPerformanceFixtureGenerator.withFixture(
+            scale: .million,
+            batchSize: 4_096,
+            store: fixtureStore
+        ) { generation -> [String: Any] in
+            let sessionStore = RealmChatTimelineSessionStore(
+                owner: fixtureStore.owner,
+                jid: fixtureStore.jid,
+                conversationType: .regular
+            )
+            var session: ChatTimelineSession? = ChatTimelineSession(
+                store: sessionStore,
+                pageSize: 64,
+                conversationKey: ChatTimelineConversationKey(
+                    owner: fixtureStore.owner,
+                    jid: fixtureStore.jid,
+                    conversationType: .regular
+                ),
+                archiveState: ChatArchiveStateSnapshot(
+                    primaryKey: "million-scale",
+                    persistedCursorId: nil,
+                    fullArchiveLoaded: true,
+                    newestCursorId: nil,
+                    newerLiveEdgeReached: true,
+                    hasKnownNewerGap: false,
+                    knownGaps: []
+                )
+            )
+            defer { session = nil }
+
+            let started = CFAbsoluteTimeGetCurrent()
+            let latest = try XCTUnwrap(session).openLatest()
+            let older = try XCTUnwrap(session).pageOlder()
+            let newer = try XCTUnwrap(session).pageNewer()
+            let around = try XCTUnwrap(session).openAround(
+                anchor: ChatTimelineAnchor(
+                    primary: fixtureStore.primary(generation.requestedRowCount / 2),
+                    archivedId: nil,
+                    messageId: nil,
+                    date: nil
+                )
+            )
+            let elapsedMilliseconds = Int((CFAbsoluteTimeGetCurrent() - started) * 1_000)
+            let diagnostics = sessionStore.diagnosticsSnapshot
+
+            XCTAssertEqual(generation.persistedRowCount, 1_000_000)
+            XCTAssertLessThanOrEqual(latest.items.count, latest.residentHardLimit)
+            XCTAssertLessThanOrEqual(older.items.count, older.residentHardLimit)
+            XCTAssertLessThanOrEqual(newer.items.count, newer.residentHardLimit)
+            XCTAssertLessThanOrEqual(around.items.count, around.residentHardLimit)
+            XCTAssertTrue(around.items.contains {
+                $0.primary == fixtureStore.primary(generation.requestedRowCount / 2)
+            })
+            XCTAssertEqual(diagnostics.fullScanCount, 0)
+            XCTAssertLessThanOrEqual(
+                diagnostics.maxCandidateCount,
+                around.residentHardLimit * 4
+            )
+            XCTAssertLessThanOrEqual(elapsedMilliseconds, 500)
+
+            return [
+                "rowCount": generation.persistedRowCount,
+                "elapsedMilliseconds": elapsedMilliseconds,
+                "residentHardLimit": around.residentHardLimit,
+                "maxCandidateCount": diagnostics.maxCandidateCount,
+                "queryCount": diagnostics.queryCount,
+                "fullScanCount": diagnostics.fullScanCount
+            ]
+        }
+
+        XCTAssertEqual(run.deletedRowCount, 1_000_000)
+        XCTAssertEqual(run.remainingRowCountAfterCleanup, 0)
+        let data = try JSONSerialization.data(withJSONObject: run.result, options: [.sortedKeys])
+        let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+        attachment.name = "chat-timeline-session-million-row-report.json"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testRealRealmScaleMatrixKeepsQueryOperationsPageBounded() throws {
         let scales: [ChatPerformanceFixtureScale] = [.small, .hundredThousand, .million]
         var reports: [[String: Any]] = []

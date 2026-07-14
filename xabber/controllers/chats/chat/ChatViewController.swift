@@ -1490,106 +1490,35 @@ final class ChatFloatingActionPanelView: UIView {
 class ChatViewController: MessagesViewController {
     static let staleDatasourceFallbackPrimary = "stale-datasource-fallback"
 
-    struct ObserverLookupSignature: Equatable {
-        let count: Int
-        let firstPrimary: String?
-        let lastPrimary: String?
-    }
-    
     struct ChangesetItem: Hashable, Equatable {
         let index: Int
         let primary: String
         
     }
     
-    class ChatPage {
-        var page: Int
-        var minIndex: Int
-        
-        var maxIndex: Int
-        var lowArchivedId: String
-        var highArchivedId: String
+    final class ChatTimelineInteractionState {
         var isLoading: Bool = false
         var locked: Bool = false
-        var longLock: Bool = false
-        
-        open var isUnlocked: Bool {
-            get {
-                return !self.locked
-            }
+
+        var isUnlocked: Bool {
+            !locked
         }
-        
-        init(page: Int = 0, minIndex: Int = 0, maxIndex: Int = 0, lowArchivedId: String = "", highArchivedId: String = "", isLoading: Bool = false) {
-            self.page = page
-            self.minIndex = minIndex
-            self.maxIndex = maxIndex
-            self.lowArchivedId = lowArchivedId
-            self.highArchivedId = highArchivedId
-            self.isLoading = isLoading
-        }
-        
-        public final func setPage(_ page: Int, in messages: Results<MessageStorageItem>) {
-            self.page = page
-            
-        }
-        
-        public final func nextPage(autoUnlock: Bool = true, callback: (() -> Void)? = nil) {
-            if self.locked {
-                return
-            }
-            self.locked = true
-            self.page += 1
-            callback?()
-            if autoUnlock {
-                self.unlock()
-            }
-        }
-        
-        public final func prevPage(autoUnlock: Bool = true, callback: (() -> Void)? = nil) {
-            if self.locked {
-                return
-            }
-            self.locked = true
-            self.page -= 1
-            if self.page < 0 {
-                self.page = 0
-                autoreleasepool {
-                    self.locked = false
-                }
-            } else {
-                callback?()
-            }
-            if autoUnlock {
-                self.unlock()
-            }
-        }
-        
+
         @discardableResult
-        public final func setCustomPage(_ newPage: Int, autoUnlock: Bool = true, callback: (() -> Void)? = nil) -> Bool {
-            if self.locked {
+        func performLocked(autoUnlock: Bool = true, _ work: () -> Void) -> Bool {
+            if locked {
                 return false
             }
-            self.locked = true
-            self.page = newPage
-            callback?()
+            locked = true
+            work()
             if autoUnlock {
-                self.unlock()
+                unlock()
             }
             return true
         }
-        
-        public final func prevPage() {
-            self.page -= 1
-        }
-        
-        public final func indexInPage(_ index: Int) -> Bool {
-            return self.minIndex <= index && index <= self.maxIndex
-        }
-        
-        public final func unlock() {
-//            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                self.locked = false
-//            }
+
+        func unlock() {
+            locked = false
         }
     }
     
@@ -1785,7 +1714,8 @@ class ChatViewController: MessagesViewController {
         
     var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
 
-    var currentPage: ChatPage = ChatPage()
+    var timelineInteractionState = ChatTimelineInteractionState()
+    var residentDatasetWindow: ChatDatasetWindow = .empty
     
     var chatScrollDirection: ChatDirection? = nil
     var previousContentOffsetY: CGFloat = .zero
@@ -1797,20 +1727,48 @@ class ChatViewController: MessagesViewController {
     var cornerRadius: String = "16"
     
 // datasource
-    var messagesObserver: Results<MessageStorageItem>!
+    var timelineSession: ChatTimelineSession?
     var datasource: [Datasource] = []
     var datasourceSnapshot: ChatDatasourceSnapshot = .empty
     var pendingOutgoingAutoScrollRequest: ChatOutgoingAutoScrollRequest? = nil
-    var observerPrimaryIndexMap: [String: Int] = [:]
-    var observerArchivedIdIndexMap: [String: Int] = [:]
-    var observerMessageIdIndexMap: [String: Int] = [:]
-    var observerOldestArchivedId: String? = nil
-    var observerNewestArchivedId: String? = nil
-    var observerLookupSignature: ObserverLookupSignature? = nil
     private(set) var chatObserversRegistered: Bool = false
     internal var chatNotificationCenter: NotificationCenter = .default
-    var virtualTimelineState: ChatVirtualTimelineState = .empty
-    var boundedTimelineWindowState: ChatBoundedTimelineWindowState = .empty
+    private var detachedVirtualTimelineState: ChatVirtualTimelineState = .empty
+    private var detachedBoundedTimelineWindowState: ChatBoundedTimelineWindowState = .empty
+    var virtualTimelineState: ChatVirtualTimelineState {
+        get {
+            self.timelineSession?.snapshot.state ?? self.detachedVirtualTimelineState
+        }
+        set {
+            guard let session = self.timelineSession else {
+                self.detachedVirtualTimelineState = newValue
+                return
+            }
+            let current = session.snapshot
+            _ = session.commit(
+                ChatTimelineSnapshot(
+                    items: current.items,
+                    state: newValue,
+                    loadingState: current.loadingState,
+                    loadDecision: current.loadDecision,
+                    anchorRestore: current.anchorRestore,
+                    localOlderCandidateCount: current.localOlderCandidateCount,
+                    pageSize: current.pageSize,
+                    shortLocalRemainderRemoteFirst: current.shortLocalRemainderRemoteFirst
+                )
+            )
+        }
+    }
+    var boundedTimelineWindowState: ChatBoundedTimelineWindowState {
+        get {
+            self.timelineSession.map { ChatBoundedTimelineWindowState(virtualState: $0.snapshot.state) }
+                ?? self.detachedBoundedTimelineWindowState
+        }
+        set {
+            guard self.timelineSession == nil else { return }
+            self.detachedBoundedTimelineWindowState = newValue
+        }
+    }
     var scrollBoundaryAvailabilityCache: ChatScrollBoundaryAvailabilityCache = .empty
     var displayModelCache: ChatDisplayModelCache = ChatDisplayModelCache(capacity: 512)
     
@@ -2011,8 +1969,8 @@ class ChatViewController: MessagesViewController {
     internal var historyLoadingGeneration: Int = 0
     
     internal var messagesToReadObserver: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set())
-    internal var viewportReadBoundaryPrimary: String?
-    internal var viewportReadBoundaryIndex: Int?
+    private var detachedViewportReadBoundaryPrimary: String?
+    private var detachedViewportReadBoundaryIndex: Int?
     
     internal let pinnedDateView: FloatDateView = {
         let view = FloatDateView(frame: .zero)
@@ -2165,7 +2123,7 @@ class ChatViewController: MessagesViewController {
 
     private func scheduleHistoryLoadingWatchdog(generation: Int, startedAt: Date) {
         DispatchQueue.main.asyncAfter(deadline: .now() + ChatHistoryLoadingTimeoutPolicy.checkInterval) {
-            guard self.historyLoadingGeneration == generation, self.currentPage.isLoading else {
+            guard self.historyLoadingGeneration == generation, self.timelineInteractionState.isLoading else {
                 return
             }
 
@@ -2574,7 +2532,7 @@ class ChatViewController: MessagesViewController {
     private func scheduleChatArchiveMainStallProbe(queryId: String?, operation: String) {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self,
-                  self.currentPage.isLoading,
+                  self.timelineInteractionState.isLoading,
                   self.chatArchiveMainStallProbeQueryId == queryId,
                   self.chatArchiveMainStallProbeOperation == operation else {
                 return
@@ -2637,7 +2595,7 @@ class ChatViewController: MessagesViewController {
             self.activeHistoryLoadingUIActivityReason = activityReason
             self.beginChatHistoryLoadActivity(reason: activityReason)
 
-            self.currentPage.isLoading = true
+            self.timelineInteractionState.isLoading = true
             self.setLoadingIndicatorVisible(true)
             self.setArchiveLoading(true)
             if ChatHistoryLoadingOverlayPolicy.shouldDisableCollectionInteraction {
@@ -2656,7 +2614,7 @@ class ChatViewController: MessagesViewController {
                 self.endChatHistoryLoadActivity(reason: activeHistoryLoadingUIActivityReason)
                 self.activeHistoryLoadingUIActivityReason = nil
             }
-            self.currentPage.isLoading = false
+            self.timelineInteractionState.isLoading = false
             self.setLoadingIndicatorVisible(false)
             self.setArchiveLoading(false)
             if ChatHistoryLoadingOverlayPolicy.shouldDisableCollectionInteraction {
@@ -2664,7 +2622,7 @@ class ChatViewController: MessagesViewController {
             }
             self.setDatasourceLoadingEnabled(true)
             if unlockPage {
-                self.currentPage.unlock()
+                self.timelineInteractionState.unlock()
             }
             self.flushPendingArchiveObserverRefreshIfPossible(reason: "historyLoadingEnded")
         }
@@ -3542,18 +3500,7 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func newestLocalMessagePrimaryForLatestOpen() -> String? {
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            return provider.latest(limit: 1).last?.primary
-        } catch {
-            DDLogDebug("ChatViewController.newestLocalMessagePrimaryForLatestOpen: \(error.localizedDescription)")
-            return nil
-        }
+        self.timelineSession?.latestMessage()?.primary
     }
 
     internal func shouldSkipInitialLatestForcedContentRender(forceRender: Bool) -> Bool {
@@ -4344,16 +4291,38 @@ class ChatViewController: MessagesViewController {
     
     
     final func configureDataset() {
-        do {
-            let realm = try WRealm.safe()
-            self.messagesObserver = realm
-                .objects(MessageStorageItem.self)
-                .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
-                .sorted(byKeyPath: "date", ascending: true)
-            self.rebuildUnreadMentionItems()
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        let store = RealmChatTimelineSessionStore(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType
+        )
+        let session = ChatTimelineSession(
+            store: store,
+            pageSize: self.datasourcePageSize,
+            conversationKey: ChatTimelineConversationKey(
+                owner: self.owner,
+                jid: self.jid,
+                conversationType: self.conversationType
+            ),
+            archiveState: self.loadChatArchiveStateSnapshot()
+        )
+        session.onSnapshot = { [weak self, weak session] snapshot in
+            let applySnapshot = {
+                guard let self, let session, self.timelineSession === session else { return }
+                if snapshot.cause == .storeChange,
+                   self.hasRenderedStableInitialHistory {
+                    self.handleTimelineSessionRefresh()
+                }
+            }
+            if Thread.isMainThread {
+                applySnapshot()
+            } else {
+                DispatchQueue.main.async(execute: applySnapshot)
+            }
         }
+        self.timelineSession = session
+        _ = session.refreshUnreadMetadata()
+        self.rebuildUnreadMentionItems()
     }
     
     final func configureBackground() {
@@ -5017,11 +4986,11 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func orderedViewportReadMessages() -> [ChatViewportReadBoundaryPolicy.OrderedMessage] {
-        self.ensureObserverLookupMaps()
+        let residentIndex = self.timelineSession?.snapshot.residentIndex
         return self.datasource.enumerated().map { offset, item in
             ChatViewportReadBoundaryPolicy.OrderedMessage(
                 primary: item.primary,
-                orderIndex: self.observerPrimaryIndexMap[item.primary] ?? offset,
+                orderIndex: residentIndex?.index(primary: item.primary) ?? offset,
                 isOutgoing: item.isOutgoing,
                 isRead: item.isRead,
                 rowKind: ChatVisiblePositionPolicy.rowKind(for: item.kind),
@@ -5033,20 +5002,34 @@ class ChatViewController: MessagesViewController {
     internal func currentViewportReadBoundaryIndex(
         in orderedMessages: [ChatViewportReadBoundaryPolicy.OrderedMessage]
     ) -> Int? {
-        if let primary = self.viewportReadBoundaryPrimary {
-            if let observerIndex = self.observerPrimaryIndexMap[primary] {
-                return observerIndex
+        if let snapshot = self.timelineSession?.snapshot,
+           let boundary = snapshot.readBoundary {
+            if let residentIndex = snapshot.residentIndex.index(primary: boundary.primary) {
+                return residentIndex
+            }
+            let precedingResidentIndex = snapshot.items.enumerated().last(where: {
+                ChatTimelinePositionKey(message: $0.element) <= boundary.position
+            })?.offset
+            return precedingResidentIndex ?? -1
+        }
+        if let primary = self.detachedViewportReadBoundaryPrimary {
+            if let residentIndex = self.timelineSession?.snapshot.residentIndex.index(primary: primary) {
+                return residentIndex
             }
             if let orderedIndex = orderedMessages.first(where: { $0.primary == primary })?.orderIndex {
                 return orderedIndex
             }
         }
-        return self.viewportReadBoundaryIndex
+        return self.detachedViewportReadBoundaryIndex
     }
 
     internal func setViewportReadBoundaryTarget(_ target: ChatViewportReadBoundaryPolicy.OrderedMessage) {
-        self.viewportReadBoundaryPrimary = target.primary
-        self.viewportReadBoundaryIndex = target.orderIndex
+        if let session = self.timelineSession {
+            _ = session.advanceReadBoundary(toPrimary: target.primary)
+        } else {
+            self.detachedViewportReadBoundaryPrimary = target.primary
+            self.detachedViewportReadBoundaryIndex = target.orderIndex
+        }
     }
 
     @discardableResult

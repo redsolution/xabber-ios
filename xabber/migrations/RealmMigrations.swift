@@ -22,9 +22,9 @@ import Foundation
 import RealmSwift
 
 enum XabberRealmSchema {
-    /// Schema 12 adds the indexes and deterministic numeric position fields
-    /// used by every visible chat-history cursor query.
-    static let current: UInt64 = 12
+    /// Schema 13 indexes the bounded unread-mention predicate and backfills
+    /// its denormalized conversation identity from legacy notification metadata.
+    static let current: UInt64 = 13
 }
 
 
@@ -257,6 +257,25 @@ func makeRealmMigrationConfiguration(
                             "version": ChatLocalHistoryIndexStorageItem.currentVersion
                         ]
                     )
+                }
+            }
+            if oldSchemaVersion < 13 {
+                migration.enumerateObjects(ofType: NotificationStorageItem.className()) { oldObject, newObject in
+                    guard let newObject else { return }
+                    let existingAssociatedJid = oldObject?["associatedJid"] as? String
+                    guard existingAssociatedJid?.isNotEmpty != true else { return }
+
+                    var sourceChatJid: String?
+                    if let metadata = oldObject?["metadata_"] as? String,
+                       let data = metadata.data(using: .utf8),
+                       let dictionary = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        sourceChatJid = dictionary["sourceChatJid"] as? String
+                    }
+                    let originalSenderJid = oldObject?["originalSenderJid"] as? String
+                    let conversationJid = sourceChatJid?.isNotEmpty == true
+                        ? sourceChatJid
+                        : (originalSenderJid?.isNotEmpty == true ? originalSenderJid : nil)
+                    newObject["associatedJid"] = conversationJid
                 }
             }
         },
