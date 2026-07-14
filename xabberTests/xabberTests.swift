@@ -6916,6 +6916,7 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
         harness.coordinator.scheduleReconnect(cause: .accidentalSocket, trigger: .resilienceRetry)
         harness.scheduler.advance(by: 0)
         harness.coordinator.scheduleReconnect(cause: .accidentalSocket, trigger: .resilienceRetry)
+        harness.scheduler.advance(by: 0)
         harness.scheduler.advance(by: 1)
 
         XCTAssertEqual(harness.recorder.reconnectWasStarted, [true, false])

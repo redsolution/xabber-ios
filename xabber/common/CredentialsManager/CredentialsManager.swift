@@ -96,7 +96,7 @@ class CredentialsManager: NSObject {
             return rhs.jid == lhs.jid
         }
         
-        enum Kind: String {
+        enum Kind: String, Equatable {
             case password = "password"
             case token = "token"
             case secret = "secret"
@@ -362,6 +362,9 @@ class CredentialsManager: NSObject {
         public func storeSecret(_ value: String, validationKey: String) {
             withLock {
                 self.credentialGeneration += 1
+                self.isInvalidate = false
+                self.isBlocked = false
+                self.callbacks.removeAll()
                 self.isFirstTokenIssued = true
                 self.counter = 1
                 self.kind = .secret
@@ -377,6 +380,9 @@ class CredentialsManager: NSObject {
         public func storeToken(_ value: String) {
             withLock {
                 self.credentialGeneration += 1
+                self.isInvalidate = false
+                self.isBlocked = false
+                self.callbacks.removeAll()
                 self.isFirstTokenIssued = true
                 self.counter = 1
                 self.kind = .token
@@ -391,6 +397,9 @@ class CredentialsManager: NSObject {
         public func storePassword(_ value: String, keepSecret: Bool = false) {
             withLock {
                 self.credentialGeneration += 1
+                self.isInvalidate = false
+                self.isBlocked = false
+                self.callbacks.removeAll()
                 self.kind = .password
                 self.storeCreditionals(for: [jid, Kind.password.rawValue].prp(), value: value)
                 self.removeCreditionals(for: [jid, Kind.token.rawValue].prp())

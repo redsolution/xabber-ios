@@ -374,18 +374,42 @@ class XMPPDeviceManager: AbstractXMPPManager {
      </revoke>
    </message>*/
     internal func readHeadline(_ message: XMPPMessage) -> Bool {
-        guard let deviceId = message.element(forName: "revoke", xmlns: getPrimaryNamespace())?.element(forName: "device")?.attributeStringValue(forName: "id") else {
+        guard let revoke = message.element(forName: "revoke") else {
             return false
         }
+        let deviceId = revoke
+            .element(forName: "device")?
+            .attributeStringValue(forName: "id")
         do {
             let realm = try WRealm.safe()
             let myDeviceId = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: owner)?.deviceUuid
-            
-            if myDeviceId == deviceId {
-                NotificationCenter.default.post(name: ApplicationStateManager.tokenWasExpired, object: self.owner)
+
+            let disposition = AccountAuthenticationSafetyPolicy.disposition(
+                for: .deviceHeadlineRevocation(
+                    isServerSender: message.from?.isServer ?? false,
+                    isHeadline: message.attributeStringValue(forName: "type") == "headline",
+                    namespaceMatches: revoke.xmlns() == getPrimaryNamespace(),
+                    revokedDeviceID: deviceId,
+                    currentDeviceID: myDeviceId,
+                    eventID: message.elementID ?? "device-headline-\(deviceId ?? "missing")"
+                )
+            )
+            if case .authoritativeRevocation(let evidence) = disposition {
+                let request = AccountRevocationRequest(
+                    jid: self.owner,
+                    message: "Access to account \(self.owner) was revoked. Locally stored data deleted.".localizeString(
+                        id: "account_access_to_account_was_revoked",
+                        arguments: [self.owner]
+                    ),
+                    evidence: evidence
+                )
+                NotificationCenter.default.post(
+                    name: ApplicationStateManager.tokenWasExpired,
+                    object: request
+                )
             }
         } catch {
-            
+            DDLogDebug("XMPPDeviceManager: failed to validate device revocation headline")
         }
         
         return true

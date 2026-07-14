@@ -18,7 +18,7 @@ runtime-device:: iPhone 16e, iOS 26.0, UDID 7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF
 Рабочий репозиторий:
 /Users/igor.boldin/projects/xabber/fabric/xabber/xabber_ios_whitelabel/xabber/xabber_ios_core
 
-Выполняй задачи строго в таком порядке: Task 00; Task 01–05; Task 05A; Task 06–21; Task 22A–22C; Task 23–24; Task 25A–25C; Task 26A–26C. Это 34 отдельные задачи/commit. Не объединяй задачи и не переходи к следующей, пока текущая не прошла все свои критерии принятия, focused XCTest, обязательную simulator build и отдельный focused commit. Перед каждой задачей обязательно запускай перечисленные pre-task tests. Для изменения поведения сначала добавляй или обновляй XCTest и, когда текущий код способен проявить дефект, фиксируй ожидаемое red-падение до production-изменения.
+Выполняй задачи строго в таком порядке: Task 00; Task 01–05; Task 05A; Task 06–21; Task 22A–22C; Task 23; Task 25D; Task 24; Task 25A–25C; Task 26A–26C. Это 35 отдельных задач/commit. Task 25D является аварийным safety-fix, вставленным перед продолжением уже начатого Task 24 после подтвержденного ложного удаления аккаунта. Не объединяй задачи и не переходи к следующей, пока текущая не прошла все свои критерии принятия, focused XCTest, обязательную simulator build и отдельный focused commit. Перед каждой задачей обязательно запускай перечисленные pre-task tests. Для изменения поведения сначала добавляй или обновляй XCTest и, когда текущий код способен проявить дефект, фиксируй ожидаемое red-падение до production-изменения.
 
 После каждой задачи:
 1. запусти ее post-task tests;
@@ -51,7 +51,7 @@ runtime-device:: iPhone 16e, iOS 26.0, UDID 7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF
 - выполняй независимую UIKit-реализацию наблюдаемого поведения; не копируй исходный код, структуру реализации, ассеты, generated icon paths или брендинг Telegram и не используй private Apple API;
 - не добавляй third-party dependencies и не переписывай UIKit flow на SwiftUI.
 
-Не отмечай Goal complete, пока Task 26C не зафиксирует: все focused tests прошли, simulator build прошла, новая сборка установлена поверх существующей без uninstall, сценарий в Andrew Nenakhov/Alexey Boldin с query test записан и сравнен с референсом, аккаунт остался на месте, vault task/handoff закрыты, а внешний vault execution ledger содержит отдельный source commit hash для всех 34 задач, включая Task 26C.
+Не отмечай Goal complete, пока Task 26C не зафиксирует: все focused tests прошли, simulator build прошла, новая сборка установлена поверх существующей без uninstall, сценарий в Andrew Nenakhov/Alexey Boldin с query test записан и сравнен с референсом, аккаунт остался на месте, ложное локальное отсутствие credential не трактуется как подтвержденный server revoke, vault task/handoff закрыты, а внешний vault execution ledger содержит отдельный source commit hash для всех 35 задач, включая Task 26C.
 ~~~
 
 ## 1. Цель и границы
@@ -75,7 +75,7 @@ runtime-device:: iPhone 16e, iOS 26.0, UDID 7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF
 - перенос Telegram-кода/ресурсов;
 - новый framework или third-party dependency;
 - удаление legacy SearchChatListViewController в рамках этой цели: он должен просто перестать быть кандидатом для нового in-chat list;
-- изменение account/session lifecycle.
+- изменение account/session lifecycle, кроме узкого safety-fix Task 25D, добавленного после подтвержденного ложного удаления аккаунта во время Task 24.
 
 ## 2. Источники и метод анализа
 
@@ -2354,7 +2354,7 @@ xcodebuild \
 
 **Owner:** xabber-tests
 **Secondary:** xabber-ui
-**Depends on:** Task 23
+**Depends on:** Task 25D
 **Commit:** test(chat-search): cover live search parity flow
 
 ### Цель
@@ -2645,6 +2645,86 @@ env \
 
 ---
 
+## Task 25D — Не удалять аккаунт при неподтвержденном отзыве credential
+
+**Owner:** xabber-xmpp
+**Secondary:** xabber-business, xabber-tests, xabber-ui
+**Depends on:** Task 23
+**Commit:** fix(auth): preserve accounts for missing credentials
+
+### Причина добавления
+
+Task добавлен по прямому требованию пользователя после runtime-инцидента Task 24. Приложение запустилось с существующей строкой аккаунта, выбрало primary password-auth, но Keychain lookup вернул `present=false`. `AccountStreamDelegate` вызвал `tokenWasInvalidated()` без server stanza; `ApplicationStateManager` воспринял нетипизированное notification как подтвержденный revoke, синхронно вызвал `AccountManager.deleteAccount(by:)` и показал `Access revoked`. В этом пути OCRA/HOTP counter не читался и не резервировался, поэтому рассинхронизация счетчика не является причиной наблюдаемого удаления.
+
+### Цель
+
+Разделить локально отсутствующий/поврежденный credential, неоднозначный auth failure и криптографически/протокольно подтвержденный server revoke. Ни отсутствие password/token/secret/validation key/device id в Keychain/Realm, ни локальный invalidated flag, ни transport/auth-start error не должны автоматически удалять аккаунт, Realm или историю и не должны показывать текст о подтвержденном отзыве. Деструктивный путь разрешен только для явно типизированного текущего primary-stream `account-disabled` либо server headline revoke, чей device id совпал с текущим device id.
+
+### Файлы
+
+- `xabber/models/account/delegates/AccountStreamDelegate.swift`;
+- `xabber/models/account/extensions/XMPPAuthenticationFailure.swift` и новый узкий typed disposition/policy рядом с ним;
+- `xabber/common/state/ApplicationStateManager.swift`;
+- `xabber/xmpp/device/XMPPDeviceManager.swift` только для передачи типизированного authoritative source;
+- secondary stream delegates только если общий policy требует выравнивания без изменения их non-destructive ownership;
+- новый `xabberTests/AccountMissingCredentialPolicyTests.swift`;
+- `XMPPAuthenticationFailureTests`, `AccountStreamLifecycleGateTests`, `AccountDeletionCleanupTests`, `AccountDeletionCoordinatorTests`;
+- `xabber.xcodeproj/project.pbxproj`;
+- durable auth safety notes/spec и этот Execution journal.
+
+### Pre-task tests
+
+- TEST[XMPPAuthenticationFailureTests, AccountStreamLifecycleGateTests, AccountConnectionResilienceCoordinatorTests, AccountDeletionCleanupTests, AccountDeletionCoordinatorTests, AppLaunchEnvironmentPolicyTests, ChatSearchLiveQASafetyPolicyTests].
+- Использовать оба hosted safety flags и только allowlist; broad tests и live account mutation запрещены.
+- Зафиксировать текущие counter-reservation ожидания: reservation сохраняет `N+1` до отправки SASL и не откатывается после неоднозначного network/auth outcome, но отсутствующий credential не создает reservation.
+
+### Tests-first
+
+До production-изменения добавить/обновить XCTest и зафиксировать ожидаемый red там, где текущий код способен проявить defect:
+
+- primary password branch с отсутствующим Keychain password возвращает typed `.missingLocalCredential`, останавливает текущую попытку и не публикует revoke event;
+- missing token/secret/validation key/device id использует recoverable re-auth/device-secret-update disposition, не удаляет account/Realm/history и не утверждает, что server отозвал доступ;
+- локальный `isInvalidated` без текущего authoritative server evidence не превращается в account deletion;
+- auth-start throw, socket close, timeout, `temporary-auth-failure`, malformed/unknown SASL и secondary-stream failure никогда не вызывают delete/revoke presenter;
+- primary current-stream SASL `<account-disabled/>` остается отдельным authoritative disposition; stale/secondary stream не получает права удалить account;
+- headline `<revoke/>` разрешает authoritative event только при server sender/namespace validation и exact current-device-id match; чужой, пустой или stale device id безопасно игнорируется;
+- `ApplicationStateManager` принимает typed revocation evidence, а не голый JID notification; `.missingLocalCredential` и `.reauthenticationRequired` не достигают `AccountManager.deleteAccount`;
+- пользовательское сообщение для missing credential сообщает о необходимости повторного входа/восстановления credential без ложной фразы `Access revoked` и без утверждения, что локальные данные удалены;
+- password missing, token missing и incomplete OCRA material не вызывают `reserveCounterForAuthentication` и не меняют persisted counter;
+- один начатый token/secret SASL attempt делает ровно одну monotonic reservation; ambiguous failure не rollback-ит ее и не создает вторую reservation без нового attempt;
+- повторная доставка одного authoritative revoke idempotent: account cleanup/presenter не выполняются дважды;
+- diagnostics содержат redacted source/reason/credential kind/counter-reservation state, но не password, token, secret, validation key, raw SASL response или message content;
+- isolated hosted Realm/credential fakes доказывают сохранение account row и unrelated chat/message rows для всех non-authoritative outcomes.
+
+### Реализация
+
+1. Ввести typed auth/revocation disposition с явными source и authority: local credential state, primary SASL current stream, secondary stream, verified current-device headline.
+2. Удалить вызов `tokenWasInvalidated()` из ветки missing password и других локальных pre-auth paths; завершать attempt как recoverable и переводить UI в re-auth flow без cleanup.
+3. Заменить нетипизированный `ApplicationStateManager.tokenWasExpired` для account deletion на typed API/event, который требует authoritative evidence. Не позволять произвольному JID notification вызывать deletion.
+4. Сохранить существующий monotonic OCRA reservation contract: counter резервируется только после полной локальной credential preflight и непосредственно перед SASL send; ambiguous outcome не откатывает потенциально consumed counter.
+5. Сделать destructive cleanup idempotent и доступным только для подтвержденного current-device revoke. Не менять ручной logout/delete-account flow.
+6. Не читать и не логировать credential values. Не мигрировать и не очищать пользовательское хранилище в этой задаче.
+7. Обновить knowledge/vault durable contract: отсутствие локального credential — client storage inconsistency/re-auth condition, а не server revocation evidence.
+
+### Критерии принятия
+
+- Missing/недоступный local credential не удаляет account, Realm, chats или messages и не показывает `Access revoked`.
+- Transport, ambiguous auth, stale callback и любой secondary stream остаются non-destructive.
+- Только доказанный current primary `account-disabled` или validated matching-device headline может войти в destructive revoke policy.
+- Counter не меняется до полного credential preflight; начатая token/secret SASL попытка имеет ровно одну monotonic reservation без unsafe rollback.
+- Existing signed-in account переживает два обычных последовательных запуска новой сборки; install-over/launch выполняются только в разрешенном non-destructive QA gate и без изменения credentials.
+- Все diagnostics redacted; manual logout/account delete semantics не изменены.
+- Focused XCTest и обязательная simulator build проходят; пользовательский account остается на месте.
+
+### Post-task verification
+
+- TEST[AccountMissingCredentialPolicyTests, XMPPAuthenticationFailureTests, AccountStreamLifecycleGateTests, AccountConnectionResilienceCoordinatorTests, AccountDeletionCleanupTests, AccountDeletionCoordinatorTests, AppLaunchEnvironmentPolicyTests, ChatSearchLiveQASafetyPolicyTests].
+- Обязательная cached simulator build на iPhone 16e без clean.
+- После подтвержденного пользователем signed-in состояния выполнить только bounded install-over/launch survival check: два запуска, тот же data-container, account остается signed in; не удалять приложение, контейнер, Realm или credential и не вводить учетные данные.
+- Обновить XMPP/business/tests/UI notes, auth durable spec, handoff и journal; записать red/green и runtime evidence, затем git diff --check.
+
+---
+
 ## Task 26A — Выполнить final allowlisted regression, build и install-over
 
 **Owner:** xabber-lead
@@ -2666,7 +2746,7 @@ env \
 
 В одном allowlisted run выполнить каждый suite ровно один раз; full `xabberTests` запрещен:
 
-- safety/baseline: AppLaunchEnvironmentPolicyTests, ChatSearchGoalSafetyPolicyTests, InfoCardChatSearchRoutingTests, InfoCardSearchAccessibilityTests, ChatSearchModeActivationTests, ChatInChatSearchQueryLifecycleTests, ChatSearchResultNavigationStateTests, ChatSearchArchiveGapRepairTests, ChatSearchInputBarViewTests, ChatSearchBottomPanelTests, SearchChatListKeyboardLayoutTests, ChatNavigationBarStateTests;
+- safety/baseline: AppLaunchEnvironmentPolicyTests, ChatSearchGoalSafetyPolicyTests, AccountMissingCredentialPolicyTests, XMPPAuthenticationFailureTests, AccountStreamLifecycleGateTests, AccountDeletionCleanupTests, AccountDeletionCoordinatorTests, InfoCardChatSearchRoutingTests, InfoCardSearchAccessibilityTests, ChatSearchModeActivationTests, ChatInChatSearchQueryLifecycleTests, ChatSearchResultNavigationStateTests, ChatSearchArchiveGapRepairTests, ChatSearchInputBarViewTests, ChatSearchBottomPanelTests, SearchChatListKeyboardLayoutTests, ChatNavigationBarStateTests;
 - foundation/providers: ChatSearchPresentationStateTests, ChatSearchResultPresentationTests, ChatSearchSessionStateTests, ChatSearchMAMPagingTests, ChatSearchLocalProviderTests, ChatSearchAnimationSpecTests;
 - UI/list: ChatSearchTopChromeTests, ChatSearchBottomActionBarTests, ChatSearchNavigationButtonsTests, ChatSearchHighlightingTests, ChatSearchResultCellTests, ChatSearchResultsListTests, ChatSearchModeSwitchingTests, ChatSearchListTransitionTests, ChatSearchListSelectionTests;
 - calendar/date: ChatSearchCalendarModelTests, ChatSearchCalendarViewTests, ChatSearchCalendarPresentationTests, ChatSearchTimestampLocalResolverTests, ChatSearchTimestampMAMResolverTests, ChatSearchCalendarCompletionTests;
@@ -2720,7 +2800,7 @@ env -u TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT \
 - Cached simulator build прошла без compiler/linker errors.
 - Bundle ID/product path доказаны до установки.
 - Install выполнен поверх existing app и уложился в watchdog; uninstall/erase не вызывались.
-- Data-container identity и signed-in account сохранены.
+- Data-container identity и signed-in account сохранены; обычные launches не показывают ложный `Access revoked` и не удаляют account при отсутствии server-revoke evidence.
 - verification.md содержит commands, durations, first failure policy и pass evidence.
 
 ### Post-task verification
@@ -2751,7 +2831,7 @@ env -u TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT \
 
 ### Pre-task tests
 
-- TEST[ChatSearchLiveQASafetyPolicyTests, ChatSearchModeTransitionTests, ChatSearchListTransitionTests, ChatSearchCalendarPresentationTests, ChatSearchCalendarCompletionTests, ChatSearchAccessibilityTests, ChatSearchAdaptiveLayoutTests, ChatSearchLifecycleTests].
+- TEST[ChatSearchLiveQASafetyPolicyTests, AccountMissingCredentialPolicyTests, XMPPAuthenticationFailureTests, ChatSearchModeTransitionTests, ChatSearchListTransitionTests, ChatSearchCalendarPresentationTests, ChatSearchCalendarCompletionTests, ChatSearchAccessibilityTests, ChatSearchAdaptiveLayoutTests, ChatSearchLifecycleTests].
 - Повторить exact device/container/signed-in preflight и non-opt-in safety gate; не запускать, если account missing.
 
 ### Tests-first
@@ -2832,7 +2912,7 @@ test "$TEST_STATUS" -eq 0
 
 ### Цель
 
-Свести стабильный behavior/architecture/test contract в source docs и vault, закрыть task/handoff и доказать наличие 34 отдельных source commits без попытки вписать собственный будущий SHA в tracked commit.
+Свести стабильный behavior/architecture/test contract в source docs и vault, закрыть task/handoff и доказать наличие 35 отдельных source commits без попытки вписать собственный будущий SHA в tracked commit.
 
 ### Файлы
 
@@ -2845,14 +2925,14 @@ test "$TEST_STATUS" -eq 0
 
 ### Pre-task tests
 
-- TEST[AppLaunchEnvironmentPolicyTests, ChatSearchGoalSafetyPolicyTests, ChatSearchPresentationStateTests, ChatSearchCalendarCompletionTests, ChatSearchAccessibilityTests, ChatSearchLifecycleTests, ChatSearchLiveQASafetyPolicyTests].
+- TEST[AppLaunchEnvironmentPolicyTests, ChatSearchGoalSafetyPolicyTests, AccountMissingCredentialPolicyTests, XMPPAuthenticationFailureTests, ChatSearchPresentationStateTests, ChatSearchCalendarCompletionTests, ChatSearchAccessibilityTests, ChatSearchLifecycleTests, ChatSearchLiveQASafetyPolicyTests].
 - Проверить, что Task 26A final gate/build и Task 26B live/video evidence имеют pass, а не pending/skip.
 
 ### Tests-first
 
 - Это documentation-only closure; production behavior не меняется.
-- Проверить все absolute/relative links, 34 journal rows, expected commit subjects и evidence paths скриптом/rg до commit.
-- Проверить `git log --format` и `git show --stat` для предыдущих 33 source task commits; unrelated commits не засчитываются.
+- Проверить все absolute/relative links, 35 journal rows, expected commit subjects и evidence paths скриптом/rg до commit.
+- Проверить `git log --format` и `git show --stat` для предыдущих 34 source task commits; unrelated commits не засчитываются.
 - Любой новый code defect/изменение запрещено прятать в docs commit: создать follow-up Task и повторить 26A–26C.
 
 ### Реализация
@@ -2860,14 +2940,14 @@ test "$TEST_STATUS" -eq 0
 1. Обновить durable source feature/QA docs: observable UI, state machine, provider ownership, calendar exact-timestamp semantics, Xabber-independent implementation/no private API, tests и known accepted deviations.
 2. В tracked Execution journal для Task 26C записать `ready-to-commit` + expected subject; actual SHA там не требуется.
 3. Обновить vault owner/secondary agent notes/tasks, shared interface, standalone handoff; переместить standalone task `tasks/open` → `tasks/done` только после всех checks.
-4. Создать/обновить внешний vault execution ledger с 33 уже существующими source SHA и placeholder `awaiting Task 26C source commit`.
+4. Создать/обновить внешний vault execution ledger с 34 уже существующими source SHA и placeholder `awaiting Task 26C source commit`.
 5. Source и vault — отдельные dirty git roots: source commit stage-ит только source docs; vault commit stage-ит только точно проверенные task/handoff/ledger/docs paths. Не stage-ить целиком dashboard-файлы с чужими hunks.
 6. После source commit Task 26C получить actual SHA, заменить только vault placeholder и сделать отдельный focused vault commit. Это не дополнительный source task commit.
-7. Goal complete разрешен только после проверки 34 unique source SHA во внешнем ledger и чистого staged state относительно наших файлов.
+7. Goal complete разрешен только после проверки 35 unique source SHA во внешнем ledger и чистого staged state относительно наших файлов.
 
 ### Критерии принятия
 
-- Все 34 Task labels выполнены последовательно и имеют отдельный unique source SHA во внешнем vault ledger.
+- Все 35 Task labels выполнены последовательно и имеют отдельный unique source SHA во внешнем vault ledger.
 - Source journal содержит final test/build/status/expected subjects без логической попытки self-record SHA.
 - Verification doc содержит final unit/build/install/live/video/accessibility evidence.
 - Vault task находится done, handoff закрыт, ownership notes/shared contract обновлены без захвата чужих изменений.
@@ -2879,7 +2959,7 @@ test "$TEST_STATUS" -eq 0
 - TEST[AppLaunchEnvironmentPolicyTests, ChatSearchGoalSafetyPolicyTests, ChatSearchPresentationStateTests, ChatSearchCalendarCompletionTests, ChatSearchAccessibilityTests, ChatSearchLifecycleTests, ChatSearchLiveQASafetyPolicyTests].
 - Обязательная simulator build.
 - Проверить links, `git diff --check`, source staged diff и commit; после source commit проверить `git show --stat --oneline HEAD`.
-- Записать Task 26C SHA во внешний vault ledger, проверить 34 unique hashes и сделать безопасный vault commit; только затем отметить Goal complete.
+- Записать Task 26C SHA во внешний vault ledger, проверить 35 unique hashes и сделать безопасный vault commit; только затем отметить Goal complete.
 
 ---
 
@@ -2887,7 +2967,7 @@ test "$TEST_STATUS" -eq 0
 
 Goal завершен только когда одновременно выполнено все:
 
-- Все 34 Task labels (00; 01–05; 05A; 06–21; 22A–22C; 23–24; 25A–25C; 26A–26C) выполнены строго последовательно и не объединены.
+- Все 35 Task labels (00; 01–05; 05A; 06–21; 22A–22C; 23; 25D; 24; 25A–25C; 26A–26C) выполнены строго в зафиксированном порядке и не объединены.
 - У каждого Task есть отдельный source commit; tracked journal заполнен до `ready-to-commit`, а actual SHA записан во внешнем vault execution ledger.
 - Перед каждым Task в journal записан результат pre-task tests.
 - Для каждого behavioral change существует focused red/green XCTest или явно доказанная причина невозможности red phase.
@@ -2961,7 +3041,8 @@ Goal завершен только когда одновременно выпо�
 | 22B | ready-to-commit | Required localization/Info Card/top/bottom/navigation/result/calendar selector plus safety: 91/91 passed | Expected compile-red: centralized identifier catalog, dynamic row/day identity, semantic calendar configuration and controller ordering APIs absent. First implementation-focused run exposed two focused issues (19/21): loading required a dedicated accessibility proxy and one plain-label assertion was invalid; both were corrected. Additional expected compile-red captured the missing localized terminal-announcement/deduplication contract. | Final accessibility/safety selector: 22/22 passed; accessibility/calendar-completion regression: 35/35 passed; required post selector plus safety: 126/126 passed | Passed on iPhone 16e `7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF` | `feat(chat-search): add accessible search semantics` | Added one stable identifier catalog, localized labels/values/traits/hints, committed-only counter positions, older/newer boundary semantics, newest-first row positions, combined plain row announcements, unique day identities, selected/today non-color semantics, explicit search/list/calendar VoiceOver order, calendar focus transfer/return and immediate hiding of animated-out controls. Terminal no-result/date/search/positioning announcements are event/generation-deduplicated. Existing Info Card identifiers remain unchanged. The three supplied crash reports are duplicate evidence of the already fixed Task 05 test-only Realm default-configuration defect; all current runs used isolated hosted storage. Main container `BEC303B1-8A3A-4A57-A699-28371F79622D` and 22,315,008-byte Realm with mtime `2026-07-13T23:37:37+0500` remained unchanged; no live UI flow ran. |
 | 22C | ready-to-commit | Required accessibility/localization/top/bottom/result/calendar/motion selector plus safety: 106/106 passed | Expected compile-red: shared adaptive environment/appearance/layout/contrast policies, consumer trait application, RTL geometry, opaque Reduce Transparency surfaces, expanded hit frames and vertically scrollable calendar overflow were absent. First focused implementation run was 20/23 with native glass still attached to two bottom surfaces and one semantic-color contrast failure; focused correction reran 23/23. First full post run was 155/156 because the accessible selected fill changed an existing nominal `systemBlue` contract; the fill was restored and foreground contrast made trait-adaptive. | Focused adaptive/safety selector: 23/23 passed; required post selector plus safety: 156/156 passed | Passed on iPhone 16e `7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF` | `fix(chat-search): harden adaptive search layout` | Added one shared UIKit adaptive policy for maximum Dynamic Type, RTL, Increase Contrast, Differentiate Without Color, Reduce Transparency and Reduce Motion. Nominal geometry remains unchanged; result rows and calendar grow vertically, landscape calendar overflow scrolls only vertically, visible controls expose at least 44 pt accessibility frames, selected/today states gain non-color cues, semantic colors are contrast-checked and opaque surfaces remove iOS 26 glass deterministically. Main container `BEC303B1-8A3A-4A57-A699-28371F79622D` and 22,315,008-byte Realm with mtime `2026-07-13T23:37:37+0500` remained unchanged; no live UI flow ran. |
 | 23 | ready-to-commit | Initial B0 exposed one stale reducer fixture (96/97); fixture-focused rerun passed 14/14, repaired B0 passed 97/97, and required accessibility/localization/mode/calendar selector plus safety passed 57/57 | Expected compile-red: `ChatSearchLiveQASafetyPolicy` and its opt-in/destination/destructive-input/account/teardown contracts were absent | Focused policy/safety selector: 21/21 passed; required post selector plus real accessibility/localization classes and safety: 43/43 passed; UI smoke target compile-only `build-for-testing` reported `TEST BUILD SUCCEEDED` | Passed on iPhone 16e `7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF` | `test(chat-search): add guarded UI test target` | Added a deployment-15.6 `xabberUITests` bundle with an explicit `xabber` dependency and shared-scheme membership. The pure gate requires exact opt-in and simulator identity, rejects reset/erase/logout/account/data/Realm cleanup inputs, fixes dialog candidates to Andrew Nenakhov then Alexey Boldin and query to `test`, forbids login/account mutation, and limits teardown to search cancellation/process termination. The skeleton evaluates the gate before any `XCUIApplication` can exist and then skips until Task 24. No UI executable was run. Compile-only verification preserved main container `BEC303B1-8A3A-4A57-A699-28371F79622D` and the 22,315,008-byte Realm with mtime `2026-07-13T23:37:37+0500`. |
-| 24 | pending | — | — | — | — | — | — |
+| 25D | ready-to-commit | Initial required allowlist: 80/81 passed; isolated rerun reproduced the same existing zero-delay scheduler fixture failure. After fixture correction, full post selector passed 95/95. | Expected compile-red: typed authentication safety/revocation evidence, notification parser and processing gate were absent. Behavioral red: replacement credential still retained the local invalidated state (13/14). | Focused policy green: 14/14; required post selector: 95/95. | Passed — cached build on iPhone 16e `7C8F9347-C7DA-4EF2-9DA0-71A52E3B93AF` without clean. | `fix(auth): preserve accounts for missing credentials` | Missing local password/token/secret and local invalidation now require recoverable re-authentication without account/history deletion or false `Access revoked`; only typed current-primary `account-disabled` or validated matching-device server headline can request idempotent destructive revoke. Fixed bundle install-over preserved data container `FEAE8E9A-E87A-4039-AB49-AFC70F15FECD` and Realm inode `171969950`. After owner login, two ordinary process launches at 12:13:58 and 12:14:20 both returned to the signed-in Chats shell with Andrew Nenakhov and Alexey Boldin present; the container/inode stayed unchanged and filtered logs contained no revocation, account deletion or `Access revoked` event. No uninstall, storage cleanup, logout or automated credential entry occurred. |
+| 24 | pending | — | — | — | — | — | Paused after its live run exposed the false-revocation defect; resume only after Task 25D is committed and the signed-in account survives its bounded launch check. |
 | 25A | pending | — | — | — | — | — | — |
 | 25B | pending | — | — | — | — | — | — |
 | 25C | pending | — | — | — | — | — | — |

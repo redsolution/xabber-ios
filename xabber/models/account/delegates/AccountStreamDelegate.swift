@@ -116,8 +116,29 @@ extension Account: XMPPStreamDelegate {
             AccountManager.shared.changeNewUserState(for: self.jid, to: .failure(error.localizedDescription))
         }
         
-        func invalidate() {
-            self.tokenWasInvalidated()
+        func requireReauthentication(
+            kind: CredentialsManager.Storage.Kind,
+            reason: AccountAuthenticationSafetyDiagnostic.Reason
+        ) {
+            let event: AccountAuthenticationSafetyEvent = reason == .locallyInvalidatedCredential
+                ? .locallyInvalidatedCredential(kind: kind)
+                : .missingLocalCredential(kind: kind)
+            let disposition = AccountAuthenticationSafetyPolicy.disposition(for: event)
+            DDLogInfo(
+                AccountAuthenticationSafetyDiagnostic(
+                    source: .localCredential,
+                    reason: reason,
+                    credentialKind: kind,
+                    counterReserved: false
+                ).line
+            )
+            self.statusMessage.accept(disposition.userMessage)
+            self.connectionGate.markFailed()
+            AccountManager.shared.changeNewUserState(
+                for: self.jid,
+                to: .failure(disposition.userMessage)
+            )
+            self.tokenShouldUpdate()
         }
         cancelDelayedConnectTimer()
         self.connectionGate.markAuthenticating()
@@ -157,8 +178,10 @@ extension Account: XMPPStreamDelegate {
                     try stream.authenticate(withPassword: password)
                     AccountManager.shared.changeNewUserState(for: self.jid, to: .connect)
                 } else {
-                    DDLogDebug("missing password credential for primary stream jid=\(self.jid)")
-                    invalidate()
+                    requireReauthentication(
+                        kind: .password,
+                        reason: .missingLocalCredential
+                    )
                 }
             } catch {
                 reconnect(error)
@@ -172,8 +195,11 @@ extension Account: XMPPStreamDelegate {
             creditionalsItem.use {
                 [unowned self] (isInvalidated, item) in
                 if isInvalidated {
-                    item.release(.credentialRevoked)
-                    invalidate()
+                    item.release(.authFailedRecoverable)
+                    requireReauthentication(
+                        kind: .token,
+                        reason: .locallyInvalidatedCredential
+                    )
                     return
                 }
                 do {
@@ -186,9 +212,11 @@ extension Account: XMPPStreamDelegate {
                     case .started:
                         AccountManager.shared.changeNewUserState(for: self.jid, to: .connect)
                     case .missingCredential:
-                        self.authenticationCounterTracker.authenticationDidFail()
                         item.release(.authFailedRecoverable)
-                        self.tokenShouldUpdate()
+                        requireReauthentication(
+                            kind: .token,
+                            reason: .missingLocalCredential
+                        )
                     }
                 } catch {
                     self.authenticationCounterTracker.authenticationDidFail()
@@ -205,8 +233,11 @@ extension Account: XMPPStreamDelegate {
             creditionalsItem.use {
                 [unowned self] (isInvalidated, item) in
                 if isInvalidated {
-                    item.release(.credentialRevoked)
-                    invalidate()
+                    item.release(.authFailedRecoverable)
+                    requireReauthentication(
+                        kind: .secret,
+                        reason: .locallyInvalidatedCredential
+                    )
                     return
                 }
                 do {
@@ -225,9 +256,11 @@ extension Account: XMPPStreamDelegate {
 //                            ToastPresenter(message: "Stream try auth").present(animated: true)
 //                        }
                     case .missingCredential:
-                        self.authenticationCounterTracker.authenticationDidFail()
                         item.release(.authFailedRecoverable)
-                        self.tokenShouldUpdate()
+                        requireReauthentication(
+                            kind: .secret,
+                            reason: .missingLocalCredential
+                        )
 //                        DispatchQueue.main.async {
 //                            ToastPresenter(message: "Stream invalidated").present(animated: true)
 //                        }

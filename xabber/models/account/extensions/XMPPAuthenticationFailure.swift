@@ -135,9 +135,174 @@ enum XMPPAuthenticationFailureClientAction: Equatable {
     }
 }
 
-enum XMPPAuthenticationFailureSource {
+enum XMPPAuthenticationFailureSource: Equatable {
     case primaryAccount
     case secondaryStream
+}
+
+struct AccountRevocationEvidence: Equatable {
+    enum Source: String, Equatable {
+        case currentPrimarySASLAccountDisabled
+        case verifiedCurrentDeviceHeadline
+    }
+
+    let source: Source
+    let eventID: String
+}
+
+struct AccountRevocationRequest: Equatable {
+    let jid: String
+    let message: String
+    let evidence: AccountRevocationEvidence
+}
+
+enum AccountAuthenticationSafetyEvent: Equatable {
+    case missingLocalCredential(kind: CredentialsManager.Storage.Kind)
+    case locallyInvalidatedCredential(kind: CredentialsManager.Storage.Kind)
+    case authenticationStartFailed
+    case ambiguousAuthenticationFailure
+    case saslAccountDisabled(
+        source: XMPPAuthenticationFailureSource,
+        isCurrentStream: Bool,
+        eventID: String
+    )
+    case deviceHeadlineRevocation(
+        isServerSender: Bool,
+        isHeadline: Bool,
+        namespaceMatches: Bool,
+        revokedDeviceID: String?,
+        currentDeviceID: String?,
+        eventID: String
+    )
+}
+
+enum AccountAuthenticationSafetyDisposition: Equatable {
+    case retryableFailure
+    case reauthenticationRequired(kind: CredentialsManager.Storage.Kind)
+    case authoritativeRevocation(AccountRevocationEvidence)
+
+    var authorizesAccountDeletion: Bool {
+        if case .authoritativeRevocation = self {
+            return true
+        }
+        return false
+    }
+
+    var userMessage: String {
+        switch self {
+        case .reauthenticationRequired:
+            return "Sign in again to restore account access. Your local data was kept."
+        case .retryableFailure:
+            return "Authentication failed. Please try again."
+        case .authoritativeRevocation:
+            return "Device was revoked"
+        }
+    }
+}
+
+struct AccountAuthenticationSafetyPolicy {
+    static func disposition(
+        for event: AccountAuthenticationSafetyEvent
+    ) -> AccountAuthenticationSafetyDisposition {
+        switch event {
+        case .missingLocalCredential(let kind),
+             .locallyInvalidatedCredential(let kind):
+            return .reauthenticationRequired(kind: kind)
+
+        case .authenticationStartFailed,
+             .ambiguousAuthenticationFailure:
+            return .retryableFailure
+
+        case .saslAccountDisabled(let source, let isCurrentStream, let eventID):
+            guard source == .primaryAccount, isCurrentStream else {
+                return .retryableFailure
+            }
+            return .authoritativeRevocation(
+                AccountRevocationEvidence(
+                    source: .currentPrimarySASLAccountDisabled,
+                    eventID: eventID
+                )
+            )
+
+        case .deviceHeadlineRevocation(
+            let isServerSender,
+            let isHeadline,
+            let namespaceMatches,
+            let revokedDeviceID,
+            let currentDeviceID,
+            let eventID
+        ):
+            guard isServerSender,
+                  isHeadline,
+                  namespaceMatches,
+                  let revokedDeviceID = revokedDeviceID?.nilIfEmpty,
+                  let currentDeviceID = currentDeviceID?.nilIfEmpty,
+                  revokedDeviceID == currentDeviceID else {
+                return .retryableFailure
+            }
+            return .authoritativeRevocation(
+                AccountRevocationEvidence(
+                    source: .verifiedCurrentDeviceHeadline,
+                    eventID: eventID
+                )
+            )
+        }
+    }
+}
+
+final class AccountRevocationProcessingGate {
+    private let lock = NSLock()
+    private var processedKeys: Set<String> = []
+
+    func claim(_ request: AccountRevocationRequest) -> Bool {
+        let key = [
+            request.jid,
+            request.evidence.source.rawValue,
+            request.evidence.eventID
+        ].joined(separator: "|")
+        lock.lock()
+        defer { lock.unlock() }
+        return processedKeys.insert(key).inserted
+    }
+}
+
+struct AccountRevocationNotificationParser {
+    static func request(from notification: Notification) -> AccountRevocationRequest? {
+        notification.object as? AccountRevocationRequest
+    }
+}
+
+struct AccountAuthenticationSafetyDiagnostic {
+    enum Source: String {
+        case localCredential
+        case primarySASL
+        case secondaryStream
+        case deviceHeadline
+        case transport
+    }
+
+    enum Reason: String {
+        case missingLocalCredential
+        case locallyInvalidatedCredential
+        case authenticationStartFailed
+        case ambiguousAuthenticationFailure
+        case authoritativeRevocation
+    }
+
+    let source: Source
+    let reason: Reason
+    let credentialKind: CredentialsManager.Storage.Kind?
+    let counterReserved: Bool
+
+    var line: String {
+        [
+            "event=authentication_safety_disposition",
+            "source=\(source.rawValue)",
+            "reason=\(reason.rawValue)",
+            "credentialKind=\(credentialKind?.rawValue ?? "none")",
+            "counterReserved=\(counterReserved)"
+        ].joined(separator: " ")
+    }
 }
 
 struct XMPPAuthenticationFailureResolution: Equatable {

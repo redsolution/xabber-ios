@@ -233,9 +233,26 @@ extension Account {
 
         case .removeAccount(let alertMessage):
             self.disconnect(hard: true, cause: .permanentAuthFailure)
+            let disposition = AccountAuthenticationSafetyPolicy.disposition(
+                for: .saslAccountDisabled(
+                    source: .primaryAccount,
+                    isCurrentStream: true,
+                    eventID: "primary-sasl-account-disabled"
+                )
+            )
+            guard case .authoritativeRevocation(let evidence) = disposition else {
+                AccountManager.shared.changeNewUserState(
+                    for: self.jid,
+                    to: .failure(disposition.userMessage)
+                )
+                return
+            }
             ApplicationStateManager.shared.removeAccountForAuthenticationFailure(
-                jid: self.jid,
-                message: alertMessage
+                AccountRevocationRequest(
+                    jid: self.jid,
+                    message: alertMessage,
+                    evidence: evidence
+                )
             )
 
         case .refreshDeviceSecret:
@@ -264,10 +281,6 @@ extension Account {
         DispatchQueue.main.async {
             CredentialsExpiredPresenter(jid: self.jid).present(animated: true)
         }
-    }
-    
-    public final func tokenWasInvalidated() {
-        NotificationCenter.default.post(name: ApplicationStateManager.tokenWasExpired, object: self.jid)
     }
     
     public final func didReceiveRoster() {

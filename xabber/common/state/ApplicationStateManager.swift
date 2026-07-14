@@ -330,6 +330,7 @@ class ApplicationStateManager: NSObject {
     
     static let tokenWasExpired = Notification.Name("com.xabber.device.expired")
     public var expiredTokenAccountsList: Array<ExpiredTokenAccountItem> = Array<ExpiredTokenAccountItem>()
+    private let accountRevocationProcessingGate = AccountRevocationProcessingGate()
     
     public var state: State {
         get {
@@ -429,34 +430,47 @@ class ApplicationStateManager: NSObject {
         
     }
 
-    public final func removeAccountForAuthenticationFailure(jid: String, message: String) {
-        AccountManager.shared.deleteAccount(by: jid)
+    @discardableResult
+    public final func removeAccountForAuthenticationFailure(
+        _ request: AccountRevocationRequest
+    ) -> Bool {
+        guard accountRevocationProcessingGate.claim(request) else {
+            return false
+        }
+        AccountManager.shared.deleteAccount(by: request.jid)
         DispatchQueue.main.async {
             if AccountManager.shared.emptyAccountsList() {
                 let appDelegate = UIApplication.shared.delegate as? AppDelegate
                 AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window, userInfo: nil)
             }
             XTokenInvalidatePresenter().present(
-                jid: jid,
+                jid: request.jid,
                 title: "Access revoked".localizeString(id: "account_access_revoke", arguments: []),
-                message: message,
+                message: request.message,
                 animated: true,
                 completion: nil
             )
         }
+        return true
     }
 
-    private final func tokenWasInvalidated(for jid: String) {
+    @discardableResult
+    private final func tokenWasInvalidated(
+        for request: AccountRevocationRequest
+    ) -> Bool {
+        guard accountRevocationProcessingGate.claim(request) else {
+            return false
+        }
         func show() {
             XTokenInvalidatePresenter().present(
-                jid: jid,
+                jid: request.jid,
                 title: "Access revoked".localizeString(id: "account_access_revoke", arguments: []),
-                message: "Access to account \(jid) was revoked. Locally stored data deleted.".localizeString(id: "account_access_to_account_was_revoked", arguments: [jid]),
+                message: request.message,
                 animated: true,
                 completion: nil
             )
         }
-        AccountManager.shared.deleteAccount(by: jid)
+        AccountManager.shared.deleteAccount(by: request.jid)
         DispatchQueue.main.async {
             if AccountManager.shared.emptyAccountsList() {
                 let appDelegate = UIApplication.shared.delegate as? AppDelegate
@@ -466,14 +480,15 @@ class ApplicationStateManager: NSObject {
                 show()
             }
         }
+        return true
     }
     
     @objc
     private final func didReceiveDeviceExpireNotification(_ notification: Notification) {
-        guard let jid = notification.object as? String else {
+        guard let request = AccountRevocationNotificationParser.request(from: notification) else {
             return
         }
-        self.tokenWasInvalidated(for: jid)
+        self.tokenWasInvalidated(for: request)
 //        if let index = self.expiredTokenAccountsList.firstIndex(where: { $0.jid == jid }) {
 //            if !self.expiredTokenAccountsList[index].canRetry() {
 //                self.tokenWasInvalidated(for: jid)
