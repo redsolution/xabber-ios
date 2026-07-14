@@ -29,9 +29,13 @@ struct ChatSearchResultsListRenderModel: Equatable {
     }
 
     let generation: UInt64
-    let results: [ChatSearchResult]
+    let preparedResults: ChatSearchPreparedResults
     let selectedID: ChatSearchResult.ID?
     let phase: Phase
+
+    var results: [ChatSearchResult] {
+        preparedResults.results
+    }
 
     init(
         generation: UInt64,
@@ -40,7 +44,19 @@ struct ChatSearchResultsListRenderModel: Equatable {
         phase: Phase
     ) {
         self.generation = generation
-        self.results = ChatSearchResultCollection.orderedAndDeduplicated(results)
+        preparedResults = ChatSearchPreparedResults(results)
+        self.selectedID = selectedID
+        self.phase = phase
+    }
+
+    init(
+        generation: UInt64,
+        preparedResults: ChatSearchPreparedResults,
+        selectedID: ChatSearchResult.ID?,
+        phase: Phase
+    ) {
+        self.generation = generation
+        self.preparedResults = preparedResults
         self.selectedID = selectedID
         self.phase = phase
     }
@@ -66,12 +82,24 @@ struct ChatSearchResultsListSnapshotPlan: Equatable {
         incoming: [ChatSearchResult],
         visibleAnchor: ChatSearchResultsListScrollAnchor?
     ) -> ChatSearchResultsListSnapshotPlan {
-        let normalized = ChatSearchResultCollection.orderedAndDeduplicated(incoming)
+        make(
+            previous: previous,
+            preparedIncoming: ChatSearchPreparedResults(incoming),
+            visibleAnchor: visibleAnchor
+        )
+    }
+
+    static func make(
+        previous: [ChatSearchResult],
+        preparedIncoming: ChatSearchPreparedResults,
+        visibleAnchor: ChatSearchResultsListScrollAnchor?
+    ) -> ChatSearchResultsListSnapshotPlan {
+        let normalized = preparedIncoming.results
         let previousByID = Dictionary(
             previous.map { ($0.id, $0) },
             uniquingKeysWith: { current, _ in current }
         )
-        let itemIDs = normalized.map(\.id)
+        let itemIDs = preparedIncoming.itemIDs
         let reconfiguredIDs = normalized.compactMap { result -> ChatSearchResult.ID? in
             guard let previousResult = previousByID[result.id],
                   previousResult != result else {
@@ -215,6 +243,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
     private(set) var retainedModeSwitchScrollAnchor: ChatSearchResultsListScrollAnchor?
     private(set) var isPreparedForRemoval = false
     private(set) var isPagingIndicatorVisible = false
+    private(set) var lastAppliedPreparedResults: ChatSearchPreparedResults?
 
     private var currentResults: [ChatSearchResult] = []
     private var resultsByID: [ChatSearchResult.ID: ChatSearchResult] = [:]
@@ -330,6 +359,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
     }
 
     func render(_ model: ChatSearchResultsListRenderModel, animated: Bool = false) {
+        assert(Thread.isMainThread, "Chat search diffable snapshots must apply on main")
         loadViewIfNeeded()
         if let latestGeneration, model.generation < latestGeneration {
             return
@@ -341,20 +371,13 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         let visibleAnchor = captureVisibleAnchor()
         let plan = ChatSearchResultsListSnapshotPlan.make(
             previous: currentResults,
-            incoming: model.results,
+            preparedIncoming: model.preparedResults,
             visibleAnchor: visibleAnchor
         )
-        currentModel = ChatSearchResultsListRenderModel(
-            generation: model.generation,
-            results: model.results,
-            selectedID: model.selectedID,
-            phase: model.phase
-        )
-        currentResults = currentModel?.results ?? []
-        resultsByID = Dictionary(
-            currentResults.map { ($0.id, $0) },
-            uniquingKeysWith: { current, _ in current }
-        )
+        currentModel = model
+        currentResults = model.preparedResults.results
+        resultsByID = model.preparedResults.resultsByID
+        lastAppliedPreparedResults = model.preparedResults
         displayedResultIDs = plan.itemIDs
         lastReconfiguredResultIDs = plan.reconfiguredIDs
         lastRetainedScrollAnchor = plan.retainedAnchor
@@ -481,6 +504,7 @@ class ChatSearchResultsListViewController: UIViewController, UITableViewDelegate
         pendingProgrammaticScrollID = nil
         pendingRestoredScrollAnchor = nil
         currentModel = nil
+        lastAppliedPreparedResults = nil
         latestGeneration = nil
         onSelectResult = nil
         onRetry = nil

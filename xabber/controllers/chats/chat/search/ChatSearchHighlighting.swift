@@ -40,6 +40,98 @@ struct ChatSearchHighlightStyle: Equatable {
     }
 }
 
+final class ChatSearchHighlightCache {
+    private struct Key: Hashable {
+        let sourceHash: Int
+        let sourceLength: Int
+        let query: String?
+        let localeIdentifier: String
+        let backgroundHash: Int
+        let foregroundHash: Int
+    }
+
+    private struct Entry {
+        let source: NSAttributedString
+        let style: ChatSearchHighlightStyle
+        let output: NSAttributedString
+    }
+
+    private let countLimit: Int
+    private let lock = NSLock()
+    private var entries: [Key: Entry] = [:]
+    private var insertionOrder: [Key] = []
+    private var storedComputationCount = 0
+
+    init(countLimit: Int) {
+        self.countLimit = max(1, countLimit)
+    }
+
+    var computationCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedComputationCount
+    }
+
+    func applying(
+        to source: NSAttributedString,
+        query: String?,
+        style: ChatSearchHighlightStyle,
+        locale: Locale = .current
+    ) -> NSAttributedString {
+        let key = Key(
+            sourceHash: source.hash,
+            sourceLength: source.length,
+            query: query,
+            localeIdentifier: locale.identifier,
+            backgroundHash: style.backgroundColor.hash,
+            foregroundHash: style.foregroundColor.hash
+        )
+
+        lock.lock()
+        if let entry = entries[key],
+           entry.style == style,
+           entry.source.isEqual(to: source) {
+            let output = entry.output
+            lock.unlock()
+            return output
+        }
+        lock.unlock()
+
+        let computed = ChatSearchHighlighter.applyingUncached(
+            to: source,
+            query: query,
+            style: style,
+            locale: locale
+        )
+        let immutableOutput = NSAttributedString(attributedString: computed)
+
+        lock.lock()
+        storedComputationCount += 1
+        if entries[key] == nil {
+            insertionOrder.append(key)
+        }
+        entries[key] = Entry(
+            source: NSAttributedString(attributedString: source),
+            style: style,
+            output: immutableOutput
+        )
+        while entries.count > countLimit,
+              let oldest = insertionOrder.first {
+            insertionOrder.removeFirst()
+            entries.removeValue(forKey: oldest)
+        }
+        lock.unlock()
+        return immutableOutput
+    }
+
+    func removeAll() {
+        lock.lock()
+        entries.removeAll(keepingCapacity: false)
+        insertionOrder.removeAll(keepingCapacity: false)
+        lock.unlock()
+    }
+}
+
 enum ChatSearchQueryRangeFinder {
     static func ranges(
         in text: String,
@@ -84,12 +176,28 @@ enum ChatSearchQueryRangeFinder {
 enum ChatSearchHighlighter {
     static let markerAttribute = NSAttributedString.Key("xabber.chat.search.highlight")
 
+    private static let sharedCache = ChatSearchHighlightCache(countLimit: 256)
+
     private static let originalBackgroundAttribute =
         NSAttributedString.Key("xabber.chat.search.original-background")
     private static let originalForegroundAttribute =
         NSAttributedString.Key("xabber.chat.search.original-foreground")
 
     static func applying(
+        to source: NSAttributedString,
+        query: String?,
+        style: ChatSearchHighlightStyle,
+        locale: Locale = .current
+    ) -> NSAttributedString {
+        sharedCache.applying(
+            to: source,
+            query: query,
+            style: style,
+            locale: locale
+        )
+    }
+
+    fileprivate static func applyingUncached(
         to source: NSAttributedString,
         query: String?,
         style: ChatSearchHighlightStyle,

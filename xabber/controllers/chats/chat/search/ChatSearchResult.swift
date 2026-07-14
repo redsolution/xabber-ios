@@ -293,6 +293,29 @@ enum ChatSearchResultCollection {
     }
 }
 
+final class ChatSearchPreparedResults: @unchecked Sendable, Equatable {
+    let results: [ChatSearchResult]
+    let resultsByID: [ChatSearchResult.ID: ChatSearchResult]
+    let itemIDs: [ChatSearchResult.ID]
+
+    init(_ incoming: [ChatSearchResult]) {
+        let results = ChatSearchResultCollection.orderedAndDeduplicated(incoming)
+        self.results = results
+        resultsByID = Dictionary(
+            results.map { ($0.id, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
+        itemIDs = results.map(\.id)
+    }
+
+    static func == (
+        lhs: ChatSearchPreparedResults,
+        rhs: ChatSearchPreparedResults
+    ) -> Bool {
+        lhs === rhs || lhs.results == rhs.results
+    }
+}
+
 enum ChatSearchResultPositionFormatter {
     static func text(currentIndex: Int?, total: Int) -> String? {
         guard let currentIndex,
