@@ -22,37 +22,6 @@ import UIKit
 import MapKit
 import MaterialComponents.MDCPalettes
 
-protocol TextMessageCellAvatarLoading: AnyObject {
-    func loadGroupAvatar(
-        url: String,
-        userId: String,
-        jid: String,
-        owner: String,
-        size: CGFloat,
-        completion: @escaping (UIImage?) -> Void
-    )
-}
-
-final class DefaultTextMessageCellAvatarLoader: TextMessageCellAvatarLoading {
-    func loadGroupAvatar(
-        url: String,
-        userId: String,
-        jid: String,
-        owner: String,
-        size: CGFloat,
-        completion: @escaping (UIImage?) -> Void
-    ) {
-        DefaultAvatarManager.shared.getGroupAvatar(
-            url: url,
-            userId: userId,
-            jid: jid,
-            owner: owner,
-            size: size,
-            callback: completion
-        )
-    }
-}
-
 struct TextMessageCellAvatarIdentity: Equatable {
     let messagePrimary: String
     let avatarUrl: String
@@ -60,6 +29,7 @@ struct TextMessageCellAvatarIdentity: Equatable {
     let jid: String
     let owner: String
     let displayName: String
+    let request: ChatAvatarRequest
 }
 
 class InlineLocationsGridView: InlineAttachmentView {
@@ -93,19 +63,31 @@ class InlineLocationsGridView: InlineAttachmentView {
         }()
 
         var location: LocationAttachment
-        private let snapshotProvider: ChatLocationSnapshotProviding
-        private var requestedSnapshotKey: String?
+        private let snapshotPipeline: ChatLocationSnapshotServing
+        private var screenScale: Double
+        private var traitStyle: ChatThumbnailTraitStyle
         private var representedContainerPrimary = ""
-        private var representedSnapshotRequest: InlineAttachmentRepresentedRequest?
-        private var snapshotTask: ChatLocationSnapshotTask?
+        private(set) var representedSnapshotRequest: ChatLocationSnapshotRequest?
+        private var snapshotSubscription: ChatLocationSnapshotSubscription?
+        private var snapshotDeliveryToken: UUID?
+        private var isSnapshotWorkEnabled = true
+        private var snapshotNeedsResume = false
+
+        var renderedSnapshotImage: UIImage? {
+            imageView.image
+        }
 
         init(
             frame: CGRect,
             location: LocationAttachment,
-            snapshotProvider: ChatLocationSnapshotProviding
+            snapshotPipeline: ChatLocationSnapshotServing,
+            screenScale: Double,
+            traitStyle: ChatThumbnailTraitStyle
         ) {
             self.location = location
-            self.snapshotProvider = snapshotProvider
+            self.snapshotPipeline = snapshotPipeline
+            self.screenScale = max(1, screenScale)
+            self.traitStyle = traitStyle
             super.init(frame: frame)
             setup()
             update(location, representedBy: "")
@@ -113,6 +95,22 @@ class InlineLocationsGridView: InlineAttachmentView {
 
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
+        }
+
+        func updateRenderingEnvironment(
+            screenScale: Double,
+            traitStyle: ChatThumbnailTraitStyle
+        ) {
+            let nextScale = max(1, screenScale)
+            guard self.screenScale != nextScale || self.traitStyle != traitStyle else { return }
+            snapshotSubscription?.cancel()
+            snapshotSubscription = nil
+            snapshotDeliveryToken = nil
+            representedSnapshotRequest = nil
+            self.screenScale = nextScale
+            self.traitStyle = traitStyle
+            snapshotNeedsResume = !isSnapshotWorkEnabled
+            setNeedsLayout()
         }
 
         private func setup() {
@@ -127,39 +125,60 @@ class InlineLocationsGridView: InlineAttachmentView {
             _ location: LocationAttachment,
             representedBy containerPrimary: String = ""
         ) {
-            let nextRequest = snapshotRequest(
-                for: location,
-                representedBy: containerPrimary,
-                size: bounds.size
+            let previousIdentity = representedAttachmentIdentity
+            let nextIdentity = InlineAttachmentRepresentedRequest(
+                containerPrimary: containerPrimary,
+                referencePrimary: location.primary,
+                resourceIdentity: [
+                    String(location.coordinate.latitude),
+                    String(location.coordinate.longitude),
+                    location.snapshotURL?.absoluteString ?? ""
+                ].joined(separator: "|")
             )
-            let preservesCurrentRequest = representedSnapshotRequest == nextRequest
-            if !preservesCurrentRequest {
-                snapshotTask?.cancel()
-                snapshotTask = nil
-                requestedSnapshotKey = nil
+            if previousIdentity != nextIdentity {
+                snapshotSubscription?.cancel()
+                snapshotSubscription = nil
+                snapshotDeliveryToken = nil
                 representedSnapshotRequest = nil
-                imageView.image = location.snapshotURL.flatMap {
-                    UIImage(contentsOfFile: $0.path)
+                if previousIdentity?.resourceIdentity != nextIdentity.resourceIdentity {
+                    imageView.image = nil
                 }
-            } else if let snapshotURL = location.snapshotURL {
-                imageView.image = UIImage(contentsOfFile: snapshotURL.path)
             }
             self.location = location
             representedContainerPrimary = containerPrimary
+            representedAttachmentIdentity = nextIdentity
             addressLabel.text = location.address?.isNotEmpty == true ? location.address : location.geoURI
             accessibilityLabel = addressLabel.text
             setNeedsLayout()
         }
 
         func resetState() {
-            snapshotTask?.cancel()
-            snapshotTask = nil
+            snapshotSubscription?.cancel()
+            snapshotSubscription = nil
+            snapshotDeliveryToken = nil
             representedSnapshotRequest = nil
-            requestedSnapshotKey = nil
             representedContainerPrimary = ""
+            representedAttachmentIdentity = nil
+            snapshotNeedsResume = false
             imageView.image = nil
             addressLabel.text = nil
             accessibilityLabel = nil
+        }
+
+        func cancelOffscreenWork() {
+            isSnapshotWorkEnabled = false
+            guard snapshotSubscription != nil else { return }
+            snapshotSubscription?.cancel()
+            snapshotSubscription = nil
+            snapshotDeliveryToken = nil
+            representedSnapshotRequest = nil
+            snapshotNeedsResume = true
+        }
+
+        func resumeOnscreenWork() {
+            isSnapshotWorkEnabled = true
+            snapshotNeedsResume = false
+            setNeedsLayout()
         }
 
         override func layoutSubviews() {
@@ -182,79 +201,122 @@ class InlineLocationsGridView: InlineAttachmentView {
         }
 
         private func loadSnapshotIfNeeded() {
-            guard imageView.image == nil,
+            guard isSnapshotWorkEnabled,
                   bounds.width > 1,
                   bounds.height > 1 else {
                 return
             }
-            let key = "\(location.primary):\(Int(bounds.width))x\(Int(bounds.height))"
-            guard requestedSnapshotKey != key else {
-                return
-            }
-            requestedSnapshotKey = key
             let request = snapshotRequest(
                 for: location,
-                representedBy: representedContainerPrimary,
                 size: bounds.size
             )
+            guard representedSnapshotRequest != request else { return }
+            snapshotSubscription?.cancel()
             representedSnapshotRequest = request
-            let resolvedLocation = ChatAttachmentResolvedLocation(
-                coordinate: AttachmentLocationCoordinate(
-                    latitude: location.coordinate.latitude,
-                    longitude: location.coordinate.longitude
-                ),
-                displayAddress: location.address,
-                accuracy: nil
+            let deliveryToken = UUID()
+            snapshotDeliveryToken = deliveryToken
+            let consumerIdentity = ChatCollectionPrefetchIdentity(
+                kind: .locationSnapshot,
+                messagePrimary: representedContainerPrimary.isEmpty
+                    ? location.primary
+                    : representedContainerPrimary,
+                referencePrimary: location.primary
             )
-            snapshotTask = snapshotProvider.makeSnapshot(
-                for: resolvedLocation,
-                size: bounds.size
-            ) { [weak self, request] result in
-                DispatchQueue.main.async {
-                    guard let self,
-                          self.representedSnapshotRequest == request else {
-                        return
-                    }
-                    self.snapshotTask = nil
-                    guard
-                          case .success(let url) = result,
-                          let image = UIImage(contentsOfFile: url.path) else {
-                        return
-                    }
-                    self.location.snapshotURL = url
-                    self.imageView.image = image
+            let subscription = snapshotPipeline.acquire(
+                request,
+                consumer: ChatLocationSnapshotConsumer(
+                    identity: consumerIdentity,
+                    role: .visible(UUID())
+                )
+            ) { [weak self, request, deliveryToken] result in
+                guard let self,
+                      self.representedSnapshotRequest == request,
+                      self.snapshotDeliveryToken == deliveryToken,
+                      case .success(let delivery) = result else {
+                    return
                 }
+                self.snapshotSubscription = nil
+                self.snapshotDeliveryToken = nil
+                self.snapshotNeedsResume = false
+                self.imageView.image = delivery.image
+            }
+            if snapshotDeliveryToken == deliveryToken {
+                snapshotSubscription = subscription
+            } else {
+                subscription.cancel()
             }
         }
 
         private func snapshotRequest(
             for location: LocationAttachment,
-            representedBy containerPrimary: String,
             size: CGSize
-        ) -> InlineAttachmentRepresentedRequest {
-            InlineAttachmentRepresentedRequest(
-                containerPrimary: containerPrimary,
-                referencePrimary: location.primary,
-                resourceIdentity: [
-                    String(location.coordinate.latitude),
-                    String(location.coordinate.longitude),
-                    String(Int(size.width)),
-                    String(Int(size.height))
-                ].joined(separator: "|")
+        ) -> ChatLocationSnapshotRequest {
+            ChatLocationSnapshotRequest(
+                latitude: location.coordinate.latitude,
+                longitude: location.coordinate.longitude,
+                sourceURL: location.snapshotURL,
+                displaySize: ChatCollectionPrefetchSize(
+                    width: Double(size.width),
+                    height: Double(size.height)
+                ),
+                scale: screenScale,
+                mapStyle: .standard,
+                traitStyle: traitStyle
             )
         }
+
+        private var representedAttachmentIdentity: InlineAttachmentRepresentedRequest?
     }
 
     var views: [LocationView] = []
-    private let snapshotProvider: ChatLocationSnapshotProviding
+    private let snapshotPipeline: ChatLocationSnapshotServing
+    private var screenScale: Double
+    private var traitStyle: ChatThumbnailTraitStyle
+    private var isSnapshotWorkEnabled = true
 
-    init(snapshotProvider: ChatLocationSnapshotProviding = MapKitChatLocationSnapshotProvider()) {
-        self.snapshotProvider = snapshotProvider
+    init(
+        snapshotPipeline: ChatLocationSnapshotServing = ChatLocationSnapshotPipeline.shared,
+        screenScale: Double = Double(UIScreen.main.scale),
+        traitStyle: ChatThumbnailTraitStyle = ChatThumbnailTraitStyle(UIScreen.main.traitCollection.userInterfaceStyle)
+    ) {
+        self.snapshotPipeline = snapshotPipeline
+        self.screenScale = max(1, screenScale)
+        self.traitStyle = traitStyle
         super.init(frame: .zero)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func updateRenderingEnvironment(
+        screenScale: Double,
+        traitStyle: ChatThumbnailTraitStyle
+    ) {
+        let nextScale = max(1, screenScale)
+        guard self.screenScale != nextScale || self.traitStyle != traitStyle else { return }
+        self.screenScale = nextScale
+        self.traitStyle = traitStyle
+        views.forEach {
+            $0.updateRenderingEnvironment(screenScale: nextScale, traitStyle: traitStyle)
+        }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateRenderingEnvironment(
+            screenScale: Double(window?.screen.scale ?? UIScreen.main.scale),
+            traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
+        )
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle else { return }
+        updateRenderingEnvironment(
+            screenScale: Double(window?.screen.scale ?? UIScreen.main.scale),
+            traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
+        )
     }
 
     func resetState() {
@@ -265,6 +327,16 @@ class InlineLocationsGridView: InlineAttachmentView {
         views.removeAll()
         contentViews.removeAll()
         grid.removeAll()
+    }
+
+    func cancelOffscreenWork() {
+        isSnapshotWorkEnabled = false
+        views.forEach { $0.cancelOffscreenWork() }
+    }
+
+    func resumeOnscreenWork() {
+        isSnapshotWorkEnabled = true
+        views.forEach { $0.resumeOnscreenWork() }
     }
 
     func prepareGrid(_ attachments: [LocationAttachment]) -> [CGRect] {
@@ -289,8 +361,13 @@ class InlineLocationsGridView: InlineAttachmentView {
             let view = LocationView(
                 frame: rect,
                 location: attachments[index],
-                snapshotProvider: snapshotProvider
+                snapshotPipeline: snapshotPipeline,
+                screenScale: screenScale,
+                traitStyle: traitStyle
             )
+            if !isSnapshotWorkEnabled {
+                view.cancelOffscreenWork()
+            }
             addSubview(view)
             view.update(attachments[index], representedBy: containerPrimary)
             views.append(view)
@@ -420,8 +497,12 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         return label
     }()
 
-    var avatarLoader: TextMessageCellAvatarLoading = DefaultTextMessageCellAvatarLoader()
+    var avatarPipeline: ChatAvatarServing = ChatAvatarPipeline.shared
     private(set) var representedAvatarIdentity: TextMessageCellAvatarIdentity?
+    private var avatarSubscription: ChatAvatarSubscription?
+    private var avatarDeliveryToken: UUID?
+    private var isAvatarWorkEnabled = true
+    private var avatarNeedsResume = false
     
     
         
@@ -838,7 +919,11 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         
         super.prepareForReuse()
         
+        avatarSubscription?.cancel()
+        avatarSubscription = nil
+        avatarDeliveryToken = nil
         representedAvatarIdentity = nil
+        avatarNeedsResume = false
         messagePrimary = ""
         avatarView.image = nil
         avatarView.isHidden = true
@@ -932,11 +1017,26 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
     }
 
     func cancelOffscreenWork() {
+        isAvatarWorkEnabled = false
+        if avatarSubscription != nil {
+            avatarSubscription?.cancel()
+            avatarSubscription = nil
+            avatarDeliveryToken = nil
+            avatarNeedsResume = representedAvatarIdentity != nil
+        }
+        locationsView.cancelOffscreenWork()
+        contactsView.cancelOffscreenWork()
         filesView.cancelOffscreenWork()
         forwardsContainer.cancelOffscreenFileWork()
     }
 
     func resumeOnscreenWork() {
+        isAvatarWorkEnabled = true
+        if avatarNeedsResume, let identity = representedAvatarIdentity {
+            startAvatarRequest(identity)
+        }
+        locationsView.resumeOnscreenWork()
+        contactsView.resumeOnscreenWork()
         filesView.resumeOnscreenWork()
         forwardsContainer.resumeOnscreenFileWork()
     }
@@ -964,7 +1064,11 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         if reuseInlineViews {
             self.imagesView.updateContent(message.images, representedBy: message.primary)
             self.locationsView.updateContent(message.locations, representedBy: message.primary)
-            self.contactsView.updateContent(message.contacts, palette: palette)
+            self.contactsView.updateContent(
+                message.contacts,
+                palette: palette,
+                representedBy: message.primary
+            )
             self.filesView.updateContent(
                 message.files,
                 palette: palette,
@@ -973,7 +1077,11 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         } else {
             self.imagesView.configure(message.images, representedBy: message.primary)
             self.locationsView.configure(message.locations, representedBy: message.primary)
-            self.contactsView.configure(message.contacts, palette: palette)
+            self.contactsView.configure(
+                message.contacts,
+                palette: palette,
+                representedBy: message.primary
+            )
             self.filesView.configure(
                 message.files,
                 palette: palette,
@@ -1018,54 +1126,95 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
 
     private func configureAvatar(for message: MessageType) {
         guard message.withAvatar else {
+            avatarSubscription?.cancel()
+            avatarSubscription = nil
+            avatarDeliveryToken = nil
             representedAvatarIdentity = nil
+            avatarNeedsResume = false
             avatarView.isHidden = true
             avatarView.image = nil
             return
         }
 
         avatarView.isHidden = false
-        let fallback = UIImageView.getDefaultAvatar(
-            for: message.groupchatAuthorNickname,
-            owner: message.owner,
-            size: 32
+        let request = ChatAvatarRequest(
+            entityIdentity: message.groupchatAuthorId.isNotEmpty
+                ? message.groupchatAuthorId
+                : message.jid,
+            remoteURL: message.avatarUrl.flatMap(URL.init(string:)),
+            displayName: message.groupchatAuthorNickname,
+            colorKey: message.groupchatAuthorId.isNotEmpty
+                ? message.groupchatAuthorId
+                : message.owner,
+            displaySize: ChatCollectionPrefetchSize(width: 32, height: 32),
+            scale: Double(window?.screen.scale ?? UIScreen.main.scale),
+            traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
         )
-        guard let avatarUrl = message.avatarUrl else {
-            representedAvatarIdentity = nil
-            avatarView.image = fallback
-            return
-        }
-
         let identity = TextMessageCellAvatarIdentity(
             messagePrimary: message.primary,
-            avatarUrl: avatarUrl,
+            avatarUrl: message.avatarUrl ?? "",
             userId: message.groupchatAuthorId,
             jid: message.jid,
             owner: message.owner,
-            displayName: message.groupchatAuthorNickname
+            displayName: message.groupchatAuthorNickname,
+            request: request
         )
+        if representedAvatarIdentity == identity {
+            if isAvatarWorkEnabled, avatarNeedsResume {
+                startAvatarRequest(identity)
+            }
+            return
+        }
+        let previousRequest = representedAvatarIdentity?.request
+        avatarSubscription?.cancel()
+        avatarSubscription = nil
+        avatarDeliveryToken = nil
         representedAvatarIdentity = identity
-        avatarView.image = fallback
+        if previousRequest != request {
+            avatarView.image = nil
+        }
+        guard isAvatarWorkEnabled else {
+            avatarNeedsResume = true
+            return
+        }
+        startAvatarRequest(identity)
+    }
 
-        avatarLoader.loadGroupAvatar(
-            url: avatarUrl,
-            userId: message.groupchatAuthorId,
-            jid: message.jid,
-            owner: message.owner,
-            size: 32
-        ) { [weak self] image in
-            let applyImage = {
-                guard let self,
-                      self.representedAvatarIdentity == identity else {
-                    return
-                }
-                self.avatarView.image = image ?? fallback
+    private func startAvatarRequest(_ identity: TextMessageCellAvatarIdentity) {
+        avatarNeedsResume = false
+        let deliveryToken = UUID()
+        avatarDeliveryToken = deliveryToken
+        let prefetchIdentity = ChatCollectionPrefetchIdentity(
+            kind: .avatar,
+            messagePrimary: identity.messagePrimary,
+            referencePrimary: identity.userId.isNotEmpty
+                ? identity.userId
+                : identity.messagePrimary
+        )
+        let subscription = avatarPipeline.acquire(
+            identity.request,
+            consumer: ChatAvatarConsumer(
+                identity: prefetchIdentity,
+                role: .visible(UUID())
+            )
+        ) { [weak self, identity, deliveryToken] result in
+            guard let self,
+                  self.representedAvatarIdentity == identity,
+                  self.avatarDeliveryToken == deliveryToken,
+                  self.isAvatarWorkEnabled else {
+                return
             }
-            if Thread.isMainThread {
-                applyImage()
-            } else {
-                DispatchQueue.main.async(execute: applyImage)
+            self.avatarSubscription = nil
+            self.avatarDeliveryToken = nil
+            self.avatarNeedsResume = false
+            if case .success(let delivery) = result {
+                self.avatarView.image = delivery.image
             }
+        }
+        if avatarDeliveryToken == deliveryToken {
+            avatarSubscription = subscription
+        } else {
+            subscription.cancel()
         }
     }
 

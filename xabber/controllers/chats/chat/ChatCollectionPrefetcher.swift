@@ -172,6 +172,24 @@ struct ChatCollectionPrefetchContactReference: Hashable {
     let owner: String
     let jid: String
     let avatarURL: URL?
+    let displayName: String
+    let colorKey: String
+
+    init(
+        primary: String,
+        owner: String,
+        jid: String,
+        avatarURL: URL?,
+        displayName: String = "",
+        colorKey: String? = nil
+    ) {
+        self.primary = primary
+        self.owner = owner
+        self.jid = jid
+        self.avatarURL = avatarURL
+        self.displayName = displayName.isNotEmpty ? displayName : jid
+        self.colorKey = colorKey ?? (jid.isNotEmpty ? jid : owner)
+    }
 }
 
 struct ChatCollectionPrefetchItem: Hashable {
@@ -179,6 +197,8 @@ struct ChatCollectionPrefetchItem: Hashable {
     let owner: String
     let jid: String
     let avatarURL: URL?
+    let avatarEntityIdentity: String
+    let avatarDisplayName: String
     let sticker: ChatCollectionPrefetchImageReference?
     let images: [ChatCollectionPrefetchImageReference]
     let videos: [ChatCollectionPrefetchVideoReference]
@@ -190,6 +210,8 @@ struct ChatCollectionPrefetchItem: Hashable {
         owner: String,
         jid: String,
         avatarURL: URL?,
+        avatarEntityIdentity: String? = nil,
+        avatarDisplayName: String? = nil,
         sticker: ChatCollectionPrefetchImageReference? = nil,
         images: [ChatCollectionPrefetchImageReference],
         videos: [ChatCollectionPrefetchVideoReference],
@@ -200,6 +222,8 @@ struct ChatCollectionPrefetchItem: Hashable {
         self.owner = owner
         self.jid = jid
         self.avatarURL = avatarURL
+        self.avatarEntityIdentity = avatarEntityIdentity ?? ""
+        self.avatarDisplayName = avatarDisplayName ?? jid
         self.sticker = sticker
         self.images = images
         self.videos = videos
@@ -222,8 +246,8 @@ struct ChatCollectionPrefetchPageWarmup: Hashable {
 enum ChatCollectionPrefetchResource: Hashable {
     case image(identity: ChatCollectionPrefetchIdentity, request: ChatCollectionPrefetchImageRequest)
     case videoPreview(identity: ChatCollectionPrefetchIdentity, request: ChatCollectionPrefetchImageRequest)
-    case avatar(identity: ChatCollectionPrefetchIdentity, request: ChatCollectionPrefetchImageRequest)
-    case locationSnapshot(identity: ChatCollectionPrefetchIdentity, location: ChatCollectionPrefetchLocation, size: ChatCollectionPrefetchSize)
+    case avatar(identity: ChatCollectionPrefetchIdentity, request: ChatAvatarRequest)
+    case locationSnapshot(identity: ChatCollectionPrefetchIdentity, request: ChatLocationSnapshotRequest)
     case pageWarmup(ChatCollectionPrefetchPageWarmup)
 }
 
@@ -252,7 +276,7 @@ struct ChatCollectionPrefetchContext {
         locationSnapshotSize: ChatCollectionPrefetchSize,
         mediaContainerSize: ChatCollectionPrefetchSize = ChatCollectionPrefetchSize(width: 220, height: 220),
         avatarSize: ChatCollectionPrefetchSize = ChatCollectionPrefetchSize(width: 32, height: 32),
-        contactAvatarSize: ChatCollectionPrefetchSize = ChatCollectionPrefetchSize(width: 40, height: 40),
+        contactAvatarSize: ChatCollectionPrefetchSize = ChatCollectionPrefetchSize(width: 36, height: 36),
         screenScale: Double = 2,
         traitStyle: ChatThumbnailTraitStyle = .unspecified,
         pageWarmupDistance: Int = 2
@@ -456,27 +480,48 @@ enum ChatCollectionPrefetchPlanner {
             ))
         }
 
-        if let avatarURL = item.avatarURL {
+        if item.avatarURL != nil || item.avatarEntityIdentity.isNotEmpty {
             resources.insert(.avatar(
                 identity: identity(.avatar, messagePrimary: item.messagePrimary, referencePrimary: item.messagePrimary),
-                request: imageRequest(url: avatarURL, displaySize: context.avatarSize, context: context)
+                request: ChatAvatarRequest(
+                    entityIdentity: item.avatarEntityIdentity,
+                    remoteURL: item.avatarURL,
+                    displayName: item.avatarDisplayName,
+                    colorKey: item.avatarEntityIdentity.isNotEmpty ? item.avatarEntityIdentity : item.owner,
+                    displaySize: context.avatarSize,
+                    scale: context.screenScale,
+                    traitStyle: context.traitStyle
+                )
             ))
         }
 
         item.contacts.forEach { contact in
-            guard let avatarURL = contact.avatarURL else { return }
             resources.insert(.avatar(
                 identity: identity(.contactAvatar, messagePrimary: item.messagePrimary, referencePrimary: contact.primary),
-                request: imageRequest(url: avatarURL, displaySize: context.contactAvatarSize, context: context)
+                request: ChatAvatarRequest(
+                    entityIdentity: contact.jid,
+                    remoteURL: contact.avatarURL,
+                    displayName: contact.displayName,
+                    colorKey: contact.colorKey,
+                    displaySize: context.contactAvatarSize,
+                    scale: context.screenScale,
+                    traitStyle: context.traitStyle
+                )
             ))
         }
 
         item.locations.forEach { location in
-            guard location.snapshotURL == nil else { return }
             resources.insert(.locationSnapshot(
                 identity: identity(.locationSnapshot, messagePrimary: item.messagePrimary, referencePrimary: location.primary),
-                location: location.location,
-                size: context.locationSnapshotSize
+                request: ChatLocationSnapshotRequest(
+                    latitude: location.latitude,
+                    longitude: location.longitude,
+                    sourceURL: location.snapshotURL,
+                    displaySize: context.locationSnapshotSize,
+                    scale: context.screenScale,
+                    mapStyle: .standard,
+                    traitStyle: context.traitStyle
+                )
             ))
         }
 
@@ -669,12 +714,15 @@ final class ChatCollectionLocalHistoryPageWarmupProvider: ChatCollectionPageWarm
 }
 
 final class ChatCollectionContentPrefetcher: ChatCollectionContentPrefetching {
-    private let locationSnapshotProvider: ChatLocationSnapshotProviding
+    private let locationSnapshotPipeline: ChatLocationSnapshotServing
+    private let avatarPipeline: ChatAvatarServing
     private let pageWarmupProvider: ChatCollectionPageWarmupProviding
     private let thumbnailPipeline: ChatThumbnailServing
     private let pageWarmupLimit: Int
     private var imagePrefetchers: [ChatCollectionPrefetchResource: ChatThumbnailSubscription] = [:]
-    private var activeLocationSnapshots = Set<ChatCollectionPrefetchResource>()
+    private var avatarPrefetchers: [ChatCollectionPrefetchResource: ChatAvatarSubscription] = [:]
+    private var locationSnapshotPrefetchers: [ChatCollectionPrefetchResource: ChatLocationSnapshotSubscription] = [:]
+    private var avatarTokens: [ChatCollectionPrefetchResource: UUID] = [:]
     private var locationSnapshotTokens: [ChatCollectionPrefetchResource: UUID] = [:]
     private var pageWarmupTasks: [ChatCollectionPrefetchResource: ChatCollectionPageWarmupTask] = [:]
 
@@ -683,7 +731,11 @@ final class ChatCollectionContentPrefetcher: ChatCollectionContentPrefetching {
     }
 
     var activeLocationSnapshotCount: Int {
-        activeLocationSnapshots.count
+        locationSnapshotPrefetchers.count
+    }
+
+    var activeAvatarPrefetchCount: Int {
+        avatarPrefetchers.count
     }
 
     var activePageWarmupTaskCount: Int {
@@ -691,12 +743,14 @@ final class ChatCollectionContentPrefetcher: ChatCollectionContentPrefetching {
     }
 
     init(
-        locationSnapshotProvider: ChatLocationSnapshotProviding = MapKitChatLocationSnapshotProvider(),
+        locationSnapshotPipeline: ChatLocationSnapshotServing = ChatLocationSnapshotPipeline.shared,
+        avatarPipeline: ChatAvatarServing = ChatAvatarPipeline.shared,
         pageWarmupProvider: ChatCollectionPageWarmupProviding = ChatCollectionLocalHistoryPageWarmupProvider(),
         pageWarmupLimit: Int,
         thumbnailPipeline: ChatThumbnailServing = ChatMediaThumbnailPipeline.shared
     ) {
-        self.locationSnapshotProvider = locationSnapshotProvider
+        self.locationSnapshotPipeline = locationSnapshotPipeline
+        self.avatarPipeline = avatarPipeline
         self.pageWarmupProvider = pageWarmupProvider
         self.pageWarmupLimit = pageWarmupLimit
         self.thumbnailPipeline = thumbnailPipeline
@@ -707,11 +761,12 @@ final class ChatCollectionContentPrefetcher: ChatCollectionContentPrefetching {
             resources.forEach { resource in
                 switch resource {
                 case .image(_, let request),
-                     .videoPreview(_, let request),
-                     .avatar(_, let request):
+                     .videoPreview(_, let request):
                     startImagePrefetch(for: resource, request: request)
-                case .locationSnapshot(_, let location, let size):
-                    startLocationSnapshotPrefetch(for: resource, location: location, size: size)
+                case .avatar(let identity, let request):
+                    startAvatarPrefetch(for: resource, identity: identity, request: request)
+                case .locationSnapshot(let identity, let request):
+                    startLocationSnapshotPrefetch(for: resource, identity: identity, request: request)
                 case .pageWarmup(let request):
                     guard pageWarmupTasks[resource] == nil else { return }
                     pageWarmupTasks[resource] = pageWarmupProvider.warmup(
@@ -728,10 +783,16 @@ final class ChatCollectionContentPrefetcher: ChatCollectionContentPrefetching {
             if let prefetcher = imagePrefetchers.removeValue(forKey: resource) {
                 prefetcher.cancel()
             }
+            if let prefetcher = avatarPrefetchers.removeValue(forKey: resource) {
+                prefetcher.cancel()
+            }
+            if let prefetcher = locationSnapshotPrefetchers.removeValue(forKey: resource) {
+                prefetcher.cancel()
+            }
             if let task = pageWarmupTasks.removeValue(forKey: resource) {
                 task.cancel()
             }
-            activeLocationSnapshots.remove(resource)
+            avatarTokens.removeValue(forKey: resource)
             locationSnapshotTokens.removeValue(forKey: resource)
         }
     }
@@ -751,25 +812,50 @@ final class ChatCollectionContentPrefetcher: ChatCollectionContentPrefetching {
 
     private func startLocationSnapshotPrefetch(
         for resource: ChatCollectionPrefetchResource,
-        location: ChatCollectionPrefetchLocation,
-        size: ChatCollectionPrefetchSize
+        identity: ChatCollectionPrefetchIdentity,
+        request: ChatLocationSnapshotRequest
     ) {
-        guard !activeLocationSnapshots.contains(resource) else { return }
+        guard locationSnapshotPrefetchers[resource] == nil else { return }
         let token = UUID()
-        activeLocationSnapshots.insert(resource)
         locationSnapshotTokens[resource] = token
-        locationSnapshotProvider.makeSnapshot(
-            for: location.resolvedLocation,
-            size: size.cgSize
+        let subscription = locationSnapshotPipeline.acquire(
+            request,
+            consumer: ChatLocationSnapshotConsumer(identity: identity, role: .prefetch)
         ) { [weak self] _ in
-            DispatchQueue.main.async {
-                guard let self,
-                      self.locationSnapshotTokens[resource] == token else {
-                    return
-                }
-                self.locationSnapshotTokens.removeValue(forKey: resource)
-                self.activeLocationSnapshots.remove(resource)
+            guard let self,
+                  self.locationSnapshotTokens[resource] == token else {
+                return
             }
+            self.locationSnapshotTokens.removeValue(forKey: resource)
+            self.locationSnapshotPrefetchers.removeValue(forKey: resource)
+        }
+        if locationSnapshotTokens[resource] == token {
+            locationSnapshotPrefetchers[resource] = subscription
+        } else {
+            subscription.cancel()
+        }
+    }
+
+    private func startAvatarPrefetch(
+        for resource: ChatCollectionPrefetchResource,
+        identity: ChatCollectionPrefetchIdentity,
+        request: ChatAvatarRequest
+    ) {
+        guard avatarPrefetchers[resource] == nil else { return }
+        let token = UUID()
+        avatarTokens[resource] = token
+        let subscription = avatarPipeline.acquire(
+            request,
+            consumer: ChatAvatarConsumer(identity: identity, role: .prefetch)
+        ) { [weak self] _ in
+            guard let self, self.avatarTokens[resource] == token else { return }
+            self.avatarTokens.removeValue(forKey: resource)
+            self.avatarPrefetchers.removeValue(forKey: resource)
+        }
+        if avatarTokens[resource] == token {
+            avatarPrefetchers[resource] = subscription
+        } else {
+            subscription.cancel()
         }
     }
 }
@@ -794,6 +880,10 @@ extension ChatViewController.Datasource {
             owner: owner,
             jid: jid,
             avatarURL: avatarUrl.flatMap(URL.init(string:)),
+            avatarEntityIdentity: withAvatar
+                ? (groupchatAuthorId.isNotEmpty ? groupchatAuthorId : jid)
+                : "",
+            avatarDisplayName: groupchatAuthorNickname,
             sticker: sticker,
             images: images.map {
                 ChatCollectionPrefetchImageReference(
@@ -827,7 +917,9 @@ extension ChatViewController.Datasource {
                     primary: $0.primary,
                     owner: $0.owner,
                     jid: $0.jid,
-                    avatarURL: $0.avatarURL.flatMap(URL.init(string:))
+                    avatarURL: $0.avatarURL.flatMap(URL.init(string:)),
+                    displayName: $0.title,
+                    colorKey: $0.jid
                 )
             }
         )
@@ -864,7 +956,7 @@ extension ChatViewController {
             locationSnapshotSize: mediaSize,
             mediaContainerSize: mediaSize,
             avatarSize: ChatCollectionPrefetchSize(width: 32, height: 32),
-            contactAvatarSize: ChatCollectionPrefetchSize(width: 40, height: 40),
+            contactAvatarSize: ChatCollectionPrefetchSize(width: 36, height: 36),
             screenScale: Double(view.window?.screen.scale ?? UIScreen.main.scale),
             traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
         )

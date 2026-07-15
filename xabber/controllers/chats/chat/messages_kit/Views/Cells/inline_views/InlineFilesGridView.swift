@@ -448,21 +448,51 @@ class InlineContactsGridView: InlineAttachmentView {
         var contact: ContactAttachment
         var avatarURL: String?
         var palette: MDCPalette = .amber
-        private var avatarRequestGeneration = UUID()
+        private let avatarPipeline: ChatAvatarServing
+        private var screenScale: Double
+        private var traitStyle: ChatThumbnailTraitStyle
+        private var representedContainerPrimary: String
+        private var avatarSubscription: ChatAvatarSubscription?
+        private var avatarDeliveryToken: UUID?
+        private(set) var representedAvatarRequest: ChatAvatarRequest?
+        private var isAvatarWorkEnabled = true
+        private var avatarNeedsResume = false
 
-        init(frame: CGRect, contact: ContactAttachment) {
+        init(
+            frame: CGRect,
+            contact: ContactAttachment,
+            avatarPipeline: ChatAvatarServing = ChatAvatarPipeline.shared,
+            screenScale: Double = Double(UIScreen.main.scale),
+            traitStyle: ChatThumbnailTraitStyle = ChatThumbnailTraitStyle(UIScreen.main.traitCollection.userInterfaceStyle),
+            representedBy containerPrimary: String = ""
+        ) {
             self.primary = contact.primary
             self.jid = contact.jid
             self.owner = contact.owner
             self.contact = contact
             self.avatarURL = contact.avatarURL
+            self.avatarPipeline = avatarPipeline
+            self.screenScale = max(1, screenScale)
+            self.traitStyle = traitStyle
+            self.representedContainerPrimary = containerPrimary
             super.init(frame: frame)
             setup()
-            configure(contact: contact, palette: palette)
+            configure(contact: contact, palette: palette, representedBy: containerPrimary)
         }
 
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
+        }
+
+        func updateRenderingEnvironment(
+            screenScale: Double,
+            traitStyle: ChatThumbnailTraitStyle
+        ) {
+            let nextScale = max(1, screenScale)
+            guard self.screenScale != nextScale || self.traitStyle != traitStyle else { return }
+            self.screenScale = nextScale
+            self.traitStyle = traitStyle
+            configureAvatar(for: contact)
         }
 
         internal func setup() {
@@ -484,76 +514,171 @@ class InlineContactsGridView: InlineAttachmentView {
             ])
         }
 
-        public func configure(contact: ContactAttachment, palette: MDCPalette) {
-            avatarRequestGeneration = UUID()
+        public func configure(
+            contact: ContactAttachment,
+            palette: MDCPalette,
+            representedBy containerPrimary: String? = nil
+        ) {
             self.primary = contact.primary
             self.jid = contact.jid
             self.owner = contact.owner
             self.contact = contact
             self.avatarURL = contact.avatarURL
             self.palette = palette
+            if let containerPrimary {
+                representedContainerPrimary = containerPrimary
+            }
             titleLabel.text = contact.title
             subtitleLabel.text = contact.subtitle
             configureAvatar(for: contact)
         }
 
         private func configureAvatar(for contact: ContactAttachment) {
-            let avatarURL = contact.avatarURL ?? rosterAvatarURL(owner: contact.owner, jid: contact.jid)
-            self.avatarURL = avatarURL
-            let requestGeneration = avatarRequestGeneration
-            if let cachedAvatar = DefaultAvatarManager.shared.cachedAvatarImage(url: avatarURL) {
-                avatarImageView.image = cachedAvatar
+            let request = ChatAvatarRequest(
+                entityIdentity: contact.jid,
+                remoteURL: contact.avatarURL.flatMap(URL.init(string:)),
+                displayName: contact.title,
+                colorKey: contact.jid.isNotEmpty ? contact.jid : contact.owner,
+                displaySize: ChatCollectionPrefetchSize(width: 36, height: 36),
+                scale: screenScale,
+                traitStyle: traitStyle
+            )
+            if representedAvatarRequest == request {
+                if isAvatarWorkEnabled, avatarNeedsResume {
+                    startAvatarRequest(request, for: contact)
+                }
                 return
             }
-            avatarImageView.image = UIImageView.getDefaultAvatar(
-                for: contact.title,
-                owner: contact.owner,
-                size: 36
+            avatarSubscription?.cancel()
+            avatarSubscription = nil
+            avatarDeliveryToken = nil
+            representedAvatarRequest = request
+            self.avatarURL = contact.avatarURL
+            guard isAvatarWorkEnabled else {
+                avatarNeedsResume = true
+                return
+            }
+            startAvatarRequest(request, for: contact)
+        }
+
+        private func startAvatarRequest(
+            _ request: ChatAvatarRequest,
+            for contact: ContactAttachment
+        ) {
+            avatarNeedsResume = false
+            let deliveryToken = UUID()
+            avatarDeliveryToken = deliveryToken
+            let identity = ChatCollectionPrefetchIdentity(
+                kind: .contactAvatar,
+                messagePrimary: representedContainerPrimary.isEmpty
+                    ? contact.primary
+                    : representedContainerPrimary,
+                referencePrimary: contact.primary
             )
-            DefaultAvatarManager.shared.getAvatar(
-                url: avatarURL,
-                jid: contact.jid,
-                owner: contact.owner,
-                size: 36
-            ) { [weak self] image in
+            let subscription = avatarPipeline.acquire(
+                request,
+                consumer: ChatAvatarConsumer(identity: identity, role: .visible(UUID()))
+            ) { [weak self, request, deliveryToken] result in
                 guard let self,
-                      self.avatarRequestGeneration == requestGeneration,
-                      self.primary == contact.primary,
-                      self.owner == contact.owner,
-                      self.jid == contact.jid,
-                      self.avatarURL == avatarURL,
-                      let image else {
+                      self.representedAvatarRequest == request,
+                      self.avatarDeliveryToken == deliveryToken else {
                     return
                 }
-                self.avatarImageView.image = image
+                self.avatarSubscription = nil
+                self.avatarDeliveryToken = nil
+                self.avatarNeedsResume = false
+                if case .success(let delivery) = result {
+                    self.avatarImageView.image = delivery.image
+                }
+            }
+            if avatarDeliveryToken == deliveryToken {
+                avatarSubscription = subscription
+            } else {
+                subscription.cancel()
             }
         }
 
+        func cancelOffscreenWork() {
+            isAvatarWorkEnabled = false
+            guard avatarSubscription != nil else { return }
+            avatarSubscription?.cancel()
+            avatarSubscription = nil
+            avatarDeliveryToken = nil
+            avatarNeedsResume = representedAvatarRequest != nil
+        }
+
+        func resumeOnscreenWork() {
+            isAvatarWorkEnabled = true
+            guard avatarNeedsResume, let request = representedAvatarRequest else { return }
+            startAvatarRequest(request, for: contact)
+        }
+
         func resetState() {
-            avatarRequestGeneration = UUID()
+            avatarSubscription?.cancel()
+            avatarSubscription = nil
+            avatarDeliveryToken = nil
+            representedAvatarRequest = nil
+            representedContainerPrimary = ""
+            avatarNeedsResume = false
             avatarImageView.image = nil
             titleLabel.text = nil
             subtitleLabel.text = nil
             avatarURL = nil
         }
-
-        private func rosterAvatarURL(owner: String, jid: String) -> String? {
-            guard owner.isNotEmpty, jid.isNotEmpty else {
-                return nil
-            }
-            do {
-                let realm = try WRealm.safe()
-                return realm
-                    .object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner))?
-                    .avatarUrl
-            } catch {
-                return nil
-            }
-        }
     }
 
     var views: [ContactView] = []
     var palette: MDCPalette = .amber
+    private let avatarPipeline: ChatAvatarServing
+    private var screenScale: Double
+    private var traitStyle: ChatThumbnailTraitStyle
+    private var isAvatarWorkEnabled = true
+
+    init(
+        frame: CGRect = .zero,
+        avatarPipeline: ChatAvatarServing = ChatAvatarPipeline.shared,
+        screenScale: Double = Double(UIScreen.main.scale),
+        traitStyle: ChatThumbnailTraitStyle = ChatThumbnailTraitStyle(UIScreen.main.traitCollection.userInterfaceStyle)
+    ) {
+        self.avatarPipeline = avatarPipeline
+        self.screenScale = max(1, screenScale)
+        self.traitStyle = traitStyle
+        super.init(frame: frame)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func updateRenderingEnvironment(
+        screenScale: Double,
+        traitStyle: ChatThumbnailTraitStyle
+    ) {
+        let nextScale = max(1, screenScale)
+        guard self.screenScale != nextScale || self.traitStyle != traitStyle else { return }
+        self.screenScale = nextScale
+        self.traitStyle = traitStyle
+        views.forEach {
+            $0.updateRenderingEnvironment(screenScale: nextScale, traitStyle: traitStyle)
+        }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateRenderingEnvironment(
+            screenScale: Double(window?.screen.scale ?? UIScreen.main.scale),
+            traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
+        )
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle else { return }
+        updateRenderingEnvironment(
+            screenScale: Double(window?.screen.scale ?? UIScreen.main.scale),
+            traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
+        )
+    }
 
     func resetState() {
         views.forEach { view in
@@ -563,6 +688,16 @@ class InlineContactsGridView: InlineAttachmentView {
         views.removeAll()
         contentViews.removeAll()
         grid.removeAll()
+    }
+
+    func cancelOffscreenWork() {
+        isAvatarWorkEnabled = false
+        views.forEach { $0.cancelOffscreenWork() }
+    }
+
+    func resumeOnscreenWork() {
+        isAvatarWorkEnabled = true
+        views.forEach { $0.resumeOnscreenWork() }
     }
 
     func prepareGrid(_ attachments: [ContactAttachment]) -> [CGRect] {
@@ -576,20 +711,37 @@ class InlineContactsGridView: InlineAttachmentView {
         }
     }
 
-    func configure(_ attachments: [ContactAttachment], palette: MDCPalette) {
+    func configure(
+        _ attachments: [ContactAttachment],
+        palette: MDCPalette,
+        representedBy containerPrimary: String = ""
+    ) {
         self.palette = palette
         resetState()
         if attachments.isEmpty { return }
         prepareGrid(attachments).enumerated().forEach { index, rect in
             let item = attachments[index]
-            let view = ContactView(frame: rect, contact: item)
-            view.configure(contact: item, palette: palette)
+            let view = ContactView(
+                frame: rect,
+                contact: item,
+                avatarPipeline: avatarPipeline,
+                screenScale: screenScale,
+                traitStyle: traitStyle,
+                representedBy: containerPrimary
+            )
+            if !isAvatarWorkEnabled {
+                view.cancelOffscreenWork()
+            }
             self.addSubview(view)
             self.views.append(view)
         }
     }
 
-    func updateContent(_ attachments: [ContactAttachment], palette: MDCPalette) {
+    func updateContent(
+        _ attachments: [ContactAttachment],
+        palette: MDCPalette,
+        representedBy containerPrimary: String = ""
+    ) {
         self.palette = palette
         if attachments.isEmpty {
             resetState()
@@ -597,12 +749,12 @@ class InlineContactsGridView: InlineAttachmentView {
         }
 
         guard self.views.count == attachments.count else {
-            configure(attachments, palette: palette)
+            configure(attachments, palette: palette, representedBy: containerPrimary)
             return
         }
 
         guard self.views.map(\.primary) == attachments.map(\.primary) else {
-            configure(attachments, palette: palette)
+            configure(attachments, palette: palette, representedBy: containerPrimary)
             return
         }
 
@@ -610,7 +762,11 @@ class InlineContactsGridView: InlineAttachmentView {
             let item = attachments[index]
             let view = self.views[index]
             view.frame = rect
-            view.configure(contact: item, palette: palette)
+            view.configure(
+                contact: item,
+                palette: palette,
+                representedBy: containerPrimary
+            )
         }
     }
 

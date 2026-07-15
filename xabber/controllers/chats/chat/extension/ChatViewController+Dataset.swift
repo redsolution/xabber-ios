@@ -331,6 +331,31 @@ struct SavedMessageDisplayPolicy {
     }
 }
 
+final class ChatContactAvatarURLResolver {
+    static let shared = ChatContactAvatarURLResolver { owner, jid in
+        do {
+            let realm = try WRealm.safe()
+            return realm.object(
+                ofType: RosterStorageItem.self,
+                forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)
+            )?.avatarUrl
+        } catch {
+            return nil
+        }
+    }
+
+    private let lookup: (String, String) -> String?
+
+    init(lookup: @escaping (String, String) -> String?) {
+        self.lookup = lookup
+    }
+
+    func resolve(owner: String, jid: String) -> String? {
+        guard !Thread.isMainThread, owner.isNotEmpty, jid.isNotEmpty else { return nil }
+        return lookup(owner, jid)
+    }
+}
+
 struct ChatMessageReferenceSnapshot {
     let primary: String
     let owner: String
@@ -357,6 +382,7 @@ struct ChatMessageReferenceSnapshot {
     let metadata: [String: Any]?
     let meteringLevels: [Float]
     let resolvedContactEntity: MessageContactEntityKind?
+    let resolvedContactAvatarURL: String?
 
     var kind: MessageReferenceStorageItem.Kind {
         MessageReferenceStorageItem.Kind(rawValue: kindRaw) ?? .none
@@ -434,8 +460,16 @@ struct ChatMessageReferenceSnapshot {
                 owner: reference.owner,
                 jid: contactJid
             )
+            self.resolvedContactAvatarURL = Self.nonEmpty(metadata?["avatar_url"] as? String)
+                ?? Self.nonEmpty(
+                    ChatContactAvatarURLResolver.shared.resolve(
+                        owner: reference.owner,
+                        jid: contactJid
+                    )
+                )
         } else {
             self.resolvedContactEntity = nil
+            self.resolvedContactAvatarURL = nil
         }
     }
 
@@ -452,6 +486,12 @@ struct ChatMessageReferenceSnapshot {
         return url?
             .replacingOccurrences(of: "xmpp:", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              value.isNotEmpty else { return nil }
+        return value
     }
 }
 
@@ -7489,7 +7529,7 @@ extension ChatViewController {
             nickname: nickname,
             given: given,
             family: family,
-            avatarURL: Self.contactNonEmpty(metadata["avatar_url"] as? String),
+            avatarURL: reference.resolvedContactAvatarURL,
             avatarMetadata: avatarMetadata
         )
     }

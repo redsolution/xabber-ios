@@ -71,12 +71,40 @@ final class ChatCollectionPrefetchTests: XCTestCase {
         XCTAssertTrue(resources.contains(.image(identity: identity(.image, message: "m1", reference: "img1"), request: mediaRequest(url: imageURL, size: mediaSize, scale: screenScale))))
         XCTAssertTrue(resources.contains(.image(identity: identity(.image, message: "m2", reference: "img2"), request: mediaRequest(url: imageURL, size: mediaSize, scale: screenScale))))
         XCTAssertTrue(resources.contains(.videoPreview(identity: identity(.videoPreview, message: "m1", reference: "vid1"), request: mediaRequest(url: videoPreviewURL, size: mediaSize, scale: screenScale))))
-        XCTAssertTrue(resources.contains(.avatar(identity: identity(.avatar, message: "m1", reference: "m1"), request: mediaRequest(url: avatarURL, size: avatarSize, scale: screenScale))))
-        XCTAssertTrue(resources.contains(.avatar(identity: identity(.contactAvatar, message: "m1", reference: "contact1"), request: mediaRequest(url: contactAvatarURL, size: contactAvatarSize, scale: screenScale))))
+        XCTAssertTrue(resources.contains(.avatar(
+            identity: identity(.avatar, message: "m1", reference: "m1"),
+            request: ChatAvatarRequest(
+                entityIdentity: "",
+                remoteURL: avatarURL,
+                displayName: "chat@example.com",
+                colorKey: "owner@example.com",
+                displaySize: avatarSize,
+                scale: screenScale,
+                traitStyle: .unspecified
+            )
+        )))
+        XCTAssertTrue(resources.contains(.avatar(
+            identity: identity(.contactAvatar, message: "m1", reference: "contact1"),
+            request: ChatAvatarRequest(
+                entityIdentity: "friend@example.com",
+                remoteURL: contactAvatarURL,
+                displayName: "friend@example.com",
+                colorKey: "friend@example.com",
+                displaySize: contactAvatarSize,
+                scale: screenScale,
+                traitStyle: .unspecified
+            )
+        )))
         XCTAssertTrue(resources.contains(.locationSnapshot(
             identity: identity(.locationSnapshot, message: "m1", reference: "loc1"),
-            location: ChatCollectionPrefetchLocation(latitude: 51.5, longitude: -0.12, address: "London", geoURI: "geo:51.5,-0.12"),
-            size: ChatCollectionPrefetchSize(width: 220, height: 220)
+            request: ChatLocationSnapshotRequest(
+                latitude: 51.5,
+                longitude: -0.12,
+                displaySize: ChatCollectionPrefetchSize(width: 220, height: 220),
+                scale: screenScale,
+                mapStyle: .standard,
+                traitStyle: .unspecified
+            )
         )))
         XCTAssertTrue(resources.contains(.pageWarmup(ChatCollectionPrefetchPageWarmup(
             direction: .older,
@@ -167,7 +195,7 @@ final class ChatCollectionPrefetchTests: XCTestCase {
         let imageURL = URL(string: "https://cdn.example.com/duplicate.jpg")!
         let pipeline = FakeChatCollectionThumbnailPipeline()
         let prefetcher = ChatCollectionContentPrefetcher(
-            locationSnapshotProvider: FakeChatLocationSnapshotProvider(),
+            locationSnapshotPipeline: FakeChatLocationSnapshotProvider(),
             pageWarmupProvider: FakeChatCollectionPageWarmupProvider(),
             pageWarmupLimit: 20,
             thumbnailPipeline: pipeline
@@ -190,7 +218,7 @@ final class ChatCollectionPrefetchTests: XCTestCase {
         let warmupProvider = FakeChatCollectionPageWarmupProvider()
         let thumbnailPipeline = FakeChatCollectionThumbnailPipeline()
         let contentPrefetcher = ChatCollectionContentPrefetcher(
-            locationSnapshotProvider: snapshotProvider,
+            locationSnapshotPipeline: snapshotProvider,
             pageWarmupProvider: warmupProvider,
             pageWarmupLimit: 20,
             thumbnailPipeline: thumbnailPipeline
@@ -240,7 +268,7 @@ final class ChatCollectionPrefetchTests: XCTestCase {
         XCTAssertEqual(contentPrefetcher.activePageWarmupTaskCount, 0)
         XCTAssertEqual(contentPrefetcher.activeLocationSnapshotCount, 0)
 
-        snapshotProvider.completeAll(with: .success(URL(fileURLWithPath: "/tmp/location.png")))
+        snapshotProvider.completeAll(with: .failure(.loadFailed))
         XCTAssertEqual(contentPrefetcher.activeLocationSnapshotCount, 0)
     }
 
@@ -505,22 +533,33 @@ private final class FakeChatCollectionPageWarmupTask: ChatCollectionPageWarmupTa
     }
 }
 
-private final class FakeChatLocationSnapshotProvider: ChatLocationSnapshotProviding {
-    private var completions: [(Result<URL, Error>) -> Void] = []
+private final class FakeChatLocationSnapshotProvider: ChatLocationSnapshotServing {
+    private var completions: [(Result<ChatLocationSnapshotDelivery, ChatLocationSnapshotPipelineError>) -> Void] = []
+    private(set) var subscriptions: [FakeChatLocationSnapshotSubscription] = []
 
     @discardableResult
-    func makeSnapshot(
-        for location: ChatAttachmentResolvedLocation,
-        size: CGSize,
-        completion: @escaping (Result<URL, Error>) -> Void
-    ) -> ChatLocationSnapshotTask? {
-        completions.append(completion)
-        return nil
+    func acquire(
+        _ request: ChatLocationSnapshotRequest,
+        consumer: ChatLocationSnapshotConsumer,
+        completion: ((Result<ChatLocationSnapshotDelivery, ChatLocationSnapshotPipelineError>) -> Void)?
+    ) -> ChatLocationSnapshotSubscription {
+        let subscription = FakeChatLocationSnapshotSubscription()
+        subscriptions.append(subscription)
+        completions.append(completion ?? { _ in })
+        return subscription
     }
 
-    func completeAll(with result: Result<URL, Error>) {
+    func completeAll(with result: Result<ChatLocationSnapshotDelivery, ChatLocationSnapshotPipelineError>) {
         let completions = completions
         self.completions.removeAll()
         completions.forEach { $0(result) }
+    }
+}
+
+private final class FakeChatLocationSnapshotSubscription: ChatLocationSnapshotSubscription {
+    private(set) var cancelCount = 0
+
+    func cancel() {
+        cancelCount += 1
     }
 }

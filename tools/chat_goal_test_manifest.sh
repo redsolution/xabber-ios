@@ -168,6 +168,8 @@ xabberTests/InlineForwardsReuseTests
 SELECTORS
       ;;
     G14) cat <<'SELECTORS'
+xabberTests/ChatLocationSnapshotPipelineTests
+xabberTests/ChatContactAvatarBindingTests
 xabberTests/ChatAttachmentGeolocationSourceTests
 xabberTests/ChatCollectionPrefetchTests
 xabberTests/TextMessageCellReuseTests

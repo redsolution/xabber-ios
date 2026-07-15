@@ -98,16 +98,16 @@ final class InlineForwardsReuseTests: XCTestCase {
 
     func testDelayedLocationCompletionRequiresFullRepresentedRequest() throws {
         let provider = DelayedLocationSnapshotProvider()
-        let grid = InlineLocationsGridView(snapshotProvider: provider)
+        let grid = InlineLocationsGridView(
+            snapshotPipeline: provider,
+            screenScale: 2,
+            traitStyle: .light
+        )
         grid.frame = CGRect(x: 0, y: 0, width: 180, height: 180)
         let first = makeLocation(primary: "same-reference", latitude: 10, longitude: 20)
         let second = makeLocation(primary: "same-reference", latitude: 30, longitude: 40)
-        let staleURL = try makeSnapshotFile(name: "stale")
-        let currentURL = try makeSnapshotFile(name: "current")
-        defer {
-            try? FileManager.default.removeItem(at: staleURL)
-            try? FileManager.default.removeItem(at: currentURL)
-        }
+        let staleImage = makeSnapshotImage(color: .red)
+        let currentImage = makeSnapshotImage(color: .green)
 
         grid.configure([first])
         try XCTUnwrap(grid.views.first).layoutIfNeeded()
@@ -116,22 +116,21 @@ final class InlineForwardsReuseTests: XCTestCase {
         XCTAssertEqual(provider.requests.count, 2)
         XCTAssertEqual(provider.tasks[0].cancelCount, 1)
 
-        provider.complete(at: 0, with: .success(staleURL))
+        provider.complete(at: 0, image: staleImage)
         RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-        XCTAssertNil(second.snapshotURL)
+        XCTAssertFalse(grid.views.first?.renderedSnapshotImage === staleImage)
 
-        provider.complete(at: 1, with: .success(currentURL))
+        provider.complete(at: 1, image: currentImage)
         RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-        XCTAssertEqual(second.snapshotURL, currentURL)
+        XCTAssertTrue(grid.views.first?.renderedSnapshotImage === currentImage)
     }
 
     func testResetCancelsActiveLocationSnapshotAndRejectsItsCompletion() throws {
         let provider = DelayedLocationSnapshotProvider()
-        let grid = InlineLocationsGridView(snapshotProvider: provider)
+        let grid = InlineLocationsGridView(snapshotPipeline: provider)
         grid.frame = CGRect(x: 0, y: 0, width: 180, height: 180)
         let location = makeLocation(primary: "location", latitude: 10, longitude: 20)
-        let staleURL = try makeSnapshotFile(name: "reset-stale")
-        defer { try? FileManager.default.removeItem(at: staleURL) }
+        let staleImage = makeSnapshotImage(color: .red)
 
         grid.configure([location])
         try XCTUnwrap(grid.views.first).layoutIfNeeded()
@@ -142,14 +141,14 @@ final class InlineForwardsReuseTests: XCTestCase {
         XCTAssertEqual(provider.tasks[0].cancelCount, 1)
         XCTAssertTrue(grid.views.isEmpty)
         XCTAssertTrue(grid.subviews.isEmpty)
-        provider.complete(at: 0, with: .success(staleURL))
+        provider.complete(at: 0, image: staleImage)
         RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-        XCTAssertNil(location.snapshotURL)
+        XCTAssertTrue(grid.views.isEmpty)
     }
 
     func testUnchangedLocationUpdateDoesNotRestartActiveSnapshotRequest() throws {
         let provider = DelayedLocationSnapshotProvider()
-        let grid = InlineLocationsGridView(snapshotProvider: provider)
+        let grid = InlineLocationsGridView(snapshotPipeline: provider)
         grid.frame = CGRect(x: 0, y: 0, width: 180, height: 180)
         let original = makeLocation(primary: "location", latitude: 10, longitude: 20)
         let unchanged = makeLocation(primary: "location", latitude: 10, longitude: 20)
@@ -344,46 +343,44 @@ final class InlineForwardsReuseTests: XCTestCase {
         return result
     }
 
-    private func makeSnapshotFile(name: String) throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("inline-forward-\(name)-\(UUID().uuidString).png")
-        let image = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { context in
-            UIColor.blue.setFill()
+    private func makeSnapshotImage(color: UIColor) -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { context in
+            color.setFill()
             context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
         }
-        try XCTUnwrap(image.pngData()).write(to: url)
-        return url
     }
 }
 
-private final class DelayedLocationSnapshotProvider: ChatLocationSnapshotProviding {
+private final class DelayedLocationSnapshotProvider: ChatLocationSnapshotServing {
     struct Request {
-        let location: ChatAttachmentResolvedLocation
-        let size: CGSize
-        let completion: (Result<URL, Error>) -> Void
+        let request: ChatLocationSnapshotRequest
+        let consumer: ChatLocationSnapshotConsumer
+        let completion: ((Result<ChatLocationSnapshotDelivery, ChatLocationSnapshotPipelineError>) -> Void)?
     }
 
     private(set) var requests: [Request] = []
-    private(set) var tasks: [DelayedLocationSnapshotTask] = []
+    private(set) var tasks: [DelayedLocationSnapshotSubscription] = []
 
-    @discardableResult
-    func makeSnapshot(
-        for location: ChatAttachmentResolvedLocation,
-        size: CGSize,
-        completion: @escaping (Result<URL, Error>) -> Void
-    ) -> ChatLocationSnapshotTask? {
-        let task = DelayedLocationSnapshotTask()
-        requests.append(Request(location: location, size: size, completion: completion))
+    func acquire(
+        _ request: ChatLocationSnapshotRequest,
+        consumer: ChatLocationSnapshotConsumer,
+        completion: ((Result<ChatLocationSnapshotDelivery, ChatLocationSnapshotPipelineError>) -> Void)?
+    ) -> ChatLocationSnapshotSubscription {
+        let task = DelayedLocationSnapshotSubscription()
+        requests.append(Request(request: request, consumer: consumer, completion: completion))
         tasks.append(task)
         return task
     }
 
-    func complete(at index: Int, with result: Result<URL, Error>) {
-        requests[index].completion(result)
+    func complete(at index: Int, image: UIImage) {
+        requests[index].completion?(.success(ChatLocationSnapshotDelivery(
+            image: image,
+            source: .loader
+        )))
     }
 }
 
-private final class DelayedLocationSnapshotTask: ChatLocationSnapshotTask {
+private final class DelayedLocationSnapshotSubscription: ChatLocationSnapshotSubscription {
     private(set) var cancelCount = 0
 
     func cancel() {

@@ -343,7 +343,11 @@ class InlineMessageAttachmentView: ModernContainerView {
         imagesView.updateContent(message.images, representedBy: message.primary)
         videosView.updateContent(message.videos, representedBy: message.primary)
         locationsView.updateContent(message.locations, representedBy: message.primary)
-        contactsView.updateContent(message.contacts, palette: palette)
+        contactsView.updateContent(
+            message.contacts,
+            palette: palette,
+            representedBy: message.primary
+        )
         audiosView.delegate = self.delegate
         audiosView.updateContent(message.audios, palette: palette)
         filesView.updateContent(
@@ -390,10 +394,14 @@ class InlineMessageAttachmentView: ModernContainerView {
     }
 
     func cancelOffscreenFileWork() {
+        locationsView.cancelOffscreenWork()
+        contactsView.cancelOffscreenWork()
         filesView.cancelOffscreenWork()
     }
 
     func resumeOnscreenFileWork() {
+        locationsView.resumeOnscreenWork()
+        contactsView.resumeOnscreenWork()
         filesView.resumeOnscreenWork()
     }
 

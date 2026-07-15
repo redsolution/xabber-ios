@@ -18,7 +18,7 @@ final class TextMessageCellReuseTests: XCTestCase {
             with: makeMessage(primary: "current-message", avatarUrl: "https://avatars.example.com/current.png")
         )
 
-        XCTAssertEqual(loader.requests.map(\.url), [
+        XCTAssertEqual(loader.requests.map { $0.request.remoteURL?.absoluteString }, [
             "https://avatars.example.com/old.png",
             "https://avatars.example.com/current.png"
         ])
@@ -148,7 +148,7 @@ final class TextMessageCellReuseTests: XCTestCase {
 
     private func makeCell(loader: FakeAvatarLoader) -> TextMessageCell {
         let cell = TextMessageCell(frame: CGRect(x: 0, y: 0, width: 390, height: 180))
-        cell.avatarLoader = loader
+        cell.avatarPipeline = loader
         return cell
     }
 
@@ -189,39 +189,39 @@ final class TextMessageCellReuseTests: XCTestCase {
     }
 }
 
-private final class FakeAvatarLoader: TextMessageCellAvatarLoading {
+private final class FakeAvatarLoader: ChatAvatarServing {
     struct Request {
-        let url: String
-        let userId: String
-        let jid: String
-        let owner: String
-        let size: CGFloat
-        let completion: (UIImage?) -> Void
+        let request: ChatAvatarRequest
+        let consumer: ChatAvatarConsumer
+        let completion: ((Result<ChatAvatarDelivery, ChatAvatarPipelineError>) -> Void)?
     }
 
     private(set) var requests: [Request] = []
 
-    func loadGroupAvatar(
-        url: String,
-        userId: String,
-        jid: String,
-        owner: String,
-        size: CGFloat,
-        completion: @escaping (UIImage?) -> Void
-    ) {
+    func acquire(
+        _ request: ChatAvatarRequest,
+        consumer: ChatAvatarConsumer,
+        completion: ((Result<ChatAvatarDelivery, ChatAvatarPipelineError>) -> Void)?
+    ) -> ChatAvatarSubscription {
         requests.append(Request(
-            url: url,
-            userId: userId,
-            jid: jid,
-            owner: owner,
-            size: size,
+            request: request,
+            consumer: consumer,
             completion: completion
         ))
+        return FakeAvatarSubscription()
     }
 
     func completeRequest(at index: Int, image: UIImage?) {
-        requests[index].completion(image)
+        if let image {
+            requests[index].completion?(.success(ChatAvatarDelivery(image: image, source: .remote)))
+        } else {
+            requests[index].completion?(.failure(.unavailable))
+        }
     }
+}
+
+private final class FakeAvatarSubscription: ChatAvatarSubscription {
+    func cancel() {}
 }
 
 private final class ReuseMessagesDataSource: MessagesDataSource {
