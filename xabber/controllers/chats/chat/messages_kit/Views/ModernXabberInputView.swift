@@ -1423,10 +1423,10 @@ class ModernXabberInputView: UIView {
             switch sender.state {
                 case .changed:
                     self.waveform.pause()
-                    self.waveform.currentGradientPercentage = percentage
+                    self.waveform.setProgress(percentage)
                 case .ended:
                     self.waveform.stop()
-                    self.waveform.currentGradientPercentage = percentage
+                    self.waveform.setProgress(percentage)
                     guard let newDuration = self.delegate?.didSetAudioPositionBar(percentage: percentage) else {
                         return
                     }
@@ -1437,12 +1437,11 @@ class ModernXabberInputView: UIView {
                         return
                     }
                     let percentage: Float = Float(currentDuration / duration)
-                    self.waveform.currentGradientPercentage = percentage
+                    self.waveform.setProgress(percentage)
                     self.waveform.play(for: self.duration - currentDuration)
                 default:
                     break
             }
-            self.waveform.setNeedsDisplay()
         }
         
         var palette: MDCPalette = .amber

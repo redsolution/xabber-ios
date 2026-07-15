@@ -20,12 +20,13 @@ final class InlineForwardsReuseTests: XCTestCase {
         XCTAssertEqual(container.subviews.count, 1)
     }
 
-    func testResetRecursivelyClearsViewsIdentitiesDelegatesAndAudioClock() throws {
+    func testResetRecursivelyClearsViewsIdentitiesDelegatesAndAudioPresentation() throws {
         let container = makeConfiguredContainer(message: makeMessage(primary: "forward-a", includeAllMedia: true))
         let forwardView = try XCTUnwrap(container.inlineViews.first)
         let audioView = try XCTUnwrap(forwardView.audiosView.views.first)
-        audioView.play(for: 30)
-        XCTAssertTrue(audioView.waveform.isPlayed)
+        audioView.render(state: .playing(currentTime: 3, duration: 30))
+        XCTAssertTrue(audioView.iconButton.isPulseActive)
+        XCTAssertEqual(audioView.waveform.activeClockCount, 0)
 
         container.resetState()
 
@@ -45,7 +46,8 @@ final class InlineForwardsReuseTests: XCTestCase {
         XCTAssertTrue(forwardView.contactsView.subviews.isEmpty)
         XCTAssertTrue(forwardView.audiosView.subviews.isEmpty)
         XCTAssertTrue(forwardView.filesView.subviews.isEmpty)
-        XCTAssertFalse(audioView.waveform.isPlayed)
+        XCTAssertFalse(audioView.iconButton.isPulseActive)
+        XCTAssertEqual(audioView.waveform.activeClockCount, 0)
         XCTAssertNil(audioView.delegate)
     }
 
@@ -79,7 +81,9 @@ final class InlineForwardsReuseTests: XCTestCase {
         let second = makeMessage(primary: "forward-b", referenceSuffix: "b", includeAllMedia: true)
         let container = makeConfiguredContainer(message: first)
         let oldAudioView = try XCTUnwrap(container.inlineViews.first?.audiosView.views.first)
-        oldAudioView.play(for: 30)
+        oldAudioView.render(state: .playing(currentTime: 3, duration: 30))
+        XCTAssertTrue(oldAudioView.iconButton.isPulseActive)
+        XCTAssertEqual(oldAudioView.waveform.activeClockCount, 0)
 
         container.updateContent([second], palette: .purple, delegate: nil)
 
@@ -91,7 +95,8 @@ final class InlineForwardsReuseTests: XCTestCase {
         XCTAssertEqual(current.contactsView.views.map(\.primary), ["contact-b"])
         XCTAssertEqual(current.audiosView.views.map(\.primary), ["audio-b"])
         XCTAssertEqual(current.filesView.views.map(\.primary), ["file-b"])
-        XCTAssertFalse(oldAudioView.waveform.isPlayed)
+        XCTAssertFalse(oldAudioView.iconButton.isPulseActive)
+        XCTAssertEqual(oldAudioView.waveform.activeClockCount, 0)
         XCTAssertNil(oldAudioView.delegate)
         XCTAssertNil(oldAudioView.superview)
     }

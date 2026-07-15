@@ -37,9 +37,13 @@ public final class Chronometer: NSObject {
 	}
 
 	public func start(shouldFire fire: Bool = true) {
+		guard self.timer == nil else { return }
 		self.timer = Timer(timeInterval: self.timeInterval, target: self, selector: #selector(Chronometer.timerDidTrigger), userInfo: nil, repeats: true)
-        RunLoop.main.add(self.timer!, forMode: .default)
-		self.timer?.fire()
+		guard let timer = self.timer else { return }
+        RunLoop.main.add(timer, forMode: .common)
+		if fire {
+			timer.fire()
+		}
 		self.isPlaying = true
 	}
 

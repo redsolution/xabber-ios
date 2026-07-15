@@ -66,6 +66,7 @@
 		4EAF0004300000000ABC001 /* ChatContactAvatarBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAF0003300000000ABC001 /* ChatContactAvatarBindingTests.swift */; };
 		4EAF0006300000000ABC001 /* ChatLocationSnapshotPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAF0005300000000ABC001 /* ChatLocationSnapshotPipeline.swift */; };
 		4EAF0008300000000ABC001 /* ChatAvatarPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAF0007300000000ABC001 /* ChatAvatarPipeline.swift */; };
+		4EB00002300100000ABC001 /* ChatWaveformRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB00001300100000ABC001 /* ChatWaveformRenderingTests.swift */; };
 		4E9900042FF900000ABC001 /* ChatScrollFrameMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9900032FF900000ABC001 /* ChatScrollFrameMetadata.swift */; };
 		4E9000062FF000000ABC001 /* ChatRenderOperationCounter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9000052FF000000ABC001 /* ChatRenderOperationCounter.swift */; };
 		4E9000082FF000000ABC001 /* ChatPerformanceFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9000072FF000000ABC001 /* ChatPerformanceFixtures.swift */; };
@@ -1013,6 +1014,7 @@
 		4EAF0003300000000ABC001 /* ChatContactAvatarBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatContactAvatarBindingTests.swift; sourceTree = "<group>"; };
 		4EAF0005300000000ABC001 /* ChatLocationSnapshotPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatLocationSnapshotPipeline.swift; sourceTree = "<group>"; };
 		4EAF0007300000000ABC001 /* ChatAvatarPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAvatarPipeline.swift; sourceTree = "<group>"; };
+		4EB00001300100000ABC001 /* ChatWaveformRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatWaveformRenderingTests.swift; sourceTree = "<group>"; };
 		4E9900032FF900000ABC001 /* ChatScrollFrameMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScrollFrameMetadata.swift; sourceTree = "<group>"; };
 		4E9000052FF000000ABC001 /* ChatRenderOperationCounter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatRenderOperationCounter.swift; sourceTree = "<group>"; };
 		4E9000072FF000000ABC001 /* ChatPerformanceFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPerformanceFixtures.swift; sourceTree = "<group>"; };
@@ -4056,6 +4058,7 @@
 					4EAE00032FFF00000ABC001 /* ChatStickerPipelineTests.swift */,
 					4EAF0001300000000ABC001 /* ChatLocationSnapshotPipelineTests.swift */,
 					4EAF0003300000000ABC001 /* ChatContactAvatarBindingTests.swift */,
+					4EB00001300100000ABC001 /* ChatWaveformRenderingTests.swift */,
 					4E6A00012FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift */,
 					4E6B00012FAA00000ABC001 /* ChatScrollCoalescingTests.swift */,
 					4E6C00012FAB00000ABC001 /* ChatCollectionPrefetchTests.swift */,
@@ -6138,6 +6141,7 @@
 					4EAE00042FFF00000ABC001 /* ChatStickerPipelineTests.swift in Sources */,
 					4EAF0002300000000ABC001 /* ChatLocationSnapshotPipelineTests.swift in Sources */,
 					4EAF0004300000000ABC001 /* ChatContactAvatarBindingTests.swift in Sources */,
+					4EB00002300100000ABC001 /* ChatWaveformRenderingTests.swift in Sources */,
 					4E6A00022FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift in Sources */,
 					4E6B00022FAA00000ABC001 /* ChatScrollCoalescingTests.swift in Sources */,
 					4E6C00022FAB00000ABC001 /* ChatCollectionPrefetchTests.swift in Sources */,

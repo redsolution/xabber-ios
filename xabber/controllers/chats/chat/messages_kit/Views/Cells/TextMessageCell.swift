@@ -989,6 +989,18 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         applyTextContent(with: message, at: indexPath, and: messagesCollectionView, reuseInlineViews: true)
     }
 
+    @discardableResult
+    override func renderVoiceMessageState(
+        referencePrimary: String,
+        state: VoiceMessagePlaybackState
+    ) -> Bool {
+        audiosView.render(state: state, for: referencePrimary) ||
+            forwardsContainer.renderVoiceMessageState(
+                referencePrimary: referencePrimary,
+                state: state
+            )
+    }
+
     private func applyChromeUpdate(
         with message: MessageType,
         at indexPath: IndexPath,
@@ -1026,8 +1038,9 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         }
         locationsView.cancelOffscreenWork()
         contactsView.cancelOffscreenWork()
+        audiosView.cancelOffscreenWork()
         filesView.cancelOffscreenWork()
-        forwardsContainer.cancelOffscreenFileWork()
+        forwardsContainer.cancelOffscreenWork()
     }
 
     func resumeOnscreenWork() {
@@ -1037,8 +1050,9 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         }
         locationsView.resumeOnscreenWork()
         contactsView.resumeOnscreenWork()
+        audiosView.resumeOnscreenWork()
         filesView.resumeOnscreenWork()
-        forwardsContainer.resumeOnscreenFileWork()
+        forwardsContainer.resumeOnscreenWork()
     }
 
     private func applyTextContent(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView, reuseInlineViews: Bool) {

@@ -2962,7 +2962,6 @@ class ChatViewController: MessagesViewController {
     internal var currentUnreadMentionNotificationPrimary: String? = nil
     internal var visibleUnreadMentionReconciliationWorkItem: DispatchWorkItem? = nil
     
-    internal var currentPlayingView: InlineAudiosGridView.AudioView? = nil
     internal var voiceMessageStateObserverToken: UUID? = nil
 
     internal enum FloatingControlsLayoutPolicy {
@@ -5701,14 +5700,20 @@ extension ChatViewController {
 
     private func handleVoiceMessageStateChange(_ change: VoiceMessageStateChange) {
         if change.containerMessagePrimary.isNotEmpty {
-            self.updateVisibleMessageContent(primary: change.containerMessagePrimary)
+            self.updateVisibleVoiceMessageState(
+                containerPrimary: change.containerMessagePrimary,
+                referencePrimary: change.referencePrimary,
+                state: change.state
+            )
         }
 
         switch change.state {
         case .playing:
             self.configureSharedAudioPanel()
-            self.sharedPlayerPaneldelegae?.shouldShow()
-            self.sharedPlayerPaneldelegae?.shouldPlay()
+            if change.previousState?.isPlaying != true {
+                self.sharedPlayerPaneldelegae?.shouldShow()
+                self.sharedPlayerPaneldelegae?.shouldPlay()
+            }
         case .paused:
             self.configureSharedAudioPanel()
             self.sharedPlayerPaneldelegae?.shouldShow()
@@ -5720,6 +5725,22 @@ extension ChatViewController {
                 self.sharedPlayerPaneldelegae?.shouldHide()
             }
         }
+    }
+
+    @discardableResult
+    internal func updateVisibleVoiceMessageState(
+        containerPrimary: String,
+        referencePrimary: String,
+        state: VoiceMessagePlaybackState
+    ) -> Bool {
+        guard let section = datasourceSnapshot.primaryIndex[containerPrimary] else {
+            return false
+        }
+        let indexPath = IndexPath(row: 0, section: section)
+        guard let cell = messagesCollectionView.cellForItem(at: indexPath) as? MessageCollectionViewCell else {
+            return false
+        }
+        return cell.renderVoiceMessageState(referencePrimary: referencePrimary, state: state)
     }
 
     internal func updateVisibleVoiceMessageQueue() {

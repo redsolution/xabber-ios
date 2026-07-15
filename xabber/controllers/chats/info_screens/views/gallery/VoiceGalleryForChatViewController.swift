@@ -294,12 +294,21 @@ final class VoiceGalleryForChatViewController: BaseMediaGalleryForChatViewContro
         }
 
         func render(state: MediaGalleryVoiceRowState) {
+            let previousWaveformPrimary = renderedState?.descriptor.referencePrimary
             renderedState = state
-            renderedWaveformLevels = state.waveformLevels
             contentView.layoutIfNeeded()
-            waveformView.meteringLevels = state.waveformLevels
-            waveformView.currentGradientPercentage = Float(state.waveformProgress)
-            waveformView.setNeedsDisplay()
+            if previousWaveformPrimary != state.descriptor.referencePrimary ||
+                renderedWaveformLevels != state.waveformLevels {
+                renderedWaveformLevels = state.waveformLevels
+                waveformView.configureStaticWaveform(
+                    levels: state.waveformLevels,
+                    revision: ChatWaveformRevision.make(
+                        identity: state.descriptor.referencePrimary,
+                        levels: state.waveformLevels
+                    )
+                )
+            }
+            waveformView.setProgress(Float(state.waveformProgress))
             controlButton.setImage(
                 UIImage(systemName: state.controlIconSystemName),
                 for: .normal
@@ -322,7 +331,8 @@ final class VoiceGalleryForChatViewController: BaseMediaGalleryForChatViewContro
             renderedState = nil
             renderedWaveformLevels = []
             waveformView.pause()
-            waveformView.currentGradientPercentage = 0
+            waveformView.configureStaticWaveform(levels: [], revision: "")
+            waveformView.setProgress(0)
             onPrimaryAction = nil
             onJumpToMessage = nil
             accessibilityCustomActions = nil

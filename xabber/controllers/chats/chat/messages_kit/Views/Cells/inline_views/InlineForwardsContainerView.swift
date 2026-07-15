@@ -399,10 +399,28 @@ class InlineMessageAttachmentView: ModernContainerView {
         filesView.cancelOffscreenWork()
     }
 
+    func cancelOffscreenWork() {
+        cancelOffscreenFileWork()
+        audiosView.cancelOffscreenWork()
+    }
+
     func resumeOnscreenFileWork() {
         locationsView.resumeOnscreenWork()
         contactsView.resumeOnscreenWork()
         filesView.resumeOnscreenWork()
+    }
+
+    func resumeOnscreenWork() {
+        resumeOnscreenFileWork()
+        audiosView.resumeOnscreenWork()
+    }
+
+    @discardableResult
+    func renderVoiceMessageState(
+        referencePrimary: String,
+        state: VoiceMessagePlaybackState
+    ) -> Bool {
+        audiosView.render(state: state, for: referencePrimary)
     }
 
     private func resetAttachmentContent() {
@@ -562,12 +580,26 @@ class InlineForwardsContainerView: InlineAttachmentView {
         }
     }
 
-    func cancelOffscreenFileWork() {
-        inlineViews.forEach { $0.cancelOffscreenFileWork() }
+    func cancelOffscreenWork() {
+        inlineViews.forEach { $0.cancelOffscreenWork() }
     }
 
-    func resumeOnscreenFileWork() {
-        inlineViews.forEach { $0.resumeOnscreenFileWork() }
+    func resumeOnscreenWork() {
+        inlineViews.forEach { $0.resumeOnscreenWork() }
+    }
+
+    @discardableResult
+    func renderVoiceMessageState(
+        referencePrimary: String,
+        state: VoiceMessagePlaybackState
+    ) -> Bool {
+        for view in inlineViews where view.renderVoiceMessageState(
+            referencePrimary: referencePrimary,
+            state: state
+        ) {
+            return true
+        }
+        return false
     }
 
     func resetState() {

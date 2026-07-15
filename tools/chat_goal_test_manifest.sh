@@ -176,8 +176,12 @@ xabberTests/TextMessageCellReuseTests
 SELECTORS
       ;;
     G15) cat <<'SELECTORS'
+xabberTests/ChatWaveformRenderingTests
+xabberTests/InlineForwardsReuseTests
+xabberTests/TextMessageCellReuseTests
 xabberTests/VoiceMessagePlaybackCoordinatorTests
 xabberTests/InlineAudioViewVoiceStateRenderingTests
+xabberTests/MediaGalleryVoiceListTests
 xabberTests/MediaGalleryVoicePlaybackTests
 SELECTORS
       ;;

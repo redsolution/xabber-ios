@@ -42,6 +42,14 @@ public class MessageCollectionViewCell: UICollectionViewCell {
         _ = changeMask
         reconfigureContent(with: message, at: indexPath, and: messagesCollectionView)
     }
+
+    @discardableResult
+    func renderVoiceMessageState(
+        referencePrimary: String,
+        state: VoiceMessagePlaybackState
+    ) -> Bool {
+        false
+    }
     
     public override init(frame: CGRect) {
         super.init(frame: frame)

@@ -87,8 +87,6 @@ extension ChatViewController: XabberInputBarDelegate {
         guard self.recordedReferenceSessionID == sessionID else { return }
         func play(url: URL?) throws {
             AudioManager.shared.player?.stop()
-            self.currentPlayingView?.resetState()
-            self.currentPlayingView?.waveform.reset()
             if let url = url, let data = try AudioManager.shared.load(url) {
                 AudioManager.shared.player = try AVAudioPlayer(data: data, fileTypeHint: AVFileType.m4a.rawValue)
                 AudioManager.shared.currentPlayingTitle = self.ownerSender.displayName
