@@ -7216,10 +7216,14 @@ extension ChatViewController {
     ) -> ChatDatasourceMappingContext {
         let traitCollection = self.traitCollection
         let flowLayout = self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout
-        let layoutWidth = max(
-            1,
-            layoutWidthOverride ?? flowLayout?.itemWidth ?? self.messagesCollectionView.bounds.width
-        )
+        let layoutWidth = [
+            layoutWidthOverride,
+            flowLayout?.itemWidth,
+            self.messagesCollectionView.bounds.width,
+            self.view.bounds.width
+        ]
+            .compactMap { $0 }
+            .first { $0.isFinite && $0 > 1 } ?? 1
         let bodyFont = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
         let captionFont = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: traitCollection)
         let bodyColor = UIColor.label.resolvedColor(with: traitCollection)

@@ -46,6 +46,44 @@ final class ChatDatasourceMappingThreadingTests: XCTestCase {
         XCTAssertEqual(mappedPrimary, "background-message")
     }
 
+    func testPrelayoutMappingUsesViewWidthAndKeepsTimestampInsidePreparedGeometry() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.messagesCollectionView.frame = .zero
+        let flowLayout = try XCTUnwrap(
+            controller.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout
+        )
+        XCTAssertEqual(flowLayout.itemWidth, 0)
+
+        let context = controller.captureDatasourceMappingContext()
+
+        XCTAssertEqual(context.layoutContext.width, 390)
+        let message = try seedMessage(
+            primary: "prelayout-message",
+            body: "Local message before the collection has its first layout"
+        ).freeze()
+        let result = controller.mapDataset(dataset: [message], context: context)
+        let layout = try XCTUnwrap(result.layoutSnapshot.layout(forPrimary: message.primary))
+        let timeFrame = CGRect(
+            x: layout.messageContainerSize.width - layout.timeMarkerSize.width -
+                layout.timeMarkerInsets.right - layout.tailWidth -
+                layout.messageContainerPadding.right - layout.messageContainerMargin.right,
+            y: layout.messageContainerSize.height - layout.timeMarkerSize.height -
+                layout.timeMarkerInsets.bottom - layout.messageContainerPadding.bottom -
+                layout.messageContainerMargin.bottom - 2,
+            width: layout.timeMarkerSize.width,
+            height: layout.timeMarkerSize.height
+        )
+
+        XCTAssertTrue(
+            ChatMessageFrameGeometryValidator.violations(
+                frames: [.init(name: "time", frame: timeFrame)],
+                containerBounds: CGRect(origin: .zero, size: layout.messageContainerSize)
+            ).isEmpty
+        )
+    }
+
     func testStaleMappingGenerationIsCancelledBeforeDatasourceApply() {
         XCTAssertFalse(ChatDatasourceApplyGenerationPolicy.shouldApply(requestGeneration: 1, currentGeneration: 2))
         XCTAssertTrue(ChatDatasourceApplyGenerationPolicy.shouldApply(requestGeneration: 2, currentGeneration: 2))

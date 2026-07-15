@@ -47,7 +47,13 @@ enum ChatMessageFrameGeometryValidator {
     ) {
 #if DEBUG
         let failures = violations(frames: frames, containerBounds: containerBounds)
-        assert(failures.isEmpty, "Invalid chat message geometry: \(failures)", file: file, line: line)
+        guard !failures.isEmpty else { return }
+        let frameSummary = frames.map { "\($0.name)=\($0.frame)" }
+        assertionFailure(
+            "Invalid chat message geometry: \(failures); container=\(containerBounds); frames=\(frameSummary)",
+            file: file,
+            line: line
+        )
 #endif
     }
 }
