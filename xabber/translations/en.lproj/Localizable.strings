@@ -6553,6 +6553,7 @@ What’s your name?";
 "chat_attachment_accessibility_selected_order" = "Selected %@";
 "chat_attachment_accessibility_selection_limit_reached" = "Selection limit reached";
 "chat_attachment_action_retry" = "Retry";
+"chat_bootstrap_history_failure" = "Couldn’t load message history";
 "chat_attachment_action_remove" = "Remove";
 "chat_attachment_action_cancel" = "Cancel";
 "chat_attachment_action_done" = "Done";

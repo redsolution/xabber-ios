@@ -186,6 +186,7 @@ xabberTests/MediaGalleryVoicePlaybackTests
 SELECTORS
       ;;
     G16) cat <<'SELECTORS'
+xabberTests/ChatSkeletonLifecycleTests
 xabberTests/ChatBootstrapStateTests
 xabberTests/ChatBootstrapSkeletonRenderPolicyTests
 xabberTests/ChatInitialHistoryAppearancePolicyTests
@@ -314,6 +315,12 @@ CHAT_GOAL_KNOWN_RED_SELECTORS=(
   'xabberTests/ChatMessageAnchorPolicyTests/testContextWaitingSearchRequestDoesNotCallPositioningStarted'
   'xabberTests/LastChatsSeparatorAppearanceTests/testLastChatsBottomSearchExpandsFullWidthAndHidesFloatingBottomBar'
   'xabberTests/LastChatsSeparatorAppearanceTests/testUpdateBottomTitleDoesNotMutateNavigationItemDuringOrAfterTransition'
+  'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testObserverRefreshWithNewNewestUpdatesLatestWindowWithoutLeavingBottom'
+  'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testPendingObserverRefreshAfterUnsyncedBootstrapRevealDoesNotLeaveNewest'
+  'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSavedVisiblePositionPresentUsesAnchoredFirstFrame'
+  'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSearchLocalTargetAppliesAnchorWindowBeforeFirstRealFrame'
+  'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testUnreadBoundaryLocalTargetAppliesAnchorWindowBeforeFirstRealFrame'
+  'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testExternalLocalTargetIsTheOnlyFirstContentFrame'
 )
 
 chat_goal_known_red_owner() {
@@ -321,6 +328,12 @@ chat_goal_known_red_owner() {
     'xabberTests/ChatMessageAnchorPolicyTests/testContextWaitingSearchRequestDoesNotCallPositioningStarted') echo G18 ;;
     'xabberTests/LastChatsSeparatorAppearanceTests/testLastChatsBottomSearchExpandsFullWidthAndHidesFloatingBottomBar') echo G17B ;;
     'xabberTests/LastChatsSeparatorAppearanceTests/testUpdateBottomTitleDoesNotMutateNavigationItemDuringOrAfterTransition') echo G17B ;;
+    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testObserverRefreshWithNewNewestUpdatesLatestWindowWithoutLeavingBottom') echo G18 ;;
+    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testPendingObserverRefreshAfterUnsyncedBootstrapRevealDoesNotLeaveNewest') echo G18 ;;
+    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSavedVisiblePositionPresentUsesAnchoredFirstFrame') echo G18 ;;
+    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSearchLocalTargetAppliesAnchorWindowBeforeFirstRealFrame') echo G18 ;;
+    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testUnreadBoundaryLocalTargetAppliesAnchorWindowBeforeFirstRealFrame') echo G18 ;;
+    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testExternalLocalTargetIsTheOnlyFirstContentFrame') echo G18 ;;
     *) return 64 ;;
   esac
 }
@@ -332,6 +345,18 @@ chat_goal_known_red_patterns() {
       ;;
     'xabberTests/LastChatsSeparatorAppearanceTests/testLastChatsBottomSearchExpandsFullWidthAndHidesFloatingBottomBar'|'xabberTests/LastChatsSeparatorAppearanceTests/testUpdateBottomTitleDoesNotMutateNavigationItemDuringOrAfterTransition')
       echo 'XCTAssertTrue failed'
+      ;;
+    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testObserverRefreshWithNewNewestUpdatesLatestWindowWithoutLeavingBottom')
+      echo 'first-frame-message-319'
+      ;;
+    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testPendingObserverRefreshAfterUnsyncedBootstrapRevealDoesNotLeaveNewest')
+      printf '%s\n' 'XCTAssertFalse failed' 'first-frame-message-320'
+      ;;
+    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSavedVisiblePositionPresentUsesAnchoredFirstFrame'|'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testExternalLocalTargetIsTheOnlyFirstContentFrame')
+      echo 'XCTAssertTrue failed'
+      ;;
+    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSearchLocalTargetAppliesAnchorWindowBeforeFirstRealFrame'|'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testUnreadBoundaryLocalTargetAppliesAnchorWindowBeforeFirstRealFrame')
+      echo 'XCTUnwrap failed: expected non-nil value of type "Int"'
       ;;
     *) return 64 ;;
   esac

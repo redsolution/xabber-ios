@@ -1160,7 +1160,7 @@ struct ChatDatasourceMappingContext {
     let ownerSender: Sender
     let opponentSender: Sender
     var showSkeleton: Bool
-    let skeletonMessages: [NSAttributedString]
+    let skeletonDescriptors: [ChatSkeletonDescriptor]
     var searchText: String?
     var inSearchMode: Bool
     var displayCacheContext: ChatDisplayModelCacheContext
@@ -1176,6 +1176,37 @@ struct ChatDatasourceMappingContext {
     let layoutReuseSnapshot: ChatMessageLayoutSnapshot
     let layoutCacheCapacity: Int
     let layoutOperationCounter: ChatMessageLayoutOperationCounter?
+}
+
+struct ChatSkeletonDescriptor {
+    let primary: String
+    let messageId: String
+    let text: NSAttributedString
+    let sentDate: Date
+    let outgoing: Bool
+}
+
+enum ChatSkeletonTemplate {
+    private static let wordBank = [
+        "message", "history", "loading", "conversation", "preview", "secure", "contact", "reply"
+    ]
+    private static let wordCounts = [
+        3, 7, 5, 11, 4, 8, 6, 9, 5, 12,
+        4, 7, 10, 6, 8, 3, 11, 5, 9, 7,
+        4, 10, 6, 8, 5, 12, 3, 9, 7, 5
+    ]
+    private static let referenceDate = Date(timeIntervalSince1970: 978_307_200)
+
+    static let descriptors: [ChatSkeletonDescriptor] = wordCounts.enumerated().map { index, count in
+        let words = (0..<count).map { wordBank[(index + $0) % wordBank.count] }
+        return ChatSkeletonDescriptor(
+            primary: "chat-skeleton-\(index)",
+            messageId: "chat-skeleton-message-\(index)",
+            text: NSAttributedString(string: words.joined(separator: " ")),
+            sentDate: referenceDate.addingTimeInterval(TimeInterval(index * 60)),
+            outgoing: index.isMultiple(of: 3)
+        )
+    }
 }
 
 struct ChatDatasourceMappingResult {
@@ -5577,28 +5608,125 @@ enum ChatBootstrapViewState: Equatable {
         allowsStaleLocalHistory: Bool = false,
         allowsBootstrapFailureFallback: Bool = false
     ) -> ChatBootstrapViewState {
-        if hasPendingInitialAnchorRequest {
+        ChatBootstrapLoadingReducer.resolve(.init(
+            messageCount: messageCount,
+            isSynced: isSynced,
+            isInitialArchiveLoaded: isInitialArchiveLoaded,
+            isInitialBootstrapInFlight: isInitialBootstrapInFlight,
+            hasPendingInitialAnchorRequest: hasPendingInitialAnchorRequest,
+            allowsStaleLocalHistory: allowsStaleLocalHistory,
+            hasTerminalFailure: allowsBootstrapFailureFallback
+        )).viewState
+    }
+}
+
+enum ChatBootstrapFailureFallback: Equatable {
+    case content
+    case empty
+}
+
+enum ChatBootstrapLoadingState: Equatable {
+    case blockingArchive
+    case blockingTarget
+    case content
+    case empty
+    case failure(fallback: ChatBootstrapFailureFallback)
+
+    var viewState: ChatBootstrapViewState {
+        switch self {
+        case .blockingArchive, .blockingTarget:
             return .skeleton
+        case .content:
+            return .content
+        case .empty:
+            return .empty
+        case .failure(let fallback):
+            return fallback == .content ? .content : .empty
         }
-        if isInitialBootstrapInFlight {
-            return isSynced && isInitialArchiveLoaded && messageCount > 0 ? .content : .skeleton
+    }
+
+    var showsSkeleton: Bool {
+        switch self {
+        case .blockingArchive, .blockingTarget:
+            return true
+        case .content, .empty, .failure:
+            return false
         }
-        if allowsBootstrapFailureFallback {
-            return messageCount > 0 ? .content : .empty
+    }
+
+    var showsRetry: Bool {
+        if case .failure = self {
+            return true
         }
-        if allowsStaleLocalHistory && messageCount > 0 {
+        return false
+    }
+
+    var locksTimeline: Bool {
+        showsSkeleton
+    }
+}
+
+enum ChatBootstrapLoadingReducer {
+    struct Input: Equatable {
+        let messageCount: Int
+        let isSynced: Bool
+        let isInitialArchiveLoaded: Bool
+        let isInitialBootstrapInFlight: Bool
+        let hasPendingInitialAnchorRequest: Bool
+        let allowsStaleLocalHistory: Bool
+        let hasTerminalFailure: Bool
+    }
+
+    static func resolve(_ input: Input) -> ChatBootstrapLoadingState {
+        if input.hasPendingInitialAnchorRequest {
+            return .blockingTarget
+        }
+        if input.isInitialBootstrapInFlight {
+            return input.isSynced && input.isInitialArchiveLoaded && input.messageCount > 0
+                ? .content
+                : .blockingArchive
+        }
+        if input.hasTerminalFailure {
+            return .failure(fallback: input.messageCount > 0 ? .content : .empty)
+        }
+        if input.allowsStaleLocalHistory && input.messageCount > 0 {
             return .content
         }
-        if !isSynced {
-            return .skeleton
+        if !input.isSynced || !input.isInitialArchiveLoaded {
+            return .blockingArchive
         }
-        if !isInitialArchiveLoaded {
-            return .skeleton
-        }
-        if messageCount > 0 {
-            return .content
-        }
-        return .empty
+        return input.messageCount > 0 ? .content : .empty
+    }
+}
+
+enum ChatBootstrapStateApplicationDecision: Equatable {
+    case apply
+    case noOp
+}
+
+enum ChatBootstrapStateApplicationPolicy {
+    static func decision(
+        previous: ChatBootstrapLoadingState?,
+        next: ChatBootstrapLoadingState
+    ) -> ChatBootstrapStateApplicationDecision {
+        previous == next ? .noOp : .apply
+    }
+}
+
+struct ChatBootstrapAtomicRevealPlan: Equatable {
+    let destinationRowCount: Int
+    let datasourceApplyCount: Int
+    let intermediateEmptyFrameCount: Int
+
+    static func resolve(
+        previous: ChatBootstrapLoadingState,
+        destinationRowCount: Int
+    ) -> ChatBootstrapAtomicRevealPlan {
+        ChatBootstrapAtomicRevealPlan(
+            destinationRowCount: max(0, destinationRowCount),
+            datasourceApplyCount: 1,
+            intermediateEmptyFrameCount: 0
+        )
     }
 }
 
@@ -7238,7 +7366,7 @@ extension ChatViewController {
             ownerSender: self.ownerSender,
             opponentSender: self.opponentSender,
             showSkeleton: self.showSkeletonObserver.value,
-            skeletonMessages: self.skeletonMessages,
+            skeletonDescriptors: ChatSkeletonTemplate.descriptors,
             searchText: searchText,
             inSearchMode: self.inSearchMode.value,
             displayCacheContext: ChatDisplayModelCacheContext.current(
@@ -9055,7 +9183,7 @@ extension ChatViewController {
         let persistedMessageCount = self.initialBootstrapPersistedMessageCount ?? 0
         self.resetInitialBootstrapTracking()
         DDLogDebug("ChatViewController.initialBootstrap finished queryId=\(queryId ?? "-") persisted=\(persistedMessageCount) persistedRowsForQuery=\(persistedRowsForQuery) visibleRows=\(visibleRowsForLatestPage) localCount=\(localMessageCount)")
-        self.applyBootstrapViewState(self.currentBootstrapViewState(), forceRender: true)
+        self.applyBootstrapLoadingState(self.currentBootstrapLoadingState(), forceRender: true)
         self.flushPendingArchiveObserverRefreshIfPossible(reason: "initialBootstrapComplete")
         return true
     }
@@ -9105,7 +9233,7 @@ extension ChatViewController {
         self.initialBootstrapLocalHistoryFallbackWorkItem?.cancel()
         self.initialBootstrapLocalHistoryFallbackWorkItem = nil
         self.allowsStaleLocalHistoryDuringInitialBootstrap = true
-        self.applyBootstrapViewState(self.currentBootstrapViewState(), forceRender: true)
+        self.applyBootstrapLoadingState(self.currentBootstrapLoadingState(), forceRender: true)
         return true
     }
 
@@ -9121,7 +9249,7 @@ extension ChatViewController {
 
         self.initialBootstrapLocalHistoryFallbackWorkItem?.cancel()
         self.initialBootstrapLocalHistoryFallbackWorkItem = nil
-        self.applyBootstrapViewState(state, forceRender: true)
+        self.applyBootstrapLoadingState(self.currentBootstrapLoadingState(), forceRender: true)
         return true
     }
 
@@ -9171,7 +9299,7 @@ extension ChatViewController {
             if shouldRevealLocalHistory {
                 self.allowsStaleLocalHistoryDuringInitialBootstrap = true
             }
-            self.applyBootstrapViewState(self.currentBootstrapViewState(), forceRender: true)
+            self.applyBootstrapLoadingState(self.currentBootstrapLoadingState(), forceRender: true)
             self.cancelPendingArchiveObserverRefresh(reason: "initialBootstrapFailure")
             self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
         }
@@ -10281,19 +10409,23 @@ extension ChatViewController {
         }
     }
 
-    internal func bootstrapViewState(chatInstance: LastChatsStorageItem?) -> ChatBootstrapViewState {
-        ChatBootstrapViewState.resolve(
+    internal func bootstrapLoadingState(chatInstance: LastChatsStorageItem?) -> ChatBootstrapLoadingState {
+        ChatBootstrapLoadingReducer.resolve(.init(
             messageCount: self.localHistoryMessageCountForBootstrap(),
             isSynced: chatInstance?.isSynced ?? false,
             isInitialArchiveLoaded: chatInstance?.isInitialArchiveLoaded ?? false,
             isInitialBootstrapInFlight: self.isInitialBootstrapInFlight,
             hasPendingInitialAnchorRequest: self.hasPendingInitialAnchorRequest(chatInstance: chatInstance),
             allowsStaleLocalHistory: self.allowsStaleLocalHistoryDuringInitialBootstrap,
-            allowsBootstrapFailureFallback: self.allowsBootstrapFailureFallback
-        )
+            hasTerminalFailure: self.allowsBootstrapFailureFallback
+        ))
     }
 
-    internal func currentBootstrapViewState() -> ChatBootstrapViewState {
+    internal func bootstrapViewState(chatInstance: LastChatsStorageItem?) -> ChatBootstrapViewState {
+        bootstrapLoadingState(chatInstance: chatInstance).viewState
+    }
+
+    internal func currentBootstrapLoadingState() -> ChatBootstrapLoadingState {
         do {
             let realm = try WRealm.safe()
             let chatInstance = realm.object(
@@ -10304,19 +10436,23 @@ extension ChatViewController {
                     conversationType: self.conversationType
                 )
             )
-            return self.bootstrapViewState(chatInstance: chatInstance)
+            return self.bootstrapLoadingState(chatInstance: chatInstance)
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-            return ChatBootstrapViewState.resolve(
+            return ChatBootstrapLoadingReducer.resolve(.init(
                 messageCount: self.localHistoryMessageCountForBootstrap(),
                 isSynced: false,
                 isInitialArchiveLoaded: false,
                 isInitialBootstrapInFlight: self.isInitialBootstrapInFlight,
                 hasPendingInitialAnchorRequest: self.hasPendingInitialAnchorRequest(chatInstance: nil),
                 allowsStaleLocalHistory: self.allowsStaleLocalHistoryDuringInitialBootstrap,
-                allowsBootstrapFailureFallback: self.allowsBootstrapFailureFallback
-            )
+                hasTerminalFailure: self.allowsBootstrapFailureFallback
+            ))
         }
+    }
+
+    internal func currentBootstrapViewState() -> ChatBootstrapViewState {
+        currentBootstrapLoadingState().viewState
     }
 
     internal func hasPendingInitialAnchorRequest(chatInstance: LastChatsStorageItem? = nil) -> Bool {
@@ -10642,6 +10778,18 @@ extension ChatViewController {
     ) {
         self.initialLocalFirstFramePhase = .committed(descriptor)
         self.initialFirstContentApplyCount += 1
+        let previousBootstrapState = self.appliedBootstrapLoadingState ?? .blockingArchive
+        self.lastBootstrapAtomicRevealPlan = ChatBootstrapAtomicRevealPlan.resolve(
+            previous: previousBootstrapState,
+            destinationRowCount: mappingResult.datasource.count
+        )
+        if previousBootstrapState.showsRetry {
+            self.appliedBootstrapLoadingState = previousBootstrapState
+            self.setBootstrapFailureVisible(true)
+        } else {
+            self.appliedBootstrapLoadingState = committedSnapshot.items.isEmpty ? .empty : .content
+            self.setBootstrapFailureVisible(false)
+        }
         self.activeHistoryBoundaryPlaceholder = nil
         self.syncCurrentPage(
             with: ChatDatasetWindow(minIndex: 0, maxIndex: committedSnapshot.items.count)
@@ -10744,7 +10892,36 @@ extension ChatViewController {
     }
 
     internal func applyBootstrapViewState(_ state: ChatBootstrapViewState, forceRender: Bool = false) {
+        let loadingState: ChatBootstrapLoadingState
         switch state {
+        case .skeleton:
+            let resolved = currentBootstrapLoadingState()
+            loadingState = resolved.showsSkeleton ? resolved : .blockingArchive
+        case .content:
+            loadingState = .content
+        case .empty:
+            loadingState = .empty
+        }
+        applyBootstrapLoadingState(loadingState, forceRender: forceRender)
+    }
+
+    internal func applyBootstrapLoadingState(
+        _ state: ChatBootstrapLoadingState,
+        forceRender: Bool = false
+    ) {
+        guard ChatBootstrapStateApplicationPolicy.decision(
+            previous: appliedBootstrapLoadingState,
+            next: state
+        ) == .apply else {
+            return
+        }
+        if state.showsRetry {
+            allowsBootstrapFailureFallback = true
+        }
+        appliedBootstrapLoadingState = state
+        setBootstrapFailureVisible(state.showsRetry)
+
+        switch state.viewState {
         case .skeleton:
             self.setDatasourceLoadingEnabled(false)
             self.setShouldShowInitialMessage(false)
@@ -10784,6 +10961,13 @@ extension ChatViewController {
                 }
             }
         case .content, .empty:
+            if state.showsRetry {
+                self.setSkeletonVisible(false)
+                self.setShouldShowInitialMessage(false)
+                self.setDatasourceLoadingEnabled(true)
+                self.messagesCollectionView.isUserInteractionEnabled = true
+                self.timelineInteractionState.unlock()
+            }
             self.reloadInitialWindowAfterBootstrapIfNeeded(force: forceRender)
         }
     }
@@ -10859,19 +11043,18 @@ extension ChatViewController {
 
         if context.showSkeleton {
             var datasource: [Datasource] = []
-            for (offset, item) in context.skeletonMessages.enumerated() {
+            for descriptor in context.skeletonDescriptors {
                 guard cancellationToken?.shouldProcessNextRow() ?? true else { break }
-                let date = Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(((context.skeletonMessages.count - offset) * 1000)))
                 datasource.append(Datasource(
-                    primary: UUID().uuidString,
+                    primary: descriptor.primary,
                     jid: context.jid,
                     owner: context.owner,
-                    outgoing: ((offset % 3) == 0),
+                    outgoing: descriptor.outgoing,
                     sender: context.opponentSender,
-                    messageId: UUID().uuidString,
-                    sentDate: date,
+                    messageId: descriptor.messageId,
+                    sentDate: descriptor.sentDate,
                     editDate: nil,
-                    kind: .skeleton(item),
+                    kind: .skeleton(descriptor.text),
                     withAuthor: false,
                     withAvatar: false,
                     error: false,
@@ -10880,7 +11063,7 @@ extension ChatViewController {
                     canEditMessage: false,
                     canDeleteMessage: false,
                     forwards: [],
-                    isOutgoing: ((offset % 3) == 0),
+                    isOutgoing: descriptor.outgoing,
                     isEdited: false,
                     groupchatAuthorRole: "",
                     groupchatAuthorId: "",

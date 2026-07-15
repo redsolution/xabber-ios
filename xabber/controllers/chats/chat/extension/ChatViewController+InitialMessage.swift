@@ -11,6 +11,82 @@ import UIKit
 import MaterialComponents
 
 extension ChatViewController {
+    internal func setBootstrapFailureVisible(_ isVisible: Bool) {
+        performOnMain {
+            self.bootstrapFailureView.isHidden = !isVisible
+            if isVisible {
+                self.view.bringSubviewToFront(self.bootstrapFailureView)
+            }
+        }
+    }
+
+    final class BootstrapFailureView: UIView {
+        var onRetry: (() -> Void)?
+
+        private let titleLabel: UILabel = {
+            let label = UILabel()
+            label.text = "Couldn’t load message history".localizeString(
+                id: "chat_bootstrap_history_failure",
+                arguments: []
+            )
+            label.textAlignment = .center
+            label.numberOfLines = 0
+            label.font = UIFont.preferredFont(forTextStyle: .body).bold()
+            label.adjustsFontForContentSizeCategory = true
+            return label
+        }()
+
+        private lazy var retryButton: UIButton = {
+            let button = UIButton(type: .system)
+            let title = "Retry".localizeString(id: "chat_attachment_action_retry", arguments: [])
+            button.setTitle(title, for: .normal)
+            button.accessibilityLabel = title
+            button.titleLabel?.font = UIFont.preferredFont(forTextStyle: .body)
+            button.titleLabel?.adjustsFontForContentSizeCategory = true
+            button.accessibilityIdentifier = "chat.bootstrap.retry"
+            button.addTarget(self, action: #selector(retryTapped), for: .touchUpInside)
+            return button
+        }()
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            setup()
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            setup()
+        }
+
+        private func setup() {
+            backgroundColor = .secondarySystemBackground
+            layer.cornerRadius = 14
+            layer.shadowColor = UIColor.black.cgColor
+            layer.shadowOpacity = 0.12
+            layer.shadowRadius = 12
+            layer.shadowOffset = CGSize(width: 0, height: 4)
+            accessibilityIdentifier = "chat.bootstrap.failure"
+
+            let stack = UIStackView(arrangedSubviews: [titleLabel, retryButton])
+            stack.axis = .vertical
+            stack.alignment = .fill
+            stack.spacing = 8
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(stack)
+            NSLayoutConstraint.activate([
+                stack.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+                stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+                stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+                stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+                retryButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
+            ])
+        }
+
+        @objc private func retryTapped() {
+            onRetry?()
+        }
+    }
+
     enum InitialMessageOverlayLayoutPolicy {
         private static let preferredSize = CGSize(width: 340, height: 340)
         private static let horizontalMargin: CGFloat = 16

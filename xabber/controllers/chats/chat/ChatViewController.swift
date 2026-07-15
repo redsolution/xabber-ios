@@ -1958,6 +1958,8 @@ class ChatViewController: MessagesViewController {
     var initialBootstrapLocalHistoryFallbackWorkItem: DispatchWorkItem? = nil
     var allowsStaleLocalHistoryDuringInitialBootstrap: Bool = false
     var allowsBootstrapFailureFallback: Bool = false
+    var appliedBootstrapLoadingState: ChatBootstrapLoadingState?
+    var lastBootstrapAtomicRevealPlan: ChatBootstrapAtomicRevealPlan?
     var hasConfirmedArchiveEndThisSession: Bool = false
     var hasUsedArchiveEndVerificationProbe: Bool = false
     var inSearchMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
@@ -2740,12 +2742,6 @@ class ChatViewController: MessagesViewController {
         }
     }
     
-    internal lazy var skeletonMessages: [NSAttributedString] = {
-        return (0..<30).compactMap {
-            _ in
-            return NSAttributedString(string: Lorem.words(Int.random(in: (18..<84))))
-        }
-    }()
     internal var activeHistoryBoundaryPlaceholder: ChatHistoryBoundaryPlaceholderPosition?
     
     internal let updateQueue: DispatchQueue = {
@@ -2800,6 +2796,15 @@ class ChatViewController: MessagesViewController {
         
         view.isHidden = true
         
+        return view
+    }()
+
+    internal lazy var bootstrapFailureView: BootstrapFailureView = {
+        let view = BootstrapFailureView(frame: .zero)
+        view.isHidden = true
+        view.onRetry = { [weak self] in
+            self?.retryInitialBootstrapAfterFailure()
+        }
         return view
     }()
     
@@ -4241,6 +4246,15 @@ class ChatViewController: MessagesViewController {
         self.previousFrame = self.view.bounds
         self.view.addSubview(self.chatViewLoadingOverlay)
         self.chatViewLoadingOverlay.fillSuperview()
+        self.view.addSubview(self.bootstrapFailureView)
+        self.bootstrapFailureView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            self.bootstrapFailureView.centerXAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.centerXAnchor),
+            self.bootstrapFailureView.centerYAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.centerYAnchor),
+            self.bootstrapFailureView.leadingAnchor.constraint(greaterThanOrEqualTo: self.view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
+            self.bootstrapFailureView.trailingAnchor.constraint(lessThanOrEqualTo: self.view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
+            self.bootstrapFailureView.widthAnchor.constraint(lessThanOrEqualToConstant: 360)
+        ])
         if self.inSearchMode.value {
             self.bringSearchInputOverlayToFront()
         }
