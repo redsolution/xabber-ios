@@ -175,7 +175,9 @@ final class ChatAvatarPipeline: ChatAvatarServing {
     static let shared = ChatAvatarPipeline(
         thumbnailPipeline: ChatMediaThumbnailPipeline.shared,
         renderer: LetterChatGeneratedAvatarRenderer(),
-        generatedCache: ChatGeneratedAvatarMemoryCache(capacity: 256)
+        generatedCache: ChatGeneratedAvatarMemoryCache(
+            capacity: ChatPerformanceResourceBudgets.generatedAvatarCount
+        )
     )
 
     private final class DeliveryState {
@@ -289,6 +291,12 @@ final class ChatAvatarPipeline: ChatAvatarServing {
             deduplicatedGeneratedAcquireCount: deduplicatedGeneratedAcquireCount,
             activeGeneratedWorkCount: generatedWork.count
         )
+    }
+
+    /// Visible/generated work remains owned by its subscriptions; memory
+    /// pressure evicts only recomputable avatar values.
+    func handleMemoryWarning() {
+        generatedCache.removeAll()
     }
 
     @discardableResult

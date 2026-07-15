@@ -87,21 +87,83 @@ struct MessageArchiveRequestFailureEvent: Equatable {
 }
 
 enum ChatArchiveDebugTrace {
-    static func log(_ event: String, _ fields: [(String, Any?)] = []) {
+    typealias Sink = (String) -> Void
+
+    #if DEBUG
+    private struct Configuration {
+        var enabled: Bool
+        var sampleEvery: Int
+        var invocationCount: UInt64
+        let sink: Sink
+    }
+
+    private static let configurationLock = NSLock()
+    private static var configuration = defaultConfiguration
+
+    private static var defaultConfiguration: Configuration {
+        Configuration(
+            enabled: true,
+            sampleEvery: 8,
+            invocationCount: 0,
+            sink: { DDLogDebug($0) }
+        )
+    }
+    #endif
+
+    /// Event and field builders remain unevaluated in Release, while disabled,
+    /// and for unsampled calls. Only numeric/boolean values are admitted: all
+    /// string identities (owner, JID, body, URL/path, query/message/archive ID)
+    /// are omitted even if a caller passes them accidentally.
+    @inline(__always)
+    static func log(
+        _ event: @autoclosure () -> String,
+        _ fields: @autoclosure () -> [(String, Any?)] = []
+    ) {
         #if DEBUG
-        var parts: [String] = [
-            "CHAT_ARCHIVE_TRACE",
-            "event=\(event)",
-            "thread=\(threadDescription)",
-            "queue=\(queueLabel)"
-        ]
-        fields.forEach { key, value in
-            guard let value else {
-                return
-            }
-            parts.append("\(key)=\(formatted(value))")
+        guard let sink = sinkForNextInvocation() else {
+            return
         }
-        DDLogDebug(parts.joined(separator: " "))
+
+        var parts = [
+            "CHAT_ARCHIVE_TRACE",
+            "event=\(sanitizedLabel(event(), fallback: "invalid-event"))",
+            "thread=\(Thread.isMainThread ? "main" : "background")"
+        ]
+        for (key, optionalValue) in fields() {
+            guard let value = optionalValue,
+                  let formattedValue = privacySafeValue(value) else {
+                continue
+            }
+            parts.append(
+                "\(sanitizedLabel(key, fallback: "metric"))=\(formattedValue)"
+            )
+        }
+        sink(parts.joined(separator: " "))
+        #endif
+    }
+
+    static func configureForTesting(
+        enabled: Bool,
+        sampleEvery: Int,
+        sink: @escaping Sink
+    ) {
+        #if DEBUG
+        configurationLock.lock()
+        configuration = Configuration(
+            enabled: enabled,
+            sampleEvery: max(1, sampleEvery),
+            invocationCount: 0,
+            sink: sink
+        )
+        configurationLock.unlock()
+        #endif
+    }
+
+    static func resetTestingConfiguration() {
+        #if DEBUG
+        configurationLock.lock()
+        configuration = defaultConfiguration
+        configurationLock.unlock()
         #endif
     }
 
@@ -109,39 +171,41 @@ enum ChatArchiveDebugTrace {
         Int(Date().timeIntervalSince(date) * 1000)
     }
 
-    private static var queueLabel: String {
-        String(cString: __dispatch_queue_get_label(nil), encoding: .utf8) ?? "unknown"
+    #if DEBUG
+    private static func sinkForNextInvocation() -> Sink? {
+        configurationLock.lock()
+        defer { configurationLock.unlock() }
+        guard configuration.enabled else {
+            return nil
+        }
+        configuration.invocationCount &+= 1
+        guard configuration.invocationCount.isMultiple(of: UInt64(configuration.sampleEvery)) else {
+            return nil
+        }
+        return configuration.sink
     }
 
-    private static var threadDescription: String {
-        if Thread.isMainThread {
-            return "main"
-        }
-        if let name = Thread.current.name,
-           name.isNotEmpty {
-            return name
-        }
-        return "background"
-    }
-
-    private static func formatted(_ value: Any) -> String {
+    private static func privacySafeValue(_ value: Any) -> String? {
         switch value {
         case let value as Bool:
             return value ? "true" : "false"
-        case let value as String:
-            let sanitized = value
-                .replacingOccurrences(of: "\n", with: "\\n")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-            if sanitized.rangeOfCharacter(from: .whitespacesAndNewlines) != nil || sanitized.isEmpty {
-                return "\"\(sanitized)\""
-            }
-            return sanitized
-        case let value as Date:
-            return "\(Int(value.timeIntervalSince1970 * 1000))"
+        case let value as NSNumber:
+            return value.stringValue
         default:
-            return String(describing: value)
+            return nil
         }
     }
+
+    private static func sanitizedLabel(_ value: String, fallback: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+        guard value.isNotEmpty,
+              value.count <= 64,
+              value.unicodeScalars.allSatisfy(allowed.contains) else {
+            return fallback
+        }
+        return value
+    }
+    #endif
 }
 
 enum MessageArchiveEndPageDispatcher {
@@ -1636,9 +1700,6 @@ class MessageArchiveManager: AbstractXMPPManager {
                 ("localQueryRegistered", localQueryRegistered),
                 ("route", localCallbackRegistered ? "activeLocalCallback" : ((dispatcherRegistered || fallbackRegistered || localQueryRegistered) ? "fallbackOrRegistered" : "staleNoActiveContext"))
             ])
-            DDLogDebug(
-                "MessageArchiveManager.read mamErrorReceived owner=\(self.owner) elementId=\(elementId) streamKind=\(streamKind.rawValue) localCallbackRegistered=\(localCallbackRegistered) dispatcherRegistered=\(MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: elementId))"
-            )
             if let item = self.firstCallbackQueueItem(where: { $0.elementId == elementId }) {
                 let queryId = item.task.queryId ?? elementId
                 if item.task.purpose.routesMamServerErrorAsRequestFailure {
@@ -1701,9 +1762,10 @@ class MessageArchiveManager: AbstractXMPPManager {
                 streamKind: streamKind
             )
             if fallbackDelivered || self.queryIds.contains(elementId) {
-                DDLogDebug(
-                    "MessageArchiveManager.read orphanErrorIQ owner=\(self.owner) elementId=\(elementId) localQueryRegistered=\(self.queryIds.contains(elementId)) fallbackDelivered=\(fallbackDelivered)"
-                )
+                ChatArchiveDebugTrace.log("mamOrphanErrorHandled", [
+                    ("localQueryRegistered", self.queryIds.contains(elementId)),
+                    ("fallbackDelivered", fallbackDelivered)
+                ])
                 self.unregisterArchiveQueryId(elementId)
                 self.queryIds.remove(elementId)
                 return true
@@ -1740,9 +1802,6 @@ class MessageArchiveManager: AbstractXMPPManager {
             ("first", first),
             ("last", last)
         ])
-        DDLogDebug(
-            "MessageArchiveManager.read mamFinalReceived owner=\(self.owner) elementId=\(elementId) queryId=\(queryId) streamKind=\(streamKind.rawValue) localCallbackRegistered=\(localCallbackRegistered) dispatcherRegistered=\(MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: queryId)) count=\(resultCount) complete=\(complete)"
-        )
 //        DispatchQueue.global().async {
             if let item = self.firstCallbackQueueItem(where: { $0.elementId == elementId }) {
                 if item.task.isContinues {
@@ -1908,9 +1967,12 @@ class MessageArchiveManager: AbstractXMPPManager {
                     count: count,
                     streamKind: streamKind
                 )
-                DDLogDebug(
-                    "MessageArchiveManager.read orphanFinalIQ owner=\(self.owner) elementId=\(elementId) queryId=\(queryId) localQueryRegistered=\(self.queryIds.contains(elementId)) fallbackDelivered=\(fallbackDelivered) count=\(count) complete=\(complete)"
-                )
+                ChatArchiveDebugTrace.log("mamOrphanFinalHandled", [
+                    ("localQueryRegistered", self.queryIds.contains(elementId)),
+                    ("fallbackDelivered", fallbackDelivered),
+                    ("count", count),
+                    ("complete", complete)
+                ])
                 self.unregisterArchiveQueryId(queryId)
                 self.queryIds.remove(elementId)
             }

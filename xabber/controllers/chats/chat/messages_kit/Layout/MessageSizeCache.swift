@@ -405,7 +405,7 @@ final class ChatMessageLayoutCache {
     private var snapshot: ChatMessageLayoutSnapshot = .empty
 
     init(
-        capacity: Int = 2_048,
+        capacity: Int = ChatPerformanceResourceBudgets.layoutCount,
         operationCounter: ChatMessageLayoutOperationCounter = ChatMessageLayoutOperationCounter()
     ) {
         self.capacity = max(0, capacity)

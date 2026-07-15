@@ -222,8 +222,16 @@ xabberTests/LastChatsSearchProvenanceRouteTests
 SELECTORS
       ;;
     G19) cat <<'SELECTORS'
+xabberTests/ChatLifecycleMemoryDiagnosticsTests
 xabberTests/ChatObserverLifecycleTests
+xabberTests/ChatSingleFrameLocalOpenTests
+xabberTests/ChatAsyncLocalPagingTests
 xabberTests/ChatDisplayModelCacheTests
+xabberTests/ChatDisplayRevisionCancellationTests
+xabberTests/ChatMessageLayoutCacheTests
+xabberTests/ChatMediaThumbnailPipelineTests
+xabberTests/ChatWaveformRenderingTests
+xabberTests/ChatContactAvatarBindingTests
 xabberTests/ChatCollectionPrefetchTests
 xabberTests/ChatDatasourceMappingThreadingTests
 SELECTORS

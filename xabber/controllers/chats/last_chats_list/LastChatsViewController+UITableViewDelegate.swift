@@ -392,7 +392,7 @@ extension LastChatsViewController: UITableViewDelegate {
     }
 }
 
-protocol LastChatsDisplayDelegate {
+protocol LastChatsDisplayDelegate: AnyObject {
     func shouldMakeDialogSelected(jid: String, owner: String, conversationType: ClientSynchronizationManager.ConversationType)
 }
 

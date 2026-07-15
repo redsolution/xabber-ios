@@ -133,15 +133,15 @@ final class ChatLocationSnapshotPipeline: ChatLocationSnapshotServing {
             .appendingPathComponent("xabber-chat-location-snapshots", isDirectory: true)
         let cache = ChatLocationSnapshotDiskCache(
             directoryURL: directory,
-            maxEntryCount: 96,
-            maxDiskBytes: 64 * 1_024 * 1_024,
-            ttl: 7 * 24 * 60 * 60
+            maxEntryCount: ChatPerformanceResourceBudgets.locationDiskEntryCount,
+            maxDiskBytes: ChatPerformanceResourceBudgets.locationDiskBytes,
+            ttl: ChatPerformanceResourceBudgets.locationTTL
         )
         cache.cleanup(completion: {})
         return ChatLocationSnapshotPipeline(
             loader: MapKitChatLocationSnapshotLoader(cache: cache),
-            maxConcurrentWork: 2,
-            maxQueuedWork: 24
+            maxConcurrentWork: ChatPerformanceResourceBudgets.locationConcurrentWork,
+            maxQueuedWork: ChatPerformanceResourceBudgets.locationQueuedWork
         )
     }()
 
@@ -182,7 +182,7 @@ final class ChatLocationSnapshotPipeline: ChatLocationSnapshotServing {
     init(
         loader: ChatLocationSnapshotLoading,
         maxConcurrentWork: Int,
-        maxQueuedWork: Int = 24
+        maxQueuedWork: Int = ChatPerformanceResourceBudgets.locationQueuedWork
     ) {
         self.loader = loader
         self.maxConcurrentWork = max(1, maxConcurrentWork)

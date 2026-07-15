@@ -11,7 +11,7 @@ import UIKit
 import MaterialComponents.MDCPalettes
 import AVFoundation
 
-protocol ChatViewMessagesPanelDelegate {
+protocol ChatViewMessagesPanelDelegate: AnyObject {
     func messagesPanelOnClose()
     func messagesPanelOnIndicatorTouch()
 }
@@ -249,7 +249,7 @@ class ModernXabberInputView: UIView {
             case edit
         }
 
-        var delegate: ChatViewMessagesPanelDelegate? = nil
+        weak var delegate: ChatViewMessagesPanelDelegate? = nil
 
         static let height: CGFloat = LiquidGlassMetrics.contextPreviewHeight
 
@@ -1136,7 +1136,7 @@ class ModernXabberInputView: UIView {
             static let iconSize: CGFloat = NativeGlassBarStyle.iconSize
         }
 
-        var delegate: MessagesSelectionPanelActionDelegate? = nil
+        weak var delegate: MessagesSelectionPanelActionDelegate? = nil
 
         let surfaceView: UIVisualEffectView = {
             let view = UIVisualEffectView(effect: NativeGlassBarStyle.makeEffect(interactive: true))
@@ -1384,7 +1384,7 @@ class ModernXabberInputView: UIView {
         }
         
         
-        internal var delegate: XabberInputBarDelegate? = nil
+        internal weak var delegate: XabberInputBarDelegate? = nil
         internal var onDelete: (() -> Void)? = nil
         internal var onPlay: (() -> Void)? = nil
         
@@ -1399,7 +1399,9 @@ class ModernXabberInputView: UIView {
             self.playButton.addTarget(self, action: #selector(self.onPlayButtonTouchUpInside), for: .touchUpInside)
             let gesture = UIPanGestureRecognizer(target: self, action: #selector(self.onPanGestureAppear))
             self.waveform.addGestureRecognizer(gesture)
-            self.waveform.drawCallback = updateTimeLabel
+            self.waveform.drawCallback = { [weak self] in
+                self?.updateTimeLabel()
+            }
         }
         
         public final func updateTimeLabel() {
@@ -1588,7 +1590,7 @@ class ModernXabberInputView: UIView {
         
         internal var slideToCancelButtonCenter: CGPoint = .zero
         
-        internal var delegate: XabberInputBarDelegate? = nil
+        internal weak var delegate: XabberInputBarDelegate? = nil
         internal var onCancel: (() -> Void)? = nil
         internal var onStop: (() -> Void)? = nil
         internal var onLock: (() -> Void)? = nil
@@ -2372,7 +2374,7 @@ class ModernXabberInputView: UIView {
         return view
     }()
     
-    public var delegate: XabberInputBarDelegate? = nil {
+    public weak var delegate: XabberInputBarDelegate? = nil {
         didSet {
             self.recordAndPlayPanel.delegate = self.delegate
             self.recordPanel.delegate = self.delegate

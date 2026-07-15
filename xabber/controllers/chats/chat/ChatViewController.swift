@@ -1783,10 +1783,12 @@ class ChatViewController: MessagesViewController {
         }
     }
     var scrollBoundaryAvailabilityCache: ChatScrollBoundaryAvailabilityCache = .empty
-    var displayModelCache: ChatDisplayModelCache = ChatDisplayModelCache(capacity: 2_048)
+    var displayModelCache: ChatDisplayModelCache = ChatDisplayModelCache(
+        capacity: ChatPerformanceResourceBudgets.displayModelCount
+    )
     
     
-    var sharedPlayerPaneldelegae: SharedAudioPlayerPanelDelegate? = nil
+    weak var sharedPlayerPaneldelegae: SharedAudioPlayerPanelDelegate? = nil
 // rx
     var bag: DisposeBag = DisposeBag()
     
@@ -2144,8 +2146,10 @@ class ChatViewController: MessagesViewController {
     }
 
     private func scheduleHistoryLoadingWatchdog(generation: Int, startedAt: Date) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + ChatHistoryLoadingTimeoutPolicy.checkInterval) {
-            guard self.historyLoadingGeneration == generation, self.timelineInteractionState.isLoading else {
+        DispatchQueue.main.asyncAfter(deadline: .now() + ChatHistoryLoadingTimeoutPolicy.checkInterval) { [weak self] in
+            guard let self,
+                  self.historyLoadingGeneration == generation,
+                  self.timelineInteractionState.isLoading else {
                 return
             }
 
@@ -3153,7 +3157,7 @@ class ChatViewController: MessagesViewController {
     
     internal var shouldRequestChatInfo: Bool = false
     
-    open var lastChatsDisplayDelegate: LastChatsDisplayDelegate? = nil
+    open weak var lastChatsDisplayDelegate: LastChatsDisplayDelegate? = nil
     var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
 
     internal let floatingBubblesStackView: UIStackView = {
@@ -4717,10 +4721,18 @@ class ChatViewController: MessagesViewController {
             visibleKeyboardHeight: self.xabberInputView.keyboardHeight
         )
         self.xabberInputView.searchPanel.conversationType = self.conversationType
-        self.xabberInputView.searchPanel.onChangeConversationTypeCallback = onSearchPanelChangeConversationType
-        self.xabberInputView.searchPanel.onSeekUpCallback = self.onSearchPanelSeekUp
-        self.xabberInputView.searchPanel.onSeekDownCallback = self.onSearchPanelSeekDown
-        self.xabberInputView.searchPanel.onChangeViewStateCallback = self.onSearchPanelChangeChatViewState
+        self.xabberInputView.searchPanel.onChangeConversationTypeCallback = { [weak self] type in
+            self?.onSearchPanelChangeConversationType(type)
+        }
+        self.xabberInputView.searchPanel.onSeekUpCallback = { [weak self] in
+            self?.onSearchPanelSeekUp()
+        }
+        self.xabberInputView.searchPanel.onSeekDownCallback = { [weak self] in
+            self?.onSearchPanelSeekDown()
+        }
+        self.xabberInputView.searchPanel.onChangeViewStateCallback = { [weak self] in
+            self?.onSearchPanelChangeChatViewState()
+        }
         self.xabberInputView.searchPanel.onCancelCallback = { [weak self] in
             self?.cancelSearchModeFromSearchUI()
         }
@@ -5145,9 +5157,8 @@ class ChatViewController: MessagesViewController {
         self.clearPendingLocalHistoryPagingPreparation()
         self.flushPendingVisibleReadTarget()
         self.saveCurrentVisibleMessagePositionIfNeeded(reason: .viewWillDisappear)
+        self.performTerminalChatResourceTeardown()
 
-        unsubscribe()
-        removeObservers()
         XMPPUIActionManager.shared.mam?.endLoadHistory(jid: self.jid, conversationType: conversationType)
         AccountManager.shared.find(for: self.owner)?.mam.endLoadHistory(jid: self.jid, conversationType: conversationType)
     }
@@ -5586,10 +5597,174 @@ class ChatViewController: MessagesViewController {
 
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
+        self.handleChatMemoryPressure()
+    }
+
+    /// Clears recomputable values and speculative work only. Timeline identity,
+    /// visible geometry, pending navigation and bootstrap presentation are not
+    /// mutated, so a warning cannot produce an empty/intermediate chat frame.
+    internal func handleChatMemoryPressure() {
         self.displayModelCache.removeAll()
         self.cancelDatasetMappingJobs()
         self.collectionPrefetchCoordinator.cancelAll()
+        (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
+            .cache.handleMemoryWarning()
+        self.clearMemoryCache()
         ChatMediaThumbnailPipeline.shared.handleMemoryWarning()
+        ChatAvatarPipeline.shared.handleMemoryWarning()
+        ChatWaveformRenderInstrumentation.handleMemoryWarning()
+    }
+
+    internal func handleChatMemoryPressureForTesting() {
+        handleChatMemoryPressure()
+    }
+
+    /// The sole terminal owner for controller-scoped asynchronous resources.
+    /// It is intentionally idempotent: disappearance, cancelled transitions
+    /// and deinit may all reach it without reviving or double-finishing work.
+    internal func performTerminalChatResourceTeardown() {
+        self.timelineSession?.cancelInitialFramePreparations()
+        self.timelineSession?.cancelLocalPagePreparations()
+        self.clearPendingLocalHistoryPagingPreparation()
+        self.cancelDatasetMappingJobs()
+        self.scrollWorkScheduler.cancel()
+        self.collectionPrefetchCoordinator.cancelAll()
+
+        self.cancelActiveAnchorExecutionForLifecycle()
+        self.anchorTransactionTimeoutWorkItems.values.forEach { $0.cancel() }
+        self.anchorTransactionTimeoutWorkItems.removeAll()
+        self.anchorTransactionTokenByQueryId.removeAll()
+        self.retainedMessageAnchor = nil
+
+        self.searchSessionDebounceWorkItem?.cancel()
+        self.searchSessionDebounceWorkItem = nil
+        self.searchSessionDebounceGeneration = nil
+        self.applySearchSessionEffects(self.searchSession.cancel())
+        self.searchSessionGenerationByQueryId.removeAll()
+        self.currentSearchQueryId = nil
+        self.currentInChatSearchQueryContext = nil
+        self.pendingOpenMessageRequest = nil
+
+        self.cancelInitialBootstrapTimeout()
+        self.cancelInitialBootstrapLocalHistoryFallback()
+        self.initialBootstrapQueryId = nil
+        self.isInitialBootstrapInFlight = false
+        self.interactiveHistoryCompletionRetryWorkItem?.cancel()
+        self.interactiveHistoryCompletionRetryWorkItem = nil
+        self.interactiveHistoryPageLoadContext = nil
+        self.remoteHistoryFinishingQueryId = nil
+        self.cancelPendingArchiveObserverRefresh(reason: "terminalTeardown")
+        self.visibleUnreadMentionReconciliationWorkItem?.cancel()
+        self.visibleUnreadMentionReconciliationWorkItem = nil
+        self.scrollDownButtonVisibilitySuppressionWorkItem?.cancel()
+        self.scrollDownButtonVisibilitySuppressionWorkItem = nil
+        self.clearRemoteHistoryEndPageDispatchers()
+        self.remoteHistoryQueryCoordinator.cancelAll(reason: .cancelled)
+        self.remoteHistoryRequestStartedAtByQueryId.removeAll()
+        self.stopChatArchiveMainStallProbe(reason: "terminalTeardown")
+        self.endAllChatHistoryLoadActivities(reason: "terminalTeardown")
+
+        self.refreshChatStateTimer?.invalidate()
+        self.refreshChatStateTimer = nil
+        self.omemoDeviceListTimer?.invalidate()
+        self.omemoDeviceListTimer = nil
+        self.watchSignatureTimer?.invalidate()
+        self.watchSignatureTimer = nil
+        self.certificateUpdateTimer?.invalidate()
+        self.certificateUpdateTimer = nil
+        self.pendingNavigationTransitionWork.removeAll(keepingCapacity: false)
+        self.scheduledMessagesComposerButtonToken?.invalidate()
+        self.scheduledMessagesComposerButtonToken = nil
+
+        if self.isViewLoaded {
+            self.xabberInputView.delegate = nil
+            self.xabberInputView.contextPreviewPanel.delegate = nil
+            self.xabberInputView.selectionPanel.delegate = nil
+            self.xabberInputView.searchPanel.onChangeConversationTypeCallback = nil
+            self.xabberInputView.searchPanel.onSeekUpCallback = nil
+            self.xabberInputView.searchPanel.onSeekDownCallback = nil
+            self.xabberInputView.searchPanel.onChangeViewStateCallback = nil
+            self.xabberInputView.searchPanel.onCancelCallback = nil
+            self.xabberInputView.mentionCandidatesProvider = nil
+            self.xabberInputView.mentionMembersCountProvider = nil
+            self.xabberInputView.mentionUsersReloadHandler = nil
+            self.sharedAudioPlayerPanel?.delegate = nil
+        }
+
+        self.unsubscribe()
+        self.removeObservers()
+        if SignatureManager.shared.delegate === self {
+            SignatureManager.shared.delegate = nil
+        }
+
+        if self.isViewLoaded {
+            Self.removeAnimationsRecursively(from: self.view.layer)
+            self.messageLoadingActivityIndicator.stopAnimating()
+        }
+
+        #if DEBUG
+        assert(
+            self.chatLifecycleResourceSnapshot.isIdle,
+            "Terminal chat teardown left active controller resources"
+        )
+        #endif
+    }
+
+    internal func performTerminalChatResourceTeardownForTesting() {
+        performTerminalChatResourceTeardown()
+    }
+
+    internal var chatLifecycleResourceSnapshot: ChatLifecycleResourceSnapshot {
+        let anchorSnapshot = self.anchorTransactionGate.snapshot
+        let animationCount = self.isViewLoaded
+            ? Self.animationCount(in: self.view.layer)
+            : 0
+        return ChatLifecycleResourceSnapshot(
+            timelinePreparations: self.timelineSession?.activePreparationCount ?? 0,
+            mappingJobs: self.datasetMappingJobCoordinator.ownedJobCount,
+            scheduledScrollRequests: self.scrollWorkScheduler.pendingRequestCount,
+            prefetchResources: self.collectionPrefetchCoordinator.activeResourceCount,
+            anchorTransactions: anchorSnapshot.activeToken == nil ? 0 : 1,
+            anchorQueries: self.anchorTransactionTokenByQueryId.count,
+            anchorTimeouts: self.anchorTransactionTimeoutWorkItems.count,
+            searchWorkItems: self.searchSessionDebounceWorkItem == nil ? 0 : 1,
+            bootstrapWorkItems: [
+                self.initialBootstrapTimeoutWorkItem,
+                self.initialBootstrapLocalHistoryFallbackWorkItem
+            ].compactMap { $0 }.count,
+            retryWorkItems: [
+                self.interactiveHistoryCompletionRetryWorkItem,
+                self.archiveObserverRefreshWorkItem,
+                self.visibleUnreadMentionReconciliationWorkItem,
+                self.scrollDownButtonVisibilitySuppressionWorkItem,
+                self.chatArchiveMainStallProbeWorkItem
+            ].compactMap { $0 }.count,
+            remoteDispatchers: self.remoteHistoryEndPageDispatcherTokens.count +
+                self.remoteHistoryFailureDispatcherTokens.count,
+            activeRemoteQueries: self.remoteHistoryQueryCoordinator.activeQueryCount,
+            historyLoadActivities: self.activeChatHistoryLoadActivityKeys.count,
+            timers: [
+                self.refreshChatStateTimer,
+                self.omemoDeviceListTimer,
+                self.watchSignatureTimer,
+                self.certificateUpdateTimer
+            ].compactMap { $0 }.count,
+            navigationWorkItems: self.pendingNavigationTransitionWork.count,
+            observerRegistrations: (self.chatObserversRegistered ? 1 : 0) +
+                (self.voiceMessageStateObserverToken == nil ? 0 : 1) +
+                (self.scheduledMessagesComposerButtonToken == nil ? 0 : 1),
+            animations: animationCount
+        )
+    }
+
+    private static func removeAnimationsRecursively(from layer: CALayer) {
+        layer.removeAllAnimations()
+        layer.sublayers?.forEach(removeAnimationsRecursively)
+    }
+
+    private static func animationCount(in layer: CALayer) -> Int {
+        (layer.animationKeys()?.count ?? 0) +
+            (layer.sublayers?.reduce(0) { $0 + animationCount(in: $1) } ?? 0)
     }
     
     static func getColorsForGradient(forColor color: BackgroundColor) -> [CGColor] {
@@ -5645,8 +5820,20 @@ class ChatViewController: MessagesViewController {
     }
     
     deinit {
+        // Do not initialize lazy coordinators while the object is already in
+        // deallocation. Normal disappearance runs the complete policy above;
+        // this fallback touches only resources that already exist eagerly.
         self.cancelDatasetMappingJobs()
+        self.timelineSession?.cancelInitialFramePreparations()
         self.timelineSession?.cancelLocalPagePreparations()
+        self.searchSessionDebounceWorkItem?.cancel()
+        self.initialBootstrapTimeoutWorkItem?.cancel()
+        self.initialBootstrapLocalHistoryFallbackWorkItem?.cancel()
+        self.interactiveHistoryCompletionRetryWorkItem?.cancel()
+        self.archiveObserverRefreshWorkItem?.cancel()
+        self.visibleUnreadMentionReconciliationWorkItem?.cancel()
+        self.chatArchiveMainStallProbeWorkItem?.cancel()
+        self.anchorTransactionTimeoutWorkItems.values.forEach { $0.cancel() }
         self.scheduledMessagesComposerButtonToken?.invalidate()
         self.unsubscribe()
         self.removeObservers()

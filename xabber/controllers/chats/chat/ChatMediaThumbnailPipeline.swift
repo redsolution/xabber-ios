@@ -146,9 +146,12 @@ struct ChatThumbnailPipelineMetrics {
 final class ChatMediaThumbnailPipeline: ChatThumbnailServing {
     static let shared = ChatMediaThumbnailPipeline(
         loader: KingfisherChatThumbnailLoader(),
-        cache: ChatThumbnailMemoryCache(),
-        maxConcurrentWork: 4,
-        maxQueuedWork: 48
+        cache: ChatThumbnailMemoryCache(
+            countLimit: ChatPerformanceResourceBudgets.thumbnailCount,
+            totalCostLimit: ChatPerformanceResourceBudgets.thumbnailMemoryBytes
+        ),
+        maxConcurrentWork: ChatPerformanceResourceBudgets.thumbnailConcurrentWork,
+        maxQueuedWork: ChatPerformanceResourceBudgets.thumbnailQueuedWork
     )
 
     private struct ConsumerEntry {
@@ -192,7 +195,7 @@ final class ChatMediaThumbnailPipeline: ChatThumbnailServing {
         loader: ChatThumbnailLoading,
         cache: ChatThumbnailCaching,
         maxConcurrentWork: Int,
-        maxQueuedWork: Int = 48
+        maxQueuedWork: Int = ChatPerformanceResourceBudgets.thumbnailQueuedWork
     ) {
         self.loader = loader
         self.cache = cache
@@ -454,7 +457,10 @@ private final class ChatThumbnailMemoryCache: ChatThumbnailCaching {
 
     private let cache = NSCache<NSString, Box>()
 
-    init(countLimit: Int = 192, totalCostLimit: Int = 64 * 1_024 * 1_024) {
+    init(
+        countLimit: Int = ChatPerformanceResourceBudgets.thumbnailCount,
+        totalCostLimit: Int = ChatPerformanceResourceBudgets.thumbnailMemoryBytes
+    ) {
         cache.countLimit = countLimit
         cache.totalCostLimit = totalCostLimit
     }

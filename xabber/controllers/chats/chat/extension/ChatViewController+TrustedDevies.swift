@@ -24,14 +24,14 @@ import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 import YubiKit
 
-protocol TrustedDevicesBlockingPanelDelegate {
+protocol TrustedDevicesBlockingPanelDelegate: AnyObject {
     func onCheckButtonTouchUpInside()
 }
 
 extension ChatViewController {
     class TrustedDevicesBlockingPanel: UIView {
         
-        var delegate: TrustedDevicesBlockingPanelDelegate? = nil
+        weak var delegate: TrustedDevicesBlockingPanelDelegate? = nil
         
         let stack: UIStackView = {
             let stack = UIStackView()

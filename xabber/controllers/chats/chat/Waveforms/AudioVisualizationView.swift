@@ -44,6 +44,10 @@ enum ChatWaveformRenderInstrumentation {
     }
 
     static func simulateMemoryWarningForTests() {
+        handleMemoryWarning()
+    }
+
+    static func handleMemoryWarning() {
         ChatWaveformStaticArtifactCache.shared.removeAll()
     }
 
@@ -99,26 +103,10 @@ private final class ChatWaveformStaticArtifactCache {
 
     private let storage: NSCache<ChatWaveformStaticArtifactKeyBox, ChatWaveformStaticArtifact> = {
         let cache = NSCache<ChatWaveformStaticArtifactKeyBox, ChatWaveformStaticArtifact>()
-        cache.countLimit = 256
+        cache.countLimit = ChatPerformanceResourceBudgets.waveformArtifactCount
         return cache
     }()
-    private var memoryWarningObserver: NSObjectProtocol?
-
-    private init() {
-        memoryWarningObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.didReceiveMemoryWarningNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.removeAll()
-        }
-    }
-
-    deinit {
-        if let memoryWarningObserver {
-            NotificationCenter.default.removeObserver(memoryWarningObserver)
-        }
-    }
+    private init() {}
 
     func artifact(
         for key: ChatWaveformStaticArtifactKey,

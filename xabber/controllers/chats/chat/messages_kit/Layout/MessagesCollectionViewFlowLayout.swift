@@ -65,12 +65,6 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
 //        sectionInset = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
         NotificationCenter.default.addObserver(self, selector: #selector(MessagesCollectionViewFlowLayout.handleOrientationChange(_:)), name: UIDevice.orientationDidChangeNotification, object: nil)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(MessagesCollectionViewFlowLayout.handleMemoryWarning(_:)),
-            name: UIApplication.didReceiveMemoryWarningNotification,
-            object: nil
-        )
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -166,11 +160,6 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     @objc
     private func handleOrientationChange(_ notification: Notification) {
         invalidateLayout()
-    }
-
-    @objc
-    private func handleMemoryWarning(_ notification: Notification) {
-        cache.handleMemoryWarning()
     }
 
     func sizeForItem(at indexPath: IndexPath) -> CGSize {

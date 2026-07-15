@@ -4411,10 +4411,12 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                     _ = self.markRemoteHistoryEndPageCompletionIfNeeded(queryId: queryId)
                     return
                 case .duplicate:
-                    DDLogDebug("ChatViewController.remoteHistoryFinalDuplicate queryId=\(queryId)")
+                    ChatArchiveDebugTrace.log("remoteHistoryFinalDuplicate")
                     return
                 case .stale:
-                    DDLogDebug("ChatViewController.remoteHistoryFinalStale queryId=\(queryId) generation=\(context.generation)")
+                    ChatArchiveDebugTrace.log("remoteHistoryFinalStale", [
+                        ("generation", context.generation)
+                    ])
                     return
                 case .unknown:
                     break
@@ -4424,11 +4426,11 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             switch self.remoteHistoryQueryCoordinator.classifyUnhandledFinal(queryId: queryId) {
             case .duplicate:
                 self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
-                DDLogDebug("ChatViewController.remoteHistoryFinalDuplicateWithoutContext queryId=\(queryId)")
+                ChatArchiveDebugTrace.log("remoteHistoryFinalDuplicateWithoutContext")
                 return
             case .stale:
                 self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
-                DDLogDebug("ChatViewController.remoteHistoryFinalStaleWithoutContext queryId=\(queryId)")
+                ChatArchiveDebugTrace.log("remoteHistoryFinalStaleWithoutContext")
                 return
             case .accepted, .unknown:
                 break
@@ -4438,7 +4440,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 self.completedRemoteHistoryEndPageQueryIds.contains(queryId)
             if shouldDedupeCompletion {
                 guard self.markRemoteHistoryEndPageCompletionIfNeeded(queryId: queryId) else {
-                    DDLogDebug("ChatViewController.remoteHistoryFinalDuplicate queryId=\(queryId)")
+                    ChatArchiveDebugTrace.log("remoteHistoryFinalDuplicate")
                     return
                 }
             }
@@ -4506,7 +4508,6 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             ("datasourceCount", self.datasource.count),
             ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-")
         ])
-        DDLogDebug("ChatViewController.remoteHistoryFinal queryId=\(queryId) statePersisted=\(originalState.persistedMessageCount) flushed=\(completion.flushedMessageCount) effectivePersisted=\(effectiveState.persistedMessageCount) count=\(count) received=\(completion.persistenceSummary.received) queued=\(completion.persistenceSummary.queued) savedNew=\(completion.persistenceSummary.savedNew) updatedExisting=\(completion.persistenceSummary.updatedExisting) skipped=\(completion.persistenceSummary.skipped) failed=\(completion.persistenceSummary.failed) visibleRows=\(visibleRows)")
         if self.handleInitialBootstrapEndPageIfNeeded(
             queryId: queryId,
             state: effectiveState,

@@ -1858,6 +1858,12 @@ final class ChatDatasetMappingJobCoordinator {
         lock.unlock()
         token?.cancel()
     }
+
+    var ownedJobCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return current == nil ? 0 : 1
+    }
 }
 
 enum ChatDatasetMappingQueueFactory {
@@ -2092,8 +2098,8 @@ extension ChatTimelinePageProviding {
 }
 
 enum ChatBoundedTimelineWindowPolicy {
-    static let targetPageMultiplier = 5
-    static let hardPageMultiplier = 6
+    static let targetPageMultiplier = ChatPerformanceResourceBudgets.timelineTargetPageMultiplier
+    static let hardPageMultiplier = ChatPerformanceResourceBudgets.timelineHardPageMultiplier
 
     static func targetLimit(pageSize: Int) -> Int {
         max(1, pageSize) * targetPageMultiplier
@@ -4090,6 +4096,19 @@ final class ChatRemoteHistoryQueryCoordinator {
         return entriesByQueryId.count
     }
 
+    var activeQueryCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return entriesByQueryId.values.reduce(into: 0) { count, entry in
+            switch entry.state {
+            case .awaitingFinal, .persisting, .ready:
+                count += 1
+            case .terminal:
+                break
+            }
+        }
+    }
+
     @discardableResult
     func scheduleTimeout(
         queryId: String,
@@ -4473,7 +4492,9 @@ enum ChatRemoteHistoryCompletionCoordinator {
            let conversationType,
            persistenceSummary.persistedRows > 0,
            persistenceSummary.visibleRows(owner: owner, jid: conversationJid, conversationType: conversationType) == 0 {
-            DDLogDebug("ChatRemoteHistoryCompletionCoordinator flushed non-visible rows queryId=\(queryId) persisted=\(persistenceSummary.persistedRows) jid=\(conversationJid) conversationType=\(conversationType.rawValue)")
+            ChatArchiveDebugTrace.log("remoteCompletionRowsNotVisible", [
+                ("persisted", persistenceSummary.persistedRows)
+            ])
         }
 
         let persistedMessageCount = max(state.persistedMessageCount, persistenceSummary.persistedRows)
@@ -7515,7 +7536,7 @@ extension ChatViewController {
                 avatarMode: self.avatarVerticalPosition
             ),
             layoutReuseSnapshot: flowLayout?.cache.reuseSnapshot() ?? .empty,
-            layoutCacheCapacity: flowLayout?.cache.capacity ?? 2_048,
+            layoutCacheCapacity: flowLayout?.cache.capacity ?? ChatPerformanceResourceBudgets.layoutCount,
             layoutOperationCounter: flowLayout?.cache.operationCounter
         )
     }
@@ -9257,7 +9278,6 @@ extension ChatViewController {
             return false
         }
 
-        let queryId = self.initialBootstrapQueryId
         let localMessageCount = self.localHistoryMessageCountForBootstrap()
         let visibleRowsForLatestPage = self.initialBootstrapVisibleRowsForConversation ?? 0
         let persistedRowsForQuery = self.initialBootstrapPersistedRowsForQuery ?? 0
@@ -9321,7 +9341,12 @@ extension ChatViewController {
         self.rebuildUnreadMentionItems()
         let persistedMessageCount = self.initialBootstrapPersistedMessageCount ?? 0
         self.resetInitialBootstrapTracking()
-        DDLogDebug("ChatViewController.initialBootstrap finished queryId=\(queryId ?? "-") persisted=\(persistedMessageCount) persistedRowsForQuery=\(persistedRowsForQuery) visibleRows=\(visibleRowsForLatestPage) localCount=\(localMessageCount)")
+        ChatArchiveDebugTrace.log("initialBootstrapFinished", [
+            ("persisted", persistedMessageCount),
+            ("persistedRowsForQuery", persistedRowsForQuery),
+            ("visibleRows", visibleRowsForLatestPage),
+            ("localCount", localMessageCount)
+        ])
         self.applyBootstrapLoadingState(self.currentBootstrapLoadingState(), forceRender: true)
         return true
     }

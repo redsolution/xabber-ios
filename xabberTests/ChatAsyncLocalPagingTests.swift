@@ -157,6 +157,37 @@ final class ChatAsyncLocalPagingTests: XCTestCase {
         XCTAssertEqual(store.queryCounts, QueryCounts(older: 1, newer: 0, resident: 0))
     }
 
+    func testTerminalCancellationClearsActivePreparationAndDeliversOnlyStaleCompletion() throws {
+        let store = AsyncLocalPagingStore(messages: makeMessages(count: 40))
+        let session = makeSession(store: store, pageSize: 4)
+        let base = session.openLatest()
+        store.resetQueryRecords()
+        store.blockNextDirectionalQuery()
+        let staleExpectation = expectation(description: "cancelled preparation is stale")
+        var resultWasStale = false
+
+        _ = session.loadOlder(
+            before: try XCTUnwrap(base.oldest),
+            archiveState: archiveState(),
+            expectedGeneration: base.generation
+        ) { result in
+            if case .stale = result {
+                resultWasStale = true
+            }
+            staleExpectation.fulfill()
+        }
+        XCTAssertTrue(store.waitUntilDirectionalQueryStarts(timeout: 1))
+        XCTAssertEqual(session.activePreparationCount, 1)
+
+        session.cancelLocalPagePreparations()
+        XCTAssertEqual(session.activePreparationCount, 0)
+        store.releaseDirectionalQuery()
+
+        wait(for: [staleExpectation], timeout: 2)
+        XCTAssertTrue(resultWasStale)
+        XCTAssertEqual(session.activePreparationCount, 0)
+    }
+
     func testShortLocalPageAndLocalEndRemainTypedPreparedResults() throws {
         let shortStore = AsyncLocalPagingStore(messages: makeMessages(count: 11))
         let shortSession = makeSession(store: shortStore, pageSize: 2)

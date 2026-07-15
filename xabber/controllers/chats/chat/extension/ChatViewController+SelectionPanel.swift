@@ -24,7 +24,7 @@ import RealmSwift
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 
-protocol MessagesSelectionPanelActionDelegate {
+protocol MessagesSelectionPanelActionDelegate: AnyObject {
     func selectionPanel(onClose panel: ModernXabberInputView.SelectionPanel)
     func selectionPanel(onDelete panel: ModernXabberInputView.SelectionPanel)
     func selectionPanel(onCopy panel: ModernXabberInputView.SelectionPanel)

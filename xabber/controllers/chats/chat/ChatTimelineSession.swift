@@ -455,6 +455,7 @@ final class ChatTimelineSession {
     private var localPagePreparationEpoch: UInt64 = 0
     private let initialFramePreparationLock = NSLock()
     private var initialFramePreparationEpoch: UInt64 = 0
+    private var activeInitialFramePreparationEpoch: UInt64?
     private var archiveState: ChatArchiveStateSnapshot
     private var storedSnapshot: ChatTimelineSessionSnapshot
     private var observation: ChatTimelineStoreObservation?
@@ -628,6 +629,7 @@ final class ChatTimelineSession {
 
         let epoch = initialFramePreparationLock.withLock { () -> UInt64 in
             initialFramePreparationEpoch &+= 1
+            activeInitialFramePreparationEpoch = initialFramePreparationEpoch
             return initialFramePreparationEpoch
         }
         let boundedLimit = min(
@@ -642,15 +644,20 @@ final class ChatTimelineSession {
                 limit: boundedLimit,
                 base: base
             )
-            let isCurrent = self.lock.withLock {
-                self.storedSnapshot.generation == expectedGeneration
-            }
-            let isActive = self.initialFramePreparationLock.withLock {
-                self.initialFramePreparationEpoch == epoch
-            }
-            let deliveredResult = isCurrent && isActive ? result : .stale
-            DispatchQueue.main.async {
-                completion(deliveredResult)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let isCurrent = self.lock.withLock {
+                    self.storedSnapshot.generation == expectedGeneration
+                }
+                let isActive = self.initialFramePreparationLock.withLock { () -> Bool in
+                    let isActive = self.initialFramePreparationEpoch == epoch &&
+                        self.activeInitialFramePreparationEpoch == epoch
+                    if self.activeInitialFramePreparationEpoch == epoch {
+                        self.activeInitialFramePreparationEpoch = nil
+                    }
+                    return isActive
+                }
+                completion(isCurrent && isActive ? result : .stale)
             }
         }
         return .started
@@ -686,6 +693,7 @@ final class ChatTimelineSession {
     func cancelInitialFramePreparations() {
         initialFramePreparationLock.withLock {
             initialFramePreparationEpoch &+= 1
+            activeInitialFramePreparationEpoch = nil
         }
     }
 
@@ -738,6 +746,16 @@ final class ChatTimelineSession {
             localPagePreparationEpoch &+= 1
             activeLocalPagePreparationKeys.removeAll(keepingCapacity: false)
         }
+    }
+
+    var activePreparationCount: Int {
+        let initialCount = initialFramePreparationLock.withLock {
+            activeInitialFramePreparationEpoch == nil ? 0 : 1
+        }
+        let localCount = localPagePreparationLock.withLock {
+            activeLocalPagePreparationKeys.count
+        }
+        return initialCount + localCount
     }
 
     @discardableResult
@@ -959,34 +977,32 @@ final class ChatTimelineSession {
                 base: base,
                 archiveState: archiveContext.paging
             )
-            let isCurrent = self.lock.withLock {
-                self.storedSnapshot.generation == expectedGeneration
-            }
-            let isActive = self.localPagePreparationLock.withLock { () -> Bool in
-                let epochMatches = self.localPagePreparationEpoch == epochAndStarted.0
-                let keyWasActive = self.activeLocalPagePreparationKeys.remove(key) != nil
-                return epochMatches && keyWasActive
-            }
-            let result: ChatTimelineLocalPagePreparationResult
-            if isCurrent, isActive {
-                result = .prepared(
-                    ChatTimelinePreparedLocalPage(
-                        id: "local-page-\(NanoID.new(6))",
-                        sessionID: self.sessionID,
-                        direction: direction,
-                        conversationKey: self.conversationKey,
-                        baseGeneration: expectedGeneration,
-                        boundary: boundary,
-                        archiveContext: archiveContext,
-                        snapshot: timelineSnapshot,
-                        preparedOnMainThread: preparedOnMainThread
-                    )
+            let prepared = ChatTimelinePreparedLocalPage(
+                id: "local-page-\(NanoID.new(6))",
+                sessionID: self.sessionID,
+                direction: direction,
+                conversationKey: self.conversationKey,
+                baseGeneration: expectedGeneration,
+                boundary: boundary,
+                archiveContext: archiveContext,
+                snapshot: timelineSnapshot,
+                preparedOnMainThread: preparedOnMainThread
+            )
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let isCurrent = self.lock.withLock {
+                    self.storedSnapshot.generation == expectedGeneration
+                }
+                let isActive = self.localPagePreparationLock.withLock { () -> Bool in
+                    let epochMatches = self.localPagePreparationEpoch == epochAndStarted.0
+                    let keyWasActive = self.activeLocalPagePreparationKeys.remove(key) != nil
+                    return epochMatches && keyWasActive
+                }
+                completion(
+                    isCurrent && isActive
+                        ? .prepared(prepared)
+                        : .stale
                 )
-            } else {
-                result = .stale
-            }
-            DispatchQueue.main.async {
-                completion(result)
             }
         }
         return .started

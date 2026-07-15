@@ -266,6 +266,10 @@ final class ChatScrollWorkScheduler {
         generation += 1
     }
 
+    var pendingRequestCount: Int {
+        pendingRequest == nil && !isScheduled ? 0 : 1
+    }
+
     private static func defaultSchedule(_ work: @escaping () -> Void) {
         DispatchQueue.main.asyncAfter(deadline: .now() + defaultCooldown, execute: work)
     }

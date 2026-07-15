@@ -162,7 +162,7 @@ public final class ChangesWithIndexPath {
     }
 }
 
-protocol SharedAudioPlayerPanelDelegate {
+protocol SharedAudioPlayerPanelDelegate: AnyObject {
     func shouldShow()
     func shouldHide()
     func shouldPlay()

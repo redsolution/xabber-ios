@@ -458,7 +458,7 @@ public class InlineAudiosGridView: InlineAttachmentView {
         
         var duration: TimeInterval = 0
         var primary: String = ""
-        var delegate: MessageCellDelegate? = nil
+        weak var delegate: MessageCellDelegate? = nil
         private var hasInstalledWaveformPanGesture = false
         
         public override func layoutSubviews() {
@@ -697,7 +697,7 @@ public class InlineAudiosGridView: InlineAttachmentView {
     }
     
     var palette: MDCPalette = .amber
-    var delegate: MessageCellDelegate? = nil
+    weak var delegate: MessageCellDelegate? = nil
 
     func resetState() {
         views.forEach { view in

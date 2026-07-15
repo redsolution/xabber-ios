@@ -408,6 +408,10 @@ final class ChatCollectionPrefetchCoordinator {
         }
     }
 
+    var activeResourceCount: Int {
+        ownerIndexPathsByResource.count
+    }
+
     private func addOwner(_ indexPath: IndexPath, to resource: ChatCollectionPrefetchResource) -> Bool {
         let wasUnowned = ownerIndexPathsByResource[resource]?.isEmpty ?? true
         ownerIndexPathsByResource[resource, default: []].insert(indexPath)

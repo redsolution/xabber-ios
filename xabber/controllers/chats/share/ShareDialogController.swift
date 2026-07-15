@@ -122,7 +122,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
     
     open var delegate: OpenChatDelegate? = nil
     
-    open var lastChatsDisplayDelegate: LastChatsDisplayDelegate? = nil
+    open weak var lastChatsDisplayDelegate: LastChatsDisplayDelegate? = nil
     
     internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .plain)
