@@ -194,6 +194,7 @@ xabberTests/LastChatsSkeletonCellLayoutTests
 SELECTORS
       ;;
     G17A) cat <<'SELECTORS'
+xabberTests/LastChatsSearchPipelineTests
 xabberTests/LastChatsViewControllerBehaviorTests
 xabberTests/ChatSearchPresentationStateTests
 xabberTests/ChatSearchResultPresentationTests
@@ -317,7 +318,6 @@ CHAT_GOAL_KNOWN_RED_SELECTORS=(
   'xabberTests/LastChatsSeparatorAppearanceTests/testUpdateBottomTitleDoesNotMutateNavigationItemDuringOrAfterTransition'
   'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testObserverRefreshWithNewNewestUpdatesLatestWindowWithoutLeavingBottom'
   'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testPendingObserverRefreshAfterUnsyncedBootstrapRevealDoesNotLeaveNewest'
-  'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSavedVisiblePositionPresentUsesAnchoredFirstFrame'
   'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSearchLocalTargetAppliesAnchorWindowBeforeFirstRealFrame'
   'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testUnreadBoundaryLocalTargetAppliesAnchorWindowBeforeFirstRealFrame'
   'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testExternalLocalTargetIsTheOnlyFirstContentFrame'
@@ -330,7 +330,6 @@ chat_goal_known_red_owner() {
     'xabberTests/LastChatsSeparatorAppearanceTests/testUpdateBottomTitleDoesNotMutateNavigationItemDuringOrAfterTransition') echo G17B ;;
     'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testObserverRefreshWithNewNewestUpdatesLatestWindowWithoutLeavingBottom') echo G18 ;;
     'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testPendingObserverRefreshAfterUnsyncedBootstrapRevealDoesNotLeaveNewest') echo G18 ;;
-    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSavedVisiblePositionPresentUsesAnchoredFirstFrame') echo G18 ;;
     'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSearchLocalTargetAppliesAnchorWindowBeforeFirstRealFrame') echo G18 ;;
     'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testUnreadBoundaryLocalTargetAppliesAnchorWindowBeforeFirstRealFrame') echo G18 ;;
     'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testExternalLocalTargetIsTheOnlyFirstContentFrame') echo G18 ;;
@@ -352,7 +351,7 @@ chat_goal_known_red_patterns() {
     'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testPendingObserverRefreshAfterUnsyncedBootstrapRevealDoesNotLeaveNewest')
       printf '%s\n' 'XCTAssertFalse failed' 'first-frame-message-320'
       ;;
-    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSavedVisiblePositionPresentUsesAnchoredFirstFrame'|'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testExternalLocalTargetIsTheOnlyFirstContentFrame')
+    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testExternalLocalTargetIsTheOnlyFirstContentFrame')
       echo 'XCTAssertTrue failed'
       ;;
     'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSearchLocalTargetAppliesAnchorWindowBeforeFirstRealFrame'|'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testUnreadBoundaryLocalTargetAppliesAnchorWindowBeforeFirstRealFrame')

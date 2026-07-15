@@ -406,8 +406,7 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         }
 
         let updater = ChatSearchResultsController()
-        updater.messagesQueue = [message]
-        try updater.updateMessagesSearchResults()
+        try updater.replaceMessageStorageItemsForTesting([message])
 
         XCTAssertEqual(updater.numberOfSections(), 1)
         XCTAssertEqual(updater.titleForHeader(in: 0), "Messages".localizeString(id: "groupchat_member_messages", arguments: []))

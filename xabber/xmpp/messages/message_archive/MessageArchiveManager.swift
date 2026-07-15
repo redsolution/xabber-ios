@@ -1940,7 +1940,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         )
     }
     
-    public func searchText(_ stream: XMPPStream, jid: String? = nil, conversationType: ClientSynchronizationManager.ConversationType, text: String, max: Int = 250, loadFull: Bool = true, queryId: String? = nil, requestCallbacks: RequestCallbacks = .none) -> String {
+    public func searchText(_ stream: XMPPStream, jid: String? = nil, conversationType: ClientSynchronizationManager.ConversationType, text: String, max: Int = 250, loadFull: Bool = true, queryId: String? = nil, pageCursor: String? = nil, requestCallbacks: RequestCallbacks = .none) -> String {
         let taskId = [jid ?? "global_search", conversationType.rawValue].prp()
         if let continuesTaskID = continuesTaskID {
             if taskId != continuesTaskID {
@@ -1962,7 +1962,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             queryId: queryId,
             searchText: text,
             flipPage: false,
-            nextPage: "",
+            nextPage: pageCursor ?? "",
             max: max,
             callback: nil,
             requestCallbacks: requestCallbacks
