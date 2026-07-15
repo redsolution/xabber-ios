@@ -648,6 +648,7 @@ public class TextMessageCell: MessageContentCell {
             radiusRB: radius.rightBottom,
             radiusLB: radius.leftBottom
         )
+        self.imagesView.refreshThumbnailBindings()
     }
     
     func layoutVideosView(with attributes: MessagesCollectionViewLayoutAttributes) {
@@ -689,6 +690,7 @@ public class TextMessageCell: MessageContentCell {
             radiusRB: radius.rightBottom,
             radiusLB: radius.leftBottom
         )
+        self.videosView.refreshThumbnailBindings()
     }
     
     func layoutAudiosView(with attributes: MessagesCollectionViewLayoutAttributes) {

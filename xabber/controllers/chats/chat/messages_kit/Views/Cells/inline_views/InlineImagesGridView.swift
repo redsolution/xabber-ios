@@ -21,7 +21,6 @@
 import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
-import Kingfisher
 import CoreMedia
 import CocoaLumberjack
 import RealmSwift
@@ -33,13 +32,21 @@ class InlineImagesGridView: InlineAttachmentView {
         var primary: String
         var url: URL
         var representedRequest: InlineAttachmentRepresentedRequest
+        var representedThumbnailRequest: ChatThumbnailRequest?
+        var representedThumbnailConsumer: ChatThumbnailConsumer?
+        var thumbnailSubscription: ChatThumbnailSubscription?
+        let visibleConsumerID = UUID()
         var isSensitive: Bool {
             didSet {
                 updateSensitiveAppearance()
             }
         }
         
-        private let sensitiveOverlay = SensitiveMediaOverlayView()
+        private var sensitiveOverlay: SensitiveMediaOverlayView?
+
+        var hasSensitiveOverlay: Bool {
+            sensitiveOverlay != nil
+        }
         
         init(
             frame: CGRect,
@@ -63,27 +70,49 @@ class InlineImagesGridView: InlineAttachmentView {
         
         private func setup() {
             self.layer.masksToBounds = true
-            addSubview(sensitiveOverlay)
-            sensitiveOverlay.frame = bounds
-            sensitiveOverlay.isUserInteractionEnabled = false
         }
         
         private func updateSensitiveAppearance() {
-            sensitiveOverlay.isHidden = !isSensitive
+            if isSensitive {
+                let overlay = sensitiveOverlay ?? SensitiveMediaOverlayView()
+                if sensitiveOverlay == nil {
+                    sensitiveOverlay = overlay
+                    overlay.isUserInteractionEnabled = false
+                    addSubview(overlay)
+                }
+                overlay.frame = bounds
+                bringSubviewToFront(overlay)
+            } else {
+                sensitiveOverlay?.removeFromSuperview()
+                sensitiveOverlay = nil
+            }
+        }
+
+        func cancelThumbnailBinding() {
+            thumbnailSubscription?.cancel()
+            thumbnailSubscription = nil
+            representedThumbnailRequest = nil
+            representedThumbnailConsumer = nil
         }
 
         override func layoutSubviews() {
             super.layoutSubviews()
-            sensitiveOverlay.frame = bounds
+            sensitiveOverlay?.frame = bounds
         }
         
     }
     
     var views: [InlineMessageImageView] = []
+    var thumbnailPipeline: ChatThumbnailServing = ChatMediaThumbnailPipeline.shared
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        refreshThumbnailBindings()
+    }
 
     func resetState() {
         views.forEach {
-            $0.kf.cancelDownloadTask()
+            $0.cancelThumbnailBinding()
             $0.image = nil
             $0.removeFromSuperview()
         }
@@ -206,22 +235,6 @@ class InlineImagesGridView: InlineAttachmentView {
 //                view.layer.borderWidth = 1
 //                view.layer.cornerRadius = 7
 //                view.layer.masksToBounds = true
-                view.kf.setImage(
-                    with: url,
-                    placeholder: nil,
-                    options: [
-                        .alsoPrefetchToMemory,
-                        .waitForCache,
-                        .backgroundDecode,
-                    ]) { (result) in
-                        switch result {
-                            case .success(_):
-                                break
-                            case .failure(let error):
-                                print(error.errorCode)
-                        }
-                    }
-                
                 self.addSubview(view)
                 self.views.append(view)
             } else {
@@ -229,7 +242,7 @@ class InlineImagesGridView: InlineAttachmentView {
             }
             
         }
-        
+        refreshThumbnailBindings()
     }
 
     func updateContent(
@@ -259,20 +272,54 @@ class InlineImagesGridView: InlineAttachmentView {
             view.frame = rect
             view.primary = item.primary
             view.isSensitive = item.isSensitive && !item.isSensitiveRevealed
-            if view.representedRequest != request {
-                view.kf.cancelDownloadTask()
-                view.image = nil
-                view.representedRequest = request
-                view.url = url
-                view.kf.setImage(
-                    with: url,
-                    placeholder: nil,
-                    options: [
-                        .alsoPrefetchToMemory,
-                        .waitForCache,
-                        .backgroundDecode,
-                    ]
-                )
+            view.representedRequest = request
+            view.url = url
+        }
+        refreshThumbnailBindings()
+    }
+
+    func refreshThumbnailBindings() {
+        let scale = Double(window?.screen.scale ?? UIScreen.main.scale)
+        let style = ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
+        views.forEach { view in
+            guard view.frame.width > 0, view.frame.height > 0 else { return }
+            let request = ChatThumbnailRequest(
+                url: view.url,
+                displaySize: ChatCollectionPrefetchSize(
+                    width: Double(view.frame.width),
+                    height: Double(view.frame.height)
+                ),
+                scale: scale,
+                traitStyle: style
+            )
+            let consumer = ChatThumbnailConsumer(
+                identity: ChatCollectionPrefetchIdentity(
+                    kind: .image,
+                    messagePrimary: view.representedRequest.containerPrimary,
+                    referencePrimary: view.primary
+                ),
+                role: .visible(view.visibleConsumerID)
+            )
+            guard view.representedThumbnailRequest != request ||
+                    view.representedThumbnailConsumer != consumer else {
+                return
+            }
+
+            view.cancelThumbnailBinding()
+            view.image = nil
+            view.representedThumbnailRequest = request
+            view.representedThumbnailConsumer = consumer
+            view.thumbnailSubscription = thumbnailPipeline.acquire(
+                request,
+                consumer: consumer
+            ) { [weak view] result in
+                guard let view,
+                      view.representedThumbnailRequest == request,
+                      view.representedThumbnailConsumer == consumer,
+                      case .success(let delivery) = result else {
+                    return
+                }
+                view.image = delivery.image
             }
         }
     }

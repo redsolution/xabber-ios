@@ -106,6 +106,36 @@ final class ChatCollectionPrefetchTests: XCTestCase {
         XCTAssertFalse(cancelled.contains(.image(identity: identity(.image, message: "new-message", reference: "new-image"), request: mediaRequest(url: newURL))))
     }
 
+    func testIndexPathShiftKeepsStableResourceUntilItsFinalOwnerCancels() {
+        let url = URL(string: "https://cdn.example.com/stable.jpg")!
+        let stableItem = item(primary: "stable-message", images: [.init(primary: "stable-image", url: url)])
+        var currentSection = 0
+        let prefetcher = FakeChatCollectionContentPrefetcher()
+        let coordinator = ChatCollectionPrefetchCoordinator(
+            itemProvider: { indexPath in
+                indexPath.section == currentSection ? stableItem : nil
+            },
+            contextProvider: { .empty(conversationKey: self.conversationKey()) },
+            prefetcher: prefetcher
+        )
+        let oldIndexPath = IndexPath(item: 0, section: 0)
+        let shiftedIndexPath = IndexPath(item: 0, section: 1)
+        let resource = ChatCollectionPrefetchResource.image(
+            identity: identity(.image, message: "stable-message", reference: "stable-image"),
+            request: mediaRequest(url: url)
+        )
+
+        coordinator.prefetchItems(at: [oldIndexPath])
+        currentSection = 1
+        coordinator.prefetchItems(at: [shiftedIndexPath])
+        coordinator.cancelPrefetchingForItems(at: [oldIndexPath])
+
+        XCTAssertFalse(prefetcher.cancelledResources().contains(resource))
+
+        coordinator.cancelPrefetchingForItems(at: [shiftedIndexPath])
+        XCTAssertTrue(prefetcher.cancelledResources().contains(resource))
+    }
+
     func testPrefetchRequestsIncludeDownsamplingCacheKeysForRenderedSize() throws {
         let imageURL = URL(string: "https://cdn.example.com/full-resolution.jpg")!
         let resources = ChatCollectionPrefetchPlanner.resources(
@@ -135,12 +165,12 @@ final class ChatCollectionPrefetchTests: XCTestCase {
 
     func testContentPrefetcherDoesNotStartDuplicateImageWork() {
         let imageURL = URL(string: "https://cdn.example.com/duplicate.jpg")!
-        let factory = FakeChatImagePrefetchTaskFactory()
+        let pipeline = FakeChatCollectionThumbnailPipeline()
         let prefetcher = ChatCollectionContentPrefetcher(
             locationSnapshotProvider: FakeChatLocationSnapshotProvider(),
             pageWarmupProvider: FakeChatCollectionPageWarmupProvider(),
             pageWarmupLimit: 20,
-            imagePrefetchTaskFactory: factory
+            thumbnailPipeline: pipeline
         )
         let resource = ChatCollectionPrefetchResource.image(
             identity: identity(.image, message: "message", reference: "image"),
@@ -150,8 +180,7 @@ final class ChatCollectionPrefetchTests: XCTestCase {
         prefetcher.prefetch([resource])
         prefetcher.prefetch([resource])
 
-        XCTAssertEqual(factory.tasks.count, 1)
-        XCTAssertEqual(factory.tasks.first?.startCount, 1)
+        XCTAssertEqual(pipeline.requests.count, 1)
         XCTAssertEqual(prefetcher.activeImagePrefetchCount, 1)
     }
 
@@ -159,12 +188,12 @@ final class ChatCollectionPrefetchTests: XCTestCase {
         let imageURL = URL(string: "https://cdn.example.com/image.jpg")!
         let snapshotProvider = FakeChatLocationSnapshotProvider()
         let warmupProvider = FakeChatCollectionPageWarmupProvider()
-        let imageFactory = FakeChatImagePrefetchTaskFactory()
+        let thumbnailPipeline = FakeChatCollectionThumbnailPipeline()
         let contentPrefetcher = ChatCollectionContentPrefetcher(
             locationSnapshotProvider: snapshotProvider,
             pageWarmupProvider: warmupProvider,
             pageWarmupLimit: 20,
-            imagePrefetchTaskFactory: imageFactory
+            thumbnailPipeline: thumbnailPipeline
         )
         let key = conversationKey()
         let oldest = boundary(primary: "oldest", archivedId: "1")
@@ -205,7 +234,7 @@ final class ChatCollectionPrefetchTests: XCTestCase {
 
         coordinator.cancelAll()
 
-        XCTAssertEqual(imageFactory.tasks.first?.stopCount, 1)
+        XCTAssertEqual(thumbnailPipeline.subscriptions.first?.cancelCount, 1)
         XCTAssertEqual(warmupProvider.tasks.first?.cancelCount, 1)
         XCTAssertEqual(contentPrefetcher.activeImagePrefetchCount, 0)
         XCTAssertEqual(contentPrefetcher.activePageWarmupTaskCount, 0)
@@ -434,31 +463,27 @@ private final class FakeChatCollectionContentPrefetcher: ChatCollectionContentPr
     }
 }
 
-private final class FakeChatImagePrefetchTaskFactory: ChatCollectionImagePrefetchTaskMaking {
-    private(set) var tasks: [FakeChatImagePrefetchTask] = []
+private final class FakeChatCollectionThumbnailPipeline: ChatThumbnailServing {
+    private(set) var requests: [ChatThumbnailRequest] = []
+    private(set) var subscriptions: [FakeChatCollectionThumbnailSubscription] = []
 
-    func makeTask(for request: ChatCollectionPrefetchImageRequest) -> ChatCollectionImagePrefetchTask {
-        let task = FakeChatImagePrefetchTask(request: request)
-        tasks.append(task)
-        return task
+    func acquire(
+        _ request: ChatThumbnailRequest,
+        consumer: ChatThumbnailConsumer,
+        completion: ((Result<ChatThumbnailDelivery, ChatThumbnailPipelineError>) -> Void)?
+    ) -> ChatThumbnailSubscription {
+        let subscription = FakeChatCollectionThumbnailSubscription()
+        requests.append(request)
+        subscriptions.append(subscription)
+        return subscription
     }
 }
 
-private final class FakeChatImagePrefetchTask: ChatCollectionImagePrefetchTask {
-    let request: ChatCollectionPrefetchImageRequest
-    private(set) var startCount = 0
-    private(set) var stopCount = 0
+private final class FakeChatCollectionThumbnailSubscription: ChatThumbnailSubscription {
+    private(set) var cancelCount = 0
 
-    init(request: ChatCollectionPrefetchImageRequest) {
-        self.request = request
-    }
-
-    func start() {
-        startCount += 1
-    }
-
-    func stop() {
-        stopCount += 1
+    func cancel() {
+        cancelCount += 1
     }
 }
 

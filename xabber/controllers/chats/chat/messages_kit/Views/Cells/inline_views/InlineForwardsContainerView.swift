@@ -414,6 +414,8 @@ class InlineMessageAttachmentView: ModernContainerView {
             views: filesView.views,
             frames: filesView.prepareGrid(message.files)
         )
+        imagesView.refreshThumbnailBindings()
+        videosView.refreshThumbnailBindings()
     }
 
     private func reflow<View: UIView>(

@@ -5569,6 +5569,8 @@ class ChatViewController: MessagesViewController {
         super.didReceiveMemoryWarning()
         self.displayModelCache.removeAll()
         self.cancelDatasetMappingJobs()
+        self.collectionPrefetchCoordinator.cancelAll()
+        ChatMediaThumbnailPipeline.shared.handleMemoryWarning()
     }
     
     static func getColorsForGradient(forColor color: BackgroundColor) -> [CGColor] {

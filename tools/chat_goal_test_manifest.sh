@@ -149,8 +149,11 @@ xabberTests/ChatCollectionPrefetchTests
 SELECTORS
       ;;
     G13A) cat <<'SELECTORS'
+xabberTests/ChatMediaThumbnailPipelineTests
 xabberTests/ChatCollectionPrefetchTests
 xabberTests/TextMessageCellReuseTests
+xabberTests/InlineForwardsReuseTests
+xabberTests/InlineForwardLayoutOrderingTests
 xabberTests/SensitiveMediaAnalysisServiceTests
 SELECTORS
       ;;

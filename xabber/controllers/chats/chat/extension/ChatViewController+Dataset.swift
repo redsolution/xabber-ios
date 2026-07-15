@@ -10710,6 +10710,7 @@ extension ChatViewController {
         token: ChatDatasetMappingCancellationToken
     ) {
         self.datasetMappingGeneration += 1
+        self.collectionPrefetchCoordinator.cancelAll()
         let generation = self.datasetMappingGeneration
         return (
             generation,
