@@ -256,6 +256,7 @@ class InlineVideosGridView: InlineAttachmentView {
     class InlineMessageVideoView: UIImageView {
         var primary: String
         var url: URL?
+        var representedRequest: InlineAttachmentRepresentedRequest
         var isSensitive: Bool {
             didSet {
                 sensitiveOverlay.isHidden = !isSensitive
@@ -278,10 +279,17 @@ class InlineVideosGridView: InlineAttachmentView {
             return button
         }()
         
-        init(frame: CGRect, primary: String, url: URL?, isSensitive: Bool) {
+        init(
+            frame: CGRect,
+            primary: String,
+            url: URL?,
+            isSensitive: Bool,
+            representedRequest: InlineAttachmentRepresentedRequest
+        ) {
             self.primary = primary
             self.url = url
             self.isSensitive = isSensitive
+            self.representedRequest = representedRequest
             super.init(frame: frame)
             playButton.center = self.center
             addSubview(playButton)
@@ -309,10 +317,13 @@ class InlineVideosGridView: InlineAttachmentView {
     func resetState() {
         views.forEach {
             $0.kf.cancelDownloadTask()
+            $0.image = nil
+            $0.backgroundColor = .clear
             $0.removeFromSuperview()
         }
         views = []
         contentViews.removeAll()
+        grid.removeAll()
     }
 
     public func prepareGrid(_ attachments: [VideoAttachment]) -> [CGRect] {
@@ -401,7 +412,10 @@ class InlineVideosGridView: InlineAttachmentView {
         return rects
     }
     
-    func configure(_ attachments: [VideoAttachment]) {
+    func configure(
+        _ attachments: [VideoAttachment],
+        representedBy containerPrimary: String = ""
+    ) {
         resetState()
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
@@ -409,7 +423,11 @@ class InlineVideosGridView: InlineAttachmentView {
                 frame: rect,
                 primary: attachments[index].primary,
                 url: attachments[index].url,
-                isSensitive: attachments[index].isSensitive && !attachments[index].isSensitiveRevealed
+                isSensitive: attachments[index].isSensitive && !attachments[index].isSensitiveRevealed,
+                representedRequest: representedRequest(
+                    for: attachments[index],
+                    containerPrimary: containerPrimary
+                )
             )
             self.contentViews.append(view)
             view.contentMode = .scaleAspectFill
@@ -442,27 +460,39 @@ class InlineVideosGridView: InlineAttachmentView {
         
     }
 
-    func updateContent(_ attachments: [VideoAttachment]) {
+    func updateContent(
+        _ attachments: [VideoAttachment],
+        representedBy containerPrimary: String = ""
+    ) {
         if attachments.isEmpty {
-            self.views.forEach { $0.removeFromSuperview() }
-            self.views = []
-            self.contentViews.removeAll()
+            resetState()
             return
         }
 
         guard self.views.map(\.primary) == attachments.map(\.primary),
               self.views.count == attachments.count else {
-            configure(attachments)
+            configure(attachments, representedBy: containerPrimary)
             return
         }
 
         prepareGrid(attachments).enumerated().forEach { index, rect in
             let item = attachments[index]
             let view = self.views[index]
+            let request = representedRequest(
+                for: item,
+                containerPrimary: containerPrimary
+            )
             view.frame = rect
             view.primary = item.primary
             view.url = item.url
             view.isSensitive = item.isSensitive && !item.isSensitiveRevealed
+            guard view.representedRequest != request else {
+                return
+            }
+            view.kf.cancelDownloadTask()
+            view.image = nil
+            view.backgroundColor = .clear
+            view.representedRequest = request
             if let previewUrl = item.previewUrl {
                 view.kf.setImage(
                     with: previewUrl,
@@ -478,6 +508,20 @@ class InlineVideosGridView: InlineAttachmentView {
                 view.backgroundColor = .black
             }
         }
+    }
+
+    private func representedRequest(
+        for attachment: VideoAttachment,
+        containerPrimary: String
+    ) -> InlineAttachmentRepresentedRequest {
+        InlineAttachmentRepresentedRequest(
+            containerPrimary: containerPrimary,
+            referencePrimary: attachment.primary,
+            resourceIdentity: [
+                attachment.url?.absoluteString ?? "",
+                attachment.previewUrl?.absoluteString ?? ""
+            ].joined(separator: "|")
+        )
     }
     
     func handleTouch(at point: CGPoint, callback: (([URL], URL, String, Bool) -> Void)?) -> Bool {

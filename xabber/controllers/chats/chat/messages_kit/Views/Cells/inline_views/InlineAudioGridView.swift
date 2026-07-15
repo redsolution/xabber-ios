@@ -590,8 +590,24 @@ public class InlineAudiosGridView: InlineAttachmentView {
         }
         
         public func resetState() {
+            waveform.stop()
             render(state: .downloaded)
 //            self.iconButton.backgroundColor = palette.tint500
+        }
+
+        func prepareForReuse() {
+            resetState()
+            waveform.drawCallback = nil
+            delegate = nil
+            primary = ""
+            url = nil
+            duration = 0
+            durationLabel.text = nil
+            iconButton.removeTarget(
+                self,
+                action: #selector(onPlayButtonTouchUpInside),
+                for: .touchUpInside
+            )
         }
 
         func render(state: VoiceMessagePlaybackState) {
@@ -728,15 +744,24 @@ public class InlineAudiosGridView: InlineAttachmentView {
     
     var palette: MDCPalette = .amber
     var delegate: MessageCellDelegate? = nil
+
+    func resetState() {
+        views.forEach { view in
+            view.prepareForReuse()
+            view.removeFromSuperview()
+        }
+        views.removeAll()
+        contentViews.removeAll()
+        grid.removeAll()
+        delegate = nil
+    }
     
     func configure(_ attachments: [AudioAttachment], palette: MDCPalette) {
         self.palette = palette
-//        subviews.forEach { $0.removeFromSuperview() }
+        let representedDelegate = delegate
+        resetState()
+        delegate = representedDelegate
         if attachments.isEmpty { return }
-        grid.removeAll()
-        
-        self.views.forEach { $0.removeFromSuperview() }
-        self.views = []
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
             let item = attachments[index]
@@ -763,9 +788,7 @@ public class InlineAudiosGridView: InlineAttachmentView {
     func updateContent(_ attachments: [AudioAttachment], palette: MDCPalette) {
         self.palette = palette
         if attachments.isEmpty {
-            self.views.forEach { $0.removeFromSuperview() }
-            self.views = []
-            grid.removeAll()
+            resetState()
             return
         }
 

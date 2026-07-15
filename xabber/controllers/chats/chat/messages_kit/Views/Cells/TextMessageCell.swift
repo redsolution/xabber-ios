@@ -95,6 +95,9 @@ class InlineLocationsGridView: InlineAttachmentView {
         var location: LocationAttachment
         private let snapshotProvider: ChatLocationSnapshotProviding
         private var requestedSnapshotKey: String?
+        private var representedContainerPrimary = ""
+        private var representedSnapshotRequest: InlineAttachmentRepresentedRequest?
+        private var snapshotTask: ChatLocationSnapshotTask?
 
         init(
             frame: CGRect,
@@ -105,7 +108,7 @@ class InlineLocationsGridView: InlineAttachmentView {
             self.snapshotProvider = snapshotProvider
             super.init(frame: frame)
             setup()
-            update(location)
+            update(location, representedBy: "")
         }
 
         required init?(coder: NSCoder) {
@@ -120,13 +123,43 @@ class InlineLocationsGridView: InlineAttachmentView {
             accessibilityTraits = [.button, .image]
         }
 
-        func update(_ location: LocationAttachment) {
+        func update(
+            _ location: LocationAttachment,
+            representedBy containerPrimary: String = ""
+        ) {
+            let nextRequest = snapshotRequest(
+                for: location,
+                representedBy: containerPrimary,
+                size: bounds.size
+            )
+            let preservesCurrentRequest = representedSnapshotRequest == nextRequest
+            if !preservesCurrentRequest {
+                snapshotTask?.cancel()
+                snapshotTask = nil
+                requestedSnapshotKey = nil
+                representedSnapshotRequest = nil
+                imageView.image = location.snapshotURL.flatMap {
+                    UIImage(contentsOfFile: $0.path)
+                }
+            } else if let snapshotURL = location.snapshotURL {
+                imageView.image = UIImage(contentsOfFile: snapshotURL.path)
+            }
             self.location = location
-            requestedSnapshotKey = nil
-            imageView.image = location.snapshotURL.flatMap { UIImage(contentsOfFile: $0.path) }
+            representedContainerPrimary = containerPrimary
             addressLabel.text = location.address?.isNotEmpty == true ? location.address : location.geoURI
             accessibilityLabel = addressLabel.text
             setNeedsLayout()
+        }
+
+        func resetState() {
+            snapshotTask?.cancel()
+            snapshotTask = nil
+            representedSnapshotRequest = nil
+            requestedSnapshotKey = nil
+            representedContainerPrimary = ""
+            imageView.image = nil
+            addressLabel.text = nil
+            accessibilityLabel = nil
         }
 
         override func layoutSubviews() {
@@ -159,6 +192,12 @@ class InlineLocationsGridView: InlineAttachmentView {
                 return
             }
             requestedSnapshotKey = key
+            let request = snapshotRequest(
+                for: location,
+                representedBy: representedContainerPrimary,
+                size: bounds.size
+            )
+            representedSnapshotRequest = request
             let resolvedLocation = ChatAttachmentResolvedLocation(
                 coordinate: AttachmentLocationCoordinate(
                     latitude: location.coordinate.latitude,
@@ -167,13 +206,17 @@ class InlineLocationsGridView: InlineAttachmentView {
                 displayAddress: location.address,
                 accuracy: nil
             )
-            snapshotProvider.makeSnapshot(
+            snapshotTask = snapshotProvider.makeSnapshot(
                 for: resolvedLocation,
                 size: bounds.size
-            ) { [weak self, primary = location.primary] result in
+            ) { [weak self, request] result in
                 DispatchQueue.main.async {
                     guard let self,
-                          self.location.primary == primary,
+                          self.representedSnapshotRequest == request else {
+                        return
+                    }
+                    self.snapshotTask = nil
+                    guard
                           case .success(let url) = result,
                           let image = UIImage(contentsOfFile: url.path) else {
                         return
@@ -182,6 +225,23 @@ class InlineLocationsGridView: InlineAttachmentView {
                     self.imageView.image = image
                 }
             }
+        }
+
+        private func snapshotRequest(
+            for location: LocationAttachment,
+            representedBy containerPrimary: String,
+            size: CGSize
+        ) -> InlineAttachmentRepresentedRequest {
+            InlineAttachmentRepresentedRequest(
+                containerPrimary: containerPrimary,
+                referencePrimary: location.primary,
+                resourceIdentity: [
+                    String(location.coordinate.latitude),
+                    String(location.coordinate.longitude),
+                    String(Int(size.width)),
+                    String(Int(size.height))
+                ].joined(separator: "|")
+            )
         }
     }
 
@@ -197,6 +257,16 @@ class InlineLocationsGridView: InlineAttachmentView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    func resetState() {
+        views.forEach { view in
+            view.resetState()
+            view.removeFromSuperview()
+        }
+        views.removeAll()
+        contentViews.removeAll()
+        grid.removeAll()
+    }
+
     func prepareGrid(_ attachments: [LocationAttachment]) -> [CGRect] {
         guard attachments.isNotEmpty else {
             return []
@@ -209,10 +279,11 @@ class InlineLocationsGridView: InlineAttachmentView {
         }
     }
 
-    func configure(_ attachments: [LocationAttachment]) {
-        views.forEach { $0.removeFromSuperview() }
-        views = []
-        contentViews.removeAll()
+    func configure(
+        _ attachments: [LocationAttachment],
+        representedBy containerPrimary: String = ""
+    ) {
+        resetState()
 
         prepareGrid(attachments).enumerated().forEach { index, rect in
             let view = LocationView(
@@ -221,28 +292,33 @@ class InlineLocationsGridView: InlineAttachmentView {
                 snapshotProvider: snapshotProvider
             )
             addSubview(view)
+            view.update(attachments[index], representedBy: containerPrimary)
             views.append(view)
             contentViews.append(view)
         }
     }
 
-    func updateContent(_ attachments: [LocationAttachment]) {
+    func updateContent(
+        _ attachments: [LocationAttachment],
+        representedBy containerPrimary: String = ""
+    ) {
         if attachments.isEmpty {
-            views.forEach { $0.removeFromSuperview() }
-            views = []
-            contentViews.removeAll()
+            resetState()
             return
         }
 
         guard views.map(\.location.primary) == attachments.map(\.primary),
               views.count == attachments.count else {
-            configure(attachments)
+            configure(attachments, representedBy: containerPrimary)
             return
         }
 
         prepareGrid(attachments).enumerated().forEach { index, rect in
             views[index].frame = rect
-            views[index].update(attachments[index])
+            views[index].update(
+                attachments[index],
+                representedBy: containerPrimary
+            )
         }
     }
 
@@ -761,6 +837,9 @@ public class TextMessageCell: MessageContentCell {
         super.prepareForReuse()
         
         representedAvatarIdentity = nil
+        messagePrimary = ""
+        avatarView.image = nil
+        avatarView.isHidden = true
         messageLabel.attributedText = nil
         messageLabel.text = nil
         forwardsContainer.resetState()
@@ -859,13 +938,13 @@ public class TextMessageCell: MessageContentCell {
             withBackplate: usesTimeMarkerBackplate(for: message)
         )
         if reuseInlineViews {
-            self.imagesView.updateContent(message.images)
-            self.locationsView.updateContent(message.locations)
+            self.imagesView.updateContent(message.images, representedBy: message.primary)
+            self.locationsView.updateContent(message.locations, representedBy: message.primary)
             self.contactsView.updateContent(message.contacts, palette: palette)
             self.filesView.updateContent(message.files, palette: palette)
         } else {
-            self.imagesView.configure(message.images)
-            self.locationsView.configure(message.locations)
+            self.imagesView.configure(message.images, representedBy: message.primary)
+            self.locationsView.configure(message.locations, representedBy: message.primary)
             self.contactsView.configure(message.contacts, palette: palette)
             self.filesView.configure(message.files, palette: palette)
         }
@@ -873,11 +952,11 @@ public class TextMessageCell: MessageContentCell {
         if reuseInlineViews {
             self.audiosView.updateContent(message.audios, palette: palette)
             self.forwardsContainer.updateContent(message.forwards, palette: palette, delegate: delegate)
-            self.videosView.updateContent(message.videos)
+            self.videosView.updateContent(message.videos, representedBy: message.primary)
         } else {
             self.audiosView.configure(message.audios, palette: palette)
             self.forwardsContainer.configure(message.forwards, palette: palette, delegate: delegate)
-            self.videosView.configure(message.videos)
+            self.videosView.configure(message.videos, representedBy: message.primary)
         }
         self.imagesView.layer.backgroundColor = MDCPalette.grey.tint100.cgColor
         
@@ -899,11 +978,10 @@ public class TextMessageCell: MessageContentCell {
     private func resetReusableAttachmentState() {
         imagesView.resetState()
         videosView.resetState()
-        audiosView.views.forEach { view in
-            view.resetWaveform()
-            view.resetState()
-            view.delegate = nil
-        }
+        locationsView.resetState()
+        contactsView.resetState()
+        audiosView.resetState()
+        filesView.resetState()
     }
 
     private func configureAvatar(for message: MessageType) {

@@ -32,6 +32,7 @@ class InlineImagesGridView: InlineAttachmentView {
         
         var primary: String
         var url: URL
+        var representedRequest: InlineAttachmentRepresentedRequest
         var isSensitive: Bool {
             didSet {
                 updateSensitiveAppearance()
@@ -40,10 +41,17 @@ class InlineImagesGridView: InlineAttachmentView {
         
         private let sensitiveOverlay = SensitiveMediaOverlayView()
         
-        init(frame: CGRect, primary: String, url: URL, isSensitive: Bool) {
+        init(
+            frame: CGRect,
+            primary: String,
+            url: URL,
+            isSensitive: Bool,
+            representedRequest: InlineAttachmentRepresentedRequest
+        ) {
             self.primary = primary
             self.url = url
             self.isSensitive = isSensitive
+            self.representedRequest = representedRequest
             super.init(frame: frame)
             setup()
             updateSensitiveAppearance()
@@ -76,10 +84,12 @@ class InlineImagesGridView: InlineAttachmentView {
     func resetState() {
         views.forEach {
             $0.kf.cancelDownloadTask()
+            $0.image = nil
             $0.removeFromSuperview()
         }
         views = []
         contentViews.removeAll()
+        grid.removeAll()
     }
 
     public func prepareGrid(_ attachments: [ImageAttachment]) -> [CGRect] {
@@ -168,13 +178,27 @@ class InlineImagesGridView: InlineAttachmentView {
         return rects
     }
     
-    func configure(_ attachments: [ImageAttachment]) {
+    func configure(
+        _ attachments: [ImageAttachment],
+        representedBy containerPrimary: String = ""
+    ) {
 //        subviews.forEach { $0.removeFromSuperview() }
         resetState()
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
             if let url = attachments[index].url {
-                let view = InlineMessageImageView(frame: rect, primary: attachments[index].primary, url: url, isSensitive: attachments[index].isSensitive && !attachments[index].isSensitiveRevealed)
+                let request = InlineAttachmentRepresentedRequest(
+                    containerPrimary: containerPrimary,
+                    referencePrimary: attachments[index].primary,
+                    resourceIdentity: url.absoluteString
+                )
+                let view = InlineMessageImageView(
+                    frame: rect,
+                    primary: attachments[index].primary,
+                    url: url,
+                    isSensitive: attachments[index].isSensitive && !attachments[index].isSensitiveRevealed,
+                    representedRequest: request
+                )
                 self.contentViews.append(view)
                 view.contentMode = .scaleAspectFill
 //                view.layer.masksToBounds = true
@@ -208,17 +232,18 @@ class InlineImagesGridView: InlineAttachmentView {
         
     }
 
-    func updateContent(_ attachments: [ImageAttachment]) {
+    func updateContent(
+        _ attachments: [ImageAttachment],
+        representedBy containerPrimary: String = ""
+    ) {
         if attachments.isEmpty {
-            self.views.forEach { $0.removeFromSuperview() }
-            self.views = []
-            self.contentViews.removeAll()
+            resetState()
             return
         }
 
         guard self.views.map(\.primary) == attachments.map(\.primary),
               self.views.count == attachments.count else {
-            configure(attachments)
+            configure(attachments, representedBy: containerPrimary)
             return
         }
 
@@ -226,10 +251,18 @@ class InlineImagesGridView: InlineAttachmentView {
             let item = attachments[index]
             guard let url = item.url else { return }
             let view = self.views[index]
+            let request = InlineAttachmentRepresentedRequest(
+                containerPrimary: containerPrimary,
+                referencePrimary: item.primary,
+                resourceIdentity: url.absoluteString
+            )
             view.frame = rect
             view.primary = item.primary
             view.isSensitive = item.isSensitive && !item.isSensitiveRevealed
-            if view.url != url {
+            if view.representedRequest != request {
+                view.kf.cancelDownloadTask()
+                view.image = nil
+                view.representedRequest = request
                 view.url = url
                 view.kf.setImage(
                     with: url,

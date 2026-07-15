@@ -59,7 +59,7 @@ final class TextMessageCellReuseTests: XCTestCase {
         XCTAssertNil(cell.representedAvatarIdentity)
     }
 
-    func testAttachmentReconfigurationPreservesFileViewAfterReuseWhenIdentityMatches() throws {
+    func testAttachmentReconfigurationReusesFileViewWhenIdentityMatches() throws {
         let loader = FakeAvatarLoader()
         let cell = makeCell(loader: loader)
         cell.filesView.frame = CGRect(x: 0, y: 0, width: 220, height: 44)
@@ -74,7 +74,6 @@ final class TextMessageCellReuseTests: XCTestCase {
         )
         let firstView = try XCTUnwrap(cell.filesView.views.first)
 
-        cell.prepareForReuse()
         configure(
             cell,
             with: makeMessage(
@@ -88,6 +87,36 @@ final class TextMessageCellReuseTests: XCTestCase {
         XCTAssertEqual(reusedView.primary, "file-1")
         XCTAssertEqual(reusedView.filenameLabel.text, "updated.pdf")
         XCTAssertEqual(reusedView.sizeLabel.text, "2 KB")
+    }
+
+    func testPrepareForReuseRemovesFileViewBeforeNextRepresentation() throws {
+        let loader = FakeAvatarLoader()
+        let cell = makeCell(loader: loader)
+        cell.filesView.frame = CGRect(x: 0, y: 0, width: 220, height: 44)
+        let fileURL = try XCTUnwrap(URL(string: "file:///tmp/report.pdf"))
+        configure(
+            cell,
+            with: makeMessage(
+                primary: "message-a",
+                files: [FileAttachment(primary: "file-1", url: fileURL, size: 1_024, name: "report.pdf", downloaded: true)]
+            )
+        )
+        let oldView = try XCTUnwrap(cell.filesView.views.first)
+
+        cell.prepareForReuse()
+
+        XCTAssertTrue(cell.filesView.views.isEmpty)
+        XCTAssertTrue(cell.filesView.subviews.isEmpty)
+        XCTAssertNil(oldView.superview)
+
+        configure(
+            cell,
+            with: makeMessage(
+                primary: "message-b",
+                files: [FileAttachment(primary: "file-1", url: fileURL, size: 2_048, name: "next.pdf", downloaded: true)]
+            )
+        )
+        XCTAssertFalse(cell.filesView.views.first === oldView)
     }
 
     func testPrepareForReuseClearsInlineMediaViews() throws {

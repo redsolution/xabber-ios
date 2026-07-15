@@ -483,12 +483,14 @@ private final class FakeChatCollectionPageWarmupTask: ChatCollectionPageWarmupTa
 private final class FakeChatLocationSnapshotProvider: ChatLocationSnapshotProviding {
     private var completions: [(Result<URL, Error>) -> Void] = []
 
+    @discardableResult
     func makeSnapshot(
         for location: ChatAttachmentResolvedLocation,
         size: CGSize,
         completion: @escaping (Result<URL, Error>) -> Void
-    ) {
+    ) -> ChatLocationSnapshotTask? {
         completions.append(completion)
+        return nil
     }
 
     func completeAll(with result: Result<URL, Error>) {

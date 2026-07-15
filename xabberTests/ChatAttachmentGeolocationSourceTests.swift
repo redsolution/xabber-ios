@@ -670,18 +670,20 @@ private final class FakeTask4LocationSnapshotProvider: ChatLocationSnapshotProvi
         self.results = results
     }
 
+    @discardableResult
     func makeSnapshot(
         for location: ChatAttachmentResolvedLocation,
         size: CGSize,
         completion: @escaping (Result<URL, Error>) -> Void
-    ) {
+    ) -> ChatLocationSnapshotTask? {
         locations.append(location)
         sizes.append(size)
         guard !results.isEmpty else {
             completion(.failure(FakeTask4SnapshotError.failed))
-            return
+            return nil
         }
         completion(results.removeFirst())
+        return nil
     }
 }
 

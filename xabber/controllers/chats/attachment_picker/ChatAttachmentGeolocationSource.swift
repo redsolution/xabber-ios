@@ -123,12 +123,17 @@ protocol ChatAttachmentGeolocationToastPresenting: AnyObject {
     func showToast(message: String, in view: UIView)
 }
 
+protocol ChatLocationSnapshotTask: AnyObject {
+    func cancel()
+}
+
 protocol ChatLocationSnapshotProviding: AnyObject {
+    @discardableResult
     func makeSnapshot(
         for location: ChatAttachmentResolvedLocation,
         size: CGSize,
         completion: @escaping (Result<URL, Error>) -> Void
-    )
+    ) -> ChatLocationSnapshotTask?
 }
 
 enum ChatAttachmentGeolocationMapControlsStyle {
@@ -417,11 +422,12 @@ final class MapKitChatLocationSnapshotProvider: ChatLocationSnapshotProviding {
         self.uuidProvider = uuidProvider
     }
 
+    @discardableResult
     func makeSnapshot(
         for location: ChatAttachmentResolvedLocation,
         size: CGSize,
         completion: @escaping (Result<URL, Error>) -> Void
-    ) {
+    ) -> ChatLocationSnapshotTask? {
         let snapshotSize = CGSize(
             width: max(1, size.width),
             height: max(1, size.height)
@@ -437,7 +443,8 @@ final class MapKitChatLocationSnapshotProvider: ChatLocationSnapshotProviding {
         options.scale = UIScreen.main.scale
         options.mapType = .standard
 
-        MKMapSnapshotter(options: options).start { [weak self] snapshot, error in
+        let snapshotter = MKMapSnapshotter(options: options)
+        snapshotter.start { [weak self] snapshot, error in
             guard let self else { return }
             if let error {
                 completion(.failure(error))
@@ -455,6 +462,7 @@ final class MapKitChatLocationSnapshotProvider: ChatLocationSnapshotProviding {
                 completion(.failure(error))
             }
         }
+        return snapshotter
     }
 
     private func writeSnapshotImage(_ image: UIImage) throws -> URL {
@@ -498,6 +506,8 @@ final class MapKitChatLocationSnapshotProvider: ChatLocationSnapshotProviding {
         }
     }
 }
+
+extension MKMapSnapshotter: ChatLocationSnapshotTask {}
 
 final class ChatAttachmentGeolocationSourceViewController: UIViewController,
     ChatAttachmentSourceControlling,

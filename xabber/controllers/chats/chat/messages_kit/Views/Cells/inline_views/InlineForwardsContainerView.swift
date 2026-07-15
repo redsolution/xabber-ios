@@ -11,7 +11,7 @@ import UIKit
 import MaterialComponents.MDCPalettes
 
 class InlineMessageAttachmentView: ModernContainerView {
-    
+
     let quoteLine: UIView = {
         let view = UIView(frame: .zero)
         
@@ -19,7 +19,7 @@ class InlineMessageAttachmentView: ModernContainerView {
         
         return view
     }()
-    
+
     let authorLabel: MessageLabel = {
         let label = MessageLabel(frame: .zero)
         
@@ -311,6 +311,9 @@ class InlineMessageAttachmentView: ModernContainerView {
     }
     
     func setupSubviews() {
+        guard containerView.superview !== self else {
+            return
+        }
         addSubview(containerView)
         containerView.addSubview(authorLabel)
         containerView.addSubview(imagesView)
@@ -332,10 +335,14 @@ class InlineMessageAttachmentView: ModernContainerView {
     }
 
     func updateContent(_ message: MessageAttachment, palette: MDCPalette) {
+        if messagePrimary.isNotEmpty,
+           messagePrimary != message.primary {
+            resetAttachmentContent()
+        }
         self.messagePrimary = message.primary
-        imagesView.updateContent(message.images)
-        videosView.updateContent(message.videos)
-        locationsView.updateContent(message.locations)
+        imagesView.updateContent(message.images, representedBy: message.primary)
+        videosView.updateContent(message.videos, representedBy: message.primary)
+        locationsView.updateContent(message.locations, representedBy: message.primary)
         contactsView.updateContent(message.contacts, palette: palette)
         audiosView.delegate = self.delegate
         audiosView.updateContent(message.audios, palette: palette)
@@ -361,6 +368,25 @@ class InlineMessageAttachmentView: ModernContainerView {
 //        configure(tail: "none", side: .left, radiusLU: 12, radiusRU: 12, radiusRB: 10, radiusLB: 12, padding: 0)
 //        self.bubble.layer.backgroundColor = MDCPalette.green.tint100.cgColor
         
+    }
+
+    func prepareForReuse() {
+        resetAttachmentContent()
+        delegate = nil
+        messagePrimary = ""
+        messageLabel.attributedText = nil
+        authorLabel.attributedText = nil
+        layer.backgroundColor = UIColor.clear.cgColor
+        quoteLine.backgroundColor = UIColor.clear
+    }
+
+    private func resetAttachmentContent() {
+        imagesView.resetState()
+        videosView.resetState()
+        locationsView.resetState()
+        contactsView.resetState()
+        audiosView.resetState()
+        filesView.resetState()
     }
 
     func reflowAttachmentFrames(for message: MessageAttachment) {
@@ -470,125 +496,15 @@ class InlineForwardsContainerView: InlineAttachmentView {
     private var representedMessages: [MessageAttachment] = []
     private var representedPalette: MDCPalette = .amber
     private weak var representedDelegate: MessageCellDelegate?
-    
-    func layout(with attributes: MessagesCollectionViewLayoutAttributes) {
-        // Do not remove all subviews immediately; only adjust as needed
-        if attributes.forwardsInlineViewSize.isEmpty {
-            subviews.forEach { $0.removeFromSuperview() }
-            inlineViews.removeAll()
-            return
-        }
-        
-        var offset: CGFloat = 0
-        for (index, sizeItem) in attributes.forwardsInlineViewSize.enumerated() {
-            let view = inlineViews[safe: index] ?? {
-                let newView = InlineMessageAttachmentView(frame: .zero)
-                inlineViews.append(newView)
-                newView.setupSubviews()
-                addSubview(newView)
-                return newView
-            }()
-            
-            view.frame = CGRect(
-                origin: CGPoint(x: 0, y: offset).padding(
-                    x: attributes.inlineContainerSizePadding.left,
-                    y: attributes.inlineContainerSizePadding.top
-                ),
-                size: sizeItem.messageContainer.padding(
-                    width: attributes.inlineContainerSizePadding.horizontal,
-                    height: attributes.inlineContainerSizePadding.vertical
-                )
-            )
-            
-            // Update layout without resetting content
-            view.layoutContainerView(with: sizeItem, attributes: attributes)
-            view.layoutAuthorLabel(with: sizeItem, attributes: attributes)
-            view.layoutImagesView(with: sizeItem, attributes: attributes)
-            view.layoutVideosView(with: sizeItem, attributes: attributes)
-            view.layoutLocationsView(with: sizeItem, attributes: attributes)
-            view.layoutContactsView(with: sizeItem, attributes: attributes)
-            view.layoutAudiosView(with: sizeItem, attributes: attributes)
-            view.layoutFilesView(with: sizeItem, attributes: attributes)
-            view.layoutLabelView(with: sizeItem, attributes: attributes)
-            view.layoutTimeMarker(with: sizeItem, attributes: attributes)
-            
-            offset += sizeItem.messageContainer.height + attributes.inlineContainerSizePadding.vertical
-            let radius = CommonConfigManager.shared.messageStyleConfig.containers.level_1.border.getRadiusFor(index: attributes.cornerRadius)
-            
-            view.configure(
-                side: attributes.side,
-                radiusLU: radius.leftUpper,
-                radiusRU: radius.rightUpper,
-                radiusRB: radius.rightBottom,
-                radiusLB: radius.leftBottom
-            )
+    private var representedLayoutAttributes: MessagesCollectionViewLayoutAttributes?
+    private var hasAppliedLayout = false
 
-            if let message = representedMessages[safe: index],
-               view.messagePrimary != message.primary {
-                view.delegate = representedDelegate
-                view.configure(message, palette: representedPalette)
-            }
-            if let message = representedMessages[safe: index] {
-                view.reflowAttachmentFrames(for: message)
-            }
-        }
-        
-        // Trim excess views
-        while inlineViews.count > attributes.forwardsInlineViewSize.count {
-            inlineViews.removeLast().removeFromSuperview()
-        }
-        
+    func layout(with attributes: MessagesCollectionViewLayoutAttributes) {
+        representedLayoutAttributes = attributes
+        hasAppliedLayout = true
+        synchronizeChildren(updateExistingContent: false)
     }
-    
-//    func layout(with attributes: MessagesCollectionViewLayoutAttributes) {
-//        subviews.forEach { $0.removeFromSuperview() }
-//        print("REDRAW", attributes.messagePrimary)
-//        self.inlineViews.removeAll()
-//        if attributes.forwardsInlineViewSize.isEmpty {
-//            return
-//        }
-//        var offset: CGFloat = 0
-//        attributes.forwardsInlineViewSize.enumerated().forEach {
-//            (index, sizeItem) in
-////            let view = inlineViews[index]
-//            let view = InlineMessageAttachmentView(frame: CGRect(
-//                origin: CGPoint(x: 0, y: offset).padding(
-//                    x: attributes.inlineContainerSizePadding.left,
-//                    y: attributes.inlineContainerSizePadding.top
-//                ),
-//                size: sizeItem.messageContainer.padding(
-//                    width: attributes.inlineContainerSizePadding.horizontal,
-//                    height: attributes.inlineContainerSizePadding.vertical
-//                )
-//            ))
-//            view.frame = CGRect(
-//                origin: CGPoint(x: 0, y: offset).padding(
-//                    x: attributes.inlineContainerSizePadding.left,
-//                    y: attributes.inlineContainerSizePadding.top
-//                ),
-//                size: sizeItem.messageContainer.padding(
-//                    width: attributes.inlineContainerSizePadding.horizontal,
-//                    height: attributes.inlineContainerSizePadding.vertical
-//                )
-//            )
-//            addSubview(view)
-//            UIView.performWithoutAnimation {
-//                view.setupSubviews()
-//                view.layoutContainerView(with: sizeItem, attributes: attributes)
-//                view.layoutAuthorLabel(with: sizeItem, attributes: attributes)
-//                view.layoutImagesView(with: sizeItem, attributes: attributes)
-//                view.layoutVideosView(with: sizeItem, attributes: attributes)
-//                view.layoutAudiosView(with: sizeItem, attributes: attributes)
-//                view.layoutFilesView (with: sizeItem, attributes: attributes)
-//                view.layoutLabelView (with: sizeItem, attributes: attributes)
-//                view.layoutTimeMarker(with: sizeItem, attributes: attributes)
-//            }
-//            
-//            inlineViews.append(view)
-//            offset += sizeItem.messageContainer.height
-//        }
-//    }
-    
+
     func configure(_ messages: [MessageAttachment], palette: MDCPalette, delegate: MessageCellDelegate?) {
         representedMessages = messages
         representedPalette = palette
@@ -597,15 +513,7 @@ class InlineForwardsContainerView: InlineAttachmentView {
             resetState()
             return
         }
-        
-        messages.enumerated().forEach {
-            (index, message) in
-//            let view = InlineMessageAttachmentView(frame: .zero)
-            if inlineViews.count > index {
-                inlineViews[index].delegate = delegate
-                inlineViews[index].configure(message, palette: palette)
-            }
-        }
+        synchronizeChildren(updateExistingContent: true)
     }
 
     func updateContent(_ messages: [MessageAttachment], palette: MDCPalette, delegate: MessageCellDelegate?) {
@@ -617,30 +525,114 @@ class InlineForwardsContainerView: InlineAttachmentView {
             return
         }
 
-        guard inlineViews.map(\.messagePrimary) == messages.map(\.primary),
-              inlineViews.count == messages.count else {
-            configure(messages, palette: palette, delegate: delegate)
-            return
+        synchronizeChildren(updateExistingContent: true)
+    }
+
+    func resetState() {
+        representedMessages.removeAll()
+        representedDelegate = nil
+        representedLayoutAttributes = nil
+        hasAppliedLayout = false
+        inlineViews.forEach { view in
+            view.prepareForReuse()
+            view.removeFromSuperview()
+        }
+        inlineViews.removeAll()
+        contentViews.removeAll()
+        grid.removeAll()
+    }
+
+    private func synchronizeChildren(updateExistingContent: Bool) {
+        let layoutSizes = representedLayoutAttributes?.forwardsInlineViewSize ?? []
+        let desiredCount: Int
+        if hasAppliedLayout {
+            if representedMessages.isEmpty {
+                desiredCount = layoutSizes.count
+            } else {
+                desiredCount = min(representedMessages.count, layoutSizes.count)
+            }
+        } else {
+            desiredCount = representedMessages.count
         }
 
-        messages.enumerated().forEach { index, message in
-            inlineViews[index].delegate = delegate
-            inlineViews[index].updateContent(message, palette: palette)
+        while inlineViews.count < desiredCount {
+            let view = InlineMessageAttachmentView(frame: .zero)
+            view.setupSubviews()
+            inlineViews.append(view)
+            addSubview(view)
         }
+        while inlineViews.count > desiredCount {
+            let view = inlineViews.removeLast()
+            view.prepareForReuse()
+            view.removeFromSuperview()
+        }
+
+        for index in 0..<desiredCount {
+            let view = inlineViews[index]
+            if let message = representedMessages[safe: index] {
+                if view.messagePrimary != message.primary {
+                    if view.messagePrimary.isNotEmpty {
+                        view.prepareForReuse()
+                    }
+                    view.delegate = representedDelegate
+                    view.configure(message, palette: representedPalette)
+                } else if updateExistingContent {
+                    view.delegate = representedDelegate
+                    view.updateContent(message, palette: representedPalette)
+                }
+            }
+        }
+
+        guard let attributes = representedLayoutAttributes else {
+            return
+        }
+        layoutChildren(with: attributes)
     }
-    
-    func resetState() {
-        representedMessages = []
-        representedDelegate = nil
-        inlineViews.forEach { view in
-            view.messageLabel.attributedText = nil
-            view.authorLabel.attributedText = nil
-            
-            view.imagesView.views.removeAll()
-            view.filesView.views.removeAll()
-            view.locationsView.views.removeAll()
-            view.contactsView.views.removeAll()
-            view.audiosView.views.removeAll()
+
+    private func layoutChildren(
+        with attributes: MessagesCollectionViewLayoutAttributes
+    ) {
+        var offset: CGFloat = 0
+        for (index, view) in inlineViews.enumerated() {
+            guard let sizeItem = attributes.forwardsInlineViewSize[safe: index] else {
+                continue
+            }
+            view.frame = CGRect(
+                origin: CGPoint(x: 0, y: offset).padding(
+                    x: attributes.inlineContainerSizePadding.left,
+                    y: attributes.inlineContainerSizePadding.top
+                ),
+                size: sizeItem.messageContainer.padding(
+                    width: attributes.inlineContainerSizePadding.horizontal,
+                    height: attributes.inlineContainerSizePadding.vertical
+                )
+            )
+            view.layoutContainerView(with: sizeItem, attributes: attributes)
+            view.layoutAuthorLabel(with: sizeItem, attributes: attributes)
+            view.layoutImagesView(with: sizeItem, attributes: attributes)
+            view.layoutVideosView(with: sizeItem, attributes: attributes)
+            view.layoutLocationsView(with: sizeItem, attributes: attributes)
+            view.layoutContactsView(with: sizeItem, attributes: attributes)
+            view.layoutAudiosView(with: sizeItem, attributes: attributes)
+            view.layoutFilesView(with: sizeItem, attributes: attributes)
+            view.layoutLabelView(with: sizeItem, attributes: attributes)
+            view.layoutTimeMarker(with: sizeItem, attributes: attributes)
+
+            offset += sizeItem.messageContainer.height
+                + attributes.inlineContainerSizePadding.vertical
+            let radius = CommonConfigManager.shared.messageStyleConfig
+                .containers.level_1.border
+                .getRadiusFor(index: attributes.cornerRadius)
+            view.configure(
+                side: attributes.side,
+                radiusLU: radius.leftUpper,
+                radiusRU: radius.rightUpper,
+                radiusRB: radius.rightBottom,
+                radiusLB: radius.leftBottom
+            )
+            if let message = representedMessages[safe: index] {
+                view.reflowAttachmentFrames(for: message)
+            }
         }
     }
     

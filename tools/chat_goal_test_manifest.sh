@@ -140,8 +140,11 @@ xabberTests/ChatObserverLifecycleTests
 SELECTORS
       ;;
     G12) cat <<'SELECTORS'
+xabberTests/InlineForwardsReuseTests
+xabberTests/InlineForwardLayoutOrderingTests
 xabberTests/TextMessageCellReuseTests
 xabberTests/InlineAudiosGridViewContentUpdateTests
+xabberTests/InlineAudioViewVoiceStateRenderingTests
 xabberTests/ChatCollectionPrefetchTests
 SELECTORS
       ;;

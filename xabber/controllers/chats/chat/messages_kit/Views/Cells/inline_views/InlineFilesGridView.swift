@@ -169,14 +169,18 @@ class InlineFilesGridView: InlineAttachmentView {
     }
     
     var palette: MDCPalette = .amber
+
+    func resetState() {
+        views.forEach { $0.removeFromSuperview() }
+        views.removeAll()
+        contentViews.removeAll()
+        grid.removeAll()
+    }
     
     func configure(_ attachments: [FileAttachment], palette: MDCPalette) {
         self.palette = palette
-//        subviews.forEach { $0.removeFromSuperview() }
+        resetState()
         if attachments.isEmpty { return }
-        grid.removeAll()
-        self.views.forEach { $0.removeFromSuperview() }
-        self.views = []
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
             let item = attachments[index]
@@ -193,9 +197,7 @@ class InlineFilesGridView: InlineAttachmentView {
     func updateContent(_ attachments: [FileAttachment], palette: MDCPalette) {
         self.palette = palette
         if attachments.isEmpty {
-            self.views.forEach { $0.removeFromSuperview() }
-            self.views = []
-            grid.removeAll()
+            resetState()
             return
         }
 
@@ -223,7 +225,7 @@ class InlineFilesGridView: InlineAttachmentView {
     
     func handleTouch(at point: CGPoint, callback: ((URL) -> Void)?) -> Bool {
         var isMyTouch: Bool = false
-        for (index, item) in views.enumerated() {
+        for item in views {
             if item.frame.contains(point) {
                 callback?(item.url)
                 isMyTouch = true
@@ -294,6 +296,7 @@ class InlineContactsGridView: InlineAttachmentView {
         var contact: ContactAttachment
         var avatarURL: String?
         var palette: MDCPalette = .amber
+        private var avatarRequestGeneration = UUID()
 
         init(frame: CGRect, contact: ContactAttachment) {
             self.primary = contact.primary
@@ -330,6 +333,7 @@ class InlineContactsGridView: InlineAttachmentView {
         }
 
         public func configure(contact: ContactAttachment, palette: MDCPalette) {
+            avatarRequestGeneration = UUID()
             self.primary = contact.primary
             self.jid = contact.jid
             self.owner = contact.owner
@@ -344,6 +348,7 @@ class InlineContactsGridView: InlineAttachmentView {
         private func configureAvatar(for contact: ContactAttachment) {
             let avatarURL = contact.avatarURL ?? rosterAvatarURL(owner: contact.owner, jid: contact.jid)
             self.avatarURL = avatarURL
+            let requestGeneration = avatarRequestGeneration
             if let cachedAvatar = DefaultAvatarManager.shared.cachedAvatarImage(url: avatarURL) {
                 avatarImageView.image = cachedAvatar
                 return
@@ -360,12 +365,24 @@ class InlineContactsGridView: InlineAttachmentView {
                 size: 36
             ) { [weak self] image in
                 guard let self,
+                      self.avatarRequestGeneration == requestGeneration,
                       self.primary == contact.primary,
+                      self.owner == contact.owner,
+                      self.jid == contact.jid,
+                      self.avatarURL == avatarURL,
                       let image else {
                     return
                 }
                 self.avatarImageView.image = image
             }
+        }
+
+        func resetState() {
+            avatarRequestGeneration = UUID()
+            avatarImageView.image = nil
+            titleLabel.text = nil
+            subtitleLabel.text = nil
+            avatarURL = nil
         }
 
         private func rosterAvatarURL(owner: String, jid: String) -> String? {
@@ -386,6 +403,16 @@ class InlineContactsGridView: InlineAttachmentView {
     var views: [ContactView] = []
     var palette: MDCPalette = .amber
 
+    func resetState() {
+        views.forEach { view in
+            view.resetState()
+            view.removeFromSuperview()
+        }
+        views.removeAll()
+        contentViews.removeAll()
+        grid.removeAll()
+    }
+
     func prepareGrid(_ attachments: [ContactAttachment]) -> [CGRect] {
         let frame = self.frame
         let height: CGFloat = CommonMessageSizeCalculator.inlineFileViewHeight
@@ -399,10 +426,8 @@ class InlineContactsGridView: InlineAttachmentView {
 
     func configure(_ attachments: [ContactAttachment], palette: MDCPalette) {
         self.palette = palette
+        resetState()
         if attachments.isEmpty { return }
-        grid.removeAll()
-        self.views.forEach { $0.removeFromSuperview() }
-        self.views = []
         prepareGrid(attachments).enumerated().forEach { index, rect in
             let item = attachments[index]
             let view = ContactView(frame: rect, contact: item)
@@ -415,9 +440,7 @@ class InlineContactsGridView: InlineAttachmentView {
     func updateContent(_ attachments: [ContactAttachment], palette: MDCPalette) {
         self.palette = palette
         if attachments.isEmpty {
-            self.views.forEach { $0.removeFromSuperview() }
-            self.views = []
-            grid.removeAll()
+            resetState()
             return
         }
 
