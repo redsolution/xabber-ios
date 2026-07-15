@@ -158,10 +158,13 @@ xabberTests/SensitiveMediaAnalysisServiceTests
 SELECTORS
       ;;
     G13B) cat <<'SELECTORS'
+xabberTests/ChatFileAttachmentPipelineTests
+xabberTests/ChatStickerPipelineTests
 xabberTests/ChatAttachmentFileSourceTests
 xabberTests/ChatAttachmentErrorProgressStateTests
 xabberTests/MediaGalleryFilesListTests
 xabberTests/TextMessageCellReuseTests
+xabberTests/InlineForwardsReuseTests
 SELECTORS
       ;;
     G14) cat <<'SELECTORS'

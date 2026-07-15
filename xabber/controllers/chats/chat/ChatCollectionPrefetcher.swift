@@ -6,6 +6,7 @@ import CocoaLumberjack
 struct ChatCollectionPrefetchIdentity: Hashable {
     enum Kind: String, Hashable {
         case image
+        case sticker
         case videoPreview
         case avatar
         case contactAvatar
@@ -116,6 +117,17 @@ struct ChatCollectionPrefetchLocation: Hashable {
 struct ChatCollectionPrefetchImageReference: Hashable {
     let primary: String
     let url: URL?
+    let size: ChatCollectionPrefetchSize?
+
+    init(
+        primary: String,
+        url: URL?,
+        size: ChatCollectionPrefetchSize? = nil
+    ) {
+        self.primary = primary
+        self.url = url
+        self.size = size
+    }
 }
 
 struct ChatCollectionPrefetchVideoReference: Hashable {
@@ -167,10 +179,33 @@ struct ChatCollectionPrefetchItem: Hashable {
     let owner: String
     let jid: String
     let avatarURL: URL?
+    let sticker: ChatCollectionPrefetchImageReference?
     let images: [ChatCollectionPrefetchImageReference]
     let videos: [ChatCollectionPrefetchVideoReference]
     let locations: [ChatCollectionPrefetchLocationReference]
     let contacts: [ChatCollectionPrefetchContactReference]
+
+    init(
+        messagePrimary: String,
+        owner: String,
+        jid: String,
+        avatarURL: URL?,
+        sticker: ChatCollectionPrefetchImageReference? = nil,
+        images: [ChatCollectionPrefetchImageReference],
+        videos: [ChatCollectionPrefetchVideoReference],
+        locations: [ChatCollectionPrefetchLocationReference],
+        contacts: [ChatCollectionPrefetchContactReference]
+    ) {
+        self.messagePrimary = messagePrimary
+        self.owner = owner
+        self.jid = jid
+        self.avatarURL = avatarURL
+        self.sticker = sticker
+        self.images = images
+        self.videos = videos
+        self.locations = locations
+        self.contacts = contacts
+    }
 }
 
 enum ChatCollectionPrefetchPageDirection: String, Hashable {
@@ -374,6 +409,31 @@ enum ChatCollectionPrefetchPlanner {
         context: ChatCollectionPrefetchContext
     ) -> Set<ChatCollectionPrefetchResource> {
         var resources = Set<ChatCollectionPrefetchResource>()
+
+        if let sticker = item.sticker, let url = sticker.url {
+            let sourceSize = sticker.size?.cgSize ?? CGSize(
+                square: ChatStickerLayoutPolicy.maximumSide
+            )
+            let renderedSize = ChatStickerLayoutPolicy.renderedSize(
+                sourceSize: sourceSize,
+                availableWidth: CGFloat(context.mediaContainerSize.width)
+            )
+            resources.insert(.image(
+                identity: identity(
+                    .sticker,
+                    messagePrimary: item.messagePrimary,
+                    referencePrimary: sticker.primary
+                ),
+                request: imageRequest(
+                    url: url,
+                    displaySize: ChatCollectionPrefetchSize(
+                        width: Double(renderedSize.width),
+                        height: Double(renderedSize.height)
+                    ),
+                    context: context
+                )
+            ))
+        }
 
         let imageFrames = mediaFrames(count: item.images.count, containerSize: context.mediaContainerSize)
         item.images.enumerated().forEach { index, image in
@@ -716,11 +776,25 @@ final class ChatCollectionContentPrefetcher: ChatCollectionContentPrefetching {
 
 extension ChatViewController.Datasource {
     var collectionPrefetchItem: ChatCollectionPrefetchItem {
-        ChatCollectionPrefetchItem(
+        let sticker: ChatCollectionPrefetchImageReference?
+        if case .sticker(let attachment) = kind {
+            sticker = ChatCollectionPrefetchImageReference(
+                primary: attachment.primary,
+                url: attachment.url,
+                size: ChatCollectionPrefetchSize(
+                    width: Double(attachment.size.width),
+                    height: Double(attachment.size.height)
+                )
+            )
+        } else {
+            sticker = nil
+        }
+        return ChatCollectionPrefetchItem(
             messagePrimary: primary,
             owner: owner,
             jid: jid,
             avatarURL: avatarUrl.flatMap(URL.init(string:)),
+            sticker: sticker,
             images: images.map {
                 ChatCollectionPrefetchImageReference(
                     primary: $0.primary,

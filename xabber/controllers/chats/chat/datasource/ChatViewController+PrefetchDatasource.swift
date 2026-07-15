@@ -273,6 +273,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     }
     
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        (cell as? ChatOffscreenWorkManaging)?.resumeOnscreenWork()
 //        if self.canLoadDatasource {
 //            if (self.messagesCollectionView.contentSize.height - self.messagesCollectionView.contentOffset.y) < self.view.bounds.height {
 //                self.canLoadDatasource = false
@@ -287,6 +288,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     }
     
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        (cell as? ChatOffscreenWorkManaging)?.cancelOffscreenWork()
         self.enqueueScrollWork(
             visibleIndexPaths: self.currentVisibleIndexPaths(),
             work: [.updateFloatingDate, .advanceReadBoundary, .updateVoiceQueue]

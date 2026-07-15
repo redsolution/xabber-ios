@@ -331,7 +331,7 @@ class InlineLocationsGridView: InlineAttachmentView {
     }
 }
 
-public class TextMessageCell: MessageContentCell {
+public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
     
     let offsetBetweenForwards: CGFloat = 2
     
@@ -891,8 +891,14 @@ public class TextMessageCell: MessageContentCell {
         and messagesCollectionView: MessagesCollectionView,
         changeMask: ChatMessageChangeMask
     ) {
-        if changeMask == [.chrome] {
-            applyChromeUpdate(with: message, at: indexPath, and: messagesCollectionView)
+        let lightweightMask: ChatMessageChangeMask = [.chrome, .fileTransferState]
+        if changeMask.subtracting(lightweightMask).isEmpty {
+            if changeMask.contains(.chrome) {
+                applyChromeUpdate(with: message, at: indexPath, and: messagesCollectionView)
+            }
+            if changeMask.contains(.fileTransferState) {
+                applyFileTransferStateUpdate(with: message)
+            }
             return
         }
         applyTextContent(with: message, at: indexPath, and: messagesCollectionView, reuseInlineViews: true)
@@ -919,6 +925,22 @@ public class TextMessageCell: MessageContentCell {
         )
     }
 
+    private func applyFileTransferStateUpdate(with message: MessageType) {
+        messagePrimary = message.primary
+        filesView.updateTransferStates(message.files, representedBy: message.primary)
+        forwardsContainer.updateFileTransferStates(message.forwards)
+    }
+
+    func cancelOffscreenWork() {
+        filesView.cancelOffscreenWork()
+        forwardsContainer.cancelOffscreenFileWork()
+    }
+
+    func resumeOnscreenWork() {
+        filesView.resumeOnscreenWork()
+        forwardsContainer.resumeOnscreenFileWork()
+    }
+
     private func applyTextContent(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView, reuseInlineViews: Bool) {
         self.messagePrimary = message.primary
         super.configure(with: message, at: indexPath, and: messagesCollectionView)
@@ -943,12 +965,20 @@ public class TextMessageCell: MessageContentCell {
             self.imagesView.updateContent(message.images, representedBy: message.primary)
             self.locationsView.updateContent(message.locations, representedBy: message.primary)
             self.contactsView.updateContent(message.contacts, palette: palette)
-            self.filesView.updateContent(message.files, palette: palette)
+            self.filesView.updateContent(
+                message.files,
+                palette: palette,
+                representedBy: message.primary
+            )
         } else {
             self.imagesView.configure(message.images, representedBy: message.primary)
             self.locationsView.configure(message.locations, representedBy: message.primary)
             self.contactsView.configure(message.contacts, palette: palette)
-            self.filesView.configure(message.files, palette: palette)
+            self.filesView.configure(
+                message.files,
+                palette: palette,
+                representedBy: message.primary
+            )
         }
         self.audiosView.delegate = delegate
         if reuseInlineViews {

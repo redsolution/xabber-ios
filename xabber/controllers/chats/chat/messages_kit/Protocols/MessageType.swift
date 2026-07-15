@@ -190,27 +190,70 @@ class ContactAttachment {
     }
 }
 
-class FileAttachment {
-    var primary: String
-    var url: URL?
-    var size: Double
-    var name: String
-    var downloaded: Bool
-    
-    init(primary: String, url: URL?, size: Double, name: String, downloaded: Bool) {
+struct ChatFileAttachmentPresentation: Hashable {
+    let displayName: String
+    let formattedSize: String
+    let mimeType: String
+    let icon: MimeIconTypes
+
+    init(name: String, size: Double, mimeType: String?) {
+        let resolvedMimeType = mimeType ?? MimeType(path: name).value
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .binary
+        self.displayName = name
+        self.formattedSize = formatter.string(fromByteCount: Int64(max(0, size)))
+        self.mimeType = resolvedMimeType
+        self.icon = MimeIcon(resolvedMimeType).value
+    }
+
+    var revision: String {
+        [displayName, formattedSize, mimeType, icon.rawValue].joined(separator: "|")
+    }
+}
+
+final class FileAttachment {
+    let primary: String
+    let url: URL?
+    let size: Double
+    let name: String
+    let downloaded: Bool
+    let presentation: ChatFileAttachmentPresentation
+
+    init(
+        primary: String,
+        url: URL?,
+        size: Double,
+        name: String,
+        mimeType: String? = nil,
+        downloaded: Bool
+    ) {
         self.primary = primary
         self.url = url
         self.size = size
         self.name = name
         self.downloaded = downloaded
+        self.presentation = ChatFileAttachmentPresentation(
+            name: name,
+            size: size,
+            mimeType: mimeType
+        )
     }
-    
+
     var prettySize: String {
-        get {
-            let formatter = ByteCountFormatter()
-            formatter.countStyle = .binary
-            return formatter.string(fromByteCount: Int64(size))
-        }
+        presentation.formattedSize
+    }
+
+    var transferState: ChatFileTransferState {
+        downloaded ? .available : .idle
+    }
+
+    func representedRequest(containerPrimary: String) -> ChatFileAttachmentRequest {
+        ChatFileAttachmentRequest(
+            containerPrimary: containerPrimary,
+            referencePrimary: primary,
+            resourceIdentity: url?.absoluteString ?? "",
+            presentationRevision: presentation.revision
+        )
     }
 }
 

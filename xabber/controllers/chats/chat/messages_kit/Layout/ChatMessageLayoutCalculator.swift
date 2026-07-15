@@ -30,11 +30,7 @@ enum ChatMessageLayoutCalculator {
         case .initial:
             return Worker(context: context).initialLayout(for: message)
         case .sticker:
-            var layout = ChatMessageLayout.empty(
-                cellSize: CGSize(width: context.normalizedWidth, height: 0)
-            )
-            layout.messagePrimary = message.primary
-            return layout
+            return Worker(context: context).stickerLayout(for: message)
         }
     }
 
@@ -241,6 +237,39 @@ enum ChatMessageLayoutCalculator {
             layout.messagePrimary = message.primary
             layout.messageContainerSize = size
             layout.messageLabelInsets = UIEdgeInsets(top: 10, left: 24, bottom: 10, right: 24)
+            return layout
+        }
+
+        func stickerLayout(for message: MessageType) -> ChatMessageLayout {
+            let sourceSize: CGSize
+            if case .sticker(let attachment) = message.kind {
+                sourceSize = attachment.size
+            } else {
+                sourceSize = CGSize(square: ChatStickerLayoutPolicy.maximumSide)
+            }
+            let renderedSize = ChatStickerLayoutPolicy.renderedSize(
+                sourceSize: sourceSize,
+                availableWidth: messageContainerMaxWidth()
+            )
+            let margin = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
+            var layout = ChatMessageLayout.empty(
+                cellSize: CGSize(
+                    width: context.normalizedWidth,
+                    height: renderedSize.height + margin.vertical
+                )
+            )
+            layout.messagePrimary = message.primary
+            layout.messageContainerSize = renderedSize
+            layout.messageContainerMargin = margin
+            layout.messageContainerPadding = .zero
+            layout.messageLabelInsets = .zero
+            layout.side = message.isOutgoing ? .right : .left
+            layout.tail = "none"
+            layout.cornerRadius = context.cornerRadius
+            layout.isImageMessage = true
+            if message.reservesAvatarSpace {
+                layout.avatarSize = CGSize(square: 32)
+            }
             return layout
         }
 

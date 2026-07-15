@@ -6586,6 +6586,7 @@ struct ChatFileAttachmentSignature: Equatable, CustomStringConvertible {
     let url: URL?
     let size: Double
     let name: String
+    let presentationRevision: String
     let downloaded: Bool
 
     init(_ attachment: FileAttachment) {
@@ -6593,11 +6594,20 @@ struct ChatFileAttachmentSignature: Equatable, CustomStringConvertible {
         self.url = attachment.url
         self.size = attachment.size
         self.name = attachment.name
+        self.presentationRevision = attachment.presentation.revision
         self.downloaded = attachment.downloaded
     }
 
     var description: String {
         "file(primary:\(primary),name:\(name),size:\(size),downloaded:\(downloaded))"
+    }
+
+    func equalsPresentation(of other: ChatFileAttachmentSignature) -> Bool {
+        primary == other.primary &&
+            url == other.url &&
+            size == other.size &&
+            name == other.name &&
+            presentationRevision == other.presentationRevision
     }
 }
 
@@ -6636,6 +6646,32 @@ struct ChatForwardAttachmentSignature: Equatable, CustomStringConvertible {
 
     var description: String {
         "forward(primary:\(primary),outgoing:\(outgoing),textLength:\(textMessage.text.count),attachments:\(attachments))"
+    }
+}
+
+private extension ChatAttachmentContentSignature {
+    func differsOnlyInFileTransferState(from other: ChatAttachmentContentSignature) -> Bool {
+        self != other && equalsExcludingFileTransferState(other)
+    }
+
+    func equalsExcludingFileTransferState(_ other: ChatAttachmentContentSignature) -> Bool {
+        images == other.images &&
+            videos == other.videos &&
+            locations == other.locations &&
+            contacts == other.contacts &&
+            audios == other.audios &&
+            files.count == other.files.count &&
+            zip(files, other.files).allSatisfy { $0.equalsPresentation(of: $1) } &&
+            forwards.count == other.forwards.count &&
+            zip(forwards, other.forwards).allSatisfy { lhs, rhs in
+                lhs.primary == rhs.primary &&
+                    lhs.author == rhs.author &&
+                    lhs.jid == rhs.jid &&
+                    lhs.outgoing == rhs.outgoing &&
+                    lhs.textMessage == rhs.textMessage &&
+                    lhs.timeMarker == rhs.timeMarker &&
+                    lhs.attachments.equalsExcludingFileTransferState(rhs.attachments)
+            }
     }
 }
 
@@ -6917,7 +6953,13 @@ enum ChatMessageUpdatePolicy {
             mask.insert(.text)
         }
         if oldSignature.attachments != newSignature.attachments {
-            mask.insert(.attachments)
+            if oldSignature.attachments.differsOnlyInFileTransferState(
+                from: newSignature.attachments
+            ) {
+                mask.insert(.fileTransferState)
+            } else {
+                mask.insert(.attachments)
+            }
         }
         if oldMessage.avatarUrl != newMessage.avatarUrl ||
             oldMessage.withAvatar != newMessage.withAvatar ||
@@ -7342,7 +7384,14 @@ extension ChatViewController {
                 if item.kindRaw == "voice" {
                     audio.append(AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels))
                 } else if item.kind == .media && MimeIcon(item.mimeType).value != .audio && item.kindRaw != "groupchat" {
-                    files.append(FileAttachment(primary: item.primary, url: item.downloadUrl, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded))
+                    files.append(FileAttachment(
+                        primary: item.primary,
+                        url: item.downloadUrl,
+                        size: Double(item.sizeInBytesRaw),
+                        name: item.filename ?? item.name ?? "file",
+                        mimeType: item.mimeType,
+                        downloaded: item.isDownloaded
+                    ))
                 }
             }
         }
@@ -7359,6 +7408,27 @@ extension ChatViewController {
             return localFileUrl
         }
         return reference.videoPreviewUrl
+    }
+
+    internal static func stickerAttachment(
+        from references: [ChatMessageReferenceSnapshot]
+    ) -> ImageAttachment? {
+        guard let reference = references.first(where: {
+            !$0.isLocallyHiddenByReport &&
+                SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(
+                    kind: $0.kind,
+                    mimeType: $0.mimeType,
+                    mediaType: $0.metadata?["media-type"] as? String
+                ) == .image
+        }), let url = imageDisplayURL(for: reference) else {
+            return nil
+        }
+        return ImageAttachment(
+            primary: reference.primary,
+            url: url,
+            size: reference.sizeInPx ?? CGSize(square: 128),
+            isSensitive: reference.isSensitive
+        )
     }
 
     private static func locationAttachment(for reference: ChatMessageReferenceSnapshot) -> LocationAttachment? {
@@ -7660,7 +7730,12 @@ extension ChatViewController {
                 )
             )
         case .sticker:
-            return .attributedText(NSAttributedString())
+            guard let attachment = Self.stickerAttachment(
+                from: snapshot.presentation.visibleReferences
+            ) else {
+                return .attributedText(NSAttributedString())
+            }
+            return .sticker(attachment)
         }
     }
 

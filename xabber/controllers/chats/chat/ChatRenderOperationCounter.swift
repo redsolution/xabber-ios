@@ -23,6 +23,7 @@ enum ChatRenderOperation: String, CaseIterable {
     case cellBindText = "cellBindContent"
     case cellBindLayout
     case cellBindAttachments
+    case cellBindFileTransferState
     case cellBindAvatar
     case mediaRequests
     case mediaDownloads

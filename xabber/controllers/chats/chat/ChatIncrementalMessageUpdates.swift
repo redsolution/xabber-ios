@@ -334,7 +334,15 @@ struct ChatMessageChangeMask: OptionSet, Equatable {
     static let layout = ChatMessageChangeMask(rawValue: 1 << 2)
     static let attachments = ChatMessageChangeMask(rawValue: 1 << 3)
     static let avatar = ChatMessageChangeMask(rawValue: 1 << 4)
-    static let all: ChatMessageChangeMask = [.chrome, .text, .layout, .attachments, .avatar]
+    static let fileTransferState = ChatMessageChangeMask(rawValue: 1 << 5)
+    static let all: ChatMessageChangeMask = [
+        .chrome,
+        .text,
+        .layout,
+        .attachments,
+        .avatar,
+        .fileTransferState
+    ]
 }
 
 struct ChatMessageCellUpdatePlan: Equatable {
@@ -346,6 +354,7 @@ struct ChatMessageCellUpdatePlan: Equatable {
         if changeMask.contains(.text) { result.append(.cellBindText) }
         if changeMask.contains(.layout) { result.append(.cellBindLayout) }
         if changeMask.contains(.attachments) { result.append(.cellBindAttachments) }
+        if changeMask.contains(.fileTransferState) { result.append(.cellBindFileTransferState) }
         if changeMask.contains(.avatar) { result.append(.cellBindAvatar) }
         return result
     }

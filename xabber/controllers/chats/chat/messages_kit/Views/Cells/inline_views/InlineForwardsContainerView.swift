@@ -346,7 +346,11 @@ class InlineMessageAttachmentView: ModernContainerView {
         contactsView.updateContent(message.contacts, palette: palette)
         audiosView.delegate = self.delegate
         audiosView.updateContent(message.audios, palette: palette)
-        filesView.updateContent(message.files, palette: palette)
+        filesView.updateContent(
+            message.files,
+            palette: palette,
+            representedBy: message.primary
+        )
         messageLabel.attributedText = message.textMessage
         authorLabel.attributedText = message.attributedAuthor
 //        let radius = CommonConfigManager.shared.messageStyleConfig.containers.level_1.border.getRadiusFor(index: "16")
@@ -378,6 +382,19 @@ class InlineMessageAttachmentView: ModernContainerView {
         authorLabel.attributedText = nil
         layer.backgroundColor = UIColor.clear.cgColor
         quoteLine.backgroundColor = UIColor.clear
+    }
+
+    func updateFileTransferStates(_ message: MessageAttachment) {
+        guard messagePrimary == message.primary else { return }
+        filesView.updateTransferStates(message.files, representedBy: message.primary)
+    }
+
+    func cancelOffscreenFileWork() {
+        filesView.cancelOffscreenWork()
+    }
+
+    func resumeOnscreenFileWork() {
+        filesView.resumeOnscreenWork()
     }
 
     private func resetAttachmentContent() {
@@ -528,6 +545,21 @@ class InlineForwardsContainerView: InlineAttachmentView {
         }
 
         synchronizeChildren(updateExistingContent: true)
+    }
+
+    func updateFileTransferStates(_ messages: [MessageAttachment]) {
+        guard messages.count == inlineViews.count else { return }
+        zip(inlineViews, messages).forEach { view, message in
+            view.updateFileTransferStates(message)
+        }
+    }
+
+    func cancelOffscreenFileWork() {
+        inlineViews.forEach { $0.cancelOffscreenFileWork() }
+    }
+
+    func resumeOnscreenFileWork() {
+        inlineViews.forEach { $0.resumeOnscreenFileWork() }
     }
 
     func resetState() {

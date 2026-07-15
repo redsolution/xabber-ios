@@ -772,7 +772,7 @@ class MessageStorageItem: Object {
                     guard let url = item.downloadUrl else {
                         return nil
                     }
-                    return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded)
+                    return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", mimeType: item.mimeType, downloaded: item.isDownloaded)
                 }
                 resultBody += body.trimmingCharacters(in: .whitespacesAndNewlines)
                 if resultBody.isEmpty {
@@ -854,7 +854,7 @@ class MessageStorageItem: Object {
                     guard let url = item.downloadUrl else {
                         return nil
                     }
-                    return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded)
+                    return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", mimeType: item.mimeType, downloaded: item.isDownloaded)
                 }
                 let locations = visibleGeolocReferences
                 resultBody += body.trimmingCharacters(in: .whitespacesAndNewlines)

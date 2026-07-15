@@ -23,13 +23,49 @@ import UIKit
 
 extension ChatViewController: ImagePickerViewDelegate {
     func checkProgress(for messageId: String, total: Int, progress: Int) {
-        guard let section = self.datasource.lastIndex(where: { $0.messageId == messageId || $0.primary == messageId }) else {
-            return
+        guard let message = datasource.last(where: {
+            $0.messageId == messageId || $0.primary == messageId
+        }) else { return }
+        let normalizedProgress = total > 0
+            ? Double(progress) / Double(total)
+            : 0
+        publishFileTransferState(
+            .transferring(progress: normalizedProgress),
+            files: message.files,
+            containerPrimary: message.primary
+        )
+        message.forwards.forEach {
+            publishFileTransferStateRecursively(
+                .transferring(progress: normalizedProgress),
+                attachment: $0
+            )
         }
-        let lastIndexPath = IndexPath(item: 0, section: section)
-        
-        if self.messagesCollectionView.indexPathsForVisibleItems.contains(lastIndexPath) {
-            self.messagesCollectionView.reloadItems(at: [lastIndexPath])
+    }
+
+    private func publishFileTransferStateRecursively(
+        _ state: ChatFileTransferState,
+        attachment: MessageAttachment
+    ) {
+        publishFileTransferState(
+            state,
+            files: attachment.files,
+            containerPrimary: attachment.primary
+        )
+        attachment.subforwards.forEach {
+            publishFileTransferStateRecursively(state, attachment: $0)
+        }
+    }
+
+    private func publishFileTransferState(
+        _ state: ChatFileTransferState,
+        files: [FileAttachment],
+        containerPrimary: String
+    ) {
+        files.forEach {
+            ChatFileAttachmentPipeline.shared.publish(
+                state,
+                for: $0.representedRequest(containerPrimary: containerPrimary)
+            )
         }
     }
     
