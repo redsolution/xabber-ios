@@ -203,6 +203,8 @@ xabberTests/ChatInChatSearchQueryLifecycleTests
 SELECTORS
       ;;
     G17B) cat <<'SELECTORS'
+xabberTests/LastChatsSearchProvenanceRouteTests
+xabberTests/LastChatsSearchPipelineTests
 xabberTests/LastChatsViewControllerBehaviorTests
 xabberTests/LastChatsSeparatorAppearanceTests
 xabberTests/ChatSearchResultPresentationTests
@@ -314,25 +316,15 @@ SELECTORS
 
 CHAT_GOAL_KNOWN_RED_SELECTORS=(
   'xabberTests/ChatMessageAnchorPolicyTests/testContextWaitingSearchRequestDoesNotCallPositioningStarted'
-  'xabberTests/LastChatsSeparatorAppearanceTests/testLastChatsBottomSearchExpandsFullWidthAndHidesFloatingBottomBar'
-  'xabberTests/LastChatsSeparatorAppearanceTests/testUpdateBottomTitleDoesNotMutateNavigationItemDuringOrAfterTransition'
   'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testObserverRefreshWithNewNewestUpdatesLatestWindowWithoutLeavingBottom'
   'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testPendingObserverRefreshAfterUnsyncedBootstrapRevealDoesNotLeaveNewest'
-  'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSearchLocalTargetAppliesAnchorWindowBeforeFirstRealFrame'
-  'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testUnreadBoundaryLocalTargetAppliesAnchorWindowBeforeFirstRealFrame'
-  'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testExternalLocalTargetIsTheOnlyFirstContentFrame'
 )
 
 chat_goal_known_red_owner() {
   case "$1" in
     'xabberTests/ChatMessageAnchorPolicyTests/testContextWaitingSearchRequestDoesNotCallPositioningStarted') echo G18 ;;
-    'xabberTests/LastChatsSeparatorAppearanceTests/testLastChatsBottomSearchExpandsFullWidthAndHidesFloatingBottomBar') echo G17B ;;
-    'xabberTests/LastChatsSeparatorAppearanceTests/testUpdateBottomTitleDoesNotMutateNavigationItemDuringOrAfterTransition') echo G17B ;;
     'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testObserverRefreshWithNewNewestUpdatesLatestWindowWithoutLeavingBottom') echo G18 ;;
     'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testPendingObserverRefreshAfterUnsyncedBootstrapRevealDoesNotLeaveNewest') echo G18 ;;
-    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSearchLocalTargetAppliesAnchorWindowBeforeFirstRealFrame') echo G18 ;;
-    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testUnreadBoundaryLocalTargetAppliesAnchorWindowBeforeFirstRealFrame') echo G18 ;;
-    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testExternalLocalTargetIsTheOnlyFirstContentFrame') echo G18 ;;
     *) return 64 ;;
   esac
 }
@@ -342,20 +334,11 @@ chat_goal_known_red_patterns() {
     'xabberTests/ChatMessageAnchorPolicyTests/testContextWaitingSearchRequestDoesNotCallPositioningStarted')
       printf '%s\n' 'XCTAssertEqual failed' started positioned
       ;;
-    'xabberTests/LastChatsSeparatorAppearanceTests/testLastChatsBottomSearchExpandsFullWidthAndHidesFloatingBottomBar'|'xabberTests/LastChatsSeparatorAppearanceTests/testUpdateBottomTitleDoesNotMutateNavigationItemDuringOrAfterTransition')
-      echo 'XCTAssertTrue failed'
-      ;;
     'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testObserverRefreshWithNewNewestUpdatesLatestWindowWithoutLeavingBottom')
       echo 'first-frame-message-319'
       ;;
     'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testPendingObserverRefreshAfterUnsyncedBootstrapRevealDoesNotLeaveNewest')
       printf '%s\n' 'XCTAssertFalse failed' 'first-frame-message-320'
-      ;;
-    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testExternalLocalTargetIsTheOnlyFirstContentFrame')
-      echo 'XCTAssertTrue failed'
-      ;;
-    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testSearchLocalTargetAppliesAnchorWindowBeforeFirstRealFrame'|'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testUnreadBoundaryLocalTargetAppliesAnchorWindowBeforeFirstRealFrame')
-      echo 'XCTUnwrap failed: expected non-nil value of type "Int"'
       ;;
     *) return 64 ;;
   esac

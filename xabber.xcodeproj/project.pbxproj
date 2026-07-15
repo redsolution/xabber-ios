@@ -69,6 +69,7 @@
 		4EB00002300100000ABC001 /* ChatWaveformRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB00001300100000ABC001 /* ChatWaveformRenderingTests.swift */; };
 		4EB00002300200000ABC001 /* ChatSkeletonLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB00001300200000ABC001 /* ChatSkeletonLifecycleTests.swift */; };
 		4EB00002300300000ABC001 /* LastChatsSearchPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB00001300300000ABC001 /* LastChatsSearchPipelineTests.swift */; };
+		4EB10002300400000ABC001 /* LastChatsSearchProvenanceRouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB10001300400000ABC001 /* LastChatsSearchProvenanceRouteTests.swift */; };
 		4EB00002300400000ABC001 /* LastChatsSearchPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB00001300400000ABC001 /* LastChatsSearchPipeline.swift */; };
 		4E9900042FF900000ABC001 /* ChatScrollFrameMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9900032FF900000ABC001 /* ChatScrollFrameMetadata.swift */; };
 		4E9000062FF000000ABC001 /* ChatRenderOperationCounter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9000052FF000000ABC001 /* ChatRenderOperationCounter.swift */; };
@@ -721,7 +722,6 @@
 		66B7991B22E04B27001589A5 /* LastChatsViewController+Search.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B7991A22E04B27001589A5 /* LastChatsViewController+Search.swift */; };
 		66B7991E22E06B06001589A5 /* SearchResultsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B7991D22E06B06001589A5 /* SearchResultsViewController.swift */; };
 		66B7992022E08167001589A5 /* SearchResultsViewController+UITableViewDatasource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B7991F22E08167001589A5 /* SearchResultsViewController+UITableViewDatasource.swift */; };
-		66B7992222E0818F001589A5 /* SearchResultsViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B7992122E0818F001589A5 /* SearchResultsViewController+UITableViewDelegate.swift */; };
 		66B7992622E0847F001589A5 /* SearchResultsViewController+MessageCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B7992522E0847F001589A5 /* SearchResultsViewController+MessageCell.swift */; };
 		66B7992822E0848E001589A5 /* SearchResultsViewController+ContactCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B7992722E0848E001589A5 /* SearchResultsViewController+ContactCell.swift */; };
 		66B7AE6B26D7C1130043969F /* BaseViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B7AE6A26D7C1130043969F /* BaseViewController.swift */; };
@@ -1020,6 +1020,7 @@
 		4EB00001300100000ABC001 /* ChatWaveformRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatWaveformRenderingTests.swift; sourceTree = "<group>"; };
 		4EB00001300200000ABC001 /* ChatSkeletonLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSkeletonLifecycleTests.swift; sourceTree = "<group>"; };
 		4EB00001300300000ABC001 /* LastChatsSearchPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsSearchPipelineTests.swift; sourceTree = "<group>"; };
+		4EB10001300400000ABC001 /* LastChatsSearchProvenanceRouteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsSearchProvenanceRouteTests.swift; sourceTree = "<group>"; };
 		4EB00001300400000ABC001 /* LastChatsSearchPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsSearchPipeline.swift; sourceTree = "<group>"; };
 		4E9900032FF900000ABC001 /* ChatScrollFrameMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScrollFrameMetadata.swift; sourceTree = "<group>"; };
 		4E9000052FF000000ABC001 /* ChatRenderOperationCounter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatRenderOperationCounter.swift; sourceTree = "<group>"; };
@@ -1872,7 +1873,6 @@
 		66B7991A22E04B27001589A5 /* LastChatsViewController+Search.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+Search.swift"; sourceTree = "<group>"; };
 		66B7991D22E06B06001589A5 /* SearchResultsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultsViewController.swift; sourceTree = "<group>"; };
 		66B7991F22E08167001589A5 /* SearchResultsViewController+UITableViewDatasource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SearchResultsViewController+UITableViewDatasource.swift"; sourceTree = "<group>"; };
-		66B7992122E0818F001589A5 /* SearchResultsViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SearchResultsViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
 		66B7992522E0847F001589A5 /* SearchResultsViewController+MessageCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SearchResultsViewController+MessageCell.swift"; sourceTree = "<group>"; };
 		66B7992722E0848E001589A5 /* SearchResultsViewController+ContactCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SearchResultsViewController+ContactCell.swift"; sourceTree = "<group>"; };
 		66B7AE6A26D7C1130043969F /* BaseViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaseViewController.swift; sourceTree = "<group>"; };
@@ -4067,6 +4067,7 @@
 					4EB00001300100000ABC001 /* ChatWaveformRenderingTests.swift */,
 					4EB00001300200000ABC001 /* ChatSkeletonLifecycleTests.swift */,
 					4EB00001300300000ABC001 /* LastChatsSearchPipelineTests.swift */,
+					4EB10001300400000ABC001 /* LastChatsSearchProvenanceRouteTests.swift */,
 					4E6A00012FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift */,
 					4E6B00012FAA00000ABC001 /* ChatScrollCoalescingTests.swift */,
 					4E6C00012FAB00000ABC001 /* ChatCollectionPrefetchTests.swift */,
@@ -4201,7 +4202,6 @@
 				66B7991D22E06B06001589A5 /* SearchResultsViewController.swift */,
 				66153B4922E1BF87005D4567 /* SearchResultsViewController+SearchResultsUpdater.swift */,
 				66B7991F22E08167001589A5 /* SearchResultsViewController+UITableViewDatasource.swift */,
-				66B7992122E0818F001589A5 /* SearchResultsViewController+UITableViewDelegate.swift */,
 				66B7992722E0848E001589A5 /* SearchResultsViewController+ContactCell.swift */,
 				66B7992522E0847F001589A5 /* SearchResultsViewController+MessageCell.swift */,
 				6689734B23140E6400FF5D74 /* SearchResultsDelegateProtocol.swift */,
@@ -5960,7 +5960,6 @@
 				66DED55722AA60CE008E5710 /* AccountColorViewController+UITableViewDatasource.swift in Sources */,
 				66A995EE28473E2E00F241C5 /* MessageSigningInfoViewController.swift in Sources */,
 				66731BC221ECCDEE00B082FD /* ResourceStorageItem.swift in Sources */,
-				66B7992222E0818F001589A5 /* SearchResultsViewController+UITableViewDelegate.swift in Sources */,
 				66F2B3842EB25307004A3F76 /* GroupchatSettingsPermissionsViewController.swift in Sources */,
 				663926A6247E3F6F00FE6335 /* ContactsViewController+ContactCell.swift in Sources */,
 				666813EA2689987000DE6C7B /* EmptyStateView.swift in Sources */,
@@ -6154,6 +6153,7 @@
 					4EB00002300100000ABC001 /* ChatWaveformRenderingTests.swift in Sources */,
 					4EB00002300200000ABC001 /* ChatSkeletonLifecycleTests.swift in Sources */,
 					4EB00002300300000ABC001 /* LastChatsSearchPipelineTests.swift in Sources */,
+					4EB10002300400000ABC001 /* LastChatsSearchProvenanceRouteTests.swift in Sources */,
 					4E6A00022FA900000ABC001 /* ChatScrollBoundaryCacheTests.swift in Sources */,
 					4E6B00022FAA00000ABC001 /* ChatScrollCoalescingTests.swift in Sources */,
 					4E6C00022FAB00000ABC001 /* ChatCollectionPrefetchTests.swift in Sources */,

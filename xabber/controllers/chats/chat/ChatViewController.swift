@@ -500,7 +500,7 @@ struct ChatMessageAnchorRef: Equatable {
     let messageId: String?
     let authorId: String?
     let bodyFingerprint: String?
-    let sourceDate: Date
+    let sourceDate: Date?
 }
 
 struct ChatOpenMessageRequest: Equatable {

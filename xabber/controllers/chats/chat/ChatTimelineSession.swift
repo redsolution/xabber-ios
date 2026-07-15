@@ -410,6 +410,16 @@ private final class ChatTimelineLocalPagePreparationProvider: ChatTimelinePagePr
         return item
     }
 
+    func searchMessage(anchor: ChatMessageAnchorRef) -> MessageStorageItem? {
+        if let primary = anchor.messagePrimary,
+           let item = itemsByPrimary[primary] {
+            return item
+        }
+        guard let item = upstream.searchMessage(anchor: anchor) else { return nil }
+        itemsByPrimary[item.primary] = item
+        return item
+    }
+
     func items(primaryKeys: [String]) -> [MessageStorageItem] {
         primaryKeys.compactMap { itemsByPrimary[$0] }
     }
@@ -797,6 +807,10 @@ final class ChatTimelineSession {
             return resident
         }
         return store.message(primary: primary, archivedId: archivedId, messageId: messageId)
+    }
+
+    func resolvedSearchMessage(anchor: ChatMessageAnchorRef) -> MessageStorageItem? {
+        store.searchMessage(anchor: anchor)
     }
 
     func firstIncoming(afterArchiveBoundaryId boundaryArchivedId: String) -> MessageStorageItem? {
@@ -1392,6 +1406,12 @@ final class RealmChatTimelineSessionStore: ChatTimelineSessionStore {
     ) -> MessageStorageItem? {
         withProvider(default: nil) { provider in
             provider.message(primary: primary, archivedId: archivedId, messageId: messageId).map(Self.frozen)
+        }
+    }
+
+    func searchMessage(anchor: ChatMessageAnchorRef) -> MessageStorageItem? {
+        withProvider(default: nil) { provider in
+            provider.searchMessage(anchor: anchor).map(Self.frozen)
         }
     }
 

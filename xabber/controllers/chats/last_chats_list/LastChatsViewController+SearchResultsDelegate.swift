@@ -36,6 +36,9 @@ extension LastChatsViewController: SearchResultsDelegateProtocol {
             reload: { [weak self] in
                 self?.reloadInPlaceSearchResultsIfNeeded()
             },
+            onUnavailable: { [weak self] presentation in
+                self?.presentUnavailableSearchResult(presentation)
+            },
             openNewChat: { [weak self] item, openMessageRequest, completion in
                 self?.stackNewChat(
                     owner: item.owner,
@@ -47,5 +50,23 @@ extension LastChatsViewController: SearchResultsDelegateProtocol {
                 }
             }
         )
+    }
+
+    private func presentUnavailableSearchResult(
+        _ presentation: LastChatsSearchUnavailablePresentation
+    ) {
+        let alert = UIAlertController(
+            title: presentation.title,
+            message: presentation.message,
+            preferredStyle: .alert
+        )
+        alert.view.accessibilityIdentifier = presentation.accessibilityIdentifier
+        alert.addAction(
+            UIAlertAction(
+                title: "OK".localizeString(id: "ok", arguments: []),
+                style: .default
+            )
+        )
+        present(alert, animated: true)
     }
 }

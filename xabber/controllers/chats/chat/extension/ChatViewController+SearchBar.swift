@@ -52,7 +52,7 @@ enum ChatAnchorFetchPolicy {
     static func initialPlan(
         for anchor: ChatMessageAnchorRef,
         pageSize: Int
-    ) -> ChatAnchorRemoteFetchPlan {
+    ) -> ChatAnchorRemoteFetchPlan? {
         if let archivedId = anchor.archivedId,
            archivedId.isNotEmpty {
             return .exactArchivedId(archivedId)
@@ -76,9 +76,10 @@ enum ChatAnchorFetchPolicy {
     private static func dateWindowPlan(
         for anchor: ChatMessageAnchorRef,
         pageSize: Int
-    ) -> ChatAnchorRemoteFetchPlan {
-        let start = Date(timeIntervalSince1970: anchor.sourceDate.timeIntervalSince1970 - windowPadding)
-        let end = Date(timeIntervalSince1970: anchor.sourceDate.timeIntervalSince1970 + windowPadding)
+    ) -> ChatAnchorRemoteFetchPlan? {
+        guard let sourceDate = anchor.sourceDate else { return nil }
+        let start = Date(timeIntervalSince1970: sourceDate.timeIntervalSince1970 - windowPadding)
+        let end = Date(timeIntervalSince1970: sourceDate.timeIntervalSince1970 + windowPadding)
         return .dateWindow(start: start, end: end, max: pageSize)
     }
 }
@@ -896,6 +897,12 @@ enum ChatLoadedMessageNavigationPolicy {
             isAnchorable(item)
         }
 
+        if let messagePrimary = anchor.messagePrimary,
+           messagePrimary.isNotEmpty,
+           let match = anchorableItems.first(where: { $0.element.primary == messagePrimary }) {
+            return match.offset
+        }
+
         if let archivedId = anchor.archivedId,
            archivedId.isNotEmpty,
            let match = anchorableItems.first(where: { $0.element.archivedId == archivedId }) {
@@ -903,18 +910,40 @@ enum ChatLoadedMessageNavigationPolicy {
         }
 
         if let messageId = anchor.messageId,
-           messageId.isNotEmpty,
-           let match = anchorableItems.first(where: { $0.element.messageId == messageId }) {
-            return match.offset
+           messageId.isNotEmpty {
+            let matches = anchorableItems.filter {
+                $0.element.messageId == messageId
+                    && (anchor.authorId?.isNotEmpty != true || $0.element.groupchatAuthorId == anchor.authorId)
+            }
+            if matches.count == 1, let match = matches.first {
+                return match.offset
+            }
         }
 
-        if let messagePrimary = anchor.messagePrimary,
-           messagePrimary.isNotEmpty,
-           let match = anchorableItems.first(where: { $0.element.primary == messagePrimary }) {
-            return match.offset
+        if let sourceDate = anchor.sourceDate,
+           let fingerprint = LastChatsSearchFingerprint.normalize(anchor.bodyFingerprint) {
+            let matches = anchorableItems.filter {
+                abs($0.element.sentDate.timeIntervalSince(sourceDate)) <= LastChatsSearchLocalResolver.dateTolerance
+                    && (anchor.authorId?.isNotEmpty != true || $0.element.groupchatAuthorId == anchor.authorId)
+                    && LastChatsSearchFingerprint.normalize(searchBody(in: $0.element.kind)) == fingerprint
+            }
+            if matches.count == 1, let match = matches.first {
+                return match.offset
+            }
         }
 
         return nil
+    }
+
+    private static func searchBody(in kind: MessageKind) -> String? {
+        switch kind {
+        case .attributedText(let value), .system(let value), .initial(let value):
+            return value.string
+        case .emoji(let value):
+            return value
+        case .sticker, .call, .skeleton, .date, .unread:
+            return nil
+        }
     }
 
     private static func firstIncomingAfterBoundaryIndex(
@@ -2757,21 +2786,29 @@ extension ChatViewController {
             return (message, .unreadBoundaryAfter)
         }
 
-        let anchor = request.anchor
-        let orderedLookups: [(ChatAnchorLookupMatchSource, String?, String?, String?)]
         if request.source == .search {
-            orderedLookups = [
-                (.archivedId, nil, anchor.archivedId, nil),
-                (.messageId, nil, nil, anchor.messageId),
-                (.primary, anchor.messagePrimary, nil, nil)
-            ]
-        } else {
-            orderedLookups = [
-                (.primary, anchor.messagePrimary, nil, nil),
-                (.archivedId, nil, anchor.archivedId, nil),
-                (.messageId, nil, nil, anchor.messageId)
-            ]
+            guard let message = timelineSession.resolvedSearchMessage(anchor: request.anchor) else {
+                return nil
+            }
+            let source: ChatAnchorLookupMatchSource
+            if request.anchor.messagePrimary == message.primary {
+                source = .primary
+            } else if request.anchor.archivedId == message.archivedId {
+                source = .archivedId
+            } else if request.anchor.messageId == message.messageId {
+                source = .messageId
+            } else {
+                source = .metadataFallback
+            }
+            return (message, source)
         }
+
+        let anchor = request.anchor
+        let orderedLookups: [(ChatAnchorLookupMatchSource, String?, String?, String?)] = [
+            (.primary, anchor.messagePrimary, nil, nil),
+            (.archivedId, nil, anchor.archivedId, nil),
+            (.messageId, nil, nil, anchor.messageId)
+        ]
 
         for (source, primary, archivedId, messageId) in orderedLookups {
             guard primary?.isNotEmpty == true || archivedId?.isNotEmpty == true || messageId?.isNotEmpty == true else {

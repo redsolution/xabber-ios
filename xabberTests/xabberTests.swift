@@ -2345,8 +2345,8 @@ final class ChatSearchArchiveGapRepairTests: XCTestCase {
                 pageSize: ChatHistoryPagingConfiguration.pageSize
             ),
             .startRemoteFetch(.dateWindow(
-                start: request.anchor.sourceDate.addingTimeInterval(-60),
-                end: request.anchor.sourceDate.addingTimeInterval(60),
+                start: request.anchor.sourceDate!.addingTimeInterval(-60),
+                end: request.anchor.sourceDate!.addingTimeInterval(60),
                 max: ChatHistoryPagingConfiguration.pageSize
             ))
         )
@@ -23010,7 +23010,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         XCTAssertEqual(result, 1)
     }
 
-    func testSearchLoadedMessageLookupPrefersArchivedIdBeforePrimary() {
+    func testSearchLoadedMessageLookupPrefersPrimaryBeforeArchivedId() {
         let items = [
             makeDatasource(primary: "search-primary", archivedId: "wrong-archived", messageId: "wrong-message"),
             makeDatasource(primary: "target-primary", archivedId: "target-archived", messageId: "target-message")
@@ -23036,7 +23036,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(result, 1)
+        XCTAssertEqual(result, 0)
     }
 
     @MainActor
@@ -23479,7 +23479,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testPendingSearchResumeOpensWindowAroundArchivedIdWhenPrimaryConflicts() throws {
+    func testPendingSearchResumeOpensWindowAroundPrimaryWhenArchiveConflicts() throws {
         let owner = "owner@example.com"
         let jid = "contact@example.com"
         let targetArchivedId = "target-archived"
@@ -23538,7 +23538,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             animatedScroll: false,
             onPositioningStarted: nil,
             onFailed: {
-                XCTFail("search anchor should resolve by archived id")
+                XCTFail("search anchor should resolve by primary")
                 positioned.fulfill()
             },
             onPositioned: {
@@ -23554,12 +23554,12 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             .map { "\($0.primary)|\($0.archivedId)" }
             .joined(separator: ", ")
         XCTAssertTrue(
-            controller.datasource.contains { $0.primary == targetPrimary && $0.archivedId == targetArchivedId },
-            "Search navigation must build the visible window around the server archived id target. datasourceCount=\(controller.datasource.count) firstItems=[\(datasourceSummary)]"
+            controller.datasource.contains { $0.primary == conflictingPrimary && $0.archivedId == "archived-0" },
+            "Search navigation must build the visible window around the exact primary target. datasourceCount=\(controller.datasource.count) firstItems=[\(datasourceSummary)]"
         )
         XCTAssertFalse(
-            controller.datasource.contains { $0.primary == conflictingPrimary && $0.archivedId == "archived-0" },
-            "A conflicting search primary must not choose the wrong local message."
+            controller.datasource.contains { $0.primary == targetPrimary && $0.archivedId == targetArchivedId },
+            "A conflicting archive id must not override an exact scoped primary."
         )
         XCTAssertNil(controller.pendingOpenMessageRequest)
         XCTAssertNil(controller.activeAnchorExecutionState)
@@ -23855,8 +23855,8 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
                 pageSize: ChatHistoryPagingConfiguration.pageSize
             ),
             .startRemoteFetch(.dateWindow(
-                start: request.anchor.sourceDate.addingTimeInterval(-60),
-                end: request.anchor.sourceDate.addingTimeInterval(60),
+                start: request.anchor.sourceDate!.addingTimeInterval(-60),
+                end: request.anchor.sourceDate!.addingTimeInterval(60),
                 max: ChatHistoryPagingConfiguration.pageSize
             ))
         )
@@ -23982,7 +23982,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         state.lastAttemptedRemotePlan = .exactArchivedId("archived-42")
         state.isWaitingForObserverSync = true
 
-        let sourceDate = state.request.anchor.sourceDate
+        let sourceDate = state.request.anchor.sourceDate!
         XCTAssertEqual(
             ChatAnchorExecutionPolicy.resumeAction(
                 state: state,
@@ -29280,6 +29280,7 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
             viewController.shouldShowBottomBar = true
             viewController.updateUnreadChatsCounter(count: 2)
             viewController.configureSearchBar()
+            viewController.bottomSearchHostView.reduceMotionEnabledProvider = { true }
 
             XCTAssertFalse(viewController.isFloatingBottomBarHidden)
             XCTAssertFalse(viewController.bottomSearchHostView.isExpanded)
@@ -29390,9 +29391,10 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
     func testUpdateBottomTitleDoesNotMutateNavigationItemDuringOrAfterTransition() {
         withInterfaceType(.split) {
             let viewController = LastChatsViewController()
+            viewController.loadViewIfNeeded()
             let existingItem = UIBarButtonItem(barButtonSystemItem: .bookmarks, target: nil, action: nil)
-            NavigationBarItemOwnership.set(.item(existingItem), on: viewController.navigationItem, side: .left, animated: false)
-            viewController.filter.accept(.chats)
+            viewController.navigationItem.leftBarButtonItem = existingItem
+            XCTAssertTrue(viewController.navigationItem.leftBarButtonItem === existingItem)
 
             viewController.isNavigationTransitionActive = true
             viewController.updateBottomTitle()
@@ -29540,7 +29542,7 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertEqual(request?.anchor.archivedId, "1711283201000000")
         XCTAssertEqual(request?.anchor.sourceDate, date)
         XCTAssertTrue(request?.highlight ?? false)
-        XCTAssertTrue(request?.markReadOnVisible ?? false)
+        XCTAssertFalse(request?.markReadOnVisible ?? true)
     }
 
     func testSearchResultWithoutArchiveIdDoesNotCreateOpenMessageRequest() {
@@ -29621,6 +29623,79 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         XCTAssertEqual(openMessageRequest?.source, .search)
         XCTAssertEqual(openMessageRequest?.anchor.archivedId, "1711283201000000")
         XCTAssertEqual(openMessageRequest?.chatJid, datasource.jid)
+    }
+
+    func testMessageSearchRowsInOneConversationKeepDistinctDiffIDs() {
+        var first = makeSavedActionSearchDatasource(messageArchiveId: "archive-1")
+        var second = makeSavedActionSearchDatasource(messageArchiveId: "archive-2")
+        let conversation = LastChatsSearchConversation(
+            owner: first.owner,
+            jid: first.jid,
+            conversationTypeRawValue: first.conversationType.rawValue
+        )
+        first.searchProvenance = LastChatsSearchResultProvenance(
+            targetKind: .message,
+            conversation: conversation,
+            messagePrimary: "primary-1",
+            archivedId: "archive-1",
+            messageId: "message-1",
+            authorId: nil,
+            sourceDate: first.date,
+            bodyFingerprint: first.message,
+            provider: .localMessages,
+            queryGeneration: 0
+        )
+        second.searchProvenance = LastChatsSearchResultProvenance(
+            targetKind: .message,
+            conversation: conversation,
+            messagePrimary: "primary-2",
+            archivedId: "archive-2",
+            messageId: "message-2",
+            authorId: nil,
+            sourceDate: second.date,
+            bodyFingerprint: second.message,
+            provider: .localMessages,
+            queryGeneration: 0
+        )
+
+        XCTAssertNotEqual(first.diffId, second.diffId)
+    }
+
+    func testStaleMessageSearchResultPublishesTypedUnavailableWithoutOpeningLatest() {
+        let updater = ChatSearchResultsController()
+        var datasource = makeSavedActionSearchDatasource(messageArchiveId: "archive-stale")
+        datasource.searchProvenance = LastChatsSearchResultProvenance(
+            targetKind: .message,
+            conversation: LastChatsSearchConversation(
+                owner: datasource.owner,
+                jid: datasource.jid,
+                conversationTypeRawValue: datasource.conversationType.rawValue
+            ),
+            messagePrimary: "primary-stale",
+            archivedId: "archive-stale",
+            messageId: "message-stale",
+            authorId: nil,
+            sourceDate: datasource.date,
+            bodyFingerprint: datasource.message,
+            provider: .localMessages,
+            queryGeneration: updater.activeQueryGeneration + 1
+        )
+        var unavailable: LastChatsSearchUnavailablePresentation?
+        var openCallCount = 0
+
+        InPlaceSearchResultRouteHelper.open(
+            datasource,
+            updater: updater,
+            dismissSearch: {},
+            reload: {},
+            onUnavailable: { unavailable = $0 },
+            openNewChat: { _, _, _ in openCallCount += 1 }
+        )
+
+        XCTAssertEqual(unavailable?.reason, .staleGeneration)
+        XCTAssertEqual(unavailable?.accessibilityIdentifier, "chat_search_result_unavailable")
+        XCTAssertEqual(openCallCount, 0)
+        XCTAssertNil(updater.currentVc)
     }
 
     func testRemoteSearchCompletionWaitsForRemainingQueries() {

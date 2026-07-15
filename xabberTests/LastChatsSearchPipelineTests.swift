@@ -227,6 +227,13 @@ final class LastChatsSearchPipelineTests: XCTestCase {
         XCTAssertTrue(regularFirst.items.allSatisfy {
             $0.conversationTypeRawValue == ClientSynchronizationManager.ConversationType.regular.rawValue
         })
+        XCTAssertTrue(regularFirst.items.allSatisfy {
+            $0.provenance?.targetKind == .message
+                && $0.provenance?.provider == .localMessages
+                && $0.provenance?.queryGeneration == regularRequest.generation
+                && $0.provenance?.messagePrimary == $0.storagePrimary
+                && $0.provenance?.sourceDate == $0.date
+        })
         XCTAssertTrue(encrypted.items.allSatisfy {
             $0.conversationTypeRawValue == ClientSynchronizationManager.ConversationType.omemo.rawValue
         })

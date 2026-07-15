@@ -2069,7 +2069,18 @@ protocol ChatTimelinePageProviding {
     func newer(after boundary: ChatTimelineBoundary, limit: Int) -> [MessageStorageItem]
     func around(anchor: MessageStorageItem, before: Int, after: Int) -> [MessageStorageItem]
     func message(primary: String?, archivedId: String?, messageId: String?) -> MessageStorageItem?
+    func searchMessage(anchor: ChatMessageAnchorRef) -> MessageStorageItem?
     func items(primaryKeys: [String]) -> [MessageStorageItem]
+}
+
+extension ChatTimelinePageProviding {
+    func searchMessage(anchor: ChatMessageAnchorRef) -> MessageStorageItem? {
+        message(
+            primary: anchor.messagePrimary,
+            archivedId: anchor.archivedId,
+            messageId: anchor.messageId
+        )
+    }
 }
 
 enum ChatBoundedTimelineWindowPolicy {
@@ -2367,6 +2378,77 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
         }
 
         return nil
+    }
+
+    func searchMessage(anchor: ChatMessageAnchorRef) -> MessageStorageItem? {
+        guard !isCancelled() else { return nil }
+
+        if let primary = anchor.messagePrimary,
+           primary.isNotEmpty,
+           let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+           item.owner == owner,
+           item.opponent == jid,
+           item.conversationType == conversationType,
+           !item.isDeleted {
+            diagnostics?.record(operation: "search-primary", candidateCount: 1)
+            return item
+        }
+
+        let scoped = baseQuery()
+        if let archivedId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(anchor.archivedId) {
+            let candidates = Array(scoped.filter("archivedId == %@", archivedId).prefix(2))
+            diagnostics?.record(operation: "search-archive", candidateCount: candidates.count)
+            if candidates.count == 1 {
+                return candidates[0]
+            }
+        }
+
+        if let messageId = anchor.messageId,
+           messageId.isNotEmpty {
+            let materializationLimit = anchor.authorId?.isNotEmpty == true
+                ? LastChatsSearchLocalResolver.defaultFallbackCandidateLimit + 1
+                : 2
+            let materialized = Array(
+                scoped
+                    .filter("messageId == %@", messageId)
+                    .sorted(byKeyPath: "historyPositionOrdinal", ascending: false)
+                    .prefix(materializationLimit)
+            )
+            diagnostics?.record(operation: "search-message-id", candidateCount: materialized.count)
+            if anchor.authorId?.isNotEmpty == true,
+               materialized.count > LastChatsSearchLocalResolver.defaultFallbackCandidateLimit {
+                return nil
+            }
+            let candidates = materialized.filter {
+                anchor.authorId?.isNotEmpty != true || $0.groupchatAuthorId == anchor.authorId
+            }
+            if candidates.count == 1 {
+                return candidates[0]
+            }
+        }
+
+        guard let sourceDate = anchor.sourceDate,
+              let fingerprint = LastChatsSearchFingerprint.normalize(anchor.bodyFingerprint) else {
+            return nil
+        }
+        let fallbackLimit = LastChatsSearchLocalResolver.defaultFallbackCandidateLimit
+        let candidates = Array(
+            scoped
+                .filter(
+                    "date >= %@ AND date <= %@",
+                    sourceDate.addingTimeInterval(-LastChatsSearchLocalResolver.dateTolerance),
+                    sourceDate.addingTimeInterval(LastChatsSearchLocalResolver.dateTolerance)
+                )
+                .sorted(byKeyPath: "historyPositionOrdinal", ascending: false)
+                .prefix(fallbackLimit + 1)
+        )
+        diagnostics?.record(operation: "search-fingerprint-date", candidateCount: candidates.count)
+        guard candidates.count <= fallbackLimit else { return nil }
+        let matches = candidates.filter {
+            (anchor.authorId?.isNotEmpty != true || $0.groupchatAuthorId == anchor.authorId)
+                && LastChatsSearchFingerprint.normalize($0.displayedBody()) == fingerprint
+        }
+        return matches.count == 1 ? matches[0] : nil
     }
 
     func firstIncoming(afterArchiveBoundaryId boundaryArchivedId: String) -> MessageStorageItem? {

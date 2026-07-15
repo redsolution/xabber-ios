@@ -91,7 +91,7 @@ class SearchResultsViewController: SimpleBaseViewController {
         
         var diffId: String {
             get {
-                return [jid, owner].prp()
+                return searchProvenance?.stableID ?? [jid, owner, conversationType.rawValue].prp()
             }
         }
 
@@ -123,6 +123,7 @@ class SearchResultsViewController: SimpleBaseViewController {
         let updateTS: Double
         let isVerificationActionRequired: Bool
         let messageArchiveId: String?
+        var searchProvenance: LastChatsSearchResultProvenance? = nil
         
         static func compareContent(_ a: Datasource, _ b: Datasource) -> Bool {
             return a.jid == b.jid
@@ -152,6 +153,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                     && a.hasErrorInChat == b.hasErrorInChat
                     && a.updateTS == b.updateTS
                     && a.messageArchiveId == b.messageArchiveId
+                    && a.searchProvenance == b.searchProvenance
         }
     }
     
@@ -716,7 +718,6 @@ class SearchResultsViewController: SimpleBaseViewController {
         tableView.fillSuperview()
         
         tableView.dataSource = self
-        tableView.delegate = self
     }
 }
 
@@ -857,28 +858,134 @@ enum BottomInPlaceSearchHostHelper {
     }
 }
 
-enum SearchResultOpenRequestFactory {
-    static func request(for item: SearchResultsViewController.Datasource) -> ChatOpenMessageRequest? {
-        guard let archivedId = item.messageArchiveId,
-              archivedId.isNotEmpty else {
-            return nil
+enum LastChatsSearchRouteOutcome: Equatable {
+    case latest(LastChatsSearchConversation)
+    case message(ChatOpenMessageRequest)
+    case unavailable(LastChatsSearchRouteUnavailableReason)
+}
+
+enum LastChatsSearchRouteFactory {
+    static func outcome(
+        for provenance: LastChatsSearchResultProvenance,
+        activeGeneration: UInt64
+    ) -> LastChatsSearchRouteOutcome {
+        guard provenance.queryGeneration == activeGeneration else {
+            return .unavailable(.staleGeneration)
         }
 
-        return ChatOpenMessageRequest(
-            chatJid: item.jid,
+        switch provenance.targetKind {
+        case .latest:
+            return .latest(provenance.conversation)
+        case .message:
+            guard provenance.hasMessageIdentity else {
+                return .unavailable(.missingMessageIdentity)
+            }
+            return .message(
+                ChatOpenMessageRequest(
+                    chatJid: provenance.conversation.jid,
+                    owner: provenance.conversation.owner,
+                    conversationType: provenance.conversation.conversationType,
+                    anchor: ChatMessageAnchorRef(
+                        messagePrimary: provenance.messagePrimary,
+                        archivedId: provenance.archivedId,
+                        messageId: provenance.messageId,
+                        authorId: provenance.authorId,
+                        bodyFingerprint: provenance.bodyFingerprint,
+                        sourceDate: provenance.sourceDate
+                    ),
+                    highlight: true,
+                    markReadOnVisible: false,
+                    source: .search
+                )
+            )
+        }
+    }
+}
+
+struct LastChatsSearchUnavailablePresentation: Equatable {
+    let reason: LastChatsSearchRouteUnavailableReason
+    let title: String
+    let message: String
+    let accessibilityIdentifier: String
+
+    static func make(reason: LastChatsSearchRouteUnavailableReason) -> LastChatsSearchUnavailablePresentation {
+        let message: String
+        switch reason {
+        case .staleGeneration:
+            message = "Search results have changed. Please select the message again."
+                .localizeString(id: "chat_search_result_stale_message", arguments: [])
+        case .missingMessageIdentity:
+            message = "This search result does not contain enough information to open its message."
+                .localizeString(id: "chat_search_result_missing_identity_message", arguments: [])
+        case .targetNotFound:
+            message = "The message is no longer available."
+                .localizeString(id: "chat_search_result_not_found_message", arguments: [])
+        case .ambiguousMessageID, .ambiguousFingerprintDate:
+            message = "Several messages match this result, so none was opened."
+                .localizeString(id: "chat_search_result_ambiguous_message", arguments: [])
+        case .fallbackCandidateLimitExceeded:
+            message = "The message could not be identified within the bounded search window."
+                .localizeString(id: "chat_search_result_bounded_window_message", arguments: [])
+        }
+        return LastChatsSearchUnavailablePresentation(
+            reason: reason,
+            title: "Message unavailable"
+                .localizeString(id: "chat_search_result_unavailable_title", arguments: []),
+            message: message,
+            accessibilityIdentifier: "chat_search_result_unavailable"
+        )
+    }
+}
+
+enum SearchResultOpenRequestFactory {
+    static func outcome(
+        for item: SearchResultsViewController.Datasource,
+        activeGeneration: UInt64? = nil
+    ) -> LastChatsSearchRouteOutcome {
+        guard let provenance = item.searchProvenance else {
+            let legacy = legacyProvenance(for: item)
+            return LastChatsSearchRouteFactory.outcome(
+                for: legacy,
+                activeGeneration: legacy.queryGeneration
+            )
+        }
+        return LastChatsSearchRouteFactory.outcome(
+            for: provenance,
+            activeGeneration: activeGeneration ?? provenance.queryGeneration
+        )
+    }
+
+    static func request(for item: SearchResultsViewController.Datasource) -> ChatOpenMessageRequest? {
+        guard case .message(let request) = outcome(for: item) else { return nil }
+        return request
+    }
+
+    private static func legacyProvenance(
+        for item: SearchResultsViewController.Datasource
+    ) -> LastChatsSearchResultProvenance {
+        let conversation = LastChatsSearchConversation(
             owner: item.owner,
-            conversationType: item.conversationType,
-            anchor: ChatMessageAnchorRef(
-                messagePrimary: nil,
-                archivedId: archivedId,
-                messageId: nil,
-                authorId: nil,
-                bodyFingerprint: nil,
-                sourceDate: item.date ?? Date()
-            ),
-            highlight: true,
-            markReadOnVisible: true,
-            source: .search
+            jid: item.jid,
+            conversationTypeRawValue: item.conversationType.rawValue
+        )
+        guard item.messageArchiveId?.isNotEmpty == true else {
+            return .latest(
+                conversation: conversation,
+                provider: .localDirectory,
+                queryGeneration: 0
+            )
+        }
+        return LastChatsSearchResultProvenance(
+            targetKind: .message,
+            conversation: conversation,
+            messagePrimary: nil,
+            archivedId: item.messageArchiveId,
+            messageId: nil,
+            authorId: nil,
+            sourceDate: item.date,
+            bodyFingerprint: nil,
+            provider: .localMessages,
+            queryGeneration: 0
         )
     }
 }
@@ -932,30 +1039,45 @@ enum InPlaceSearchResultRouteHelper {
         updater: ChatSearchResultsController,
         dismissSearch: @escaping () -> Void,
         reload: @escaping () -> Void,
+        onUnavailable: @escaping (LastChatsSearchUnavailablePresentation) -> Void = { _ in },
         openNewChat: OpenNewChat
     ) {
+        let outcome = SearchResultOpenRequestFactory.outcome(
+            for: item,
+            activeGeneration: updater.activeQueryGeneration
+        )
         dismissSearch()
+
+        if case .unavailable(let reason) = outcome {
+            onUnavailable(.make(reason: reason))
+            return
+        }
 
         if let vc = updater.currentVc,
            vc.jid == item.jid,
            vc.owner == item.owner,
            vc.conversationType == item.conversationType {
-            showArchiveJumpIfNeeded(for: item, in: vc)
+            showMessageJumpIfNeeded(outcome, in: vc)
             return
         }
 
-        let openMessageRequest = SearchResultOpenRequestFactory.request(for: item)
+        let openMessageRequest: ChatOpenMessageRequest?
+        if case .message(let request) = outcome {
+            openMessageRequest = request
+        } else {
+            openMessageRequest = nil
+        }
         openNewChat(item, openMessageRequest) { chatVc in
             guard let chatVc else { return }
             updater.currentVc = chatVc
         }
     }
 
-    private static func showArchiveJumpIfNeeded(
-        for item: SearchResultsViewController.Datasource,
+    private static func showMessageJumpIfNeeded(
+        _ outcome: LastChatsSearchRouteOutcome,
         in chatViewController: ChatViewController
     ) {
-        guard let request = SearchResultOpenRequestFactory.request(for: item) else { return }
+        guard case .message(let request) = outcome else { return }
         chatViewController.queueOpenMessageRequest(
             request,
             hooks: ChatAnchorExecutionHooks(
@@ -984,6 +1106,9 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
     internal var sections: [Section] = []
     internal weak var currentVc: ChatViewController?
     internal var onSnapshotChanged: (() -> Void)?
+    internal var activeQueryGeneration: UInt64 {
+        pipeline.snapshot.generation
+    }
 
     private let bag = DisposeBag()
     private let searchObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
@@ -1355,7 +1480,8 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
     }
 
     internal final func replaceMessageStorageItemsForTesting(
-        _ messageItems: [MessageStorageItem]
+        _ messageItems: [MessageStorageItem],
+        provenanceByPrimary: [String: LastChatsSearchResultProvenance] = [:]
     ) throws {
         var seenMessagePrimaries: Set<String> = []
         messagesDatasource = try messageItems.compactMap { messageItem -> Datasource? in
@@ -1477,7 +1603,8 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                 hasErrorInChat: false,
                 updateTS: item.updateTS,
                 isVerificationActionRequired: false,
-                messageArchiveId: messageItem.archivedId
+                messageArchiveId: messageItem.archivedId,
+                searchProvenance: provenanceByPrimary[messageItem.primary]
             )
         }
         updateSections()
@@ -1497,6 +1624,13 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                 onSnapshotChanged?()
                 return
             }
+
+            let provenanceByStoragePrimary = Dictionary(
+                snapshot.items.compactMap { projection in
+                    projection.provenance.map { (projection.storagePrimary, $0) }
+                },
+                uniquingKeysWith: { _, newest in newest }
+            )
 
             let realm = try WRealm.safe()
             let chats = snapshot.items.compactMap { projection -> LastChatsStorageItem? in
@@ -1647,7 +1781,8 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                     hasErrorInChat: item.hasErrorInChat,
                     updateTS: item.updateTS,
                     isVerificationActionRequired: isVerificationActionRequired,
-                    messageArchiveId: nil
+                    messageArchiveId: nil,
+                    searchProvenance: provenanceByStoragePrimary[item.primary]
                 )
             }
 
@@ -1690,7 +1825,8 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                     hasErrorInChat: false,
                     updateTS: 0,
                     isVerificationActionRequired: false,
-                    messageArchiveId: nil
+                    messageArchiveId: nil,
+                    searchProvenance: provenanceByStoragePrimary[item.primary]
                 )
             })
             chatsDatasource.append(contentsOf: rosterResults.filter { !Self.isGroupSearchResult($0) })
@@ -1703,7 +1839,10 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                 )
             }
             isLoadingDone = !snapshot.isLoading
-            try replaceMessageStorageItemsForTesting(messageItems)
+            try replaceMessageStorageItemsForTesting(
+                messageItems,
+                provenanceByPrimary: provenanceByStoragePrimary
+            )
         } catch {
             DDLogDebug("ChatSearchResultsController: \(#function). \(error.localizedDescription)")
         }
@@ -1731,7 +1870,6 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
     }
 
     func didReceiveMessage(_ item: MessageStorageItem, queryId: String) {
-        let projection = LastChatsSearchLocalPageLoader.messageProjection(item)
         DispatchQueue.main.async { [weak self] in
             guard let self,
                   var context = self.remotePagesByQueryID[queryId],
@@ -1739,6 +1877,10 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
                 return
             }
             if context.items.count < context.request.limit {
+                let projection = LastChatsSearchLocalPageLoader.messageProjection(
+                    item,
+                    request: context.request
+                )
                 context.items.append(projection)
                 self.remotePagesByQueryID[queryId] = context
             }
