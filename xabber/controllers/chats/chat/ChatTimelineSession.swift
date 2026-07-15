@@ -411,13 +411,21 @@ private final class ChatTimelineLocalPagePreparationProvider: ChatTimelinePagePr
     }
 
     func searchMessage(anchor: ChatMessageAnchorRef) -> MessageStorageItem? {
+        searchMessageResolution(anchor: anchor).message
+    }
+
+    func searchMessageResolution(
+        anchor: ChatMessageAnchorRef
+    ) -> ChatTimelineSearchMessageResolution {
         if let primary = anchor.messagePrimary,
            let item = itemsByPrimary[primary] {
-            return item
+            return item.isDeleted ? .failed(.targetDeleted) : .found(item)
         }
-        guard let item = upstream.searchMessage(anchor: anchor) else { return nil }
-        itemsByPrimary[item.primary] = item
-        return item
+        let resolution = upstream.searchMessageResolution(anchor: anchor)
+        if case .found(let item) = resolution {
+            itemsByPrimary[item.primary] = item
+        }
+        return resolution
     }
 
     func items(primaryKeys: [String]) -> [MessageStorageItem] {
@@ -810,7 +818,13 @@ final class ChatTimelineSession {
     }
 
     func resolvedSearchMessage(anchor: ChatMessageAnchorRef) -> MessageStorageItem? {
-        store.searchMessage(anchor: anchor)
+        resolvedSearchMessageResolution(anchor: anchor).message
+    }
+
+    func resolvedSearchMessageResolution(
+        anchor: ChatMessageAnchorRef
+    ) -> ChatTimelineSearchMessageResolution {
+        store.searchMessageResolution(anchor: anchor)
     }
 
     func firstIncoming(afterArchiveBoundaryId boundaryArchivedId: String) -> MessageStorageItem? {
@@ -1410,8 +1424,19 @@ final class RealmChatTimelineSessionStore: ChatTimelineSessionStore {
     }
 
     func searchMessage(anchor: ChatMessageAnchorRef) -> MessageStorageItem? {
-        withProvider(default: nil) { provider in
-            provider.searchMessage(anchor: anchor).map(Self.frozen)
+        searchMessageResolution(anchor: anchor).message
+    }
+
+    func searchMessageResolution(
+        anchor: ChatMessageAnchorRef
+    ) -> ChatTimelineSearchMessageResolution {
+        withProvider(default: .failed(.targetMissing)) { provider in
+            switch provider.searchMessageResolution(anchor: anchor) {
+            case .found(let message):
+                return .found(Self.frozen(message))
+            case .failed(let failure):
+                return .failed(failure)
+            }
         }
     }
 

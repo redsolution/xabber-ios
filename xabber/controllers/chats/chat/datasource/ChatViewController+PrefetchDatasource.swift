@@ -256,6 +256,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        self.retainedMessageAnchor = nil
         self.scrollFramePlanner.invalidateFloatingDate()
     }
     

@@ -93,7 +93,8 @@ done
 CHAT_GOAL_SMOKE="$(chat_goal_smoke_selectors)"
 validate_selector_list "smoke" "$CHAT_GOAL_SMOKE"
 
-for known_red_selector in "${CHAT_GOAL_KNOWN_RED_SELECTORS[@]}"; do
+for known_red_selector in "${CHAT_GOAL_KNOWN_RED_SELECTORS[@]-}"; do
+  [[ -z "$known_red_selector" ]] && continue
   known_red_owner="$(chat_goal_known_red_owner "$known_red_selector")"
   known_red_patterns="$(chat_goal_known_red_patterns "$known_red_selector")"
   if [[ -z "$known_red_owner" || -z "$known_red_patterns" ]]; then
@@ -167,7 +168,8 @@ run_test_selectors() {
   done <<< "$selectors"
 
   if [[ "$include_known_red_skips" == true ]]; then
-    for selector in "${CHAT_GOAL_KNOWN_RED_SELECTORS[@]}"; do
+    for selector in "${CHAT_GOAL_KNOWN_RED_SELECTORS[@]-}"; do
+      [[ -z "$selector" ]] && continue
       arguments+=("-skip-testing:$selector")
     done
   fi
@@ -180,7 +182,8 @@ run_known_red_ledger() {
   temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/xabber-chat-known-red.XXXXXX")"
   local selector owner pattern log_file status
 
-  for selector in "${CHAT_GOAL_KNOWN_RED_SELECTORS[@]}"; do
+  for selector in "${CHAT_GOAL_KNOWN_RED_SELECTORS[@]-}"; do
+    [[ -z "$selector" ]] && continue
     owner="$(chat_goal_known_red_owner "$selector")"
     log_file="$temporary_directory/known-red.log"
     echo "  known-red: $selector (owner/sunset $owner)"
@@ -216,7 +219,7 @@ run_known_red_ledger() {
 
 case "$phase" in
   preflight)
-    print_selectors "known-red selectors" "$(printf '%s\n' "${CHAT_GOAL_KNOWN_RED_SELECTORS[@]}")"
+    print_selectors "known-red selectors" "$(printf '%s\n' "${CHAT_GOAL_KNOWN_RED_SELECTORS[@]-}")"
     run_known_red_ledger
     selectors="$(chat_goal_preflight_selectors "$task_id")"
     print_selectors "green selectors" "$selectors"
@@ -229,7 +232,7 @@ case "$phase" in
     ;;
   smoke)
     print_selectors "selectors" "$CHAT_GOAL_SMOKE"
-    print_selectors "exact skips" "$(printf '%s\n' "${CHAT_GOAL_KNOWN_RED_SELECTORS[@]}")"
+    print_selectors "exact skips" "$(printf '%s\n' "${CHAT_GOAL_KNOWN_RED_SELECTORS[@]-}")"
     run_test_selectors "$CHAT_GOAL_SMOKE" true
     ;;
   build)

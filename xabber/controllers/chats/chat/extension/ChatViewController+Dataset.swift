@@ -2070,6 +2070,7 @@ protocol ChatTimelinePageProviding {
     func around(anchor: MessageStorageItem, before: Int, after: Int) -> [MessageStorageItem]
     func message(primary: String?, archivedId: String?, messageId: String?) -> MessageStorageItem?
     func searchMessage(anchor: ChatMessageAnchorRef) -> MessageStorageItem?
+    func searchMessageResolution(anchor: ChatMessageAnchorRef) -> ChatTimelineSearchMessageResolution
     func items(primaryKeys: [String]) -> [MessageStorageItem]
 }
 
@@ -2080,6 +2081,13 @@ extension ChatTimelinePageProviding {
             archivedId: anchor.archivedId,
             messageId: anchor.messageId
         )
+    }
+
+    func searchMessageResolution(
+        anchor: ChatMessageAnchorRef
+    ) -> ChatTimelineSearchMessageResolution {
+        searchMessage(anchor: anchor).map(ChatTimelineSearchMessageResolution.found)
+            ?? .failed(.targetMissing)
     }
 }
 
@@ -2381,25 +2389,34 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
     }
 
     func searchMessage(anchor: ChatMessageAnchorRef) -> MessageStorageItem? {
-        guard !isCancelled() else { return nil }
+        searchMessageResolution(anchor: anchor).message
+    }
+
+    func searchMessageResolution(
+        anchor: ChatMessageAnchorRef
+    ) -> ChatTimelineSearchMessageResolution {
+        guard !isCancelled() else { return .failed(.superseded) }
 
         if let primary = anchor.messagePrimary,
            primary.isNotEmpty,
            let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
            item.owner == owner,
            item.opponent == jid,
-           item.conversationType == conversationType,
-           !item.isDeleted {
+           item.conversationType == conversationType {
             diagnostics?.record(operation: "search-primary", candidateCount: 1)
-            return item
+            return item.isDeleted ? .failed(.targetDeleted) : .found(item)
         }
 
         let scoped = baseQuery()
+        var deferredFailure: ChatAnchorTransactionFailure?
         if let archivedId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(anchor.archivedId) {
             let candidates = Array(scoped.filter("archivedId == %@", archivedId).prefix(2))
             diagnostics?.record(operation: "search-archive", candidateCount: candidates.count)
             if candidates.count == 1 {
-                return candidates[0]
+                return .found(candidates[0])
+            }
+            if candidates.count > 1 {
+                deferredFailure = .ambiguous(candidateCount: candidates.count)
             }
         }
 
@@ -2417,19 +2434,24 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
             diagnostics?.record(operation: "search-message-id", candidateCount: materialized.count)
             if anchor.authorId?.isNotEmpty == true,
                materialized.count > LastChatsSearchLocalResolver.defaultFallbackCandidateLimit {
-                return nil
+                return .failed(.candidateLimitExceeded(
+                    limit: LastChatsSearchLocalResolver.defaultFallbackCandidateLimit
+                ))
             }
             let candidates = materialized.filter {
                 anchor.authorId?.isNotEmpty != true || $0.groupchatAuthorId == anchor.authorId
             }
             if candidates.count == 1 {
-                return candidates[0]
+                return .found(candidates[0])
+            }
+            if candidates.count > 1 {
+                deferredFailure = .ambiguous(candidateCount: candidates.count)
             }
         }
 
         guard let sourceDate = anchor.sourceDate,
               let fingerprint = LastChatsSearchFingerprint.normalize(anchor.bodyFingerprint) else {
-            return nil
+            return .failed(deferredFailure ?? .targetMissing)
         }
         let fallbackLimit = LastChatsSearchLocalResolver.defaultFallbackCandidateLimit
         let candidates = Array(
@@ -2443,12 +2465,20 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
                 .prefix(fallbackLimit + 1)
         )
         diagnostics?.record(operation: "search-fingerprint-date", candidateCount: candidates.count)
-        guard candidates.count <= fallbackLimit else { return nil }
+        guard candidates.count <= fallbackLimit else {
+            return .failed(.candidateLimitExceeded(limit: fallbackLimit))
+        }
         let matches = candidates.filter {
             (anchor.authorId?.isNotEmpty != true || $0.groupchatAuthorId == anchor.authorId)
                 && LastChatsSearchFingerprint.normalize($0.displayedBody()) == fingerprint
         }
-        return matches.count == 1 ? matches[0] : nil
+        if matches.count == 1, let match = matches.first {
+            return .found(match)
+        }
+        if matches.count > 1 {
+            return .failed(.ambiguous(candidateCount: matches.count))
+        }
+        return .failed(deferredFailure ?? .targetMissing)
     }
 
     func firstIncoming(afterArchiveBoundaryId boundaryArchivedId: String) -> MessageStorageItem? {
@@ -8076,9 +8106,36 @@ extension ChatViewController {
         let containsRealMessages = items.contains { !$0.isFakeMessage }
         let wasNearBottom = self.isNearBottom()
         let isResidentAtLiveTail = self.virtualTimelineState.isResidentAtLiveTail
-        let effectiveAnchorPrimary = anchorPrimary ?? restoreAnchor?.primary
-        let shouldRestoreAnchor = anchorRestorePhase != .none && restoreAnchor != nil
-        let shouldRestoreAnchorInApplyTransaction = anchorRestorePhase == .applyTransaction && restoreAnchor != nil
+        var retainedRestoreAnchor: ChatHistoryPageAnchor?
+        if restoreAnchor == nil,
+           let retainedAnchor = self.retainedMessageAnchor,
+           let nextItem = items.first(where: { $0.primary == retainedAnchor.primary }) {
+            switch ChatRetainedMessageAnchorPolicy.resolve(
+                anchor: retainedAnchor,
+                nextPrimary: nextItem.primary,
+                nextArchivedId: nextItem.archivedId,
+                nextDisplayRevision: self.anchorDisplayRevision(for: nextItem),
+                isUserInteracting: self.messagesCollectionView.isTracking ||
+                    self.messagesCollectionView.isDragging ||
+                    self.messagesCollectionView.isDecelerating
+            ) {
+            case .retain(let nextAnchor):
+                self.retainedMessageAnchor = nextAnchor
+                retainedRestoreAnchor = ChatHistoryPageAnchor(
+                    primary: nextAnchor.primary,
+                    viewportRelativeMinY: nextAnchor.viewportRelativeMinY
+                )
+            case .drop:
+                self.retainedMessageAnchor = nil
+            }
+        }
+        let effectiveRestoreAnchor = restoreAnchor ?? retainedRestoreAnchor
+        let effectiveAnchorRestorePhase: ChatHistoryPageAnchorRestorePhase = retainedRestoreAnchor == nil
+            ? anchorRestorePhase
+            : .applyTransaction
+        let effectiveAnchorPrimary = anchorPrimary ?? effectiveRestoreAnchor?.primary
+        let shouldRestoreAnchor = effectiveAnchorRestorePhase != .none && effectiveRestoreAnchor != nil
+        let shouldRestoreAnchorInApplyTransaction = effectiveAnchorRestorePhase == .applyTransaction && effectiveRestoreAnchor != nil
         let isDefaultBottomScrollDeferred = ChatInitialScrollPolicy.shouldDeferDefaultScroll(
             hasPendingAnchorRequest: self.pendingOpenMessageRequest != nil,
             isAnchorNavigationInFlight: self.isMessageAnchorNavigationInFlight
@@ -8139,7 +8196,7 @@ extension ChatViewController {
         } else {
             outgoingRequestsScroll = false
         }
-        let hasExplicitAnchor = shouldRestoreAnchorInApplyTransaction && restoreAnchor != nil
+        let hasExplicitAnchor = shouldRestoreAnchorInApplyTransaction && effectiveRestoreAnchor != nil
         let needsAutomaticAnchor = !hasExplicitAnchor &&
             forceBottomAlignmentTarget == nil &&
             !shouldTailAppendBottomPin &&
@@ -8149,7 +8206,7 @@ extension ChatViewController {
         let automaticAnchor = needsAutomaticAnchor
             ? self.capturePagingAnchorIfNeeded(direction: .older)
             : nil
-        let effectiveViewportAnchor = hasExplicitAnchor ? restoreAnchor : automaticAnchor
+        let effectiveViewportAnchor = hasExplicitAnchor ? effectiveRestoreAnchor : automaticAnchor
         let anchorStrategy: ChatViewportAnchorStrategy
         if let effectiveViewportAnchor {
             anchorStrategy = .message(effectiveViewportAnchor)
@@ -9266,7 +9323,6 @@ extension ChatViewController {
         self.resetInitialBootstrapTracking()
         DDLogDebug("ChatViewController.initialBootstrap finished queryId=\(queryId ?? "-") persisted=\(persistedMessageCount) persistedRowsForQuery=\(persistedRowsForQuery) visibleRows=\(visibleRowsForLatestPage) localCount=\(localMessageCount)")
         self.applyBootstrapLoadingState(self.currentBootstrapLoadingState(), forceRender: true)
-        self.flushPendingArchiveObserverRefreshIfPossible(reason: "initialBootstrapComplete")
         return true
     }
 
@@ -9407,7 +9463,6 @@ extension ChatViewController {
         self.initialBootstrapPersistedRowsForQuery = persistedRowsForQuery
         self.initialBootstrapVisibleRowsForConversation = visibleRowsForConversation
         _ = self.completeInitialBootstrapIfNeeded()
-        self.flushPendingArchiveObserverRefreshIfPossible(reason: "initialBootstrapEndPage")
         return true
     }
 
@@ -10074,6 +10129,9 @@ extension ChatViewController {
         mode: ChatDatasourceApplyMode,
         animated: Bool = true,
         invalidateLayout: Bool = false,
+        centerTargetInViewport: Bool = false,
+        shouldApply: (() -> Bool)? = nil,
+        transactionCompletion: ((ChatViewportTransactionResult) -> Void)? = nil,
         completion: (() -> Void)? = nil,
         cancelledCompletion: (() -> Void)? = nil
     ) {
@@ -10110,7 +10168,8 @@ extension ChatViewController {
                       ChatDatasourceApplyGenerationPolicy.shouldApply(
                     requestGeneration: generation,
                     currentGeneration: self.datasetMappingGeneration
-                ) else {
+                ),
+                      shouldApply?() != false else {
                     cancelledCompletion?()
                     return
                 }
@@ -10126,12 +10185,31 @@ extension ChatViewController {
                 self.invalidateEditedMessageLayoutCache(
                     primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
                 )
+                let targetHeight = anchor.primary.flatMap {
+                    mappingResult.layoutSnapshot.layout(forPrimary: $0)?.cellSize.height
+                } ?? 0
+                let centeredAnchor = centerTargetInViewport
+                    ? anchor.primary.map { targetPrimary in
+                        ChatHistoryPageAnchor(
+                        primary: targetPrimary,
+                        viewportRelativeMinY: ChatAnchorCenteringPolicy.viewportRelativeMinY(
+                            viewportHeight: self.messagesCollectionView.bounds.height,
+                            targetHeight: targetHeight
+                        )
+                    )
+                    }
+                    : nil
                 self.applyChatDatasource(
                     mappedDatasource,
                     mode: mode,
                     animated: animated,
                     invalidateLayout: invalidateLayout,
                     preparedLayouts: mappingResult.layoutSnapshot,
+                    suppressDefaultBottomScroll: centerTargetInViewport,
+                    anchorRestorePhase: centeredAnchor == nil ? .none : .applyTransaction,
+                    anchorPrimary: centeredAnchor?.primary,
+                    restoreAnchor: centeredAnchor,
+                    transactionCompletion: transactionCompletion,
                     completion: completion
                 )
             }
@@ -10934,6 +11012,8 @@ extension ChatViewController {
             if let request = descriptor.request {
                 self.beginPreparedLocalFirstFrameAnchor(request: request)
             }
+            let targetHeight = mappingResult.layoutSnapshot
+                .layout(forPrimary: primary)?.cellSize.height ?? 0
             self.applyChatDatasource(
                 mappingResult.datasource,
                 mode: .fullReload(),
@@ -10946,7 +11026,10 @@ extension ChatViewController {
                 anchorPrimary: primary,
                 restoreAnchor: ChatHistoryPageAnchor(
                     primary: primary,
-                    viewportRelativeMinY: 0
+                    viewportRelativeMinY: ChatAnchorCenteringPolicy.viewportRelativeMinY(
+                        viewportHeight: self.messagesCollectionView.bounds.height,
+                        targetHeight: targetHeight
+                    )
                 ),
                 completion: completion
             )
@@ -10970,6 +11053,18 @@ extension ChatViewController {
         completions.forEach { $0() }
         if shouldPerformPendingRequest {
             self.performPendingOpenMessageRequestIfNeeded()
+        }
+        if self.pendingArchiveObserverRefresh {
+            let displayedNewestPrimary = self.datasource.last(where: { !$0.isFakeMessage })?.primary
+            let residentNewestPrimary = self.timelineSession?.snapshot.items.last?.primary
+            if displayedNewestPrimary != nil,
+               displayedNewestPrimary == residentNewestPrimary {
+                self.cancelPendingArchiveObserverRefresh(reason: "initialFirstFrameAlreadyCurrent")
+            } else {
+                _ = self.flushPendingArchiveObserverRefreshIfPossible(
+                    reason: "initialFirstFrameCommitted"
+                )
+            }
         }
     }
 
@@ -12353,6 +12448,12 @@ extension ChatViewController {
             guard let self else {
                 return
             }
+            if self.handleAnchorRemoteFailureIfNeeded(
+                queryId: event.queryId,
+                reason: event.reason
+            ) {
+                return
+            }
             if self.handleInChatSearchQueryFailure(queryId: event.queryId) {
                 return
             }
@@ -13699,41 +13800,22 @@ extension ChatViewController {
                     consumePendingForceLatest: self.pendingForceLatestOpen
                 )
             }
-            if normalizedState.isResidentAtLiveTail {
-                self.mapAndApplyTimelineCurrent(
-                    mode: .targetedDiff,
-                    animated: false,
-                    invalidateLayout: false,
-                    suppressDefaultBottomScroll: true,
-                    completion: applyCompletion
-                )
-            } else {
-                self.mapAndApplyTimelineLatest(
-                    mode: .targetedDiff,
-                    animated: false,
-                    invalidateLayout: false,
-                    limit: self.initialFirstFramePageSize,
-                    suppressDefaultBottomScroll: true,
-                    forceBottomAlignmentTarget: .newestRealMessage,
-                    completion: applyCompletion
-                )
-            }
+            self.mapAndApplyTimelineLatest(
+                mode: .targetedDiff,
+                animated: false,
+                invalidateLayout: false,
+                limit: self.initialFirstFramePageSize,
+                suppressDefaultBottomScroll: true,
+                forceBottomAlignmentTarget: .newestRealMessage,
+                completion: applyCompletion
+            )
         case .followDefault where shouldOpenLatest:
-            if normalizedState.isResidentAtLiveTail {
-                self.mapAndApplyTimelineCurrent(
-                    mode: .targetedDiff,
-                    animated: self.shouldAnimateInitialHistoryAppearance,
-                    invalidateLayout: false,
-                    completion: completion
-                )
-            } else {
-                self.mapAndApplyTimelineLatest(
-                    mode: .targetedDiff,
-                    animated: self.shouldAnimateInitialHistoryAppearance,
-                    invalidateLayout: false,
-                    completion: completion
-                )
-            }
+            self.mapAndApplyTimelineLatest(
+                mode: .targetedDiff,
+                animated: self.shouldAnimateInitialHistoryAppearance,
+                invalidateLayout: false,
+                completion: completion
+            )
         case .followDefault:
             self.mapAndApplyTimelineCurrent(
                 mode: .targetedDiff,

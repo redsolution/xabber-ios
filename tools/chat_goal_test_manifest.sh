@@ -212,10 +212,13 @@ xabberTests/InfoCardChatSearchRoutingTests
 SELECTORS
       ;;
     G18) cat <<'SELECTORS'
+xabberTests/ChatAnchorTransactionTests
 xabberTests/ChatMessageAnchorPolicyTests
+xabberTests/ChatFirstFrameLocalHistoryRegressionTests
 xabberTests/ChatSearchSessionStateTests
 xabberTests/ChatSearchResultNavigationStateTests
 xabberTests/MessageArchiveQueryCallbackTests
+xabberTests/LastChatsSearchProvenanceRouteTests
 SELECTORS
       ;;
     G19) cat <<'SELECTORS'
@@ -314,32 +317,16 @@ xabberTests/LastChatsViewControllerBehaviorTests
 SELECTORS
 }
 
-CHAT_GOAL_KNOWN_RED_SELECTORS=(
-  'xabberTests/ChatMessageAnchorPolicyTests/testContextWaitingSearchRequestDoesNotCallPositioningStarted'
-  'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testObserverRefreshWithNewNewestUpdatesLatestWindowWithoutLeavingBottom'
-  'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testPendingObserverRefreshAfterUnsyncedBootstrapRevealDoesNotLeaveNewest'
-)
+CHAT_GOAL_KNOWN_RED_SELECTORS=()
 
 chat_goal_known_red_owner() {
   case "$1" in
-    'xabberTests/ChatMessageAnchorPolicyTests/testContextWaitingSearchRequestDoesNotCallPositioningStarted') echo G18 ;;
-    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testObserverRefreshWithNewNewestUpdatesLatestWindowWithoutLeavingBottom') echo G18 ;;
-    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testPendingObserverRefreshAfterUnsyncedBootstrapRevealDoesNotLeaveNewest') echo G18 ;;
     *) return 64 ;;
   esac
 }
 
 chat_goal_known_red_patterns() {
   case "$1" in
-    'xabberTests/ChatMessageAnchorPolicyTests/testContextWaitingSearchRequestDoesNotCallPositioningStarted')
-      printf '%s\n' 'XCTAssertEqual failed' started positioned
-      ;;
-    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testObserverRefreshWithNewNewestUpdatesLatestWindowWithoutLeavingBottom')
-      echo 'first-frame-message-319'
-      ;;
-    'xabberTests/ChatFirstFrameLocalHistoryRegressionTests/testPendingObserverRefreshAfterUnsyncedBootstrapRevealDoesNotLeaveNewest')
-      printf '%s\n' 'XCTAssertFalse failed' 'first-frame-message-320'
-      ;;
     *) return 64 ;;
   esac
 }

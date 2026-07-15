@@ -320,17 +320,21 @@ final class LastChatsSearchProvenanceRouteTests: XCTestCase {
         )
         XCTAssertEqual(primaryFirst?.primary, primaryTarget.primary)
 
-        let ambiguous = provider.searchMessage(
-            anchor: ChatMessageAnchorRef(
-                messagePrimary: nil,
-                archivedId: nil,
-                messageId: "duplicate-message-id",
-                authorId: nil,
-                bodyFingerprint: nil,
-                sourceDate: nil
-            )
+        let ambiguousAnchor = ChatMessageAnchorRef(
+            messagePrimary: nil,
+            archivedId: nil,
+            messageId: "duplicate-message-id",
+            authorId: nil,
+            bodyFingerprint: nil,
+            sourceDate: nil
         )
+        let ambiguous = provider.searchMessage(anchor: ambiguousAnchor)
         XCTAssertNil(ambiguous)
+        guard case .failed(.ambiguous(candidateCount: 2)) = provider.searchMessageResolution(
+            anchor: ambiguousAnchor
+        ) else {
+            return XCTFail("duplicate message IDs must preserve typed ambiguity")
+        }
         XCTAssertLessThanOrEqual(diagnostics.maxCandidateCount, 2)
         XCTAssertEqual(diagnostics.fullScanCount, 0)
     }

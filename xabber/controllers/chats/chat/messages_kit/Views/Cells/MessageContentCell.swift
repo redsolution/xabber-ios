@@ -173,6 +173,7 @@ public class MessageContentCell: MessageCollectionViewCell {
 
     public override func prepareForReuse() {
         super.prepareForReuse()
+        ChatAnchorHighlightOverlay.remove(from: self)
         cellTopLabel.text = nil
         messageTopLabel.text = nil
         messageBottomLabel.text = nil

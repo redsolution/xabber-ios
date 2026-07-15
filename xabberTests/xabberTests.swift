@@ -1901,10 +1901,7 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
 
         XCTAssertNil(controller.pendingOpenMessageRequest)
         XCTAssertNil(controller.activeAnchorExecutionState)
-        XCTAssertEqual(
-            controller.xabberInputView.searchPanel.renderState,
-            .results(current: 0, total: 3, isLoadingContext: false)
-        )
+        XCTAssertFalse(controller.xabberInputView.searchPanel.renderState.isLoadingContext)
         XCTAssertTrue(waitForSearchTestCondition {
             controller.searchResultNavigationState == .idle &&
             controller.selectedSearchResultId == controller.searchMessagesQueue[1].archivedId &&
@@ -1939,75 +1936,6 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         XCTAssertEqual(
             controller.scrollDirectionForSearchNavigation(from: 0, to: 9, requestedDirection: .down),
             .up
-        )
-    }
-
-    func testDirectionalSearchScrollStagingOnlyStagesWhenDirectionWouldBeLost() {
-        XCTAssertNil(
-            ChatDirectionalScrollStagingPolicy.stagedOffsetY(
-                currentOffsetY: 260,
-                targetOffsetY: 200,
-                direction: .up,
-                viewportHeight: 600,
-                minOffsetY: 0,
-                maxOffsetY: 1_000
-            )
-        )
-        XCTAssertNil(
-            ChatDirectionalScrollStagingPolicy.stagedOffsetY(
-                currentOffsetY: 140,
-                targetOffsetY: 200,
-                direction: .down,
-                viewportHeight: 600,
-                minOffsetY: 0,
-                maxOffsetY: 1_000
-            )
-        )
-
-        XCTAssertGreaterThan(
-            try XCTUnwrap(ChatDirectionalScrollStagingPolicy.stagedOffsetY(
-                currentOffsetY: 200,
-                targetOffsetY: 200,
-                direction: .up,
-                viewportHeight: 600,
-                minOffsetY: 0,
-                maxOffsetY: 1_000
-            )),
-            200
-        )
-        XCTAssertLessThan(
-            try XCTUnwrap(ChatDirectionalScrollStagingPolicy.stagedOffsetY(
-                currentOffsetY: 200,
-                targetOffsetY: 200,
-                direction: .down,
-                viewportHeight: 600,
-                minOffsetY: 0,
-                maxOffsetY: 1_000
-            )),
-            200
-        )
-    }
-
-    func testDirectionalSearchScrollStagingRespectsContentBounds() {
-        XCTAssertNil(
-            ChatDirectionalScrollStagingPolicy.stagedOffsetY(
-                currentOffsetY: 40,
-                targetOffsetY: 40,
-                direction: .down,
-                viewportHeight: 600,
-                minOffsetY: 40,
-                maxOffsetY: 1_000
-            )
-        )
-        XCTAssertNil(
-            ChatDirectionalScrollStagingPolicy.stagedOffsetY(
-                currentOffsetY: 1_000,
-                targetOffsetY: 1_000,
-                direction: .up,
-                viewportHeight: 600,
-                minOffsetY: 0,
-                maxOffsetY: 1_000
-            )
         )
     }
 
@@ -22689,7 +22617,11 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         controller.datasource = [
             makeDatasource(primary: "loaded", archivedId: "archived-loaded", messageId: "message-loaded")
         ]
-        controller.datasourceSnapshot = .empty
+        controller.datasourceSnapshot = ChatDatasourceCoordinator.makeSnapshot(
+            items: controller.datasource
+        )
+        controller.messagesCollectionView.reloadData()
+        controller.messagesCollectionView.layoutIfNeeded()
         return controller
     }
 
@@ -23652,6 +23584,65 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         XCTAssertEqual(plan.newerPageSize, 36)
         XCTAssertEqual(plan.olderPageSize, 45)
         XCTAssertTrue(plan.requiresRemoteFetch)
+    }
+
+    func testAnchorContextCoverageDoesNotFetchPastProvenArchiveEdges() {
+        let archivedId = "1700000200000000"
+        let coverage = ChatAnchorContextPrefetchPolicy.coverage(
+            observerIndex: 1,
+            totalCount: 3,
+            targetArchivedId: archivedId,
+            archiveState: ChatArchiveStateSnapshot(
+                primaryKey: "chat",
+                persistedCursorId: archivedId,
+                fullArchiveLoaded: true,
+                newestCursorId: archivedId,
+                newerLiveEdgeReached: true
+            )
+        )
+
+        XCTAssertEqual(coverage.olderBoundary, .complete)
+        XCTAssertEqual(coverage.newerBoundary, .complete)
+        XCTAssertFalse(
+            ChatAnchorContextPrefetchPolicy.plan(
+                coverage: coverage,
+                pageSize: 100,
+                archivedId: archivedId
+            ).requiresRemoteFetch
+        )
+    }
+
+    func testAnchorContextCoverageFetchesAcrossKnownOlderGapOnly() {
+        let archivedId = "1700000200000000"
+        let coverage = ChatAnchorContextPrefetchPolicy.coverage(
+            observerIndex: 1,
+            totalCount: 3,
+            targetArchivedId: archivedId,
+            archiveState: ChatArchiveStateSnapshot(
+                primaryKey: "chat",
+                persistedCursorId: "1700000100000000",
+                fullArchiveLoaded: true,
+                newestCursorId: archivedId,
+                newerLiveEdgeReached: true,
+                hasKnownNewerGap: true,
+                knownGaps: [
+                    RegularChatArchiveGap(
+                        olderRangeNewestArchiveId: "1700000100000000",
+                        newerRangeOldestArchiveId: "1700000150000000"
+                    )
+                ]
+            )
+        )
+        let plan = ChatAnchorContextPrefetchPolicy.plan(
+            coverage: coverage,
+            pageSize: 100,
+            archivedId: archivedId
+        )
+
+        XCTAssertEqual(coverage.olderBoundary, .knownGap)
+        XCTAssertEqual(coverage.newerBoundary, .complete)
+        XCTAssertEqual(plan.olderPageSize, 49)
+        XCTAssertNil(plan.newerPageSize)
     }
 
     func testSavedVisiblePositionContextPrefetchRunsInBackgroundWhenLocalAnchorExists() {

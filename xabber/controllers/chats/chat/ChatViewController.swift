@@ -1893,6 +1893,10 @@ class ChatViewController: MessagesViewController {
     internal var didRunNavigationDisappearanceCleanup: Bool = false
     var activeAnchorExecutionState: ChatAnchorExecutionState? = nil
     var activeAnchorExecutionHooks: ChatAnchorExecutionHooks? = nil
+    internal let anchorTransactionGate = ChatAnchorTransactionGate()
+    internal var anchorTransactionTokenByQueryId: [String: ChatAnchorTransactionToken] = [:]
+    internal var anchorTransactionTimeoutWorkItems: [String: DispatchWorkItem] = [:]
+    internal var retainedMessageAnchor: ChatRetainedMessageAnchor? = nil
     var isExecutingOpenMessageRequest: Bool = false
     var isMessageAnchorNavigationInFlight: Bool = false
     var searchAnchorNavigationWasScrollEnabled: Bool? = nil
@@ -4307,6 +4311,8 @@ class ChatViewController: MessagesViewController {
     final func configureDataset() {
         self.timelineSession?.cancelInitialFramePreparations()
         self.timelineSession?.cancelLocalPagePreparations()
+        self.cancelActiveAnchorExecutionForLifecycle()
+        self.retainedMessageAnchor = nil
         self.clearPendingLocalHistoryPagingPreparation()
         self.initialLocalFirstFramePhase = .idle
         self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)

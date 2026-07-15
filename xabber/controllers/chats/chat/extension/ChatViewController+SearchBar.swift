@@ -129,6 +129,19 @@ enum ChatAnchorContextPrefetchModePolicy {
     }
 }
 
+enum ChatAnchorContextCoverageBoundary: Equatable {
+    case complete
+    case knownGap
+    case unknown
+}
+
+struct ChatAnchorContextCoverage: Equatable {
+    let olderLocalCount: Int
+    let newerLocalCount: Int
+    let olderBoundary: ChatAnchorContextCoverageBoundary
+    let newerBoundary: ChatAnchorContextCoverageBoundary
+}
+
 enum ChatAnchorContextPrefetchPolicy {
     static func plan(
         observerIndex: Int,
@@ -136,25 +149,77 @@ enum ChatAnchorContextPrefetchPolicy {
         pageSize: Int,
         archivedId: String?
     ) -> ChatAnchorContextPrefetchPlan {
+        plan(
+            coverage: ChatAnchorContextCoverage(
+                olderLocalCount: max(0, observerIndex),
+                newerLocalCount: max(0, totalCount - observerIndex - 1),
+                olderBoundary: .unknown,
+                newerBoundary: .unknown
+            ),
+            pageSize: pageSize,
+            archivedId: archivedId
+        )
+    }
+
+    static func plan(
+        coverage: ChatAnchorContextCoverage,
+        pageSize: Int,
+        archivedId: String?
+    ) -> ChatAnchorContextPrefetchPlan {
         guard let archivedId,
-              archivedId.isNotEmpty,
-              totalCount > 0 else {
+              archivedId.isNotEmpty else {
             return ChatAnchorContextPrefetchPlan(newerPageSize: nil, olderPageSize: nil)
         }
 
         let targetContextPerSide = max(1, pageSize / 2)
-        let olderLocalCount = max(0, observerIndex)
-        let newerLocalCount = max(0, totalCount - observerIndex - 1)
-        let newerDeficit = newerLocalCount < targetContextPerSide
-            ? min(targetContextPerSide - newerLocalCount, targetContextPerSide)
+        let newerDeficit = coverage.newerLocalCount < targetContextPerSide &&
+            coverage.newerBoundary != .complete
+            ? min(targetContextPerSide - coverage.newerLocalCount, targetContextPerSide)
             : 0
-        let olderDeficit = olderLocalCount < targetContextPerSide
-            ? min(targetContextPerSide - olderLocalCount, targetContextPerSide)
+        let olderDeficit = coverage.olderLocalCount < targetContextPerSide &&
+            coverage.olderBoundary != .complete
+            ? min(targetContextPerSide - coverage.olderLocalCount, targetContextPerSide)
             : 0
 
         return ChatAnchorContextPrefetchPlan(
             newerPageSize: newerDeficit > 0 ? newerDeficit : nil,
             olderPageSize: olderDeficit > 0 ? olderDeficit : nil
+        )
+    }
+
+    static func coverage(
+        observerIndex: Int,
+        totalCount: Int,
+        targetArchivedId: String,
+        archiveState: ChatArchiveStateSnapshot
+    ) -> ChatAnchorContextCoverage {
+        let targetDate = ChatInitialPositionPolicy.archiveDate(from: targetArchivedId)
+        let hasKnownOlderGap = targetDate.map { targetDate in
+            archiveState.knownGaps.contains { gap in
+                guard let newerEdge = ChatInitialPositionPolicy.archiveDate(
+                    from: gap.newerRangeOldestArchiveId
+                ) else { return false }
+                return newerEdge <= targetDate
+            }
+        } ?? false
+        let hasKnownNewerGap = targetDate.map { targetDate in
+            archiveState.knownGaps.contains { gap in
+                guard let olderEdge = ChatInitialPositionPolicy.archiveDate(
+                    from: gap.olderRangeNewestArchiveId
+                ) else { return false }
+                return olderEdge >= targetDate
+            }
+        } ?? archiveState.hasKnownNewerGap
+
+        return ChatAnchorContextCoverage(
+            olderLocalCount: max(0, observerIndex),
+            newerLocalCount: max(0, totalCount - observerIndex - 1),
+            olderBoundary: hasKnownOlderGap
+                ? .knownGap
+                : (archiveState.fullArchiveLoaded ? .complete : .unknown),
+            newerBoundary: hasKnownNewerGap
+                ? .knownGap
+                : (archiveState.newerLiveEdgeReached ? .complete : .unknown)
         )
     }
 
@@ -703,6 +768,7 @@ enum ChatAnchorFailureRecoveryPolicy {
 
 struct ChatAnchorExecutionState: Equatable {
     let request: ChatOpenMessageRequest
+    let transactionToken: ChatAnchorTransactionToken
     var usesBootstrapLoading: Bool = false
     var lastAttemptedRemotePlan: ChatAnchorRemoteFetchPlan? = nil
     var remoteQueryId: String? = nil
@@ -715,6 +781,16 @@ struct ChatAnchorExecutionState: Equatable {
     var contextPrefetchPersistedMessageCount: Int = 0
     var didObserveContextPostIdleTick: Bool = false
     var isPositioning: Bool = false
+
+    init(
+        request: ChatOpenMessageRequest,
+        transactionToken: ChatAnchorTransactionToken = ChatAnchorTransactionToken(),
+        usesBootstrapLoading: Bool = false
+    ) {
+        self.request = request
+        self.transactionToken = transactionToken
+        self.usesBootstrapLoading = usesBootstrapLoading
+    }
 }
 
 struct ChatAnchorExecutionHooks {
@@ -736,34 +812,6 @@ struct ChatAnchorExecutionHooks {
         self.onPositioningStarted = onPositioningStarted
         self.onFailed = onFailed
         self.onPositioned = onPositioned
-    }
-}
-
-enum ChatDirectionalScrollStagingPolicy {
-    static func stagedOffsetY(
-        currentOffsetY: CGFloat,
-        targetOffsetY: CGFloat,
-        direction: ChatViewController.ChatDirection,
-        viewportHeight: CGFloat,
-        minOffsetY: CGFloat,
-        maxOffsetY: CGFloat
-    ) -> CGFloat? {
-        let distance = max(80, min(180, viewportHeight * 0.35))
-        let stagedOffset: CGFloat
-        switch direction {
-        case .up:
-            guard currentOffsetY <= targetOffsetY else {
-                return nil
-            }
-            stagedOffset = min(maxOffsetY, targetOffsetY + distance)
-            return stagedOffset > targetOffsetY ? stagedOffset : nil
-        case .down:
-            guard currentOffsetY >= targetOffsetY else {
-                return nil
-            }
-            stagedOffset = max(minOffsetY, targetOffsetY - distance)
-            return stagedOffset < targetOffsetY ? stagedOffset : nil
-        }
     }
 }
 
@@ -2039,6 +2087,33 @@ extension ChatViewController {
             return
         }
 
+        if let executionState = self.activeAnchorExecutionState,
+           executionState.request == request,
+           executionState.contextPrefetchPendingQueryIds.isNotEmpty {
+            self.pendingOpenMessageRequest = request
+            self.activeAnchorExecutionHooks = hooks ?? self.activeAnchorExecutionHooks
+            self.syncAnchorExecutionFlags()
+            return
+        }
+        if let executionState = self.activeAnchorExecutionState,
+           executionState.request != request {
+            self.cancelActiveAnchorExecution(
+                token: executionState.transactionToken,
+                failure: .superseded,
+                invokeFailureHook: false
+            )
+        }
+        if self.shouldRetargetPendingInitialFirstFrame {
+            if request.source == .search {
+                self.markSearchResultNavigationLoadingContext(for: request)
+                self.setSearchResultsPanelContextLoading(true)
+            }
+            self.pendingOpenMessageRequest = request
+            self.activeAnchorExecutionHooks = hooks
+            self.syncAnchorExecutionFlags()
+            self.loadInitialDatasource(performPendingOpenMessageRequest: false)
+            return
+        }
         if self.performLoadedOpenMessageRequestIfPossible(request, hooks: hooks) {
             return
         }
@@ -2046,13 +2121,19 @@ extension ChatViewController {
             self.markSearchResultNavigationLoadingContext(for: request)
             self.setSearchResultsPanelContextLoading(true)
         }
-        if self.activeAnchorExecutionState?.request != request {
-            self.activeAnchorExecutionState = nil
-        }
         self.pendingOpenMessageRequest = request
         self.activeAnchorExecutionHooks = hooks
         self.syncAnchorExecutionFlags()
         self.performPendingOpenMessageRequestIfNeeded(trigger: .manual)
+    }
+
+    private var shouldRetargetPendingInitialFirstFrame: Bool {
+        guard self.isViewLoaded,
+              self.timelineSession != nil,
+              self.initialFirstContentApplyCount == 0 else {
+            return false
+        }
+        return !self.datasource.contains { !$0.isFakeMessage }
     }
 
     private func handleSuppressedOpenMessageRequest(animated: Bool) {
@@ -2061,12 +2142,11 @@ extension ChatViewController {
 
     internal func clearSuppressedOpenMessageRequestState() {
         if let executionState = self.activeAnchorExecutionState {
-            if let remoteQueryId = executionState.remoteQueryId {
-                self.unregisterRemoteHistoryPersistenceSource(queryId: remoteQueryId)
-            }
-            executionState.contextPrefetchQueryIds.forEach {
-                self.unregisterRemoteHistoryPersistenceSource(queryId: $0)
-            }
+            self.cancelActiveAnchorExecution(
+                token: executionState.transactionToken,
+                failure: .superseded,
+                invokeFailureHook: false
+            )
         }
 
         self.pendingOpenMessageRequest = nil
@@ -2269,6 +2349,17 @@ extension ChatViewController {
     }
 
     private func indexPathForLoadedMessage(request: ChatOpenMessageRequest) -> IndexPath? {
+        if case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution {
+            guard let target = self.timelineSession?.firstIncoming(
+                afterArchiveBoundaryId: boundaryArchivedId
+            ),
+                  let section = self.datasourceSnapshot.primaryIndex[target.primary],
+                  section < self.datasource.count else {
+                return nil
+            }
+            return IndexPath(row: 0, section: section)
+        }
+
         guard let section = ChatLoadedMessageNavigationPolicy.index(in: self.datasource, for: request),
               section < self.datasource.count else {
             return nil
@@ -2337,7 +2428,7 @@ extension ChatViewController {
             archivedId: item.archivedId,
             highlight: highlight,
             animated: animated,
-            completion: completion
+            completion: { _ in completion?() }
         )
         return true
     }
@@ -2358,7 +2449,10 @@ extension ChatViewController {
         guard let target = self.datasourceItem(at: indexPath) else {
             return false
         }
+        let executionState = self.ensureActiveAnchorExecutionState(for: request)
+        let transactionToken = executionState.transactionToken
         let activeHooks = hooks ?? self.activeAnchorExecutionHooks
+        self.activeAnchorExecutionHooks = activeHooks
         let usesTransientHighlight = request.source.usesTransientHighlight && request.highlight
         let contextPrefetchMode = ChatAnchorContextPrefetchModePolicy.mode(
             for: request.source,
@@ -2372,10 +2466,6 @@ extension ChatViewController {
 
         if contextPrefetchMode == .blocking {
             self.pendingOpenMessageRequest = request
-            if self.activeAnchorExecutionState?.request != request {
-                self.activeAnchorExecutionState = self.initialAnchorExecutionState(for: request)
-            }
-            self.activeAnchorExecutionHooks = activeHooks
             self.syncAnchorExecutionFlags()
             if self.prepareContextPrefetchIfNeeded(around: resolvedTarget, request: request) {
                 if request.source == .search {
@@ -2386,9 +2476,6 @@ extension ChatViewController {
             }
         }
 
-        self.pendingOpenMessageRequest = nil
-        self.activeAnchorExecutionState = nil
-        self.activeAnchorExecutionHooks = nil
         self.isApplyingBootstrapAnchorWindow = false
         self.syncAnchorExecutionFlags()
         self.setLoadingIndicatorVisible(false)
@@ -2396,14 +2483,24 @@ extension ChatViewController {
         self.setDatasourceLoadingEnabled(true)
         self.timelineInteractionState.unlock()
 
-        activeHooks?.onPositioningStarted?()
+        self.notifyAnchorPositioningStarted(token: transactionToken)
         self.positionMessage(
             primary: target.primary,
             archivedId: target.archivedId,
             highlight: request.highlight && !usesTransientHighlight,
             animated: activeHooks?.animatedScroll ?? false,
             preferredScrollDirection: request.source == .search ? activeHooks?.direction : nil,
-            completion: {
+            completion: { didPosition in
+                guard didPosition else {
+                    self.failActiveAnchorExecution(
+                        token: transactionToken,
+                        failure: .targetDeleted
+                    )
+                    return
+                }
+                guard self.anchorTransactionGate.accept(.scroll, token: transactionToken) == .accepted else {
+                    return
+                }
                 if usesTransientHighlight {
                     self.applyTransientMessageHighlight(primary: target.primary)
                 }
@@ -2411,7 +2508,7 @@ extension ChatViewController {
                     for: request,
                     positionedPrimary: target.primary
                 )
-                activeHooks?.onPositioned?()
+                self.finishActiveAnchorExecution(token: transactionToken)
                 if contextPrefetchMode == .background {
                     self.startBackgroundContextPrefetchIfNeeded(
                         around: resolvedTarget,
@@ -2452,13 +2549,17 @@ extension ChatViewController {
             usesBootstrapLoading: false
         )
         executionState.isPositioning = true
+        _ = self.anchorTransactionGate.begin(
+            token: executionState.transactionToken,
+            requestIdentity: self.anchorRequestIdentity(request)
+        )
         self.activeAnchorExecutionState = executionState
         self.isApplyingBootstrapAnchorWindow = true
         self.syncAnchorExecutionFlags()
         self.setLoadingIndicatorVisible(false)
         self.setArchiveLoading(false)
         self.setDatasourceLoadingEnabled(false)
-        self.activeAnchorExecutionHooks?.onPositioningStarted?()
+        self.notifyAnchorPositioningStarted(token: executionState.transactionToken)
     }
 
     internal func finishPreparedLocalFirstFrameAnchor(
@@ -2466,7 +2567,6 @@ extension ChatViewController {
         primary: String,
         archivedId: String?
     ) {
-        let hooks = self.activeAnchorExecutionHooks
         if request.highlight {
             self.applyTransientMessageHighlight(primary: primary)
         }
@@ -2474,8 +2574,7 @@ extension ChatViewController {
             for: request,
             positionedPrimary: primary
         )
-        self.finishActiveAnchorExecution()
-        hooks?.onPositioned?()
+        self.finishActiveAnchorExecution(token: self.activeAnchorExecutionState?.transactionToken)
     }
 
     private func initialAnchorExecutionState(
@@ -2485,6 +2584,49 @@ extension ChatViewController {
             request: request,
             usesBootstrapLoading: self.shouldUseBootstrapLoading(for: request)
         )
+    }
+
+    @discardableResult
+    private func ensureActiveAnchorExecutionState(
+        for request: ChatOpenMessageRequest
+    ) -> ChatAnchorExecutionState {
+        if let state = self.activeAnchorExecutionState,
+           state.request == request {
+            if self.anchorTransactionGate.snapshot.activeToken != state.transactionToken {
+                _ = self.anchorTransactionGate.begin(
+                    token: state.transactionToken,
+                    requestIdentity: self.anchorRequestIdentity(request)
+                )
+            }
+            return state
+        }
+
+        let state = self.initialAnchorExecutionState(for: request)
+        _ = self.anchorTransactionGate.begin(
+            token: state.transactionToken,
+            requestIdentity: self.anchorRequestIdentity(request)
+        )
+        self.activeAnchorExecutionState = state
+        return state
+    }
+
+    private func anchorRequestIdentity(_ request: ChatOpenMessageRequest) -> String {
+        [
+            request.owner,
+            request.chatJid,
+            request.conversationType.rawValue,
+            request.anchor.messagePrimary ?? "",
+            request.anchor.archivedId ?? "",
+            request.anchor.messageId ?? "",
+            request.source.rawValue
+        ].joined(separator: "|")
+    }
+
+    private func notifyAnchorPositioningStarted(token: ChatAnchorTransactionToken) {
+        guard self.anchorTransactionGate.markPositioningStarted(token: token) else {
+            return
+        }
+        self.activeAnchorExecutionHooks?.onPositioningStarted?()
     }
 
     private func shouldUseBootstrapLoading(for request: ChatOpenMessageRequest) -> Bool {
@@ -2530,15 +2672,17 @@ extension ChatViewController {
         self.setSkeletonVisible(false)
     }
 
-    private func finishActiveAnchorExecution() {
-        if let executionState = self.activeAnchorExecutionState {
-            if let remoteQueryId = executionState.remoteQueryId {
-                self.unregisterRemoteHistoryPersistenceSource(queryId: remoteQueryId)
-            }
-            executionState.contextPrefetchQueryIds.forEach {
-                self.unregisterRemoteHistoryPersistenceSource(queryId: $0)
-            }
+    private func finishActiveAnchorExecution(token: ChatAnchorTransactionToken? = nil) {
+        guard let executionState = self.activeAnchorExecutionState else {
+            return
         }
+        let effectiveToken = token ?? executionState.transactionToken
+        guard executionState.transactionToken == effectiveToken,
+              self.anchorTransactionGate.finish(token: effectiveToken) else {
+            return
+        }
+        let onPositioned = self.activeAnchorExecutionHooks?.onPositioned
+        self.cleanupAnchorExecutionResources(executionState)
         self.pendingOpenMessageRequest = nil
         self.activeAnchorExecutionState = nil
         self.activeAnchorExecutionHooks = nil
@@ -2548,20 +2692,32 @@ extension ChatViewController {
         self.setLoadingIndicatorVisible(false)
         self.setDatasourceLoadingEnabled(true)
         self.setSearchResultsPanelContextLoading(false)
+        onPositioned?()
     }
 
-    private func failActiveAnchorExecution() {
+    private func failActiveAnchorExecution(
+        token: ChatAnchorTransactionToken? = nil,
+        failure: ChatAnchorTransactionFailure = .targetMissing
+    ) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in
-                self?.failActiveAnchorExecution()
+                self?.failActiveAnchorExecution(token: token, failure: failure)
             }
             return
         }
 
-        let executionState = self.activeAnchorExecutionState
+        guard let executionState = self.activeAnchorExecutionState else {
+            return
+        }
+        let effectiveToken = token ?? executionState.transactionToken
+        guard executionState.transactionToken == effectiveToken,
+              self.anchorTransactionGate.fail(token: effectiveToken, failure: failure) else {
+            return
+        }
         let onFailed = self.activeAnchorExecutionHooks?.onFailed
-        self.finishActiveAnchorExecution()
-        let usesBootstrapLoading = executionState?.usesBootstrapLoading == true
+        self.cleanupAnchorExecutionResources(executionState)
+        self.clearAnchorExecutionPresentationState()
+        let usesBootstrapLoading = executionState.usesBootstrapLoading
         let hasFailureHook = onFailed != nil
         if ChatAnchorFailureRecoveryPolicy.shouldReapplyBootstrapState(usesBootstrapLoading: usesBootstrapLoading) {
             let bootstrapState = self.currentBootstrapViewState()
@@ -2577,11 +2733,63 @@ extension ChatViewController {
             return
         }
         guard ChatAnchorFailureRecoveryPolicy.shouldRunDefaultFailurePresentation(
-            requestSource: executionState?.request.source,
+            requestSource: executionState.request.source,
             usesBootstrapLoading: usesBootstrapLoading,
             hasFailureHook: hasFailureHook
         ) else { return }
         self.view.makeToast("Original message is no longer available")
+    }
+
+    internal func cancelActiveAnchorExecutionForLifecycle() {
+        guard let executionState = self.activeAnchorExecutionState else {
+            return
+        }
+        self.cancelActiveAnchorExecution(
+            token: executionState.transactionToken,
+            failure: .disappeared,
+            invokeFailureHook: false
+        )
+    }
+
+    private func cancelActiveAnchorExecution(
+        token: ChatAnchorTransactionToken,
+        failure: ChatAnchorTransactionFailure,
+        invokeFailureHook: Bool
+    ) {
+        guard let executionState = self.activeAnchorExecutionState,
+              executionState.transactionToken == token,
+              self.anchorTransactionGate.cancel(token: token, failure: failure) else {
+            return
+        }
+        let onFailed = invokeFailureHook ? self.activeAnchorExecutionHooks?.onFailed : nil
+        self.cleanupAnchorExecutionResources(executionState)
+        self.clearAnchorExecutionPresentationState()
+        onFailed?()
+    }
+
+    private func cleanupAnchorExecutionResources(_ executionState: ChatAnchorExecutionState) {
+        var queryIds = executionState.contextPrefetchQueryIds
+        if let remoteQueryId = executionState.remoteQueryId {
+            queryIds.insert(remoteQueryId)
+        }
+        queryIds.forEach { queryId in
+            self.anchorTransactionTimeoutWorkItems.removeValue(forKey: queryId)?.cancel()
+            self.anchorTransactionTokenByQueryId.removeValue(forKey: queryId)
+            self.abortedRemoteHistoryQueryIds.insert(queryId)
+            self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+        }
+    }
+
+    private func clearAnchorExecutionPresentationState() {
+        self.pendingOpenMessageRequest = nil
+        self.activeAnchorExecutionState = nil
+        self.activeAnchorExecutionHooks = nil
+        self.isApplyingBootstrapAnchorWindow = false
+        self.syncAnchorExecutionFlags()
+        self.setSearchAnchorNavigationScrollLocked(false)
+        self.setLoadingIndicatorVisible(false)
+        self.setDatasourceLoadingEnabled(true)
+        self.setSearchResultsPanelContextLoading(false)
     }
 
     @discardableResult
@@ -2597,13 +2805,26 @@ extension ChatViewController {
             queryId = "MAM jump window: \(NanoID.new(6))"
         }
 
-        var state = self.activeAnchorExecutionState ?? self.initialAnchorExecutionState(for: request)
+        var state = self.ensureActiveAnchorExecutionState(for: request)
+        let transactionToken = state.transactionToken
         state.lastAttemptedRemotePlan = plan
         state.remoteQueryId = queryId
         state.isRemoteFetchInFlight = true
         state.isWaitingForObserverSync = false
         state.isPositioning = false
         self.activeAnchorExecutionState = state
+        guard self.anchorTransactionGate.acquire(.query(queryId), token: transactionToken) else {
+            return nil
+        }
+        guard self.anchorTransactionGate.acquire(.loader, token: transactionToken),
+              request.source != .search || self.anchorTransactionGate.acquire(
+                .scrollLock,
+                token: transactionToken
+              ) else {
+            return nil
+        }
+        self.anchorTransactionTokenByQueryId[queryId] = transactionToken
+        self.scheduleAnchorTransactionTimeout(queryId: queryId, token: transactionToken)
         self.syncAnchorExecutionFlags()
         self.setDatasourceLoadingEnabled(false)
         self.setSearchAnchorNavigationScrollLockedIfNeeded(true, for: request)
@@ -2623,7 +2844,7 @@ extension ChatViewController {
             }
         )
 
-        self.performArchiveAction(queryIds: [queryId], { stream, mam in
+        self.performArchiveAction(queryIds: [queryId], transactionToken: transactionToken, { stream, mam in
             switch plan {
             case .exactArchivedId(let archivedId):
                 _ = mam.fetchAnchorMessage(
@@ -2649,7 +2870,7 @@ extension ChatViewController {
                 )
             }
         }, unavailable: {
-            self.failActiveAnchorExecution()
+            self.failActiveAnchorExecution(token: transactionToken, failure: .disconnected)
         })
 
         return queryId
@@ -2657,13 +2878,23 @@ extension ChatViewController {
 
     private func performArchiveAction(
         queryIds: Set<String> = [],
+        transactionToken: ChatAnchorTransactionToken? = nil,
         _ action: @escaping (XMPPStream, MessageArchiveManager) -> Void,
         unavailable: (() -> Void)? = nil
     ) {
+        if let transactionToken,
+           self.anchorTransactionGate.snapshot.activeToken != transactionToken {
+            return
+        }
         queryIds.forEach {
             self.registerRemoteHistoryEndPageDispatcher(queryId: $0)
+            self.registerRemoteHistoryFailureDispatcher(queryId: $0)
         }
         let fallback = {
+            if let transactionToken,
+               self.anchorTransactionGate.snapshot.activeToken != transactionToken {
+                return
+            }
             guard let account = AccountManager.shared.find(for: self.owner) else {
                 queryIds.forEach {
                     self.unregisterRemoteHistoryEndPageDispatcher(queryId: $0)
@@ -2673,6 +2904,10 @@ extension ChatViewController {
             }
 
             account.action { user, stream in
+                if let transactionToken,
+                   self.anchorTransactionGate.snapshot.activeToken != transactionToken {
+                    return
+                }
                 queryIds.forEach {
                     self.registerRemoteHistoryPersistenceSource(user.messages, queryId: $0)
                 }
@@ -2681,6 +2916,10 @@ extension ChatViewController {
         }
 
         XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            if let transactionToken,
+               self.anchorTransactionGate.snapshot.activeToken != transactionToken {
+                return
+            }
             if let mam = session.mam {
                 queryIds.forEach {
                     self.registerRemoteHistoryPersistenceSource(session.messages, queryId: $0)
@@ -2692,6 +2931,25 @@ extension ChatViewController {
         } fail: {
             fallback()
         }
+    }
+
+    private func scheduleAnchorTransactionTimeout(
+        queryId: String,
+        token: ChatAnchorTransactionToken
+    ) {
+        self.anchorTransactionTimeoutWorkItems.removeValue(forKey: queryId)?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.anchorTransactionTokenByQueryId[queryId] == token else {
+                return
+            }
+            self.failActiveAnchorExecution(token: token, failure: .timeout)
+        }
+        self.anchorTransactionTimeoutWorkItems[queryId] = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + ChatInteractiveRemoteArchiveTimeoutPolicy.timeout,
+            execute: workItem
+        )
     }
 
     private func unreadBoundaryCandidate(for message: MessageStorageItem) -> ChatUnreadBoundaryTargetPolicy.Candidate {
@@ -2787,7 +3045,9 @@ extension ChatViewController {
         }
 
         if request.source == .search {
-            guard let message = timelineSession.resolvedSearchMessage(anchor: request.anchor) else {
+            guard let message = timelineSession
+                .resolvedSearchMessageResolution(anchor: request.anchor)
+                .message else {
                 return nil
             }
             let source: ChatAnchorLookupMatchSource
@@ -2824,6 +3084,18 @@ extension ChatViewController {
         }
 
         return nil
+    }
+
+    private func typedAnchorResolutionFailure(
+        for request: ChatOpenMessageRequest
+    ) -> ChatAnchorTransactionFailure {
+        guard request.source == .search,
+              let timelineSession = self.timelineSession else {
+            return .targetMissing
+        }
+        return timelineSession
+            .resolvedSearchMessageResolution(anchor: request.anchor)
+            .failure ?? .targetMissing
     }
 
     internal func hasLocalAnchorForBootstrap(_ request: ChatOpenMessageRequest) -> Bool {
@@ -3029,8 +3301,9 @@ extension ChatViewController {
         highlight: Bool,
         animated: Bool,
         preferredScrollDirection: ChatDirection? = nil,
-        completion: (() -> Void)? = nil
+        completion: ((Bool) -> Void)? = nil
     ) {
+        _ = preferredScrollDirection
         self.preventHidingDate = true
         self.messagesCollectionView.layoutIfNeeded()
         if highlight {
@@ -3044,26 +3317,38 @@ extension ChatViewController {
             self.preventHidingDate = false
             self.setDatasourceLoadingEnabled(true)
             self.timelineInteractionState.unlock()
-            completion?()
+            completion?(false)
             return
         }
         let indexPath = IndexPath(row: 0, section: scrollIndex)
+        guard let targetOffsetY = self.centeredContentOffsetY(for: indexPath) else {
+            self.preventHidingDate = false
+            self.setDatasourceLoadingEnabled(true)
+            self.timelineInteractionState.unlock()
+            completion?(false)
+            return
+        }
 
-        self.prepareDirectionalSearchScrollIfNeeded(
-            to: indexPath,
-            direction: preferredScrollDirection,
-            animated: animated
-        )
-        self.messagesCollectionView.scrollToItem(
-            at: indexPath,
-            at: .centeredVertically,
-            animated: animated
-        )
-
-        let finalizeDelay: TimeInterval = animated ? 0.35 : 0.0
-        DispatchQueue.main.asyncAfter(deadline: .now() + finalizeDelay) {
-            if let cell = self.messagesCollectionView.cellForItem(at: indexPath) as? MessageContentCell {
+        let finalize = {
+            let currentItem = self.datasourceItem(at: indexPath)
+            let didPosition = ChatAnchorPositionVerificationPolicy.isPositioned(
+                expectedPrimary: primary,
+                expectedArchivedId: archivedId,
+                actualPrimary: currentItem?.primary,
+                actualArchivedId: currentItem?.archivedId,
+                actualOffsetY: self.messagesCollectionView.contentOffset.y,
+                targetOffsetY: targetOffsetY
+            )
+            if didPosition,
+               let cell = self.messagesCollectionView.cellForItem(at: indexPath) as? MessageContentCell {
                 cell.setSelected(state: highlight)
+            }
+            if didPosition {
+                self.retainPositionedMessageAnchor(
+                    primary: primary,
+                    archivedId: archivedId,
+                    indexPath: indexPath
+                )
             }
             if self.inSearchMode.value || self.xabberInputView.state == .search {
                 self.refreshVisibleSearchSelection()
@@ -3073,46 +3358,27 @@ extension ChatViewController {
             self.setFloatingDateVisible(true)
             self.setFloatingDateHidden(true)
             self.setDatasourceLoadingEnabled(true)
-            completion?()
-        }
-    }
-
-    private func prepareDirectionalSearchScrollIfNeeded(
-        to indexPath: IndexPath,
-        direction: ChatDirection?,
-        animated: Bool
-    ) {
-        guard animated,
-              let direction else {
-            return
+            completion?(didPosition)
         }
 
-        self.messagesCollectionView.layoutIfNeeded()
-        guard let targetOffsetY = self.centeredContentOffsetY(for: indexPath) else {
-            return
-        }
-
-        let insets = self.messagesCollectionView.adjustedContentInset
-        let contentHeight = self.messagesCollectionView.collectionViewLayout.collectionViewContentSize.height
-        let viewportHeight = self.messagesCollectionView.bounds.height
-        let minOffsetY = -insets.top
-        let maxOffsetY = max(minOffsetY, contentHeight - viewportHeight + insets.bottom)
-        guard let stagedOffsetY = ChatDirectionalScrollStagingPolicy.stagedOffsetY(
-            currentOffsetY: self.messagesCollectionView.contentOffset.y,
-            targetOffsetY: targetOffsetY,
-            direction: direction,
-            viewportHeight: viewportHeight,
-            minOffsetY: minOffsetY,
-            maxOffsetY: maxOffsetY
-        ) else {
-            return
-        }
-
-        self.messagesCollectionView.setContentOffset(
-            CGPoint(x: self.messagesCollectionView.contentOffset.x, y: stagedOffsetY),
-            animated: false
+        let targetOffset = CGPoint(
+            x: self.messagesCollectionView.contentOffset.x,
+            y: targetOffsetY
         )
-        self.messagesCollectionView.layoutIfNeeded()
+        guard animated,
+              abs(self.messagesCollectionView.contentOffset.y - targetOffsetY) > 0.5 else {
+            self.messagesCollectionView.setContentOffset(targetOffset, animated: false)
+            finalize()
+            return
+        }
+
+        let animator = UIViewPropertyAnimator(duration: 0.25, curve: .easeInOut) {
+            self.messagesCollectionView.setContentOffset(targetOffset, animated: false)
+        }
+        animator.addCompletion { _ in
+            finalize()
+        }
+        animator.startAnimation()
     }
 
     private func centeredContentOffsetY(for indexPath: IndexPath) -> CGFloat? {
@@ -3127,6 +3393,35 @@ extension ChatViewController {
         let maxOffsetY = max(minOffsetY, contentHeight - viewportHeight + insets.bottom)
         let targetOffsetY = attributes.frame.midY - (viewportHeight / 2)
         return min(max(targetOffsetY, minOffsetY), maxOffsetY)
+    }
+
+    private func retainPositionedMessageAnchor(
+        primary: String,
+        archivedId: String?,
+        indexPath: IndexPath
+    ) {
+        guard let item = self.datasourceItem(at: indexPath),
+              let frame = self.messagesCollectionView.layoutAttributesForItem(at: indexPath)?.frame
+                ?? self.messagesCollectionView.cellForItem(at: indexPath)?.frame else {
+            self.retainedMessageAnchor = nil
+            return
+        }
+        self.retainedMessageAnchor = ChatRetainedMessageAnchor(
+            primary: primary,
+            archivedId: archivedId ?? item.archivedId,
+            displayRevision: self.anchorDisplayRevision(for: item),
+            viewportRelativeMinY: frame.minY - self.messagesCollectionView.contentOffset.y
+        )
+    }
+
+    internal func anchorDisplayRevision(for item: Datasource) -> String {
+        [
+            item.primary,
+            item.archivedId ?? "",
+            item.messageId,
+            String(item.editDate?.timeIntervalSince1970 ?? 0),
+            String(describing: item.kind)
+        ].joined(separator: "|")
     }
 
     private func scheduleMentionReadOnVisibleIfNeeded(
@@ -3172,6 +3467,8 @@ extension ChatViewController {
         anchorKey: String? = nil
     ) {
         state.contextPrefetchQueryIds.forEach {
+            self.anchorTransactionTimeoutWorkItems.removeValue(forKey: $0)?.cancel()
+            self.anchorTransactionTokenByQueryId.removeValue(forKey: $0)
             self.unregisterRemoteHistoryPersistenceSource(queryId: $0)
         }
         state.contextPrefetchAnchorKey = anchorKey
@@ -3258,9 +3555,21 @@ extension ChatViewController {
         }
 
         let effectiveArchivedId = request.anchor.archivedId ?? target.archivedId
+        let coverage = effectiveArchivedId.map {
+            ChatAnchorContextPrefetchPolicy.coverage(
+                observerIndex: observerIndex,
+                totalCount: residentSnapshot.items.count,
+                targetArchivedId: $0,
+                archiveState: self.loadChatArchiveStateSnapshot()
+            )
+        }
         let plan = ChatAnchorContextPrefetchPolicy.plan(
-            observerIndex: observerIndex,
-            totalCount: residentSnapshot.items.count,
+            coverage: coverage ?? ChatAnchorContextCoverage(
+                olderLocalCount: observerIndex,
+                newerLocalCount: max(0, residentSnapshot.items.count - observerIndex - 1),
+                olderBoundary: .unknown,
+                newerBoundary: .unknown
+            ),
             pageSize: self.datasourcePageSize,
             archivedId: effectiveArchivedId
         )
@@ -3275,6 +3584,23 @@ extension ChatViewController {
         let newerQueryId = plan.newerPageSize.map { _ in "MAM jump context newer: \(NanoID.new(6))" }
         let olderQueryId = plan.olderPageSize.map { _ in "MAM jump context older: \(NanoID.new(6))" }
         let queryIds = Set([newerQueryId, olderQueryId].compactMap { $0 })
+        let transactionToken = executionState.transactionToken
+        guard queryIds.allSatisfy({ queryId in
+            self.anchorTransactionGate.acquire(.query(queryId), token: transactionToken)
+        }) else {
+            return false
+        }
+        guard self.anchorTransactionGate.acquire(.loader, token: transactionToken),
+              request.source != .search || self.anchorTransactionGate.acquire(
+                .scrollLock,
+                token: transactionToken
+              ) else {
+            return false
+        }
+        queryIds.forEach { queryId in
+            self.anchorTransactionTokenByQueryId[queryId] = transactionToken
+            self.scheduleAnchorTransactionTimeout(queryId: queryId, token: transactionToken)
+        }
 
         var updatedState = executionState
         updatedState.contextPrefetchQueryIds = queryIds
@@ -3301,7 +3627,7 @@ extension ChatViewController {
         case .activityIndicator:
             self.setLoadingIndicatorVisible(true)
         }
-        self.performArchiveAction(queryIds: queryIds, { stream, mam in
+        self.performArchiveAction(queryIds: queryIds, transactionToken: transactionToken, { stream, mam in
             if let newerPageSize = plan.newerPageSize,
                let newerQueryId {
                 _ = mam.requestNewerHistoryPage(
@@ -3332,6 +3658,7 @@ extension ChatViewController {
         }, unavailable: { [weak self] in
             guard let self,
                   var state = self.activeAnchorExecutionState,
+                  state.transactionToken == transactionToken,
                   state.contextPrefetchAnchorKey == anchorKey else {
                 return
             }
@@ -3354,9 +3681,21 @@ extension ChatViewController {
         }
 
         let effectiveArchivedId = request.anchor.archivedId ?? target.archivedId
+        let coverage = effectiveArchivedId.map {
+            ChatAnchorContextPrefetchPolicy.coverage(
+                observerIndex: observerIndex,
+                totalCount: residentSnapshot.items.count,
+                targetArchivedId: $0,
+                archiveState: self.loadChatArchiveStateSnapshot()
+            )
+        }
         let plan = ChatAnchorContextPrefetchPolicy.plan(
-            observerIndex: observerIndex,
-            totalCount: residentSnapshot.items.count,
+            coverage: coverage ?? ChatAnchorContextCoverage(
+                olderLocalCount: observerIndex,
+                newerLocalCount: max(0, residentSnapshot.items.count - observerIndex - 1),
+                olderBoundary: .unknown,
+                newerBoundary: .unknown
+            ),
             pageSize: self.datasourcePageSize,
             archivedId: effectiveArchivedId
         )
@@ -3422,13 +3761,8 @@ extension ChatViewController {
             return
         }
 
-        if self.activeAnchorExecutionState?.request != request {
-            self.activeAnchorExecutionState = self.initialAnchorExecutionState(for: request)
-        }
-
-        guard var executionState = self.activeAnchorExecutionState else {
-            return
-        }
+        var executionState = self.ensureActiveAnchorExecutionState(for: request)
+        let transactionToken = executionState.transactionToken
 
         let localMatch = self.localAnchorMessage(for: request)
         let action = ChatAnchorExecutionPolicy.resumeAction(
@@ -3477,8 +3811,7 @@ extension ChatViewController {
             self.activeAnchorExecutionState = resolvedExecutionState
             self.syncAnchorExecutionFlags()
             self.beginBootstrapAnchorContentTransitionIfNeeded()
-            let hooks = self.activeAnchorExecutionHooks
-            let direction = hooks?.direction ?? .up
+            let direction = self.activeAnchorExecutionHooks?.direction ?? .up
             self.chatScrollDirection = direction
             let timelineAnchor = ChatTimelineAnchor(
                 primary: positionTarget.primary,
@@ -3491,43 +3824,79 @@ extension ChatViewController {
                 mode: applyPlan.mode,
                 animated: false,
                 invalidateLayout: applyPlan.invalidateLayout,
-                completion: {
+                centerTargetInViewport: true,
+                shouldApply: {
+                    self.anchorTransactionGate.accept(
+                        .mapping,
+                        token: transactionToken
+                    ) == .accepted
+                },
+                transactionCompletion: { result in
+                    guard self.anchorTransactionGate.accept(
+                        .apply,
+                        token: transactionToken
+                    ) == .accepted else {
+                        return
+                    }
+
+                    guard case .committed(let diagnostics) = result,
+                          diagnostics.programmaticOffsetMutationCount <= 1,
+                          diagnostics.nextRunLoopCorrectionCount == 0,
+                          (diagnostics.anchorError ?? 0) <= 1,
+                          let section = self.datasourceSnapshot.primaryIndex[positionTarget.primary],
+                          self.datasource.indices.contains(section),
+                          self.datasource[section].archivedId == positionTarget.archivedId || positionTarget.archivedId == nil,
+                          self.anchorTransactionGate.accept(
+                            .scroll,
+                            token: transactionToken
+                          ) == .accepted else {
+                        self.failActiveAnchorExecution(
+                            token: transactionToken,
+                            failure: .targetDeleted
+                        )
+                        return
+                    }
+
                     let usesTransientHighlight = request.source.usesTransientHighlight && request.highlight
-                    hooks?.onPositioningStarted?()
-                    self.positionMessage(
+                    let indexPath = IndexPath(item: 0, section: section)
+                    self.retainPositionedMessageAnchor(
                         primary: positionTarget.primary,
                         archivedId: positionTarget.archivedId,
-                        highlight: request.highlight && !usesTransientHighlight,
-                        animated: hooks?.animatedScroll ?? false,
-                        preferredScrollDirection: request.source == .search ? hooks?.direction : nil,
-                        completion: {
-                            if usesTransientHighlight {
-                                self.applyTransientMessageHighlight(primary: positionTarget.primary)
-                            }
-                            self.finishActiveAnchorExecution()
-                            self.scheduleMentionReadOnVisibleIfNeeded(
-                                for: request,
-                                positionedPrimary: positionTarget.primary
-                            )
-                            hooks?.onPositioned?()
-                            if contextPrefetchMode == .background {
-                                self.startBackgroundContextPrefetchIfNeeded(
-                                    around: positionTarget,
-                                    request: request
-                                )
-                            }
-                        }
+                        indexPath: indexPath
                     )
-            }, cancelledCompletion: {
-                self.failActiveAnchorExecution()
+                    if usesTransientHighlight {
+                        self.applyTransientMessageHighlight(primary: positionTarget.primary)
+                    } else if request.highlight,
+                              let cell = self.messagesCollectionView.cellForItem(at: indexPath) as? MessageContentCell {
+                        cell.setSelected(state: true)
+                    }
+                    self.scheduleMentionReadOnVisibleIfNeeded(
+                        for: request,
+                        positionedPrimary: positionTarget.primary
+                    )
+                    self.finishActiveAnchorExecution(token: transactionToken)
+                    if contextPrefetchMode == .background {
+                        self.startBackgroundContextPrefetchIfNeeded(
+                            around: positionTarget,
+                            request: request
+                        )
+                    }
+                },
+                completion: nil,
+                cancelledCompletion: {
+                self.failActiveAnchorExecution(token: transactionToken)
             })
+            self.notifyAnchorPositioningStarted(token: transactionToken)
         case .startRemoteFetch(let plan):
             _ = self.startRemoteAnchorFetch(plan: plan, for: request)
         case .waitForObserverSync, .none:
             self.syncAnchorExecutionFlags()
             return
         case .fail:
-            self.failActiveAnchorExecution()
+            self.failActiveAnchorExecution(
+                token: transactionToken,
+                failure: self.typedAnchorResolutionFailure(for: request)
+            )
             return
         }
     }
@@ -3562,9 +3931,7 @@ extension ChatViewController {
             return
         }
 
-        if self.activeAnchorExecutionState?.request != request {
-            self.activeAnchorExecutionState = self.initialAnchorExecutionState(for: request)
-        }
+        _ = self.ensureActiveAnchorExecutionState(for: request)
         self.syncAnchorExecutionFlags()
         self.resumeAnchorExecutionIfNeeded(trigger: trigger)
     }
@@ -3728,17 +4095,17 @@ extension ChatViewController {
             return
         }
 
-        let tag = 0xA11D10
-        cell.contentView.subviews
-            .filter { $0.tag == tag }
-            .forEach { $0.removeFromSuperview() }
-
-        let overlay = UIView(frame: cell.contentView.bounds)
-        overlay.tag = tag
-        overlay.isUserInteractionEnabled = false
-        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        overlay.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.18)
-        cell.contentView.addSubview(overlay)
+        let revision = self.anchorDisplayRevision(for: self.datasource[section])
+        ChatAnchorHighlightOverlay.install(
+            on: cell,
+            primary: primary,
+            revision: revision
+        )
+        guard let overlay = cell.contentView.subviews.last,
+              ChatAnchorHighlightOverlay.representedPrimary(in: cell) == primary,
+              ChatAnchorHighlightOverlay.representedRevision(in: cell) == revision else {
+            return
+        }
 
         UIView.animate(
             withDuration: 0.25,
@@ -3748,7 +4115,10 @@ extension ChatViewController {
                 overlay.alpha = 0
             },
             completion: { _ in
-                overlay.removeFromSuperview()
+                if ChatAnchorHighlightOverlay.representedPrimary(in: cell) == primary,
+                   ChatAnchorHighlightOverlay.representedRevision(in: cell) == revision {
+                    ChatAnchorHighlightOverlay.remove(from: cell)
+                }
             }
         )
     }
@@ -3970,6 +4340,15 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
                 ("currentPageLocked", self.timelineInteractionState.locked)
             ])
+            if let transactionToken = self.anchorTransactionTokenByQueryId[queryId] {
+                guard self.anchorTransactionGate.accept(
+                    .remoteFinal(queryId: queryId),
+                    token: transactionToken
+                ) == .accepted else {
+                    return
+                }
+                self.anchorTransactionTimeoutWorkItems.removeValue(forKey: queryId)?.cancel()
+            }
             if self.abortedRemoteHistoryQueryIds.contains(queryId),
                self.interactiveHistoryPageLoadContext?.queryId != queryId {
                 self.abortedRemoteHistoryQueryIds.remove(queryId)
@@ -4100,6 +4479,14 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
         completion: ChatRemoteHistoryCompletionResult,
         barrierDurationMs: Int
     ) {
+        if let transactionToken = self.anchorTransactionTokenByQueryId[queryId] {
+            guard self.anchorTransactionGate.accept(
+                .persistence(queryId: queryId),
+                token: transactionToken
+            ) == .accepted else {
+                return
+            }
+        }
         let effectiveState = completion.state
         let visibleRows = completion.persistenceSummary.visibleRows(
             owner: self.owner,
@@ -4183,6 +4570,10 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             return false
         }
 
+        self.anchorTransactionTokenByQueryId.removeValue(forKey: queryId)
+        self.anchorTransactionTimeoutWorkItems.removeValue(forKey: queryId)?.cancel()
+        self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+
         executionState.contextPrefetchPendingQueryIds.remove(queryId)
         executionState.contextPrefetchExpectedMessageCount += max(0, count)
         executionState.contextPrefetchPersistedMessageCount += state.persistedMessageCount
@@ -4234,6 +4625,10 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             return false
         }
 
+        self.anchorTransactionTokenByQueryId.removeValue(forKey: queryId)
+        self.anchorTransactionTimeoutWorkItems.removeValue(forKey: queryId)?.cancel()
+        self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+
         executionState.isRemoteFetchInFlight = false
         executionState.remoteQueryId = nil
         executionState.isPositioning = false
@@ -4281,14 +4676,42 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             if let request = self.pendingOpenMessageRequest {
                 _ = self.startRemoteAnchorFetch(plan: plan, for: request)
             } else {
-                self.failActiveAnchorExecution()
+                self.failActiveAnchorExecution(failure: .targetMissing)
             }
         case .fail:
-            self.failActiveAnchorExecution()
+            let failure = self.pendingOpenMessageRequest
+                .map { self.typedAnchorResolutionFailure(for: $0) } ?? .targetMissing
+            self.failActiveAnchorExecution(failure: failure)
         case .none:
             self.syncAnchorExecutionFlags()
         }
 
+        return true
+    }
+
+    @discardableResult
+    internal func handleAnchorRemoteFailureIfNeeded(
+        queryId: String,
+        reason: MessageArchiveRequestFailureReason
+    ) -> Bool {
+        guard let transactionToken = self.anchorTransactionTokenByQueryId[queryId],
+              self.anchorTransactionGate.accept(
+                .remoteFailure(queryId: queryId),
+                token: transactionToken
+              ) == .accepted else {
+            return false
+        }
+
+        let failure: ChatAnchorTransactionFailure
+        switch reason {
+        case .timeout:
+            failure = .timeout
+        case .uiActionDisconnect, .requestStartFailed:
+            failure = .disconnected
+        case .serverError:
+            failure = .iqError
+        }
+        self.failActiveAnchorExecution(token: transactionToken, failure: failure)
         return true
     }
 }
