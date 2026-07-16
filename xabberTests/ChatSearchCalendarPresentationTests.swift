@@ -111,6 +111,93 @@ final class ChatSearchCalendarPresentationTests: XCTestCase {
         XCTAssertLessThanOrEqual(reduced.maximumDuration, 0.15)
     }
 
+    func testDismissalContinuesDownwardFromInterruptedPresentationWithoutUpwardReset() {
+        let factory = ManualCalendarAnimatorFactory(runsAnimationsOnStart: false)
+        let controller = makeController(animatorFactory: factory)
+        let host = CalendarPresentationHost()
+        controller.install(in: host.parent, containerView: host.parent.view)
+        controller.present(
+            generation: 28,
+            animated: true,
+            focusReturnView: nil,
+            isGenerationCurrent: { $0 == 28 }
+        )
+
+        let sheetHeight = controller.calendarView.bounds.height
+        let interruptedOffset = sheetHeight * 0.4
+        controller.calendarView.transform = CGAffineTransform(
+            translationX: 0,
+            y: interruptedOffset
+        )
+        controller.dimView.alpha = 0.2
+
+        controller.dismiss(
+            generation: 28,
+            animated: true,
+            isGenerationCurrent: { $0 == 28 },
+            completion: nil
+        )
+
+        XCTAssertEqual(
+            controller.calendarView.transform.ty,
+            interruptedOffset,
+            accuracy: 0.001,
+            "Dismiss must begin at the currently visible Y instead of resetting upward"
+        )
+        XCTAssertEqual(controller.dimView.alpha, 0.2, accuracy: 0.001)
+
+        factory.runPendingAnimations()
+
+        XCTAssertEqual(controller.calendarView.transform.ty, sheetHeight, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(
+            controller.calendarView.transform.ty,
+            interruptedOffset
+        )
+        XCTAssertEqual(controller.dimView.alpha, 0, accuracy: 0.001)
+        factory.finishPending()
+    }
+
+    func testReducedMotionDismissalPreservesInterruptedAlphaWithoutFlashOrSlide() {
+        let factory = ManualCalendarAnimatorFactory(runsAnimationsOnStart: false)
+        let reducedSpec = ChatSearchAnimationSpec.production.resolved(
+            for: .init(reduceMotion: true, reduceTransparency: false)
+        )
+        let controller = makeController(
+            animatorFactory: factory,
+            animationSpec: reducedSpec
+        )
+        let host = CalendarPresentationHost()
+        controller.install(in: host.parent, containerView: host.parent.view)
+        controller.present(
+            generation: 29,
+            animated: true,
+            focusReturnView: nil,
+            isGenerationCurrent: { $0 == 29 }
+        )
+
+        controller.calendarView.alpha = 0.4
+        controller.calendarView.transform = .identity
+        controller.dimView.alpha = 0.2
+
+        controller.dismiss(
+            generation: 29,
+            animated: true,
+            isGenerationCurrent: { $0 == 29 },
+            completion: nil
+        )
+
+        XCTAssertEqual(controller.calendarView.alpha, 0.4, accuracy: 0.001)
+        XCTAssertEqual(controller.dimView.alpha, 0.2, accuracy: 0.001)
+        XCTAssertEqual(controller.calendarView.transform, .identity)
+
+        factory.runPendingAnimations()
+
+        XCTAssertEqual(controller.calendarView.alpha, 0, accuracy: 0.001)
+        XCTAssertEqual(controller.dimView.alpha, 0, accuracy: 0.001)
+        XCTAssertEqual(controller.calendarView.transform, .identity)
+        factory.finishPending()
+    }
+
     func testControllerPresentsOneOverCurrentContextChildAndMovesAccessibilityFocus() throws {
         let factory = ManualCalendarAnimatorFactory()
         let controller = makeController(animatorFactory: factory)
@@ -396,7 +483,8 @@ final class ChatSearchCalendarPresentationTests: XCTestCase {
 
     private func makeController(
         animatorFactory: ChatSearchModeAnimatorFactory,
-        now: Date? = nil
+        now: Date? = nil,
+        animationSpec: ChatSearchAnimationSpec = .production
     ) -> ChatSearchCalendarViewController {
         ChatSearchCalendarViewController(
             model: ChatSearchCalendarModel(
@@ -404,7 +492,7 @@ final class ChatSearchCalendarPresentationTests: XCTestCase {
                 locale: Locale(identifier: "en_US_POSIX"),
                 clock: CalendarPresentationClock(now: now ?? makeDate(2026, 7, 13))
             ),
-            animationSpec: .production,
+            animationSpec: animationSpec,
             animatorFactory: animatorFactory,
             prefersNativeGlass: false
         )
@@ -448,14 +536,29 @@ private final class CalendarPresentationHost {
 @MainActor
 private final class ManualCalendarAnimatorFactory: ChatSearchModeAnimatorFactory {
     private(set) var animators: [ManualCalendarAnimator] = []
+    private let runsAnimationsOnStart: Bool
+
+    init(runsAnimationsOnStart: Bool = true) {
+        self.runsAnimationsOnStart = runsAnimationsOnStart
+    }
 
     func makeAnimator(
         timing: ChatSearchAnimationSpec.Timing,
         animations: @escaping () -> Void
     ) -> ChatSearchModeAnimating {
-        let animator = ManualCalendarAnimator(timing: timing, animations: animations)
+        let animator = ManualCalendarAnimator(
+            timing: timing,
+            animations: animations,
+            runsAnimationsOnStart: runsAnimationsOnStart
+        )
         animators.append(animator)
         return animator
+    }
+
+    func runPendingAnimations() {
+        animators.filter { !$0.isFinished && !$0.isStopped }.forEach {
+            $0.runAnimationsIfNeeded()
+        }
     }
 
     func finishPending() {
@@ -470,12 +573,20 @@ private final class ManualCalendarAnimator: ChatSearchModeAnimating {
     let timing: ChatSearchAnimationSpec.Timing
     private let animations: () -> Void
     private var completions: [(UIViewAnimatingPosition) -> Void] = []
+    private let runsAnimationsOnStart: Bool
+    private var hasStarted = false
+    private var hasRunAnimations = false
     private(set) var isStopped = false
     private(set) var isFinished = false
 
-    init(timing: ChatSearchAnimationSpec.Timing, animations: @escaping () -> Void) {
+    init(
+        timing: ChatSearchAnimationSpec.Timing,
+        animations: @escaping () -> Void,
+        runsAnimationsOnStart: Bool
+    ) {
         self.timing = timing
         self.animations = animations
+        self.runsAnimationsOnStart = runsAnimationsOnStart
     }
 
     func addCompletion(_ completion: @escaping (UIViewAnimatingPosition) -> Void) {
@@ -483,6 +594,15 @@ private final class ManualCalendarAnimator: ChatSearchModeAnimating {
     }
 
     func startAnimation() {
+        hasStarted = true
+        if runsAnimationsOnStart {
+            runAnimationsIfNeeded()
+        }
+    }
+
+    func runAnimationsIfNeeded() {
+        guard hasStarted, !hasRunAnimations, !isStopped else { return }
+        hasRunAnimations = true
         animations()
     }
 

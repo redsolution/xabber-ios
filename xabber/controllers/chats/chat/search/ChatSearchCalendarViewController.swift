@@ -88,6 +88,12 @@ struct ChatSearchCalendarPresentationPlan: Equatable {
 
 @MainActor
 final class ChatSearchCalendarViewController: UIViewController {
+    private struct VisualState {
+        let dimAlpha: CGFloat
+        let sheetAlpha: CGFloat
+        let sheetTransform: CGAffineTransform
+    }
+
     private final class ActiveTransition {
         let token = UUID()
         let plan: ChatSearchCalendarPresentationPlan
@@ -254,7 +260,7 @@ final class ChatSearchCalendarViewController: UIViewController {
             return
         }
 
-        interruptActiveTransitionAndRestoreSettledState()
+        let interruptedVisualState = interruptActiveTransitionPreservingVisualState()
         requestedState = .presented
         requestedGeneration = generation
         self.focusReturnView = focusReturnView
@@ -263,7 +269,8 @@ final class ChatSearchCalendarViewController: UIViewController {
             generation: generation,
             animated: animated,
             isGenerationCurrent: isGenerationCurrent,
-            completion: nil
+            completion: nil,
+            initialVisualState: interruptedVisualState
         )
     }
 
@@ -284,7 +291,7 @@ final class ChatSearchCalendarViewController: UIViewController {
             return
         }
 
-        interruptActiveTransitionAndRestoreSettledState()
+        let interruptedVisualState = interruptActiveTransitionPreservingVisualState()
         requestedState = .dismissed
         requestedGeneration = generation
         startTransition(
@@ -292,7 +299,8 @@ final class ChatSearchCalendarViewController: UIViewController {
             generation: generation,
             animated: animated,
             isGenerationCurrent: isGenerationCurrent,
-            completion: completion
+            completion: completion,
+            initialVisualState: interruptedVisualState
         )
     }
 
@@ -319,7 +327,8 @@ final class ChatSearchCalendarViewController: UIViewController {
         generation: Int,
         animated: Bool,
         isGenerationCurrent: @escaping (Int) -> Bool,
-        completion: (() -> Void)?
+        completion: (() -> Void)?,
+        initialVisualState: VisualState?
     ) {
         let plan = ChatSearchCalendarPresentationPlan.make(
             targetState: targetState,
@@ -330,7 +339,12 @@ final class ChatSearchCalendarViewController: UIViewController {
         lastTransitionPlan = plan
         view.setNeedsLayout()
         view.layoutIfNeeded()
-        applyInitialVisualState(plan)
+        configureInteractionState(for: plan.targetState)
+        if let initialVisualState {
+            applyVisualState(initialVisualState)
+        } else {
+            applyInitialVisualState(plan)
+        }
 
         guard plan.isAnimated, view.window != nil else {
             let immediate = ActiveTransition(
@@ -434,19 +448,17 @@ final class ChatSearchCalendarViewController: UIViewController {
         }
     }
 
-    private func interruptActiveTransitionAndRestoreSettledState() {
-        guard let activeTransition else { return }
+    private func interruptActiveTransitionPreservingVisualState() -> VisualState? {
+        guard let activeTransition else { return nil }
+        let visualState = currentVisualState()
         activeTransition.animators.forEach { $0.stopAnimation(true) }
         self.activeTransition = nil
-        applyFinalVisualState(settledState, dimTargetAlpha: activeTransition.plan.dimTargetAlpha)
+        applyVisualState(visualState)
+        return visualState
     }
 
     private func applyInitialVisualState(_ plan: ChatSearchCalendarPresentationPlan) {
-        let isPresenting = plan.targetState == .presented
-        view.accessibilityElementsHidden = !isPresenting
-        calendarView.accessibilityElementsHidden = !isPresenting
-        dimView.isUserInteractionEnabled = true
-        calendarView.isUserInteractionEnabled = true
+        configureInteractionState(for: plan.targetState)
         if let dimAlpha = plan.dimTransition.alpha {
             dimView.alpha = CGFloat(dimAlpha.from * plan.dimTargetAlpha)
         }
@@ -460,6 +472,32 @@ final class ChatSearchCalendarViewController: UIViewController {
         } else {
             calendarView.transform = .identity
         }
+    }
+
+    private func configureInteractionState(
+        for targetState: ChatSearchCalendarPresentationPlan.TargetState
+    ) {
+        let isPresenting = targetState == .presented
+        view.accessibilityElementsHidden = !isPresenting
+        calendarView.accessibilityElementsHidden = !isPresenting
+        dimView.isUserInteractionEnabled = true
+        calendarView.isUserInteractionEnabled = true
+    }
+
+    private func currentVisualState() -> VisualState {
+        let presentedDimLayer = dimView.layer.presentation()
+        let presentedSheetLayer = calendarView.layer.presentation()
+        return VisualState(
+            dimAlpha: CGFloat(presentedDimLayer?.opacity ?? Float(dimView.alpha)),
+            sheetAlpha: CGFloat(presentedSheetLayer?.opacity ?? Float(calendarView.alpha)),
+            sheetTransform: presentedSheetLayer?.affineTransform() ?? calendarView.transform
+        )
+    }
+
+    private func applyVisualState(_ state: VisualState) {
+        dimView.alpha = state.dimAlpha
+        calendarView.alpha = state.sheetAlpha
+        calendarView.transform = state.sheetTransform
     }
 
     private func applyFinalVisualState(

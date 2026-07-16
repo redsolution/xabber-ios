@@ -48,7 +48,7 @@ All new motion consumes the injectable `ChatSearchAnimationSpec`:
 - Search chrome uses the shared 0.30 s spring. The calendar-only surface expands or collapses with an interruptible 0.30 s spring plus synchronized counter alpha; repeated count/index updates do not start another animation.
 - Counter text changes atomically only after positioning is committed. It has no digit transition, vertical movement or independent animation channel. Result navigation performs one normal animated `scrollToItem` and never applies a preliminary content-offset jump.
 - List presentation uses scale 0.95→1.0 over 0.40 s and blur 30→0 over 0.20 s; dismissal uses 0.30 s.
-- Calendar presentation/dismissal and month travel use the shared plans, including a 0.30 s month transition.
+- Calendar presentation/dismissal and month travel use the shared plans, including a 0.30 s month transition. An interrupted dismissal continues from the currently visible presentation-layer state toward the offscreen bottom without first resetting upward; Reduce Motion preserves the current opacity and remains fade-only.
 - Reduce Motion applies capsule geometry immediately and uses only a short counter alpha transition while still applying final state. Reduce Transparency removes blur in favor of an opaque system treatment. Runtime accessibility-setting changes re-resolve the production animation specification.
 
 Controls keep localized labels, deterministic semantic order and at least 44 pt hit targets. Layout mirrors in RTL, supports Dynamic Type growth and maintains bottom controls above the keyboard. UIKit presentation uses public `UIVisualEffectView`/snapshot/property-animation paths only; private filters and private Apple APIs are prohibited.
