@@ -478,7 +478,7 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
 
     private func waitForTerminalOutcome(in app: XCUIApplication) throws -> TerminalOutcome {
         var resolved: TerminalOutcome?
-        var observedLoading = false
+        var emptyTracker = ChatSearchLiveQAEmptyStateTracker()
 
         try wait(
             description: "terminal committed search outcome",
@@ -486,29 +486,52 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
             app: app
         ) {
             let loading = self.isAnySearchLoading(in: app)
-            observedLoading = observedLoading || loading
+            guard !loading else {
+                emptyTracker.reset()
+                return false
+            }
 
             let error = self.element(AccessibilityID.resultsError, in: app)
-            if error.exists {
-                resolved = .error(self.accessibilityText(of: error))
+            guard let errorObservation = ChatSearchLiveQATerminalObservationPolicy.observe(
+                isLoading: { self.isAnySearchLoading(in: app) },
+                elementExists: { error.exists },
+                value: { self.accessibilityText(of: error) }
+            ) else {
+                emptyTracker.reset()
+                return false
+            }
+            if errorObservation.exists {
+                resolved = .error(errorObservation.value ?? "Search failed.")
                 return true
             }
 
-            if let position = self.position(in: app), !loading {
+            guard let counter = self.counterObservation(in: app) else {
+                emptyTracker.reset()
+                return false
+            }
+
+            if let position = (counter.value ?? [])
+                .compactMap(ChatSearchLiveQACountParser.position(from:))
+                .first {
                 resolved = .results(position)
                 return true
             }
 
+            let legacyEmpty = (counter.value ?? []).contains(where: self.isNoMessagesText)
             let explicitEmpty = self.element(AccessibilityID.resultsEmpty, in: app).exists
-                || self.accessibilityStrings(
-                    of: self.element(AccessibilityID.resultsCount, in: app)
-                ).contains(where: self.isNoMessagesText)
-            let returnedToSubmit = self.element(AccessibilityID.submit, in: app).exists
-            let hasNoResultControls = !self.element(AccessibilityID.viewMode, in: app).exists
-                && !self.element(AccessibilityID.previous, in: app).exists
-                && !self.element(AccessibilityID.next, in: app).exists
-            if !loading,
-               explicitEmpty || (observedLoading && returnedToSubmit && hasNoResultControls) {
+                || legacyEmpty
+            let hasSearchInput = self.element(AccessibilityID.input, in: app).exists
+            let hasResultControls = self.element(AccessibilityID.viewMode, in: app).exists
+                || self.element(AccessibilityID.previous, in: app).exists
+                || self.element(AccessibilityID.next, in: app).exists
+            let loadingAfterProbe = self.isAnySearchLoading(in: app)
+            if emptyTracker.observe(
+                isLoading: loadingAfterProbe,
+                hasExplicitEmpty: explicitEmpty,
+                hasResultsCounter: counter.exists,
+                hasSearchInput: hasSearchInput,
+                hasResultControls: hasResultControls
+            ) {
                 resolved = .empty
                 return true
             }
@@ -587,8 +610,12 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
                     == .init(current: 1, total: expectedTotal)
         }
 
-        let count = element(AccessibilityID.resultsCount, in: app)
-        XCTAssertEqual(ChatSearchLiveQACountParser.messageCount(from: stringValue(of: count)), expectedTotal)
+        guard let countValue = counterObservation(in: app)?.value?.first(where: {
+            ChatSearchLiveQACountParser.messageCount(from: $0) != nil
+        }) else {
+            throw LiveQAError(message: "Stable list result count is unavailable.")
+        }
+        XCTAssertEqual(ChatSearchLiveQACountParser.messageCount(from: countValue), expectedTotal)
 
         // Query only the visible newest prefix. Enumerating every XCUIElement
         // eagerly scrolls/prefetches the table and can itself start MAM paging.
@@ -843,8 +870,22 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
             .filter(\.exists)
     }
 
+    private func counterObservation(
+        in app: XCUIApplication
+    ) -> ChatSearchLiveQATerminalObservationPolicy.Element<[String]>? {
+        let count = element(AccessibilityID.resultsCount, in: app)
+        return ChatSearchLiveQATerminalObservationPolicy.observe(
+            isLoading: { self.isAnySearchLoading(in: app) },
+            elementExists: { count.exists },
+            value: { accessibilityStrings(of: count) }
+        )
+    }
+
     private func position(in app: XCUIApplication) -> ChatSearchLiveQACountParser.Position? {
-        accessibilityStrings(of: element(AccessibilityID.resultsCount, in: app))
+        guard let values = counterObservation(in: app)?.value else {
+            return nil
+        }
+        return values
             .compactMap(ChatSearchLiveQACountParser.position(from:))
             .first
     }
@@ -865,7 +906,7 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
             timeout: ChatSearchLiveQATimeoutPolicy.modeOrCalendarTransition,
             app: app
         ) {
-            self.position(in: app) == expected && !self.isAnySearchLoading(in: app)
+            self.position(in: app) == expected
         }
     }
 

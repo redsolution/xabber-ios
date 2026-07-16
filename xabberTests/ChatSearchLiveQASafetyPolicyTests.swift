@@ -188,6 +188,173 @@ final class ChatSearchLiveQASafetyPolicyTests: XCTestCase {
         )
     }
 
+    func testTerminalObservationSkipsLoadingAndAbsentElementReads() {
+        var loadingReads = 0
+        var existenceReads = 0
+        var valueReads = 0
+        var loading = true
+
+        let loadingObservation = ChatSearchLiveQATerminalObservationPolicy.observe(
+            isLoading: {
+                loadingReads += 1
+                return loading
+            },
+            elementExists: {
+                existenceReads += 1
+                return true
+            },
+            value: {
+                valueReads += 1
+                return ["must not be read"]
+            }
+        )
+
+        XCTAssertNil(loadingObservation)
+        XCTAssertEqual(loadingReads, 1)
+        XCTAssertEqual(existenceReads, 0)
+        XCTAssertEqual(valueReads, 0)
+
+        loading = false
+        let absent = ChatSearchLiveQATerminalObservationPolicy.observe(
+            isLoading: {
+                loadingReads += 1
+                return loading
+            },
+            elementExists: {
+                existenceReads += 1
+                return false
+            },
+            value: {
+                valueReads += 1
+                return ["must not be read"]
+            }
+        )
+
+        XCTAssertEqual(absent?.exists, false)
+        XCTAssertNil(absent?.value)
+        XCTAssertEqual(loadingReads, 3)
+        XCTAssertEqual(existenceReads, 1)
+        XCTAssertEqual(valueReads, 0)
+    }
+
+    func testTerminalObservationReadsExistingElementOnce() {
+        var loadingReads = 0
+        var existenceReads = 0
+        var valueReads = 0
+
+        let observation = ChatSearchLiveQATerminalObservationPolicy.observe(
+            isLoading: {
+                loadingReads += 1
+                return false
+            },
+            elementExists: {
+                existenceReads += 1
+                return true
+            },
+            value: {
+                valueReads += 1
+                return ["1 of 2"]
+            }
+        )
+
+        XCTAssertEqual(observation?.exists, true)
+        XCTAssertEqual(observation?.value, ["1 of 2"])
+        XCTAssertEqual(loadingReads, 3)
+        XCTAssertEqual(existenceReads, 1)
+        XCTAssertEqual(valueReads, 1)
+    }
+
+    func testTerminalObservationRejectsHierarchyThatStartsLoadingDuringProbe() {
+        var loadingStates = [false, false, true]
+        var existenceReads = 0
+        var valueReads = 0
+
+        let observation = ChatSearchLiveQATerminalObservationPolicy.observe(
+            isLoading: { loadingStates.removeFirst() },
+            elementExists: {
+                existenceReads += 1
+                return true
+            },
+            value: {
+                valueReads += 1
+                return ["1 of 2"]
+            }
+        )
+
+        XCTAssertNil(observation)
+        XCTAssertEqual(existenceReads, 1)
+        XCTAssertEqual(valueReads, 1)
+        XCTAssertTrue(loadingStates.isEmpty)
+    }
+
+    func testTerminalEmptyTrackerRequiresStableCounterlessSearchState() {
+        var tracker = ChatSearchLiveQAEmptyStateTracker(requiredStableObservationCount: 2)
+
+        XCTAssertFalse(
+            tracker.observe(
+                isLoading: true,
+                hasExplicitEmpty: false,
+                hasResultsCounter: true,
+                hasSearchInput: true,
+                hasResultControls: false
+            )
+        )
+        XCTAssertFalse(
+            tracker.observe(
+                isLoading: false,
+                hasExplicitEmpty: false,
+                hasResultsCounter: false,
+                hasSearchInput: true,
+                hasResultControls: false
+            )
+        )
+        XCTAssertTrue(
+            tracker.observe(
+                isLoading: false,
+                hasExplicitEmpty: false,
+                hasResultsCounter: false,
+                hasSearchInput: true,
+                hasResultControls: false
+            )
+        )
+        XCTAssertFalse(
+            tracker.observe(
+                isLoading: false,
+                hasExplicitEmpty: false,
+                hasResultsCounter: true,
+                hasSearchInput: true,
+                hasResultControls: false
+            )
+        )
+        XCTAssertFalse(
+            tracker.observe(
+                isLoading: false,
+                hasExplicitEmpty: false,
+                hasResultsCounter: false,
+                hasSearchInput: true,
+                hasResultControls: false
+            )
+        )
+        XCTAssertFalse(
+            tracker.observe(
+                isLoading: true,
+                hasExplicitEmpty: true,
+                hasResultsCounter: false,
+                hasSearchInput: true,
+                hasResultControls: false
+            )
+        )
+        XCTAssertTrue(
+            tracker.observe(
+                isLoading: false,
+                hasExplicitEmpty: true,
+                hasResultsCounter: false,
+                hasSearchInput: true,
+                hasResultControls: true
+            )
+        )
+    }
+
     func testDateJumpScenarioRequiresSecondExactOptInBeforeApplicationCreation() {
         let missing = ChatSearchLiveQASafetyPolicy.dateJumpDecision(
             environment: [ChatSearchLiveQASafetyPolicy.optInEnvironmentKey: "1"],

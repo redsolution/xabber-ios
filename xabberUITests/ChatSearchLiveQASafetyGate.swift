@@ -84,6 +84,67 @@ enum ChatSearchLiveQAElementLookupPolicy {
     }
 }
 
+enum ChatSearchLiveQATerminalObservationPolicy {
+    struct Element<Value> {
+        let exists: Bool
+        let value: Value?
+    }
+
+    static func observe<Value>(
+        isLoading: () -> Bool,
+        elementExists: () -> Bool,
+        value: () -> Value
+    ) -> Element<Value>? {
+        guard !isLoading() else { return nil }
+        let exists = elementExists()
+        guard !isLoading() else { return nil }
+        guard exists else { return Element(exists: false, value: nil) }
+
+        let resolvedValue = value()
+        guard !isLoading() else { return nil }
+        return Element(exists: true, value: resolvedValue)
+    }
+}
+
+struct ChatSearchLiveQAEmptyStateTracker {
+    private let requiredStableObservationCount: Int
+    private(set) var consecutiveCandidateCount = 0
+
+    init(requiredStableObservationCount: Int = 2) {
+        precondition(requiredStableObservationCount > 0)
+        self.requiredStableObservationCount = requiredStableObservationCount
+    }
+
+    mutating func observe(
+        isLoading: Bool,
+        hasExplicitEmpty: Bool,
+        hasResultsCounter: Bool,
+        hasSearchInput: Bool,
+        hasResultControls: Bool
+    ) -> Bool {
+        guard !isLoading else {
+            consecutiveCandidateCount = 0
+            return false
+        }
+        if hasExplicitEmpty {
+            consecutiveCandidateCount = 0
+            return true
+        }
+
+        let isCandidate = !hasResultsCounter
+            && hasSearchInput
+            && !hasResultControls
+        consecutiveCandidateCount = isCandidate
+            ? consecutiveCandidateCount + 1
+            : 0
+        return consecutiveCandidateCount >= requiredStableObservationCount
+    }
+
+    mutating func reset() {
+        consecutiveCandidateCount = 0
+    }
+}
+
 /// Pure, testable authorization policy for live-account search QA.
 ///
 /// Absolute safety contract: this policy never authorizes reset, erase, logout,
