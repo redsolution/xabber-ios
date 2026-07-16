@@ -31,6 +31,8 @@ All result opens use the established Xabber anchor pipeline through `ChatOpenMes
 
 Calendar selection is a timestamp-navigation feature, not a result filter:
 
+- Month presentation always reserves a six-week visual grid, so the sheet and Done control keep the same height while navigating between four-, five- and six-week months. The model still exposes only real day slots; unused visual space adds no selectable or accessibility elements.
+
 1. The local timestamp resolver first considers displayed detached candidates, then reads the injected Realm configuration off-main.
 2. Encrypted conversations always resolve locally or return no message.
 3. Incomplete regular/group history may return `.needsRemote` with bounded nearest candidates.

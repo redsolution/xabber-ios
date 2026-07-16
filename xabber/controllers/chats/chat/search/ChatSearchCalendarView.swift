@@ -86,12 +86,14 @@ enum ChatSearchCalendarLayout {
         )
         let weekdayY = navigationY + metrics.monthNavigationHeight
         let weekdays = CGRect(x: contentX, y: weekdayY, width: contentWidth, height: metrics.weekdayHeight)
-        let resolvedRows = min(6, max(4, rowCount))
+        // Keep the sheet and Done control stationary while the semantic model
+        // continues to expose only the real four-to-six week rows.
+        let visibleWeekRowCount = 6
         let grid = CGRect(
             x: contentX,
             y: weekdays.maxY,
             width: contentWidth,
-            height: CGFloat(resolvedRows) * metrics.dayHeight
+            height: CGFloat(visibleWeekRowCount) * metrics.dayHeight
         )
         let picker = CGRect(
             x: contentX + 16,

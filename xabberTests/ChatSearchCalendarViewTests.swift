@@ -143,20 +143,48 @@ final class ChatSearchCalendarViewTests: XCTestCase {
         XCTAssertFalse((cell.accessibilityValue ?? "").contains("Today"))
     }
 
-    func testFourThroughSixRowsProduceDynamicUnclippedSheetFrames() {
-        var previousHeight: CGFloat = 0
-        for rows in 4...6 {
-            let frames = ChatSearchCalendarLayout.frames(
-                in: CGRect(x: 0, y: 0, width: 390, height: 844),
-                rowCount: rows,
-                isMonthYearPickerPresented: false,
-                safeAreaInsets: .zero
+    func testFourThroughSixRowMonthsReserveOneStableSixWeekSheetHeight() {
+        for contentSizeCategory in [
+            UIContentSizeCategory.large,
+            .accessibilityExtraExtraExtraLarge
+        ] {
+            let metrics = ChatSearchAdaptiveLayoutPolicy.calendarMetrics(
+                for: contentSizeCategory
             )
-            XCTAssertEqual(frames.grid.height, CGFloat(rows) * 44, accuracy: 0.001)
-            XCTAssertGreaterThan(frames.sheetHeight, previousHeight)
-            XCTAssertLessThanOrEqual(frames.done.maxY, frames.sheetHeight)
-            XCTAssertLessThanOrEqual(frames.sheetHeight, 844)
-            previousHeight = frames.sheetHeight
+            for layoutDirection in [
+                UIUserInterfaceLayoutDirection.leftToRight,
+                .rightToLeft
+            ] {
+                let baseline = ChatSearchCalendarLayout.frames(
+                    in: CGRect(x: 0, y: 0, width: 390, height: 1_200),
+                    rowCount: 6,
+                    isMonthYearPickerPresented: false,
+                    safeAreaInsets: .zero,
+                    layoutDirection: layoutDirection,
+                    contentSizeCategory: contentSizeCategory
+                )
+
+                for rows in 4...6 {
+                    let frames = ChatSearchCalendarLayout.frames(
+                        in: CGRect(x: 0, y: 0, width: 390, height: 1_200),
+                        rowCount: rows,
+                        isMonthYearPickerPresented: false,
+                        safeAreaInsets: .zero,
+                        layoutDirection: layoutDirection,
+                        contentSizeCategory: contentSizeCategory
+                    )
+
+                    XCTAssertEqual(
+                        frames.grid.height,
+                        6 * metrics.dayHeight,
+                        accuracy: 0.001
+                    )
+                    XCTAssertEqual(frames.grid, baseline.grid)
+                    XCTAssertEqual(frames.done, baseline.done)
+                    XCTAssertEqual(frames.sheetHeight, baseline.sheetHeight, accuracy: 0.001)
+                    XCTAssertLessThanOrEqual(frames.done.maxY, frames.sheetHeight)
+                }
+            }
         }
     }
 

@@ -254,6 +254,35 @@ final class ChatSearchCalendarPresentationTests: XCTestCase {
         XCTAssertEqual(controller.calendarView.frame.maxY, controller.view.bounds.maxY, accuracy: 0.001)
     }
 
+    func testNavigatingFromSixWeekToFiveWeekMonthKeepsSheetFrameStable() throws {
+        let controller = makeController(
+            animatorFactory: ManualCalendarAnimatorFactory(),
+            now: makeDate(2026, 8, 15)
+        )
+        let host = CalendarPresentationHost()
+        controller.install(in: host.parent, containerView: host.parent.view)
+        controller.present(
+            generation: 27,
+            animated: false,
+            focusReturnView: nil,
+            isGenerationCurrent: { $0 == 27 }
+        )
+        controller.view.layoutIfNeeded()
+
+        XCTAssertEqual(controller.calendarView.renderedSnapshot?.rowCount, 6)
+        let augustFrame = controller.calendarView.frame
+        let augustDoneFrame = controller.calendarView.doneButton.frame
+
+        controller.calendarView.nextButton.sendActions(for: .touchUpInside)
+        controller.view.layoutIfNeeded()
+
+        XCTAssertEqual(controller.calendarView.renderedSnapshot?.rowCount, 5)
+        XCTAssertEqual(controller.calendarView.frame, augustFrame)
+        XCTAssertEqual(controller.calendarView.frame.minY, augustFrame.minY, accuracy: 0.001)
+        XCTAssertEqual(controller.calendarView.frame.maxY, augustFrame.maxY, accuracy: 0.001)
+        XCTAssertEqual(controller.calendarView.doneButton.frame, augustDoneFrame)
+    }
+
     func testLifecycleInterruptionSettlesPresentedAndDismissedWithoutOrphanOverlay() {
         let factory = ManualCalendarAnimatorFactory()
         let controller = makeController(animatorFactory: factory)
@@ -366,13 +395,14 @@ final class ChatSearchCalendarPresentationTests: XCTestCase {
     }
 
     private func makeController(
-        animatorFactory: ChatSearchModeAnimatorFactory
+        animatorFactory: ChatSearchModeAnimatorFactory,
+        now: Date? = nil
     ) -> ChatSearchCalendarViewController {
         ChatSearchCalendarViewController(
             model: ChatSearchCalendarModel(
                 calendar: makeCalendar(),
                 locale: Locale(identifier: "en_US_POSIX"),
-                clock: CalendarPresentationClock(now: makeDate(2026, 7, 13))
+                clock: CalendarPresentationClock(now: now ?? makeDate(2026, 7, 13))
             ),
             animationSpec: .production,
             animatorFactory: animatorFactory,
