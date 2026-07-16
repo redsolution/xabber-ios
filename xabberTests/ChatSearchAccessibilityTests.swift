@@ -177,7 +177,28 @@ final class ChatSearchAccessibilityTests: XCTestCase {
 
         panel.applyRenderState(.loading, surfaceMode: .chat, animated: false)
         XCTAssertNil(panel.counterLabel.accessibilityValue)
+        XCTAssertNil(panel.counterLabel.text)
+        XCTAssertTrue(panel.counterLabel.accessibilityElementsHidden)
+        XCTAssertFalse(panel.counterLabel.isAccessibilityElement)
+        XCTAssertEqual(
+            accessibilityIDs(in: panel),
+            [ChatSearchAccessibilityIdentifier.calendarButton]
+        )
         XCTAssertTrue(panel.viewModeButton.accessibilityElementsHidden)
+
+        panel.applyRenderState(
+            .results(current: -1, total: 3, isLoadingContext: false),
+            surfaceMode: .chat,
+            animated: false
+        )
+        XCTAssertEqual(panel.counterLabel.accessibilityValue, "3 messages")
+        XCTAssertEqual(
+            accessibilityIDs(in: panel),
+            [
+                ChatSearchAccessibilityIdentifier.calendarButton,
+                ChatSearchAccessibilityIdentifier.resultsCount
+            ]
+        )
 
         panel.applyRenderState(
             .results(current: 0, total: 3, isLoadingContext: false),
@@ -202,7 +223,14 @@ final class ChatSearchAccessibilityTests: XCTestCase {
         try assertLocalizedButton(panel.viewModeButton)
 
         panel.applyRenderState(.emptyResults, surfaceMode: .chat, animated: false)
-        XCTAssertEqual(panel.counterLabel.accessibilityValue, "No messages")
+        XCTAssertNil(panel.counterLabel.accessibilityValue)
+        XCTAssertNil(panel.counterLabel.text)
+        XCTAssertTrue(panel.counterLabel.accessibilityElementsHidden)
+        XCTAssertFalse(panel.counterLabel.isAccessibilityElement)
+        XCTAssertEqual(
+            accessibilityIDs(in: panel),
+            [ChatSearchAccessibilityIdentifier.calendarButton]
+        )
         XCTAssertTrue(panel.viewModeButton.accessibilityElementsHidden)
     }
 

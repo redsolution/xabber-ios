@@ -6,16 +6,17 @@ Xabber's UIKit chat screen provides a Telegram-style search mode implemented ind
 
 The observable contract is:
 
-- The top search surface is 60 pt high. Its field and close action are 44 pt high with 16 pt base horizontal insets and an 8 pt gap. The leading magnifier keeps a 44×44 hit target, 8 pt leading content inset and strict `0 pt` vertical offset (`top=0`, `bottom=0`).
-- Text input is query/generation scoped. Empty or replaced queries invalidate pending provider, navigation and presentation work.
+- The top search surface is 60 pt high. Its field and close action are 44 pt high with 16 pt base horizontal insets and an 8 pt gap. The decorative leading magnifier uses a 44×44 layout slot, an 8 pt leading content inset and strict `0 pt` vertical offset (`top=0`, `bottom=0`); it has no tap or VoiceOver action.
+- Editing changes only `draftQuery`. The submitted `query`, results, timeline highlighting and committed selection stay unchanged until Search is pressed on the keyboard. Search resigns the field, submits exactly once and invalidates work for the previous query generation. An empty submission clears the presentation without calling a provider; Clear immediately clears both the draft and the current results.
 - Chat mode shows the committed match as `current of total`, with upper=older and lower=newer 40 pt arrows separated by 12 pt. Boundaries are disabled and never wrap.
+- Idle, loading, empty and error states show only a 40×40 pt circular calendar surface. Its glyph fits within 24×24 pt while the real hit and accessibility target remains at least 44×44 pt. The first positive result expands the surface to a 144 pt capsule and shows `N messages`; only successful timeline positioning changes it to `current of total`. `No messages` is never rendered or exposed to accessibility.
 - `Show as List` presents detached results newest-first. Rows show avatar, semibold sender, one-line plain snippet, date and an outgoing delivery status where applicable. Yellow match highlighting belongs to the timeline only.
 - `Show as Chat` restores the committed timeline result. Interactive list dragging may dismiss the keyboard; ordinary chat/list toggles preserve reducer-owned keyboard intent.
 - Calendar X closes only the calendar and restores its chat/list origin, query, results and committed selection without automatically restoring the keyboard. Calendar Done exits search/list mode and navigates to the message resolved for the selected timestamp; it does not filter the text result set to a date range.
 
 ## State, results and provider ownership
 
-One active `ChatSearchPresentationState`/session generation owns query text, detached results, committed selection, provider terminal state, loading, chat/list/calendar origin and keyboard intent. UI transitions consume reducer output rather than inferring state from view visibility.
+One active `ChatSearchPresentationState`/session generation owns the independent draft and submitted query, detached results, committed selection, provider terminal state, loading, chat/list/calendar origin and keyboard intent. Reducer events that navigate or change presentation preserve the draft, and UI transitions consume reducer output rather than inferring state from view visibility.
 
 Provider boundaries are fixed:
 
@@ -42,10 +43,11 @@ Timestamp resolution does not mutate normal archive coverage, history cursors or
 
 All new motion consumes the injectable `ChatSearchAnimationSpec`:
 
-- Search chrome uses the shared 0.30 s spring; counter digits use a directional 0.25 s transition.
+- Search chrome uses the shared 0.30 s spring. The calendar-only surface expands or collapses with an interruptible 0.30 s spring plus synchronized counter alpha; repeated count/index updates do not start another animation.
+- Counter text changes atomically only after positioning is committed. It has no digit transition, vertical movement or independent animation channel. Result navigation performs one normal animated `scrollToItem` and never applies a preliminary content-offset jump.
 - List presentation uses scale 0.95→1.0 over 0.40 s and blur 30→0 over 0.20 s; dismissal uses 0.30 s.
 - Calendar presentation/dismissal and month travel use the shared plans, including a 0.30 s month transition.
-- Reduce Motion uses short alpha-only transitions and still applies final state. Reduce Transparency removes blur in favor of an opaque system treatment.
+- Reduce Motion applies capsule geometry immediately and uses only a short counter alpha transition while still applying final state. Reduce Transparency removes blur in favor of an opaque system treatment. Runtime accessibility-setting changes re-resolve the production animation specification.
 
 Controls keep localized labels, deterministic semantic order and at least 44 pt hit targets. Layout mirrors in RTL, supports Dynamic Type growth and maintains bottom controls above the keyboard. UIKit presentation uses public `UIVisualEffectView`/snapshot/property-animation paths only; private filters and private Apple APIs are prohibited.
 

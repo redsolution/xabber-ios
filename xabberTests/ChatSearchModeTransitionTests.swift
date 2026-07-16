@@ -62,6 +62,46 @@ final class ChatSearchModeTransitionTests: XCTestCase {
         XCTAssertEqual(spec.monthSwipe.timing.duration, 0.30)
     }
 
+    func testBottomCapsuleSpecUsesSpringGeometryAndReduceMotionAlphaOnly() {
+        let production = ChatSearchAnimationSpec.production.bottomCapsule
+        XCTAssertEqual(production.geometry.duration, 0.30, accuracy: 0.0001)
+        XCTAssertEqual(production.textAlpha.duration, 0.30, accuracy: 0.0001)
+        XCTAssertEqual(production.geometry.curve, production.textAlpha.curve)
+        guard case .spring = production.geometry.curve else {
+            return XCTFail("Normal capsule geometry must use an interruptible spring")
+        }
+
+        let reduced = ChatSearchAnimationSpec.production.resolved(
+            for: .init(reduceMotion: true, reduceTransparency: false)
+        ).bottomCapsule
+        XCTAssertEqual(reduced.geometry.duration, 0, accuracy: 0.0001)
+        XCTAssertEqual(reduced.textAlpha.duration, 0.15, accuracy: 0.0001)
+        XCTAssertEqual(reduced.textAlpha.curve, .easeOut)
+    }
+
+    func testProductionPanelKeepsUnresolvedMotionBaseAndRestoresSpringAfterReduceMotion() {
+        let launchedReduced = ModernXabberInputView.SearchPanel.productionAnimationSpecs(
+            for: .init(reduceMotion: true, reduceTransparency: false)
+        )
+        XCTAssertEqual(launchedReduced.base, .production)
+        XCTAssertTrue(launchedReduced.active.isReducedMotion)
+        XCTAssertFalse(
+            launchedReduced.base.resolved(
+                for: .init(reduceMotion: false, reduceTransparency: false)
+            ).isReducedMotion
+        )
+
+        let panel = ModernXabberInputView.SearchPanel(
+            frame: CGRect(x: 0, y: 0, width: 358, height: 40),
+            animationSpec: .production
+        )
+        panel.applyAdaptiveEnvironment(.standard.replacing(reduceMotion: true))
+        XCTAssertTrue(panel.animationSpec.isReducedMotion)
+        panel.applyAdaptiveEnvironment(.standard.replacing(reduceMotion: false))
+        XCTAssertFalse(panel.animationSpec.isReducedMotion)
+        XCTAssertEqual(panel.animationSpec.bottomCapsule.geometry.duration, 0.30, accuracy: 0.001)
+    }
+
     func testReduceMotionUsesOnlyShortChromeFade() throws {
         let reduced = ChatSearchAnimationSpec.production.resolved(
             for: .init(reduceMotion: true, reduceTransparency: false)
@@ -249,6 +289,95 @@ final class ChatSearchModeTransitionTests: XCTestCase {
         )
         XCTAssertEqual(panel.counterLabel.text, "1 of 3")
         XCTAssertNil(panel.counterLabel.layer.animationKeys())
+    }
+
+    func testBottomCapsuleTransitionInterruptsRapidReversalAndDoesNotRestartForCountChanges() {
+        let factory = ManualSearchMotionAnimatorFactory()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let root = UIViewController()
+        let panel = ModernXabberInputView.SearchPanel(
+            frame: CGRect(x: 16, y: 790, width: 358, height: 40),
+            animationSpec: .production,
+            localization: ChatSearchLocalization(locale: Locale(identifier: "en"), bundle: .main),
+            capsuleAnimatorFactory: factory
+        )
+        window.rootViewController = root
+        root.view.addSubview(panel)
+        window.makeKeyAndVisible()
+        panel.layoutIfNeeded()
+
+        panel.applyRenderState(
+            .results(current: -1, total: 3, isLoadingContext: false),
+            surfaceMode: .chat,
+            animated: true
+        )
+        XCTAssertEqual(factory.animators.count, 1)
+        XCTAssertEqual(factory.animators[0].timing, ChatSearchAnimationSpec.production.bottomCapsule.geometry)
+        XCTAssertTrue(panel.isCapsuleTransitioning)
+
+        panel.applyRenderState(
+            .results(current: 0, total: 3, isLoadingContext: false),
+            surfaceMode: .chat,
+            animated: true
+        )
+        XCTAssertEqual(factory.animators.count, 1)
+        XCTAssertEqual(panel.counterLabel.text, "1 of 3")
+
+        panel.applyRenderState(.emptyResults, surfaceMode: .chat, animated: true)
+        XCTAssertEqual(factory.animators.count, 2)
+        XCTAssertTrue(factory.animators[0].wasStopped)
+        panel.applyRenderState(
+            .results(current: -1, total: 3, isLoadingContext: false),
+            surfaceMode: .chat,
+            animated: true
+        )
+        XCTAssertEqual(factory.animators.count, 3)
+        XCTAssertTrue(factory.animators[1].wasStopped)
+
+        factory.finishAllIncludingStopped()
+
+        XCTAssertFalse(panel.isCapsuleTransitioning)
+        XCTAssertEqual(panel.capsuleTransitionCount, 3)
+        XCTAssertEqual(panel.leadingSurfaceView.bounds.width, 144, accuracy: 0.001)
+        XCTAssertEqual(panel.counterLabel.text, "3 messages")
+        XCTAssertEqual(panel.counterLabel.alpha, 1, accuracy: 0.001)
+        XCTAssertNil(panel.counterLabel.layer.animationKeys())
+        window.isHidden = true
+    }
+
+    func testReduceMotionAppliesCapsuleGeometryImmediatelyAndAnimatesOnlyShortAlpha() {
+        let reduced = ChatSearchAnimationSpec.production.resolved(
+            for: .init(reduceMotion: true, reduceTransparency: false)
+        )
+        let factory = ManualSearchMotionAnimatorFactory()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let root = UIViewController()
+        let panel = ModernXabberInputView.SearchPanel(
+            frame: CGRect(x: 16, y: 790, width: 358, height: 40),
+            animationSpec: reduced,
+            localization: ChatSearchLocalization(locale: Locale(identifier: "en"), bundle: .main),
+            capsuleAnimatorFactory: factory
+        )
+        window.rootViewController = root
+        root.view.addSubview(panel)
+        window.makeKeyAndVisible()
+        panel.layoutIfNeeded()
+        XCTAssertEqual(panel.leadingSurfaceView.bounds.width, 40, accuracy: 0.001)
+
+        panel.applyRenderState(
+            .results(current: -1, total: 2, isLoadingContext: false),
+            surfaceMode: .chat,
+            animated: true
+        )
+
+        XCTAssertEqual(panel.leadingSurfaceView.bounds.width, 144, accuracy: 0.001)
+        XCTAssertEqual(factory.animators.count, 1)
+        XCTAssertEqual(factory.animators[0].timing, reduced.bottomCapsule.textAlpha)
+        XCTAssertTrue(panel.isCapsuleTransitioning)
+        factory.finishPending()
+        XCTAssertFalse(panel.isCapsuleTransitioning)
+        XCTAssertEqual(panel.counterLabel.alpha, 1, accuracy: 0.001)
+        window.isHidden = true
     }
 
     func testNavigationFeedbackIsPreparedBeforeWorkAndEmittedOnlyAfterMatchingSuccess() {

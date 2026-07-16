@@ -8,6 +8,33 @@
 
 import UIKit
 
+final class ChatSearchExpandedHitButton: UIButton {
+    var expandedHitFrameInSuperview: CGRect {
+        ChatSearchAdaptiveLayoutPolicy.accessibilityHitFrame(for: frame)
+    }
+
+    override var accessibilityFrame: CGRect {
+        get {
+            guard window != nil, let superview else {
+                return super.accessibilityFrame
+            }
+            return superview.convert(expandedHitFrameInSuperview, to: nil)
+        }
+        set {
+            super.accessibilityFrame = newValue
+        }
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard !isHidden, isUserInteractionEnabled, isEnabled, alpha > 0.01 else {
+            return false
+        }
+        return ChatSearchAdaptiveLayoutPolicy
+            .accessibilityHitFrame(for: bounds)
+            .contains(point)
+    }
+}
+
 struct ChatSearchAdaptiveEnvironment: Equatable {
     let contentSizeCategory: UIContentSizeCategory
     let layoutDirection: UIUserInterfaceLayoutDirection

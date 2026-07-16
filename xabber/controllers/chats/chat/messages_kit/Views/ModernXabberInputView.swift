@@ -454,6 +454,11 @@ class ModernXabberInputView: UIView {
     }
 
     class SearchPanel: UIView {
+        private struct ActiveCapsuleTransition {
+            let token: Int
+            let finalState: ChatSearchBottomActionBarLayout.LeadingState
+            let animator: ChatSearchModeAnimating
+        }
         
         enum State {
             case empty
@@ -499,6 +504,13 @@ class ModernXabberInputView: UIView {
             case list
         }
 
+        static func productionAnimationSpecs(
+            for preferences: ChatSearchAnimationSpec.AccessibilityPreferences
+        ) -> (base: ChatSearchAnimationSpec, active: ChatSearchAnimationSpec) {
+            let base = ChatSearchAnimationSpec.production
+            return (base, base.resolved(for: preferences))
+        }
+
         var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular {
             didSet {
                 if self.conversationType == .omemo {
@@ -516,9 +528,16 @@ class ModernXabberInputView: UIView {
         private var lastTotalResults: Int = 0
         private(set) var surfaceMode: SurfaceMode = .chat
         private var baseAnimationSpec: ChatSearchAnimationSpec
-        private var animationSpec: ChatSearchAnimationSpec
+        private(set) var animationSpec: ChatSearchAnimationSpec
+        private let capsuleAnimatorFactory: ChatSearchModeAnimatorFactory
+        private var activeCapsuleTransition: ActiveCapsuleTransition?
+        private var capsuleTransitionToken = 0
+        private var desiredCounterText: String?
         private let localization: ChatSearchLocalization
         private let countFormatter: ChatSearchBottomCountFormatter
+        private(set) var leadingLayoutState: ChatSearchBottomActionBarLayout.LeadingState = .calendarOnly
+        private(set) var capsuleTransitionCount = 0
+        private(set) var isCapsuleTransitioning = false
         private(set) var adaptiveEnvironment = ChatSearchAdaptiveEnvironment.standard
         private(set) var adaptiveSurfaceStyle = ChatSearchAdaptiveAppearance.surfaceStyle(
             for: .standard
@@ -547,8 +566,8 @@ class ModernXabberInputView: UIView {
         var surfaceView: UIVisualEffectView { leadingSurfaceView }
 
         let calendarButton: UIButton = {
-            let button = UIButton(type: .system)
-            button.setImage(imageLiteral("calendar", dimension: 20), for: .normal)
+            let button = ChatSearchExpandedHitButton(type: .system)
+            button.setImage(imageLiteral("calendar", dimension: 19.5), for: .normal)
             button.tintColor = NativeGlassBarStyle.iconTintColor
             button.accessibilityIdentifier = ChatSearchAccessibilityIdentifier.calendarButton
             return button
@@ -631,13 +650,15 @@ class ModernXabberInputView: UIView {
 
         override init(frame: CGRect) {
             let localization = ChatSearchLocalization.production()
-            self.animationSpec = ChatSearchAnimationSpec.production.resolved(
+            let animationSpecs = Self.productionAnimationSpecs(
                 for: .init(
                     reduceMotion: UIAccessibility.isReduceMotionEnabled,
                     reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
                 )
             )
-            self.baseAnimationSpec = self.animationSpec
+            self.animationSpec = animationSpecs.active
+            self.baseAnimationSpec = animationSpecs.base
+            self.capsuleAnimatorFactory = UIKitChatSearchModeAnimatorFactory()
             self.localization = localization
             self.countFormatter = ChatSearchBottomCountFormatter(localization: localization)
             super.init(frame: frame)
@@ -647,10 +668,12 @@ class ModernXabberInputView: UIView {
         init(
             frame: CGRect,
             animationSpec: ChatSearchAnimationSpec,
-            localization: ChatSearchLocalization = .production()
+            localization: ChatSearchLocalization = .production(),
+            capsuleAnimatorFactory: ChatSearchModeAnimatorFactory = UIKitChatSearchModeAnimatorFactory()
         ) {
             self.animationSpec = animationSpec
             self.baseAnimationSpec = animationSpec
+            self.capsuleAnimatorFactory = capsuleAnimatorFactory
             self.localization = localization
             self.countFormatter = ChatSearchBottomCountFormatter(localization: localization)
             super.init(frame: frame)
@@ -659,17 +682,24 @@ class ModernXabberInputView: UIView {
         
         required init?(coder: NSCoder) {
             let localization = ChatSearchLocalization.production()
-            self.animationSpec = ChatSearchAnimationSpec.production.resolved(
+            let animationSpecs = Self.productionAnimationSpecs(
                 for: .init(
                     reduceMotion: UIAccessibility.isReduceMotionEnabled,
                     reduceTransparency: UIAccessibility.isReduceTransparencyEnabled
                 )
             )
-            self.baseAnimationSpec = self.animationSpec
+            self.animationSpec = animationSpecs.active
+            self.baseAnimationSpec = animationSpecs.base
+            self.capsuleAnimatorFactory = UIKitChatSearchModeAnimatorFactory()
             self.localization = localization
             self.countFormatter = ChatSearchBottomCountFormatter(localization: localization)
             super.init(coder: coder)
             self.setup()
+        }
+
+        deinit {
+            activeCapsuleTransition?.animator.stopAnimation(true)
+            NotificationCenter.default.removeObserver(self)
         }
 
         override var intrinsicContentSize: CGSize {
@@ -681,7 +711,8 @@ class ModernXabberInputView: UIView {
             let frames = ChatSearchBottomActionBarLayout.frames(
                 in: bounds,
                 safeAreaInsets: safeAreaInsets,
-                layoutDirection: adaptiveEnvironment.layoutDirection
+                layoutDirection: adaptiveEnvironment.layoutDirection,
+                leadingState: leadingLayoutState
             )
             leadingSurfaceView.frame = frames.leadingCapsule
             trailingSurfaceView.frame = frames.trailingCapsule
@@ -697,6 +728,18 @@ class ModernXabberInputView: UIView {
         override func safeAreaInsetsDidChange() {
             super.safeAreaInsetsDidChange()
             setNeedsLayout()
+        }
+
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+            super.point(inside: point, with: event) ||
+                expandedCalendarHitView(for: point, with: event) != nil
+        }
+
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            if let calendarHit = expandedCalendarHitView(for: point, with: event) {
+                return calendarHit
+            }
+            return super.hitTest(point, with: event)
         }
 
         override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -831,22 +874,22 @@ class ModernXabberInputView: UIView {
             }
 
             let hasCommittedCurrentResult = current >= 0 && current < total
-            let counterText: String
-            if newSurfaceMode == .chat && hasCommittedCurrentResult {
-                counterText = countFormatter.current(current, total: total)
+            let hasResults = total > 0
+            let counterText: String?
+            if hasResults {
+                if newSurfaceMode == .chat && hasCommittedCurrentResult {
+                    counterText = countFormatter.current(current, total: total)
+                } else {
+                    counterText = countFormatter.messages(total: total)
+                }
             } else {
-                counterText = countFormatter.messages(total: total)
+                counterText = nil
             }
+            desiredCounterText = counterText
             counterLabel.layer.removeAnimation(forKey: "chat-search-counter")
-            counterLabel.text = counterText
-            switch newState {
-            case .emptyResults:
-                counterLabel.accessibilityValue = counterText
-            case .results where hasCommittedCurrentResult:
-                counterLabel.accessibilityValue = counterText
-            case .idle, .loading, .results:
-                counterLabel.accessibilityValue = nil
-            }
+            counterLabel.accessibilityValue = counterText
+            counterLabel.accessibilityElementsHidden = !hasResults
+            counterLabel.isAccessibilityElement = hasResults
 
             let viewModeTitle: String
             switch newSurfaceMode {
@@ -864,12 +907,18 @@ class ModernXabberInputView: UIView {
             viewModeButton.accessibilityElementsHidden = !hasCommittedCurrentResult
             calendarButton.isHidden = false
             calendarButton.isEnabled = true
-            counterLabel.isHidden = false
 
             cancelButton.isHidden = true
             stopLoadingIndicator()
-            updateAccessibilityOrder(hasCommittedCurrentResult: hasCommittedCurrentResult)
-            setNeedsLayout()
+            updateAccessibilityOrder(
+                showsCounter: hasResults,
+                hasCommittedCurrentResult: hasCommittedCurrentResult
+            )
+            transitionLeadingCapsule(
+                to: hasResults ? .results : .calendarOnly,
+                counterText: counterText,
+                animated: animated
+            )
         }
 
         func setSurfaceMode(_ newSurfaceMode: SurfaceMode, animated: Bool) {
@@ -878,6 +927,7 @@ class ModernXabberInputView: UIView {
         }
 
         func updateAnimationSpec(_ animationSpec: ChatSearchAnimationSpec) {
+            settleCapsuleTransitionIfNeeded()
             self.baseAnimationSpec = animationSpec
             self.animationSpec = animationSpec
         }
@@ -892,6 +942,7 @@ class ModernXabberInputView: UIView {
             animationSpec = baseAnimationSpec.resolved(
                 for: environment.animationPreferences
             )
+            settleCapsuleTransitionIfNeeded()
             counterLabel.font = ChatSearchAdaptiveLayoutPolicy.scaledFont(
                 baseSize: 14,
                 weight: .regular,
@@ -942,12 +993,176 @@ class ModernXabberInputView: UIView {
             self.activityIndicator.isHidden = true
         }
 
-        private func updateAccessibilityOrder(hasCommittedCurrentResult: Bool) {
-            var elements: [Any] = [calendarButton, counterLabel]
+        private func updateAccessibilityOrder(
+            showsCounter: Bool,
+            hasCommittedCurrentResult: Bool
+        ) {
+            var elements: [Any] = [calendarButton]
+            if showsCounter {
+                elements.append(counterLabel)
+            }
             if hasCommittedCurrentResult {
                 elements.append(viewModeButton)
             }
             accessibilityElements = elements
+        }
+
+        private func transitionLeadingCapsule(
+            to finalState: ChatSearchBottomActionBarLayout.LeadingState,
+            counterText: String?,
+            animated: Bool
+        ) {
+            let stateChanged = leadingLayoutState != finalState
+            guard stateChanged else {
+                if activeCapsuleTransition != nil {
+                    if animated {
+                        if finalState == .results {
+                            counterLabel.text = counterText
+                            counterLabel.isHidden = false
+                        }
+                        return
+                    }
+                    interruptActiveCapsuleTransition(preservingPresentationState: false)
+                }
+                applyFinalCapsuleState(finalState, counterText: counterText)
+                return
+            }
+
+            layoutIfNeeded()
+            let interruptedTransition = activeCapsuleTransition != nil
+            interruptActiveCapsuleTransition(preservingPresentationState: true)
+            leadingLayoutState = finalState
+            capsuleTransitionToken &+= 1
+            let token = capsuleTransitionToken
+            let transition = animationSpec.bottomCapsule
+            let shouldAnimateGeometry = animated && window != nil && transition.geometry.duration > 0
+            let shouldAnimateText = animated && window != nil && transition.textAlpha.duration > 0
+
+            guard shouldAnimateGeometry || shouldAnimateText else {
+                applyFinalCapsuleState(finalState, counterText: counterText)
+                return
+            }
+
+            if finalState == .results {
+                counterLabel.text = counterText
+                counterLabel.isHidden = false
+                if !interruptedTransition {
+                    counterLabel.alpha = 0
+                }
+            } else {
+                counterLabel.isHidden = false
+            }
+
+            setNeedsLayout()
+            if !shouldAnimateGeometry {
+                layoutIfNeeded()
+            }
+
+            let targetAlpha: CGFloat = finalState == .results ? 1 : 0
+            if !shouldAnimateText {
+                counterLabel.alpha = targetAlpha
+            }
+            let timing = shouldAnimateGeometry ? transition.geometry : transition.textAlpha
+            let animator = capsuleAnimatorFactory.makeAnimator(timing: timing) { [weak self] in
+                guard let self else { return }
+                if shouldAnimateGeometry {
+                    self.layoutIfNeeded()
+                }
+                if shouldAnimateText {
+                    self.counterLabel.alpha = targetAlpha
+                }
+            }
+            let activeTransition = ActiveCapsuleTransition(
+                token: token,
+                finalState: finalState,
+                animator: animator
+            )
+            activeCapsuleTransition = activeTransition
+            isCapsuleTransitioning = true
+            capsuleTransitionCount += 1
+            animator.addCompletion { [weak self] _ in
+                guard let self,
+                      self.activeCapsuleTransition?.token == token else {
+                    return
+                }
+                self.activeCapsuleTransition = nil
+                self.isCapsuleTransitioning = false
+                self.applyFinalCapsuleState(finalState, counterText: self.desiredCounterText)
+            }
+            animator.startAnimation()
+        }
+
+        private func interruptActiveCapsuleTransition(
+            preservingPresentationState: Bool
+        ) {
+            guard let activeCapsuleTransition else { return }
+            let presentedFrame = preservingPresentationState
+                ? leadingSurfaceView.layer.presentation()?.frame
+                : nil
+            let presentedAlpha = preservingPresentationState
+                ? counterLabel.layer.presentation()?.opacity
+                : nil
+
+            capsuleTransitionToken &+= 1
+            activeCapsuleTransition.animator.stopAnimation(true)
+            self.activeCapsuleTransition = nil
+            isCapsuleTransitioning = false
+            leadingSurfaceView.layer.removeAllAnimations()
+            counterLabel.layer.removeAllAnimations()
+
+            if let presentedFrame {
+                leadingSurfaceView.frame = presentedFrame
+            }
+            if let presentedAlpha {
+                counterLabel.alpha = CGFloat(presentedAlpha)
+            }
+        }
+
+        private func applyFinalCapsuleState(
+            _ finalState: ChatSearchBottomActionBarLayout.LeadingState,
+            counterText: String?
+        ) {
+            leadingSurfaceView.layer.removeAllAnimations()
+            counterLabel.layer.removeAllAnimations()
+            setNeedsLayout()
+            layoutIfNeeded()
+
+            switch finalState {
+            case .calendarOnly:
+                counterLabel.text = nil
+                counterLabel.alpha = 0
+                counterLabel.isHidden = true
+            case .results:
+                counterLabel.text = counterText
+                counterLabel.alpha = 1
+                counterLabel.isHidden = false
+            }
+        }
+
+        private func settleCapsuleTransitionIfNeeded() {
+            guard activeCapsuleTransition != nil else { return }
+            interruptActiveCapsuleTransition(preservingPresentationState: false)
+            applyFinalCapsuleState(leadingLayoutState, counterText: desiredCounterText)
+        }
+
+        fileprivate func expandedCalendarHitView(
+            for point: CGPoint,
+            with event: UIEvent?
+        ) -> UIView? {
+            guard !calendarButton.isHidden,
+                  calendarButton.isEnabled,
+                  calendarButton.alpha > 0.01 else {
+                return nil
+            }
+            let buttonPoint = calendarButton.convert(point, from: self)
+            return calendarButton.point(inside: buttonPoint, with: event)
+                ? calendarButton
+                : nil
+        }
+
+        @objc
+        private func accessibilityAnimationPreferencesDidChange() {
+            applyAdaptiveEnvironment(.current(for: self))
         }
         
         @objc
@@ -999,6 +1214,18 @@ class ModernXabberInputView: UIView {
             self.viewModeButton.addTarget(self, action: #selector(onChangeViewStateTouchUp), for: .touchUpInside)
             self.cancelButton.isHidden = true
             self.activityIndicator.isHidden = true
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(accessibilityAnimationPreferencesDidChange),
+                name: UIAccessibility.reduceMotionStatusDidChangeNotification,
+                object: nil
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(accessibilityAnimationPreferencesDidChange),
+                name: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
+                object: nil
+            )
             self.applyAdaptiveEnvironment(.current(for: self))
             self.applyRenderState(.idle, surfaceMode: .chat, animated: false)
         }
@@ -2607,8 +2834,22 @@ class ModernXabberInputView: UIView {
         return self.recordLockButton.hitTest(lockPoint, with: event)
     }
 
+    private func searchPanelExpandedHitView(
+        for point: CGPoint,
+        with event: UIEvent?
+    ) -> UIView? {
+        guard !searchPanel.isHidden,
+              searchPanel.isUserInteractionEnabled,
+              searchPanel.alpha > 0.01 else {
+            return nil
+        }
+        let panelPoint = searchPanel.convert(point, from: self)
+        return searchPanel.expandedCalendarHitView(for: panelPoint, with: event)
+    }
+
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         super.point(inside: point, with: event)
+            || self.searchPanelExpandedHitView(for: point, with: event) != nil
             || self.mentionPanelHitView(for: point, with: event) != nil
             || self.recordLockButtonHitView(for: point, with: event) != nil
             || self.recordButtonPulseHitView(for: point, with: event) != nil
@@ -2621,6 +2862,10 @@ class ModernXabberInputView: UIView {
 
         if let mentionHitView = self.mentionPanelHitView(for: point, with: event) {
             return mentionHitView
+        }
+
+        if let searchHitView = self.searchPanelExpandedHitView(for: point, with: event) {
+            return searchHitView
         }
 
         if let pulseHitView = self.recordButtonPulseHitView(for: point, with: event) {

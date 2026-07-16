@@ -90,7 +90,13 @@ final class ChatSearchCalendarViewTests: XCTestCase {
         var model = makeModel(now: now)
         let today = try XCTUnwrap(model.snapshot.daySlots.first { $0.isToday })
         let selectedCell = ChatSearchCalendarDayCell(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
-        selectedCell.configure(with: today)
+        selectedCell.configure(
+            with: today,
+            localization: ChatSearchLocalization(
+                locale: Locale(identifier: "en_US_POSIX"),
+                bundle: .main
+            )
+        )
 
         XCTAssertFalse(selectedCell.selectionCircleView.isHidden)
         XCTAssertEqual(selectedCell.selectionCircleView.backgroundColor, .systemBlue)
@@ -335,7 +341,11 @@ final class ChatSearchCalendarViewTests: XCTestCase {
             frame: CGRect(x: 0, y: 0, width: width, height: targetHeight),
             snapshot: resolvedSnapshot,
             animationSpec: animationSpec,
-            prefersNativeGlass: prefersNativeGlass
+            prefersNativeGlass: prefersNativeGlass,
+            localization: ChatSearchLocalization(
+                locale: Locale(identifier: "en_US_POSIX"),
+                bundle: .main
+            )
         )
         view.layoutIfNeeded()
         return view

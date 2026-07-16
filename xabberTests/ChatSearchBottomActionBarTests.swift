@@ -47,6 +47,32 @@ final class ChatSearchBottomActionBarTests: XCTestCase {
         XCTAssertEqual(frames.trailingCapsule.maxX, 390, accuracy: 0.001)
     }
 
+    func testLeadingLayoutStateUsesFortyPointCircleOrOneHundredFortyFourPointCapsule() {
+        let bounds = CGRect(x: 0, y: 0, width: 390, height: 40)
+        let calendarOnly = ChatSearchBottomActionBarLayout.frames(
+            in: bounds,
+            safeAreaInsets: .zero,
+            leadingState: .calendarOnly
+        )
+        let results = ChatSearchBottomActionBarLayout.frames(
+            in: bounds,
+            safeAreaInsets: .zero,
+            leadingState: .results
+        )
+        let rightToLeft = ChatSearchBottomActionBarLayout.frames(
+            in: bounds,
+            safeAreaInsets: .zero,
+            layoutDirection: .rightToLeft,
+            leadingState: .calendarOnly
+        )
+
+        XCTAssertEqual(calendarOnly.leadingCapsule.size, CGSize(width: 40, height: 40))
+        XCTAssertEqual(results.leadingCapsule.size, CGSize(width: 144, height: 40))
+        XCTAssertEqual(rightToLeft.leadingCapsule.size, CGSize(width: 40, height: 40))
+        XCTAssertEqual(rightToLeft.leadingCapsule.maxX, bounds.maxX, accuracy: 0.001)
+        XCTAssertFalse(rightToLeft.leadingCapsule.intersects(rightToLeft.trailingCapsule))
+    }
+
     func testRotationAndNarrowSafeAreaNeverOverlapCapsules() {
         for (width, insets) in [
             (390.0, UIEdgeInsets.zero),
@@ -81,9 +107,36 @@ final class ChatSearchBottomActionBarTests: XCTestCase {
             XCTAssertFalse(panel.calendarButton.isHidden)
             XCTAssertTrue(panel.calendarButton.isEnabled)
             XCTAssertEqual(panel.calendarButton.accessibilityIdentifier, "chat_search_calendar_button")
-            XCTAssertGreaterThanOrEqual(panel.calendarButton.bounds.width, 40)
-            XCTAssertGreaterThanOrEqual(panel.calendarButton.bounds.height, 40)
+            XCTAssertEqual(panel.leadingSurfaceView.bounds.height, 40, accuracy: 0.001)
+            XCTAssertGreaterThanOrEqual(panel.calendarButton.chatSearchAccessibilityFrame.width, 44)
+            XCTAssertGreaterThanOrEqual(panel.calendarButton.chatSearchAccessibilityFrame.height, 44)
         }
+    }
+
+    func testCalendarGlyphFitsInsideTwentyFourPointBoundingBox() throws {
+        let panel = makePanel()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let root = UIViewController()
+        window.rootViewController = root
+        root.view.addSubview(panel)
+        panel.frame.origin = CGPoint(x: 16, y: 790)
+        window.makeKeyAndVisible()
+        panel.layoutIfNeeded()
+        defer { window.isHidden = true }
+        let image = try XCTUnwrap(panel.calendarButton.image(for: .normal))
+
+        XCTAssertLessThanOrEqual(image.size.width, 24)
+        XCTAssertLessThanOrEqual(image.size.height, 24)
+        XCTAssertGreaterThan(max(image.size.width, image.size.height), 22)
+        XCTAssertGreaterThanOrEqual(panel.calendarButton.accessibilityFrame.width, 44)
+        XCTAssertGreaterThanOrEqual(panel.calendarButton.accessibilityFrame.height, 44)
+
+        let buttonFrame = panel.calendarButton.convert(panel.calendarButton.bounds, to: panel)
+        let expandedFrame = ChatSearchAdaptiveLayoutPolicy.accessibilityHitFrame(for: buttonFrame)
+        let expandedOnlyPoint = CGPoint(x: expandedFrame.midX, y: buttonFrame.minY - 1)
+        XCTAssertFalse(buttonFrame.contains(expandedOnlyPoint))
+        XCTAssertTrue(expandedFrame.contains(expandedOnlyPoint))
+        XCTAssertIdentical(panel.hitTest(expandedOnlyPoint, with: nil), panel.calendarButton)
     }
 
     func testChatModeShowsCurrentOfTotalAndListModeShowsMessagePlural() {
@@ -135,14 +188,15 @@ final class ChatSearchBottomActionBarTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(panel.viewModeButton.bounds.height, 40)
     }
 
-    func testIdleLoadingAndEmptyClearStaleCountWithoutChangingCapsuleWidth() {
+    func testIdleLoadingAndEmptyCollapseToCalendarOnlyWithoutCounterCopy() {
         let panel = makePanel()
         panel.applyRenderState(
             .results(current: 11, total: 42, isLoadingContext: false),
             surfaceMode: .chat,
             animated: false
         )
-        let resultsWidth = panel.leadingSurfaceView.bounds.width
+        panel.layoutIfNeeded()
+        XCTAssertEqual(panel.leadingSurfaceView.bounds.width, 144, accuracy: 0.001)
 
         for state in [
             ModernXabberInputView.SearchPanel.RenderState.idle,
@@ -152,10 +206,39 @@ final class ChatSearchBottomActionBarTests: XCTestCase {
             panel.applyRenderState(state, surfaceMode: .chat, animated: false)
             panel.layoutIfNeeded()
 
-            XCTAssertEqual(panel.counterLabel.text, "No messages")
-            XCTAssertFalse(panel.counterLabel.isHidden)
-            XCTAssertEqual(panel.leadingSurfaceView.bounds.width, resultsWidth, accuracy: 0.001)
+            XCTAssertNil(panel.counterLabel.text)
+            XCTAssertNil(panel.counterLabel.accessibilityValue)
+            XCTAssertTrue(panel.counterLabel.isHidden)
+            XCTAssertTrue(panel.counterLabel.accessibilityElementsHidden)
+            XCTAssertFalse(panel.counterLabel.isAccessibilityElement)
+            XCTAssertEqual(panel.leadingSurfaceView.bounds.size, CGSize(width: 40, height: 40))
+            XCTAssertEqual(
+                (panel.accessibilityElements ?? []).compactMap { ($0 as? UIView)?.accessibilityIdentifier },
+                [ChatSearchAccessibilityIdentifier.calendarButton]
+            )
         }
+    }
+
+    func testFirstPositiveResultExpandsCapsuleAndShowsCountBeforePositionCommit() {
+        let panel = makePanel()
+        panel.applyRenderState(.emptyResults, surfaceMode: .chat, animated: false)
+        panel.layoutIfNeeded()
+        XCTAssertEqual(panel.leadingSurfaceView.bounds.width, 40, accuracy: 0.001)
+
+        panel.applyRenderState(
+            .results(current: -1, total: 3, isLoadingContext: false),
+            surfaceMode: .chat,
+            animated: false
+        )
+        panel.layoutIfNeeded()
+
+        XCTAssertEqual(panel.leadingSurfaceView.bounds.width, 144, accuracy: 0.001)
+        XCTAssertEqual(panel.counterLabel.text, "3 messages")
+        XCTAssertEqual(panel.counterLabel.accessibilityValue, "3 messages")
+        XCTAssertFalse(panel.counterLabel.isHidden)
+        XCTAssertFalse(panel.counterLabel.accessibilityElementsHidden)
+        XCTAssertTrue(panel.counterLabel.isAccessibilityElement)
+        XCTAssertTrue(panel.trailingSurfaceView.isHidden)
     }
 
     func testCounterChangesAtomicallyWithoutLayerAnimation() {

@@ -21,6 +21,11 @@
 import UIKit
 
 struct ChatSearchBottomActionBarLayout {
+    enum LeadingState: Equatable {
+        case calendarOnly
+        case results
+    }
+
     struct Frames: Equatable {
         let leadingCapsule: CGRect
         let trailingCapsule: CGRect
@@ -35,7 +40,8 @@ struct ChatSearchBottomActionBarLayout {
     static func frames(
         in bounds: CGRect,
         safeAreaInsets: UIEdgeInsets,
-        layoutDirection: UIUserInterfaceLayoutDirection = .leftToRight
+        layoutDirection: UIUserInterfaceLayoutDirection = .leftToRight,
+        leadingState: LeadingState = .results
     ) -> Frames {
         let minimumX = bounds.minX + max(0, safeAreaInsets.left)
         let maximumX = bounds.maxX - max(0, safeAreaInsets.right)
@@ -61,8 +67,11 @@ struct ChatSearchBottomActionBarLayout {
             preferredTrailingWidth,
             availableWidth - minimumSpacing - minimumControlWidth
         )
+        let requestedLeadingWidth = leadingState == .calendarOnly
+            ? minimumControlWidth
+            : preferredLeadingWidth
         let leadingWidth = min(
-            preferredLeadingWidth,
+            requestedLeadingWidth,
             availableWidth - minimumSpacing - trailingWidth
         )
         let leftToRight = Frames(
