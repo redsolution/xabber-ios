@@ -180,7 +180,6 @@ struct ChatSearchAnimationSpec: Equatable, Sendable {
 
     let chromeControls: Transition
     let floatingButtons: Transition
-    let counterDigits: Timing
     let list: ListTransitions
     let calendar: CalendarTransitions
     let monthSwipe: MonthSwipe
@@ -190,7 +189,6 @@ struct ChatSearchAnimationSpec: Equatable, Sendable {
     init(
         chromeControls: Transition,
         floatingButtons: Transition,
-        counterDigits: Timing,
         list: ListTransitions,
         calendar: CalendarTransitions,
         monthSwipe: MonthSwipe,
@@ -199,7 +197,6 @@ struct ChatSearchAnimationSpec: Equatable, Sendable {
     ) {
         self.chromeControls = chromeControls
         self.floatingButtons = floatingButtons
-        self.counterDigits = counterDigits
         self.list = list
         self.calendar = calendar
         self.monthSwipe = monthSwipe
@@ -233,7 +230,6 @@ struct ChatSearchAnimationSpec: Equatable, Sendable {
                 scale: ScalarTransition(from: 0.2, to: 1, timing: floatingSpring),
                 alpha: ScalarTransition(from: 0, to: 1, timing: floatingSpring)
             ),
-            counterDigits: Timing(duration: 0.25, curve: .easeInOut),
             list: ListTransitions(
                 presentation: Transition(
                     scale: ScalarTransition(from: 0.95, to: 1, timing: listSpring),
@@ -297,7 +293,6 @@ struct ChatSearchAnimationSpec: Equatable, Sendable {
             floatingButtons: Transition(
                 alpha: ScalarTransition(from: 0, to: 1, timing: fadeIn)
             ),
-            counterDigits: fadeIn,
             list: ListTransitions(
                 presentation: Transition(
                     alpha: ScalarTransition(from: 0, to: 1, timing: fadeIn)
@@ -330,7 +325,6 @@ struct ChatSearchAnimationSpec: Equatable, Sendable {
         ChatSearchAnimationSpec(
             chromeControls: chromeControls.withoutBlur(),
             floatingButtons: floatingButtons.withoutBlur(),
-            counterDigits: counterDigits,
             list: ListTransitions(
                 presentation: list.presentation.withoutBlur(),
                 dismissal: list.dismissal.withoutBlur()
@@ -351,7 +345,6 @@ struct ChatSearchAnimationSpec: Equatable, Sendable {
         ChatSearchAnimationSpec(
             chromeControls: chromeControls.replacingDuration(with: duration),
             floatingButtons: floatingButtons.replacingDuration(with: duration),
-            counterDigits: counterDigits.replacingDuration(with: duration),
             list: ListTransitions(
                 presentation: list.presentation.replacingDuration(with: duration),
                 dismissal: list.dismissal.replacingDuration(with: duration)

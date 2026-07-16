@@ -772,34 +772,6 @@ struct ChatAnchorExecutionHooks {
     }
 }
 
-enum ChatDirectionalScrollStagingPolicy {
-    static func stagedOffsetY(
-        currentOffsetY: CGFloat,
-        targetOffsetY: CGFloat,
-        direction: ChatViewController.ChatDirection,
-        viewportHeight: CGFloat,
-        minOffsetY: CGFloat,
-        maxOffsetY: CGFloat
-    ) -> CGFloat? {
-        let distance = max(80, min(180, viewportHeight * 0.35))
-        let stagedOffset: CGFloat
-        switch direction {
-        case .up:
-            guard currentOffsetY <= targetOffsetY else {
-                return nil
-            }
-            stagedOffset = min(maxOffsetY, targetOffsetY + distance)
-            return stagedOffset > targetOffsetY ? stagedOffset : nil
-        case .down:
-            guard currentOffsetY >= targetOffsetY else {
-                return nil
-            }
-            stagedOffset = max(minOffsetY, targetOffsetY - distance)
-            return stagedOffset < targetOffsetY ? stagedOffset : nil
-        }
-    }
-}
-
 enum ChatAnchorExecutionAction: Equatable {
     case resolveLocally
     case startRemoteFetch(ChatAnchorRemoteFetchPlan)
@@ -2366,14 +2338,11 @@ extension ChatViewController {
     }
 
     private func currentSearchResultIndexForPanel() -> Int {
-        if let selectedSearchResultId,
-           let selectedIndex = searchMessagesQueue.firstIndex(where: {
-               searchResultItem($0, matchesSelection: selectedSearchResultId)
-           }) {
-            return selectedIndex
+        guard let committedIndex = searchPresentationState.committedResultIndex,
+              searchMessagesQueue.indices.contains(committedIndex) else {
+            return -1
         }
-
-        return searchMessagesQueue.isEmpty ? -1 : 0
+        return committedIndex
     }
 
     private func setSearchResultsPanelContextLoading(_ isLoadingContext: Bool) {
@@ -3200,7 +3169,6 @@ extension ChatViewController {
             archivedId: target.archivedId,
             highlight: request.highlight && !usesTransientHighlight,
             animated: activeHooks?.animatedScroll ?? false,
-            preferredScrollDirection: request.source == .search ? activeHooks?.direction : nil,
             completion: {
                 if usesTransientHighlight {
                     self.applyTransientMessageHighlight(primary: target.primary)
@@ -4375,7 +4343,6 @@ extension ChatViewController {
         archivedId: String? = nil,
         highlight: Bool,
         animated: Bool,
-        preferredScrollDirection: ChatDirection? = nil,
         completion: (() -> Void)? = nil
     ) {
         self.preventHidingDate = true
@@ -4396,11 +4363,6 @@ extension ChatViewController {
         }
         let indexPath = IndexPath(row: 0, section: scrollIndex)
 
-        self.prepareDirectionalSearchScrollIfNeeded(
-            to: indexPath,
-            direction: preferredScrollDirection,
-            animated: animated
-        )
         self.messagesCollectionView.scrollToItem(
             at: indexPath,
             at: .centeredVertically,
@@ -4422,58 +4384,6 @@ extension ChatViewController {
             self.setDatasourceLoadingEnabled(true)
             completion?()
         }
-    }
-
-    private func prepareDirectionalSearchScrollIfNeeded(
-        to indexPath: IndexPath,
-        direction: ChatDirection?,
-        animated: Bool
-    ) {
-        guard animated,
-              let direction else {
-            return
-        }
-
-        self.messagesCollectionView.layoutIfNeeded()
-        guard let targetOffsetY = self.centeredContentOffsetY(for: indexPath) else {
-            return
-        }
-
-        let insets = self.messagesCollectionView.adjustedContentInset
-        let contentHeight = self.messagesCollectionView.collectionViewLayout.collectionViewContentSize.height
-        let viewportHeight = self.messagesCollectionView.bounds.height
-        let minOffsetY = -insets.top
-        let maxOffsetY = max(minOffsetY, contentHeight - viewportHeight + insets.bottom)
-        guard let stagedOffsetY = ChatDirectionalScrollStagingPolicy.stagedOffsetY(
-            currentOffsetY: self.messagesCollectionView.contentOffset.y,
-            targetOffsetY: targetOffsetY,
-            direction: direction,
-            viewportHeight: viewportHeight,
-            minOffsetY: minOffsetY,
-            maxOffsetY: maxOffsetY
-        ) else {
-            return
-        }
-
-        self.messagesCollectionView.setContentOffset(
-            CGPoint(x: self.messagesCollectionView.contentOffset.x, y: stagedOffsetY),
-            animated: false
-        )
-        self.messagesCollectionView.layoutIfNeeded()
-    }
-
-    private func centeredContentOffsetY(for indexPath: IndexPath) -> CGFloat? {
-        guard let attributes = self.messagesCollectionView.layoutAttributesForItem(at: indexPath) else {
-            return nil
-        }
-
-        let insets = self.messagesCollectionView.adjustedContentInset
-        let contentHeight = self.messagesCollectionView.collectionViewLayout.collectionViewContentSize.height
-        let viewportHeight = self.messagesCollectionView.bounds.height
-        let minOffsetY = -insets.top
-        let maxOffsetY = max(minOffsetY, contentHeight - viewportHeight + insets.bottom)
-        let targetOffsetY = attributes.frame.midY - (viewportHeight / 2)
-        return min(max(targetOffsetY, minOffsetY), maxOffsetY)
     }
 
     private func scheduleMentionReadOnVisibleIfNeeded(
@@ -4854,7 +4764,6 @@ extension ChatViewController {
                         archivedId: positionTarget.archivedId,
                         highlight: request.highlight && !usesTransientHighlight,
                         animated: hooks?.animatedScroll ?? false,
-                        preferredScrollDirection: request.source == .search ? hooks?.direction : nil,
                         completion: {
                             if usesTransientHighlight {
                                 self.applyTransientMessageHighlight(primary: positionTarget.primary)

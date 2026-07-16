@@ -1944,7 +1944,10 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
 
         XCTAssertNil(controller.pendingOpenMessageRequest)
         XCTAssertNil(controller.activeAnchorExecutionState)
-        XCTAssertEqual(controller.xabberInputView.searchPanel.counterLabel.text, "1 of 3")
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.counterLabel.text,
+            ChatSearchLocalization.production().currentPosition(zeroBasedIndex: 0, total: 3)
+        )
         XCTAssertTrue(controller.searchNavigationButtonsView.renderState.isBusy)
         XCTAssertTrue(waitForSearchTestCondition {
             controller.searchResultNavigationState == .idle &&
@@ -1984,72 +1987,93 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         )
     }
 
-    func testDirectionalSearchScrollStagingOnlyStagesWhenDirectionWouldBeLost() {
-        XCTAssertNil(
-            ChatDirectionalScrollStagingPolicy.stagedOffsetY(
-                currentOffsetY: 260,
-                targetOffsetY: 200,
-                direction: .up,
-                viewportHeight: 600,
-                minOffsetY: 0,
-                maxOffsetY: 1_000
-            )
+    func testSearchAnchorUsesOneAnimatedScrollWithoutPreScroll() throws {
+        let controller = makeControllerWithSearchResults(count: 30, selectedIndex: 14)
+        let collectionView = SearchNavigationSpyMessagesCollectionView()
+        controller.messagesCollectionView = collectionView
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
+        controller.inSearchMode.accept(true)
+        controller.applyChatDatasource(
+            (0..<30).map { makeDatasource(index: $0) },
+            mode: .fullReload(keepOffset: false),
+            animated: false,
+            suppressDefaultBottomScroll: true
         )
-        XCTAssertNil(
-            ChatDirectionalScrollStagingPolicy.stagedOffsetY(
-                currentOffsetY: 140,
-                targetOffsetY: 200,
-                direction: .down,
-                viewportHeight: 600,
-                minOffsetY: 0,
-                maxOffsetY: 1_000
+        collectionView.layoutIfNeeded()
+
+        let targetIndexPath = IndexPath(row: 0, section: 15)
+        let attributes = try XCTUnwrap(
+            collectionView.layoutAttributesForItem(at: targetIndexPath)
+        )
+        let insets = collectionView.adjustedContentInset
+        let viewportHeight = collectionView.bounds.height
+        let contentHeight = collectionView.collectionViewLayout.collectionViewContentSize.height
+        let minimumOffsetY = -insets.top
+        let maximumOffsetY = max(
+            minimumOffsetY,
+            contentHeight - viewportHeight + insets.bottom
+        )
+        let centeredOffsetY = min(
+            max(attributes.frame.midY - viewportHeight / 2, minimumOffsetY),
+            maximumOffsetY
+        )
+        collectionView.seedContentOffset(
+            CGPoint(x: collectionView.contentOffset.x, y: centeredOffsetY)
+        )
+        collectionView.beginRecording()
+
+        let positioned = expectation(description: "anchor positioned")
+        let failed = expectation(description: "anchor does not fail")
+        failed.isInverted = true
+        controller.queueOpenMessageRequest(
+            makeSearchOpenRequest(controller: controller, index: 15),
+            hooks: ChatAnchorExecutionHooks(
+                direction: .up,
+                animatedScroll: true,
+                onFailed: { failed.fulfill() },
+                onPositioned: { positioned.fulfill() }
             )
         )
 
-        XCTAssertGreaterThan(
-            try XCTUnwrap(ChatDirectionalScrollStagingPolicy.stagedOffsetY(
-                currentOffsetY: 200,
-                targetOffsetY: 200,
-                direction: .up,
-                viewportHeight: 600,
-                minOffsetY: 0,
-                maxOffsetY: 1_000
-            )),
-            200
-        )
-        XCTAssertLessThan(
-            try XCTUnwrap(ChatDirectionalScrollStagingPolicy.stagedOffsetY(
-                currentOffsetY: 200,
-                targetOffsetY: 200,
-                direction: .down,
-                viewportHeight: 600,
-                minOffsetY: 0,
-                maxOffsetY: 1_000
-            )),
-            200
-        )
+        XCTAssertEqual(collectionView.scrollToItemCallCount, 1)
+        XCTAssertEqual(collectionView.explicitSetContentOffsetCallCount, 0)
+        wait(for: [positioned, failed], timeout: 1.0)
     }
 
-    func testDirectionalSearchScrollStagingRespectsContentBounds() {
-        XCTAssertNil(
-            ChatDirectionalScrollStagingPolicy.stagedOffsetY(
-                currentOffsetY: 40,
-                targetOffsetY: 40,
-                direction: .down,
-                viewportHeight: 600,
-                minOffsetY: 40,
-                maxOffsetY: 1_000
-            )
+    func testPanelShowsTotalUntilResultPositioningIsCommitted() {
+        let controller = makeControllerWithSearchResults(count: 3, selectedIndex: 0)
+        var presentation = ChatSearchPresentationState.inactive
+        presentation.reduce(.activate)
+        presentation.reduce(.queryChanged("needle"))
+        presentation.reduce(
+            .resultsReceived(count: 3, generation: presentation.generation)
         )
-        XCTAssertNil(
-            ChatDirectionalScrollStagingPolicy.stagedOffsetY(
-                currentOffsetY: 1_000,
-                targetOffsetY: 1_000,
-                direction: .up,
-                viewportHeight: 600,
-                minOffsetY: 0,
-                maxOffsetY: 1_000
-            )
+        controller.searchPresentationState = presentation
+        controller.selectedSearchResultId = nil
+        controller.loadViewIfNeeded()
+
+        controller.applySearchResultsPanelState()
+
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: -1, total: 3, isLoadingContext: false)
+        )
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.counterLabel.text,
+            ChatSearchLocalization.production().messageCount(3)
+        )
+
+        controller.commitSearchResultNavigationPositioned(index: 0)
+
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: 0, total: 3, isLoadingContext: false)
+        )
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.counterLabel.text,
+            ChatSearchLocalization.production().currentPosition(zeroBasedIndex: 0, total: 3)
         )
     }
 
@@ -2361,6 +2385,40 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
     }
 }
 
+private final class SearchNavigationSpyMessagesCollectionView: MessagesCollectionView {
+    private(set) var scrollToItemCallCount = 0
+    private(set) var explicitSetContentOffsetCallCount = 0
+    private var isRecording = false
+
+    override func scrollToItem(
+        at indexPath: IndexPath,
+        at scrollPosition: UICollectionView.ScrollPosition,
+        animated: Bool
+    ) {
+        if isRecording {
+            scrollToItemCallCount += 1
+        }
+    }
+
+    override func setContentOffset(_ contentOffset: CGPoint, animated: Bool) {
+        if isRecording {
+            explicitSetContentOffsetCallCount += 1
+            return
+        }
+        super.setContentOffset(contentOffset, animated: animated)
+    }
+
+    func seedContentOffset(_ contentOffset: CGPoint) {
+        super.setContentOffset(contentOffset, animated: false)
+    }
+
+    func beginRecording() {
+        scrollToItemCallCount = 0
+        explicitSetContentOffsetCallCount = 0
+        isRecording = true
+    }
+}
+
 @MainActor
 final class ChatSearchArchiveGapRepairTests: XCTestCase {
     private var previousRealmConfiguration: Realm.Configuration!
@@ -2570,7 +2628,7 @@ final class ChatSearchArchiveGapRepairTests: XCTestCase {
         XCTAssertEqual(controller.searchResultNavigationState, .loadingContext(index: 2))
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
-            .results(current: 0, total: 3, isLoadingContext: true)
+            .results(current: -1, total: 3, isLoadingContext: true)
         )
     }
 

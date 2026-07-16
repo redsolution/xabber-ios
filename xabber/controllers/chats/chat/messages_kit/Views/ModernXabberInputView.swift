@@ -499,25 +499,6 @@ class ModernXabberInputView: UIView {
             case list
         }
 
-        enum CounterAnimationMode: Equatable {
-            case verticalPush
-            case crossfade
-        }
-
-        enum CounterDirection: Equatable {
-            case towardOlder
-            case towardNewer
-            case replacement
-        }
-
-        struct CounterTransition: Equatable {
-            let mode: CounterAnimationMode
-            let direction: CounterDirection
-            let duration: TimeInterval
-            let fromText: String
-            let toText: String
-        }
-        
         var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular {
             didSet {
                 if self.conversationType == .omemo {
@@ -542,9 +523,6 @@ class ModernXabberInputView: UIView {
         private(set) var adaptiveSurfaceStyle = ChatSearchAdaptiveAppearance.surfaceStyle(
             for: .standard
         )
-        private(set) var counterTransitionCount = 0
-        private(set) var lastCounterTransition: CounterTransition?
-        
         var shouldShowSeekUpDownButtons: Bool = true
         
         open var onChangeConversationTypeCallback: ((ClientSynchronizationManager.ConversationType) -> Void)? = nil
@@ -832,8 +810,6 @@ class ModernXabberInputView: UIView {
             surfaceMode newSurfaceMode: SurfaceMode,
             animated: Bool
         ) {
-            let previousCurrent = self.lastCurrentResultIndex
-            let previousTotal = self.lastTotalResults
             self.renderState = newState
             self.state = newState.legacyState
             self.surfaceMode = newSurfaceMode
@@ -861,26 +837,8 @@ class ModernXabberInputView: UIView {
             } else {
                 counterText = countFormatter.messages(total: total)
             }
-            let counterDirection: CounterDirection
-            if newSurfaceMode == .chat,
-               hasCommittedCurrentResult,
-               previousCurrent >= 0,
-               previousTotal == total {
-                if current > previousCurrent {
-                    counterDirection = .towardOlder
-                } else if current < previousCurrent {
-                    counterDirection = .towardNewer
-                } else {
-                    counterDirection = .replacement
-                }
-            } else {
-                counterDirection = .replacement
-            }
-            updateCounterText(
-                counterText,
-                direction: counterDirection,
-                animated: animated
-            )
+            counterLabel.layer.removeAnimation(forKey: "chat-search-counter")
+            counterLabel.text = counterText
             switch newState {
             case .emptyResults:
                 counterLabel.accessibilityValue = counterText
@@ -965,70 +923,6 @@ class ModernXabberInputView: UIView {
                 environment: environment
             )
             setNeedsLayout()
-        }
-
-        private func updateCounterText(
-            _ text: String,
-            direction: CounterDirection,
-            animated: Bool
-        ) {
-            let previousText = counterLabel.text ?? ""
-            guard previousText != text else {
-                return
-            }
-
-            guard animated else {
-                counterLabel.text = text
-                lastCounterTransition = nil
-                return
-            }
-
-            let timing = animationSpec.counterDigits
-            let mode: CounterAnimationMode = animationSpec.isReducedMotion
-                ? .crossfade
-                : .verticalPush
-            let transition = CounterTransition(
-                mode: mode,
-                direction: direction,
-                duration: timing.duration,
-                fromText: previousText,
-                toText: text
-            )
-            counterTransitionCount += 1
-            lastCounterTransition = transition
-
-            guard timing.duration > 0 else {
-                counterLabel.text = text
-                return
-            }
-
-            switch mode {
-            case .crossfade:
-                UIView.transition(
-                    with: counterLabel,
-                    duration: timing.duration,
-                    options: [.transitionCrossDissolve, .beginFromCurrentState, .allowUserInteraction],
-                    animations: { [weak self] in
-                        self?.counterLabel.text = text
-                    }
-                )
-            case .verticalPush:
-                let layerTransition = CATransition()
-                layerTransition.type = .push
-                switch direction {
-                case .towardOlder:
-                    layerTransition.subtype = .fromTop
-                case .towardNewer:
-                    layerTransition.subtype = .fromBottom
-                case .replacement:
-                    layerTransition.type = .fade
-                    layerTransition.subtype = nil
-                }
-                layerTransition.duration = timing.duration
-                layerTransition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                counterLabel.layer.add(layerTransition, forKey: "chat-search-counter")
-                counterLabel.text = text
-            }
         }
 
         private func setLegacyLoadingFlag(_ loading: Bool) {

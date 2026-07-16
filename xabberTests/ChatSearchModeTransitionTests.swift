@@ -12,7 +12,7 @@ import UIKit
 
 @MainActor
 final class ChatSearchModeTransitionTests: XCTestCase {
-    func testSharedSpecDefinesSynchronizedChromeArrowAndCounterTiming() throws {
+    func testSharedSpecDefinesSynchronizedChromeAndArrowTiming() throws {
         let spec = ChatSearchAnimationSpec.production
         let chromeScale = try XCTUnwrap(spec.chromeControls.scale)
         let chromeAlpha = try XCTUnwrap(spec.chromeControls.alpha)
@@ -26,8 +26,6 @@ final class ChatSearchModeTransitionTests: XCTestCase {
         XCTAssertEqual(chromeScale.timing.duration, 0.30, accuracy: 0.0001)
         XCTAssertEqual(arrowScale.from, 0.2, accuracy: 0.0001)
         XCTAssertEqual(arrowScale.timing.duration, 0.30, accuracy: 0.0001)
-        XCTAssertEqual(spec.counterDigits.duration, 0.25, accuracy: 0.0001)
-        XCTAssertEqual(spec.counterDigits.curve, .easeInOut)
     }
 
     func testChromePlanReversesInsertionEndpointsForRemoval() throws {
@@ -64,7 +62,7 @@ final class ChatSearchModeTransitionTests: XCTestCase {
         XCTAssertEqual(spec.monthSwipe.timing.duration, 0.30)
     }
 
-    func testReduceMotionUsesOnlyShortChromeAndCounterFades() throws {
+    func testReduceMotionUsesOnlyShortChromeFade() throws {
         let reduced = ChatSearchAnimationSpec.production.resolved(
             for: .init(reduceMotion: true, reduceTransparency: false)
         )
@@ -77,7 +75,6 @@ final class ChatSearchModeTransitionTests: XCTestCase {
 
         XCTAssertNil(plan.transition.scale)
         XCTAssertEqual(try XCTUnwrap(plan.transition.alpha).timing.duration, 0.15)
-        XCTAssertEqual(reduced.counterDigits.duration, 0.15)
         XCTAssertLessThanOrEqual(plan.maximumDuration, 0.20)
     }
 
@@ -225,10 +222,11 @@ final class ChatSearchModeTransitionTests: XCTestCase {
         factory.finishAllIncludingStopped()
     }
 
-    func testCounterUsesQuarterSecondTimingAndSemanticOldNewDirection() throws {
+    func testCounterUpdatesDoNotCreateIndependentMotionChannel() {
         let panel = ModernXabberInputView.SearchPanel(
             frame: CGRect(x: 0, y: 0, width: 358, height: 40),
-            animationSpec: .production
+            animationSpec: .production,
+            localization: ChatSearchLocalization(locale: Locale(identifier: "en"), bundle: .main)
         )
         panel.applyRenderState(
             .results(current: 0, total: 3, isLoadingContext: false),
@@ -241,17 +239,16 @@ final class ChatSearchModeTransitionTests: XCTestCase {
             animated: true
         )
 
-        var transition = try XCTUnwrap(panel.lastCounterTransition)
-        XCTAssertEqual(transition.duration, 0.25, accuracy: 0.001)
-        XCTAssertEqual(transition.direction, .towardOlder)
+        XCTAssertEqual(panel.counterLabel.text, "2 of 3")
+        XCTAssertNil(panel.counterLabel.layer.animationKeys())
 
         panel.applyRenderState(
             .results(current: 0, total: 3, isLoadingContext: false),
             surfaceMode: .chat,
             animated: true
         )
-        transition = try XCTUnwrap(panel.lastCounterTransition)
-        XCTAssertEqual(transition.direction, .towardNewer)
+        XCTAssertEqual(panel.counterLabel.text, "1 of 3")
+        XCTAssertNil(panel.counterLabel.layer.animationKeys())
     }
 
     func testNavigationFeedbackIsPreparedBeforeWorkAndEmittedOnlyAfterMatchingSuccess() {

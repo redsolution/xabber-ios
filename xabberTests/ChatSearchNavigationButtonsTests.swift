@@ -321,7 +321,11 @@ final class ChatSearchNavigationButtonsTests: XCTestCase {
     }
 
     private func makeView() -> ChatSearchNavigationButtonsView {
-        ChatSearchNavigationButtonsView(frame: .zero, animationSpec: .immediate)
+        ChatSearchNavigationButtonsView(
+            frame: .zero,
+            animationSpec: .immediate,
+            localization: ChatSearchLocalization(locale: Locale(identifier: "en"), bundle: .main)
+        )
     }
 
     private func makePresentation(

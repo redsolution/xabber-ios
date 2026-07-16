@@ -103,7 +103,7 @@ final class ChatSearchBottomActionBarTests: XCTestCase {
     }
 
     func testCountFormatterHasLocalizableZeroOneAndPluralForms() {
-        let formatter = ChatSearchBottomCountFormatter()
+        let formatter = ChatSearchBottomCountFormatter(localization: englishLocalization)
 
         XCTAssertEqual(formatter.messages(total: 0), "No messages")
         XCTAssertEqual(formatter.messages(total: 1), "1 message")
@@ -158,30 +158,43 @@ final class ChatSearchBottomActionBarTests: XCTestCase {
         }
     }
 
-    func testCounterTransitionKeepsLabelHierarchyAndUsesReferenceTiming() throws {
+    func testCounterChangesAtomicallyWithoutLayerAnimation() {
         let panel = makePanel(animationSpec: .production)
         panel.applyRenderState(
-            .results(current: 0, total: 3, isLoadingContext: false),
+            .results(current: -1, total: 3, isLoadingContext: false),
             surfaceMode: .chat,
             animated: false
         )
         let labelIdentity = ObjectIdentifier(panel.counterLabel)
-        let transitionCount = panel.counterTransitionCount
+        XCTAssertEqual(panel.counterLabel.text, "3 messages")
+
+        panel.applyRenderState(
+            .results(current: 0, total: 3, isLoadingContext: false),
+            surfaceMode: .chat,
+            animated: true
+        )
+        XCTAssertEqual(ObjectIdentifier(panel.counterLabel), labelIdentity)
+        XCTAssertEqual(panel.counterLabel.text, "1 of 3")
+        XCTAssertNil(panel.counterLabel.layer.animationKeys())
 
         panel.applyRenderState(
             .results(current: 1, total: 3, isLoadingContext: false),
             surfaceMode: .chat,
             animated: true
         )
+        XCTAssertEqual(panel.counterLabel.text, "2 of 3")
+        XCTAssertNil(panel.counterLabel.layer.animationKeys())
 
-        XCTAssertEqual(ObjectIdentifier(panel.counterLabel), labelIdentity)
-        XCTAssertEqual(panel.counterTransitionCount, transitionCount + 1)
-        let transition = try XCTUnwrap(panel.lastCounterTransition)
-        XCTAssertEqual(transition.mode, .verticalPush)
-        XCTAssertEqual(transition.duration, 0.25, accuracy: 0.001)
+        panel.applyRenderState(
+            .results(current: 0, total: 3, isLoadingContext: false),
+            surfaceMode: .chat,
+            animated: true
+        )
+        XCTAssertEqual(panel.counterLabel.text, "1 of 3")
+        XCTAssertNil(panel.counterLabel.layer.animationKeys())
     }
 
-    func testReducedMotionChangesCounterTransitionToCrossfade() throws {
+    func testReducedMotionAlsoChangesCounterWithoutAnimationTail() {
         let reduced = ChatSearchAnimationSpec.production.resolved(
             for: .init(reduceMotion: true, reduceTransparency: false)
         )
@@ -198,9 +211,8 @@ final class ChatSearchBottomActionBarTests: XCTestCase {
             animated: true
         )
 
-        let transition = try XCTUnwrap(panel.lastCounterTransition)
-        XCTAssertEqual(transition.mode, .crossfade)
-        XCTAssertEqual(transition.duration, 0.15, accuracy: 0.001)
+        XCTAssertEqual(panel.counterLabel.text, "2 of 3")
+        XCTAssertNil(panel.counterLabel.layer.animationKeys())
     }
 
     func testOnlyCalendarAndViewModeControlsOwnBottomActions() {
@@ -241,10 +253,15 @@ final class ChatSearchBottomActionBarTests: XCTestCase {
     ) -> ModernXabberInputView.SearchPanel {
         let panel = ModernXabberInputView.SearchPanel(
             frame: CGRect(x: 0, y: 0, width: width, height: 40),
-            animationSpec: animationSpec
+            animationSpec: animationSpec,
+            localization: englishLocalization
         )
         panel.layoutIfNeeded()
         return panel
+    }
+
+    private var englishLocalization: ChatSearchLocalization {
+        ChatSearchLocalization(locale: Locale(identifier: "en"), bundle: .main)
     }
 }
 
