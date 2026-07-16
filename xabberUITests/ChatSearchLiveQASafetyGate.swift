@@ -155,6 +155,151 @@ enum ChatSearchLiveQACountParser {
     }
 }
 
+enum ChatSearchLiveQAListCountPolicy {
+    static func consistentTotal(
+        rowAccessibilityValues: [String],
+        countAccessibilityValues: [String],
+        minimumTotal: Int
+    ) -> Int? {
+        guard minimumTotal > 0 else { return nil }
+        let positions = rowAccessibilityValues
+            .compactMap(ChatSearchLiveQACountParser.position(from:))
+            .filter { $0.current == 1 && $0.total >= minimumTotal }
+        let counts = Set(
+            countAccessibilityValues
+                .compactMap(ChatSearchLiveQACountParser.messageCount(from:))
+        )
+        return positions
+            .map(\.total)
+            .first(where: counts.contains)
+    }
+}
+
+enum ChatSearchLiveQABoundarySelectionPolicy {
+    enum Decision: Equatable {
+        case retryList(minimumTotal: Int)
+        case verifyBoundary(ChatSearchLiveQACountParser.Position)
+    }
+
+    static func decision(
+        targetCurrent: Int,
+        selectedPosition: ChatSearchLiveQACountParser.Position
+    ) -> Decision? {
+        guard targetCurrent > 0,
+              selectedPosition.current == targetCurrent,
+              selectedPosition.total >= selectedPosition.current else {
+            return nil
+        }
+
+        if selectedPosition.current < selectedPosition.total {
+            return .retryList(minimumTotal: selectedPosition.total)
+        }
+        return .verifyBoundary(selectedPosition)
+    }
+}
+
+enum ChatSearchLiveQABoundaryReadinessPolicy {
+    enum Decision: Equatable {
+        case retryList(minimumTotal: Int)
+        case requestOlderPage(ChatSearchLiveQACountParser.Position)
+        case acceptOldest(ChatSearchLiveQACountParser.Position)
+    }
+
+    static func decision(
+        targetCurrent: Int,
+        observedPosition: ChatSearchLiveQACountParser.Position,
+        previousEnabled: Bool
+    ) -> Decision? {
+        guard targetCurrent > 0,
+              observedPosition.current == targetCurrent,
+              observedPosition.total >= observedPosition.current else {
+            return nil
+        }
+
+        if observedPosition.current < observedPosition.total {
+            return .retryList(minimumTotal: observedPosition.total)
+        }
+        return previousEnabled
+            ? .requestOlderPage(observedPosition)
+            : .acceptOldest(observedPosition)
+    }
+}
+
+struct ChatSearchLiveQABoundaryReadinessTracker {
+    private let requiredStableObservationCount: Int
+    private var previousDecision: ChatSearchLiveQABoundaryReadinessPolicy.Decision?
+    private var consecutiveObservationCount = 0
+
+    init(requiredStableObservationCount: Int = 2) {
+        precondition(requiredStableObservationCount > 0)
+        self.requiredStableObservationCount = requiredStableObservationCount
+    }
+
+    mutating func observe(
+        _ decision: ChatSearchLiveQABoundaryReadinessPolicy.Decision?
+    ) -> ChatSearchLiveQABoundaryReadinessPolicy.Decision? {
+        guard let decision else {
+            previousDecision = nil
+            consecutiveObservationCount = 0
+            return nil
+        }
+
+        if previousDecision == decision {
+            consecutiveObservationCount += 1
+        } else {
+            previousDecision = decision
+            consecutiveObservationCount = 1
+        }
+        return consecutiveObservationCount >= requiredStableObservationCount
+            ? decision
+            : nil
+    }
+}
+
+enum ChatSearchLiveQABoundaryDeadlinePolicy {
+    static func remainingTimeout(
+        until deadline: Date,
+        now: Date,
+        maximum: TimeInterval
+    ) -> TimeInterval? {
+        guard maximum > 0 else { return nil }
+        let remaining = deadline.timeIntervalSince(now)
+        guard remaining > 0 else { return nil }
+        return min(maximum, remaining)
+    }
+}
+
+struct ChatSearchLiveQABoundaryAttemptBudget {
+    enum Attempt {
+        case growthRetry
+        case pageRequest
+    }
+
+    private let maximumPageRequests: Int
+    private let maximumGrowthRetries: Int
+    private var pageRequestCount = 0
+    private var growthRetryCount = 0
+
+    init(maximumPageRequests: Int, maximumGrowthRetries: Int) {
+        precondition(maximumPageRequests >= 0)
+        precondition(maximumGrowthRetries >= 0)
+        self.maximumPageRequests = maximumPageRequests
+        self.maximumGrowthRetries = maximumGrowthRetries
+    }
+
+    mutating func consume(_ attempt: Attempt) -> Bool {
+        switch attempt {
+        case .growthRetry:
+            guard growthRetryCount < maximumGrowthRetries else { return false }
+            growthRetryCount += 1
+        case .pageRequest:
+            guard pageRequestCount < maximumPageRequests else { return false }
+            pageRequestCount += 1
+        }
+        return true
+    }
+}
+
 enum ChatSearchLiveQAElementLookupPolicy {
     enum Strategy: Equatable {
         case stableIdentifier(String)

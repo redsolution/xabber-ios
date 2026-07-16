@@ -232,6 +232,180 @@ final class ChatSearchLiveQASafetyPolicyTests: XCTestCase {
         XCTAssertNil(ChatSearchLiveQACountParser.messageCount(from: "1.5 messages"))
     }
 
+    func testPopulatedListCounterRemainsReadableDuringNextPagePaging() {
+        XCTAssertEqual(
+            ChatSearchLiveQAListCountPolicy.consistentTotal(
+                rowAccessibilityValues: ["1 из 260"],
+                countAccessibilityValues: ["Количество результатов поиска", "260 сообщений"],
+                minimumTotal: 260
+            ),
+            260
+        )
+        XCTAssertEqual(
+            ChatSearchLiveQAListCountPolicy.consistentTotal(
+                rowAccessibilityValues: ["1 из 261"],
+                countAccessibilityValues: ["261 сообщение"],
+                minimumTotal: 260
+            ),
+            261
+        )
+        XCTAssertNil(
+            ChatSearchLiveQAListCountPolicy.consistentTotal(
+                rowAccessibilityValues: ["1 из 260"],
+                countAccessibilityValues: ["261 сообщение"],
+                minimumTotal: 260
+            )
+        )
+        XCTAssertNil(
+            ChatSearchLiveQAListCountPolicy.consistentTotal(
+                rowAccessibilityValues: ["2 из 260"],
+                countAccessibilityValues: ["260 сообщений"],
+                minimumTotal: 260
+            )
+        )
+        XCTAssertNil(
+            ChatSearchLiveQAListCountPolicy.consistentTotal(
+                rowAccessibilityValues: ["1 из 259"],
+                countAccessibilityValues: ["259 сообщений"],
+                minimumTotal: 260
+            )
+        )
+        XCTAssertNil(
+            ChatSearchLiveQAListCountPolicy.consistentTotal(
+                rowAccessibilityValues: ["Search failed"],
+                countAccessibilityValues: ["260 сообщений"],
+                minimumTotal: 260
+            )
+        )
+
+        let terminalObservation = ChatSearchLiveQATerminalObservationPolicy.observe(
+            isLoading: { true },
+            elementExists: { true },
+            value: { ["260 сообщений"] }
+        )
+        XCTAssertNil(terminalObservation)
+    }
+
+    func testBoundarySelectionRetriesWhenPagingMakesTargetNonOldest() {
+        XCTAssertEqual(
+            ChatSearchLiveQABoundarySelectionPolicy.decision(
+                targetCurrent: 260,
+                selectedPosition: .init(current: 260, total: 261)
+            ),
+            .retryList(minimumTotal: 261)
+        )
+        XCTAssertEqual(
+            ChatSearchLiveQABoundarySelectionPolicy.decision(
+                targetCurrent: 260,
+                selectedPosition: .init(current: 260, total: 260)
+            ),
+            .verifyBoundary(.init(current: 260, total: 260))
+        )
+        XCTAssertNil(
+            ChatSearchLiveQABoundarySelectionPolicy.decision(
+                targetCurrent: 260,
+                selectedPosition: .init(current: 259, total: 260)
+            )
+        )
+        XCTAssertNil(
+            ChatSearchLiveQABoundarySelectionPolicy.decision(
+                targetCurrent: 260,
+                selectedPosition: .init(current: 260, total: 259)
+            )
+        )
+    }
+
+    func testBoundaryReadinessRequiresStableOldestOrPagingDecision() {
+        let oldest = ChatSearchLiveQABoundaryReadinessPolicy.Decision.acceptOldest(
+            .init(current: 260, total: 260)
+        )
+        let requestOlder = ChatSearchLiveQABoundaryReadinessPolicy.Decision.requestOlderPage(
+            .init(current: 260, total: 260)
+        )
+        let retry = ChatSearchLiveQABoundaryReadinessPolicy.Decision.retryList(
+            minimumTotal: 261
+        )
+
+        XCTAssertEqual(
+            ChatSearchLiveQABoundaryReadinessPolicy.decision(
+                targetCurrent: 260,
+                observedPosition: .init(current: 260, total: 261),
+                previousEnabled: false
+            ),
+            retry
+        )
+        XCTAssertEqual(
+            ChatSearchLiveQABoundaryReadinessPolicy.decision(
+                targetCurrent: 260,
+                observedPosition: .init(current: 260, total: 260),
+                previousEnabled: false
+            ),
+            oldest
+        )
+        XCTAssertEqual(
+            ChatSearchLiveQABoundaryReadinessPolicy.decision(
+                targetCurrent: 260,
+                observedPosition: .init(current: 260, total: 260),
+                previousEnabled: true
+            ),
+            requestOlder
+        )
+        XCTAssertNil(
+            ChatSearchLiveQABoundaryReadinessPolicy.decision(
+                targetCurrent: 260,
+                observedPosition: .init(current: 259, total: 260),
+                previousEnabled: false
+            )
+        )
+
+        var tracker = ChatSearchLiveQABoundaryReadinessTracker()
+        XCTAssertNil(tracker.observe(oldest))
+        XCTAssertEqual(tracker.observe(oldest), oldest)
+        XCTAssertNil(tracker.observe(nil))
+        XCTAssertNil(tracker.observe(requestOlder))
+        XCTAssertNil(tracker.observe(retry))
+        XCTAssertEqual(tracker.observe(retry), retry)
+    }
+
+    func testBoundaryBudgetCapsWaitsAndSeparatesGrowthFromPageRequests() {
+        let deadline = Date(timeIntervalSince1970: 180)
+        XCTAssertEqual(
+            ChatSearchLiveQABoundaryDeadlinePolicy.remainingTimeout(
+                until: deadline,
+                now: Date(timeIntervalSince1970: 0),
+                maximum: 45
+            ),
+            45
+        )
+        XCTAssertEqual(
+            ChatSearchLiveQABoundaryDeadlinePolicy.remainingTimeout(
+                until: deadline,
+                now: Date(timeIntervalSince1970: 160),
+                maximum: 45
+            ),
+            20
+        )
+        XCTAssertNil(
+            ChatSearchLiveQABoundaryDeadlinePolicy.remainingTimeout(
+                until: deadline,
+                now: deadline,
+                maximum: 45
+            )
+        )
+
+        var budget = ChatSearchLiveQABoundaryAttemptBudget(
+            maximumPageRequests: 2,
+            maximumGrowthRetries: 3
+        )
+        XCTAssertTrue(budget.consume(.growthRetry))
+        XCTAssertTrue(budget.consume(.growthRetry))
+        XCTAssertTrue(budget.consume(.growthRetry))
+        XCTAssertFalse(budget.consume(.growthRetry))
+        XCTAssertTrue(budget.consume(.pageRequest))
+        XCTAssertTrue(budget.consume(.pageRequest))
+        XCTAssertFalse(budget.consume(.pageRequest))
+    }
+
     func testElementLookupPolicyAlwaysPrefersStableIdentifier() {
         XCTAssertEqual(
             ChatSearchLiveQAElementLookupPolicy.strategy(

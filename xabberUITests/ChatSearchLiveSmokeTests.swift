@@ -20,6 +20,8 @@
 import XCTest
 
 final class ChatSearchLiveSmokeTests: XCTestCase {
+    private var liveDeadline: Date?
+
     private enum AccessibilityID {
         static let semanticSearchEntry = "chat_search_entry"
         static let chatAvatar = "chat_navigation_avatar_button"
@@ -71,6 +73,9 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
 
         let app = XCUIApplication()
         let startedAt = Date()
+        liveDeadline = startedAt.addingTimeInterval(
+            ChatSearchLiveQATimeoutPolicy.globalBudget
+        )
         app.launch()
         addTeardownBlock {
             // Process termination is the only unconditional teardown action.
@@ -127,21 +132,24 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
             )
 
             var committedPosition = try requirePosition(in: app)
-            try openAndVerifyNewestFirstList(
-                expectedTotal: committedPosition.total,
+            let listedTotal = try openAndVerifyNewestFirstList(
+                minimumTotal: committedPosition.total,
                 query: authorization.query,
                 in: app
             )
             attachScreenshot(named: "02-list", app: app)
 
-            if committedPosition.total > 1 {
+            if listedTotal > 1 {
                 committedPosition = try reachOldestBoundaryFromList(
-                    initialTotal: committedPosition.total,
+                    initialTotal: listedTotal,
                     query: authorization.query,
+                    deadline: startedAt.addingTimeInterval(
+                        ChatSearchLiveQATimeoutPolicy.globalBudget
+                    ),
                     in: app
                 )
-                try openAndVerifyNewestFirstList(
-                    expectedTotal: committedPosition.total,
+                _ = try openAndVerifyNewestFirstList(
+                    minimumTotal: committedPosition.total,
                     query: authorization.query,
                     in: app
                 )
@@ -188,6 +196,9 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
     ) throws {
         let app = XCUIApplication()
         let startedAt = Date()
+        liveDeadline = startedAt.addingTimeInterval(
+            ChatSearchLiveQATimeoutPolicy.globalBudget
+        )
         app.launch()
         addTeardownBlock {
             if app.state != .notRunning {
@@ -238,7 +249,8 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
             )
 
             let calendarButton = element(AccessibilityID.calendarButton, in: app)
-            guard calendarButton.waitForExistence(
+            guard waitForExistence(
+                calendarButton,
                 timeout: ChatSearchLiveQATimeoutPolicy.modeOrCalendarTransition
             ), calendarButton.isHittable else {
                 throw LiveQAError(message: "Calendar entry is unavailable for controlled date-jump QA.")
@@ -352,7 +364,8 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
         }
 
         let candidateLabel = app.staticTexts[candidate].firstMatch
-        guard candidateLabel.waitForExistence(
+        guard waitForExistence(
+            candidateLabel,
             timeout: ChatSearchLiveQATimeoutPolicy.dialogLookupPerCandidate
         ) else {
             return false
@@ -382,7 +395,10 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
             semanticEntry.tap()
         } else {
             let avatar = element(AccessibilityID.chatAvatar, in: app)
-            guard avatar.waitForExistence(timeout: ChatSearchLiveQATimeoutPolicy.searchEntry),
+            guard waitForExistence(
+                avatar,
+                timeout: ChatSearchLiveQATimeoutPolicy.searchEntry
+            ),
                   avatar.isHittable else {
                 throw LiveQAError(message: "Neither chat_search_entry nor the stable Chat Info route exists.")
             }
@@ -407,7 +423,10 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
         }
 
         let input = element(AccessibilityID.input, in: app)
-        guard input.waitForExistence(timeout: ChatSearchLiveQATimeoutPolicy.searchInput) else {
+        guard waitForExistence(
+            input,
+            timeout: ChatSearchLiveQATimeoutPolicy.searchInput
+        ) else {
             throw LiveQAError(message: "chat_search_input did not appear after opening search.")
         }
     }
@@ -557,7 +576,8 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
     ) throws {
         let previous = element(AccessibilityID.previous, in: app)
         let next = element(AccessibilityID.next, in: app)
-        guard previous.waitForExistence(
+        guard waitForExistence(
+            previous,
             timeout: ChatSearchLiveQATimeoutPolicy.modeOrCalendarTransition
         ), next.exists else {
             throw LiveQAError(message: "Search navigation arrows are not both visible.")
@@ -585,110 +605,228 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
     }
 
     private func openAndVerifyNewestFirstList(
-        expectedTotal: Int,
+        minimumTotal: Int,
         query: String,
+        timeout: TimeInterval = ChatSearchLiveQATimeoutPolicy.modeOrCalendarTransition,
         in app: XCUIApplication
-    ) throws {
+    ) throws -> Int {
         let mode = element(AccessibilityID.viewMode, in: app)
-        guard mode.waitForExistence(
-            timeout: ChatSearchLiveQATimeoutPolicy.modeOrCalendarTransition
-        ), mode.isHittable else {
+        guard waitForExistence(mode, timeout: timeout), mode.isHittable else {
             throw LiveQAError(message: "Show as List control is unavailable.")
         }
         mode.tap()
 
         let list = element(AccessibilityID.resultsList, in: app)
+        var observedTotal: Int?
         try wait(
             description: "newest-first search list",
-            timeout: ChatSearchLiveQATimeoutPolicy.modeOrCalendarTransition,
+            timeout: timeout,
             app: app
         ) {
             let first = self.resultRow(at: 0, in: app)
-            return list.exists
-                && first.exists
-                && ChatSearchLiveQACountParser.position(from: self.stringValue(of: first))
-                    == .init(current: 1, total: expectedTotal)
+            let count = self.element(AccessibilityID.resultsCount, in: app)
+            guard list.exists, first.exists, count.exists,
+                  let total = ChatSearchLiveQAListCountPolicy.consistentTotal(
+                    rowAccessibilityValues: self.accessibilityStrings(of: first),
+                    countAccessibilityValues: self.accessibilityStrings(of: count),
+                    minimumTotal: minimumTotal
+                  ) else {
+                return false
+            }
+            observedTotal = total
+            return true
         }
 
-        guard let countValue = counterObservation(in: app)?.value?.first(where: {
-            ChatSearchLiveQACountParser.messageCount(from: $0) != nil
-        }) else {
-            throw LiveQAError(message: "Stable list result count is unavailable.")
+        guard let observedTotal else {
+            throw LiveQAError(message: "Consistent populated list count is unavailable.")
         }
-        XCTAssertEqual(ChatSearchLiveQACountParser.messageCount(from: countValue), expectedTotal)
 
         // Query only the visible newest prefix. Enumerating every XCUIElement
         // eagerly scrolls/prefetches the table and can itself start MAM paging.
-        for index in 0..<min(3, expectedTotal) {
+        for index in 0..<min(3, observedTotal) {
             let row = resultRow(at: index, in: app)
             XCTAssertTrue(row.exists)
-            XCTAssertEqual(
-                ChatSearchLiveQACountParser.position(from: stringValue(of: row)),
-                .init(current: index + 1, total: expectedTotal)
-            )
+            let position = ChatSearchLiveQACountParser.position(from: stringValue(of: row))
+            XCTAssertEqual(position?.current, index + 1)
+            XCTAssertGreaterThanOrEqual(position?.total ?? 0, observedTotal)
             XCTAssertFalse(row.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             XCTAssertTrue(
                 row.label.localizedCaseInsensitiveContains(query),
                 "Expected a plain snippet containing exact query in row \(index + 1)."
             )
         }
+        return observedTotal
     }
 
     private func reachOldestBoundaryFromList(
         initialTotal: Int,
         query: String,
+        deadline: Date,
         in app: XCUIApplication
     ) throws -> ChatSearchLiveQACountParser.Position {
         var total = initialTotal
+        var attemptBudget = ChatSearchLiveQABoundaryAttemptBudget(
+            maximumPageRequests: 6,
+            maximumGrowthRetries: 12
+        )
 
-        for _ in 0..<6 {
+        while true {
+            _ = try remainingBoundaryTimeout(until: deadline)
             let list = element(AccessibilityID.resultsList, in: app)
             try dismissKeyboardInteractivelyIfNeeded(using: list, in: app)
-            let last = resultRow(at: total - 1, in: app)
+            _ = try remainingBoundaryTimeout(until: deadline)
+            let targetCurrent = total
+            let last = resultRow(at: targetCurrent - 1, in: app)
             guard last.exists else {
                 throw LiveQAError(message: "The last loaded list row is unavailable.")
             }
-            try makeHittable(last, byScrolling: list, app: app)
+            try makeHittable(last, byScrolling: list, deadline: deadline, app: app)
             last.tap()
-            try waitForPosition(.init(current: total, total: total), in: app)
+
+            var selectedPosition: ChatSearchLiveQACountParser.Position?
+            try wait(
+                description: "selected list boundary candidate",
+                timeout: try remainingBoundaryTimeout(until: deadline),
+                app: app
+            ) {
+                guard let position = self.position(in: app),
+                      position.current == targetCurrent,
+                      position.total >= position.current else {
+                    return false
+                }
+                selectedPosition = position
+                return true
+            }
+            guard let selectedPosition,
+                  let decision = ChatSearchLiveQABoundarySelectionPolicy.decision(
+                    targetCurrent: targetCurrent,
+                    selectedPosition: selectedPosition
+                  ) else {
+                throw LiveQAError(message: "The selected list boundary candidate is inconsistent.")
+            }
+
+            switch decision {
+            case .retryList(let minimumTotal):
+                guard attemptBudget.consume(.growthRetry) else {
+                    throw LiveQAError(message: "Search total kept growing beyond the bounded retry budget.")
+                }
+                total = try openAndVerifyNewestFirstList(
+                    minimumTotal: minimumTotal,
+                    query: query,
+                    timeout: try remainingBoundaryTimeout(
+                        until: deadline,
+                        maximum: ChatSearchLiveQATimeoutPolicy.modeOrCalendarTransition
+                    ),
+                    in: app
+                )
+                continue
+            case .verifyBoundary(let boundary):
+                total = boundary.total
+            }
 
             let previous = element(AccessibilityID.previous, in: app)
             let next = element(AccessibilityID.next, in: app)
-            XCTAssertTrue(next.isEnabled)
-            if !previous.isEnabled {
-                let oldest = try requirePosition(in: app)
-                XCTAssertEqual(oldest.current, oldest.total)
-                XCTAssertFalse(previous.isEnabled)
-                return oldest
+            guard previous.exists, next.exists else {
+                throw LiveQAError(message: "Search navigation arrows disappeared at the boundary.")
             }
 
+            var readinessTracker = ChatSearchLiveQABoundaryReadinessTracker()
+            var readiness: ChatSearchLiveQABoundaryReadinessPolicy.Decision?
+            try wait(
+                description: "stable oldest-boundary state",
+                timeout: try remainingBoundaryTimeout(until: deadline),
+                app: app
+            ) {
+                let observation = self.position(in: app).flatMap {
+                    ChatSearchLiveQABoundaryReadinessPolicy.decision(
+                        targetCurrent: targetCurrent,
+                        observedPosition: $0,
+                        previousEnabled: previous.isEnabled
+                    )
+                }
+                guard let stableDecision = readinessTracker.observe(observation) else {
+                    return false
+                }
+                readiness = stableDecision
+                return true
+            }
+
+            guard let readiness else {
+                throw LiveQAError(message: "The oldest-boundary state was not stable.")
+            }
+            switch readiness {
+            case .retryList(let minimumTotal):
+                guard attemptBudget.consume(.growthRetry) else {
+                    throw LiveQAError(message: "Search total kept growing beyond the bounded retry budget.")
+                }
+                total = try openAndVerifyNewestFirstList(
+                    minimumTotal: minimumTotal,
+                    query: query,
+                    timeout: try remainingBoundaryTimeout(
+                        until: deadline,
+                        maximum: ChatSearchLiveQATimeoutPolicy.modeOrCalendarTransition
+                    ),
+                    in: app
+                )
+                continue
+            case .acceptOldest(let oldest):
+                guard next.isEnabled else {
+                    throw LiveQAError(message: "Forward navigation is disabled at the oldest result.")
+                }
+                return oldest
+            case .requestOlderPage(let boundary):
+                total = boundary.total
+                guard next.isEnabled, previous.isEnabled else {
+                    guard attemptBudget.consume(.growthRetry) else {
+                        throw LiveQAError(message: "Boundary controls kept changing beyond the bounded retry budget.")
+                    }
+                    total = try openAndVerifyNewestFirstList(
+                        minimumTotal: total,
+                        query: query,
+                        timeout: try remainingBoundaryTimeout(
+                            until: deadline,
+                            maximum: ChatSearchLiveQATimeoutPolicy.modeOrCalendarTransition
+                        ),
+                        in: app
+                    )
+                    continue
+                }
+            }
+
+            guard attemptBudget.consume(.pageRequest) else {
+                throw LiveQAError(message: "Older paging exceeded the bounded six-request limit.")
+            }
+            let requestedFromTotal = total
             previous.tap()
             try wait(
                 description: "older-page boundary navigation",
-                timeout: ChatSearchLiveQATimeoutPolicy.terminalResults,
+                timeout: try remainingBoundaryTimeout(until: deadline),
                 app: app
             ) {
                 guard let position = self.position(in: app),
                       !self.isAnySearchLoading(in: app) else {
                     return false
                 }
-                return position.total > total || !previous.isEnabled
+                return position.total > requestedFromTotal || !previous.isEnabled
             }
             let expanded = try requirePosition(in: app)
             total = expanded.total
-            try openAndVerifyNewestFirstList(
-                expectedTotal: total,
+            total = try openAndVerifyNewestFirstList(
+                minimumTotal: total,
                 query: query,
+                timeout: try remainingBoundaryTimeout(
+                    until: deadline,
+                    maximum: ChatSearchLiveQATimeoutPolicy.modeOrCalendarTransition
+                ),
                 in: app
             )
         }
-
-        throw LiveQAError(message: "Older paging did not reach a bounded non-wrapping boundary.")
     }
 
     private func makeHittable(
         _ element: XCUIElement,
         byScrolling scrollView: XCUIElement,
+        deadline: Date,
         app: XCUIApplication
     ) throws {
         guard !element.isHittable else { return }
@@ -696,12 +834,27 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
         // gesture: each query snapshots all 261 live rows and adds seconds of
         // observer overhead. Extra swipes safely bounce at the table's end.
         for _ in 0..<20 {
+            _ = try remainingBoundaryTimeout(until: deadline)
             scrollView.swipeUp(velocity: .fast)
         }
         guard element.isHittable else {
             attachDiagnostics(named: "result-row-not-hittable", app: app)
             throw LiveQAError(message: "The oldest result row could not be made hittable.")
         }
+    }
+
+    private func remainingBoundaryTimeout(
+        until deadline: Date,
+        maximum: TimeInterval = ChatSearchLiveQATimeoutPolicy.terminalResults
+    ) throws -> TimeInterval {
+        guard let timeout = ChatSearchLiveQABoundaryDeadlinePolicy.remainingTimeout(
+            until: deadline,
+            now: Date(),
+            maximum: maximum
+        ) else {
+            throw LiveQAError(message: "The global live-QA deadline expired during older paging.")
+        }
+        return timeout
     }
 
     // MARK: - Keyboard and calendar
@@ -823,7 +976,8 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
 
     private func closeSearch(in app: XCUIApplication) throws {
         let cancel = element(AccessibilityID.cancel, in: app)
-        guard cancel.waitForExistence(
+        guard waitForExistence(
+            cancel,
             timeout: ChatSearchLiveQATimeoutPolicy.modeOrCalendarTransition
         ), cancel.isHittable else {
             throw LiveQAError(message: "Top search X is unavailable.")
@@ -943,17 +1097,43 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
         app: XCUIApplication,
         predicate: @escaping () -> Bool
     ) throws {
+        guard let effectiveTimeout = deadlineBoundedTimeout(maximum: timeout) else {
+            attachDiagnostics(named: "deadline-\(sanitized(description))", app: app)
+            throw LiveQAError(
+                message: "The global live-QA deadline expired while waiting for \(description)."
+            )
+        }
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in predicate() },
             object: nil
         )
-        let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
+        let result = XCTWaiter.wait(for: [expectation], timeout: effectiveTimeout)
         guard result == .completed else {
             attachDiagnostics(named: "timeout-\(sanitized(description))", app: app)
             throw LiveQAError(
-                message: "Timed out after \(timeout)s waiting for \(description)."
+                message: "Timed out after \(effectiveTimeout)s waiting for \(description)."
             )
         }
+    }
+
+    private func waitForExistence(
+        _ element: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        guard let effectiveTimeout = deadlineBoundedTimeout(maximum: timeout) else {
+            return false
+        }
+        return element.waitForExistence(timeout: effectiveTimeout)
+    }
+
+    private func deadlineBoundedTimeout(maximum: TimeInterval) -> TimeInterval? {
+        guard maximum > 0 else { return nil }
+        guard let liveDeadline else { return maximum }
+        return ChatSearchLiveQABoundaryDeadlinePolicy.remainingTimeout(
+            until: liveDeadline,
+            now: Date(),
+            maximum: maximum
+        )
     }
 
     private func assertGlobalBudget(startedAt: Date, stage: String) throws {
