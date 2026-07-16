@@ -229,7 +229,7 @@ final class ChatSearchLiveQASafetyPolicyTests: XCTestCase {
         )
     }
 
-    func testLiveSmokeLetsDebouncedTypingCommitWithoutTappingMagnifierProxy() throws {
+    func testLiveSmokeSubmitsWithKeyboardReturnAndWaitsForKeyboardDismissal() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -239,6 +239,8 @@ final class ChatSearchLiveQASafetyPolicyTests: XCTestCase {
         let source = try String(contentsOf: smokeURL, encoding: .utf8)
 
         XCTAssertFalse(source.contains("submit.tap()"))
+        XCTAssertTrue(source.contains("input.typeText(\"\\n\")"))
+        XCTAssertTrue(source.contains("!app.keyboards.firstMatch.exists"))
         XCTAssertTrue(source.contains("waitForTerminalOutcome(in: app)"))
     }
 }

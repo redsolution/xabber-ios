@@ -23,6 +23,7 @@ import UIKit
 
 extension ChatViewController: UISearchBarDelegate {
     func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+        searchBar.resignFirstResponder()
         self.submitSearchTextFromSearchInput(searchBar.text)
     }
     
@@ -41,6 +42,6 @@ extension ChatViewController: UISearchBarDelegate {
     
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         searchInputBar.text = searchText
-        searchTextObserver.accept(searchText)
+        reduceSearchPresentationState(.draftChanged(searchText))
     }
 }

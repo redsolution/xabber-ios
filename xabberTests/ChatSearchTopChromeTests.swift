@@ -137,7 +137,7 @@ final class ChatSearchTopChromeTests: XCTestCase {
         XCTAssertEqual(cancelCount, 1)
     }
 
-    func testSubmitControlAndReturnFlushCurrentQueryExactlyOnceEach() {
+    func testMagnifierIsDecorativeAndReturnSubmitsCurrentQueryExactlyOnce() {
         let view = ChatSearchNavigationView(frame: CGRect(x: 0, y: 0, width: 390, height: 60))
         var submissions: [String] = []
         view.onSubmit = { submissions.append($0) }
@@ -147,7 +147,51 @@ final class ChatSearchTopChromeTests: XCTestCase {
         let shouldReturn = view.textField.delegate?.textFieldShouldReturn?(view.textField)
 
         XCTAssertEqual(shouldReturn, true)
-        XCTAssertEqual(submissions, ["test", "test"])
+        XCTAssertEqual(submissions, ["test"])
+        XCTAssertFalse(view.submitButton.isUserInteractionEnabled)
+        XCTAssertFalse(view.submitButton.isAccessibilityElement)
+        XCTAssertFalse(
+            (view.accessibilityElements ?? []).contains { ($0 as AnyObject) === view.submitButton }
+        )
+    }
+
+    func testEditingOnlyUpdatesDraftWithoutDebouncedSubmission() {
+        let controller = ChatViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        navigationController.loadViewIfNeeded()
+        controller.loadViewIfNeeded()
+        controller.activateSearchModeFromExternalRoute(activateKeyboard: false, animated: false)
+
+        controller.searchNavigationView.textField.text = "draft only"
+        controller.searchNavigationView.textField.sendActions(for: .editingChanged)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+
+        XCTAssertEqual(controller.searchPresentationState.draftQuery, "draft only")
+        XCTAssertEqual(controller.searchPresentationState.query, "")
+        XCTAssertEqual(controller.searchPresentationState.resultPhase, .idle)
+        XCTAssertNil(controller.searchTextObserver.value)
+        XCTAssertNil(controller.currentSearchQueryId)
+    }
+
+    func testReturnResignsFirstResponderBeforeSubmitting() {
+        let view = ChatSearchNavigationView(frame: CGRect(x: 0, y: 0, width: 390, height: 60))
+        let host = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        host.view.addSubview(view)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        view.text = "test"
+        var wasFirstResponderDuringSubmit: Bool?
+        view.onSubmit = { _ in
+            wasFirstResponderDuringSubmit = view.textField.isFirstResponder
+        }
+        XCTAssertTrue(view.textField.becomeFirstResponder())
+
+        _ = view.textField.delegate?.textFieldShouldReturn?(view.textField)
+
+        XCTAssertFalse(view.textField.isFirstResponder)
+        XCTAssertEqual(wasFirstResponderDuringSubmit, false)
+        window.isHidden = true
     }
 
     func testAccessibilityTextSizeAndLongQueryKeepSingleFixedHeightRow() {

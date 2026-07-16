@@ -60,6 +60,7 @@ struct ChatSearchPresentationState: Equatable {
 
     enum Event: Equatable {
         case activate
+        case draftChanged(String)
         case queryChanged(String)
         case debounceElapsed(generation: Int)
         case resultsReceived(count: Int, generation: Int)
@@ -102,6 +103,7 @@ struct ChatSearchPresentationState: Equatable {
         resultPhase: .idle,
         positioningPhase: .idle,
         calendarOrigin: nil,
+        draftQuery: "",
         query: "",
         resultCount: 0,
         committedResultIndex: nil,
@@ -113,6 +115,7 @@ struct ChatSearchPresentationState: Equatable {
     private(set) var resultPhase: ResultPhase
     private(set) var positioningPhase: PositioningPhase
     private(set) var calendarOrigin: CalendarOrigin?
+    private(set) var draftQuery: String
     private(set) var query: String
     private(set) var resultCount: Int
     private(set) var committedResultIndex: Int?
@@ -169,9 +172,17 @@ struct ChatSearchPresentationState: Equatable {
             resultPhase = .idle
             positioningPhase = .idle
             calendarOrigin = nil
+            draftQuery = ""
             query = ""
             resultCount = 0
             committedResultIndex = nil
+
+        case .draftChanged(let rawDraft):
+            guard isActive,
+                  surfaceMode != .calendar else {
+                return
+            }
+            draftQuery = rawDraft
 
         case .queryChanged(let rawQuery):
             guard isActive,
@@ -179,6 +190,7 @@ struct ChatSearchPresentationState: Equatable {
                 return
             }
             generation &+= 1
+            draftQuery = rawQuery
             query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
             resultPhase = query.isEmpty ? .idle : .debouncing
             positioningPhase = .idle
@@ -307,6 +319,7 @@ struct ChatSearchPresentationState: Equatable {
             resultPhase = .idle
             positioningPhase = .resolvingDate(date)
             calendarOrigin = nil
+            draftQuery = ""
             query = ""
             resultCount = 0
             committedResultIndex = nil
@@ -326,6 +339,7 @@ struct ChatSearchPresentationState: Equatable {
             resultPhase = .idle
             positioningPhase = .idle
             calendarOrigin = nil
+            draftQuery = ""
             query = ""
             resultCount = 0
             committedResultIndex = nil

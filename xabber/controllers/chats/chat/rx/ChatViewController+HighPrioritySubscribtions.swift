@@ -407,17 +407,6 @@ extension ChatViewController {
             })
             .disposed(by: bag)
         
-        self.searchTextObserver
-            .asObservable()
-            .skip(1)
-            .distinctUntilChanged()
-            .observe(on: MainScheduler.asyncInstance)
-            .subscribe(onNext: { (value) in
-                self.acceptSearchSessionQuery(value, flushImmediately: false)
-            })
-            .disposed(by: bag)
-
-        
         self.shouldShowScrollDownButton
             .asObservable()
             .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)

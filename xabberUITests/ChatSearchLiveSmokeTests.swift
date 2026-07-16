@@ -466,6 +466,14 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
             }
         }
         XCTAssertEqual(stringValue(of: input), query)
+        input.typeText("\n")
+        try wait(
+            description: "keyboard dismissed after Search",
+            timeout: ChatSearchLiveQATimeoutPolicy.modeOrCalendarTransition,
+            app: app
+        ) {
+            !app.keyboards.firstMatch.exists
+        }
     }
 
     private func waitForTerminalOutcome(in app: XCUIApplication) throws -> TerminalOutcome {

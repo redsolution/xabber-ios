@@ -2717,7 +2717,7 @@ class ChatViewController: MessagesViewController {
         }
         view.onTextChanged = { [weak self] text in
             self?.searchBar.text = text
-            self?.searchTextObserver.accept(text)
+            self?.reduceSearchPresentationState(.draftChanged(text ?? ""))
         }
         view.onClear = { [weak self, weak view] in
             self?.submitSearchTextFromSearchInput("")

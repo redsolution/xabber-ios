@@ -1281,7 +1281,7 @@ extension ChatViewController {
         if isViewLoaded {
             searchNavigationView.render(
                 .init(
-                    query: searchPresentationState.query,
+                    query: searchPresentationState.draftQuery,
                     isRemoteSearching: searchPresentationState.resultPhase == .searching
                 )
             )
@@ -1744,8 +1744,7 @@ extension ChatViewController {
         )
 
         if let initialQuery = request?.initialQuery {
-            reduceSearchPresentationState(.queryChanged(initialQuery))
-            searchTextObserver.accept(initialQuery)
+            reduceSearchPresentationState(.draftChanged(initialQuery))
         }
     }
 
@@ -1770,7 +1769,7 @@ extension ChatViewController {
         }
 
         if searchPresentationState.query != normalizedText {
-            reduceSearchPresentationState(.queryChanged(normalizedText))
+            reduceSearchPresentationState(.queryChanged(text ?? ""))
         }
         acceptSearchSessionQuery(normalizedText, flushImmediately: true)
         searchTextObserver.accept(normalizedText)

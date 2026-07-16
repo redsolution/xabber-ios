@@ -19,6 +19,7 @@ final class ChatSearchModeSwitchingTests: XCTestCase {
         let query = controller.searchPresentationState.query
         let generation = controller.searchPresentationState.generation
         let selectedID = controller.selectedSearchResultId
+        let localization = ChatSearchLocalization.production()
 
         controller.onSearchPanelChangeChatViewState()
 
@@ -33,10 +34,13 @@ final class ChatSearchModeSwitchingTests: XCTestCase {
         XCTAssertEqual(controller.searchPresentationState.query, query)
         XCTAssertEqual(controller.searchPresentationState.generation, generation)
         XCTAssertEqual(controller.selectedSearchResultId, selectedID)
-        XCTAssertEqual(controller.xabberInputView.searchPanel.counterLabel.text, "3 messages")
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.counterLabel.text,
+            localization.messageCount(3)
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.viewModeButton.title(for: .normal),
-            "Show as Chat"
+            localization.text(.showAsChat)
         )
         XCTAssertTrue(controller.searchNavigationButtonsView.isHidden)
 
@@ -49,10 +53,13 @@ final class ChatSearchModeSwitchingTests: XCTestCase {
         XCTAssertEqual(controller.searchPresentationState.query, query)
         XCTAssertEqual(controller.searchPresentationState.generation, generation)
         XCTAssertEqual(controller.selectedSearchResultId, selectedID)
-        XCTAssertEqual(controller.xabberInputView.searchPanel.counterLabel.text, "2 of 3")
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.counterLabel.text,
+            localization.currentPosition(zeroBasedIndex: 1, total: 3)
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.viewModeButton.title(for: .normal),
-            "Show as List"
+            localization.text(.showAsList)
         )
         XCTAssertFalse(controller.searchNavigationButtonsView.isHidden)
     }
@@ -199,6 +206,26 @@ final class ChatSearchModeSwitchingTests: XCTestCase {
         XCTAssertTrue(controller.xabberInputView.searchPanel.trailingSurfaceView.isHidden)
         controller.reduceSearchPresentationState(.resultCommitted(index: 0, generation: generation))
         XCTAssertFalse(controller.xabberInputView.searchPanel.trailingSurfaceView.isHidden)
+    }
+
+    func testDraftEditingInListPreservesCurrentResultsSelectionAndSurface() throws {
+        let controller = makeLoadedController()
+        let results = makeResults(count: 2)
+        prepareCommittedResults(controller, results: results, selectedIndex: 1)
+        controller.onSearchPanelChangeChatViewState()
+        let list = try XCTUnwrap(controller.searchResultsListViewController)
+        let generation = controller.searchPresentationState.generation
+
+        controller.reduceSearchPresentationState(.draftChanged("replacement draft"))
+
+        XCTAssertEqual(controller.searchPresentationState.surfaceMode, .list)
+        XCTAssertEqual(controller.searchPresentationState.query, "test")
+        XCTAssertEqual(controller.searchPresentationState.draftQuery, "replacement draft")
+        XCTAssertEqual(controller.searchPresentationState.resultCount, 2)
+        XCTAssertEqual(controller.searchPresentationState.committedResultIndex, 1)
+        XCTAssertEqual(controller.searchPresentationState.generation, generation)
+        XCTAssertFalse(list.view.isHidden)
+        XCTAssertTrue(controller.messagesCollectionView.isHidden)
     }
 
     func testCalendarOpenedFromListRemembersListOrigin() {

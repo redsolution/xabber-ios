@@ -26,10 +26,45 @@ final class ChatSearchPresentationStateTests: XCTestCase {
         let state = ChatSearchPresentationState.inactive
 
         XCTAssertFalse(state.isActive)
+        XCTAssertEqual(state.draftQuery, "")
+        XCTAssertEqual(state.query, "")
         XCTAssertEqual(state.surfaceMode, .chat)
         XCTAssertEqual(state.resultPhase, .idle)
         XCTAssertEqual(state.positioningPhase, .idle)
         XCTAssertEqual(state.visibility, .hidden)
+    }
+
+    func testDraftChangePreservesSubmittedResultsSelectionAndGeneration() {
+        var state = activeResultsState(count: 3, committedIndex: 1)
+        let submittedQuery = state.query
+        let generation = state.generation
+
+        state.reduce(.draftChanged("replacement draft"))
+
+        XCTAssertEqual(state.draftQuery, "replacement draft")
+        XCTAssertEqual(state.query, submittedQuery)
+        XCTAssertEqual(state.resultPhase, .results)
+        XCTAssertEqual(state.resultCount, 3)
+        XCTAssertEqual(state.committedResultIndex, 1)
+        XCTAssertEqual(state.generation, generation)
+    }
+
+    func testDraftSurvivesNavigationAndCalendarRoundTripReducerEvents() {
+        var state = activeResultsState(count: 3, committedIndex: 1)
+        state.reduce(.draftChanged("next search"))
+        let generation = state.generation
+
+        state.reduce(.navigationStarted(index: 2, generation: generation))
+        state.reduce(.navigationFinished(generation: generation))
+        state.reduce(.openList)
+        state.reduce(.openCalendar)
+        state.reduce(.cancelCalendar)
+        state.reduce(.closeList)
+
+        XCTAssertEqual(state.draftQuery, "next search")
+        XCTAssertEqual(state.query, "test")
+        XCTAssertEqual(state.resultCount, 3)
+        XCTAssertEqual(state.committedResultIndex, 1)
     }
 
     func testQueryLifecycleChangesResultPhaseWithoutCreatingScreenModes() {

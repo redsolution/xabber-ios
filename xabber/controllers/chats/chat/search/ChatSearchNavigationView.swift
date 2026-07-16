@@ -367,6 +367,7 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        textField.resignFirstResponder()
         submitCurrentText()
         return true
     }
@@ -374,7 +375,8 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
     private func setup(prefersNativeGlass: Bool) {
         textField.accessibilityLabel = localization.text(.searchField)
         textField.placeholder = localization.text(.searchField)
-        submitButton.accessibilityLabel = localization.text(.searchTitle)
+        submitButton.isUserInteractionEnabled = false
+        submitButton.isAccessibilityElement = false
         loadingIndicator.accessibilityLabel = localization.text(.loading)
         clearButton.accessibilityLabel = localization.text(.clear)
         cancelButton.accessibilityLabel = localization.text(.cancel)
@@ -431,7 +433,6 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
             tintColor: NativeGlassBarStyle.iconTintColor,
             image: UIImage(systemName: "xmark")
         )
-        submitButton.addTarget(self, action: #selector(onSubmitButtonTouchUp), for: .touchUpInside)
         clearButton.addTarget(self, action: #selector(onClearButtonTouchUp), for: .touchUpInside)
         cancelButton.addTarget(self, action: #selector(onCancelButtonTouchUp), for: .touchUpInside)
         textField.addTarget(self, action: #selector(onTextFieldEditingChanged), for: .editingChanged)
@@ -453,16 +454,14 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
 
     private func updateAccessibilityState() {
         textField.accessibilityValue = textField.text
-        submitButton.accessibilityElementsHidden = submitButton.isHidden
+        submitButton.accessibilityElementsHidden = true
         loadingIndicator.accessibilityElementsHidden = loadingIndicator.isHidden
         loadingAccessibilityElement.accessibilityElementsHidden = loadingIndicator.isHidden
         clearButton.accessibilityElementsHidden = clearButton.isHidden
         cancelButton.accessibilityElementsHidden = cancelButton.isHidden
 
         var orderedElements: [Any] = [textField]
-        if !submitButton.isHidden {
-            orderedElements.append(submitButton)
-        } else if !loadingIndicator.isHidden {
+        if !loadingIndicator.isHidden {
             orderedElements.append(loadingAccessibilityElement)
         }
         if !clearButton.isHidden {
@@ -476,11 +475,6 @@ final class ChatSearchNavigationView: UIView, UITextFieldDelegate {
 
     private func submitCurrentText() {
         onSubmit?(textField.text ?? "")
-    }
-
-    @objc
-    private func onSubmitButtonTouchUp() {
-        submitCurrentText()
     }
 
     @objc

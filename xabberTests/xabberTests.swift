@@ -1215,6 +1215,30 @@ final class ChatSearchModeActivationTests: XCTestCase {
         XCTAssertNil(controller.searchTextObserver.value)
     }
 
+    func testExternalInitialQueryPrefillsDraftWithoutStartingSearchAfterViewLoads() {
+        let controller = ChatViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        controller.activateSearchModeFromExternalRoute(
+            activateKeyboard: false,
+            animated: false,
+            initialQuery: "needle"
+        )
+
+        navigationController.loadViewIfNeeded()
+        controller.loadViewIfNeeded()
+        controller.configureSearchModeForCurrentActivation(
+            defaultActivateKeyboard: false,
+            defaultAnimated: false
+        )
+
+        XCTAssertEqual(controller.searchPresentationState.draftQuery, "needle")
+        XCTAssertEqual(controller.searchPresentationState.query, "")
+        XCTAssertEqual(controller.searchPresentationState.resultPhase, .idle)
+        XCTAssertEqual(controller.searchNavigationView.text, "needle")
+        XCTAssertNil(controller.searchTextObserver.value)
+        XCTAssertNil(controller.currentSearchQueryId)
+    }
+
     func testRepeatedExternalActivationIsIdempotentAndPreservesExistingQueryWhenNoInitialQueryIsProvided() {
         let controller = ChatViewController()
         controller.searchTextObserver.accept("existing")
@@ -2707,7 +2731,7 @@ final class ChatSearchInputBarViewTests: XCTestCase {
         XCTAssertEqual(bar.clearButton.frame.maxX, bar.surfaceView.bounds.maxX, accuracy: 0.001)
     }
 
-    func testSubmitButtonAndReturnSubmitCurrentTextWithoutClearingIt() {
+    func testDecorativeSubmitButtonDoesNotSubmitAndReturnKeepsCurrentText() {
         let bar = ChatSearchNavigationView(
             frame: CGRect(x: 0, y: 0, width: 390, height: ChatSearchNavigationLayout.nominalHeight)
         )
@@ -2718,9 +2742,10 @@ final class ChatSearchInputBarViewTests: XCTestCase {
         bar.submitButton.sendActions(for: .touchUpInside)
         let shouldReturn = bar.textField.delegate?.textFieldShouldReturn?(bar.textField)
 
-        XCTAssertEqual(submittedTexts, ["needle", "needle"])
+        XCTAssertEqual(submittedTexts, ["needle"])
         XCTAssertEqual(shouldReturn, true)
         XCTAssertEqual(bar.text, "needle")
+        XCTAssertFalse(bar.submitButton.isUserInteractionEnabled)
     }
 
     func testWhitespaceSubmitClearsControllerSearchStateWithoutStartingQuery() {

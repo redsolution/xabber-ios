@@ -136,12 +136,16 @@ final class ChatSearchAccessibilityTests: XCTestCase {
             accessibilityIDs(in: view),
             [
                 ChatSearchAccessibilityIdentifier.input,
-                ChatSearchAccessibilityIdentifier.submit,
                 ChatSearchAccessibilityIdentifier.clear,
                 ChatSearchAccessibilityIdentifier.cancel
             ]
         )
-        try assertLocalizedButton(view.submitButton)
+        XCTAssertEqual(
+            view.submitButton.accessibilityIdentifier,
+            ChatSearchAccessibilityIdentifier.submit
+        )
+        XCTAssertFalse(view.submitButton.isAccessibilityElement)
+        XCTAssertTrue(view.submitButton.accessibilityElementsHidden)
         try assertLocalizedButton(view.clearButton)
         try assertLocalizedButton(view.cancelButton)
         XCTAssertNil(view.submitButton.accessibilityHint)
@@ -292,6 +296,7 @@ final class ChatSearchAccessibilityTests: XCTestCase {
                 calendar: calendar,
                 timeZone: calendar.timeZone
             ),
+            localization: localization,
             now: { self.date(2026, 7, 13, hour: 16) }
         )
         let result = makeResult()
@@ -304,7 +309,9 @@ final class ChatSearchAccessibilityTests: XCTestCase {
         )
         XCTAssertEqual(cell.accessibilityHint, "Double tap to jump to this message")
         XCTAssertTrue(cell.accessibilityTraits.contains(.button))
-        ["You", "test message", cell.dateLabel.text, "Delivered"].forEach { component in
+        let delivered = ChatSearchResultDeliveryPresentation.presentation(for: .delivered)
+            .accessibilityLabel
+        ["You", "test message", cell.dateLabel.text, delivered].forEach { component in
             XCTAssertTrue(cell.accessibilityLabel?.contains(component ?? "missing") == true)
         }
         XCTAssertEqual(cell.snippetLabel.text, "test message")

@@ -123,8 +123,9 @@ final class ChatSearchAdaptiveLayoutTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(view.previousButton.chatSearchAccessibilityFrame.width, 44)
         XCTAssertGreaterThanOrEqual(view.previousButton.chatSearchAccessibilityFrame.height, 44)
         XCTAssertGreaterThanOrEqual(view.nextButton.chatSearchAccessibilityFrame.width, 44)
-        XCTAssertEqual(view.previousButton.accessibilityValue, "Older message")
-        XCTAssertEqual(view.nextButton.accessibilityValue, "No newer results")
+        let localization = ChatSearchLocalization.production()
+        XCTAssertEqual(view.previousButton.accessibilityValue, localization.text(.olderMessage))
+        XCTAssertEqual(view.nextButton.accessibilityValue, localization.text(.noNewerResults))
         XCTAssertTrue(view.resolvedAnimationSpec.isReducedMotion)
         XCTAssertEqual(view.resolvedAnimationSpec.backgroundTreatment, .opaqueSystemMaterial)
     }
