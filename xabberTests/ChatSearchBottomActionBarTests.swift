@@ -139,6 +139,80 @@ final class ChatSearchBottomActionBarTests: XCTestCase {
         XCTAssertIdentical(panel.hitTest(expandedOnlyPoint, with: nil), panel.calendarButton)
     }
 
+    func testCalendarGlyphStaysCenteredInsideCompactCircleInLTRAndRTL() throws {
+        for layoutDirection in [
+            UIUserInterfaceLayoutDirection.leftToRight,
+            .rightToLeft
+        ] {
+            let panel = makePanel()
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+            let root = UIViewController()
+            window.rootViewController = root
+            root.view.addSubview(panel)
+            panel.frame.origin = CGPoint(x: 16, y: 790)
+            window.makeKeyAndVisible()
+            defer { window.isHidden = true }
+
+            panel.applyAdaptiveEnvironment(
+                .standard.replacing(layoutDirection: layoutDirection)
+            )
+            panel.applyRenderState(.emptyResults, surfaceMode: .chat, animated: false)
+            panel.setNeedsLayout()
+            panel.layoutIfNeeded()
+
+            let surfaceBounds = panel.leadingSurfaceView.bounds
+            let buttonFrame = panel.calendarButton.convert(
+                panel.calendarButton.bounds,
+                to: panel.leadingSurfaceView
+            )
+            let imageView = try XCTUnwrap(panel.calendarButton.imageView)
+            let imageFrame = imageView.convert(imageView.bounds, to: panel.leadingSurfaceView)
+
+            XCTAssertEqual(surfaceBounds.size, CGSize(width: 40, height: 40))
+            XCTAssertEqual(buttonFrame.size, CGSize(width: 40, height: 40))
+            XCTAssertEqual(buttonFrame.midX, surfaceBounds.midX, accuracy: 0.001)
+            XCTAssertEqual(buttonFrame.midY, surfaceBounds.midY, accuracy: 0.001)
+            let pixelAlignmentTolerance = 1 / window.screen.scale + 0.001
+            XCTAssertEqual(
+                imageFrame.midX,
+                surfaceBounds.midX,
+                accuracy: pixelAlignmentTolerance
+            )
+            XCTAssertEqual(
+                imageFrame.midY,
+                surfaceBounds.midY,
+                accuracy: pixelAlignmentTolerance
+            )
+            XCTAssertGreaterThanOrEqual(panel.calendarButton.accessibilityFrame.width, 44)
+            XCTAssertGreaterThanOrEqual(panel.calendarButton.accessibilityFrame.height, 44)
+
+            panel.applyRenderState(
+                .results(current: 0, total: 3, isLoadingContext: false),
+                surfaceMode: .chat,
+                animated: false
+            )
+            panel.applyRenderState(.emptyResults, surfaceMode: .chat, animated: false)
+            panel.setNeedsLayout()
+            panel.layoutIfNeeded()
+
+            let collapsedButtonFrame = panel.calendarButton.convert(
+                panel.calendarButton.bounds,
+                to: panel.leadingSurfaceView
+            )
+            XCTAssertEqual(collapsedButtonFrame.size, CGSize(width: 40, height: 40))
+            XCTAssertEqual(
+                collapsedButtonFrame.midX,
+                panel.leadingSurfaceView.bounds.midX,
+                accuracy: 0.001
+            )
+            XCTAssertEqual(
+                collapsedButtonFrame.midY,
+                panel.leadingSurfaceView.bounds.midY,
+                accuracy: 0.001
+            )
+        }
+    }
+
     func testChatModeShowsCurrentOfTotalAndListModeShowsMessagePlural() {
         let panel = makePanel()
 

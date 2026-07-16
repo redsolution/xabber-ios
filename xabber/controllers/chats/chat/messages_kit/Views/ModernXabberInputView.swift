@@ -754,6 +754,11 @@ class ModernXabberInputView: UIView {
         }
         
         func activateConstraints() {
+            let counterTrailingConstraint = self.counterLabel.trailingAnchor.constraint(
+                equalTo: self.leadingSurfaceView.contentView.trailingAnchor,
+                constant: -10
+            )
+            counterTrailingConstraint.priority = UILayoutPriority(999)
             NSLayoutConstraint.activate([
                 self.calendarButton.leadingAnchor.constraint(
                     equalTo: self.leadingSurfaceView.contentView.leadingAnchor
@@ -771,10 +776,7 @@ class ModernXabberInputView: UIView {
                     equalTo: self.calendarButton.trailingAnchor,
                     constant: 2
                 ),
-                self.counterLabel.trailingAnchor.constraint(
-                    equalTo: self.leadingSurfaceView.contentView.trailingAnchor,
-                    constant: -10
-                ),
+                counterTrailingConstraint,
                 self.counterLabel.topAnchor.constraint(
                     equalTo: self.leadingSurfaceView.contentView.topAnchor
                 ),
