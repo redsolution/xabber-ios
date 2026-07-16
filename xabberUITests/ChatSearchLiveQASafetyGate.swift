@@ -41,10 +41,15 @@ enum ChatSearchLiveQACountParser {
         let parts = rawValue
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .split(whereSeparator: { $0.isWhitespace })
-        guard parts.count == 3,
-              parts[1].lowercased() == "of",
-              let current = Int(parts[0]),
-              let total = Int(parts[2]),
+        guard let first = parts.first,
+              let last = parts.last,
+              formattedDigits(from: first) != nil,
+              formattedDigits(from: last) != nil,
+              parts.contains(where: { formattedDigits(from: $0) == nil }),
+              let values = numericValues(in: parts),
+              values.count == 2,
+              let current = values.first,
+              let total = values.last,
               current > 0,
               total >= current else {
             return nil
@@ -57,12 +62,96 @@ enum ChatSearchLiveQACountParser {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .split(whereSeparator: { $0.isWhitespace })
         guard parts.count >= 2,
-              parts[1].lowercased().hasPrefix("message"),
-              let count = Int(parts[0]),
+              let first = parts.first,
+              let last = parts.last,
+              formattedDigits(from: first) != nil,
+              formattedDigits(from: last) == nil,
+              let values = numericValues(in: parts),
+              values.count == 1,
+              let count = values.first,
               count >= 0 else {
             return nil
         }
         return count
+    }
+
+    private static func numericValues(in parts: [Substring]) -> [Int]? {
+        var runs: [(groups: [String], usesGrouping: Bool)] = []
+        var pendingGroups: [String] = []
+        var pendingUsesGrouping = false
+
+        func commitPendingGroups() {
+            if !pendingGroups.isEmpty {
+                runs.append((pendingGroups, pendingUsesGrouping))
+            }
+            pendingGroups = []
+            pendingUsesGrouping = false
+        }
+
+        for part in parts {
+            guard let groups = digitGroups(from: part) else {
+                commitPendingGroups()
+                continue
+            }
+
+            if !pendingGroups.isEmpty || groups.count > 1 {
+                pendingUsesGrouping = true
+            }
+            pendingGroups.append(contentsOf: groups)
+        }
+        commitPendingGroups()
+
+        var values: [Int] = []
+        for run in runs {
+            guard !run.usesGrouping || isValidGrouping(run.groups),
+                  let value = Int(run.groups.joined()) else {
+                return nil
+            }
+            values.append(value)
+        }
+        return values
+    }
+
+    private static func formattedDigits(from rawValue: Substring) -> String? {
+        guard let groups = digitGroups(from: rawValue),
+              groups.count == 1 || isValidGrouping(groups) else {
+            return nil
+        }
+        return groups.joined()
+    }
+
+    private static func digitGroups(from rawValue: Substring) -> [String]? {
+        var groups = [""]
+        for character in rawValue {
+            if let digit = character.wholeNumberValue {
+                groups[groups.count - 1].append(String(digit))
+            } else if character.isPunctuation,
+                      groups.last?.isEmpty == false {
+                groups.append("")
+            } else {
+                return nil
+            }
+        }
+
+        guard groups.last?.isEmpty == false else {
+            return nil
+        }
+        return groups
+    }
+
+    private static func isValidGrouping(_ groups: [String]) -> Bool {
+        guard groups.count > 1,
+              let first = groups.first,
+              let last = groups.last else {
+            return false
+        }
+
+        let usesWesternGrouping = (1...3).contains(first.count)
+            && groups.dropFirst().allSatisfy { $0.count == 3 }
+        let usesIndianGrouping = (1...2).contains(first.count)
+            && last.count == 3
+            && groups.dropFirst().dropLast().allSatisfy { $0.count == 2 }
+        return usesWesternGrouping || usesIndianGrouping
     }
 }
 

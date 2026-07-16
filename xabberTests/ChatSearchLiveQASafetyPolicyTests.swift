@@ -171,6 +171,67 @@ final class ChatSearchLiveQASafetyPolicyTests: XCTestCase {
         XCTAssertNil(ChatSearchLiveQACountParser.messageCount(from: "Search failed"))
     }
 
+    func testCounterParserAcceptsRussianAndGroupedLocalizedValues() {
+        XCTAssertEqual(
+            ChatSearchLiveQACountParser.position(from: "1 из 261"),
+            .init(current: 1, total: 261)
+        )
+        XCTAssertEqual(
+            ChatSearchLiveQACountParser.position(from: "1\u{00A0}234 из 2\u{202F}345"),
+            .init(current: 1_234, total: 2_345)
+        )
+        XCTAssertEqual(
+            ChatSearchLiveQACountParser.position(from: "1 among 261"),
+            .init(current: 1, total: 261)
+        )
+        XCTAssertEqual(
+            ChatSearchLiveQACountParser.position(
+                from: "\u{06F1}\u{066C}\u{06F2}\u{06F3}\u{06F4} از \u{06F2}\u{066C}\u{06F3}\u{06F4}\u{06F5}"
+            ),
+            .init(current: 1_234, total: 2_345)
+        )
+        XCTAssertEqual(
+            ChatSearchLiveQACountParser.position(
+                from: "\u{0967}\u{0968},\u{0969}\u{096A},\u{096B}\u{096C}\u{096D} में से "
+                    + "\u{0967}\u{0968},\u{0969}\u{096A},\u{096B}\u{096C}\u{096E}"
+            ),
+            .init(current: 1_234_567, total: 1_234_568)
+        )
+
+        XCTAssertEqual(ChatSearchLiveQACountParser.messageCount(from: "1 сообщение"), 1)
+        XCTAssertEqual(ChatSearchLiveQACountParser.messageCount(from: "2 сообщения"), 2)
+        XCTAssertEqual(ChatSearchLiveQACountParser.messageCount(from: "5 сообщений"), 5)
+        XCTAssertEqual(ChatSearchLiveQACountParser.messageCount(from: "261 сообщение"), 261)
+        XCTAssertEqual(
+            ChatSearchLiveQACountParser.messageCount(from: "1\u{00A0}234 сообщения"),
+            1_234
+        )
+        XCTAssertEqual(ChatSearchLiveQACountParser.messageCount(from: "261 result"), 261)
+        XCTAssertEqual(
+            ChatSearchLiveQACountParser.messageCount(
+                from: "\u{06F1}\u{066C}\u{06F2}\u{06F3}\u{06F4} پیام"
+            ),
+            1_234
+        )
+        XCTAssertEqual(
+            ChatSearchLiveQACountParser.messageCount(
+                from: "12\u{00A0}34\u{202F}567 messages"
+            ),
+            1_234_567
+        )
+    }
+
+    func testCounterParserRejectsMalformedLocalizedValues() {
+        XCTAssertNil(ChatSearchLiveQACountParser.position(from: "1 из"))
+        XCTAssertNil(ChatSearchLiveQACountParser.position(from: "из 261"))
+        XCTAssertNil(ChatSearchLiveQACountParser.position(from: "2 из 1"))
+        XCTAssertNil(ChatSearchLiveQACountParser.messageCount(from: "261"))
+        XCTAssertNil(ChatSearchLiveQACountParser.messageCount(from: "Search failed 261"))
+        XCTAssertNil(ChatSearchLiveQACountParser.messageCount(from: "1 из 261"))
+        XCTAssertNil(ChatSearchLiveQACountParser.messageCount(from: "-1 messages"))
+        XCTAssertNil(ChatSearchLiveQACountParser.messageCount(from: "1.5 messages"))
+    }
+
     func testElementLookupPolicyAlwaysPrefersStableIdentifier() {
         XCTAssertEqual(
             ChatSearchLiveQAElementLookupPolicy.strategy(
