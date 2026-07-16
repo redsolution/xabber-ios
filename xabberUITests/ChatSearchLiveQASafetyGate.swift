@@ -300,6 +300,37 @@ struct ChatSearchLiveQABoundaryAttemptBudget {
     }
 }
 
+enum ChatSearchLiveQAScenarioPlan {
+    enum Scenario: Equatable {
+        case coreSmoke
+        case oldestBoundary
+    }
+
+    enum Stage: Equatable {
+        case deterministicNavigation
+        case newestFirstList
+        case oldestBoundary
+        case keyboardContract
+        case calendarRestore
+        case searchCancellation
+    }
+
+    static func stages(for scenario: Scenario) -> [Stage] {
+        switch scenario {
+        case .coreSmoke:
+            return [
+                .deterministicNavigation,
+                .newestFirstList,
+                .keyboardContract,
+                .calendarRestore,
+                .searchCancellation
+            ]
+        case .oldestBoundary:
+            return [.newestFirstList, .oldestBoundary]
+        }
+    }
+}
+
 enum ChatSearchLiveQAElementLookupPolicy {
     enum Strategy: Equatable {
         case stableIdentifier(String)

@@ -406,6 +406,29 @@ final class ChatSearchLiveQASafetyPolicyTests: XCTestCase {
         XCTAssertFalse(budget.consume(.pageRequest))
     }
 
+    func testLiveScenarioPlanSplitsCoreAndOldestBoundaryWorkloads() {
+        XCTAssertEqual(
+            ChatSearchLiveQAScenarioPlan.stages(for: .coreSmoke),
+            [
+                .deterministicNavigation,
+                .newestFirstList,
+                .keyboardContract,
+                .calendarRestore,
+                .searchCancellation
+            ]
+        )
+        XCTAssertEqual(
+            ChatSearchLiveQAScenarioPlan.stages(for: .oldestBoundary),
+            [.newestFirstList, .oldestBoundary]
+        )
+        XCTAssertFalse(
+            ChatSearchLiveQAScenarioPlan.stages(for: .coreSmoke).contains(.oldestBoundary)
+        )
+        XCTAssertFalse(
+            ChatSearchLiveQAScenarioPlan.stages(for: .oldestBoundary).contains(.calendarRestore)
+        )
+    }
+
     func testElementLookupPolicyAlwaysPrefersStableIdentifier() {
         XCTAssertEqual(
             ChatSearchLiveQAElementLookupPolicy.strategy(

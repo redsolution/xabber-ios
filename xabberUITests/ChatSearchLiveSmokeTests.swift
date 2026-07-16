@@ -69,7 +69,27 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
     func testTelegramStyleInChatSearchLiveSmoke() throws {
         // The authorization gate must remain the first executable statement.
         let authorization = try ChatSearchLiveQASafetyGate.requireAuthorization()
+        try executeTelegramStyleSearchScenario(
+            authorization: authorization,
+            scenario: .coreSmoke
+        )
+    }
+
+    func testOldestResultBoundaryLiveSmoke() throws {
+        // The authorization gate must remain the first executable statement.
+        let authorization = try ChatSearchLiveQASafetyGate.requireAuthorization()
+        try executeTelegramStyleSearchScenario(
+            authorization: authorization,
+            scenario: .oldestBoundary
+        )
+    }
+
+    private func executeTelegramStyleSearchScenario(
+        authorization: ChatSearchLiveQASafetyGate.Authorization,
+        scenario: ChatSearchLiveQAScenarioPlan.Scenario
+    ) throws {
         executionTimeAllowance = ChatSearchLiveQATimeoutPolicy.globalBudget
+        let stages = ChatSearchLiveQAScenarioPlan.stages(for: scenario)
 
         let app = XCUIApplication()
         let startedAt = Date()
@@ -125,58 +145,95 @@ final class ChatSearchLiveSmokeTests: XCTestCase {
             }
 
             XCTAssertEqual(initialPosition.current, 1)
-            attachScreenshot(named: "01-chat", app: app)
-            try verifyDeterministicNavigationBranch(
-                initialPosition: initialPosition,
-                in: app
+            attachScreenshot(
+                named: scenario == .coreSmoke ? "01-chat" : "07-boundary-chat",
+                app: app
             )
+            if stages.contains(.deterministicNavigation) {
+                try verifyDeterministicNavigationBranch(
+                    initialPosition: initialPosition,
+                    in: app
+                )
+            }
 
             var committedPosition = try requirePosition(in: app)
+            guard stages.contains(.newestFirstList) else {
+                throw LiveQAError(message: "The live scenario omits newest-first list verification.")
+            }
             let listedTotal = try openAndVerifyNewestFirstList(
                 minimumTotal: committedPosition.total,
                 query: authorization.query,
                 in: app
             )
-            attachScreenshot(named: "02-list", app: app)
-
-            if listedTotal > 1 {
-                committedPosition = try reachOldestBoundaryFromList(
-                    initialTotal: listedTotal,
-                    query: authorization.query,
-                    deadline: startedAt.addingTimeInterval(
-                        ChatSearchLiveQATimeoutPolicy.globalBudget
-                    ),
-                    in: app
-                )
-                _ = try openAndVerifyNewestFirstList(
-                    minimumTotal: committedPosition.total,
-                    query: authorization.query,
-                    in: app
-                )
-            }
-
-            try verifyInteractiveKeyboardContract(in: app)
-            committedPosition = try requirePosition(in: app)
-            try verifyCalendarAndRestore(
-                expectedPosition: committedPosition,
-                query: authorization.query,
-                in: app
+            XCTAssertGreaterThanOrEqual(listedTotal, committedPosition.total)
+            attachScreenshot(
+                named: scenario == .coreSmoke ? "02-list" : "08-boundary-list",
+                app: app
             )
 
-            try closeSearch(in: app)
-            try wait(
-                description: "chat remains open after search cancellation",
-                timeout: ChatSearchLiveQATimeoutPolicy.finalSignedInShell,
-                app: app
-            ) {
-                self.element(AccessibilityID.chatAvatar, in: app).exists
-                    && !self.hasLoginOrOnboarding(in: app)
+            if stages.contains(.oldestBoundary) {
+                if listedTotal > 1 {
+                    committedPosition = try reachOldestBoundaryFromList(
+                        initialTotal: listedTotal,
+                        query: authorization.query,
+                        deadline: startedAt.addingTimeInterval(
+                            ChatSearchLiveQATimeoutPolicy.globalBudget
+                        ),
+                        in: app
+                    )
+                } else {
+                    XCTAssertEqual(committedPosition, .init(current: 1, total: 1))
+                }
+                XCTAssertEqual(committedPosition.current, committedPosition.total)
+                attachScreenshot(named: "09-oldest-boundary", app: app)
+                let evidence = XCTAttachment(
+                    string: [
+                        "dialog=\(selectedDialog)",
+                        "query=\(authorization.query)",
+                        "oldestPosition=\(committedPosition.current) of \(committedPosition.total)",
+                        "separateBoundedScenario=true"
+                    ].joined(separator: "\n")
+                )
+                evidence.name = "oldest-result-boundary-evidence"
+                evidence.lifetime = .keepAlways
+                add(evidence)
+                try assertGlobalBudget(startedAt: startedAt, stage: "oldest-boundary-finished")
+                return
             }
-            XCTAssertTrue(app.staticTexts[selectedDialog].firstMatch.exists)
-            attachScreenshot(named: "04-restored", app: app)
+
+            if stages.contains(.keyboardContract) {
+                try verifyInteractiveKeyboardContract(in: app)
+            }
+            committedPosition = try requirePosition(in: app)
+            if stages.contains(.calendarRestore) {
+                try verifyCalendarAndRestore(
+                    expectedPosition: committedPosition,
+                    query: authorization.query,
+                    in: app
+                )
+            }
+
+            if stages.contains(.searchCancellation) {
+                try closeSearch(in: app)
+                try wait(
+                    description: "chat remains open after search cancellation",
+                    timeout: ChatSearchLiveQATimeoutPolicy.finalSignedInShell,
+                    app: app
+                ) {
+                    self.element(AccessibilityID.chatAvatar, in: app).exists
+                        && !self.hasLoginOrOnboarding(in: app)
+                }
+                XCTAssertTrue(app.staticTexts[selectedDialog].firstMatch.exists)
+                attachScreenshot(named: "04-restored", app: app)
+            }
             try assertGlobalBudget(startedAt: startedAt, stage: "finished")
         } catch {
-            attachDiagnostics(named: "live-smoke-failure", app: app)
+            attachDiagnostics(
+                named: scenario == .coreSmoke
+                    ? "live-smoke-failure"
+                    : "oldest-boundary-failure",
+                app: app
+            )
             XCTFail(error.localizedDescription)
         }
     }
