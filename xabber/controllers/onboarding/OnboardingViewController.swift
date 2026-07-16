@@ -296,11 +296,6 @@ class OnboardingViewController: SimpleBaseViewController {
         self.navigationController?.navigationBar.setNeedsLayout()
     }
     
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        CredentialsManager.shared.clearKeychain()
-    }
-    
 }
 
 extension OnboardingViewController: XMPPRegistrationManagerDelegate {

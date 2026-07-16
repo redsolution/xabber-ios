@@ -997,6 +997,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }()
 
     internal let bottomSearchHostView = BottomSearchHostView(frame: .zero)
+    internal var pendingBottomSearchDismissalAfterRoute = false
     internal let bottomOverlayInsetCoordinator = BottomOverlayInsetCoordinator()
     
     internal let pullDownTableHeaderView: PullDownTableHeaderView = {
@@ -3444,6 +3445,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        cancelPendingBottomSearchDismissalAfterCancelledRoute()
         self.isNavigationTransitionActive = false
         self.flushPendingNavigationTransitionWork()
         updateTitle(filter.value)
@@ -3484,6 +3486,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        completePendingBottomSearchDismissalAfterRoute()
         endLeftMenuFirstPresentationQuietMode()
         unsubscribe()
     }

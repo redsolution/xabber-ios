@@ -1291,6 +1291,28 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
     }
 
+    @discardableResult
+    internal func cancelPendingArchiveRequest(queryId: String) -> Bool {
+        guard queryId.isNotEmpty else {
+            return false
+        }
+
+        if let item = self.firstCallbackQueueItem(where: { $0.elementId == queryId }) {
+            self.completeCallback(item.callback)
+            self.removePendingArchiveRequestAfterFailure(item)
+            return true
+        }
+
+        let hadState = self.queryIds.contains(queryId)
+            || self.regularArchiveRequestKeyByQueryId[queryId] != nil
+            || self.shouldPersistArchiveQueryId(queryId)
+        guard hadState else {
+            return false
+        }
+        self.removeArchiveRequestStateAfterFailure(queryId: queryId)
+        return true
+    }
+
     private func removeArchiveRequestStateAfterFailure(queryId: String) {
         guard queryId.isNotEmpty else {
             return
@@ -2118,15 +2140,21 @@ class MessageArchiveManager: AbstractXMPPManager {
         deferCoverageCommitUntilConsumerProof: Bool = false
     ) -> String {
         let key = Self.regularRequestKey(for: plan)
-        if joinDuplicateRequests,
-           let entry = regularArchiveInFlightByKey[key] {
-            if requestCallbacks.onMessage != nil || requestCallbacks.onEndPage != nil {
-                entry.requestCallbacks.append(requestCallbacks)
+        if let entry = regularArchiveInFlightByKey[key] {
+            if joinDuplicateRequests {
+                if requestCallbacks.onMessage != nil || requestCallbacks.onEndPage != nil {
+                    entry.requestCallbacks.append(requestCallbacks)
+                }
+                if let callback {
+                    entry.completionCallbacks.append(callback)
+                }
+                return entry.queryId
             }
-            if let callback {
-                entry.completionCallbacks.append(callback)
-            }
-            return entry.queryId
+
+            // An explicit query ID is a new transaction. Retire an older
+            // matching request before installing the replacement so Retry
+            // cannot attach to a transport that has already timed out at UI.
+            _ = cancelPendingArchiveRequest(queryId: entry.queryId)
         }
 
         let entry = RegularArchiveInFlightEntry(queryId: queryId, priority: priority)
@@ -2165,6 +2193,11 @@ class MessageArchiveManager: AbstractXMPPManager {
         last: String,
         count: Int
     ) {
+        // A completed regular request must leave no transport registration
+        // behind. Several successful-result branches return immediately after
+        // this helper, so relying on the common tail of read(_:withIQ:) leaves
+        // the query active forever and lets a later Retry join stale state.
+        queryIds.remove(queryId)
         guard let key = regularArchiveRequestKeyByQueryId.removeValue(forKey: queryId) else {
             unregisterArchiveQueryId(queryId)
             return
@@ -2731,6 +2764,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                             stream,
                             plan: plan,
                             queryId: bootstrapQueryId,
+                            joinDuplicateRequests: queryId == nil,
                             callback: callback,
                             requestCallbacks: requestCallbacks
                         )

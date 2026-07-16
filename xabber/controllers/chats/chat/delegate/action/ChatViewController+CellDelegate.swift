@@ -966,12 +966,6 @@ extension ChatViewController: MessageCellDelegate {
 //        }
     }
     
-//    internal func showSubforwards(_ items: [MessageForwardsInlineStorageItem.Model]) {
-//        let vc = SubforwardsViewController()
-//        vc.configure(owner, jid: jid, items: items)
-//        showModal(vc)
-//    }
-//    
     internal func openFile(_ url: URL?) {
         guard let url = url,
             UIApplication.shared.canOpenURL(url) else {

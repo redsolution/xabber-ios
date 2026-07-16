@@ -9,7 +9,7 @@
 
 import Foundation
 
-#if DEBUG
+#if DEBUG || CHAT_PERFORMANCE_LAB
 enum ChatPerformanceFixtureScale: String, CaseIterable {
     case small
     case tenThousand

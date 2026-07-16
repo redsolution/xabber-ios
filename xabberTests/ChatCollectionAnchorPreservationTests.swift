@@ -152,6 +152,28 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         )
     }
 
+    func testPreservedOffsetPolicyMarksOutOfBoundsOffsetAsMandatorySafetyClamp() {
+        let decision = ChatViewportTransactionTargetPolicy.preservedContentOffsetDecision(
+            requestedOffsetY: 900,
+            minimumContentOffsetY: -20,
+            maximumContentOffsetY: 180
+        )
+
+        XCTAssertEqual(decision.targetOffsetY, 180, accuracy: 0.001)
+        XCTAssertTrue(decision.isSafetyClamp)
+    }
+
+    func testPreservedOffsetPolicyKeepsInBoundsRestorationAutomatic() {
+        let decision = ChatViewportTransactionTargetPolicy.preservedContentOffsetDecision(
+            requestedOffsetY: 120,
+            minimumContentOffsetY: -20,
+            maximumContentOffsetY: 180
+        )
+
+        XCTAssertEqual(decision.targetOffsetY, 120, accuracy: 0.001)
+        XCTAssertFalse(decision.isSafetyClamp)
+    }
+
     func testNewerPageRestoresCapturedAnchorInsideApplyTransaction() {
         let plan = ChatHistoryPageApplyPolicy.plan(direction: .newer, hasCapturedAnchor: true)
 
@@ -215,6 +237,46 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         XCTAssertEqual(diagnostics.programmaticOffsetMutationCount, 0)
     }
 
+    func testKeepOffsetWindowShrinkClampsViewportInsideNewContentBounds() {
+        let controller = makeController()
+        let initialItems = (0..<80).map { makeDatasource(primary: "initial-\($0)") }
+        let replacementItems = (0..<2).map { makeDatasource(primary: "replacement-\($0)") }
+        controller.applyChatDatasource(
+            initialItems,
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+        controller.scrollToBottom(animated: false)
+        controller.messagesCollectionView.layoutIfNeeded()
+        let oldOffsetY = controller.messagesCollectionView.contentOffset.y
+
+        controller.applyChatDatasource(
+            replacementItems,
+            mode: .windowReload(keepOffset: true),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let minimumOffsetY = -controller.messagesCollectionView.adjustedContentInset.top
+        let maximumOffsetY = max(
+            minimumOffsetY,
+            controller.messagesCollectionView.contentSize.height -
+                controller.messagesCollectionView.bounds.height +
+                controller.messagesCollectionView.adjustedContentInset.bottom
+        )
+        XCTAssertGreaterThan(oldOffsetY, maximumOffsetY)
+        XCTAssertGreaterThanOrEqual(
+            controller.messagesCollectionView.contentOffset.y,
+            minimumOffsetY - 0.5
+        )
+        XCTAssertLessThanOrEqual(
+            controller.messagesCollectionView.contentOffset.y,
+            maximumOffsetY + 0.5
+        )
+    }
+
     func testRemovedLegacyViewportCorrectionPrimitivesDoNotReturn() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -224,19 +286,28 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
             "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
             "xabber/controllers/chats/chat/messages_kit/Views/MessagesCollectionView.swift"
         ]
-        let sources = try relativePaths.map {
-            try String(contentsOf: repositoryRoot.appendingPathComponent($0), encoding: .utf8)
-        }.joined(separator: "\n")
+        let sourcesByPath = try Dictionary(uniqueKeysWithValues: relativePaths.map {
+            (
+                $0,
+                try String(contentsOf: repositoryRoot.appendingPathComponent($0), encoding: .utf8)
+            )
+        })
+        let sources = sourcesByPath.values.joined(separator: "\n")
 
         for token in [
             "scheduleOutgoingBottomRealignment",
             "performBatchUpdates(nil)",
             "reloadDataAndKeepOffset",
-            "UIView.setAnimationsEnabled(false)",
-            "removeAllAnimations()"
+            "UIView.setAnimationsEnabled(false)"
         ] {
             XCTAssertFalse(sources.contains(token), "Removed viewport legacy token remains: \(token)")
         }
+        let viewportApplySources = relativePaths.dropFirst().compactMap { sourcesByPath[$0] }
+            .joined(separator: "\n")
+        XCTAssertFalse(
+            viewportApplySources.contains("removeAllAnimations()"),
+            "Viewport apply must not clear layer animations; terminal resource teardown may"
+        )
     }
 
     func testControllerPrependCommitsAnchorWithOneLayoutAndOneOffsetMutation() throws {
@@ -334,7 +405,7 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         XCTAssertEqual(diagnostics.programmaticOffsetMutationCount, 0)
     }
 
-    func testControllerContentOnlyUpdateDoesNotMutateOffset() throws {
+    func testControllerChromeUpdateWithoutPreparedLayoutReconfiguresWithoutOffset() throws {
         let controller = makeController()
         let initialItems = (0..<40).map { makeDatasource(primary: "m\($0)") }
         controller.applyChatDatasource(
@@ -367,7 +438,8 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         guard case .committed(let diagnostics) = result else {
             return XCTFail("Expected committed content-only transaction")
         }
-        XCTAssertTrue(diagnostics.contentChanges.contains(.contentOnly))
+        XCTAssertFalse(diagnostics.contentChanges.contains(.contentOnly))
+        XCTAssertTrue(diagnostics.layoutChanges.contains(.reconfigureItems))
         XCTAssertEqual(diagnostics.programmaticOffsetMutationCount, 0)
     }
 
@@ -516,6 +588,118 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         XCTAssertGreaterThan(diagnostics.insetDelta.bottom, 100)
     }
 
+    func testControllerLayoutRemapKeepsLiveTailAcrossPortraitLandscapePortrait() throws {
+        let controller = makeController()
+        let items = (0..<80).map { index -> ChatViewController.Datasource in
+            var item = makeDatasource(primary: "rotation-\(index)")
+            item.kind = .attributedText(NSAttributedString(
+                string: index.isMultiple(of: 3)
+                    ? String(repeating: "width-sensitive historical message ", count: 14)
+                    : "short message \(index)"
+            ))
+            return item
+        }
+        controller.applyChatDatasource(
+            items,
+            mode: .fullReload(),
+            animated: false,
+            invalidateLayout: true,
+            suppressDefaultBottomScroll: true
+        )
+        var initialPreparationFinished = false
+        controller.prepareAndApplyCurrentDatasourceLayouts {
+            initialPreparationFinished = true
+        }
+        XCTAssertTrue(waitUntil { initialPreparationFinished })
+        controller.scrollToBottom(animated: false)
+        controller.messagesCollectionView.layoutIfNeeded()
+        XCTAssertTrue(controller.isNearBottom(threshold: 1))
+
+        try remapControllerForSizeTransition(
+            controller,
+            to: CGSize(width: 844, height: 390)
+        )
+        XCTAssertTrue(
+            controller.isNearBottom(threshold: 1),
+            "Landscape remap must keep the resident live tail aligned"
+        )
+
+        try remapControllerForSizeTransition(
+            controller,
+            to: CGSize(width: 390, height: 844)
+        )
+        XCTAssertTrue(
+            controller.isNearBottom(threshold: 1),
+            "Returning to portrait must not land in older history"
+        )
+        let committedOffsetY = controller.messagesCollectionView.contentOffset.y
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(
+            controller.messagesCollectionView.contentOffset.y,
+            committedOffsetY,
+            accuracy: 0.001,
+            "Rotation restoration must not schedule a delayed correction"
+        )
+    }
+
+    func testControllerLayoutRemapPreservesVisibleMessageAcrossPortraitLandscapePortrait() throws {
+        let controller = makeController()
+        let items = (0..<80).map { index -> ChatViewController.Datasource in
+            var item = makeDatasource(primary: "rotation-anchor-\(index)")
+            item.kind = .attributedText(NSAttributedString(
+                string: index.isMultiple(of: 3)
+                    ? String(repeating: "width-sensitive historical message ", count: 14)
+                    : "short message \(index)"
+            ))
+            return item
+        }
+        controller.applyChatDatasource(
+            items,
+            mode: .fullReload(),
+            animated: false,
+            invalidateLayout: true,
+            suppressDefaultBottomScroll: true
+        )
+        var initialPreparationFinished = false
+        controller.prepareAndApplyCurrentDatasourceLayouts {
+            initialPreparationFinished = true
+        }
+        XCTAssertTrue(waitUntil { initialPreparationFinished })
+        controller.messagesCollectionView.scrollToItem(
+            at: IndexPath(item: 0, section: 40),
+            at: .top,
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+        let capturedAnchor = try XCTUnwrap(
+            controller.capturePagingAnchorIfNeeded(direction: .older)
+        )
+        let anchorPrimary = capturedAnchor.primary
+        let portraitViewportY = capturedAnchor.viewportRelativeMinY
+
+        try remapControllerForSizeTransition(
+            controller,
+            to: CGSize(width: 844, height: 390)
+        )
+        XCTAssertEqual(
+            try viewportY(for: anchorPrimary, in: controller),
+            portraitViewportY,
+            accuracy: 1,
+            "Landscape remap must restore the pre-transition message anchor"
+        )
+
+        try remapControllerForSizeTransition(
+            controller,
+            to: CGSize(width: 390, height: 844)
+        )
+        XCTAssertEqual(
+            try viewportY(for: anchorPrimary, in: controller),
+            portraitViewportY,
+            accuracy: 1,
+            "Returning to portrait must restore the same message-relative anchor"
+        )
+    }
+
     private func makeTransaction(
         completion: @escaping (ChatViewportTransactionResult) -> Void
     ) -> ChatViewportTransaction {
@@ -541,6 +725,26 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         controller.view.layoutIfNeeded()
         controller.showSkeletonObserver.accept(false)
         return controller
+    }
+
+    private func remapControllerForSizeTransition(
+        _ controller: ChatViewController,
+        to size: CGSize
+    ) throws {
+        let sectionInsets = try XCTUnwrap(
+            controller.messagesCollectionView.collectionViewLayout as? UICollectionViewFlowLayout
+        ).sectionInset.horizontal
+        var preparationFinished = false
+        controller.prepareAndApplyCurrentDatasourceLayouts(
+            layoutWidthOverride: max(1, size.width - sectionInsets)
+        ) {
+            preparationFinished = true
+        }
+        controller.view.bounds.size = size
+        controller.shouldChangeFrame()
+        controller.view.layoutIfNeeded()
+        XCTAssertTrue(waitUntil { preparationFinished })
+        controller.messagesCollectionView.layoutIfNeeded()
     }
 
     private func viewportY(

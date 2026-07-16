@@ -158,6 +158,30 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertFalse(controller.bootstrapFailureView.isHidden)
     }
 
+    func testBootstrapTransportPrefersReadyPrimaryAccountAndFallsBackOnlyWhenNeeded() {
+        XCTAssertEqual(
+            ChatInitialBootstrapTransportPolicy.resolve(
+                hasPrimaryAccount: true,
+                primaryStreamReady: true
+            ),
+            .primaryAccount
+        )
+        XCTAssertEqual(
+            ChatInitialBootstrapTransportPolicy.resolve(
+                hasPrimaryAccount: true,
+                primaryStreamReady: false
+            ),
+            .uiAction
+        )
+        XCTAssertEqual(
+            ChatInitialBootstrapTransportPolicy.resolve(
+                hasPrimaryAccount: false,
+                primaryStreamReady: false
+            ),
+            .uiAction
+        )
+    }
+
     func testEqualReducerStateIsAnApplicationNoOp() {
         XCTAssertEqual(
             ChatBootstrapStateApplicationPolicy.decision(
@@ -173,6 +197,92 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
             ),
             .apply
         )
+    }
+
+    func testCommittedContentCannotReenterBootstrapSkeletonDuringPagingMetadataRefresh() {
+        XCTAssertEqual(
+            ChatBootstrapStateApplicationPolicy.decision(
+                previous: .content,
+                next: .blockingArchive
+            ),
+            .noOp
+        )
+        XCTAssertEqual(
+            ChatBootstrapStateApplicationPolicy.decision(
+                previous: .content,
+                next: .blockingTarget
+            ),
+            .noOp
+        )
+        XCTAssertEqual(
+            ChatBootstrapStateApplicationPolicy.decision(
+                previous: .blockingArchive,
+                next: .blockingTarget,
+                hasCommittedContent: true
+            ),
+            .noOp
+        )
+    }
+
+    func testLateBlockingMetadataKeepsCommittedMessageDatasourceInteractive() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.datasource = [makeDatasource(primary: "committed-message")]
+        controller.appliedBootstrapLoadingState = .content
+        controller.showSkeletonObserver.accept(false)
+        controller.setDatasourceLoadingEnabled(true)
+
+        controller.applyBootstrapLoadingState(.blockingArchive, forceRender: true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .content)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.map(\.primary), ["committed-message"])
+        XCTAssertTrue(controller.loadDatasourceObserver.value)
+        XCTAssertTrue(controller.messagesCollectionView.isUserInteractionEnabled)
+    }
+
+    func testSavedPositionRealDatasourceCommitSealsLifecycleWhenLoadingTrackerIsStale() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.appliedBootstrapLoadingState = .blockingArchive
+        controller.showSkeletonObserver.accept(false)
+        controller.setDatasourceLoadingEnabled(true)
+
+        controller.applyChatDatasource(
+            [makeDatasource(primary: "saved-position-message")],
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+
+        XCTAssertTrue(controller.hasCommittedRealContentInCurrentLifecycle)
+
+        controller.applyBootstrapLoadingState(.blockingTarget, forceRender: true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertTrue(controller.hasCommittedRealContentInCurrentLifecycle)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.map(\.primary), ["saved-position-message"])
+        XCTAssertTrue(controller.loadDatasourceObserver.value)
+        XCTAssertTrue(controller.messagesCollectionView.isUserInteractionEnabled)
+    }
+
+    func testDatasetReconfigurationCannotForgetEarlierCommittedContentWhilePlaceholderIsVisible() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.hasCommittedRealContentInCurrentLifecycle = true
+        controller.appliedBootstrapLoadingState = .blockingArchive
+        controller.showSkeletonObserver.accept(false)
+        controller.datasource = [makeDatasource(primary: "temporary-placeholder", isFakeMessage: true)]
+
+        controller.configureDataset()
+        controller.applyBootstrapLoadingState(.blockingTarget, forceRender: true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertTrue(controller.hasCommittedRealContentInCurrentLifecycle)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.map(\.primary), ["temporary-placeholder"])
     }
 
     func testSkeletonToEightyRowsHasOneCommitAndNoEmptyIntermediateFrame() {
@@ -215,6 +325,61 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
     private func messageText(_ item: ChatViewController.Datasource) -> String? {
         guard case .skeleton(let text) = item.kind else { return nil }
         return text.string
+    }
+
+    private func makeDatasource(
+        primary: String,
+        isFakeMessage: Bool = false
+    ) -> ChatViewController.Datasource {
+        ChatViewController.Datasource(
+            primary: primary,
+            jid: "skeleton-peer@example.com",
+            owner: "skeleton-owner@example.com",
+            outgoing: false,
+            sender: Sender(id: "skeleton-peer@example.com", displayName: "Peer"),
+            messageId: "\(primary)-message-id",
+            sentDate: Date(timeIntervalSince1970: 1_700_000_000),
+            editDate: nil,
+            kind: isFakeMessage
+                ? .skeleton(NSAttributedString(string: primary))
+                : .attributedText(NSAttributedString(string: primary)),
+            withAuthor: false,
+            withAvatar: false,
+            error: false,
+            errorType: "",
+            canPinMessage: false,
+            canEditMessage: false,
+            canDeleteMessage: false,
+            forwards: [],
+            isOutgoing: false,
+            isEdited: false,
+            groupchatAuthorRole: "",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isHasAttachedMessages: false,
+            isDownloaded: true,
+            state: .read,
+            searchString: nil,
+            errorMetadata: nil,
+            burnDate: -1,
+            afterburnInterval: -1,
+            archivedId: "archive-\(primary)",
+            queryIds: nil,
+            isRead: true,
+            selectedSearchResultId: nil,
+            isHadHistoryGap: false,
+            tailed: false,
+            isFakeMessage: isFakeMessage,
+            images: [],
+            videos: [],
+            files: [],
+            audios: [],
+            timeMarkerText: NSAttributedString(string: "12:00"),
+            indicator: .read,
+            avatarUrl: nil,
+            attributedAuthor: nil
+        )
     }
 
     private func allSubviews(of view: UIView) -> [UIView] {

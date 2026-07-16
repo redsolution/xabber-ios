@@ -112,6 +112,11 @@ enum ChatViewportTransactionResult: Equatable {
 }
 
 enum ChatViewportTransactionTargetPolicy {
+    struct PreservedContentOffsetDecision: Equatable {
+        let targetOffsetY: CGFloat
+        let isSafetyClamp: Bool
+    }
+
     static func targetContentOffsetY(
         anchor: ChatViewportAnchor,
         resolvedAnchorMinY: CGFloat,
@@ -121,6 +126,23 @@ enum ChatViewportTransactionTargetPolicy {
         min(
             max(resolvedAnchorMinY - anchor.viewportRelativeMinY, minimumContentOffsetY),
             maximumContentOffsetY
+        )
+    }
+
+    static func preservedContentOffsetDecision(
+        requestedOffsetY: CGFloat,
+        minimumContentOffsetY: CGFloat,
+        maximumContentOffsetY: CGFloat
+    ) -> PreservedContentOffsetDecision {
+        let normalizedMaximumOffsetY = max(minimumContentOffsetY, maximumContentOffsetY)
+        let targetOffsetY = min(
+            max(requestedOffsetY, minimumContentOffsetY),
+            normalizedMaximumOffsetY
+        )
+        return PreservedContentOffsetDecision(
+            targetOffsetY: targetOffsetY,
+            isSafetyClamp: requestedOffsetY < minimumContentOffsetY ||
+                requestedOffsetY > normalizedMaximumOffsetY
         )
     }
 }

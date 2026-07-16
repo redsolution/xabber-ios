@@ -65,7 +65,6 @@ class MessagesCollectionView: UICollectionView {
 //        register(VideoMessageCell.self)
 //        register(FileMessageCell.self)
 //        register(AudioMessageCell.self)
-        register(VoIPCallMessageCell.self)
         register(SystemMessageCell.self)
         register(StickerMessageCell.self)
 //        register(QuoteMessageCell.self)

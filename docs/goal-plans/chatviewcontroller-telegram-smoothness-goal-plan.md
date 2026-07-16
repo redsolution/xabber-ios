@@ -1,12 +1,16 @@
 # ChatViewController: независимый аудит и Goal-план Telegram-level smoothness
 
-Дата аудита: 2026-07-14
+Дата первичного аудита: 2026-07-14
+
+Дата независимого live-дополнения: 2026-07-16
 
 Аудируемая ветка: `feature/performance-fixes`
 
-Аудируемый commit: `01699ee4c5406025807d179113bcedf8030dd551`
+Commit первичного аудита: `01699ee4c5406025807d179113bcedf8030dd551`
 
-Статус: анализ текущего кода завершён; production-код в рамках аудита не изменялся.
+Baseline live-дополнения: `0d0365f1df514b6c235ce9459eda2db7b6716291` плюс незакоммиченный G20 integration-gate diff
+
+Статус: первичный source-аудит был read-only; G00–G20 выполнены отдельными focused commits, финальные automated/live Simulator gates пройдены.
 
 ## 1. Границы и метод аудита
 
@@ -1120,7 +1124,229 @@ tools/xcodebuild_cached.sh test -parallel-testing-enabled NO \
 
 **Commit:** `test(chat-perf): enforce final smoothness gates and remove legacy`
 
-## 11. Sibling-worktree policy
+## 11. Независимый live-аудит G20: финальный фактический результат
+
+Этот раздел фиксирует отдельный прогон на реальном аккаунте и серверной истории. Он не выводит результат из unit/UI fixture-тестов и не повышает simulator evidence до hardware evidence. По последнему указанию владельца весь дальнейший scope ограничен выделенным симулятором iPhone 16 Pro; физическое устройство не устанавливается, не запускается и не используется для Instruments. Поэтому hardware frame/hitch/network gates имеют состояние `excluded-by-owner`, а не `pass`.
+
+| Сценарий | Результат | Наблюдение |
+|---|---|---|
+| История с сервера вверх | pass | Три дополнительные реальные data pages сохранили и показали 250, 247 и 250 строк; каждый cursor продвинулся. |
+| Стабильность anchor при MAM apply | pass | Каждая page применялась одной viewport transaction; latest flash, corrective scroll и persistent skeleton отсутствуют. |
+| Разрывы вокруг target | pass | Состояние `944 rows / 3 ranges / 2 gaps` восстановлено до `984 / 1 / 0`, затем точное сообщение отцентрировано. |
+| Last Chats search `test` -> точное сообщение | pass | Исторический target присутствует в первом content frame; newest/empty intermediate frame не наблюдался. |
+| Push и local notification -> точное сообщение | pass | Оба route-типа открывают notification message; позднее появление target и gaps вокруг target покрыты. |
+| Background -> foreground | pass | PID, видимый anchor, composer и content state сохранились; skeleton не появился. |
+| Largest Dynamic Type | pass | Максимальная категория применена и восстановлена; тот же anchor и composer остались доступны без crash/мерцания. |
+| Live optimistic send | pass | Новая run-owned строка появилась в уже открытом historical window на первом accessibility inspection. |
+| Live edit | pass | Edited body и `(edited)` появились немедленно без дублирования row или перехода к latest. |
+| Live delete/cleanup | pass | Удалены только четыре зарегистрированных run-owned ID; Realm-проверка всех original/edited вариантов дала `0`, foreign mutations `0`. |
+| Text/layout geometry | pass | Exact live-derived regressions, immutable UIKit attributes и полный G20 matrix green; live paging не дал geometry assert или cache mismatch. |
+| Историческое media | pass/fail-safe | File row ready; missing image имеет явный unavailable placeholder и gallery fallback, а не пустое terminal состояние. |
+| Rotation | pass | Portrait -> landscape -> portrait сохранил тот же message anchor и composer без delayed correction. |
+| Network recovery | pass на deterministic Simulator tier | Disconnect/retry/late-final regressions green; Xcode Network instrument остаётся `simulator-unsupported`. |
+| Skeleton live | pass | Fast older/newer movement после committed content больше не возвращает timeline к blocking skeleton. |
+
+Финальный вывод: все обязательные simulator-only критерии G20 закрыты. Read-only и mutation reports приняты fail-closed валидаторами, remaining run-owned IDs равны нулю, чужие сообщения не менялись. Физическое устройство по указанию владельца не использовалось; hardware frame/hitch/network имеют состояние `excluded-by-owner: simulator-only`, а не `pass`.
+
+## 12. Остаточные пакеты G20 по результатам live-аудита
+
+**Статус:** G20-R1–G20-R6 выполнены. Нижеследующие разделы сохранены как подробная спецификация принятых regressions и критериев, а не как открытый backlog. Финальный общий прогон: focused 1,251/1,251, smoke 234/234, XCUITest 5/5, Debug build и Release performance gate green.
+
+### Общий протокол остаточных пакетов G20
+
+Перед каждой задачей:
+
+1. Проверить `git status --short`, текущий branch и HEAD; убедиться, что незавершённый G20 остаётся единственным dirty scope поверх committed G19.
+2. На выделенном симуляторе и отдельном `XABBER_XCODE_CACHE_ROOT` запустить `tools/run_chat_goal_tests.sh preflight G20` и точные owner selectors, перечисленные в задаче. Hosted tests запускаются только с парой `TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT=1` и `TEST_RUNNER_XABBER_ISOLATED_STORAGE=1`; live main app — только с обеими переменными unset.
+3. Записать baseline в отдельную vault task note. При новом unexpected red production-код не менять до локализации первого meaningful failure.
+4. Сначала добавить regression XCTest/XCUITest и получить ожидаемый red, затем менять production.
+
+После каждой задачи:
+
+1. Запустить task-specific tests, `tools/run_chat_goal_tests.sh smoke G20`, полный затронутый integration selector и `tools/run_chat_goal_tests.sh build G20` без `clean`.
+2. Проверить operation counters, anchor/offset budgets, active-resource cleanup, compiler/linker output и `git diff --check`.
+3. Обновить task note, UI/tests notes и durable testing/architecture docs.
+4. Не stage и не commit промежуточный пакет отдельно: весь остаточный scope должен пройти общий live/final gate и войти в единственный G20 commit.
+
+### G20-R1. Атомарная optimistic edit/reconciliation
+
+**Почему задача нужна:** live edit прошёл через `editSimpleMessage`, но видимая строка сохранила исходное содержимое. Значит, submit path существует, а optimistic resident mutation, Realm/session observation либо server acknowledgement не формируют одну гарантированную транзакцию.
+
+**Preflight до изменений:** общий G20 preflight; отдельно текущие edit/outgoing/session/diff tests и deterministic XCUITest optimistic mutation scenario. Зафиксировать operation vector и отсутствие programmatic scroll до редактирования.
+
+**Работы:**
+
+- трассировать edit intent по стабильному primary/message ID через composer, XMPP command, persistence observation, `ChatTimelineSession`, display/layout cache и datasource diff;
+- ввести один generation-scoped edit transaction со состояниями `submitted`, `optimistic`, `acknowledged`, `failed/rollback`, не создающий вторую timeline row;
+- применить новый body/references локально до сетевого round trip, сохранив stable row identity, message-relative anchor и текущий scroll-following policy;
+- на ack объединять server revision с optimistic row идемпотентно; duplicate/out-of-order ack не должен возвращать старый body или повторно конфигурировать cell;
+- на reject/timeout показывать typed retry/failure state без silent rollback, full reload или перехода к latest;
+- инвалидировать только formatting/layout artifacts изменённого message revision; не сбрасывать media/avatar/date caches соседних строк;
+- сделать callbacks conversation/generation owned и инертными после удаления сообщения, смены чата или teardown;
+- live cleanup по-прежнему удаляет только ID, зарегистрированные текущим run prefix.
+
+**Критерии принятия:**
+
+- от submit до видимого edited body не более 100 ms в warmed Release simulator fixture;
+- row primary и datasource identity не меняются; нет duplicate row, `reloadData`, forced bottom scroll или anchor drift >1 pt;
+- matching ack даёт максимум один revision-only reconfigure; duplicate/stale ack даёт ноль UI operations;
+- server reject имеет явный retry/failure UI и не теряет исходный/edited текст;
+- edit survives leave/reopen и повторную локальную выборку;
+- run-owned live message успешно send -> edit -> delete, после cleanup локальных run-owned IDs ноль и foreign mutations ноль.
+
+**Необходимые тесты:** reducer state matrix; matching/duplicate/out-of-order ack; edit-then-delete; edit during paging/search anchor; lifecycle cancellation; Realm persistence integration; formatting cache revision invalidation; datasource operation counter; away-from-tail anchor; deterministic XCUITest; отдельный guarded live mutation report.
+
+**Commit:** входит в `test(chat-perf): enforce final smoothness gates and remove legacy`.
+
+### G20-R2. Геометрия текстовой ячейки при remote-history apply
+
+**Почему задача нужна:** реальный MAM page apply попал в строгий geometry invariant: 11 frames против контейнера `64 x 16`. Это отдельный layout defect, способный давать assert, clipping, мерцание или скачок высоты после server paging.
+
+**Preflight до изменений:** общий G20 preflight; `TextMessageCellLayoutTests`, `ChatDatasourceMappingThreadingTests`, remote paging/anchor selectors. Добавить regression fixture из frozen text row с теми же container dimensions и получить red без отключения validator.
+
+**Работы:**
+
+- определить, где преждевременно фиксируются width/height: mapping measurement, layout attributes, reuse/apply ordering или remote diff transaction;
+- передавать в frame calculation только конечную валидную content width с учётом safe area, avatar, reply/forward/reaction blocks и Dynamic Type;
+- запретить публикацию противоречивой пары `frames + container`; до готовности final geometry cell должна использовать stable previous/placeholder geometry, а не применять нулевой/минимальный layout;
+- никогда не изменять attributes, возвращённые `UICollectionViewFlowLayout`; `layoutAttributesForElements`, item и supplementary callbacks сначала создают copy и только затем применяют chat geometry;
+- не ослаблять `ChatMessageFrameGeometryValidator` и не скрывать ошибку clamp-ом, если он маскирует неверную модель;
+- revision/width-key layout cache должен отбрасывать stale result после rotation, Dynamic Type, reuse и generation change;
+- remote page должен по-прежнему применяться одной anchor-preserving viewport transaction.
+
+**Критерии принятия:**
+
+- exact live-derived regression проходит с включённым strict validator;
+- для widths 320/390/430 pt, largest Dynamic Type и всех text decorations каждый frame конечен, неотрицателен и находится внутри container;
+- remote page не вызывает invalid interim apply, clipping/blank cell или second corrective layout;
+- runtime не выдаёт `cached frame mismatch`; superclass cache остаётся immutable для subclass;
+- anchor drift <=1 pt; максимум один datasource apply, один forced layout и один offset strategy на page;
+- 100 последовательных page/reuse cycles дают ноль geometry violations и stable memory plateau.
+
+**Необходимые тесты:** exact `64 x 16` regression; layout-attributes copy regression; width/Dynamic Type matrix; reply/forward/reaction/edited/link/reference combinations; reuse with stale async mapping; remote apply integration; anchor operation counters; 100-cycle stress; Debug simulator manual confirmation на server page.
+
+**Commit:** входит в `test(chat-perf): enforce final smoothness gates and remove legacy`.
+
+### G20-R3. Детерминированное состояние исторического media и retry
+
+**Почему задача нужна:** voice/file rows были валидны, но одна historical image/media row осталась пустым светлым блоком. Без явного terminal/error state невозможно отличить загрузку от потерянного callback, отсутствующего файла или reuse race.
+
+**Preflight до изменений:** общий G20 preflight; media pipeline, prefetch, cache, cell reuse, anchor-retention и gallery tests. Добавить red fixture для metadata-present/local-file-missing и stale prefetch callback после reuse.
+
+**Работы:**
+
+- свести historical image/video/file presentation к явному immutable state: metadata, placeholder, queued/prefetching, ready, recoverable failure, terminal unavailable;
+- любой не-ready state должен иметь видимый semantic placeholder/progress/retry, а не пустую ячейку;
+- visible и prefetch должны использовать один request identity и один coalesced download/downsample/decode artifact;
+- file missing, corrupt cache, expired URL, offline и HTTP/XMPP failure должны завершать request и освобождать registry; retry создаёт новую generation;
+- callbacks проверяют message revision, media key, cell reuse generation и active conversation;
+- decode/downsample/file I/O остаются off-main; success меняет только media subtree и сохраняет message-relative anchor;
+- кэш остаётся bounded по count/bytes/TTL и очищает незавершённые temporary artifacts.
+
+**Критерии принятия:**
+
+- ни один terminal state не выглядит как пустой белый/светлый блок;
+- prefetch -> visible имеет один network/file acquisition, один decode и cache hit без второго старта;
+- stale callback после reuse/offscreen/URL change не меняет новую row;
+- retry после offline/corrupt/missing file приводит к ready либо явному terminal error;
+- media relayout сохраняет anchor <=1 pt и не вызывает full reload/programmatic scroll;
+- после 20 циклов registry zero-active и memory growth <=10%.
+
+**Необходимые тесты:** state reducer; missing/corrupt/expired artifact; request coalescing; cancellation; reuse/URL/revision race; off-main instrumentation; cache eviction; media relayout anchor; deterministic UI placeholder/retry; live read-only observation существующего historical media.
+
+**Commit:** входит в `test(chat-perf): enforce final smoothness gates and remove legacy`.
+
+### G20-R4. Согласованный rotation/adaptive-layout contract
+
+**Почему задача нужна:** runtime запрещает autorotation, тогда как Info.plist объявляет landscape. Требуемая rotation QA поэтому фактически не выполняется.
+
+**Preflight до изменений:** общий G20 preflight; controller lifecycle, collection anchor, composer, skeleton, media relayout и accessibility/Dynamic Type tests. Сначала добавить source/policy regression, фиксирующий согласованный orientation mask.
+
+**Работы:**
+
+- определить и реализовать единый iPhone orientation policy для app/root/messages controllers и Info.plist; chat должен поддерживать заявленные portrait/landscape направления;
+- на `viewWillTransition` захватить stable message-relative anchor, отменить stale width-key mapping/media work, перестроить visible/resident layout и восстановить anchor в одной transaction;
+- сохранить composer text/edit/reply state, keyboard inset, search target/highlight, skeleton phase и live-tail semantics;
+- не использовать delayed second scroll; callbacks старой width generation должны быть инертны;
+- rotation XCUITest должен ждать semantic stable frame, а не фиксированный timeout.
+
+**Критерии принятия:**
+
+- simulator действительно меняет portrait <-> landscape, policy совпадает с Info.plist;
+- видимый primary и его relative Y сохраняются с drift <=1 pt либо target остаётся centered <=1 pt;
+- одна rotation даёт не более одного apply/layout/offset transaction и ноль latest flash;
+- composer/keyboard/edit/reply/media/skeleton state не теряются и не мерцают;
+- 20 чередований orientation не оставляют active tasks/timers и дают plateau <=10%.
+
+**Необходимые тесты:** source/policy; transition coordinator; width-generation cancellation; anchor/live-tail/search target; composer/keyboard; media/skeleton; Dynamic Type + rotation cross-product; XCUITest обеих ориентаций; 20-cycle lifecycle/memory.
+
+**Commit:** входит в `test(chat-perf): enforce final smoothness gates and remove legacy`.
+
+### G20-R5. Simulator-only network loss/throttling/recovery gate
+
+**Почему задача нужна:** Network Connections instrument недоступен на Xcode 26 Simulator, а потому текущий simulator-only scope не имеет доказательства поведения MAM/search/media при медленной, оборванной и восстановленной сети.
+
+**Preflight до изменений:** общий G20 preflight; MAM coordinator, remote anchor, Last Chats search session, media acquisition, retry/backoff и teardown tests. Сначала добавить red tests для disconnect после request/before final и reconnect с duplicate late final.
+
+**Работы:**
+
+- добавить test/lab-only app-layer fault injector перед XMPP/MAM/media completion boundary; shipping configuration не должна иметь активируемого runtime hook;
+- поддержать deterministic latency, offline, failure after send, failure before final, duplicate/late callback и recovery;
+- page/search/anchor/media owners должны иметь одну retry policy с bounded backoff, cancellation и idempotent persistence;
+- loader/failure UI не добавляет timeline rows и не меняет content height/anchor;
+- reconnect продолжает только актуальный generation/cursor, не дублирует сообщения и не перескакивает к latest;
+- machine-readable counters фиксируют request/retry/final/apply/dedup/active resources без JID/body/URL/message IDs.
+
+**Критерии принятия:**
+
+- каждый fault script воспроизводим на Simulator и завершается ready либо явным retryable/terminal state;
+- один logical page даёт максимум один committed apply; late/duplicate finals дают ноль дополнительных rows/applies;
+- network loss/recovery не меняет anchor >1 pt, не вызывает full reload и не оставляет вечный spinner/lock;
+- cancellation при смене чата/поиска/teardown оставляет zero-active resources;
+- shipping Release не содержит доступного fault-injection route.
+
+**Необходимые тесты:** fault reducer; MAM send/final disconnect matrix; retry/cursor dedup; search generation replacement; media retry; anchor/loader invariants; lifecycle cleanup; deterministic XCUITest offline/recover; source/binary exclusion test.
+
+**Commit:** входит в `test(chat-perf): enforce final smoothness gates and remove legacy`.
+
+### G20-R6. Финальный simulator-only live gate и закрытие отчёта
+
+**Зависимость:** G20-R1–G20-R5 реализованы и прошли автоматические проверки.
+
+**Preflight до изменений:** полный G20 focused matrix, smoke, deterministic XCUITest и production Release simulator build. Любой red оставляет задачу незавершённой до локализации.
+
+**Работы:**
+
+- повторить server-history audit минимум на трёх MAM round trips: data pages, а после реального конца архива terminal revalidation допустим только как отдельно обозначенный terminal cycle;
+- повторить search `test` -> exact target с frame-by-frame проверкой первого content frame;
+- повторить run-owned send -> edit -> ack -> delete, очистить только registry IDs и доказать remaining zero;
+- проверить historical image/video/file/voice states, retry и prefetch-visible reuse;
+- выполнить rotation, largest Dynamic Type, background/foreground и G20-R5 fault/recovery script;
+- skeleton-to-content подтвердить deterministic production-path fixture, если live dialog уже синхронизирован и естественный blocking bootstrap недоступен;
+- обновить отдельные privacy-safe read-only/mutation reports и запустить fail-closed validators;
+- только после явного разрешения владельца установить поверх Debug обычную production Release сборку без удаления data container/keychain, проверить сохранённую сессию, удалить временные screenshots/videos/LLDB scripts/result bundles, detach debugger;
+- hardware measurements не запускать и не маркировать pass; указать `excluded-by-owner: simulator-only`.
+
+**Критерии принятия:**
+
+- G20-R1 edit и G20-R2 geometry regressions green в live/Debug и deterministic gates;
+- read-only и mutation reports приняты валидатором, foreign mutations = 0, remaining run-owned IDs = 0;
+- exact target first frame, paging anchor, media, rotation, Dynamic Type, background/foreground и deterministic network recovery имеют pass evidence;
+- 100/1M остаются bounded: одинаковый resident limit и operation vector, memory plateau <=10%, optimistic latency <=100 ms;
+- production Release simulator build/launch green, fixture/fault routes отсутствуют в shipping binary;
+- worktree clean после одного focused commit, docs/vault отражают непроверенные hardware metrics без ложного pass.
+
+**Необходимые тесты/прогоны:** full G20 unit/integration matrix; smoke; deterministic XCUITest; Release simulator performance suite; guarded live read-only; guarded live mutation; privacy scan; source/binary inventory; final build and launch smoke.
+
+**Итоговое commit-сообщение G20:** `test(chat-perf): enforce final smoothness gates and remove legacy`.
+
+## 13. Закрытие G20
+
+G20 завершён после исправления и повторной проверки всех пакетов G20-R1–G20-R6. Финальный source HEAD до коммита — `0d0365f1`; все изменения входят в один требуемый commit `test(chat-perf): enforce final smoothness gates and remove legacy`. Полный hosted matrix, smoke, deterministic UI, Debug Simulator build, normal Release build/performance, privacy/legacy inventory и два live-report validator gate прошли. Исполняемые Simulator-инварианты подтверждают одинаковый resident limit 80 для 100 и 1 000 000 logical rows, одинаковый operation vector `42/42/42/0/0`, memory plateau значительно ниже 10%, optimistic latency ниже 100 ms и media `1 download / 1 decode / 1 visible cache hit`.
+
+Simulator first-stable timing публикуется только как trend и не подменяет аппаратную метрику. Последний прогон дал 758.020 ms для 100 и 338.739 ms для 1 000 000; абсолютная формула 10%/50 ms не проходит из-за более медленного small-start, но объём UI work не растёт с total history. Hardware execution запрещён владельцем и отмечен `excluded-by-owner: simulator-only`.
+
+## 14. Sibling-worktree policy
 
 Проверенный sibling-worktree:
 
@@ -1143,7 +1369,7 @@ tools/xcodebuild_cached.sh test -parallel-testing-enabled NO \
 5. запустить tests в текущем worktree с отдельным DerivedData;
 6. отказаться от merge, если конфликт затрагивает active sibling design.
 
-## 12. Prompt для автоматического Goal-режима
+## 15. Исходный Prompt для автоматического Goal-режима G00–G20
 
 Скопировать текст ниже как один Goal prompt:
 
@@ -1169,7 +1395,7 @@ docs/goal-plans/chatviewcontroller-telegram-smoothness-goal-plan.md
 После каждого commit сообщай: номер задачи, что изменено, preflight result, TDD red/green, полный verification, performance counters, commit hash, остаточные риски. Продолжай автоматически к следующей задаче, пока G20 не завершена либо не возникнет настоящий внешний blocker.
 ```
 
-## 13. Definition of Done всей цели
+## 16. Definition of Done исходной цели G00–G20
 
 Цель завершена только если одновременно выполнены все условия:
 

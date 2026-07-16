@@ -28,14 +28,20 @@ import RealmSwift
 class InlineImagesGridView: InlineAttachmentView {
     
     class InlineMessageImageView: UIImageView {
+        enum ThumbnailPresentationState: Equatable {
+            case loading
+            case ready
+            case unavailable
+        }
         
         var primary: String
-        var url: URL
+        var url: URL?
         var representedRequest: InlineAttachmentRepresentedRequest
         var representedThumbnailRequest: ChatThumbnailRequest?
         var representedThumbnailConsumer: ChatThumbnailConsumer?
         var thumbnailSubscription: ChatThumbnailSubscription?
         let visibleConsumerID = UUID()
+        private(set) var thumbnailPresentationState: ThumbnailPresentationState = .loading
         var isSensitive: Bool {
             didSet {
                 updateSensitiveAppearance()
@@ -51,7 +57,7 @@ class InlineImagesGridView: InlineAttachmentView {
         init(
             frame: CGRect,
             primary: String,
-            url: URL,
+            url: URL?,
             isSensitive: Bool,
             representedRequest: InlineAttachmentRepresentedRequest
         ) {
@@ -70,6 +76,34 @@ class InlineImagesGridView: InlineAttachmentView {
         
         private func setup() {
             self.layer.masksToBounds = true
+            showLoadingPlaceholder()
+        }
+
+        func showLoadingPlaceholder() {
+            thumbnailPresentationState = .loading
+            contentMode = .center
+            tintColor = .tertiaryLabel
+            backgroundColor = .secondarySystemBackground
+            image = UIImage(systemName: "photo")
+            updateSensitiveAppearance()
+        }
+
+        func showThumbnail(_ image: UIImage) {
+            thumbnailPresentationState = .ready
+            contentMode = .scaleAspectFill
+            backgroundColor = .clear
+            self.image = image
+            updateSensitiveAppearance()
+        }
+
+        func showUnavailablePlaceholder() {
+            thumbnailPresentationState = .unavailable
+            contentMode = .center
+            tintColor = .secondaryLabel
+            backgroundColor = .secondarySystemBackground
+            image = UIImage(systemName: "photo.badge.exclamationmark")
+                ?? UIImage(systemName: "photo")
+            updateSensitiveAppearance()
         }
         
         private func updateSensitiveAppearance() {
@@ -215,32 +249,22 @@ class InlineImagesGridView: InlineAttachmentView {
         resetState()
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
-            if let url = attachments[index].url {
-                let request = InlineAttachmentRepresentedRequest(
-                    containerPrimary: containerPrimary,
-                    referencePrimary: attachments[index].primary,
-                    resourceIdentity: url.absoluteString
-                )
-                let view = InlineMessageImageView(
-                    frame: rect,
-                    primary: attachments[index].primary,
-                    url: url,
-                    isSensitive: attachments[index].isSensitive && !attachments[index].isSensitiveRevealed,
-                    representedRequest: request
-                )
-                self.contentViews.append(view)
-                view.contentMode = .scaleAspectFill
-//                view.layer.masksToBounds = true
-//                view.layer.borderColor = UIColor.black.withAlphaComponent(0.1).cgColor
-//                view.layer.borderWidth = 1
-//                view.layer.cornerRadius = 7
-//                view.layer.masksToBounds = true
-                self.addSubview(view)
-                self.views.append(view)
-            } else {
-                
-            }
-            
+            let item = attachments[index]
+            let request = InlineAttachmentRepresentedRequest(
+                containerPrimary: containerPrimary,
+                referencePrimary: item.primary,
+                resourceIdentity: item.url?.absoluteString ?? "unavailable:\(item.primary)"
+            )
+            let view = InlineMessageImageView(
+                frame: rect,
+                primary: item.primary,
+                url: item.url,
+                isSensitive: item.isSensitive && !item.isSensitiveRevealed,
+                representedRequest: request
+            )
+            self.contentViews.append(view)
+            self.addSubview(view)
+            self.views.append(view)
         }
         refreshThumbnailBindings()
     }
@@ -262,18 +286,17 @@ class InlineImagesGridView: InlineAttachmentView {
 
         prepareGrid(attachments).enumerated().forEach { index, rect in
             let item = attachments[index]
-            guard let url = item.url else { return }
             let view = self.views[index]
             let request = InlineAttachmentRepresentedRequest(
                 containerPrimary: containerPrimary,
                 referencePrimary: item.primary,
-                resourceIdentity: url.absoluteString
+                resourceIdentity: item.url?.absoluteString ?? "unavailable:\(item.primary)"
             )
             view.frame = rect
             view.primary = item.primary
             view.isSensitive = item.isSensitive && !item.isSensitiveRevealed
             view.representedRequest = request
-            view.url = url
+            view.url = item.url
         }
         refreshThumbnailBindings()
     }
@@ -283,8 +306,13 @@ class InlineImagesGridView: InlineAttachmentView {
         let style = ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
         views.forEach { view in
             guard view.frame.width > 0, view.frame.height > 0 else { return }
+            guard let url = view.url else {
+                view.cancelThumbnailBinding()
+                view.showUnavailablePlaceholder()
+                return
+            }
             let request = ChatThumbnailRequest(
-                url: view.url,
+                url: url,
                 displaySize: ChatCollectionPrefetchSize(
                     width: Double(view.frame.width),
                     height: Double(view.frame.height)
@@ -306,7 +334,7 @@ class InlineImagesGridView: InlineAttachmentView {
             }
 
             view.cancelThumbnailBinding()
-            view.image = nil
+            view.showLoadingPlaceholder()
             view.representedThumbnailRequest = request
             view.representedThumbnailConsumer = consumer
             view.thumbnailSubscription = thumbnailPipeline.acquire(
@@ -315,23 +343,27 @@ class InlineImagesGridView: InlineAttachmentView {
             ) { [weak view] result in
                 guard let view,
                       view.representedThumbnailRequest == request,
-                      view.representedThumbnailConsumer == consumer,
-                      case .success(let delivery) = result else {
+                      view.representedThumbnailConsumer == consumer else {
                     return
                 }
-                view.image = delivery.image
+                switch result {
+                case .success(let delivery):
+                    view.showThumbnail(delivery.image)
+                case .failure:
+                    view.showUnavailablePlaceholder()
+                }
             }
         }
     }
     
     func handleTouch(at point: CGPoint, callback: (([URL], URL, String, Bool) -> Void)?) -> Bool {
         var isMyTouch: Bool = false
-        let urls = views.compactMap { $0.url }
+        let urls = views.compactMap(\.url)
         views.forEach {
             item in
             if !isMyTouch {
-                if item.frame.contains(point) {
-                    callback?(urls, item.url, item.primary, item.isSensitive)
+                if item.frame.contains(point), let url = item.url {
+                    callback?(urls, url, item.primary, item.isSensitive)
                     isMyTouch = true
                 }
             }

@@ -1027,7 +1027,31 @@ enum SearchRemoteQueryCompletionPolicy {
     }
 }
 
+enum LastChatsSearchRouteDisposition: Equatable {
+    case staysOnSource
+    case opensNewChat
+}
+
+enum LastChatsSearchDismissalTiming: Equatable {
+    case immediate
+    case afterSourceDidDisappear
+}
+
+enum LastChatsSearchDismissalPolicy {
+    static func timing(
+        for disposition: LastChatsSearchRouteDisposition,
+        route: StackedNavigationRoute
+    ) -> LastChatsSearchDismissalTiming {
+        guard disposition == .opensNewChat,
+              route == .currentNavigationPush else {
+            return .immediate
+        }
+        return .afterSourceDidDisappear
+    }
+}
+
 enum InPlaceSearchResultRouteHelper {
+    typealias DismissSearch = (LastChatsSearchRouteDisposition) -> Void
     typealias OpenNewChat = (
         _ item: SearchResultsViewController.Datasource,
         _ openMessageRequest: ChatOpenMessageRequest?,
@@ -1037,7 +1061,7 @@ enum InPlaceSearchResultRouteHelper {
     static func open(
         _ item: SearchResultsViewController.Datasource,
         updater: ChatSearchResultsController,
-        dismissSearch: @escaping () -> Void,
+        dismissSearch: @escaping DismissSearch,
         reload: @escaping () -> Void,
         onUnavailable: @escaping (LastChatsSearchUnavailablePresentation) -> Void = { _ in },
         openNewChat: OpenNewChat
@@ -1046,9 +1070,9 @@ enum InPlaceSearchResultRouteHelper {
             for: item,
             activeGeneration: updater.activeQueryGeneration
         )
-        dismissSearch()
 
         if case .unavailable(let reason) = outcome {
+            dismissSearch(.staysOnSource)
             onUnavailable(.make(reason: reason))
             return
         }
@@ -1057,6 +1081,7 @@ enum InPlaceSearchResultRouteHelper {
            vc.jid == item.jid,
            vc.owner == item.owner,
            vc.conversationType == item.conversationType {
+            dismissSearch(.staysOnSource)
             showMessageJumpIfNeeded(outcome, in: vc)
             return
         }
@@ -1067,6 +1092,7 @@ enum InPlaceSearchResultRouteHelper {
         } else {
             openMessageRequest = nil
         }
+        dismissSearch(.opensNewChat)
         openNewChat(item, openMessageRequest) { chatVc in
             guard let chatVc else { return }
             updater.currentVc = chatVc

@@ -9,6 +9,33 @@ final class LastChatsSearchProvenanceRouteTests: XCTestCase {
     )
     private let date = Date(timeIntervalSince1970: 1_711_283_200)
 
+    func testSearchDismissalWaitsForCompactPushSourceToDisappear() {
+        XCTAssertEqual(
+            LastChatsSearchDismissalPolicy.timing(
+                for: .opensNewChat,
+                route: .currentNavigationPush
+            ),
+            .afterSourceDidDisappear
+        )
+    }
+
+    func testSearchDismissalIsImmediateWhenRouteDoesNotCoverSource() {
+        XCTAssertEqual(
+            LastChatsSearchDismissalPolicy.timing(
+                for: .opensNewChat,
+                route: .splitDetailReplacement
+            ),
+            .immediate
+        )
+        XCTAssertEqual(
+            LastChatsSearchDismissalPolicy.timing(
+                for: .staysOnSource,
+                route: .currentNavigationPush
+            ),
+            .immediate
+        )
+    }
+
     func testTwoMessagesInOneConversationHaveDifferentStableRowIDs() {
         let first = makeMessageProvenance(primary: "message-primary-1", archivedId: "archive-1")
         let second = makeMessageProvenance(primary: "message-primary-2", archivedId: "archive-2")

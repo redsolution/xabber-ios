@@ -1943,6 +1943,7 @@ class ModernXabberInputView: UIView {
 
     let textField: InputTextView = {
         let field = InputTextView(frame: .zero)
+        field.accessibilityIdentifier = "chat.composer.text_field"
         
         field.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         field.setContentHuggingPriority(UILayoutPriority(249), for: .horizontal)

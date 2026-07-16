@@ -793,6 +793,32 @@ final class ChatTimelineSession {
         }
     }
 
+    /// Re-publishes the snapshot whose mapped datasource has won the UI apply race.
+    ///
+    /// Anchor mapping happens off the main thread. Another command may mutate the
+    /// session before that mapped snapshot reaches the collection view. Committing
+    /// the winning presentation snapshot keeps the session cursor and the visible
+    /// resident window in lockstep for the next paging gesture.
+    @discardableResult
+    func commitPresentationSnapshot(
+        _ candidate: ChatTimelineSessionSnapshot
+    ) -> ChatTimelineSessionSnapshot {
+        operationLock.withLock {
+            let current = snapshot
+            return publish(
+                items: candidate.items,
+                state: candidate.state,
+                loadingState: candidate.loadingState,
+                loadDecision: candidate.loadDecision,
+                anchorRestore: candidate.anchorRestore,
+                localOlderCandidateCount: candidate.localOlderCandidateCount,
+                shortLocalRemainderRemoteFirst: candidate.shortLocalRemainderRemoteFirst,
+                readBoundary: current.readBoundary,
+                unreadMetadata: current.unreadMetadata
+            )
+        }
+    }
+
     @discardableResult
     func applyRuntimePlaceholder(
         _ placeholder: ChatHistoryBoundaryPlaceholderPosition?
@@ -1329,7 +1355,13 @@ final class ChatTimelineSession {
         refreshUnread: Bool
     ) -> ChatTimelineSessionSnapshot {
         operationLock.withLock {
-            let base = snapshot
+            let input = lock.withLock { (storedSnapshot, archiveState) }
+            let base = input.0
+            let shouldOpenLatest = Self.shouldOpenLatestForNewOutgoingMutation(
+                batch.mutations,
+                currentItems: base.items,
+                isResidentAtLiveTail: base.state.isResidentAtLiveTail
+            )
             let result = incrementalResidentReducer.apply(
                 currentItems: base.items,
                 mutations: batch.mutations,
@@ -1347,6 +1379,32 @@ final class ChatTimelineSession {
             } else {
                 unreadMetadata = base.unreadMetadata
             }
+            if shouldOpenLatest {
+                var engine = ChatVirtualTimelineEngine(
+                    provider: store,
+                    pageSize: pageSize,
+                    state: base.state.normalized(
+                        owner: conversationKey.owner,
+                        jid: conversationKey.jid,
+                        conversationType: conversationKey.conversationType
+                    ),
+                    archiveState: input.1
+                )
+                let next = engine.openLatest(
+                    limit: ChatBoundedTimelineWindowPolicy.targetLimit(pageSize: pageSize)
+                )
+                return publish(
+                    items: next.items,
+                    state: next.state,
+                    loadingState: next.loadingState,
+                    loadDecision: next.loadDecision,
+                    anchorRestore: next.anchorRestore,
+                    localOlderCandidateCount: next.localOlderCandidateCount,
+                    shortLocalRemainderRemoteFirst: next.shortLocalRemainderRemoteFirst,
+                    readBoundary: base.readBoundary,
+                    unreadMetadata: unreadMetadata
+                )
+            }
             guard !result.changeSet.isEmpty || refreshUnread else {
                 return base
             }
@@ -1362,6 +1420,23 @@ final class ChatTimelineSession {
                 unreadMetadata: unreadMetadata,
                 residentChangeSet: result.changeSet
             )
+        }
+    }
+
+    private static func shouldOpenLatestForNewOutgoingMutation(
+        _ mutations: [ChatIncrementalMessageMutation<MessageStorageItem>],
+        currentItems: [MessageStorageItem],
+        isResidentAtLiveTail: Bool
+    ) -> Bool {
+        guard !isResidentAtLiveTail else { return false }
+        return mutations.contains { mutation in
+            guard case .upsert(let item) = mutation.operation,
+                  item.outgoing else {
+                return false
+            }
+            return !currentItems.contains {
+                ChatIncrementalMessageIdentity(message: $0).matches(mutation.identity)
+            }
         }
     }
 

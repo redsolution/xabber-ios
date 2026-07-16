@@ -49,9 +49,19 @@ enum AppLaunchEnvironmentPolicy {
 
     static func shouldAutoconnectAccounts(
         isPushKit: Bool,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
     ) -> Bool {
         guard !isPushKit else { return false }
+
+        #if DEBUG || CHAT_PERFORMANCE_LAB
+        if ChatPerformanceUITestLaunchPolicy.descriptor(
+            arguments: arguments,
+            environment: environment
+        ) != nil {
+            return false
+        }
+        #endif
 
         let isHostedXCTest = environment[hostedXCTestEnvironmentKey] != nil
         let disablesAutoconnect = environment[disableAccountAutoconnectEnvironmentKey] == "1"
@@ -60,8 +70,20 @@ enum AppLaunchEnvironmentPolicy {
 
     static func isolatedStorageDescriptor(
         environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments,
         processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier
     ) -> IsolatedStorageDescriptor? {
+        #if DEBUG || CHAT_PERFORMANCE_LAB
+        if ChatPerformanceUITestLaunchPolicy.descriptor(
+            arguments: arguments,
+            environment: environment
+        ) != nil {
+            return IsolatedStorageDescriptor(
+                inMemoryIdentifier: "xabber-chat-performance-ui-\(processIdentifier)"
+            )
+        }
+        #endif
+
         guard environment[hostedXCTestEnvironmentKey] != nil,
               environment[disableAccountAutoconnectEnvironmentKey] == "1",
               environment[isolatedStorageEnvironmentKey] == "1" else {
@@ -163,6 +185,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
     
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        #if DEBUG || CHAT_PERFORMANCE_LAB
+        if ChatPerformanceUITestLaunchPolicy.descriptor() != nil {
+            return true
+        }
+        #endif
                 
         NotifyManager.shared.setLastChats(displayed: true)
         

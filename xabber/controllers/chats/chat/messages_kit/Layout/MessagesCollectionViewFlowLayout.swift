@@ -77,7 +77,9 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     }
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
-        guard let attributesArray = super.layoutAttributesForElements(in: rect) as? [MessagesCollectionViewLayoutAttributes] else {
+        guard let attributesArray = super.layoutAttributesForElements(in: rect)?.compactMap({
+            $0.copy() as? MessagesCollectionViewLayoutAttributes
+        }) else {
             return nil
         }
         for attributes in attributesArray where attributes.representedElementCategory == .cell {
@@ -108,7 +110,10 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     }
     
     override func layoutAttributesForSupplementaryView(ofKind elementKind: String, at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
-        guard let attributes = super.layoutAttributesForSupplementaryView(ofKind: elementKind, at: indexPath) else { return nil }
+        guard let attributes = super.layoutAttributesForSupplementaryView(
+            ofKind: elementKind,
+            at: indexPath
+        )?.copy() as? UICollectionViewLayoutAttributes else { return nil }
         adjustAttributesIfNeeded(attributes)
         return attributes
     }
@@ -133,7 +138,9 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     }
     
     override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
-        guard let attributes = super.layoutAttributesForItem(at: indexPath) as? MessagesCollectionViewLayoutAttributes else {
+        guard let attributes = super.layoutAttributesForItem(
+            at: indexPath
+        )?.copy() as? MessagesCollectionViewLayoutAttributes else {
             return nil
         }
         if attributes.representedElementCategory == .cell {

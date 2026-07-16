@@ -72,20 +72,13 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
     }
 
     override var shouldAutorotate: Bool {
-        return false
+        return true
     }
 
     private var isFirstLayout: Bool = true
     
     internal var selectedIndexPathForMenu: IndexPath?
 
-//    internal var messageCollectionViewBottomInset: CGFloat = 50 {
-//        didSet {
-////            messagesCollectionView.contentInset.bottom = messageCollectionViewBottomInset
-////            messagesCollectionView.scrollIndicatorInsets.bottom = messageCollectionViewBottomInset
-//        }
-//    }
-    
     open var messageCollectionViewLastKBPosition: CGFloat = 0
     
     // MARK: - View Life Cycle

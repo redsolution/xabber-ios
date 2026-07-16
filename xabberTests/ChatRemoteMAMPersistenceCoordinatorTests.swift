@@ -232,6 +232,92 @@ final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.terminalReason(queryId: "mam-terminal-bounded-199"), .cancelled)
     }
 
+    func testDisconnectedPageRetriesWithNewQueryAndRejectsLateFinalWithoutDuplicateCommit() {
+        let coordinator = ChatRemoteHistoryQueryCoordinator(callbackQueue: .main)
+        let disconnected = makeDescriptor(
+            queryId: "mam-network-disconnected",
+            generation: 30,
+            direction: .older,
+            cursor: "500"
+        )
+        var disconnectedCleanupCount = 0
+        var persistenceCount = 0
+        var committedCount = 0
+
+        XCTAssertTrue(coordinator.register(
+            disconnected,
+            persistenceCleanup: { disconnectedCleanupCount += 1 }
+        ) { _, _ in
+            persistenceCount += 1
+            XCTFail("A disconnected query must not enter persistence")
+        })
+        XCTAssertTrue(coordinator.terminate(
+            queryId: disconnected.queryId,
+            generation: disconnected.generation,
+            reason: .disconnected
+        ))
+        XCTAssertEqual(disconnectedCleanupCount, 1)
+        XCTAssertEqual(coordinator.activeQueryCount, 0)
+        XCTAssertEqual(coordinator.terminalReason(queryId: disconnected.queryId), .disconnected)
+        XCTAssertEqual(
+            coordinator.receiveFinal(
+                queryId: disconnected.queryId,
+                generation: disconnected.generation,
+                page: makeFinalPage()
+            ) { _ in
+                XCTFail("A late final from the disconnected query must stay stale")
+            },
+            .stale
+        )
+
+        let retry = makeDescriptor(
+            queryId: "mam-network-retry",
+            generation: 31,
+            direction: .older,
+            cursor: disconnected.cursorId ?? ""
+        )
+        let committed = expectation(description: "retry committed once")
+        XCTAssertTrue(coordinator.register(retry) { _, completion in
+            persistenceCount += 1
+            completion(.success(self.completionResult(persistedRows: 10)))
+        })
+        XCTAssertEqual(
+            coordinator.receiveFinal(
+                queryId: retry.queryId,
+                generation: retry.generation,
+                page: makeFinalPage()
+            ) { result in
+                guard case .success(let page) = result else {
+                    return XCTFail("Recovered query must commit")
+                }
+                committedCount += 1
+                XCTAssertEqual(page.descriptor.cursorId, disconnected.cursorId)
+                committed.fulfill()
+            },
+            .accepted
+        )
+        XCTAssertEqual(
+            coordinator.receiveFinal(
+                queryId: retry.queryId,
+                generation: retry.generation,
+                page: makeFinalPage()
+            ) { _ in
+                XCTFail("Duplicate retry final must not replace completion")
+            },
+            .duplicate
+        )
+
+        wait(for: [committed], timeout: 2)
+        XCTAssertEqual(persistenceCount, 1)
+        XCTAssertEqual(committedCount, 1)
+        XCTAssertEqual(coordinator.activeQueryCount, 0)
+        XCTAssertEqual(coordinator.terminalReason(queryId: retry.queryId), .completed)
+        XCTAssertLessThanOrEqual(
+            coordinator.trackedQueryCount,
+            ChatRemoteHistoryQueryCoordinator.terminalTombstoneLimit
+        )
+    }
+
     func testCoordinatorOwnsTimeoutAndFinalCancelsItBeforePersistenceDelivery() {
         let coordinator = ChatRemoteHistoryQueryCoordinator(callbackQueue: .main)
         let descriptor = makeDescriptor(

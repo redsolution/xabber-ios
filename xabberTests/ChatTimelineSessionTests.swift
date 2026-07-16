@@ -1,4 +1,5 @@
 import XCTest
+import RealmSwift
 @testable import xabber
 
 final class ChatTimelineSessionTests: XCTestCase {
@@ -55,9 +56,32 @@ final class ChatTimelineSessionTests: XCTestCase {
         )
 
         XCTAssertEqual(store.directLookupCount, 1)
-        XCTAssertEqual(snapshot.items.map(\.primary), primaryRange(6...10))
+        XCTAssertEqual(snapshot.items.map(\.primary), primaryRange(6...9))
+        XCTAssertEqual(snapshot.items.count, 4)
         XCTAssertEqual(snapshot.residentIndex.index(archivedId: "archive-8"), 2)
         XCTAssertEqual(snapshot.state.isResidentAtLiveTail, false)
+    }
+
+    func testPresentedAnchorSnapshotSupersedesInterveningLatestMutation() {
+        let store = FakeChatTimelineSessionStore(messages: makeMessages(count: 30))
+        let session = makeSession(store: store, pageSize: 4)
+        let presentedAnchor = session.openAround(
+            anchor: ChatTimelineAnchor(
+                primary: "primary-10",
+                archivedId: "archive-10",
+                messageId: "message-10",
+                date: Date(timeIntervalSince1970: 10)
+            )
+        )
+
+        let interveningLatest = session.openLatest()
+        let committed = session.commitPresentationSnapshot(presentedAnchor)
+
+        XCTAssertNotEqual(interveningLatest.state.residentPrimaryKeys, presentedAnchor.state.residentPrimaryKeys)
+        XCTAssertEqual(committed.items.map(\.primary), presentedAnchor.items.map(\.primary))
+        XCTAssertEqual(committed.state, presentedAnchor.state)
+        XCTAssertEqual(session.snapshot.state, presentedAnchor.state)
+        XCTAssertEqual(store.observation?.residentPrimaryKeys, presentedAnchor.state.residentPrimaryKeys)
     }
 
     func testInteriorEditAndDeleteRefreshResidentLookupWithoutStaleIdentity() {
@@ -176,6 +200,264 @@ final class ChatTimelineSessionTests: XCTestCase {
         XCTAssertEqual(session.snapshot.items.last?.primary, "primary-12")
         XCTAssertEqual(session.snapshot.residentChangeSet?.insertedPrimaries, ["primary-12"])
         XCTAssertEqual(store.observation?.residentPrimaryKeys, session.snapshot.items.map(\.primary))
+    }
+
+    func testNewOutgoingIncrementalInsertFromHistoricalWindowReopensBoundedLatestOnce() throws {
+        let store = FakeChatTimelineSessionStore(messages: makeMessages(count: 20))
+        let session = makeSession(store: store, pageSize: 4)
+        let historical = session.openAround(
+            anchor: ChatTimelineAnchor(
+                primary: "primary-8",
+                archivedId: "archive-8",
+                messageId: "message-8",
+                date: Date(timeIntervalSince1970: 8)
+            )
+        )
+        XCTAssertFalse(historical.state.isResidentAtLiveTail)
+
+        let outgoing = try XCTUnwrap(makeMessages(count: 21).last)
+        outgoing.outgoing = true
+        store.append(outgoing)
+        var publishedSnapshots: [ChatTimelineSessionSnapshot] = []
+        session.onSnapshot = { publishedSnapshots.append($0) }
+        var accumulator = ChatIncrementalMessageMutationAccumulator<MessageStorageItem>()
+        accumulator.enqueue(.upsert(
+            identity: ChatIncrementalMessageIdentity(message: outgoing),
+            revision: 1,
+            payload: outgoing
+        ))
+
+        store.emit(.incremental(accumulator.drain(), refreshUnread: false))
+
+        XCTAssertEqual(publishedSnapshots.count, 1)
+        XCTAssertTrue(session.snapshot.state.isResidentAtLiveTail)
+        XCTAssertEqual(session.snapshot.items.last?.primary, outgoing.primary)
+        XCTAssertEqual(
+            session.snapshot.items.count,
+            ChatBoundedTimelineWindowPolicy.targetLimit(pageSize: 4)
+        )
+        XCTAssertLessThanOrEqual(session.snapshot.items.count, session.snapshot.residentHardLimit)
+        XCTAssertEqual(store.observation?.residentPrimaryKeys, session.snapshot.items.map(\.primary))
+    }
+
+    func testProductionLastChatObservationPublishesNewOutgoingFromHistoricalWindow() throws {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        let configuration = Realm.Configuration(
+            inMemoryIdentifier: "ChatTimelineSessionOutgoing-\(UUID().uuidString)"
+        )
+        Realm.Configuration.defaultConfiguration = configuration
+        defer { Realm.Configuration.defaultConfiguration = previousConfiguration }
+
+        let realm = try Realm(configuration: configuration)
+        let messages = makeMessages(count: 21)
+        let initialLatest = try XCTUnwrap(messages.last)
+        let chat = LastChatsStorageItem()
+        chat.primary = LastChatsStorageItem.genPrimary(
+            jid: jid,
+            owner: owner,
+            conversationType: .regular
+        )
+        chat.owner = owner
+        chat.jid = jid
+        chat.conversationType = .regular
+        chat.lastMessage = initialLatest
+        chat.lastMessageId = initialLatest.messageId
+        chat.messageDate = initialLatest.sentDate
+        try realm.write {
+            realm.add(messages)
+            messages.forEach { ChatLocalHistoryLinkedIndex.upsert($0, in: realm) }
+            realm.add(chat)
+        }
+
+        let session = ChatTimelineSession(
+            store: RealmChatTimelineSessionStore(
+                owner: owner,
+                jid: jid,
+                conversationType: .regular
+            ),
+            pageSize: 4,
+            conversationKey: ChatTimelineConversationKey(
+                owner: owner,
+                jid: jid,
+                conversationType: .regular
+            ),
+            archiveState: ChatArchiveStateSnapshot(
+                primaryKey: "outgoing-archive-state",
+                persistedCursorId: nil,
+                fullArchiveLoaded: true,
+                newestCursorId: initialLatest.archivedId,
+                newerLiveEdgeReached: true,
+                hasKnownNewerGap: false,
+                knownGaps: []
+            )
+        )
+        let historical = session.openAround(
+            anchor: ChatTimelineAnchor(
+                primary: "primary-8",
+                archivedId: "archive-8",
+                messageId: "message-8",
+                date: Date(timeIntervalSince1970: 8)
+            )
+        )
+        XCTAssertFalse(historical.state.isResidentAtLiveTail)
+
+        let observationReady = expectation(description: "last chat observation ready")
+        var readinessToken: NotificationToken?
+        readinessToken = realm.objects(LastChatsStorageItem.self)
+            .filter("primary == %@", chat.primary)
+            .observe { change in
+                if case .initial = change {
+                    observationReady.fulfill()
+                }
+            }
+        defer { readinessToken?.invalidate() }
+        wait(for: [observationReady], timeout: 2)
+
+        let outgoing = MessageStorageItem()
+        outgoing.primary = "outgoing-primary"
+        outgoing.owner = owner
+        outgoing.opponent = jid
+        outgoing.conversationType = .regular
+        outgoing.archivedId = "archive-21"
+        outgoing.messageId = "message-21"
+        outgoing.date = Date(timeIntervalSince1970: 21)
+        outgoing.sentDate = outgoing.date
+        outgoing.body = "outgoing body"
+        outgoing.legacyBody = outgoing.body
+        outgoing.outgoing = true
+        outgoing.state = .deliver
+        let published = expectation(description: "outgoing latest published")
+        session.onSnapshot = { snapshot in
+            guard snapshot.cause == .storeChange,
+                  snapshot.items.last?.primary == outgoing.primary else { return }
+            published.fulfill()
+        }
+
+        try realm.write {
+            realm.add(outgoing)
+            ChatLocalHistoryLinkedIndex.upsert(outgoing, in: realm)
+            chat.lastMessage = outgoing
+            chat.lastMessageId = outgoing.messageId
+            chat.messageDate = outgoing.sentDate
+        }
+
+        wait(for: [published], timeout: 2)
+        XCTAssertTrue(session.snapshot.state.isResidentAtLiveTail)
+        XCTAssertEqual(session.snapshot.items.last?.primary, outgoing.primary)
+        XCTAssertLessThanOrEqual(
+            session.snapshot.items.count,
+            ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: 4)
+        )
+    }
+
+    func testProductionEditPublishesEditedBodyThroughRealmTimelineAndDisplayMapping() throws {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        let configuration = Realm.Configuration(
+            inMemoryIdentifier: "ChatTimelineSessionEdit-\(UUID().uuidString)"
+        )
+        Realm.Configuration.defaultConfiguration = configuration
+        defer { Realm.Configuration.defaultConfiguration = previousConfiguration }
+
+        let realm = try Realm(configuration: configuration)
+        let item = MessageStorageItem()
+        item.primary = "editable-primary"
+        item.owner = owner
+        item.opponent = jid
+        item.conversationType = .regular
+        item.archivedId = "editable-archive"
+        item.messageId = "editable-message"
+        item.date = Date(timeIntervalSince1970: 1_700_000_000)
+        item.sentDate = item.date
+        item.body = "original body"
+        item.legacyBody = item.body
+        item.outgoing = true
+        item.state = .deliver
+        try realm.write {
+            realm.add(item)
+            ChatLocalHistoryLinkedIndex.upsert(item, in: realm)
+        }
+
+        let session = ChatTimelineSession(
+            store: RealmChatTimelineSessionStore(
+                owner: owner,
+                jid: jid,
+                conversationType: .regular
+            ),
+            pageSize: 20,
+            conversationKey: ChatTimelineConversationKey(
+                owner: owner,
+                jid: jid,
+                conversationType: .regular
+            ),
+            archiveState: ChatArchiveStateSnapshot(
+                primaryKey: "edit-archive-state",
+                persistedCursorId: nil,
+                fullArchiveLoaded: true,
+                newestCursorId: nil,
+                newerLiveEdgeReached: true,
+                hasKnownNewerGap: false,
+                knownGaps: []
+            )
+        )
+        XCTAssertEqual(session.openLatest().items.first?.body, "original body")
+        XCTAssertEqual(session.snapshot.state.residentPrimaryKeys, [item.primary])
+        let residentObservationReady = expectation(description: "resident observation ready")
+        let realmEditObserved = expectation(description: "Realm edit observed")
+        let productionObservationEditObserved = expectation(description: "production observation edit observed")
+        let productionObservation = RealmChatTimelineSessionStore(
+            owner: owner,
+            jid: jid,
+            conversationType: .regular
+        ).observe(residentPrimaryKeys: [item.primary]) { change in
+            guard case .incremental(let batch, _) = change,
+                  batch.mutations.contains(where: { $0.payload?.body == "edited body" }) else { return }
+            productionObservationEditObserved.fulfill()
+        }
+        defer { productionObservation.invalidate() }
+        var residentObservationToken: NotificationToken?
+        residentObservationToken = realm.objects(MessageStorageItem.self)
+            .filter("primary == %@", item.primary)
+            .observe { change in
+                switch change {
+                case .initial:
+                    residentObservationReady.fulfill()
+                case .update(let collection, _, _, let modifications):
+                    guard modifications == [0], collection.first?.body == "edited body" else { return }
+                    realmEditObserved.fulfill()
+                case .error(let error):
+                    XCTFail("Unexpected Realm observation error: \(error)")
+                }
+            }
+        wait(for: [residentObservationReady], timeout: 2)
+        defer { residentObservationToken?.invalidate() }
+
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = .regular
+        controller.ownerSender = Sender(id: owner, displayName: "Owner")
+        controller.opponentSender = Sender(id: jid, displayName: "Peer")
+        controller.showSkeletonObserver.accept(false)
+        let published = expectation(description: "edited body published")
+        session.onSnapshot = { snapshot in
+            guard snapshot.cause == .storeChange,
+                  snapshot.items.first?.body == "edited body" else { return }
+            let mapped = controller.mapDataset(dataset: snapshot.items)
+            guard case .attributedText(let text)? = mapped.first(where: { $0.primary == item.primary })?.kind else {
+                return
+            }
+            XCTAssertEqual(text.string, "edited body")
+            published.fulfill()
+        }
+
+        MessageManager(withOwner: owner, activeStream: false).editSimpleMessage(
+            "edited body",
+            primary: item.primary
+        )
+
+        XCTAssertEqual(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: item.primary)?.body, "edited body")
+        wait(for: [realmEditObserved, productionObservationEditObserved, published], timeout: 2)
+        XCTAssertEqual(session.snapshot.residentChangeSet?.updatedStablePrimaries, [item.primary])
     }
 
     func testSessionDeinitInvalidatesBoundedObservation() {
@@ -394,6 +676,11 @@ private final class FakeChatTimelineSessionStore: ChatTimelineSessionStore {
 
     func delete(primary: String) {
         messages.removeAll { $0.primary == primary }
+    }
+
+    func append(_ item: MessageStorageItem) {
+        messages.append(item)
+        messages = ChatTimelineOrdering.chronological(messages)
     }
 
     func emit(_ change: ChatTimelineStoreChange) {

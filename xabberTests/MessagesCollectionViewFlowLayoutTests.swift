@@ -98,6 +98,34 @@ final class MessagesCollectionViewFlowLayoutTests: XCTestCase {
         XCTAssertFalse(readyBody.contains("ChatMessageLayoutCalculator"))
     }
 
+    func testFlowCallbacksCopySuperclassAttributesBeforeMutation() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent(
+                "xabber/controllers/chats/chat/messages_kit/Layout/MessagesCollectionViewFlowLayout.swift"
+            ),
+            encoding: .utf8
+        )
+
+        for function in [
+            "layoutAttributesForElements",
+            "layoutAttributesForItem",
+            "layoutAttributesForSupplementaryView"
+        ] {
+            let body = try XCTUnwrap(functionBody(named: function, in: source))
+            let superclassRead = try XCTUnwrap(body.range(of: "super."))
+            let copy = try XCTUnwrap(body.range(of: ".copy()"))
+
+            XCTAssertLessThan(
+                superclassRead.lowerBound,
+                copy.lowerBound,
+                "\(function) must copy UIKit-owned cached attributes before applying chat layout"
+            )
+        }
+    }
+
     func testDatasourceApplyInstallsPreparedLayoutsBeforeUIKitMutation() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

@@ -1178,6 +1178,12 @@ struct ChatDatasourceMappingContext {
     let layoutOperationCounter: ChatMessageLayoutOperationCounter?
 }
 
+enum ChatLayoutViewportRestoration: Equatable {
+    case none
+    case bottom
+    case message(ChatHistoryPageAnchor)
+}
+
 struct ChatSkeletonDescriptor {
     let primary: String
     let messageId: String
@@ -5840,9 +5846,17 @@ enum ChatBootstrapStateApplicationDecision: Equatable {
 enum ChatBootstrapStateApplicationPolicy {
     static func decision(
         previous: ChatBootstrapLoadingState?,
-        next: ChatBootstrapLoadingState
+        next: ChatBootstrapLoadingState,
+        hasCommittedContent: Bool = false
     ) -> ChatBootstrapStateApplicationDecision {
-        previous == next ? .noOp : .apply
+        if previous == next {
+            return .noOp
+        }
+        if next.showsSkeleton,
+           previous == .content || hasCommittedContent {
+            return .noOp
+        }
+        return .apply
     }
 }
 
@@ -5977,8 +5991,12 @@ enum ChatLocalFirstFrameAvailabilityPolicy {
         isInitialArchiveLoaded: Bool,
         isInitialBootstrapInFlight: Bool,
         allowsStaleLocalHistory: Bool,
-        allowsBootstrapFailureFallback: Bool
+        allowsBootstrapFailureFallback: Bool,
+        hasLocalAnchorRequest: Bool = false
     ) -> ChatLocalFirstFrameAvailabilityDecision {
+        if hasLocalAnchorRequest {
+            return .prepareLocal
+        }
         if allowsStaleLocalHistory || allowsBootstrapFailureFallback {
             return .prepareLocal
         }
@@ -7454,10 +7472,6 @@ struct ChatDatasetCoordinator {
 }
 
 extension ChatViewController {
-    internal static let attachmentTimeFormatter: DateFormatter = {
-        makeAttachmentTimeFormatter()
-    }()
-
     fileprivate static func makeAttachmentTimeFormatter() -> DateFormatter {
         let formatter = DateFormatter()
         formatter.dateStyle = .none
@@ -7543,12 +7557,14 @@ extension ChatViewController {
 
     internal func prepareAndApplyCurrentDatasourceLayouts(
         layoutWidthOverride: CGFloat? = nil,
+        viewportRestoration: ChatLayoutViewportRestoration? = nil,
         completion: (() -> Void)? = nil
     ) {
         guard isViewLoaded else {
             completion?()
             return
         }
+        let capturedViewportRestoration = viewportRestoration ?? captureLayoutViewportRestoration()
         layoutPreparationGeneration += 1
         let generation = layoutPreparationGeneration
         let items = datasource
@@ -7579,21 +7595,56 @@ extension ChatViewController {
                 guard stillRepresentsCurrentDatasource else {
                     self.prepareAndApplyCurrentDatasourceLayouts(
                         layoutWidthOverride: layoutWidthOverride,
+                        viewportRestoration: capturedViewportRestoration,
                         completion: completion
                     )
                     return
                 }
+                let restoreAnchor: ChatHistoryPageAnchor?
+                let forceBottomAlignmentTarget: ChatBottomAlignmentTarget?
+                let keepOffset: Bool
+                switch capturedViewportRestoration {
+                case .none:
+                    restoreAnchor = nil
+                    forceBottomAlignmentTarget = nil
+                    keepOffset = true
+                case .bottom:
+                    restoreAnchor = nil
+                    forceBottomAlignmentTarget = .newestRealMessage
+                    keepOffset = false
+                case .message(let anchor):
+                    restoreAnchor = anchor
+                    forceBottomAlignmentTarget = nil
+                    keepOffset = false
+                }
                 self.applyChatDatasource(
                     items,
-                    mode: .fullReload(keepOffset: true),
+                    mode: .fullReload(keepOffset: keepOffset),
                     animated: false,
                     invalidateLayout: true,
                     preparedLayouts: preparedLayouts,
                     suppressDefaultBottomScroll: true,
+                    forceBottomAlignmentTarget: forceBottomAlignmentTarget,
+                    anchorRestorePhase: restoreAnchor == nil ? .none : .applyTransaction,
+                    anchorPrimary: restoreAnchor?.primary,
+                    restoreAnchor: restoreAnchor,
                     completion: completion
                 )
             }
         }
+    }
+
+    private func captureLayoutViewportRestoration() -> ChatLayoutViewportRestoration {
+        guard !datasource.isEmpty else {
+            return .none
+        }
+        if isNearBottom() {
+            return .bottom
+        }
+        if let anchor = capturePagingAnchorIfNeeded(direction: .older) {
+            return .message(anchor)
+        }
+        return .none
     }
 
     internal func requestOutgoingAutoScrollAfterDatasourceUpdate() {
@@ -8125,6 +8176,9 @@ extension ChatViewController {
         self.scrollFrameOperationCounter.record(.structuralMoves, by: targetedDiff?.moves.count ?? 0)
         let containsOnlyFakeMessages = !items.isEmpty && items.allSatisfy(\.isFakeMessage)
         let containsRealMessages = items.contains { !$0.isFakeMessage }
+        if containsRealMessages {
+            self.hasCommittedRealContentInCurrentLifecycle = true
+        }
         let wasNearBottom = self.isNearBottom()
         let isResidentAtLiveTail = self.virtualTimelineState.isResidentAtLiveTail
         var retainedRestoreAnchor: ChatHistoryPageAnchor?
@@ -8377,11 +8431,23 @@ extension ChatViewController {
                         self.messagesCollectionView.contentOffset.y -
                         anchor.viewportRelativeMinY
                 )
-            case .preserveContentOffset(let targetOffsetY):
+            case .preserveContentOffset(let requestedOffsetY):
+                let minOffsetY = -self.messagesCollectionView.adjustedContentInset.top
+                let maxOffsetY = max(
+                    minOffsetY,
+                    self.messagesCollectionView.contentSize.height -
+                        self.messagesCollectionView.bounds.height +
+                        self.messagesCollectionView.adjustedContentInset.bottom
+                )
+                let decision = ChatViewportTransactionTargetPolicy.preservedContentOffsetDecision(
+                    requestedOffsetY: requestedOffsetY,
+                    minimumContentOffsetY: minOffsetY,
+                    maximumContentOffsetY: maxOffsetY
+                )
                 _ = viewportTransaction.performProgrammaticOffsetMutation(
                     currentOffsetY: self.messagesCollectionView.contentOffset.y,
-                    targetOffsetY: targetOffsetY,
-                    isAutomatic: true
+                    targetOffsetY: decision.targetOffsetY,
+                    isAutomatic: !decision.isSafetyClamp
                 ) { targetOffsetY in
                     self.messagesCollectionView.setContentOffset(
                         CGPoint(x: self.messagesCollectionView.contentOffset.x, y: targetOffsetY),
@@ -8451,6 +8517,9 @@ extension ChatViewController {
             } else {
                 transactionCommitted = true
                 _ = viewportTransaction.commit(anchorError: anchorError)
+            }
+            if transactionCommitted, !containsOnlyFakeMessages {
+                self.hasCommittedTimelinePresentationInCurrentLifecycle = true
             }
             let completionMs = ChatArchiveDebugTrace.milliseconds(since: completionStartedAt)
             self.handleChatDatasourceAuxiliaryRefreshAfterApply(
@@ -9218,6 +9287,7 @@ extension ChatViewController {
         self.cancelInitialBootstrapLocalHistoryFallback()
         self.cancelInitialBootstrapTimeout()
         if let initialBootstrapQueryId {
+            self.cancelInitialBootstrapTransport(queryId: initialBootstrapQueryId)
             self.endChatHistoryLoadActivity(reason: "initial:\(initialBootstrapQueryId)")
             self.unregisterRemoteHistoryPersistenceSource(queryId: initialBootstrapQueryId)
             self.unregisterRemoteHistoryFailureDispatcher(queryId: initialBootstrapQueryId)
@@ -9233,6 +9303,22 @@ extension ChatViewController {
         self.initialBootstrapVisibleRowsForConversation = nil
         self.didEnterInitialBootstrapObserverSettlePhase = false
         self.didObserveInitialBootstrapPostIdleTick = false
+    }
+
+    private func cancelInitialBootstrapTransport(queryId: String) {
+        guard queryId.isNotEmpty else {
+            return
+        }
+        let owner = self.owner
+        if let account = AccountManager.shared.find(for: owner) {
+            account.action { user, _ in
+                _ = user.mam.cancelPendingArchiveRequest(queryId: queryId)
+            }
+        }
+        XMPPUIActionManager.shared.cancelPendingArchiveRequest(
+            owner: owner,
+            queryId: queryId
+        )
     }
 
     internal func scheduleInitialBootstrapTimeout(queryId: String) {
@@ -10206,7 +10292,10 @@ extension ChatViewController {
                         position: boundaryPlaceholder
                     )
                 }
-                self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: snapshot.items.count))
+                let committedSnapshot = session.commitPresentationSnapshot(snapshot)
+                self.syncCurrentPage(
+                    with: ChatDatasetWindow(minIndex: 0, maxIndex: committedSnapshot.items.count)
+                )
                 self.invalidateEditedMessageLayoutCache(
                     primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
                 )
@@ -10776,12 +10865,17 @@ extension ChatViewController {
             jid: self.jid,
             conversationType: self.conversationType
         )
+        let hasLocalAnchorRequest = descriptor.request.map { request in
+            ChatInitialAnchorBootstrapPolicy.needsLocalAnchorLookup(source: request.source) &&
+                self.hasLocalAnchorForBootstrap(request)
+        } ?? false
         let availability = ChatLocalFirstFrameAvailabilityPolicy.decision(
             isSynced: chatInstance?.isSynced ?? false,
             isInitialArchiveLoaded: chatInstance?.isInitialArchiveLoaded ?? false,
             isInitialBootstrapInFlight: self.isInitialBootstrapInFlight,
             allowsStaleLocalHistory: self.allowsStaleLocalHistoryDuringInitialBootstrap,
-            allowsBootstrapFailureFallback: self.allowsBootstrapFailureFallback
+            allowsBootstrapFailureFallback: self.allowsBootstrapFailureFallback,
+            hasLocalAnchorRequest: hasLocalAnchorRequest
         )
 
         guard availability == .prepareLocal else {
@@ -10986,6 +11080,20 @@ extension ChatViewController {
         self.setDatasourceLoadingEnabled(true)
         self.setShouldShowInitialMessage(committedSnapshot.items.isEmpty)
         self.rebuildUnreadMentionItems()
+        ConnectionDiagnosticsLogger.log(
+            event: "chat_anchor_local_first_frame_committed",
+            stream: .primary,
+            jid: nil,
+            details: [
+                "source": descriptor.request?.source.rawValue ?? "default",
+                "anchorAligned": {
+                    if case .anchor = preparedFrame.alignment { return true }
+                    return false
+                }(),
+                "residentAtLiveTail": committedSnapshot.state.isResidentAtLiveTail,
+                "realMessageCount": mappingResult.datasource.lazy.filter { !$0.isFakeMessage }.count
+            ]
+        )
 
         ChatArchiveDebugTrace.log("chatInitialLocalFirstFramePrepared", [
             ("owner", self.owner),
@@ -11113,7 +11221,8 @@ extension ChatViewController {
     ) {
         guard ChatBootstrapStateApplicationPolicy.decision(
             previous: appliedBootstrapLoadingState,
-            next: state
+            next: state,
+            hasCommittedContent: hasCommittedRealContentInCurrentLifecycle
         ) == .apply else {
             return
         }
@@ -11718,8 +11827,8 @@ extension ChatViewController {
     }
 
     internal var hasActiveSearchNavigationTransaction: Bool {
-        self.pendingOpenMessageRequest?.source == .search ||
-        self.activeAnchorExecutionState?.request.source == .search ||
+        self.pendingOpenMessageRequest != nil ||
+        self.activeAnchorExecutionState != nil ||
         self.searchResultNavigationState.isBusy
     }
 
@@ -13706,8 +13815,8 @@ extension ChatViewController {
         )
         let wasNearBottom = self.isNearBottom()
         let isSearchModeActive = self.isChatSearchInputKeyboardOwned
-        let hasSearchAnchorWork = self.pendingOpenMessageRequest?.source == .search ||
-            self.activeAnchorExecutionState?.request.source == .search ||
+        let hasSearchAnchorWork = self.pendingOpenMessageRequest != nil ||
+            self.activeAnchorExecutionState != nil ||
             self.searchResultNavigationState.isBusy
         if hasSearchAnchorWork {
             self.pendingArchiveObserverRefresh = true

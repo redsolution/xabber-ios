@@ -1490,6 +1490,10 @@ final class ChatFloatingActionPanelView: UIView {
 class ChatViewController: MessagesViewController {
     static let staleDatasourceFallbackPrimary = "stale-datasource-fallback"
 
+    #if DEBUG || CHAT_PERFORMANCE_LAB
+    var performanceFixtureSendHandler: ((String) -> Void)?
+    #endif
+
     struct ChangesetItem: Hashable, Equatable {
         let index: Int
         let primary: String
@@ -1808,6 +1812,8 @@ class ChatViewController: MessagesViewController {
     var initialLocalFirstFrameCompletions: [() -> Void] = []
     var initialLocalFirstFrameShouldPerformPendingRequest: Bool = false
     var initialFirstContentApplyCount: Int = 0
+    var hasCommittedRealContentInCurrentLifecycle: Bool = false
+    var hasCommittedTimelinePresentationInCurrentLifecycle: Bool = false
     var pendingArchiveObserverRefresh: Bool = false
     var archiveObserverRefreshWorkItem: DispatchWorkItem? = nil
     var activeChatHistoryLoadActivityKeys: Set<ChatHistoryLoadActivityKey> = []
@@ -3141,15 +3147,6 @@ class ChatViewController: MessagesViewController {
         return view
     }()
     
-//    internal let navbarOverlayView: UIView = {
-//        let view = UIView()
-//        
-//        view.backgroundColor = .systemBackground
-//        view.isUserInteractionEnabled = false
-//        
-//        return view
-//    }()
-    
     internal var xabberInputView: ModernXabberInputView!
     internal var xabberInputViewBottomConstraint: NSLayoutConstraint?
     internal var xabberInputViewKeyboardTopConstraint: NSLayoutConstraint?
@@ -4150,7 +4147,6 @@ class ChatViewController: MessagesViewController {
             reason: "viewDidLayoutSubviews",
             modeDescription: "layout"
         )
-//        updateInsets()  // Recompute and apply as above
     }
     
     private func configure() {
@@ -4184,16 +4180,6 @@ class ChatViewController: MessagesViewController {
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
-//        self.navbarOverlayView.frame = CGRect(
-//            width: self.view.bounds.width,
-//            height: navbarHeight
-//        )
-        
-//        inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight
-//        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-//            inputHeight += bottomInset
-//        }
-        
         let horizontalInset = ModernXabberInputView.edgeHorizontalInset
         let leadingInset = self.view.safeAreaInsets.left + horizontalInset
         let trailingInset = self.view.safeAreaInsets.right + horizontalInset
@@ -4266,8 +4252,6 @@ class ChatViewController: MessagesViewController {
         if self.inSearchMode.value {
             self.bringSearchInputOverlayToFront()
         }
-//        self.view.addSubview(self.navbarOverlayView)
-//        self.view.addSubview(floatingDateView)
         self.scrollDownButton.addTarget(self, action: #selector(self.onScrollDownChatButtonTouchUpInside), for: .touchUpInside)
         self.unreadMentionsNavigatorView.onBadgeTap = { [weak self] in
             self?.navigateToNextUnreadMention()
@@ -4313,6 +4297,11 @@ class ChatViewController: MessagesViewController {
     
     
     final func configureDataset() {
+        let preservesCommittedRealContent = self.hasCommittedRealContentInCurrentLifecycle ||
+            self.datasource.contains { !$0.isFakeMessage }
+        let preservesCommittedTimelinePresentation =
+            self.hasCommittedTimelinePresentationInCurrentLifecycle ||
+            preservesCommittedRealContent
         self.timelineSession?.cancelInitialFramePreparations()
         self.timelineSession?.cancelLocalPagePreparations()
         self.cancelActiveAnchorExecutionForLifecycle()
@@ -4322,6 +4311,9 @@ class ChatViewController: MessagesViewController {
         self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)
         self.initialLocalFirstFrameShouldPerformPendingRequest = false
         self.initialFirstContentApplyCount = 0
+        self.hasCommittedRealContentInCurrentLifecycle = preservesCommittedRealContent
+        self.hasCommittedTimelinePresentationInCurrentLifecycle =
+            preservesCommittedTimelinePresentation
         let store = RealmChatTimelineSessionStore(
             owner: self.owner,
             jid: self.jid,
@@ -4341,7 +4333,7 @@ class ChatViewController: MessagesViewController {
             let applySnapshot = {
                 guard let self, let session, self.timelineSession === session else { return }
                 if snapshot.cause == .storeChange,
-                   self.hasRenderedStableInitialHistory {
+                   self.hasCommittedTimelinePresentationInCurrentLifecycle {
                     self.handleTimelineSessionRefresh()
                 }
             }
@@ -4875,10 +4867,6 @@ class ChatViewController: MessagesViewController {
         gradient.frame = self.view.bounds
         
         
-//        self.navbarOverlayView.frame = CGRect(
-//            width: self.view.bounds.width,
-//            height: navbarHeight
-//        )
 //        
         self.messageLoadingActivityIndicator.frame = CGRect(width: 64, height: 64)
         self.messageLoadingActivityIndicator.center = CGPoint(x: self.view.center.x, y: navbarHeight + 32)

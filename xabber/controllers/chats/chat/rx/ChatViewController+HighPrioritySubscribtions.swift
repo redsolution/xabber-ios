@@ -27,6 +27,20 @@ import DeepDiff
 import CocoaLumberjack
 import XMPPFramework.XMPPJID
 
+enum ChatInitialBootstrapTransport: Equatable {
+    case primaryAccount
+    case uiAction
+}
+
+enum ChatInitialBootstrapTransportPolicy {
+    static func resolve(
+        hasPrimaryAccount: Bool,
+        primaryStreamReady: Bool
+    ) -> ChatInitialBootstrapTransport {
+        hasPrimaryAccount && primaryStreamReady ? .primaryAccount : .uiAction
+    }
+}
+
 extension ChatViewController {
     private var chatPresentationRefreshKey: String {
         "chat.presentation.\(owner).\(jid).\(conversationType.rawValue)"
@@ -169,7 +183,9 @@ extension ChatViewController {
         self.bag = DisposeBag()
         let realm = try WRealm.safe()
         self.configureDataset()
-        self.appliedBootstrapLoadingState = nil
+        self.appliedBootstrapLoadingState = self.hasCommittedRealContentInCurrentLifecycle
+            ? .content
+            : nil
         self.lastBootstrapAtomicRevealPlan = nil
         self.cancelInitialBootstrapLocalHistoryFallback()
         let initialChatInstance = realm.object(
@@ -588,8 +604,13 @@ extension ChatViewController {
         let queryId = "MAM bootstrap history: \(NanoID.new(6))"
         self.registerRemoteHistoryEndPageDispatcher(queryId: queryId)
 
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            let result = session.mam?.syncChat(
+        let startRequest: (
+            _ stream: XMPPStream,
+            _ mam: MessageArchiveManager?,
+            _ messages: MessageManager?
+        ) -> Void = { [weak self] stream, mam, messages in
+            guard let self else { return }
+            let result = mam?.syncChat(
                 stream,
                 jid: self.jid,
                 conversationType: self.conversationType,
@@ -599,11 +620,31 @@ extension ChatViewController {
                 requestCallbacks: callbacks
             ) ?? .noop
             if case .bootstrapStarted(let activeQueryId) = result {
-                self.registerRemoteHistoryPersistenceSource(session.messages, queryId: activeQueryId)
+                self.registerRemoteHistoryPersistenceSource(
+                    messages,
+                    queryId: activeQueryId
+                )
             } else {
                 self.unregisterRemoteHistoryEndPageDispatcher(queryId: queryId)
             }
             self.handleSyncChatStartResult(result)
+        }
+
+        let account = AccountManager.shared.find(for: self.owner)
+        let transport = ChatInitialBootstrapTransportPolicy.resolve(
+            hasPrimaryAccount: account != nil,
+            primaryStreamReady: account?.sendReadiness.snapshot.canFlushApplicationStanzas == true
+        )
+        if transport == .primaryAccount,
+           let account {
+            account.action { user, stream in
+                startRequest(stream, user.mam, user.messages)
+            }
+            return
+        }
+
+        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            startRequest(stream, session.mam, session.messages)
         } fail: {
             guard let account = AccountManager.shared.find(for: self.owner) else {
                 self.unregisterRemoteHistoryEndPageDispatcher(queryId: queryId)
@@ -614,21 +655,7 @@ extension ChatViewController {
                 return
             }
             account.action { user, stream in
-                let result = user.mam.syncChat(
-                    stream,
-                    jid: self.jid,
-                    conversationType: self.conversationType,
-                    pageSize: self.initialBootstrapArchiveRequestPageSize,
-                    queryId: queryId,
-                    callback: nil,
-                    requestCallbacks: callbacks
-                )
-                if case .bootstrapStarted(let activeQueryId) = result {
-                    self.registerRemoteHistoryPersistenceSource(user.messages, queryId: activeQueryId)
-                } else {
-                    self.unregisterRemoteHistoryEndPageDispatcher(queryId: queryId)
-                }
-                self.handleSyncChatStartResult(result)
+                startRequest(stream, user.mam, user.messages)
             }
         }
     }

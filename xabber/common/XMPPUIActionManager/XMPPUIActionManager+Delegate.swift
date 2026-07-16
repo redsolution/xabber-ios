@@ -232,6 +232,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         self.lifecycleCoordinator.markOnline()
         self.logConnectionDiagnostics(event: "post_auth_setup_completed")
         canSendStanzas = true
+        self.resumePendingPerformRequests(owner: jid)
 //        print("UI STREAM AUTHENTICATED")
     }
 
@@ -614,6 +615,10 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
             reason: .uiActionDisconnect,
             errorDescription: disconnectError
         ) ?? []
+        self.failPendingPerformRequests(
+            owner: sender.myJID?.bare ?? self.currentJid,
+            reason: "streamDisconnect"
+        )
         failureEvents.forEach { event in
             ChatArchiveDebugTrace.log("interactiveRemoteArchiveDisconnect", [
                 ("owner", event.owner),

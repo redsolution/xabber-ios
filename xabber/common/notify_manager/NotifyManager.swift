@@ -27,6 +27,87 @@ import CocoaLumberjack
 
 import XMPPFramework
 
+enum PushNotificationMessageOpenRequestFactory {
+    static func make(
+        route: PushNotificationRoutePayload,
+        fallbackConversationType: ClientSynchronizationManager.ConversationType
+    ) -> ChatOpenMessageRequest? {
+        guard route.kind == .message,
+              let jid = route.routeJid,
+              jid.isNotEmpty,
+              route.stanzaId?.isNotEmpty == true || route.messageId?.isNotEmpty == true else {
+            return nil
+        }
+
+        let conversationType = route.conversationType
+            .flatMap(ClientSynchronizationManager.ConversationType.init(rawValue:))
+            ?? fallbackConversationType
+        let sourceDate = route.timestamp
+            .map(Date.init(timeIntervalSinceReferenceDate:))
+            ?? Date()
+        return ChatOpenMessageRequest(
+            chatJid: jid,
+            owner: route.owner,
+            conversationType: conversationType,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: route.stanzaId,
+                messageId: route.messageId,
+                authorId: route.senderJid,
+                bodyFingerprint: nil,
+                sourceDate: sourceDate
+            ),
+            highlight: true,
+            markReadOnVisible: true,
+            source: .pushNotification
+        )
+    }
+}
+
+enum LocalMessageNotificationRouteFactory {
+    static func make(
+        owner: String,
+        routeJid: String,
+        conversationType: String,
+        stanzaId: String,
+        senderJid: String?,
+        senderNickname: String?
+    ) -> PushNotificationRoutePayload {
+        PushNotificationRoutePayload.message(
+            owner: owner,
+            routeJid: routeJid,
+            conversationType: conversationType,
+            stanzaId: stanzaId,
+            messageId: nil,
+            stanza: nil,
+            senderJid: senderJid,
+            senderNickname: senderNickname,
+            groupchat: conversationType == "group" ? routeJid : nil
+        )
+    }
+}
+
+struct MessageNotificationTapRoutingPlan: Equatable {
+    let opensChat: Bool
+    let clearsUnread: Bool
+    let legacyFallbackAction: String?
+}
+
+enum MessageNotificationTapRoutingPolicy {
+    static func plan(
+        applicationIsActive: Bool,
+        atStart: Bool
+    ) -> MessageNotificationTapRoutingPlan {
+        MessageNotificationTapRoutingPlan(
+            opensChat: true,
+            clearsUnread: !applicationIsActive,
+            legacyFallbackAction: applicationIsActive
+                ? nil
+                : (atStart ? "initialChat" : "foregroundChat")
+        )
+    }
+}
+
 /**
  *    Notification requests enumeration
  **/
@@ -560,16 +641,13 @@ class NotifyManager {
                     content.attachments = [attachment]
                 }
             
-            content.userInfo = PushNotificationRoutePayload.message(
+            content.userInfo = LocalMessageNotificationRouteFactory.make(
                 owner: self.message.from,
                 routeJid: self.message.to,
                 conversationType: self.message.conversationType,
                 stanzaId: self.message.Id,
-                messageId: nil,
-                stanza: nil,
                 senderJid: self.message.to,
-                senderNickname: self.message.username,
-                groupchat: self.message.conversationType == "group" ? self.message.to : nil
+                senderNickname: self.message.username
             ).userInfo(timestamp: Date().timeIntervalSinceReferenceDate)
             content.title = ["📱", self.message.displayName].joined(separator: " ")
             if let username = self.message.username {
@@ -1117,47 +1195,19 @@ class NotifyManager {
         }
         let openMessageRequest = makeOpenMessageRequest(route: route, owner: owner, jid: jid, conversationType: conversationType)
         
-        if UIApplication.shared.applicationState == .active {
-//            DispatchQueue.main.async {
-//                let vc = ChatViewController()
-//                vc.jid = jid
-//                vc.owner = owner
-//                vc.conversationType = conversationType
-//                
-//                if let presenterVc = self.presentationController {
-//                    showStacked(vc, in: presenterVc.presentingViewController)
-//                }
-//            }
-//            let stanzaId = userInfo["stanzaId"]  as? String
-//            self.leftMenuDelegate?.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType) { vc in
-//                if let stanzaId = stanzaId {
-//                    vc?.scrollToMessageAtIndex(archivedId: stanzaId, date: Date())
-//                }
-//            }
-//            completionHandler?()
-        } else {
-            if atStart {
-                self.openViewControllerPayload = ["owner": owner, "jid": jid, "action": "initialChat"]
-            } else {
-                self.openViewControllerPayload = ["owner": owner, "jid": jid, "action": "foregroundChat"]
-//                DispatchQueue.main.async {
-//                    let vc = ChatViewController()
-//                    vc.jid = jid
-//                    vc.owner = owner
-//                    vc.conversationType = conversationType
-//                    
-//                    if let presenterVc = self.presentationController {
-//                        showStacked(vc, in: presenterVc.presentingViewController)
-//                    }
-//                }
-//                let stanzaId = userInfo["stanzaId"]  as? String
-//                self.leftMenuDelegate?.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType) { vc in
-//                    if let stanzaId = stanzaId {
-//                        vc?.scrollToMessageAtIndex(archivedId: stanzaId, date: Date())
-//                    }
-//                }
-//                completionHandler?()
-            }
+        let routingPlan = MessageNotificationTapRoutingPolicy.plan(
+            applicationIsActive: UIApplication.shared.applicationState == .active,
+            atStart: atStart
+        )
+        if let legacyFallbackAction = routingPlan.legacyFallbackAction {
+            self.openViewControllerPayload = [
+                "owner": owner,
+                "jid": jid,
+                "action": legacyFallbackAction
+            ]
+        }
+
+        if routingPlan.clearsUnread {
             do {
                 let realm = try WRealm.safe()
                 if let instance = realm.object(
@@ -1181,7 +1231,9 @@ class NotifyManager {
             } catch {
                 DDLogDebug("NotifyManager: \(#function). \(error.localizedDescription)")
             }
-            
+        }
+
+        if routingPlan.opensChat {
             let opened = openChatForNotification(
                 owner: owner,
                 jid: jid,
@@ -1192,10 +1244,8 @@ class NotifyManager {
             if !opened {
                 self.openViewControllerPayload = ["owner": owner, "jid": jid, "action": "foregroundChat"]
             }
-            Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { (_) in
-                completionHandler?()
-            }
         }
+        completionHandler?()
     }
 
     private final func makeOpenMessageRequest(
@@ -1205,25 +1255,13 @@ class NotifyManager {
         conversationType: ClientSynchronizationManager.ConversationType
     ) -> ChatOpenMessageRequest? {
         guard let route,
-              route.stanzaId != nil || route.messageId != nil else {
+              route.owner == owner,
+              route.routeJid == jid else {
             return nil
         }
-        let sourceDate = route.timestamp.map { Date(timeIntervalSinceReferenceDate: $0) } ?? Date()
-        return ChatOpenMessageRequest(
-            chatJid: jid,
-            owner: owner,
-            conversationType: conversationType,
-            anchor: ChatMessageAnchorRef(
-                messagePrimary: nil,
-                archivedId: route.stanzaId,
-                messageId: route.messageId,
-                authorId: route.senderJid,
-                bodyFingerprint: nil,
-                sourceDate: sourceDate
-            ),
-            highlight: true,
-            markReadOnVisible: true,
-            source: .pushNotification
+        return PushNotificationMessageOpenRequestFactory.make(
+            route: route,
+            fallbackConversationType: conversationType
         )
     }
 
@@ -1236,12 +1274,13 @@ class NotifyManager {
         configure: ((ChatViewController?) -> Void)?
     ) -> Bool {
         if let leftMenuDelegate = self.leftMenuDelegate {
-            leftMenuDelegate.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType) { vc in
-                configure?(vc)
-                if let openMessageRequest {
-                    vc?.queueOpenMessageRequest(openMessageRequest)
-                }
-            }
+            leftMenuDelegate.openChatlistWithChat(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                openMessageRequest: openMessageRequest,
+                configure: configure
+            )
             return true
         }
         return AppRootCoordinator.active?.route(.chatMessage(

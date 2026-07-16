@@ -4,7 +4,11 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: tools/run_chat_goal_tests.sh <preflight|focused|smoke|build> <TASK_ID>
+Usage: tools/run_chat_goal_tests.sh <phase> <TASK_ID>
+
+Phases:
+  preflight | focused | smoke | build
+  deterministic-ui | release-performance | live-read-only | live-mutation
 
 Required for test phases:
   XABBER_DESTINATION='platform=iOS Simulator,id=<DEDICATED_SIMULATOR_UDID>'
@@ -33,7 +37,7 @@ phase="${1:-}"
 task_id="${2:-}"
 
 case "$phase" in
-  preflight|focused|smoke|build) ;;
+  preflight|focused|smoke|build|deterministic-ui|release-performance|live-read-only|live-mutation) ;;
   *)
     echo "error: unsupported phase '$phase'" >&2
     usage >&2
@@ -54,6 +58,15 @@ if [[ "$task_is_known" != true ]]; then
   usage >&2
   exit 64
 fi
+
+case "$phase" in
+  deterministic-ui|release-performance|live-read-only|live-mutation)
+    if [[ "$task_id" != "G20" ]]; then
+      echo "error: final integration phase '$phase' belongs only to G20" >&2
+      exit 64
+    fi
+    ;;
+esac
 
 if [[ "$CHAT_GOAL_MANIFEST_VERSION" != "1" ]]; then
   echo "error: unsupported manifest version '$CHAT_GOAL_MANIFEST_VERSION'" >&2
@@ -124,13 +137,22 @@ case "$destination" in
     ;;
 esac
 
-if [[ "$phase" != "build" ]]; then
+case "$phase" in
+  preflight|focused|smoke)
   if [[ "${TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT:-}" != "1" ||
         "${TEST_RUNNER_XABBER_ISOLATED_STORAGE:-}" != "1" ]]; then
     echo "error: hosted tests require both isolation flags set to 1" >&2
     exit 64
   fi
-fi
+  ;;
+  deterministic-ui|release-performance|live-read-only|live-mutation)
+    if [[ -n "${TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT:-}" ||
+          -n "${TEST_RUNNER_XABBER_ISOLATED_STORAGE:-}" ]]; then
+      echo "error: $phase must run with hosted-test isolation variables unset" >&2
+      exit 64
+    fi
+    ;;
+esac
 
 export XABBER_XCODE_CACHE_ROOT="$cache_root"
 export XABBER_SCHEME="$scheme"
@@ -238,6 +260,28 @@ case "$phase" in
   build)
     echo "  selectors: none (simulator build)"
     "$script_dir/xcodebuild_cached.sh" build
+    ;;
+  deterministic-ui)
+    echo "  selectors: xabberChatPerformanceUITests/ChatPerformanceUITests"
+    env \
+      -u TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT \
+      -u TEST_RUNNER_XABBER_ISOLATED_STORAGE \
+      -u XABBER_CHAT_LIVE_QA_MODE \
+      XABBER_SCHEME="Chat Performance UI Tests" \
+      "$script_dir/xcodebuild_cached.sh" test \
+        -parallel-testing-enabled NO \
+        -only-testing:xabberChatPerformanceUITests/ChatPerformanceUITests
+    ;;
+  release-performance)
+    "$script_dir/run_chat_release_performance.sh" "$task_id"
+    ;;
+  live-read-only)
+    XABBER_CHAT_LIVE_QA_MODE=read-only \
+      "$script_dir/run_chat_live_qa.sh" read-only
+    ;;
+  live-mutation)
+    XABBER_CHAT_LIVE_QA_MODE=mutation \
+      "$script_dir/run_chat_live_qa.sh" mutation
     ;;
 esac
 

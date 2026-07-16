@@ -134,6 +134,16 @@ enum ChatMessageLayoutCalculator {
             }
 
             container.width += messageContainerPadding.horizontal + CommonMessageSizeCalculator.tailWidth
+            container.width = max(
+                container.width,
+                timeMarkerSize.width + CommonMessageSizeCalculator.tailWidth +
+                    messageContainerPadding.right + messageContainerMargin.right
+            )
+            container.height = max(
+                container.height,
+                timeMarkerSize.height + 4 + messageContainerPadding.bottom +
+                    messageContainerMargin.bottom + 2
+            )
             let forwardsContainer = message.forwards.isEmpty
                 ? .zero
                 : CGSize(

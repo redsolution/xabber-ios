@@ -255,6 +255,32 @@ final class ChatMessageLayoutCacheTests: XCTestCase {
         XCTAssertNotNil(cache.layout(forPrimary: "new-127"))
     }
 
+    func testEmptyHistoricalTextKeepsTimeMarkerInsideMessageContainer() {
+        let message = makeDatasource(primary: "empty-historical", text: "")
+        let layout = ChatMessageLayoutCalculator.measure(
+            message,
+            context(width: 390)
+        )
+        let timeFrame = CGRect(
+            x: layout.messageContainerSize.width - layout.timeMarkerSize.width -
+                layout.timeMarkerInsets.right - layout.tailWidth -
+                layout.messageContainerPadding.right - layout.messageContainerMargin.right,
+            y: layout.messageContainerSize.height - layout.timeMarkerSize.height -
+                layout.timeMarkerInsets.bottom - layout.messageContainerPadding.bottom -
+                layout.messageContainerMargin.bottom - 2,
+            width: layout.timeMarkerSize.width,
+            height: layout.timeMarkerSize.height
+        )
+
+        XCTAssertEqual(
+            ChatMessageFrameGeometryValidator.violations(
+                frames: [.init(name: "time", frame: timeFrame)],
+                containerBounds: CGRect(origin: .zero, size: layout.messageContainerSize)
+            ),
+            []
+        )
+    }
+
     private func context(
         width: CGFloat,
         category: String = "UICTContentSizeCategoryL",

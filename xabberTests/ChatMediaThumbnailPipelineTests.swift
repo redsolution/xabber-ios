@@ -340,6 +340,36 @@ final class ChatMediaThumbnailPipelineTests: XCTestCase {
         XCTAssertEqual(serving.requests.count, 2)
     }
 
+    func testMissingHistoricalImageURLRendersExplicitUnavailableState() {
+        let grid = InlineImagesGridView(frame: CGRect(x: 0, y: 0, width: 220, height: 220))
+        let attachment = ImageAttachment(
+            primary: "missing-image",
+            url: nil,
+            size: CGSize(width: 1_000, height: 1_000)
+        )
+
+        grid.configure([attachment], representedBy: "historical-message")
+
+        XCTAssertEqual(grid.views.count, 1)
+        XCTAssertEqual(grid.views[0].thumbnailPresentationState, .unavailable)
+        XCTAssertNotNil(grid.views[0].image)
+    }
+
+    func testThumbnailFailureReplacesLoadingStateWithUnavailablePlaceholder() {
+        let serving = RecordingChatThumbnailServing()
+        let grid = InlineImagesGridView(frame: CGRect(x: 0, y: 0, width: 220, height: 220))
+        grid.thumbnailPipeline = serving
+
+        grid.configure([
+            imageAttachment(primary: "failed-image", path: "failed.jpg", sensitive: false)
+        ], representedBy: "historical-message")
+
+        XCTAssertEqual(grid.views[0].thumbnailPresentationState, .loading)
+        serving.complete(at: 0, with: .failure(.loadFailed))
+        XCTAssertEqual(grid.views[0].thumbnailPresentationState, .unavailable)
+        XCTAssertNotNil(grid.views[0].image)
+    }
+
     func testMemoryWarningCancelsPrefetchWorkButKeepsVisibleConsumerAlive() {
         let loader = FakeChatThumbnailLoader()
         let cache = FakeChatThumbnailCache()
@@ -479,6 +509,7 @@ private final class FakeChatThumbnailCache: ChatThumbnailCaching {
 private final class RecordingChatThumbnailServing: ChatThumbnailServing {
     private(set) var requests: [ChatThumbnailRequest] = []
     private(set) var subscriptions: [FakeChatThumbnailSubscription] = []
+    private var completions: [((Result<ChatThumbnailDelivery, ChatThumbnailPipelineError>) -> Void)?] = []
 
     func acquire(
         _ request: ChatThumbnailRequest,
@@ -488,7 +519,15 @@ private final class RecordingChatThumbnailServing: ChatThumbnailServing {
         let subscription = FakeChatThumbnailSubscription()
         requests.append(request)
         subscriptions.append(subscription)
+        completions.append(completion)
         return subscription
+    }
+
+    func complete(
+        at index: Int,
+        with result: Result<ChatThumbnailDelivery, ChatThumbnailPipelineError>
+    ) {
+        completions[index]?(result)
     }
 }
 
