@@ -23,6 +23,10 @@ The authoritative white-label resource fix is
 `f29ab5e31077a09a136d84c77f7351c473c6f479` on the resource repository's
 `xabber` branch.
 
+Gate definitions and historical tier evidence remain in
+[Chat performance final gates](chat-performance-final-gates.md). This report
+supersedes only the post-merge failure verdict for the repaired branch.
+
 ## Confirmed causes and repairs
 
 | Area | Confirmed cause | Repair and retained contract |
