@@ -165,7 +165,7 @@ class APNSManager: NSObject {
               let identifier = UIDevice.current.identifierForVendor?.uuidString else {
             return nil
         }
-        let hashString = [identifier, CommonConfigManager.shared.config.bundle_id, buildEnvironmentComponent].prp()
+        let hashString = [identifier, CommonConfigManager.shared.config.bundle_id].prp()
         return [jid, hashString].joined(separator: "/")
     }
 

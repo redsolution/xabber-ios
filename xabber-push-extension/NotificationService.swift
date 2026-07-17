@@ -363,6 +363,7 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     internal func action(for payload: PayloadData) {
+        print("PUSH EXTENSION", "payload", payload)
         switch payload.action {
         case .message:      onMessage(payload)
         case .marker:       onMarker(payload)
