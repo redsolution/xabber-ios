@@ -472,6 +472,10 @@ final class ChatTimelineSession {
         set { lock.withLock { storedSnapshotHandler = newValue } }
     }
 
+    func isConfigured(for conversationKey: ChatTimelineConversationKey) -> Bool {
+        self.conversationKey == conversationKey
+    }
+
     init(
         store: ChatTimelineSessionStore,
         pageSize: Int,

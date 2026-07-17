@@ -3508,6 +3508,7 @@ final class Account: NSObject {
     
     func resetStream() {
         self.logConnectionDiagnostics(event: "reset_stream_requested")
+        self.mam.didResetState()
         self.xmppTaskScheduler.reset()
         self.cancelDelayedConnectTimer()
         self.connectionGate.reset()
@@ -4452,8 +4453,8 @@ final class Account: NSObject {
     func resetModules() {
 //        self.statusMessage.accept("Waiting for network")
         self.statusMessage.accept("Offline")
-        self.xmppTaskScheduler.reset()
         self.mam.didResetState()
+        self.xmppTaskScheduler.reset()
         self.presences.didResetState()
         self.msgDeleteManager.clearSession()
         self.devices.clearSession()

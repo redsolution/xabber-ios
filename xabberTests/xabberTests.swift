@@ -8171,7 +8171,52 @@ final class VCardLazyLoadScheduleStateTests: XCTestCase {
     }
 }
 
+private final class ResetTrackingMessageArchiveManager: MessageArchiveManager {
+    private(set) var didResetStateCallCount = 0
+
+    override func didResetState() {
+        didResetStateCallCount += 1
+        super.didResetState()
+    }
+}
+
+private final class RecordingIdleScheduleMessageArchiveManager: MessageArchiveManager {
+    private(set) var regularIdleScheduleCallCount = 0
+
+    override func scheduleRegularIdleBackfillIfNeeded(delay: TimeInterval = 0.25) {
+        regularIdleScheduleCallCount += 1
+    }
+}
+
 final class AccountXMPPTaskSchedulerTests: XCTestCase {
+    func testResetStreamResetsMessageArchiveManagerStateAndCompletesPendingMamCallback() {
+        let account = Account(
+            jid: "reset-stream-mam@example.com",
+            queue: DispatchQueue(label: "AccountXMPPTaskSchedulerTests.reset-stream")
+        )
+        let manager = ResetTrackingMessageArchiveManager(withOwner: account.jid)
+        let stream = CapturingXMPPStream()
+        let callbackCompleted = expectation(description: "pending MAM callback completed before scheduler reset")
+        callbackCompleted.assertForOverFulfill = true
+        account.mam = manager
+        _ = manager.requestOlderHistoryPage(
+            stream,
+            for: "romeo@example.com",
+            conversationType: .regular,
+            messageId: "500",
+            queryId: "MAM next history: reset-stream",
+            callback: { callbackCompleted.fulfill() }
+        )
+
+        XCTAssertEqual(manager.callbacksQueue.count, 1)
+
+        account.resetStream()
+
+        wait(for: [callbackCompleted], timeout: 1.0)
+        XCTAssertEqual(manager.didResetStateCallCount, 1)
+        XCTAssertTrue(manager.callbacksQueue.isEmpty)
+    }
+
     func testRunsQueuedTasksByPriority() {
         let scheduler = AccountXMPPTaskScheduler(
             configuration: .test(defaultCooldown: 0),
@@ -17531,6 +17576,44 @@ final class MessageArchivePagingRequestTests: XCTestCase {
         XCTAssertFalse(plan.usesServerArchiveId)
     }
 
+    func testIdleBackfillCompletionDoesNotScheduleAnotherAttemptWithoutTrigger() throws {
+        var state = RegularIdleBackfillTriggerState()
+
+        XCTAssertTrue(state.registerExplicitTrigger())
+        let attempt = try XCTUnwrap(state.beginScheduledAttempt())
+        XCTAssertFalse(state.finishAttempt(attempt))
+        XCTAssertFalse(state.hasPendingTrigger)
+        XCTAssertFalse(state.isAttemptScheduled)
+        XCTAssertNil(state.activeAttemptToken)
+    }
+
+    func testIdleBackfillTriggerReceivedInFlightSchedulesOneFollowupAttempt() throws {
+        var state = RegularIdleBackfillTriggerState()
+
+        XCTAssertTrue(state.registerExplicitTrigger())
+        let firstAttempt = try XCTUnwrap(state.beginScheduledAttempt())
+        XCTAssertFalse(state.registerExplicitTrigger())
+        XCTAssertFalse(state.registerExplicitTrigger())
+
+        XCTAssertTrue(state.finishAttempt(firstAttempt))
+        let followupAttempt = try XCTUnwrap(state.beginScheduledAttempt())
+        XCTAssertFalse(state.finishAttempt(followupAttempt))
+    }
+
+    func testIdleBackfillResetInvalidatesStaleAttemptCompletion() throws {
+        var state = RegularIdleBackfillTriggerState()
+
+        XCTAssertTrue(state.registerExplicitTrigger())
+        let staleAttempt = try XCTUnwrap(state.beginScheduledAttempt())
+        state.reset()
+        XCTAssertTrue(state.registerExplicitTrigger())
+        let currentAttempt = try XCTUnwrap(state.beginScheduledAttempt())
+
+        XCTAssertFalse(state.finishAttempt(staleAttempt))
+        XCTAssertEqual(state.activeAttemptToken, currentAttempt)
+        XCTAssertFalse(state.finishAttempt(currentAttempt))
+    }
+
     func testRegularOlderRequestPlanUsesServerArchiveBeforeCursor() {
         let plan = MessageArchiveManager.regularOlderRequestPlan(
             jid: "romeo@example.com",
@@ -17999,6 +18082,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         let stream = CapturingXMPPStream()
         let queryId = "MAM next history: failure-pending"
         let callbackExpectation = expectation(description: "pending failure callback")
+        let transportCompletionExpectation = expectation(description: "pending request transport completion")
         var receivedEvent: MessageArchiveRequestFailureEvent?
 
         MessageArchiveRequestFailureDispatcher.register(owner: owner, queryId: queryId) { event in
@@ -18012,6 +18096,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             conversationType: .regular,
             messageId: "500",
             queryId: queryId,
+            callback: { transportCompletionExpectation.fulfill() },
             requestCallbacks: .none,
             deferCoverageCommitUntilConsumerProof: true
         )
@@ -18022,7 +18107,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             errorDescription: "socket closed"
         )
 
-        wait(for: [callbackExpectation], timeout: 1.0)
+        wait(for: [callbackExpectation, transportCompletionExpectation], timeout: 1.0)
         XCTAssertEqual(events.map(\.queryId), [queryId])
         XCTAssertEqual(receivedEvent?.queryId, queryId)
         XCTAssertEqual(receivedEvent?.streamKind, .uiAction)
@@ -18298,7 +18383,8 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             ),
             deferCoverageCommitUntilConsumerProof: true
         )
-        requestManager.didResetState()
+        _ = requestManager.drainCallbackQueueItems()
+        requestManager.queryIds.remove(queryId)
 
         let iq = try makeIQ(xml: """
         <iq type='result' id='\(queryId)'>
@@ -18327,6 +18413,46 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         XCTAssertEqual(receivedFirst, "1616150755947399")
         XCTAssertEqual(receivedLast, "1615552290910923")
         XCTAssertEqual(receivedCount, 101)
+    }
+
+    func testResetInvalidatesFallbackCallbackForLateFinal() throws {
+        let requestManager = MessageArchiveManager(withOwner: owner)
+        let receiverManager = MessageArchiveManager(withOwner: owner)
+        let stream = CapturingXMPPStream()
+        let queryId = "MAM next history: reset-late-final"
+        let staleCallback = expectation(description: "reset callback is not delivered by late final")
+        staleCallback.isInverted = true
+
+        requestManager.requestOlderHistoryPage(
+            stream,
+            for: "romeo@example.com",
+            conversationType: .regular,
+            messageId: "500",
+            pageSize: 100,
+            queryId: queryId,
+            requestCallbacks: .init(
+                onMessage: nil,
+                onEndPage: { _, _, _, _, _ in staleCallback.fulfill() }
+            ),
+            deferCoverageCommitUntilConsumerProof: true
+        )
+
+        requestManager.didResetState()
+
+        let lateFinal = try makeIQ(xml: """
+        <iq type='result' id='\(queryId)'>
+          <fin xmlns='urn:xmpp:mam:2' complete='false' queryid='\(queryId)'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <count>101</count>
+              <first>499</first>
+              <last>400</last>
+            </set>
+          </fin>
+        </iq>
+        """)
+
+        XCTAssertTrue(receiverManager.read(stream, withIQ: lateFinal))
+        wait(for: [staleCallback], timeout: 0.2)
     }
 
     func testFinalIQPublishesDispatcherEventWhenLocalCallbackItemExists() throws {
@@ -18404,7 +18530,8 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             requestCallbacks: .none,
             deferCoverageCommitUntilConsumerProof: true
         )
-        requestManager.didResetState()
+        _ = requestManager.drainCallbackQueueItems()
+        requestManager.queryIds.remove(queryId)
 
         let iq = try makeIQ(xml: """
         <iq type='result' id='\(queryId)'>
@@ -18632,7 +18759,8 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             ),
             deferCoverageCommitUntilConsumerProof: true
         )
-        requestManager.didResetState()
+        _ = requestManager.drainCallbackQueueItems()
+        requestManager.queryIds.remove(queryId)
 
         let iq = try makeIQ(xml: """
         <iq type='error' id='\(queryId)'>
@@ -18909,10 +19037,117 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         }
     }
 
+    func testSuccessfulIdleRegularFinDoesNotScheduleFollowupWithoutExplicitTrigger() throws {
+        let manager = RecordingIdleScheduleMessageArchiveManager(withOwner: owner)
+        let stream = CapturingXMPPStream()
+        let queryId = "MAM idle regular bootstrap: no-followup"
+        let completion = expectation(description: "idle regular request completed")
+        completion.assertForOverFulfill = true
+        let plan = MessageArchiveManager.regularBootstrapRequestPlan(
+            jid: "idle@example.com",
+            pageSize: 100
+        )
+
+        XCTAssertEqual(
+            manager.startRegularArchiveRequest(
+                stream,
+                plan: plan,
+                queryId: queryId,
+                priority: .idle,
+                callback: { completion.fulfill() },
+                deferCoverageCommitUntilConsumerProof: true
+            ),
+            queryId
+        )
+
+        let iq = try makeIQ(xml: """
+        <iq type='result' id='\(queryId)'>
+          <fin xmlns='urn:xmpp:mam:2' complete='true' queryid='\(queryId)'>
+            <set xmlns='http://jabber.org/protocol/rsm'><count>0</count></set>
+          </fin>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(stream, withIQ: iq))
+        wait(for: [completion], timeout: 1.0)
+        XCTAssertEqual(manager.regularIdleScheduleCallCount, 0)
+        XCTAssertFalse(manager.queryIds.contains(queryId))
+        XCTAssertTrue(manager.callbacksQueue.isEmpty)
+    }
+
+    func testSuccessfulRegularFinCompletesPrimaryAndJoinedCallbacksAndReleasesRequestKey() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = CapturingXMPPStream()
+        let plan = MessageArchiveManager.regularBootstrapRequestPlan(
+            jid: "joined-success@example.com",
+            pageSize: 100
+        )
+        let firstQueryId = "MAM bootstrap history: joined-success-primary"
+        let joinedQueryId = "MAM bootstrap history: joined-success-secondary"
+        let retryQueryId = "MAM bootstrap history: joined-success-retry"
+        let firstCompletion = expectation(description: "primary success completion")
+        let joinedCompletion = expectation(description: "joined success completion")
+        firstCompletion.assertForOverFulfill = true
+        joinedCompletion.assertForOverFulfill = true
+
+        XCTAssertEqual(
+            manager.startRegularArchiveRequest(
+                stream,
+                plan: plan,
+                queryId: firstQueryId,
+                callback: { firstCompletion.fulfill() },
+                deferCoverageCommitUntilConsumerProof: true
+            ),
+            firstQueryId
+        )
+        XCTAssertEqual(
+            manager.startRegularArchiveRequest(
+                stream,
+                plan: plan,
+                queryId: joinedQueryId,
+                callback: { joinedCompletion.fulfill() },
+                deferCoverageCommitUntilConsumerProof: true
+            ),
+            firstQueryId
+        )
+        XCTAssertEqual(manager.callbacksQueue.count, 1)
+
+        let iq = try makeIQ(xml: """
+        <iq type='result' id='\(firstQueryId)'>
+          <fin xmlns='urn:xmpp:mam:2' complete='true' queryid='\(firstQueryId)'>
+            <set xmlns='http://jabber.org/protocol/rsm'><count>0</count></set>
+          </fin>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(stream, withIQ: iq))
+        wait(for: [firstCompletion, joinedCompletion], timeout: 1.0)
+        XCTAssertTrue(manager.callbacksQueue.isEmpty)
+        XCTAssertFalse(manager.queryIds.contains(firstQueryId))
+
+        XCTAssertEqual(
+            manager.startRegularArchiveRequest(
+                stream,
+                plan: plan,
+                queryId: retryQueryId,
+                deferCoverageCommitUntilConsumerProof: true
+            ),
+            retryQueryId
+        )
+        XCTAssertTrue(manager.queryIds.contains(retryQueryId))
+        XCTAssertEqual(manager.callbacksQueue.count, 1)
+        XCTAssertTrue(manager.cancelPendingArchiveRequest(queryId: retryQueryId))
+    }
+
     func testRegularBootstrapSuppressesDuplicateInFlightRequestForSameChat() throws {
         let manager = MessageArchiveManager(withOwner: owner)
         let jid = "romeo@example.com"
+        let stream = CapturingXMPPStream()
         let realm = try WRealm.safe()
+        let firstCompletion = expectation(description: "first regular bootstrap completion")
+        let joinedCompletion = expectation(description: "joined regular bootstrap completion")
+        firstCompletion.assertForOverFulfill = true
+        joinedCompletion.assertForOverFulfill = true
 
         let chat = LastChatsStorageItem()
         chat.jid = jid
@@ -18926,18 +19161,18 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         }
 
         let first = manager.syncChat(
-            XMPPStream(),
+            stream,
             jid: jid,
             conversationType: .regular,
             pageSize: 100,
-            callback: nil
+            callback: { firstCompletion.fulfill() }
         )
         let second = manager.syncChat(
-            XMPPStream(),
+            stream,
             jid: jid,
             conversationType: .regular,
             pageSize: 100,
-            callback: nil
+            callback: { joinedCompletion.fulfill() }
         )
 
         guard case let .bootstrapStarted(firstQueryId) = first,
@@ -18947,6 +19182,18 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
 
         XCTAssertEqual(firstQueryId, secondQueryId)
         XCTAssertEqual(manager.callbacksQueue.count, 1)
+
+        let iq = try makeIQ(xml: """
+        <iq type='error' id='\(firstQueryId)'>
+          <query xmlns='urn:xmpp:mam:2' queryid='\(firstQueryId)'/>
+          <error code='500' type='wait'>
+            <internal-server-error xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>
+          </error>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(stream, withIQ: iq))
+        wait(for: [firstCompletion, joinedCompletion], timeout: 1.0)
     }
 
     func testExplicitRegularBootstrapRetrySupersedesTimedOutInFlightRequest() throws {

@@ -579,6 +579,64 @@ protocol TemporaryMessageReceiverProtocol {
     func didReceiveEndPage(queryId: String, state: MessageArchivePageEndState, first: String, last: String, count: Int)
 }
 
+struct RegularIdleBackfillAttemptToken: Equatable {
+    private let id = UUID()
+}
+
+struct RegularIdleBackfillTriggerState: Equatable {
+    private(set) var hasPendingTrigger = false
+    private(set) var isAttemptScheduled = false
+    private(set) var activeAttemptToken: RegularIdleBackfillAttemptToken?
+
+    var isInProgress: Bool {
+        activeAttemptToken != nil
+    }
+
+    mutating func registerExplicitTrigger() -> Bool {
+        hasPendingTrigger = true
+        guard !isInProgress,
+              !isAttemptScheduled else {
+            return false
+        }
+        isAttemptScheduled = true
+        return true
+    }
+
+    mutating func beginScheduledAttempt() -> RegularIdleBackfillAttemptToken? {
+        guard isAttemptScheduled else {
+            return nil
+        }
+        isAttemptScheduled = false
+        guard activeAttemptToken == nil,
+              hasPendingTrigger else {
+            return nil
+        }
+        hasPendingTrigger = false
+        let token = RegularIdleBackfillAttemptToken()
+        activeAttemptToken = token
+        return token
+    }
+
+    mutating func finishAttempt(_ token: RegularIdleBackfillAttemptToken) -> Bool {
+        guard activeAttemptToken == token else {
+            return false
+        }
+        activeAttemptToken = nil
+        guard hasPendingTrigger,
+              !isAttemptScheduled else {
+            return false
+        }
+        isAttemptScheduled = true
+        return true
+    }
+
+    mutating func reset() {
+        hasPendingTrigger = false
+        isAttemptScheduled = false
+        activeAttemptToken = nil
+    }
+}
+
 class MessageArchiveManager: AbstractXMPPManager {
 
     enum HistoryCursorPolicy {
@@ -1179,7 +1237,8 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     private var regularArchiveInFlightByKey: [RegularChatArchiveRequestKey: RegularArchiveInFlightEntry] = [:]
     private var regularArchiveRequestKeyByQueryId: [String: RegularChatArchiveRequestKey] = [:]
-    private var regularIdleBackfillInProgress: Bool = false
+    private let regularIdleBackfillTriggerLock = NSLock()
+    private var regularIdleBackfillTriggerState = RegularIdleBackfillTriggerState()
     private let archiveQueryPurposeLock = NSLock()
     private var archiveQueryPurposeByQueryId: [String: RequestPurpose] = [:]
     var snapshotRepairEnqueueObserver: ((SnapshotRepairTarget, AccountXMPPTaskScheduler.Priority, String) -> Void)?
@@ -1604,6 +1663,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
 
     private func removePendingArchiveRequestAfterFailure(_ item: CallbackQueueItem) {
+        self.completeCallback(item.callback)
         self.removeCallbackQueueItem(item)
         self.removeArchiveRequestStateAfterFailure(queryId: item.elementId)
         if let taskQueryId = item.task.queryId,
@@ -1628,7 +1688,6 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
 
         if let item = self.firstCallbackQueueItem(where: { $0.elementId == queryId }) {
-            self.completeCallback(item.callback)
             self.removePendingArchiveRequestAfterFailure(item)
             return true
         }
@@ -1655,10 +1714,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         self.unregisterFallbackEndPageCallbacks(queryId: queryId)
 
         if let key = self.regularArchiveRequestKeyByQueryId.removeValue(forKey: queryId) {
-            let entry = self.regularArchiveInFlightByKey.removeValue(forKey: key)
-            if entry?.priority == .idle {
-                self.regularIdleBackfillInProgress = false
-            }
+            self.regularArchiveInFlightByKey.removeValue(forKey: key)
         }
     }
 
@@ -2762,7 +2818,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
 
     @discardableResult
-    private func startRegularArchiveRequest(
+    internal func startRegularArchiveRequest(
         _ stream: XMPPStream,
         plan: RegularChatArchiveRequestPlan,
         queryId: String,
@@ -2838,7 +2894,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
         unregisterArchiveQueryId(queryId)
 
-        let entry = regularArchiveInFlightByKey.removeValue(forKey: key)
+        regularArchiveInFlightByKey.removeValue(forKey: key)
         let shouldApplyCoverageHere = !item.task.deferCoverageCommitUntilConsumerProof
         if let state,
            shouldApplyCoverageHere {
@@ -2851,10 +2907,6 @@ class MessageArchiveManager: AbstractXMPPManager {
             )
         }
 
-        if entry?.priority == .idle {
-            regularIdleBackfillInProgress = false
-            scheduleRegularIdleBackfillIfNeeded()
-        }
     }
 
     private func applyConversationArchivePageResult(
@@ -3888,9 +3940,36 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
 
     internal func scheduleRegularIdleBackfillIfNeeded(delay: TimeInterval = 0.25) {
+        let shouldSchedule = withRegularIdleBackfillTriggerState {
+            $0.registerExplicitTrigger()
+        }
+        guard shouldSchedule else {
+            return
+        }
+        scheduleRegisteredRegularIdleBackfillAttempt(delay: delay)
+    }
+
+    private func scheduleRegisteredRegularIdleBackfillAttempt(delay: TimeInterval = 0.25) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             self.startNextRegularIdleBackfillIfNeeded()
         }
+    }
+
+    private func finishRegularIdleBackfillAttempt(_ token: RegularIdleBackfillAttemptToken) {
+        let shouldSchedulePendingTrigger = withRegularIdleBackfillTriggerState {
+            $0.finishAttempt(token)
+        }
+        if shouldSchedulePendingTrigger {
+            scheduleRegisteredRegularIdleBackfillAttempt()
+        }
+    }
+
+    private func withRegularIdleBackfillTriggerState<T>(
+        _ body: (inout RegularIdleBackfillTriggerState) -> T
+    ) -> T {
+        regularIdleBackfillTriggerLock.lock()
+        defer { regularIdleBackfillTriggerLock.unlock() }
+        return body(&regularIdleBackfillTriggerState)
     }
 
     internal func scheduleSnapshotArchiveRepairs(_ targets: [SnapshotRepairTarget]) {
@@ -3990,7 +4069,10 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
 
     private func startNextRegularIdleBackfillIfNeeded() {
-        guard !regularIdleBackfillInProgress else {
+        let attemptToken = withRegularIdleBackfillTriggerState {
+            $0.beginScheduledAttempt()
+        }
+        guard let attemptToken else {
             return
         }
 
@@ -4009,20 +4091,21 @@ class MessageArchiveManager: AbstractXMPPManager {
                 .jid
         } catch {
             DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
+            finishRegularIdleBackfillAttempt(attemptToken)
             return
         }
 
         guard let jid = target else {
+            finishRegularIdleBackfillAttempt(attemptToken)
             return
         }
 
-        regularIdleBackfillInProgress = true
         let pageSize = Self.regularArchivePageSize(requested: nil, defaultPageSize: self.pageSize)
         let queryId = "MAM idle regular bootstrap: \(NanoID.new(6))"
         let plan = Self.regularBootstrapRequestPlan(jid: jid, pageSize: pageSize)
 
         guard let account = AccountManager.shared.find(for: self.owner) else {
-            self.regularIdleBackfillInProgress = false
+            self.finishRegularIdleBackfillAttempt(attemptToken)
             return
         }
 
@@ -4036,9 +4119,12 @@ class MessageArchiveManager: AbstractXMPPManager {
                 finish()
                 return
             }
-            guard stream.isAuthenticated else {
-                self.regularIdleBackfillInProgress = false
+            let finishIdleAttempt = { [weak self] in
                 finish()
+                self?.finishRegularIdleBackfillAttempt(attemptToken)
+            }
+            guard stream.isAuthenticated else {
+                finishIdleAttempt()
                 return
             }
             _ = user.mam.startRegularArchiveRequest(
@@ -4046,12 +4132,13 @@ class MessageArchiveManager: AbstractXMPPManager {
                 plan: plan,
                 queryId: queryId,
                 priority: .idle,
-                callback: finish
+                callback: finishIdleAttempt
             )
         }
     }
     
     func didResetState() {
+        self.withRegularIdleBackfillTriggerState { $0.reset() }
         searchArchiveStateLock.lock()
         let activeSearchQueryIds = searchArchiveSessionsByQueryId.compactMap { queryId, session in
             session.isActive ? queryId : nil
@@ -4059,7 +4146,15 @@ class MessageArchiveManager: AbstractXMPPManager {
         searchArchiveStateLock.unlock()
         activeSearchQueryIds.forEach { _ = cancelSearch(queryId: $0) }
         let pendingItems = self.drainCallbackQueueItems()
-        pendingItems.forEach { $0.callback?() }
+        pendingItems.forEach { item in
+            self.unregisterFallbackEndPageCallbacks(queryId: item.elementId)
+            if let taskQueryId = item.task.queryId,
+               taskQueryId != item.elementId {
+                self.unregisterFallbackEndPageCallbacks(queryId: taskQueryId)
+            }
+            item.callback?()
+        }
+        self.queryIds.forEach { self.unregisterFallbackEndPageCallbacks(queryId: $0) }
         self.queryIds.removeAll()
         self.persistedMessageCountsByQueryId.removeAll()
         self.searchResultsQueries.removeAll()
@@ -4067,6 +4162,5 @@ class MessageArchiveManager: AbstractXMPPManager {
         self.regularArchiveInFlightByKey.removeAll()
         self.regularArchiveRequestKeyByQueryId.removeAll()
         self.clearArchiveQueryPurposeRegistry()
-        self.regularIdleBackfillInProgress = false
     }
 }

@@ -4112,6 +4112,16 @@ class ChatViewController: MessagesViewController {
     
     
     final func configureDataset() {
+        let conversationKey = ChatTimelineConversationKey(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType
+        )
+        if let timelineSession = self.timelineSession,
+           timelineSession.isConfigured(for: conversationKey) {
+            timelineSession.updateArchiveState(self.loadChatArchiveStateSnapshot())
+            return
+        }
         let preservesCommittedRealContent = self.hasCommittedRealContentInCurrentLifecycle ||
             self.datasource.contains { !$0.isFakeMessage }
         let preservesCommittedTimelinePresentation =
@@ -4137,11 +4147,7 @@ class ChatViewController: MessagesViewController {
         let session = ChatTimelineSession(
             store: store,
             pageSize: self.datasourcePageSize,
-            conversationKey: ChatTimelineConversationKey(
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            ),
+            conversationKey: conversationKey,
             archiveState: self.loadChatArchiveStateSnapshot()
         )
         session.onSnapshot = { [weak self, weak session] snapshot in

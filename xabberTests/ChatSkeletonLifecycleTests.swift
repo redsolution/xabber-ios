@@ -1163,6 +1163,48 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertEqual(controller.datasource.map(\.primary), ["temporary-placeholder"])
     }
 
+    func testDatasetReconfigurationKeepsPreparedTimelineSessionForUnchangedConversation() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        guard let preparedSession = controller.timelineSession else {
+            return XCTFail("Expected the initial dataset configuration to create a timeline session")
+        }
+        controller.applyChatDatasource(
+            [makeDatasource(primary: "prepared-message")],
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+
+        controller.configureDataset()
+
+        XCTAssertTrue(
+            controller.timelineSession === preparedSession,
+            "A repeated lifecycle subscription must keep the session that prepared the first frame"
+        )
+        XCTAssertEqual(controller.datasource.map(\.primary), ["prepared-message"])
+    }
+
+    func testDatasetReconfigurationReplacesTimelineSessionWhenConversationScopeChanges() throws {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        let initialSession = try XCTUnwrap(controller.timelineSession)
+
+        controller.owner = "replacement-owner@example.com"
+        controller.configureDataset()
+        let ownerSession = try XCTUnwrap(controller.timelineSession)
+        XCTAssertFalse(ownerSession === initialSession)
+
+        controller.jid = "replacement-peer@example.com"
+        controller.configureDataset()
+        let jidSession = try XCTUnwrap(controller.timelineSession)
+        XCTAssertFalse(jidSession === ownerSession)
+
+        controller.conversationType = .group
+        controller.configureDataset()
+        XCTAssertFalse(try XCTUnwrap(controller.timelineSession) === jidSession)
+    }
+
     func testSkeletonToEightyRowsHasOneCommitAndNoEmptyIntermediateFrame() {
         let plan = ChatBootstrapAtomicRevealPlan.resolve(
             previous: .blockingArchive,
