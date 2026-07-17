@@ -5,6 +5,23 @@ keeps deterministic fixture evidence, simulator trends, reference-device
 measurements and live-account QA separate; results from one tier must not be
 presented as evidence from another.
 
+## Current post-merge closure (2026-07-17)
+
+The current `bugfixes/prod` repair is documented in
+[Chat post-merge regression repair](chat-post-merge-regression-repair.md). Its
+clean final snapshot passed 1,261/1,261 preflight tests, 1,261/1,261 focused
+tests, 234/234 smoke tests, 195/195 notification/history-gap tests, a Debug
+Simulator build, 5/5 deterministic UI scenarios and the Release deterministic
+operation/memory analyzer.
+
+That closure adds a durable three-orientation configuration, repairs the loaded
+anchor and committed-search-index merge seams, and makes invalid video metadata
+use a `128×128` default while retaining strict geometry validation. Time
+Profiler and Allocations were captured on Simulator; Animation Hitches and
+Network remain simulator-unsupported, and physical-device gates are
+excluded-by-owner. The live-account evidence later in this document is
+historical and was not rerun as part of this post-merge closure.
+
 ## Deterministic fixture tier
 
 `Chat Performance UI Tests` launches the app only when both the explicit UI-test
