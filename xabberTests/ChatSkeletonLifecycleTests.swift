@@ -29,6 +29,46 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertEqual(first.datasource.count, ChatSkeletonTemplate.descriptors.count)
     }
 
+    func testMappedSkeletonMinimumHeightMatchesEquivalentTextMessage() throws {
+        let controller = makeController()
+        var context = controller.captureDatasourceMappingContext()
+        context.showSkeleton = true
+
+        let result = controller.mapDataset(dataset: [], context: context)
+        let skeleton = try XCTUnwrap(result.datasource.first)
+        let skeletonLayout = try XCTUnwrap(
+            result.layoutSnapshot.layout(forPrimary: skeleton.primary)
+        )
+        let skeletonText = try XCTUnwrap(messageText(skeleton))
+        var textMessage = makeDatasource(primary: "minimum-text-message")
+        textMessage.kind = .attributedText(NSAttributedString(
+            string: skeletonText,
+            attributes: context.bodyTextAttributes
+        ))
+        textMessage.outgoing = skeleton.outgoing
+        textMessage.isOutgoing = skeleton.isOutgoing
+        textMessage.timeMarkerText = NSAttributedString(
+            string: "12:00",
+            attributes: context.timeMarkerAttributes
+        )
+        textMessage.indicator = .none
+        let textLayout = ChatMessageLayoutCalculator.measure(
+            textMessage,
+            context.layoutContext
+        )
+
+        XCTAssertEqual(
+            skeletonLayout.cellSize.height,
+            textLayout.cellSize.height,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            skeletonLayout.messageContainerSize.height,
+            textLayout.messageContainerSize.height,
+            accuracy: 0.5
+        )
+    }
+
     func testRepeatedVisibleConfigureDoesNotRestartSkeletonAnimation() {
         let cell = SkeletonMessageCell(frame: CGRect(x: 0, y: 0, width: 320, height: 60))
 
@@ -162,21 +202,32 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertEqual(
             ChatInitialBootstrapTransportPolicy.resolve(
                 hasPrimaryAccount: true,
-                primaryStreamReady: true
+                primaryStreamReady: true,
+                primaryBootstrapGateActive: false
             ),
             .primaryAccount
         )
         XCTAssertEqual(
             ChatInitialBootstrapTransportPolicy.resolve(
                 hasPrimaryAccount: true,
-                primaryStreamReady: false
+                primaryStreamReady: false,
+                primaryBootstrapGateActive: false
             ),
             .uiAction
         )
         XCTAssertEqual(
             ChatInitialBootstrapTransportPolicy.resolve(
                 hasPrimaryAccount: false,
-                primaryStreamReady: false
+                primaryStreamReady: false,
+                primaryBootstrapGateActive: false
+            ),
+            .uiAction
+        )
+        XCTAssertEqual(
+            ChatInitialBootstrapTransportPolicy.resolve(
+                hasPrimaryAccount: true,
+                primaryStreamReady: true,
+                primaryBootstrapGateActive: true
             ),
             .uiAction
         )

@@ -35,9 +35,12 @@ enum ChatInitialBootstrapTransport: Equatable {
 enum ChatInitialBootstrapTransportPolicy {
     static func resolve(
         hasPrimaryAccount: Bool,
-        primaryStreamReady: Bool
+        primaryStreamReady: Bool,
+        primaryBootstrapGateActive: Bool
     ) -> ChatInitialBootstrapTransport {
-        hasPrimaryAccount && primaryStreamReady ? .primaryAccount : .uiAction
+        hasPrimaryAccount && primaryStreamReady && !primaryBootstrapGateActive
+            ? .primaryAccount
+            : .uiAction
     }
 }
 
@@ -661,7 +664,8 @@ extension ChatViewController {
         let account = AccountManager.shared.find(for: self.owner)
         let transport = ChatInitialBootstrapTransportPolicy.resolve(
             hasPrimaryAccount: account != nil,
-            primaryStreamReady: account?.sendReadiness.snapshot.canFlushApplicationStanzas == true
+            primaryStreamReady: account?.sendReadiness.snapshot.canFlushApplicationStanzas == true,
+            primaryBootstrapGateActive: account?.syncManager.isBootstrapCriticalSyncInProgress() == true
         )
         if transport == .primaryAccount,
            let account {

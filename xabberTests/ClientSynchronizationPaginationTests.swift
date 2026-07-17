@@ -165,6 +165,38 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         }
     }
 
+    func testIncrementalSyncAfterCompletedSnapshotDoesNotHoldBootstrapGate() throws {
+        let completedStamp = "1784280770721454"
+        SettingManager.shared.saveItem(
+            for: owner,
+            scope: .clientSynchronization,
+            key: "last_completed_snapshot_stamp",
+            value: completedStamp
+        )
+        SettingManager.shared.saveItem(
+            for: owner,
+            scope: .clientSynchronization,
+            key: "last_recognized_event_stamp",
+            value: completedStamp
+        )
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.isAvailable = true
+        var requests: [ClientSynchronizationManager.SyncRequestDiagnostics] = []
+        manager.syncRequestObserver = { requests.append($0) }
+
+        XCTAssertTrue(manager.sync(XMPPStream()))
+        XCTAssertEqual(try XCTUnwrap(requests.last).stamp, completedStamp)
+        XCTAssertFalse(manager.isBootstrapCriticalSyncInProgress())
+    }
+
+    func testInitialSyncWithoutCompletedSnapshotHoldsBootstrapGate() {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.isAvailable = true
+
+        XCTAssertTrue(manager.sync(XMPPStream()))
+        XCTAssertTrue(manager.isBootstrapCriticalSyncInProgress())
+    }
+
     func testInitialSnapshotRequestsAndAppliesAllThreePagesBeforeCompletion() throws {
         prepareManagedAccount()
         let manager = ClientSynchronizationManager(withOwner: owner)

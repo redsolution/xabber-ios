@@ -814,7 +814,17 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     }
 
     private func shouldDeferBootstrapWorkLocked() -> Bool {
-        isAvailable && (!acountSynced || isApplyingPage || phase == .snapshotInProgress || phase == .catchingUp || isPersistedSnapshotBootstrapInProgress)
+        // A completed snapshot is a usable local baseline. Later stamp-based
+        // catch-up must not turn the primary stream back into a bootstrap-only lane.
+        guard isAvailable,
+              Self.normalizedSyncString(lastCompletedSnapshotStamp) == nil else {
+            return false
+        }
+        return !acountSynced ||
+            isApplyingPage ||
+            phase == .snapshotInProgress ||
+            phase == .catchingUp ||
+            isPersistedSnapshotBootstrapInProgress
     }
 
     @discardableResult

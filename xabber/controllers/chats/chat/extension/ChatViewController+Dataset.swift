@@ -11360,6 +11360,11 @@ extension ChatViewController {
             var datasource: [Datasource] = []
             for descriptor in context.skeletonDescriptors {
                 guard cancellationToken?.shouldProcessNextRow() ?? true else { break }
+                let skeletonText = NSMutableAttributedString(attributedString: descriptor.text)
+                skeletonText.addAttributes(
+                    context.bodyTextAttributes,
+                    range: NSRange(location: 0, length: skeletonText.length)
+                )
                 datasource.append(Datasource(
                     primary: descriptor.primary,
                     jid: context.jid,
@@ -11369,7 +11374,7 @@ extension ChatViewController {
                     messageId: descriptor.messageId,
                     sentDate: descriptor.sentDate,
                     editDate: nil,
-                    kind: .skeleton(descriptor.text),
+                    kind: .skeleton(skeletonText),
                     withAuthor: false,
                     withAvatar: false,
                     error: false,
