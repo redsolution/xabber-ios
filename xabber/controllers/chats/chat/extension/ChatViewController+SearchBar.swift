@@ -3011,14 +3011,6 @@ extension ChatViewController {
         }
 
         if let executionState = self.activeAnchorExecutionState,
-           executionState.request == request,
-           executionState.contextPrefetchPendingQueryIds.isNotEmpty {
-            self.pendingOpenMessageRequest = request
-            self.activeAnchorExecutionHooks = hooks ?? self.activeAnchorExecutionHooks
-            self.syncAnchorExecutionFlags()
-            return
-        }
-        if let executionState = self.activeAnchorExecutionState,
            executionState.request != request {
             self.cancelActiveAnchorExecution(
                 token: executionState.transactionToken,
@@ -3048,6 +3040,14 @@ extension ChatViewController {
             return
         }
         if self.performLoadedOpenMessageRequestIfPossible(request, hooks: hooks) {
+            return
+        }
+        if let executionState = self.activeAnchorExecutionState,
+           executionState.request == request,
+           executionState.contextPrefetchPendingQueryIds.isNotEmpty {
+            self.pendingOpenMessageRequest = request
+            self.activeAnchorExecutionHooks = hooks ?? self.activeAnchorExecutionHooks
+            self.syncAnchorExecutionFlags()
             return
         }
         if request.source == .search {
@@ -3383,6 +3383,7 @@ extension ChatViewController {
         }
         let executionState = self.ensureActiveAnchorExecutionState(for: request)
         let transactionToken = executionState.transactionToken
+        let hadOutstandingContextWork = executionState.contextPrefetchPendingQueryIds.isNotEmpty
         let activeHooks = hooks ?? self.activeAnchorExecutionHooks
         self.activeAnchorExecutionHooks = activeHooks
         let usesTransientHighlight = request.source.usesTransientHighlight && request.highlight
@@ -3409,6 +3410,7 @@ extension ChatViewController {
         }
 
         if contextPrefetchMode == .background,
+           !hadOutstandingContextWork,
            ChatAnchorContextPrefetchDispatchPolicy.phase(for: contextPrefetchMode) == .beforePositioning {
             self.startBackgroundContextPrefetchIfNeeded(
                 around: resolvedTarget,

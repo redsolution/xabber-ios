@@ -23934,11 +23934,23 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
     func testLoadedSearchRequestIgnoresStaleBlockingContextState() {
         let controller = makeLoadedSearchController()
         let request = makeRequest(archivedId: "archived-loaded", messageId: "message-loaded", source: .search)
+        let queryId = "stale-context-query"
         var state = ChatAnchorExecutionState(request: request)
         state.contextPrefetchAnchorKey = "archived-loaded"
-        state.contextPrefetchQueryIds = ["context-query"]
-        state.contextPrefetchPendingQueryIds = ["context-query"]
+        state.contextPrefetchQueryIds = [queryId]
+        state.contextPrefetchPendingQueryIds = [queryId]
         controller.activeAnchorExecutionState = state
+        _ = controller.anchorTransactionGate.begin(
+            token: state.transactionToken,
+            requestIdentity: "loaded-search-with-stale-context"
+        )
+        _ = controller.anchorTransactionGate.acquire(
+            .query(queryId),
+            token: state.transactionToken
+        )
+        let timeoutWorkItem = DispatchWorkItem {}
+        controller.anchorTransactionTokenByQueryId[queryId] = state.transactionToken
+        controller.anchorTransactionTimeoutWorkItems[queryId] = timeoutWorkItem
         var events: [String] = []
 
         controller.queueOpenMessageRequest(
@@ -23959,6 +23971,202 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         XCTAssertEqual(events, ["started", "positioned"])
         XCTAssertNil(controller.pendingOpenMessageRequest)
         XCTAssertNil(controller.activeAnchorExecutionState)
+        XCTAssertNil(controller.activeAnchorExecutionHooks)
+        XCTAssertNil(controller.anchorTransactionTokenByQueryId[queryId])
+        XCTAssertNil(controller.anchorTransactionTimeoutWorkItems[queryId])
+        XCTAssertTrue(timeoutWorkItem.isCancelled)
+        XCTAssertTrue(controller.abortedRemoteHistoryQueryIds.contains(queryId))
+        XCTAssertNil(controller.anchorTransactionGate.snapshot.activeToken)
+        XCTAssertTrue(controller.anchorTransactionGate.snapshot.queryIds.isEmpty)
+        XCTAssertEqual(controller.anchorTransactionGate.snapshot.lastTerminalOutcome, .positioned)
+        XCTAssertEqual(controller.remoteHistoryQueryCoordinator.activeQueryCount, 0)
+        XCTAssertEqual(
+            controller.anchorTransactionGate.accept(
+                .remoteFinal(queryId: queryId),
+                token: state.transactionToken
+            ),
+            .stale
+        )
+
+        assertMissingSearchTargetWaitsForSameRequestContextQuery()
+        assertDifferentLoadedSearchRequestSupersedesStaleContext()
+        assertEmptyDisplayedDatasourceUsesInitialFirstFrameRetarget()
+    }
+
+    @MainActor
+    private func assertMissingSearchTargetWaitsForSameRequestContextQuery() {
+        let controller = makeLoadedSearchController()
+        let request = makeRequest(archivedId: "archived-missing", messageId: "message-missing", source: .search)
+        let queryId = "pending-context-query"
+        var state = ChatAnchorExecutionState(request: request)
+        state.contextPrefetchAnchorKey = "archived-missing"
+        state.contextPrefetchQueryIds = [queryId]
+        state.contextPrefetchPendingQueryIds = [queryId]
+        controller.activeAnchorExecutionState = state
+        _ = controller.anchorTransactionGate.begin(
+            token: state.transactionToken,
+            requestIdentity: "missing-search-with-pending-context"
+        )
+        _ = controller.anchorTransactionGate.acquire(
+            .query(queryId),
+            token: state.transactionToken
+        )
+        let timeoutWorkItem = DispatchWorkItem {}
+        controller.anchorTransactionTokenByQueryId[queryId] = state.transactionToken
+        controller.anchorTransactionTimeoutWorkItems[queryId] = timeoutWorkItem
+        var events: [String] = []
+
+        controller.queueOpenMessageRequest(
+            request,
+            hooks: ChatAnchorExecutionHooks(
+                direction: .up,
+                animatedScroll: false,
+                onPositioningStarted: {
+                    events.append("started")
+                },
+                onFailed: {
+                    events.append("failed")
+                },
+                onPositioned: {
+                    events.append("positioned")
+                }
+            )
+        )
+
+        XCTAssertTrue(events.isEmpty)
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+        XCTAssertEqual(controller.activeAnchorExecutionState?.transactionToken, state.transactionToken)
+        XCTAssertEqual(controller.activeAnchorExecutionState?.contextPrefetchPendingQueryIds, [queryId])
+        XCTAssertNotNil(controller.activeAnchorExecutionHooks)
+        XCTAssertEqual(controller.anchorTransactionTokenByQueryId[queryId], state.transactionToken)
+        XCTAssertNotNil(controller.anchorTransactionTimeoutWorkItems[queryId])
+        XCTAssertFalse(timeoutWorkItem.isCancelled)
+        XCTAssertFalse(controller.abortedRemoteHistoryQueryIds.contains(queryId))
+        XCTAssertEqual(controller.anchorTransactionGate.snapshot.activeToken, state.transactionToken)
+        XCTAssertEqual(controller.anchorTransactionGate.snapshot.queryIds, [queryId])
+        XCTAssertEqual(controller.remoteHistoryQueryCoordinator.activeQueryCount, 0)
+    }
+
+    @MainActor
+    private func assertDifferentLoadedSearchRequestSupersedesStaleContext() {
+        let controller = makeLoadedSearchController()
+        let oldRequest = makeRequest(archivedId: "archived-old", messageId: "message-old", source: .search)
+        let newRequest = makeRequest(archivedId: "archived-loaded", messageId: "message-loaded", source: .search)
+        let oldQueryId = "old-context-query"
+        var oldState = ChatAnchorExecutionState(request: oldRequest)
+        oldState.contextPrefetchAnchorKey = "archived-old"
+        oldState.contextPrefetchQueryIds = [oldQueryId]
+        oldState.contextPrefetchPendingQueryIds = [oldQueryId]
+        controller.activeAnchorExecutionState = oldState
+        _ = controller.anchorTransactionGate.begin(
+            token: oldState.transactionToken,
+            requestIdentity: "old-search-context"
+        )
+        _ = controller.anchorTransactionGate.acquire(
+            .query(oldQueryId),
+            token: oldState.transactionToken
+        )
+        let oldTimeoutWorkItem = DispatchWorkItem {}
+        controller.anchorTransactionTokenByQueryId[oldQueryId] = oldState.transactionToken
+        controller.anchorTransactionTimeoutWorkItems[oldQueryId] = oldTimeoutWorkItem
+        var oldEvents: [String] = []
+        controller.activeAnchorExecutionHooks = ChatAnchorExecutionHooks(
+            direction: .down,
+            animatedScroll: false,
+            onPositioningStarted: {
+                oldEvents.append("started")
+            },
+            onFailed: {
+                oldEvents.append("failed")
+            },
+            onPositioned: {
+                oldEvents.append("positioned")
+            }
+        )
+        var newEvents: [String] = []
+
+        controller.queueOpenMessageRequest(
+            newRequest,
+            hooks: ChatAnchorExecutionHooks(
+                direction: .up,
+                animatedScroll: false,
+                onPositioningStarted: {
+                    newEvents.append("started")
+                },
+                onFailed: {
+                    newEvents.append("failed")
+                },
+                onPositioned: {
+                    newEvents.append("positioned")
+                }
+            )
+        )
+
+        XCTAssertTrue(oldEvents.isEmpty)
+        XCTAssertEqual(newEvents, ["started", "positioned"])
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+        XCTAssertNil(controller.activeAnchorExecutionHooks)
+        XCTAssertNil(controller.anchorTransactionTokenByQueryId[oldQueryId])
+        XCTAssertNil(controller.anchorTransactionTimeoutWorkItems[oldQueryId])
+        XCTAssertTrue(oldTimeoutWorkItem.isCancelled)
+        XCTAssertTrue(controller.abortedRemoteHistoryQueryIds.contains(oldQueryId))
+        XCTAssertEqual(controller.remoteHistoryQueryCoordinator.activeQueryCount, 0)
+        XCTAssertEqual(
+            controller.anchorTransactionGate.accept(
+                .remoteFinal(queryId: oldQueryId),
+                token: oldState.transactionToken
+            ),
+            .stale
+        )
+    }
+
+    @MainActor
+    private func assertEmptyDisplayedDatasourceUsesInitialFirstFrameRetarget() {
+        let controller = ChatViewController()
+        controller.owner = "owner@example.com"
+        controller.jid = "group@xabber.example"
+        controller.conversationType = .group
+        controller.loadViewIfNeeded()
+        controller.datasource = []
+        controller.datasourceSnapshot = .empty
+        let request = makeRequest(archivedId: "archived-first-frame", messageId: "message-first-frame", source: .search)
+        var events: [String] = []
+
+        controller.queueOpenMessageRequest(
+            request,
+            hooks: ChatAnchorExecutionHooks(
+                direction: .up,
+                animatedScroll: false,
+                onPositioningStarted: {
+                    events.append("started")
+                },
+                onFailed: {
+                    events.append("failed")
+                },
+                onPositioned: {
+                    events.append("positioned")
+                }
+            )
+        )
+
+        XCTAssertNotNil(controller.timelineSession)
+        XCTAssertTrue(events.isEmpty)
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+        XCTAssertNotNil(controller.activeAnchorExecutionHooks)
+        XCTAssertTrue(controller.isMessageAnchorNavigationInFlight)
+        XCTAssertEqual(controller.remoteHistoryQueryCoordinator.activeQueryCount, 0)
+        switch controller.initialLocalFirstFramePhase {
+        case .preparing(let descriptor),
+             .blockedArchiveBootstrap(let descriptor),
+             .blockedMissingTarget(let descriptor):
+            XCTAssertEqual(descriptor.request, request)
+        case .committed:
+            XCTFail("A missing target must not be committed during the initial frame")
+        case .idle:
+            XCTFail("An empty displayed datasource must enter the bounded first-frame path")
+        }
     }
 
     @MainActor
