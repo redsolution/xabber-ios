@@ -1747,10 +1747,15 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
 
         XCTAssertEqual(controller.searchMessagesQueue.map(\.archivedId), [newestArchivedId, olderArchivedId])
         XCTAssertEqual(controller.searchResultNavigationState, .loadingContext(index: 0))
+        XCTAssertNil(controller.searchPresentationState.committedResultIndex)
         XCTAssertNil(controller.selectedSearchResultId)
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
-            .results(current: 0, total: 2, isLoadingContext: true)
+            .results(current: -1, total: 2, isLoadingContext: true)
+        )
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.counterLabel.text,
+            ChatSearchLocalization.production().messageCount(2)
         )
 
         let request = try XCTUnwrap(controller.pendingOpenMessageRequest)
@@ -1802,11 +1807,16 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
         XCTAssertNil(controller.currentSearchQueryId)
         XCTAssertNil(controller.currentInChatSearchQueryContext)
         XCTAssertEqual(controller.searchResultNavigationState, .loadingContext(index: 0))
+        XCTAssertNil(controller.searchPresentationState.committedResultIndex)
         XCTAssertNil(controller.selectedSearchResultId)
         XCTAssertEqual(controller.pendingOpenMessageRequest?.anchor.archivedId, targetArchivedId)
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
-            .results(current: 0, total: 1, isLoadingContext: true)
+            .results(current: -1, total: 1, isLoadingContext: true)
+        )
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.counterLabel.text,
+            ChatSearchLocalization.production().messageCount(1)
         )
     }
 
