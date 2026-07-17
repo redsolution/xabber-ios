@@ -12819,7 +12819,10 @@ final class SensitiveMediaAnalysisServiceTests: XCTestCase {
     }
 
     func testDuplicateAnalysisIsNotStartedForSamePrimaryKey() async throws {
-        let referencePrimary = try insertMediaReference(primary: "duplicate", mimeType: "image/jpeg", mediaType: "image", fileExtension: "jpg")
+        let retainedRealm = try WRealm.safe()
+        let referencePrimary = try autoreleasepool {
+            try insertMediaReference(primary: "duplicate", mimeType: "image/jpeg", mediaType: "image", fileExtension: "jpg")
+        }
         let analyzer = FakeSensitiveMediaAnalyzer(imageFileResult: .success(true), delayNanoseconds: 200_000_000)
         let service = SensitiveMediaAnalysisService(analyzer: analyzer, fileProvider: FakeSensitiveMediaFileProvider())
 
@@ -12828,7 +12831,9 @@ final class SensitiveMediaAnalysisServiceTests: XCTestCase {
         async let second: Void = service.analyzeMessageReference(primaryKey: referencePrimary)
         _ = await (first, second)
 
-        XCTAssertEqual(analyzer.imageFileCallCount, 1)
+        withExtendedLifetime(retainedRealm) {
+            XCTAssertEqual(analyzer.imageFileCallCount, 1)
+        }
     }
 
     func testStartupScanPrimaryKeysAreDetachedFromRealmResults() throws {
