@@ -1,12 +1,839 @@
 import XCTest
 import UIKit
+import RealmSwift
 @testable import xabber
+
+private final class ChatSkeletonWeakBox<Value: AnyObject> {
+    weak var value: Value?
+}
 
 @MainActor
 final class ChatSkeletonLifecycleTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        SkeletonMessageCell.reduceMotionOverrideForTesting = nil
+        ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
+        ChatRemoteHistoryCompletionCoordinator.resetPersistenceFlushesForTests()
+        MessageArchiveEndPageDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
+    }
+
     override func tearDown() {
         SkeletonMessageCell.reduceMotionOverrideForTesting = nil
+        ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
+        ChatRemoteHistoryCompletionCoordinator.resetPersistenceFlushesForTests()
+        MessageArchiveEndPageDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
         super.tearDown()
+    }
+
+    func testRepeatedBootstrapAcquireJoinsOriginalQueryAndKeepsAbsoluteDeadline() {
+        var now = Date(timeIntervalSince1970: 1_000)
+        let coordinator = ChatInitialBootstrapRequestCoordinator(
+            now: { now },
+            automaticallySchedulesTimeouts: false
+        )
+        let key = ChatInitialBootstrapRequestKey(
+            owner: "owner@example.com",
+            jid: "peer@example.com",
+            conversationType: .regular
+        )
+
+        let first = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-first",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let firstLease) = first else {
+            return XCTFail("first acquire must own transport start")
+        }
+
+        now = now.addingTimeInterval(12)
+        let reopened = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-reopen",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .joined(let reopenedLease) = reopened else {
+            return XCTFail("reopen must join the active bootstrap")
+        }
+
+        XCTAssertEqual(reopenedLease.queryId, firstLease.queryId)
+        XCTAssertEqual(reopenedLease.deadline, firstLease.deadline)
+        XCTAssertEqual(
+            coordinator.remainingTimeout(key: key, queryId: firstLease.queryId),
+            33,
+            accuracy: 0.001
+        )
+    }
+
+    func testControllerTeardownLeavesBootstrapLeaseForReopenedController() {
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let firstController = makeController()
+        let key = firstController.initialBootstrapRequestKey
+        var cancellationCount = 0
+        let first = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-controller-first",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let firstLease) = first else {
+            return XCTFail("first controller must own transport start")
+        }
+        coordinator.resolveStart(
+            key: key,
+            queryId: firstLease.queryId,
+            result: .bootstrapStarted(queryId: firstLease.queryId),
+            messages: nil,
+            cancelTransport: { cancellationCount += 1 }
+        )
+        firstController.beginInitialBootstrapTracking(
+            queryId: firstLease.queryId,
+            timeout: nil
+        )
+
+        firstController.performTerminalChatResourceTeardownForTesting()
+
+        XCTAssertNil(firstController.initialBootstrapQueryId)
+        XCTAssertFalse(firstController.isInitialBootstrapInFlight)
+        XCTAssertTrue(coordinator.isActive(key: key, queryId: firstLease.queryId))
+        XCTAssertEqual(cancellationCount, 0)
+
+        let reopenedController = makeController()
+        let reopened = coordinator.acquire(
+            key: reopenedController.initialBootstrapRequestKey,
+            proposedQueryId: "bootstrap-controller-reopen",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .joined(let reopenedLease) = reopened else {
+            return XCTFail("reopened controller must join the surviving transport lease")
+        }
+        XCTAssertEqual(reopenedLease.queryId, firstLease.queryId)
+        XCTAssertEqual(reopenedLease.deadline, firstLease.deadline)
+        XCTAssertEqual(cancellationCount, 0)
+
+        XCTAssertTrue(coordinator.complete(key: key, queryId: firstLease.queryId))
+    }
+
+    func testDelayedBootstrapStartResultCannotReviveTornDownController() {
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let controller = makeController()
+        let key = controller.initialBootstrapRequestKey
+        let first = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-delayed-start",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let lease) = first else {
+            return XCTFail("test setup must own transport start")
+        }
+        controller.beginInitialBootstrapTracking(queryId: lease.queryId, timeout: nil)
+
+        controller.handleSyncChatStartResult(
+            .bootstrapStarted(queryId: lease.queryId),
+            expectedQueryId: lease.queryId
+        )
+        controller.performTerminalChatResourceTeardownForTesting()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertNil(controller.initialBootstrapTimeoutWorkItem)
+        XCTAssertTrue(coordinator.isActive(key: key, queryId: lease.queryId))
+        XCTAssertTrue(coordinator.complete(key: key, queryId: lease.queryId))
+    }
+
+    func testStaleNoopStartResultCannotResetNewerBootstrapTracking() {
+        let controller = makeController()
+        controller.beginInitialBootstrapTracking(queryId: "bootstrap-old", timeout: nil)
+        controller.handleSyncChatStartResult(
+            .noop,
+            expectedQueryId: "bootstrap-old"
+        )
+        controller.beginInitialBootstrapTracking(queryId: "bootstrap-new", timeout: nil)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(controller.initialBootstrapQueryId, "bootstrap-new")
+        XCTAssertTrue(controller.isInitialBootstrapInFlight)
+        controller.performTerminalChatResourceTeardownForTesting()
+    }
+
+    func testArchiveConfirmedChatDoesNotReserveOrEnterBootstrapTracking() throws {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ChatSkeletonLifecycleTests-confirmed-\(name)"
+        )
+        defer {
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+        }
+        let controller = makeController()
+        let realm = try WRealm.safe()
+        let chat = LastChatsStorageItem()
+        chat.owner = controller.owner
+        chat.jid = controller.jid
+        chat.conversationType = controller.conversationType
+        chat.messageDate = Date()
+        chat.isSynced = true
+        chat.isInitialArchiveLoaded = true
+        chat.setPrimary(withOwner: controller.owner)
+        try realm.write {
+            realm.add(chat, update: .modified)
+        }
+
+        let key = controller.initialBootstrapRequestKey
+        var cancellationCount = 0
+        let existing = ChatInitialBootstrapRequestCoordinator.shared.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-confirmed-existing",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let existingLease) = existing else {
+            return XCTFail("test setup must reserve the existing bootstrap")
+        }
+        ChatInitialBootstrapRequestCoordinator.shared.resolveStart(
+            key: key,
+            queryId: existingLease.queryId,
+            result: .bootstrapStarted(queryId: existingLease.queryId),
+            messages: nil,
+            cancelTransport: { cancellationCount += 1 }
+        )
+        let cachedFinal = MessageArchiveEndPageEvent(
+            owner: key.owner,
+            queryId: existingLease.queryId,
+            state: MessageArchivePageEndState(
+                queryExhausted: true,
+                archiveEnded: true,
+                persistedMessageCount: 0
+            ),
+            first: "",
+            last: "",
+            count: 0,
+            streamKind: .uiAction,
+            source: .unroutedFinalIQ
+        )
+        XCTAssertTrue(MessageArchiveEndPageDispatcher.publish(cachedFinal))
+
+        controller.requestInitialBootstrapArchive()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertFalse(ChatInitialBootstrapRequestCoordinator.shared.isActive(
+            key: key,
+            queryId: existingLease.queryId
+        ))
+        XCTAssertEqual(cancellationCount, 0)
+        let probe = ChatInitialBootstrapRequestCoordinator.shared.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-confirmed-probe",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let probeLease) = probe else {
+            return XCTFail("confirmed local archive must not reserve a bootstrap lease")
+        }
+        XCTAssertTrue(ChatInitialBootstrapRequestCoordinator.shared.complete(
+            key: key,
+            queryId: probeLease.queryId
+        ))
+    }
+
+    func testBootstrapAbsoluteTimeoutCancelsOnceAndPersistsFailureUntilRetry() {
+        var now = Date(timeIntervalSince1970: 2_000)
+        var cancellationCount = 0
+        let coordinator = ChatInitialBootstrapRequestCoordinator(
+            now: { now },
+            automaticallySchedulesTimeouts: false
+        )
+        let key = ChatInitialBootstrapRequestKey(
+            owner: "owner@example.com",
+            jid: "peer@example.com",
+            conversationType: .regular
+        )
+        let acquisition = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-timeout",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let lease) = acquisition else {
+            return XCTFail("first acquire must own transport start")
+        }
+        coordinator.resolveStart(
+            key: key,
+            queryId: lease.queryId,
+            result: .bootstrapStarted(queryId: lease.queryId),
+            messages: nil,
+            cancelTransport: { cancellationCount += 1 }
+        )
+
+        now = now.addingTimeInterval(46)
+        coordinator.expireDueAttemptsForTesting()
+        coordinator.expireDueAttemptsForTesting()
+
+        XCTAssertEqual(cancellationCount, 1)
+        let afterTimeout = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-must-not-start",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .terminal(let event) = afterTimeout else {
+            return XCTFail("reopen after timeout must expose terminal state")
+        }
+        XCTAssertEqual(event.queryId, lease.queryId)
+        XCTAssertEqual(event.reason, .timeout)
+
+        coordinator.clearTerminal(key: key)
+        let retry = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-retry",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let retryLease) = retry else {
+            return XCTFail("explicit retry must create a new attempt")
+        }
+        XCTAssertEqual(retryLease.queryId, "bootstrap-retry")
+    }
+
+    func testExternalTransportFailureCancelsLeaseAndPersistsTerminalState() {
+        var cancellationCount = 0
+        let coordinator = ChatInitialBootstrapRequestCoordinator(
+            automaticallySchedulesTimeouts: false
+        )
+        let key = ChatInitialBootstrapRequestKey(
+            owner: "owner@example.com",
+            jid: "peer@example.com",
+            conversationType: .regular
+        )
+        let first = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-disconnect",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let lease) = first else {
+            return XCTFail("first acquire must own transport start")
+        }
+        coordinator.resolveStart(
+            key: key,
+            queryId: lease.queryId,
+            result: .bootstrapStarted(queryId: lease.queryId),
+            messages: nil,
+            cancelTransport: { cancellationCount += 1 }
+        )
+        let failure = MessageArchiveRequestFailureEvent(
+            owner: key.owner,
+            queryId: lease.queryId,
+            streamKind: .uiAction,
+            reason: .uiActionDisconnect,
+            errorDescription: nil,
+            pendingQueryCount: 1
+        )
+
+        XCTAssertTrue(MessageArchiveRequestFailureDispatcher.publish(failure))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(cancellationCount, 1)
+        let reopened = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-after-disconnect",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .terminal(let terminalFailure) = reopened else {
+            return XCTFail("reopen after disconnect must expose terminal state")
+        }
+        XCTAssertEqual(terminalFailure.queryId, lease.queryId)
+        XCTAssertEqual(terminalFailure.reason, .uiActionDisconnect)
+    }
+
+    func testBootstrapCompletionReleasesLeaseWithoutCancellingTransport() {
+        let coordinator = ChatInitialBootstrapRequestCoordinator(
+            automaticallySchedulesTimeouts: false
+        )
+        let key = ChatInitialBootstrapRequestKey(
+            owner: "owner@example.com",
+            jid: "peer@example.com",
+            conversationType: .regular
+        )
+        var cancellationCount = 0
+        let first = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-complete",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let lease) = first else {
+            return XCTFail("first acquire must own transport start")
+        }
+        coordinator.resolveStart(
+            key: key,
+            queryId: lease.queryId,
+            result: .bootstrapStarted(queryId: lease.queryId),
+            messages: nil,
+            cancelTransport: { cancellationCount += 1 }
+        )
+
+        coordinator.complete(key: key, queryId: lease.queryId)
+
+        XCTAssertEqual(cancellationCount, 0)
+        let next = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-next",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let nextLease) = next else {
+            return XCTFail("completed attempt must release the conversation lease")
+        }
+        XCTAssertEqual(nextLease.queryId, "bootstrap-next")
+    }
+
+    func testBootstrapFinalPageSurvivesReopenAndCannotBecomeTimeout() {
+        var now = Date(timeIntervalSince1970: 3_000)
+        var cancellationCount = 0
+        let coordinator = ChatInitialBootstrapRequestCoordinator(
+            now: { now },
+            automaticallySchedulesTimeouts: false
+        )
+        let key = ChatInitialBootstrapRequestKey(
+            owner: "owner@example.com",
+            jid: "peer@example.com",
+            conversationType: .regular
+        )
+        let first = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-final",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let lease) = first else {
+            return XCTFail("first acquire must own transport start")
+        }
+        coordinator.resolveStart(
+            key: key,
+            queryId: lease.queryId,
+            result: .bootstrapStarted(queryId: lease.queryId),
+            messages: nil,
+            cancelTransport: { cancellationCount += 1 }
+        )
+        let finalEvent = MessageArchiveEndPageEvent(
+            owner: key.owner,
+            queryId: lease.queryId,
+            state: MessageArchivePageEndState(
+                queryExhausted: false,
+                archiveEnded: false,
+                persistedMessageCount: 1
+            ),
+            first: "archive-1",
+            last: "archive-1",
+            count: 1,
+            streamKind: .uiAction,
+            source: .unroutedFinalIQ
+        )
+
+        XCTAssertTrue(MessageArchiveEndPageDispatcher.publish(finalEvent))
+        // The dispatcher has accepted the final synchronously even if its
+        // controller delivery is still waiting on the main queue. The absolute
+        // deadline must not overwrite that accepted final with a timeout.
+        now = now.addingTimeInterval(60)
+        coordinator.expireDueAttemptsForTesting()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let reopened = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-must-join-final",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .joined(let reopenedLease) = reopened else {
+            return XCTFail("reopen must join the final-received attempt")
+        }
+        XCTAssertEqual(reopenedLease.queryId, lease.queryId)
+        XCTAssertEqual(
+            coordinator.cachedEndPageEvent(key: key, queryId: lease.queryId),
+            finalEvent
+        )
+        XCTAssertEqual(cancellationCount, 0)
+    }
+
+    func testAcceptedFinalCannotLoseToTimeoutBeforeSynchronousHandlerRuns() {
+        var now = Date(timeIntervalSince1970: 3_500)
+        var cancellationCount = 0
+        let coordinator = ChatInitialBootstrapRequestCoordinator(
+            now: { now },
+            automaticallySchedulesTimeouts: false
+        )
+        let key = ChatInitialBootstrapRequestKey(
+            owner: "owner@example.com",
+            jid: "peer@example.com",
+            conversationType: .regular
+        )
+        let first = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-accepted-final",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let lease) = first else {
+            return XCTFail("first acquire must own transport start")
+        }
+        coordinator.resolveStart(
+            key: key,
+            queryId: lease.queryId,
+            result: .bootstrapStarted(queryId: lease.queryId),
+            messages: nil,
+            cancelTransport: { cancellationCount += 1 }
+        )
+        let finalEvent = MessageArchiveEndPageEvent(
+            owner: key.owner,
+            queryId: lease.queryId,
+            state: MessageArchivePageEndState(
+                queryExhausted: false,
+                archiveEnded: false,
+                persistedMessageCount: 1
+            ),
+            first: "archive-accepted",
+            last: "archive-accepted",
+            count: 1,
+            streamKind: .uiAction,
+            source: .unroutedFinalIQ
+        )
+        let markerAccepted = expectation(description: "final marker accepted")
+        let publishFinished = expectation(description: "final publish finished")
+        let allowSynchronousDelivery = DispatchSemaphore(value: 0)
+        MessageArchiveEndPageDispatcher.setSynchronousDeliveryAcceptedHookForTests { event in
+            guard event.queryId == lease.queryId else { return }
+            markerAccepted.fulfill()
+            allowSynchronousDelivery.wait()
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = MessageArchiveEndPageDispatcher.publish(finalEvent)
+            publishFinished.fulfill()
+        }
+        wait(for: [markerAccepted], timeout: 3)
+
+        now = now.addingTimeInterval(60)
+        coordinator.expireDueAttemptsForTesting()
+
+        XCTAssertTrue(coordinator.isActive(key: key, queryId: lease.queryId))
+        XCTAssertEqual(cancellationCount, 0)
+        allowSynchronousDelivery.signal()
+        wait(for: [publishFinished], timeout: 3)
+
+        XCTAssertEqual(
+            coordinator.cachedEndPageEvent(key: key, queryId: lease.queryId),
+            finalEvent
+        )
+        XCTAssertEqual(cancellationCount, 0)
+    }
+
+    func testControllerTimeoutFallbackCannotOverrideAcceptedFinal() {
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let controller = makeController()
+        let key = controller.initialBootstrapRequestKey
+        var cancellationCount = 0
+        let first = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-controller-final-race",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let lease) = first else {
+            return XCTFail("test setup must own transport start")
+        }
+        coordinator.resolveStart(
+            key: key,
+            queryId: lease.queryId,
+            result: .bootstrapStarted(queryId: lease.queryId),
+            messages: nil,
+            cancelTransport: { cancellationCount += 1 }
+        )
+        controller.beginInitialBootstrapTracking(queryId: lease.queryId, timeout: nil)
+        let finalEvent = MessageArchiveEndPageEvent(
+            owner: key.owner,
+            queryId: lease.queryId,
+            state: MessageArchivePageEndState(
+                queryExhausted: true,
+                archiveEnded: true,
+                persistedMessageCount: 0
+            ),
+            first: "",
+            last: "",
+            count: 0,
+            streamKind: .uiAction,
+            source: .unroutedFinalIQ
+        )
+        let markerAccepted = expectation(description: "controller race marker accepted")
+        let publishFinished = expectation(description: "controller race publish finished")
+        let allowSynchronousDelivery = DispatchSemaphore(value: 0)
+        MessageArchiveEndPageDispatcher.setSynchronousDeliveryAcceptedHookForTests { event in
+            guard event.queryId == lease.queryId else { return }
+            markerAccepted.fulfill()
+            allowSynchronousDelivery.wait()
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = MessageArchiveEndPageDispatcher.publish(finalEvent)
+            publishFinished.fulfill()
+        }
+        wait(for: [markerAccepted], timeout: 3)
+
+        controller.scheduleInitialBootstrapTimeout(queryId: lease.queryId, timeout: 0)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertTrue(controller.isInitialBootstrapInFlight)
+        XCTAssertEqual(controller.initialBootstrapQueryId, lease.queryId)
+        XCTAssertTrue(coordinator.isActive(key: key, queryId: lease.queryId))
+        XCTAssertEqual(cancellationCount, 0)
+
+        allowSynchronousDelivery.signal()
+        wait(for: [publishFinished], timeout: 3)
+        controller.performTerminalChatResourceTeardownForTesting()
+        XCTAssertTrue(coordinator.complete(key: key, queryId: lease.queryId))
+    }
+
+    func testLateFinalMarkerCannotSuppressAlreadyRecordedTimeoutFailure() {
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let controller = makeController()
+        let key = controller.initialBootstrapRequestKey
+        var cancellationCount = 0
+        let first = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-timeout-before-marker",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let lease) = first else {
+            return XCTFail("test setup must own transport start")
+        }
+        coordinator.resolveStart(
+            key: key,
+            queryId: lease.queryId,
+            result: .bootstrapStarted(queryId: lease.queryId),
+            messages: nil,
+            cancelTransport: { cancellationCount += 1 }
+        )
+        controller.beginInitialBootstrapTracking(queryId: lease.queryId, timeout: nil)
+        let timeoutEvent = MessageArchiveRequestFailureEvent(
+            owner: key.owner,
+            queryId: lease.queryId,
+            streamKind: .unknown,
+            reason: .timeout,
+            errorDescription: nil,
+            pendingQueryCount: 1
+        )
+        XCTAssertTrue(coordinator.recordFailure(
+            key: key,
+            event: timeoutEvent,
+            publishEvent: false
+        ))
+        XCTAssertEqual(cancellationCount, 1)
+
+        let dummyEndToken = MessageArchiveEndPageDispatcher.register(
+            owner: key.owner,
+            queryId: lease.queryId,
+            delivery: .synchronous
+        ) { _ in }
+        let finalEvent = MessageArchiveEndPageEvent(
+            owner: key.owner,
+            queryId: lease.queryId,
+            state: MessageArchivePageEndState(
+                queryExhausted: true,
+                archiveEnded: true,
+                persistedMessageCount: 0
+            ),
+            first: "",
+            last: "",
+            count: 0,
+            streamKind: .uiAction,
+            source: .unroutedFinalIQ
+        )
+        let markerAccepted = expectation(description: "late final marker accepted")
+        let publishFinished = expectation(description: "late final publish finished")
+        let allowSynchronousDelivery = DispatchSemaphore(value: 0)
+        MessageArchiveEndPageDispatcher.setSynchronousDeliveryAcceptedHookForTests { event in
+            guard event.queryId == lease.queryId else { return }
+            markerAccepted.fulfill()
+            allowSynchronousDelivery.wait()
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = MessageArchiveEndPageDispatcher.publish(finalEvent)
+            publishFinished.fulfill()
+        }
+        wait(for: [markerAccepted], timeout: 3)
+
+        controller.handleInitialBootstrapRemoteArchiveFailure(
+            queryId: lease.queryId,
+            reason: .timeout,
+            streamKind: .unknown,
+            errorDescription: nil
+        )
+
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        allowSynchronousDelivery.signal()
+        wait(for: [publishFinished], timeout: 3)
+        MessageArchiveEndPageDispatcher.unregister(dummyEndToken)
+    }
+
+    func testCachedFinalKeepsMessageManagerAliveUntilReopenConsumesIt() {
+        let coordinator = ChatInitialBootstrapRequestCoordinator(
+            automaticallySchedulesTimeouts: false
+        )
+        let key = ChatInitialBootstrapRequestKey(
+            owner: "owner@example.com",
+            jid: "peer@example.com",
+            conversationType: .regular
+        )
+        let first = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-strong-persistence-owner",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let lease) = first else {
+            return XCTFail("first acquire must own transport start")
+        }
+        let baselineManager = ChatSkeletonWeakBox<MessageManager>()
+        autoreleasepool {
+            let manager = makeNonRetainingMessageManager(owner: key.owner)
+            baselineManager.value = manager
+        }
+        XCTAssertNil(
+            baselineManager.value,
+            "the fixture itself must not retain MessageManager"
+        )
+
+        let releasedManager = ChatSkeletonWeakBox<MessageManager>()
+        autoreleasepool {
+            let manager = makeNonRetainingMessageManager(owner: key.owner)
+            releasedManager.value = manager
+            coordinator.resolveStart(
+                key: key,
+                queryId: lease.queryId,
+                result: .bootstrapStarted(queryId: lease.queryId),
+                messages: manager,
+                cancelTransport: {}
+            )
+        }
+        let finalEvent = MessageArchiveEndPageEvent(
+            owner: key.owner,
+            queryId: lease.queryId,
+            state: MessageArchivePageEndState(
+                queryExhausted: false,
+                archiveEnded: false,
+                persistedMessageCount: 1
+            ),
+            first: "archive-retained",
+            last: "archive-retained",
+            count: 1,
+            streamKind: .uiAction,
+            source: .unroutedFinalIQ
+        )
+        XCTAssertTrue(MessageArchiveEndPageDispatcher.publish(finalEvent))
+        XCTAssertNotNil(releasedManager.value)
+
+        var reopenedManager: MessageManager?
+        let reopened = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-reopen-must-join",
+            timeout: 45
+        ) { _, _, messages in
+            reopenedManager = messages
+        }
+        guard case .joined(let reopenedLease) = reopened else {
+            return XCTFail("reopen must join the final-received attempt")
+        }
+        XCTAssertEqual(reopenedLease.queryId, lease.queryId)
+        XCTAssertTrue(reopenedManager === releasedManager.value)
+
+        XCTAssertTrue(coordinator.complete(key: key, queryId: lease.queryId))
+        reopenedManager = nil
+        autoreleasepool {}
+        XCTAssertNil(releasedManager.value)
+    }
+
+    func testRemoteHistoryPersistenceFlushIsSingleFlightAndMemoizedForLateConsumer() {
+        let singleFlight = ChatRemoteHistoryFlushSingleFlight<String, Int>(completedCapacity: 4)
+        var producerCount = 0
+        var finishProduction: ((Int) -> Void)?
+        var received: [Int] = []
+
+        for _ in 0..<2 {
+            singleFlight.run(
+                key: "shared-query",
+                producer: { finish in
+                    producerCount += 1
+                    finishProduction = finish
+                },
+                completion: { received.append($0) }
+            )
+        }
+
+        XCTAssertEqual(producerCount, 1)
+        XCTAssertTrue(received.isEmpty)
+        finishProduction?(7)
+        XCTAssertEqual(received, [7, 7])
+
+        singleFlight.run(
+            key: "shared-query",
+            producer: { finish in
+                producerCount += 1
+                finish(0)
+            },
+            completion: { received.append($0) }
+        )
+
+        XCTAssertEqual(producerCount, 1)
+        XCTAssertEqual(received, [7, 7, 7])
+    }
+
+    func testRemoteHistoryPersistenceFlushMemoizationIsBounded() {
+        let singleFlight = ChatRemoteHistoryFlushSingleFlight<String, Int>(completedCapacity: 1)
+        var producerCount = 0
+
+        func run(_ key: String) {
+            singleFlight.run(
+                key: key,
+                producer: { finish in
+                    producerCount += 1
+                    finish(producerCount)
+                },
+                completion: { _ in }
+            )
+        }
+
+        run("first")
+        run("second")
+        run("first")
+
+        XCTAssertEqual(producerCount, 3)
+    }
+
+    func testLateBootstrapStartAfterTimeoutCancelsTransportOnlyOnce() {
+        var now = Date(timeIntervalSince1970: 4_000)
+        var cancellationCount = 0
+        let coordinator = ChatInitialBootstrapRequestCoordinator(
+            now: { now },
+            automaticallySchedulesTimeouts: false
+        )
+        let key = ChatInitialBootstrapRequestKey(
+            owner: "owner@example.com",
+            jid: "peer@example.com",
+            conversationType: .regular
+        )
+        let first = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-late-start",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let lease) = first else {
+            return XCTFail("first acquire must own transport start")
+        }
+
+        now = now.addingTimeInterval(46)
+        coordinator.expireDueAttemptsForTesting()
+        for _ in 0..<2 {
+            coordinator.resolveStart(
+                key: key,
+                queryId: lease.queryId,
+                result: .bootstrapStarted(queryId: lease.queryId),
+                messages: nil,
+                cancelTransport: { cancellationCount += 1 }
+            )
+        }
+
+        XCTAssertEqual(cancellationCount, 1)
     }
 
     func testSkeletonMappingKeepsDeterministicIDsDatesTextAndHeights() {
@@ -359,6 +1186,15 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
             .zero
         )
         XCTAssertEqual(identities, (0..<80).map { "message-\($0)" })
+    }
+
+    private func makeNonRetainingMessageManager(owner: String) -> MessageManager {
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        manager.updateSendingMessagesTimer?.invalidate()
+        manager.updateSendingMessagesTimer = nil
+        manager.unsubscribeSender()
+        manager.unsubscribeReceiver()
+        return manager
     }
 
     private func makeController() -> ChatViewController {

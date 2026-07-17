@@ -5674,6 +5674,9 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             ("statePersisted", state.persistedMessageCount)
         ])
         DispatchQueue.main.async {
+            if self.initialBootstrapQueryId == queryId {
+                self.cancelInitialBootstrapTimeout()
+            }
             ChatArchiveDebugTrace.log("chatDidReceiveEndPageEnter", [
                 ("owner", self.owner),
                 ("jid", self.jid),

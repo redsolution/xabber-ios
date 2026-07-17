@@ -210,15 +210,28 @@ enum ChatArchiveDebugTrace {
 }
 
 enum MessageArchiveEndPageDispatcher {
+    enum Delivery: Equatable {
+        case mainAsync
+        case synchronous
+    }
+
     struct Token: Hashable {
         fileprivate let id: UUID
         fileprivate let owner: String
         fileprivate let queryId: String
     }
 
-    private typealias Handler = (MessageArchiveEndPageEvent) -> Void
+    private struct RegisteredHandler {
+        let delivery: Delivery
+        let body: (MessageArchiveEndPageEvent) -> Void
+    }
+
     private static let lock = NSLock()
-    private static var handlersByKey: [String: [UUID: Handler]] = [:]
+    private static var handlersByKey: [String: [UUID: RegisteredHandler]] = [:]
+    private static var acceptedSynchronousDeliveryCountByKey: [String: Int] = [:]
+    #if DEBUG
+    private static var synchronousDeliveryAcceptedHookForTests: ((MessageArchiveEndPageEvent) -> Void)?
+    #endif
 
     private static func key(owner: String, queryId: String) -> String {
         "\(owner)\u{1F}archive-end-page\u{1F}\(queryId)"
@@ -228,6 +241,7 @@ enum MessageArchiveEndPageDispatcher {
     static func register(
         owner: String,
         queryId: String,
+        delivery: Delivery = .mainAsync,
         handler: @escaping (MessageArchiveEndPageEvent) -> Void
     ) -> Token {
         let token = Token(id: UUID(), owner: owner, queryId: queryId)
@@ -237,7 +251,10 @@ enum MessageArchiveEndPageDispatcher {
         }
 
         lock.lock()
-        handlersByKey[key(owner: owner, queryId: queryId), default: [:]][token.id] = handler
+        handlersByKey[key(owner: owner, queryId: queryId), default: [:]][token.id] = RegisteredHandler(
+            delivery: delivery,
+            body: handler
+        )
         let handlerCount = handlersByKey[key(owner: owner, queryId: queryId)]?.count ?? 0
         lock.unlock()
         ChatArchiveDebugTrace.log("endPageDispatcherRegister", [
@@ -279,6 +296,30 @@ enum MessageArchiveEndPageDispatcher {
         return hasHandler
     }
 
+    static func hasAcceptedSynchronousDelivery(owner: String, queryId: String) -> Bool {
+        guard owner.isNotEmpty,
+              queryId.isNotEmpty else {
+            return false
+        }
+
+        lock.lock()
+        let isAccepted = (acceptedSynchronousDeliveryCountByKey[
+            key(owner: owner, queryId: queryId)
+        ] ?? 0) > 0
+        lock.unlock()
+        return isAccepted
+    }
+
+    #if DEBUG
+    static func setSynchronousDeliveryAcceptedHookForTests(
+        _ hook: ((MessageArchiveEndPageEvent) -> Void)?
+    ) {
+        lock.lock()
+        synchronousDeliveryAcceptedHookForTests = hook
+        lock.unlock()
+    }
+    #endif
+
     @discardableResult
     static func publish(_ event: MessageArchiveEndPageEvent) -> Bool {
         guard event.owner.isNotEmpty,
@@ -286,8 +327,21 @@ enum MessageArchiveEndPageDispatcher {
             return false
         }
 
+        let eventKey = key(owner: event.owner, queryId: event.queryId)
+        let acceptedHook: ((MessageArchiveEndPageEvent) -> Void)?
         lock.lock()
-        let handlers = handlersByKey.removeValue(forKey: key(owner: event.owner, queryId: event.queryId))
+        let handlers = handlersByKey.removeValue(forKey: eventKey)
+        let hasSynchronousHandlers = handlers?.values.contains {
+            $0.delivery == .synchronous
+        } == true
+        if hasSynchronousHandlers {
+            acceptedSynchronousDeliveryCountByKey[eventKey, default: 0] += 1
+        }
+        #if DEBUG
+        acceptedHook = synchronousDeliveryAcceptedHookForTests
+        #else
+        acceptedHook = nil
+        #endif
         lock.unlock()
 
         guard let handlers,
@@ -311,16 +365,42 @@ enum MessageArchiveEndPageDispatcher {
             ("count", event.count),
             ("handlerCount", handlers.count)
         ])
+        let synchronousHandlers = handlers.values
+            .filter { $0.delivery == .synchronous }
+            .map(\.body)
+        let mainHandlers = handlers.values
+            .filter { $0.delivery == .mainAsync }
+            .map(\.body)
+        if hasSynchronousHandlers {
+            acceptedHook?(event)
+        }
+        synchronousHandlers.forEach { $0(event) }
+        if hasSynchronousHandlers {
+            lock.lock()
+            let remainingAcceptedDeliveries = max(
+                0,
+                (acceptedSynchronousDeliveryCountByKey[eventKey] ?? 1) - 1
+            )
+            if remainingAcceptedDeliveries == 0 {
+                acceptedSynchronousDeliveryCountByKey.removeValue(forKey: eventKey)
+            } else {
+                acceptedSynchronousDeliveryCountByKey[eventKey] = remainingAcceptedDeliveries
+            }
+            lock.unlock()
+        }
+        guard mainHandlers.isNotEmpty else {
+            return true
+        }
         DispatchQueue.main.async {
             ChatArchiveDebugTrace.log("endPageDispatcherMainHandlerStart", [
                 ("owner", event.owner),
                 ("queryId", event.queryId),
                 ("source", event.source.rawValue),
                 ("mainWaitMs", ChatArchiveDebugTrace.milliseconds(since: enqueuedAt)),
-                ("handlerCount", handlers.count)
+                ("handlerCount", mainHandlers.count)
             ])
             let startedAt = Date()
-            handlers.values.forEach { $0(event) }
+            mainHandlers.forEach { $0(event) }
             ChatArchiveDebugTrace.log("endPageDispatcherMainHandlerFinish", [
                 ("owner", event.owner),
                 ("queryId", event.queryId),
@@ -334,20 +414,33 @@ enum MessageArchiveEndPageDispatcher {
     static func resetForTests() {
         lock.lock()
         handlersByKey.removeAll()
+        acceptedSynchronousDeliveryCountByKey.removeAll()
+        #if DEBUG
+        synchronousDeliveryAcceptedHookForTests = nil
+        #endif
         lock.unlock()
     }
 }
 
 enum MessageArchiveRequestFailureDispatcher {
+    enum Delivery: Equatable {
+        case mainAsync
+        case synchronous
+    }
+
     struct Token: Hashable {
         fileprivate let id: UUID
         fileprivate let owner: String
         fileprivate let queryId: String
     }
 
-    private typealias Handler = (MessageArchiveRequestFailureEvent) -> Void
+    private struct RegisteredHandler {
+        let delivery: Delivery
+        let body: (MessageArchiveRequestFailureEvent) -> Void
+    }
+
     private static let lock = NSLock()
-    private static var handlersByKey: [String: [UUID: Handler]] = [:]
+    private static var handlersByKey: [String: [UUID: RegisteredHandler]] = [:]
 
     private static func key(owner: String, queryId: String) -> String {
         "\(owner)\u{1F}archive-request-failure\u{1F}\(queryId)"
@@ -357,6 +450,7 @@ enum MessageArchiveRequestFailureDispatcher {
     static func register(
         owner: String,
         queryId: String,
+        delivery: Delivery = .mainAsync,
         handler: @escaping (MessageArchiveRequestFailureEvent) -> Void
     ) -> Token {
         let token = Token(id: UUID(), owner: owner, queryId: queryId)
@@ -366,7 +460,10 @@ enum MessageArchiveRequestFailureDispatcher {
         }
 
         lock.lock()
-        handlersByKey[key(owner: owner, queryId: queryId), default: [:]][token.id] = handler
+        handlersByKey[key(owner: owner, queryId: queryId), default: [:]][token.id] = RegisteredHandler(
+            delivery: delivery,
+            body: handler
+        )
         let handlerCount = handlersByKey[key(owner: owner, queryId: queryId)]?.count ?? 0
         lock.unlock()
         ChatArchiveDebugTrace.log("requestFailureDispatcherRegister", [
@@ -440,16 +537,26 @@ enum MessageArchiveRequestFailureDispatcher {
             ("pendingQueryCount", event.pendingQueryCount),
             ("handlerCount", handlers.count)
         ])
+        let synchronousHandlers = handlers.values
+            .filter { $0.delivery == .synchronous }
+            .map(\.body)
+        let mainHandlers = handlers.values
+            .filter { $0.delivery == .mainAsync }
+            .map(\.body)
+        synchronousHandlers.forEach { $0(event) }
+        guard mainHandlers.isNotEmpty else {
+            return true
+        }
         DispatchQueue.main.async {
             ChatArchiveDebugTrace.log("requestFailureDispatcherMainHandlerStart", [
                 ("owner", event.owner),
                 ("queryId", event.queryId),
                 ("reason", event.reason.rawValue),
                 ("mainWaitMs", ChatArchiveDebugTrace.milliseconds(since: enqueuedAt)),
-                ("handlerCount", handlers.count)
+                ("handlerCount", mainHandlers.count)
             ])
             let startedAt = Date()
-            handlers.values.forEach { $0(event) }
+            mainHandlers.forEach { $0(event) }
             ChatArchiveDebugTrace.log("requestFailureDispatcherMainHandlerFinish", [
                 ("owner", event.owner),
                 ("queryId", event.queryId),

@@ -4353,6 +4353,95 @@ enum ChatBoundaryLoadingPresentationPolicy {
     }
 }
 
+final class ChatRemoteHistoryFlushSingleFlight<Key: Hashable, Value> {
+    typealias Completion = (Value) -> Void
+    typealias Producer = (@escaping Completion) -> Void
+
+    private enum State {
+        case inFlight([Completion])
+        case completed(Value)
+    }
+
+    private let lock = NSLock()
+    private let completedCapacity: Int
+    private var statesByKey: [Key: State] = [:]
+    private var completedOrder: [Key] = []
+
+    init(completedCapacity: Int) {
+        self.completedCapacity = max(0, completedCapacity)
+    }
+
+    func run(
+        key: Key,
+        producer: @escaping Producer,
+        completion: @escaping Completion
+    ) {
+        var completedValues: [Value] = []
+        var shouldProduce = false
+        lock.lock()
+        switch statesByKey[key] {
+        case .inFlight(var completions):
+            completions.append(completion)
+            statesByKey[key] = .inFlight(completions)
+        case .completed(let value):
+            completedValues.append(value)
+        case nil:
+            statesByKey[key] = .inFlight([completion])
+            shouldProduce = true
+        }
+        lock.unlock()
+
+        completedValues.forEach(completion)
+        if shouldProduce {
+            producer { [weak self] value in
+                self?.finish(key: key, value: value)
+            }
+        }
+    }
+
+    func invalidateCompleted(key: Key) {
+        lock.lock()
+        if case .completed = statesByKey[key] {
+            statesByKey.removeValue(forKey: key)
+            completedOrder.removeAll { $0 == key }
+        }
+        lock.unlock()
+    }
+
+    func reset() {
+        lock.lock()
+        statesByKey.removeAll()
+        completedOrder.removeAll()
+        lock.unlock()
+    }
+
+    private func finish(key: Key, value: Value) {
+        let completions: [Completion]
+        lock.lock()
+        guard case .inFlight(let waitingCompletions) = statesByKey[key] else {
+            lock.unlock()
+            return
+        }
+        completions = waitingCompletions
+        if completedCapacity > 0 {
+            statesByKey[key] = .completed(value)
+            completedOrder.removeAll { $0 == key }
+            completedOrder.append(key)
+            while completedOrder.count > completedCapacity {
+                let evictedKey = completedOrder.removeFirst()
+                if case .completed = statesByKey[evictedKey] {
+                    statesByKey.removeValue(forKey: evictedKey)
+                }
+            }
+        } else {
+            statesByKey.removeValue(forKey: key)
+        }
+        lock.unlock()
+
+        completions.forEach { $0(value) }
+    }
+}
+
 enum ChatRemoteHistoryCompletionCoordinator {
     private final class PersistenceSource {
         weak var manager: MessageManager?
@@ -4370,6 +4459,10 @@ enum ChatRemoteHistoryCompletionCoordinator {
         attributes: .concurrent,
         autoreleaseFrequency: .workItem
     )
+    private static let persistenceFlushes = ChatRemoteHistoryFlushSingleFlight<
+        String,
+        ChatRemoteHistoryCompletionResult
+    >(completedCapacity: 128)
 
     private static func persistenceSourceKey(owner: String, queryId: String) -> String {
         "\(owner)\u{1F}remote-history\u{1F}\(queryId)"
@@ -4385,9 +4478,14 @@ enum ChatRemoteHistoryCompletionCoordinator {
             return
         }
 
+        let sourceKey = persistenceSourceKey(owner: owner, queryId: queryId)
         persistenceSourcesLock.lock()
-        persistenceSourcesByKey[persistenceSourceKey(owner: owner, queryId: queryId)] = PersistenceSource(manager)
+        let hadRegisteredSource = persistenceSourcesByKey[sourceKey]?.manager != nil
+        persistenceSourcesByKey[sourceKey] = PersistenceSource(manager)
         persistenceSourcesLock.unlock()
+        if !hadRegisteredSource {
+            persistenceFlushes.invalidateCompleted(key: sourceKey)
+        }
         ChatArchiveDebugTrace.log("remoteCompletionSourceRegister", [
             ("owner", owner),
             ("queryId", queryId),
@@ -4542,15 +4640,30 @@ enum ChatRemoteHistoryCompletionCoordinator {
         conversationType: ClientSynchronizationManager.ConversationType? = nil,
         completion: @escaping (ChatRemoteHistoryCompletionResult) -> Void
     ) {
-        persistenceBarrierQueue.async {
-            completion(flushQueryMessages(
-                owner: owner,
-                queryId: queryId,
-                state: state,
-                conversationJid: conversationJid,
-                conversationType: conversationType
-            ))
-        }
+        let key = persistenceSourceKey(owner: owner, queryId: queryId)
+        persistenceFlushes.run(
+            key: key,
+            producer: { finish in
+                persistenceBarrierQueue.async {
+                    finish(flushQueryMessages(
+                        owner: owner,
+                        queryId: queryId,
+                        state: state,
+                        conversationJid: conversationJid,
+                        conversationType: conversationType
+                    ))
+                }
+            },
+            completion: { result in
+                persistenceBarrierQueue.async {
+                    completion(result)
+                }
+            }
+        )
+    }
+
+    static func resetPersistenceFlushesForTests() {
+        persistenceFlushes.reset()
     }
 }
 
@@ -9269,7 +9382,10 @@ extension ChatViewController {
         self.scrollResidentMetadata.boundaryContext(visibleSections: visibleSections)
     }
 
-    internal func beginInitialBootstrapTracking(queryId: String) {
+    internal func beginInitialBootstrapTracking(
+        queryId: String,
+        timeout: TimeInterval? = ChatInteractiveRemoteArchiveTimeoutPolicy.timeout
+    ) {
         self.cancelInitialBootstrapLocalHistoryFallback()
         self.cancelInitialBootstrapTimeout()
         self.initialBootstrapQueryId = queryId
@@ -9283,7 +9399,9 @@ extension ChatViewController {
         self.didEnterInitialBootstrapObserverSettlePhase = false
         self.didObserveInitialBootstrapPostIdleTick = false
         self.registerRemoteHistoryFailureDispatcher(queryId: queryId)
-        self.scheduleInitialBootstrapTimeout(queryId: queryId)
+        if let timeout {
+            self.scheduleInitialBootstrapTimeout(queryId: queryId, timeout: timeout)
+        }
         self.beginChatHistoryLoadActivity(reason: "initial:\(queryId)")
     }
 
@@ -9291,7 +9409,10 @@ extension ChatViewController {
         self.cancelInitialBootstrapLocalHistoryFallback()
         self.cancelInitialBootstrapTimeout()
         if let initialBootstrapQueryId {
-            self.cancelInitialBootstrapTransport(queryId: initialBootstrapQueryId)
+            _ = ChatInitialBootstrapRequestCoordinator.shared.complete(
+                key: self.initialBootstrapRequestKey,
+                queryId: initialBootstrapQueryId
+            )
             self.endChatHistoryLoadActivity(reason: "initial:\(initialBootstrapQueryId)")
             self.unregisterRemoteHistoryPersistenceSource(queryId: initialBootstrapQueryId)
             self.unregisterRemoteHistoryFailureDispatcher(queryId: initialBootstrapQueryId)
@@ -9309,35 +9430,48 @@ extension ChatViewController {
         self.didObserveInitialBootstrapPostIdleTick = false
     }
 
-    private func cancelInitialBootstrapTransport(queryId: String) {
-        guard queryId.isNotEmpty else {
-            return
-        }
-        let owner = self.owner
-        if let account = AccountManager.shared.find(for: owner) {
-            account.action { user, _ in
-                _ = user.mam.cancelPendingArchiveRequest(queryId: queryId)
-            }
-        }
-        XMPPUIActionManager.shared.cancelPendingArchiveRequest(
-            owner: owner,
-            queryId: queryId
-        )
-    }
-
-    internal func scheduleInitialBootstrapTimeout(queryId: String) {
+    internal func scheduleInitialBootstrapTimeout(
+        queryId: String,
+        timeout: TimeInterval = ChatInteractiveRemoteArchiveTimeoutPolicy.timeout
+    ) {
         guard queryId.isNotEmpty else {
             return
         }
 
         self.cancelInitialBootstrapTimeout()
         let workItem = DispatchWorkItem { [weak self] in
-            self?.handleInitialBootstrapRemoteArchiveFailure(
+            guard let self else {
+                return
+            }
+            let key = self.initialBootstrapRequestKey
+            let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+            let event = MessageArchiveRequestFailureEvent(
+                owner: self.owner,
                 queryId: queryId,
-                reason: .timeout,
                 streamKind: .unknown,
-                errorDescription: nil
+                reason: .timeout,
+                errorDescription: nil,
+                pendingQueryCount: 1
             )
+            let didRecord = coordinator.recordFailure(
+                key: key,
+                event: event,
+                publishEvent: true
+            )
+            if !didRecord,
+               coordinator.cachedEndPageEvent(key: key, queryId: queryId) == nil,
+               !(coordinator.isActive(key: key, queryId: queryId) &&
+                    MessageArchiveEndPageDispatcher.hasAcceptedSynchronousDelivery(
+                        owner: self.owner,
+                        queryId: queryId
+                    )) {
+                self.handleInitialBootstrapRemoteArchiveFailure(
+                    queryId: queryId,
+                    reason: .timeout,
+                    streamKind: .unknown,
+                    errorDescription: nil
+                )
+            }
         }
         self.initialBootstrapTimeoutWorkItem = workItem
         ChatArchiveDebugTrace.log("initialBootstrapTimeoutScheduled", [
@@ -9345,10 +9479,10 @@ extension ChatViewController {
             ("jid", self.jid),
             ("conversationType", self.conversationType.rawValue),
             ("queryId", queryId),
-            ("timeoutMs", Int(ChatInteractiveRemoteArchiveTimeoutPolicy.timeout * 1000))
+            ("timeoutMs", Int(max(0, timeout) * 1000))
         ])
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + ChatInteractiveRemoteArchiveTimeoutPolicy.timeout,
+            deadline: .now() + max(0, timeout),
             execute: workItem
         )
     }
@@ -9521,6 +9655,45 @@ extension ChatViewController {
                     ("conversationType", self.conversationType.rawValue),
                     ("queryId", queryId),
                     ("activeQueryId", self.initialBootstrapQueryId ?? "-"),
+                    ("reason", reason.rawValue)
+                ])
+                return
+            }
+
+            let event = MessageArchiveRequestFailureEvent(
+                owner: self.owner,
+                queryId: queryId,
+                streamKind: streamKind,
+                reason: reason,
+                errorDescription: errorDescription,
+                pendingQueryCount: 1
+            )
+            let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+            let didRecordFailure = coordinator.recordFailure(
+                key: self.initialBootstrapRequestKey,
+                event: event,
+                publishEvent: true
+            )
+            let finalOwnsActiveAttempt = !didRecordFailure && (
+                coordinator.cachedEndPageEvent(
+                    key: self.initialBootstrapRequestKey,
+                    queryId: queryId
+                ) != nil || (
+                    coordinator.isActive(
+                        key: self.initialBootstrapRequestKey,
+                        queryId: queryId
+                    ) && MessageArchiveEndPageDispatcher.hasAcceptedSynchronousDelivery(
+                        owner: self.owner,
+                        queryId: queryId
+                    )
+                )
+            )
+            if finalOwnsActiveAttempt {
+                ChatArchiveDebugTrace.log("initialBootstrapFailureSupersededByFinal", [
+                    ("owner", self.owner),
+                    ("jid", self.jid),
+                    ("conversationType", self.conversationType.rawValue),
+                    ("queryId", queryId),
                     ("reason", reason.rawValue)
                 ])
                 return
@@ -10794,7 +10967,7 @@ extension ChatViewController {
         }
     }
 
-    private func currentBootstrapRequiresArchiveConfirmation() -> Bool {
+    internal func currentBootstrapRequiresArchiveConfirmation() -> Bool {
         do {
             let realm = try WRealm.safe()
             let chat = realm.object(

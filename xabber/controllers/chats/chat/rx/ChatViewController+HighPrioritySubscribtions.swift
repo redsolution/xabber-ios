@@ -44,7 +44,616 @@ enum ChatInitialBootstrapTransportPolicy {
     }
 }
 
+struct ChatInitialBootstrapRequestKey: Hashable {
+    let owner: String
+    let jid: String
+    let conversationTypeRawValue: String
+
+    init(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) {
+        self.owner = owner
+        self.jid = jid
+        self.conversationTypeRawValue = conversationType.rawValue
+    }
+}
+
+/// Owns the transport lifetime of the initial chat archive request.
+///
+/// A chat controller may disappear while its MAM request is still active. The
+/// coordinator keeps that request alive, lets the next controller join it and
+/// applies one absolute deadline to the conversation instead of restarting a
+/// controller-scoped timeout on every open.
+final class ChatInitialBootstrapRequestCoordinator {
+    struct Lease: Equatable {
+        let queryId: String
+        let deadline: Date
+    }
+
+    enum Acquisition {
+        case start(Lease)
+        case joined(Lease)
+        case terminal(MessageArchiveRequestFailureEvent)
+    }
+
+    typealias StartObserver = (
+        String,
+        MessageArchiveManager.SyncChatStartResult,
+        MessageManager?
+    ) -> Void
+
+    static let shared = ChatInitialBootstrapRequestCoordinator()
+
+    private struct Attempt {
+        let lease: Lease
+        var observers: [StartObserver]
+        var startResult: MessageArchiveManager.SyncChatStartResult?
+        // Keep the query-scoped persistence pipeline alive even when the
+        // controller and its UI-action session disappear before a cached
+        // final page is consumed by a reopened chat.
+        var messages: MessageManager?
+        var cancelTransport: (() -> Void)?
+        var timeoutWorkItem: DispatchWorkItem?
+        var endDispatcherToken: MessageArchiveEndPageDispatcher.Token?
+        var failureDispatcherToken: MessageArchiveRequestFailureDispatcher.Token?
+        var endPageEvent: MessageArchiveEndPageEvent?
+        var didRegisterPersistenceSource: Bool
+    }
+
+    private struct Cleanup {
+        let owner: String
+        let queryId: String
+        let timeoutWorkItem: DispatchWorkItem?
+        let endDispatcherToken: MessageArchiveEndPageDispatcher.Token?
+        let failureDispatcherToken: MessageArchiveRequestFailureDispatcher.Token?
+        let cancelTransport: (() -> Void)?
+    }
+
+    private struct AttemptIdentity: Hashable {
+        let key: ChatInitialBootstrapRequestKey
+        let queryId: String
+    }
+
+    private static let terminalTombstoneLimit = 64
+    private static let finalReceivedAttemptLimit = 64
+    private static let cancelledTransportIdentityLimit = 128
+
+    private let lock = NSLock()
+    private let now: () -> Date
+    private let automaticallySchedulesTimeouts: Bool
+    private var attemptsByKey: [ChatInitialBootstrapRequestKey: Attempt] = [:]
+    private var terminalFailuresByKey: [ChatInitialBootstrapRequestKey: MessageArchiveRequestFailureEvent] = [:]
+    private var terminalFailureOrder: [ChatInitialBootstrapRequestKey] = []
+    private var finalReceivedOrder: [ChatInitialBootstrapRequestKey] = []
+    private var cancelledTransportIdentities: Set<AttemptIdentity> = []
+    private var cancelledTransportIdentityOrder: [AttemptIdentity] = []
+
+    init(
+        now: @escaping () -> Date = Date.init,
+        automaticallySchedulesTimeouts: Bool = true
+    ) {
+        self.now = now
+        self.automaticallySchedulesTimeouts = automaticallySchedulesTimeouts
+    }
+
+    func acquire(
+        key: ChatInitialBootstrapRequestKey,
+        proposedQueryId: String,
+        timeout: TimeInterval,
+        observer: @escaping StartObserver
+    ) -> Acquisition {
+        expireAttemptIfDue(key: key)
+
+        var immediateStart: (
+            MessageArchiveManager.SyncChatStartResult,
+            MessageManager?
+        )?
+        lock.lock()
+        if let terminalFailure = terminalFailuresByKey[key] {
+            lock.unlock()
+            return .terminal(terminalFailure)
+        }
+        if var attempt = attemptsByKey[key] {
+            if let startResult = attempt.startResult {
+                immediateStart = (startResult, attempt.messages)
+            } else {
+                attempt.observers.append(observer)
+                attemptsByKey[key] = attempt
+            }
+            let lease = attempt.lease
+            lock.unlock()
+            if let immediateStart {
+                observer(lease.queryId, immediateStart.0, immediateStart.1)
+            }
+            return .joined(lease)
+        }
+
+        let lease = Lease(
+            queryId: proposedQueryId,
+            deadline: now().addingTimeInterval(max(0, timeout))
+        )
+        attemptsByKey[key] = Attempt(
+            lease: lease,
+            observers: [observer],
+            startResult: nil,
+            messages: nil,
+            cancelTransport: nil,
+            timeoutWorkItem: nil,
+            endDispatcherToken: nil,
+            failureDispatcherToken: nil,
+            endPageEvent: nil,
+            didRegisterPersistenceSource: false
+        )
+        lock.unlock()
+
+        installLifetimeHandlers(key: key, lease: lease)
+        return .start(lease)
+    }
+
+    func remainingTimeout(
+        key: ChatInitialBootstrapRequestKey,
+        queryId: String
+    ) -> TimeInterval {
+        lock.lock()
+        let deadline = attemptsByKey[key]?.lease.queryId == queryId
+            ? attemptsByKey[key]?.lease.deadline
+            : nil
+        lock.unlock()
+        return max(0, deadline?.timeIntervalSince(now()) ?? 0)
+    }
+
+    func isActive(
+        key: ChatInitialBootstrapRequestKey,
+        queryId: String
+    ) -> Bool {
+        lock.lock()
+        let isActive = attemptsByKey[key]?.lease.queryId == queryId
+        lock.unlock()
+        return isActive
+    }
+
+    func cachedEndPageEvent(
+        key: ChatInitialBootstrapRequestKey,
+        queryId: String
+    ) -> MessageArchiveEndPageEvent? {
+        lock.lock()
+        let event = attemptsByKey[key]?.lease.queryId == queryId
+            ? attemptsByKey[key]?.endPageEvent
+            : nil
+        lock.unlock()
+        return event
+    }
+
+    func resolveStart(
+        key: ChatInitialBootstrapRequestKey,
+        queryId: String,
+        result: MessageArchiveManager.SyncChatStartResult,
+        messages: MessageManager?,
+        cancelTransport: @escaping () -> Void
+    ) {
+        var observers: [StartObserver] = []
+        var shouldCancelLateTransport = false
+        var shouldRegisterPersistenceSource = false
+        lock.lock()
+        if var attempt = attemptsByKey[key],
+           attempt.lease.queryId == queryId {
+            attempt.startResult = result
+            attempt.messages = messages
+            attempt.cancelTransport = cancelTransport
+            observers = attempt.observers
+            attempt.observers.removeAll()
+            if case .bootstrapStarted = result,
+               messages != nil,
+               !attempt.didRegisterPersistenceSource {
+                attempt.didRegisterPersistenceSource = true
+                shouldRegisterPersistenceSource = true
+            }
+            attemptsByKey[key] = attempt
+        } else {
+            let identity = AttemptIdentity(key: key, queryId: queryId)
+            if !cancelledTransportIdentities.contains(identity) {
+                recordCancelledTransportIdentityLocked(identity)
+                shouldCancelLateTransport = true
+            }
+        }
+        lock.unlock()
+
+        if shouldCancelLateTransport {
+            cancelTransport()
+            return
+        }
+        if shouldRegisterPersistenceSource,
+           let messages {
+            ChatRemoteHistoryCompletionCoordinator.registerPersistenceSource(
+                messages,
+                owner: key.owner,
+                queryId: queryId
+            )
+            if !isActive(key: key, queryId: queryId) {
+                ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+                    owner: key.owner,
+                    queryId: queryId
+                )
+            }
+        }
+        observers.forEach { $0(queryId, result, messages) }
+        switch result {
+        case .bootstrapStarted:
+            break
+        case .gapRepairOnly, .noop:
+            if complete(key: key, queryId: queryId) {
+                ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+                    owner: key.owner,
+                    queryId: queryId
+                )
+            }
+        }
+    }
+
+    func preparePersistenceSource(
+        key: ChatInitialBootstrapRequestKey,
+        queryId: String,
+        messages: MessageManager?
+    ) {
+        guard let messages else {
+            return
+        }
+        var shouldRegister = false
+        lock.lock()
+        if var attempt = attemptsByKey[key],
+           attempt.lease.queryId == queryId {
+            attempt.messages = messages
+            if !attempt.didRegisterPersistenceSource {
+                attempt.didRegisterPersistenceSource = true
+                shouldRegister = true
+            }
+            attemptsByKey[key] = attempt
+        }
+        lock.unlock()
+        guard shouldRegister else {
+            return
+        }
+        ChatRemoteHistoryCompletionCoordinator.registerPersistenceSource(
+            messages,
+            owner: key.owner,
+            queryId: queryId
+        )
+        if !isActive(key: key, queryId: queryId) {
+            ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+                owner: key.owner,
+                queryId: queryId
+            )
+        }
+    }
+
+    @discardableResult
+    func complete(
+        key: ChatInitialBootstrapRequestKey,
+        queryId: String
+    ) -> Bool {
+        let cleanup: Cleanup?
+        lock.lock()
+        if let attempt = attemptsByKey[key],
+           attempt.lease.queryId == queryId {
+            attemptsByKey.removeValue(forKey: key)
+            finalReceivedOrder.removeAll { $0 == key }
+            recordCancelledTransportIdentityLocked(
+                AttemptIdentity(key: key, queryId: queryId)
+            )
+            cleanup = makeCleanup(key: key, attempt: attempt, includesTransportCancellation: false)
+        } else {
+            cleanup = nil
+        }
+        lock.unlock()
+        performCleanup(cleanup, unregisterPersistenceSource: false)
+        return cleanup != nil
+    }
+
+    @discardableResult
+    func recordFailure(
+        key: ChatInitialBootstrapRequestKey,
+        event: MessageArchiveRequestFailureEvent,
+        publishEvent: Bool
+    ) -> Bool {
+        let cleanup: Cleanup?
+        lock.lock()
+        if let attempt = attemptsByKey[key],
+           attempt.lease.queryId == event.queryId,
+           attempt.endPageEvent == nil {
+            // The end-page dispatcher claims synchronous delivery under its
+            // own lock before invoking us. If timeout races through this
+            // interval, the already accepted final page owns the terminal
+            // outcome and the timeout must stand down.
+            if MessageArchiveEndPageDispatcher.hasAcceptedSynchronousDelivery(
+                owner: event.owner,
+                queryId: event.queryId
+            ) {
+                lock.unlock()
+                return false
+            }
+            attemptsByKey.removeValue(forKey: key)
+            finalReceivedOrder.removeAll { $0 == key }
+            terminalFailuresByKey[key] = event
+            recordTerminalKeyLocked(key)
+            if attempt.cancelTransport != nil {
+                recordCancelledTransportIdentityLocked(
+                    AttemptIdentity(key: key, queryId: event.queryId)
+                )
+            }
+            cleanup = makeCleanup(key: key, attempt: attempt, includesTransportCancellation: true)
+        } else {
+            cleanup = nil
+        }
+        lock.unlock()
+
+        guard let cleanup else {
+            return false
+        }
+        performCleanup(cleanup, unregisterPersistenceSource: true)
+        if publishEvent {
+            _ = MessageArchiveRequestFailureDispatcher.publish(event)
+        }
+        return true
+    }
+
+    func clearTerminal(key: ChatInitialBootstrapRequestKey) {
+        lock.lock()
+        terminalFailuresByKey.removeValue(forKey: key)
+        terminalFailureOrder.removeAll { $0 == key }
+        lock.unlock()
+    }
+
+    /// Drops a transport lease after Realm has already confirmed that the
+    /// initial archive requirement is satisfied. A cached final page is not a
+    /// cancellation; a still-running duplicate request is.
+    func discardConfirmedAttempt(key: ChatInitialBootstrapRequestKey) {
+        let cleanup: Cleanup?
+        lock.lock()
+        if let attempt = attemptsByKey.removeValue(forKey: key) {
+            finalReceivedOrder.removeAll { $0 == key }
+            let shouldCancelTransport = attempt.endPageEvent == nil
+            if shouldCancelTransport,
+               attempt.cancelTransport != nil {
+                recordCancelledTransportIdentityLocked(
+                    AttemptIdentity(key: key, queryId: attempt.lease.queryId)
+                )
+            }
+            cleanup = makeCleanup(
+                key: key,
+                attempt: attempt,
+                includesTransportCancellation: shouldCancelTransport
+            )
+        } else {
+            cleanup = nil
+        }
+        lock.unlock()
+        performCleanup(cleanup, unregisterPersistenceSource: true)
+    }
+
+    func expireDueAttemptsForTesting() {
+        expireDueAttempts()
+    }
+
+    func resetForTests() {
+        let cleanups: [Cleanup]
+        lock.lock()
+        cleanups = attemptsByKey.map { key, attempt in
+            makeCleanup(key: key, attempt: attempt, includesTransportCancellation: true)
+        }
+        attemptsByKey.removeAll()
+        terminalFailuresByKey.removeAll()
+        terminalFailureOrder.removeAll()
+        finalReceivedOrder.removeAll()
+        cancelledTransportIdentities.removeAll()
+        cancelledTransportIdentityOrder.removeAll()
+        lock.unlock()
+        cleanups.forEach {
+            performCleanup($0, unregisterPersistenceSource: true)
+        }
+    }
+
+    private func installLifetimeHandlers(
+        key: ChatInitialBootstrapRequestKey,
+        lease: Lease
+    ) {
+        let endToken = MessageArchiveEndPageDispatcher.register(
+            owner: key.owner,
+            queryId: lease.queryId,
+            delivery: .synchronous
+        ) { [weak self] event in
+            self?.recordEndPage(key: key, event: event)
+        }
+        let failureToken = MessageArchiveRequestFailureDispatcher.register(
+            owner: key.owner,
+            queryId: lease.queryId,
+            delivery: .synchronous
+        ) { [weak self] event in
+            _ = self?.recordFailure(key: key, event: event, publishEvent: true)
+        }
+        let timeoutWorkItem = DispatchWorkItem { [weak self] in
+            self?.expireAttemptIfDue(key: key, expectedQueryId: lease.queryId)
+        }
+
+        var didInstall = false
+        lock.lock()
+        if var attempt = attemptsByKey[key],
+           attempt.lease == lease {
+            attempt.endDispatcherToken = endToken
+            attempt.failureDispatcherToken = failureToken
+            attempt.timeoutWorkItem = timeoutWorkItem
+            attemptsByKey[key] = attempt
+            didInstall = true
+        }
+        lock.unlock()
+
+        guard didInstall else {
+            MessageArchiveEndPageDispatcher.unregister(endToken)
+            MessageArchiveRequestFailureDispatcher.unregister(failureToken)
+            timeoutWorkItem.cancel()
+            return
+        }
+        if automaticallySchedulesTimeouts {
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + max(0, lease.deadline.timeIntervalSince(now())),
+                execute: timeoutWorkItem
+            )
+        }
+    }
+
+    private func recordEndPage(
+        key: ChatInitialBootstrapRequestKey,
+        event: MessageArchiveEndPageEvent
+    ) {
+        var timeoutWorkItem: DispatchWorkItem?
+        var failureToken: MessageArchiveRequestFailureDispatcher.Token?
+        var evictedCleanup: Cleanup?
+        var didRecord = false
+        lock.lock()
+        if var attempt = attemptsByKey[key],
+           attempt.lease.queryId == event.queryId {
+            attempt.endPageEvent = event
+            timeoutWorkItem = attempt.timeoutWorkItem
+            failureToken = attempt.failureDispatcherToken
+            attempt.timeoutWorkItem = nil
+            attempt.endDispatcherToken = nil
+            attempt.failureDispatcherToken = nil
+            attemptsByKey[key] = attempt
+            finalReceivedOrder.removeAll { $0 == key }
+            finalReceivedOrder.append(key)
+            if finalReceivedOrder.count > Self.finalReceivedAttemptLimit {
+                let evictedKey = finalReceivedOrder.removeFirst()
+                if let evictedAttempt = attemptsByKey.removeValue(forKey: evictedKey) {
+                    evictedCleanup = makeCleanup(
+                        key: evictedKey,
+                        attempt: evictedAttempt,
+                        includesTransportCancellation: false
+                    )
+                }
+            }
+            didRecord = true
+        }
+        lock.unlock()
+        timeoutWorkItem?.cancel()
+        if let failureToken {
+            MessageArchiveRequestFailureDispatcher.unregister(failureToken)
+        }
+        performCleanup(evictedCleanup, unregisterPersistenceSource: true)
+        if didRecord {
+            // `publish` removes the first handler set before dispatching it to
+            // main. A controller attached in that interval lives in a new set;
+            // replay once so that it cannot miss the final page.
+            _ = MessageArchiveEndPageDispatcher.publish(event)
+        }
+    }
+
+    private func expireDueAttempts() {
+        lock.lock()
+        let due = attemptsByKey.compactMap { key, attempt in
+            attempt.endPageEvent == nil && attempt.lease.deadline <= now()
+                ? (key, attempt.lease.queryId)
+                : nil
+        }
+        lock.unlock()
+        due.forEach { key, queryId in
+            expireAttemptIfDue(key: key, expectedQueryId: queryId)
+        }
+    }
+
+    private func expireAttemptIfDue(
+        key: ChatInitialBootstrapRequestKey,
+        expectedQueryId: String? = nil
+    ) {
+        lock.lock()
+        let lease = attemptsByKey[key]?.lease
+        let endPageEvent = attemptsByKey[key]?.endPageEvent
+        let isDue = endPageEvent == nil && (lease.map { candidate in
+            (expectedQueryId == nil || candidate.queryId == expectedQueryId) &&
+                candidate.deadline <= now()
+        } ?? false)
+        lock.unlock()
+        guard isDue,
+              let lease else {
+            return
+        }
+        let event = MessageArchiveRequestFailureEvent(
+            owner: key.owner,
+            queryId: lease.queryId,
+            streamKind: .unknown,
+            reason: .timeout,
+            errorDescription: nil,
+            pendingQueryCount: 1
+        )
+        _ = recordFailure(key: key, event: event, publishEvent: true)
+    }
+
+    private func makeCleanup(
+        key: ChatInitialBootstrapRequestKey,
+        attempt: Attempt,
+        includesTransportCancellation: Bool
+    ) -> Cleanup {
+        Cleanup(
+            owner: key.owner,
+            queryId: attempt.lease.queryId,
+            timeoutWorkItem: attempt.timeoutWorkItem,
+            endDispatcherToken: attempt.endDispatcherToken,
+            failureDispatcherToken: attempt.failureDispatcherToken,
+            cancelTransport: includesTransportCancellation ? attempt.cancelTransport : nil
+        )
+    }
+
+    private func performCleanup(
+        _ cleanup: Cleanup?,
+        unregisterPersistenceSource: Bool
+    ) {
+        guard let cleanup else {
+            return
+        }
+        cleanup.timeoutWorkItem?.cancel()
+        if let token = cleanup.endDispatcherToken {
+            MessageArchiveEndPageDispatcher.unregister(token)
+        }
+        if let token = cleanup.failureDispatcherToken {
+            MessageArchiveRequestFailureDispatcher.unregister(token)
+        }
+        cleanup.cancelTransport?()
+        if unregisterPersistenceSource {
+            ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+                owner: cleanup.owner,
+                queryId: cleanup.queryId
+            )
+        }
+    }
+
+    private func recordTerminalKeyLocked(_ key: ChatInitialBootstrapRequestKey) {
+        terminalFailureOrder.removeAll { $0 == key }
+        terminalFailureOrder.append(key)
+        while terminalFailureOrder.count > Self.terminalTombstoneLimit {
+            let expiredKey = terminalFailureOrder.removeFirst()
+            terminalFailuresByKey.removeValue(forKey: expiredKey)
+        }
+    }
+
+    private func recordCancelledTransportIdentityLocked(_ identity: AttemptIdentity) {
+        cancelledTransportIdentities.insert(identity)
+        cancelledTransportIdentityOrder.removeAll { $0 == identity }
+        cancelledTransportIdentityOrder.append(identity)
+        while cancelledTransportIdentityOrder.count > Self.cancelledTransportIdentityLimit {
+            cancelledTransportIdentities.remove(cancelledTransportIdentityOrder.removeFirst())
+        }
+    }
+}
+
 extension ChatViewController {
+    internal var initialBootstrapRequestKey: ChatInitialBootstrapRequestKey {
+        ChatInitialBootstrapRequestKey(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType
+        )
+    }
+
     private var chatPresentationRefreshKey: String {
         "chat.presentation.\(owner).\(jid).\(conversationType.rawValue)"
     }
@@ -620,48 +1229,121 @@ extension ChatViewController {
     }
     
     internal func requestInitialBootstrapArchive(showFailureIfUnavailable: Bool = false) {
-        let callbacks = MessageArchiveManager.RequestCallbacks(
-            onMessage: nil,
-            onEndPage: { [weak self] queryId, state, first, last, count in
-                self?.didReceiveEndPage(
-                    queryId: queryId,
-                    state: state,
-                    first: first,
-                    last: last,
-                    count: count
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = self.initialBootstrapRequestKey
+        guard self.currentBootstrapRequiresArchiveConfirmation() else {
+            coordinator.discardConfirmedAttempt(key: key)
+            coordinator.clearTerminal(key: key)
+            self.performOnMain {
+                self.resetInitialBootstrapTracking()
+                _ = self.revealStaleLocalHistoryIfNeeded()
+                self.applyBootstrapLoadingState(
+                    self.currentBootstrapLoadingState(),
+                    forceRender: true
                 )
             }
-        )
-        let queryId = "MAM bootstrap history: \(NanoID.new(6))"
-        self.registerRemoteHistoryEndPageDispatcher(queryId: queryId)
+            return
+        }
+        let proposedQueryId = "MAM bootstrap history: \(NanoID.new(6))"
+        let owner = self.owner
+        let jid = self.jid
+        let conversationType = self.conversationType
+        let pageSize = self.initialBootstrapArchiveRequestPageSize
+        let acquisition = coordinator.acquire(
+            key: key,
+            proposedQueryId: proposedQueryId,
+            timeout: ChatInteractiveRemoteArchiveTimeoutPolicy.timeout
+        ) { [weak self] expectedQueryId, result, _ in
+            self?.handleSyncChatStartResult(
+                result,
+                expectedQueryId: expectedQueryId
+            )
+        }
 
+        let lease: ChatInitialBootstrapRequestCoordinator.Lease
+        switch acquisition {
+        case .terminal(let event):
+            self.beginInitialBootstrapTracking(queryId: event.queryId, timeout: nil)
+            self.handleInitialBootstrapRemoteArchiveFailure(
+                queryId: event.queryId,
+                reason: event.reason,
+                streamKind: event.streamKind,
+                errorDescription: event.errorDescription
+            )
+            return
+        case .start(let acquiredLease), .joined(let acquiredLease):
+            lease = acquiredLease
+        }
+
+        self.registerRemoteHistoryEndPageDispatcher(queryId: lease.queryId)
+        let cachedEndPage = coordinator.cachedEndPageEvent(
+            key: key,
+            queryId: lease.queryId
+        )
+        self.beginInitialBootstrapTracking(
+            queryId: lease.queryId,
+            timeout: cachedEndPage == nil
+                ? coordinator.remainingTimeout(key: key, queryId: lease.queryId)
+                : nil
+        )
+        self.applyBootstrapLoadingState(self.currentBootstrapLoadingState(), forceRender: true)
+        self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
+        self.replayCachedInitialBootstrapEndPageIfNeeded(
+            key: key,
+            queryId: lease.queryId,
+            immediateEvent: cachedEndPage
+        )
+
+        guard case .start = acquisition else {
+            return
+        }
+
+        let cancelTransport = {
+            if let account = AccountManager.shared.find(for: owner) {
+                account.action { user, _ in
+                    _ = user.mam.cancelPendingArchiveRequest(queryId: lease.queryId)
+                }
+            }
+            XMPPUIActionManager.shared.cancelPendingArchiveRequest(
+                owner: owner,
+                queryId: lease.queryId
+            )
+        }
         let startRequest: (
             _ stream: XMPPStream,
             _ mam: MessageArchiveManager?,
             _ messages: MessageManager?
-        ) -> Void = { [weak self] stream, mam, messages in
-            guard let self else { return }
+        ) -> Void = { stream, mam, messages in
+            guard coordinator.isActive(key: key, queryId: lease.queryId) else {
+                return
+            }
+            coordinator.preparePersistenceSource(
+                key: key,
+                queryId: lease.queryId,
+                messages: messages
+            )
+            guard coordinator.isActive(key: key, queryId: lease.queryId) else {
+                return
+            }
             let result = mam?.syncChat(
                 stream,
-                jid: self.jid,
-                conversationType: self.conversationType,
-                pageSize: self.initialBootstrapArchiveRequestPageSize,
-                queryId: queryId,
+                jid: jid,
+                conversationType: conversationType,
+                pageSize: pageSize,
+                queryId: lease.queryId,
                 callback: nil,
-                requestCallbacks: callbacks
+                requestCallbacks: .none
             ) ?? .noop
-            if case .bootstrapStarted(let activeQueryId) = result {
-                self.registerRemoteHistoryPersistenceSource(
-                    messages,
-                    queryId: activeQueryId
-                )
-            } else {
-                self.unregisterRemoteHistoryEndPageDispatcher(queryId: queryId)
-            }
-            self.handleSyncChatStartResult(result)
+            coordinator.resolveStart(
+                key: key,
+                queryId: lease.queryId,
+                result: result,
+                messages: messages,
+                cancelTransport: cancelTransport
+            )
         }
 
-        let account = AccountManager.shared.find(for: self.owner)
+        let account = AccountManager.shared.find(for: owner)
         let transport = ChatInitialBootstrapTransportPolicy.resolve(
             hasPrimaryAccount: account != nil,
             primaryStreamReady: account?.sendReadiness.snapshot.canFlushApplicationStanzas == true,
@@ -675,15 +1357,28 @@ extension ChatViewController {
             return
         }
 
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+        XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
             startRequest(stream, session.mam, session.messages)
         } fail: {
-            guard let account = AccountManager.shared.find(for: self.owner) else {
-                self.unregisterRemoteHistoryEndPageDispatcher(queryId: queryId)
-                if showFailureIfUnavailable {
-                    self.allowsBootstrapFailureFallback = true
-                    self.applyBootstrapLoadingState(self.currentBootstrapLoadingState())
-                }
+            guard coordinator.isActive(key: key, queryId: lease.queryId) else {
+                return
+            }
+            guard let account = AccountManager.shared.find(for: owner) else {
+                let event = MessageArchiveRequestFailureEvent(
+                    owner: owner,
+                    queryId: lease.queryId,
+                    streamKind: .uiAction,
+                    reason: .requestStartFailed,
+                    errorDescription: showFailureIfUnavailable
+                        ? "Archive transport unavailable during retry"
+                        : "Archive transport unavailable",
+                    pendingQueryCount: 1
+                )
+                _ = coordinator.recordFailure(
+                    key: key,
+                    event: event,
+                    publishEvent: true
+                )
                 return
             }
             account.action { user, stream in
@@ -694,23 +1389,78 @@ extension ChatViewController {
 
     internal func retryInitialBootstrapAfterFailure() {
         guard !self.isInitialBootstrapInFlight else { return }
+        ChatInitialBootstrapRequestCoordinator.shared.clearTerminal(
+            key: self.initialBootstrapRequestKey
+        )
         self.allowsBootstrapFailureFallback = false
         self.setBootstrapFailureVisible(false)
         self.applyBootstrapLoadingState(self.currentBootstrapLoadingState())
         self.requestInitialBootstrapArchive(showFailureIfUnavailable: true)
     }
 
-    internal func handleSyncChatStartResult(_ result: MessageArchiveManager.SyncChatStartResult) {
-        DispatchQueue.main.async {
+    internal func handleSyncChatStartResult(
+        _ result: MessageArchiveManager.SyncChatStartResult,
+        expectedQueryId: String
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.initialBootstrapQueryId == expectedQueryId,
+                  self.isInitialBootstrapInFlight else {
+                return
+            }
             switch result {
             case .bootstrapStarted(let queryId):
-                self.beginInitialBootstrapTracking(queryId: queryId)
+                guard queryId == expectedQueryId,
+                      ChatInitialBootstrapRequestCoordinator.shared.isActive(
+                        key: self.initialBootstrapRequestKey,
+                        queryId: queryId
+                      ) else {
+                    return
+                }
                 self.applyBootstrapLoadingState(self.currentBootstrapLoadingState(), forceRender: true)
                 self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
             case .gapRepairOnly, .noop:
                 self.resetInitialBootstrapTracking()
                 _ = self.revealStaleLocalHistoryIfNeeded()
             }
+        }
+    }
+
+    private func replayCachedInitialBootstrapEndPageIfNeeded(
+        key: ChatInitialBootstrapRequestKey,
+        queryId: String,
+        immediateEvent: MessageArchiveEndPageEvent?
+    ) {
+        if let immediateEvent {
+            self.didReceiveEndPage(
+                queryId: immediateEvent.queryId,
+                state: immediateEvent.state,
+                first: immediateEvent.first,
+                last: immediateEvent.last,
+                count: immediateEvent.count
+            )
+        }
+
+        // Dispatch once more to close the interval in which the one-shot
+        // dispatcher has removed its old handlers but has not yet run the
+        // coordinator callback that stores the final page.
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.initialBootstrapQueryId == queryId,
+                  !self.completedRemoteHistoryEndPageQueryIds.contains(queryId),
+                  let event = ChatInitialBootstrapRequestCoordinator.shared.cachedEndPageEvent(
+                    key: key,
+                    queryId: queryId
+                  ) else {
+                return
+            }
+            self.didReceiveEndPage(
+                queryId: event.queryId,
+                state: event.state,
+                first: event.first,
+                last: event.last,
+                count: event.count
+            )
         }
     }
 
