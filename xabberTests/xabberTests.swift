@@ -2086,26 +2086,76 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.selectedSearchResultId = nil
         controller.loadViewIfNeeded()
 
-        controller.applySearchResultsPanelState()
+        controller.searchResultNavigationState = .pending(index: 2, scrollDirection: .up)
+        controller.applySearchResultsPanelState(isLoadingContext: true)
 
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
-            .results(current: -1, total: 3, isLoadingContext: false)
+            .results(current: -1, total: 3, isLoadingContext: true)
         )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.counterLabel.text,
             ChatSearchLocalization.production().messageCount(3)
         )
+        XCTAssertNil(controller.searchPresentationState.committedResultIndex)
+        XCTAssertNil(controller.selectedSearchResultId)
 
-        controller.commitSearchResultNavigationPositioned(index: 0)
+        controller.searchResultNavigationState = .positioning(index: 2)
+        controller.applySearchResultsPanelState(isLoadingContext: true)
 
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
-            .results(current: 0, total: 3, isLoadingContext: false)
+            .results(current: -1, total: 3, isLoadingContext: true)
         )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.counterLabel.text,
-            ChatSearchLocalization.production().currentPosition(zeroBasedIndex: 0, total: 3)
+            ChatSearchLocalization.production().messageCount(3)
+        )
+        XCTAssertNil(controller.searchPresentationState.committedResultIndex)
+        XCTAssertNil(controller.selectedSearchResultId)
+
+        controller.searchResultNavigationState = .loadingContext(index: 2)
+        controller.applySearchResultsPanelState(isLoadingContext: true)
+
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: -1, total: 3, isLoadingContext: true)
+        )
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.counterLabel.text,
+            ChatSearchLocalization.production().messageCount(3)
+        )
+        XCTAssertNil(controller.searchPresentationState.committedResultIndex)
+        XCTAssertNil(controller.selectedSearchResultId)
+
+        controller.commitSearchResultNavigationPositioned(index: 2)
+
+        XCTAssertEqual(controller.searchPresentationState.committedResultIndex, 2)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchMessagesQueue[2].archivedId
+        )
+        XCTAssertEqual(controller.searchResultNavigationState, .idle)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: 2, total: 3, isLoadingContext: false)
+        )
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.counterLabel.text,
+            ChatSearchLocalization.production().currentPosition(zeroBasedIndex: 2, total: 3)
+        )
+
+        controller.searchMessagesQueue.removeLast()
+        controller.applySearchResultsPanelState()
+
+        XCTAssertEqual(controller.searchPresentationState.committedResultIndex, 2)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: -1, total: 2, isLoadingContext: false)
+        )
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.counterLabel.text,
+            ChatSearchLocalization.production().messageCount(2)
         )
     }
 
@@ -2238,11 +2288,35 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
 
         controller.cancelSearchResultNavigation()
 
+        XCTAssertEqual(controller.searchPresentationState.committedResultIndex, 1)
         XCTAssertEqual(controller.searchResultNavigationState, .idle)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchMessagesQueue[1].archivedId
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
             .results(current: 1, total: 3, isLoadingContext: false)
         )
+        XCTAssertFalse(controller.searchNavigationButtonsView.renderState.isBusy)
+
+        let lastCommittedIdentity = controller.selectedSearchResultId
+        controller.searchMessagesQueue.removeLast(2)
+        controller.searchResultNavigationState = .loadingContext(index: 0)
+        controller.xabberInputView.searchPanel.applyRenderState(
+            .results(current: 0, total: 1, isLoadingContext: true)
+        )
+
+        controller.cancelSearchResultNavigation()
+
+        XCTAssertEqual(controller.searchPresentationState.committedResultIndex, 1)
+        XCTAssertEqual(controller.searchResultNavigationState, .idle)
+        XCTAssertEqual(controller.selectedSearchResultId, lastCommittedIdentity)
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.renderState,
+            .results(current: -1, total: 1, isLoadingContext: false)
+        )
+        XCTAssertFalse(controller.searchNavigationButtonsView.renderState.isBusy)
     }
 
     func testFailedNavigationKeepsCommittedSelectionAndPanelCounter() {
@@ -2645,6 +2719,12 @@ final class ChatSearchArchiveGapRepairTests: XCTestCase {
         let controller = makeControllerWithSearchResults(count: 3, selectedIndex: 0)
         controller.loadViewIfNeeded()
         controller.inSearchMode.accept(true)
+        controller.searchPresentationState.reduce(
+            .resultsReceived(
+                count: 3,
+                generation: controller.searchPresentationState.generation
+            )
+        )
         controller.searchResultNavigationState = .pending(index: 2, scrollDirection: .up)
         controller.xabberInputView.searchPanel.applyRenderState(
             .results(current: 0, total: 3, isLoadingContext: true)
@@ -2655,12 +2735,17 @@ final class ChatSearchArchiveGapRepairTests: XCTestCase {
         XCTAssertTrue(waitForSearchTestCondition {
             controller.searchResultNavigationState == .loadingContext(index: 2)
         })
+        XCTAssertNil(controller.searchPresentationState.committedResultIndex)
         XCTAssertEqual(controller.searchMessagesQueue.count, 3)
-        XCTAssertEqual(controller.selectedSearchResultId, "archive-0")
+        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[0].archivedId)
         XCTAssertEqual(controller.searchResultNavigationState, .loadingContext(index: 2))
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
             .results(current: -1, total: 3, isLoadingContext: true)
+        )
+        XCTAssertEqual(
+            controller.xabberInputView.searchPanel.counterLabel.text,
+            ChatSearchLocalization.production().messageCount(3)
         )
     }
 

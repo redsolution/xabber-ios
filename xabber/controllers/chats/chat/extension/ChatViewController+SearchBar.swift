@@ -2536,17 +2536,12 @@ extension ChatViewController {
     }
 
     private func currentSearchResultIndexForPanel() -> Int {
-        if let committedIndex = searchPresentationState.committedResultIndex,
-           searchMessagesQueue.indices.contains(committedIndex) {
-            return committedIndex
+        guard let committedIndex = searchPresentationState.committedResultIndex,
+              searchMessagesQueue.indices.contains(committedIndex) else {
+            return -1
         }
 
-        if let positioningIndex = searchResultNavigationState.currentIndex,
-           searchMessagesQueue.indices.contains(positioningIndex) {
-            return positioningIndex
-        }
-
-        return -1
+        return committedIndex
     }
 
     private func setSearchResultsPanelContextLoading(_ isLoadingContext: Bool) {
