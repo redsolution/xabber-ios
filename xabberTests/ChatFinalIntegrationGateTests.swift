@@ -25,22 +25,19 @@ final class ChatFinalIntegrationGateTests: XCTestCase {
             ),
             encoding: .utf8
         )
-        let plist = try XCTUnwrap(
-            NSDictionary(contentsOf: root.appendingPathComponent("xabber/Info.plist"))
-        )
-        let orientations = try XCTUnwrap(
-            plist["UISupportedInterfaceOrientations"] as? [String]
-        )
 
         XCTAssertTrue(controllerSource.contains("override var shouldAutorotate: Bool"))
         XCTAssertTrue(controllerSource.contains("return true"))
-        XCTAssertEqual(
-            Set(orientations),
-            Set([
-                "UIInterfaceOrientationPortrait",
-                "UIInterfaceOrientationLandscapeLeft",
-                "UIInterfaceOrientationLandscapeRight"
-            ])
+        try assertValidIPhoneOrientations(
+            in: root.appendingPathComponent("xabber/Info.plist")
+        )
+    }
+
+    func testTrackedInfoPlistTemplateDeclaresPortraitAndBothLandscapeOrientations() throws {
+        let root = try XCTUnwrap(repositoryRoot())
+
+        try assertValidIPhoneOrientations(
+            in: root.appendingPathComponent("xabber/Info.plist.example")
         )
     }
 
@@ -395,6 +392,57 @@ final class ChatFinalIntegrationGateTests: XCTestCase {
             url.deleteLastPathComponent()
         }
         return nil
+    }
+
+    private func assertValidIPhoneOrientations(
+        in plistURL: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let plist = try XCTUnwrap(
+            NSDictionary(contentsOf: plistURL),
+            "Expected a readable plist at \(plistURL.path)",
+            file: file,
+            line: line
+        )
+        let orientations = try XCTUnwrap(
+            plist["UISupportedInterfaceOrientations"] as? [String],
+            "Expected UISupportedInterfaceOrientations in \(plistURL.lastPathComponent)",
+            file: file,
+            line: line
+        )
+        let expectedOrientations = Set([
+            "UIInterfaceOrientationPortrait",
+            "UIInterfaceOrientationLandscapeLeft",
+            "UIInterfaceOrientationLandscapeRight"
+        ])
+
+        XCTAssertEqual(
+            Set(orientations),
+            expectedOrientations,
+            "iPhone orientations must explicitly support portrait and both landscape sides",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            orientations.count,
+            expectedOrientations.count,
+            "iPhone orientation declarations must not contain duplicates",
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(
+            orientations.contains("UIInterfaceOrientationLandscape"),
+            "The generic landscape value is not a valid tracked contract",
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(
+            orientations.contains("UIInterfaceOrientationPortraitUpsideDown"),
+            "The iPhone contract must not enable upside-down portrait",
+            file: file,
+            line: line
+        )
     }
 
     private func productionChatSource(root: URL) throws -> String {
