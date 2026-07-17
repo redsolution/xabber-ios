@@ -109,6 +109,58 @@ final class TextMessageCellLayoutTests: XCTestCase {
         })
     }
 
+    func testZeroSizedVideoMetadataKeepsVideoAndBackplateTimeInsideContainer() {
+        assertVideoAndBackplateTimeStayInsideContainer(size: .zero)
+    }
+
+    func testSmallVideoMetadataKeepsBackplateTimeInsideContainer() {
+        assertVideoAndBackplateTimeStayInsideContainer(size: CGSize(width: 5, height: 5))
+    }
+
+    private func assertVideoAndBackplateTimeStayInsideContainer(
+        size: CGSize,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let message = makeVideoMessage(size: size)
+        let layout = ChatMessageLayoutCalculator.measure(
+            message,
+            context: ChatMessageLayoutContext(
+                width: 390,
+                contentSizeCategory: "UICTContentSizeCategoryL",
+                localeIdentifier: "en_US",
+                interfaceStyleRawValue: UIUserInterfaceStyle.light.rawValue,
+                messageStyle: "no_tail",
+                cornerRadius: "16",
+                avatarMode: "bottom"
+            )
+        )
+        let attributes = MessagesCollectionViewLayoutAttributes(
+            forCellWith: IndexPath(item: 0, section: 0)
+        )
+        layout.apply(to: attributes)
+        let cell = makeCell()
+
+        cell.layoutVideosView(with: attributes)
+        cell.layoutTimeMarker(with: attributes)
+
+        XCTAssertTrue(attributes.timeMarkerWithBackplate, file: file, line: line)
+        XCTAssertEqual(
+            ChatMessageFrameGeometryValidator.violations(
+                frames: [
+                    .init(name: "videos", frame: cell.videosView.frame),
+                    .init(name: "time", frame: cell.timeMarker.frame)
+                ],
+                containerBounds: CGRect(origin: .zero, size: attributes.messageContainerSize)
+            ),
+            [],
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThan(cell.videosView.frame.width, 0, file: file, line: line)
+        XCTAssertGreaterThan(cell.videosView.frame.height, 0, file: file, line: line)
+    }
+
     private func makeCell() -> TextMessageCell {
         TextMessageCell(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
     }
@@ -119,6 +171,65 @@ final class TextMessageCellLayoutTests: XCTestCase {
         attributes.messageLabelInsets = UIEdgeInsets(top: 3, left: 7, bottom: 5, right: 11)
         attributes.messageContainerSize = CGSize(width: 280, height: 680)
         return attributes
+    }
+
+    private func makeVideoMessage(size: CGSize) -> ChatViewController.Datasource {
+        ChatViewController.Datasource(
+            primary: "zero-sized-video",
+            jid: "romeo@example.com",
+            owner: "owner@example.com",
+            outgoing: false,
+            sender: Sender(id: "romeo@example.com", displayName: "Romeo"),
+            messageId: "zero-sized-video-message-id",
+            sentDate: Date(timeIntervalSince1970: 1_700_000_000),
+            editDate: nil,
+            kind: .attributedText(NSAttributedString(
+                string: "",
+                attributes: [.font: UIFont.preferredFont(forTextStyle: .body)]
+            )),
+            withAuthor: false,
+            withAvatar: false,
+            reservesAvatarSpace: false,
+            error: false,
+            errorType: "",
+            canPinMessage: true,
+            canEditMessage: true,
+            canDeleteMessage: true,
+            forwards: [],
+            isOutgoing: false,
+            isEdited: false,
+            groupchatAuthorRole: "",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isHasAttachedMessages: false,
+            isDownloaded: true,
+            state: .deliver,
+            searchString: nil,
+            errorMetadata: nil,
+            burnDate: -1,
+            afterburnInterval: -1,
+            archivedId: "zero-sized-video-archived",
+            queryIds: nil,
+            isRead: false,
+            selectedSearchResultId: nil,
+            isHadHistoryGap: false,
+            isFakeMessage: false,
+            images: [],
+            videos: [VideoAttachment(
+                primary: "video-reference",
+                url: nil,
+                size: size,
+                duration: 0,
+                downloaded: false
+            )],
+            files: [],
+            audios: [],
+            timeMarkerText: NSAttributedString(string: "12:00"),
+            indicator: .none,
+            avatarUrl: nil,
+            attributedAuthor: nil
+        )
     }
 
     private func snapshot(_ cell: TextMessageCell) -> [CGRect] {

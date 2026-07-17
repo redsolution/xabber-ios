@@ -39,6 +39,7 @@ enum ChatMessageLayoutCalculator {
         private let messageContainerMargin = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
         private let messageContainerPadding = UIEdgeInsets(top: 2, left: 2, bottom: 2, right: 2)
         private let messageLabelInsets = UIEdgeInsets(top: 0, left: 6, bottom: 2, right: 6)
+        private let timeMarkerInsets = UIEdgeInsets(top: 0, left: 0, bottom: 4, right: 0)
         private let messagePadding: CGFloat = 64
         private let inlineContainerSizePadding = UIEdgeInsets(top: 2, left: 2, bottom: 0, right: 2)
 
@@ -87,6 +88,11 @@ enum ChatMessageLayoutCalculator {
                 maxWidth: maxWidth
             )
             let forwards = attachmentLayouts(message.forwards)
+            let isImageMessage = message.images.isNotEmpty ||
+                message.videos.isNotEmpty || message.locations.isNotEmpty
+            let timeMarkerWithBackplate = isImageMessage &&
+                message.files.isEmpty && message.contacts.isEmpty && message.audios.isEmpty &&
+                messageText(message).isEmpty
 
             var paddedLabelSize: CGSize = .zero
             if labelSize != .zero {
@@ -137,12 +143,14 @@ enum ChatMessageLayoutCalculator {
             container.width = max(
                 container.width,
                 timeMarkerSize.width + CommonMessageSizeCalculator.tailWidth +
-                    messageContainerPadding.right + messageContainerMargin.right
+                    timeMarkerInsets.right + messageContainerPadding.right +
+                    messageContainerMargin.right + (timeMarkerWithBackplate ? 3 : 0)
             )
             container.height = max(
                 container.height,
-                timeMarkerSize.height + 4 + messageContainerPadding.bottom +
-                    messageContainerMargin.bottom + 2
+                timeMarkerSize.height + timeMarkerInsets.bottom +
+                    messageContainerPadding.bottom + messageContainerMargin.bottom +
+                    (timeMarkerWithBackplate ? 7 : 2)
             )
             let forwardsContainer = message.forwards.isEmpty
                 ? .zero
@@ -178,15 +186,13 @@ enum ChatMessageLayoutCalculator {
             layout.timeMarkerSize = timeMarkerSize
             layout.timeMarkerIndicator = message.indicator
             layout.timeMarkerRadius = 7
+            layout.timeMarkerInsets = timeMarkerInsets
             layout.inlineContainerSizePadding = inlineContainerSizePadding
             layout.avatarPosition = context.avatarMode == "top"
                 ? AvatarPosition(horizontal: .cellLeading, vertical: .messageTop)
                 : AvatarPosition(horizontal: .cellLeading, vertical: .cellBottom)
-            layout.isImageMessage = message.images.isNotEmpty ||
-                message.videos.isNotEmpty || message.locations.isNotEmpty
-            layout.timeMarkerWithBackplate = layout.isImageMessage &&
-                message.files.isEmpty && message.contacts.isEmpty && message.audios.isEmpty &&
-                messageText(message).isEmpty
+            layout.isImageMessage = isImageMessage
+            layout.timeMarkerWithBackplate = timeMarkerWithBackplate
             if message.reservesAvatarSpace {
                 layout.avatarSize = CGSize(square: 32)
             }
@@ -391,14 +397,22 @@ enum ChatMessageLayoutCalculator {
 
         private func inlineVideosSize(_ videos: [VideoAttachment], maxWidth: CGFloat) -> CGSize {
             guard videos.isNotEmpty else { return .zero }
-            var height: CGFloat = 0
-            for video in videos {
-                height += min(video.size.height, maxWidth) + 4
+            let defaultSide = max(8, min(128, maxWidth))
+            let sizes = videos.map { video -> CGSize in
+                guard video.size.width.isFinite,
+                      video.size.height.isFinite,
+                      video.size.width > 4,
+                      video.size.height > 4 else {
+                    return CGSize(square: defaultSide)
+                }
+                return CGSize(
+                    width: min(video.size.width, maxWidth),
+                    height: min(video.size.height, maxWidth)
+                )
             }
-            guard height > 0 else { return .zero }
             return CGSize(
-                width: min(videos.map { $0.size.width }.max() ?? maxWidth, maxWidth),
-                height: height
+                width: sizes.map(\.width).max() ?? defaultSide,
+                height: sizes.reduce(0) { $0 + $1.height + 4 }
             )
         }
 

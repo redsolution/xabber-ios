@@ -600,7 +600,9 @@ class MessageReferenceStorageItem: Object {
     var sizeInPx: CGSize? {
         get {
             guard let height = metadata?["height"] as? Int,
-                let width = metadata?["width"] as? Int else {
+                let width = metadata?["width"] as? Int,
+                height > 0,
+                width > 0 else {
                     return nil
             }
             return CGSize(width: width, height: height)

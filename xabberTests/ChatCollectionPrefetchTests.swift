@@ -282,6 +282,30 @@ final class ChatCollectionPrefetchTests: XCTestCase {
         XCTAssertEqual(ChatViewController.mapReferenceAttachments([uploaded]).images.first?.url, remoteURL)
     }
 
+    func testVideoReferencesUseDefaultFrameWhenDimensionsAreMissingOrZero() {
+        let missingDimensions = videoReference(primary: "missing-dimensions", dimensions: nil)
+        let zeroDimensions = videoReference(primary: "zero-dimensions", dimensions: .zero)
+        let negativeDimensions = videoReference(
+            primary: "negative-dimensions",
+            dimensions: CGSize(width: -1, height: -1)
+        )
+
+        XCTAssertNil(zeroDimensions.sizeInPx)
+        XCTAssertNil(negativeDimensions.sizeInPx)
+
+        let mapped = ChatViewController.mapReferenceAttachments([
+            missingDimensions,
+            zeroDimensions,
+            negativeDimensions
+        ])
+
+        XCTAssertEqual(mapped.videos.map(\.size), [
+            CGSize(square: 128),
+            CGSize(square: 128),
+            CGSize(square: 128)
+        ])
+    }
+
     func testStaleIndexPathsAfterDatasetShrinkDoNotPrefetchWrongContent() {
         let visibleURL = URL(string: "https://cdn.example.com/visible.jpg")!
         let prefetcher = FakeChatCollectionContentPrefetcher()
@@ -462,6 +486,20 @@ final class ChatCollectionPrefetchTests: XCTestCase {
         reference.metadata = ["media-type": "image/jpeg"]
         reference.localFileUrl = localURL
         reference.downloadUrl = remoteURL
+        return reference
+    }
+
+    private func videoReference(primary: String, dimensions: CGSize?) -> MessageReferenceStorageItem {
+        let reference = MessageReferenceStorageItem()
+        reference.primary = primary
+        reference.kind = .media
+        reference.mimeType = "video/quicktime"
+        var metadata: [String: Any] = ["media-type": "video/quicktime"]
+        if let dimensions {
+            metadata["width"] = Int(dimensions.width)
+            metadata["height"] = Int(dimensions.height)
+        }
+        reference.metadata = metadata
         return reference
     }
 }

@@ -428,7 +428,9 @@ struct ChatMessageReferenceSnapshot {
         self.decodedURLRaw = metadata?["decodedUrl"] as? String
         self.videoPreviewURLRaw = metadata?["thumbnail"] as? String
         if let height = metadata?["height"] as? Int,
-           let width = metadata?["width"] as? Int {
+           let width = metadata?["width"] as? Int,
+           height > 0,
+           width > 0 {
             self.sizeInPx = CGSize(width: width, height: height)
         } else {
             self.sizeInPx = nil
