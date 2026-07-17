@@ -127,7 +127,7 @@ let mimeTypes = [
     "avi": "video/x-msvideo"
 ]
 
-public enum MimeIconTypes: String {
+public enum MimeIconTypes: String, Hashable {
     case image = "image"
     case audio = "audio"
     case video = "video"

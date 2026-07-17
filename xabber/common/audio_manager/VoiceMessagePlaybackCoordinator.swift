@@ -20,6 +20,13 @@ enum VoiceMessagePlaybackState: Equatable {
         }
     }
 
+    var isPlaying: Bool {
+        if case .playing = self {
+            return true
+        }
+        return false
+    }
+
     var playbackProgress: Double {
         switch self {
         case .playing(let currentTime, let duration),
@@ -368,6 +375,10 @@ final class VoiceMessagePlaybackCoordinator {
 
     var hasActivePlayback: Bool {
         currentPlaybackSnapshot != nil
+    }
+
+    var activePlaybackClockCount: Int {
+        playbackTimer == nil ? 0 : 1
     }
 
     private func register(_ descriptor: VoiceMessageDescriptor) {

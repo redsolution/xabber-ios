@@ -162,7 +162,12 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
         self.forwardedIds.accept(Set<String>())
 //        self.forwardedIds.value.removeAll()
         self.isInSelectionMode.accept(false)
-        self.messagesCollectionView.reloadDataAndKeepOffset()
+        self.applyChatDatasource(
+            self.datasource,
+            mode: .fullReload(keepOffset: true),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
     }
     
     @objc
@@ -351,7 +356,7 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
                     return
                 }
                 try realm.write {
-                    instance.isDeleted = true
+                    instance.markDeleted()
                 }
                 modifiedIds.insert(primary)
                 (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?

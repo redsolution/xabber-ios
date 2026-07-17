@@ -72,20 +72,13 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
     }
 
     override var shouldAutorotate: Bool {
-        return false
+        return true
     }
 
     private var isFirstLayout: Bool = true
     
     internal var selectedIndexPathForMenu: IndexPath?
 
-//    internal var messageCollectionViewBottomInset: CGFloat = 50 {
-//        didSet {
-////            messagesCollectionView.contentInset.bottom = messageCollectionViewBottomInset
-////            messagesCollectionView.scrollIndicatorInsets.bottom = messageCollectionViewBottomInset
-//        }
-//    }
-    
     open var messageCollectionViewLastKBPosition: CGFloat = 0
     
     // MARK: - View Life Cycle
@@ -276,16 +269,11 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
     }
 
     public func addObservers() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(clearMemoryCache),
-            name: UIApplication.didReceiveMemoryWarningNotification,
-            object: nil
-        )
+        // ChatViewController owns the single memory-pressure policy.
     }
     
     public func removeObservers() {
-        NotificationCenter.default.removeObserver(self, name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        // Kept as a lifecycle hook for the existing controller contract.
     }
     
     @objc

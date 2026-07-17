@@ -21,7 +21,6 @@
 import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
-import Kingfisher
 import CoreMedia
 import CocoaLumberjack
 import RealmSwift
@@ -29,21 +28,43 @@ import RealmSwift
 class InlineImagesGridView: InlineAttachmentView {
     
     class InlineMessageImageView: UIImageView {
+        enum ThumbnailPresentationState: Equatable {
+            case loading
+            case ready
+            case unavailable
+        }
         
         var primary: String
-        var url: URL
+        var url: URL?
+        var representedRequest: InlineAttachmentRepresentedRequest
+        var representedThumbnailRequest: ChatThumbnailRequest?
+        var representedThumbnailConsumer: ChatThumbnailConsumer?
+        var thumbnailSubscription: ChatThumbnailSubscription?
+        let visibleConsumerID = UUID()
+        private(set) var thumbnailPresentationState: ThumbnailPresentationState = .loading
         var isSensitive: Bool {
             didSet {
                 updateSensitiveAppearance()
             }
         }
         
-        private let sensitiveOverlay = SensitiveMediaOverlayView()
+        private var sensitiveOverlay: SensitiveMediaOverlayView?
+
+        var hasSensitiveOverlay: Bool {
+            sensitiveOverlay != nil
+        }
         
-        init(frame: CGRect, primary: String, url: URL, isSensitive: Bool) {
+        init(
+            frame: CGRect,
+            primary: String,
+            url: URL?,
+            isSensitive: Bool,
+            representedRequest: InlineAttachmentRepresentedRequest
+        ) {
             self.primary = primary
             self.url = url
             self.isSensitive = isSensitive
+            self.representedRequest = representedRequest
             super.init(frame: frame)
             setup()
             updateSensitiveAppearance()
@@ -55,31 +76,83 @@ class InlineImagesGridView: InlineAttachmentView {
         
         private func setup() {
             self.layer.masksToBounds = true
-            addSubview(sensitiveOverlay)
-            sensitiveOverlay.frame = bounds
-            sensitiveOverlay.isUserInteractionEnabled = false
+            showLoadingPlaceholder()
+        }
+
+        func showLoadingPlaceholder() {
+            thumbnailPresentationState = .loading
+            contentMode = .center
+            tintColor = .tertiaryLabel
+            backgroundColor = .secondarySystemBackground
+            image = UIImage(systemName: "photo")
+            updateSensitiveAppearance()
+        }
+
+        func showThumbnail(_ image: UIImage) {
+            thumbnailPresentationState = .ready
+            contentMode = .scaleAspectFill
+            backgroundColor = .clear
+            self.image = image
+            updateSensitiveAppearance()
+        }
+
+        func showUnavailablePlaceholder() {
+            thumbnailPresentationState = .unavailable
+            contentMode = .center
+            tintColor = .secondaryLabel
+            backgroundColor = .secondarySystemBackground
+            image = UIImage(systemName: "photo.badge.exclamationmark")
+                ?? UIImage(systemName: "photo")
+            updateSensitiveAppearance()
         }
         
         private func updateSensitiveAppearance() {
-            sensitiveOverlay.isHidden = !isSensitive
+            if isSensitive {
+                let overlay = sensitiveOverlay ?? SensitiveMediaOverlayView()
+                if sensitiveOverlay == nil {
+                    sensitiveOverlay = overlay
+                    overlay.isUserInteractionEnabled = false
+                    addSubview(overlay)
+                }
+                overlay.frame = bounds
+                bringSubviewToFront(overlay)
+            } else {
+                sensitiveOverlay?.removeFromSuperview()
+                sensitiveOverlay = nil
+            }
+        }
+
+        func cancelThumbnailBinding() {
+            thumbnailSubscription?.cancel()
+            thumbnailSubscription = nil
+            representedThumbnailRequest = nil
+            representedThumbnailConsumer = nil
         }
 
         override func layoutSubviews() {
             super.layoutSubviews()
-            sensitiveOverlay.frame = bounds
+            sensitiveOverlay?.frame = bounds
         }
         
     }
     
     var views: [InlineMessageImageView] = []
+    var thumbnailPipeline: ChatThumbnailServing = ChatMediaThumbnailPipeline.shared
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        refreshThumbnailBindings()
+    }
 
     func resetState() {
         views.forEach {
-            $0.kf.cancelDownloadTask()
+            $0.cancelThumbnailBinding()
+            $0.image = nil
             $0.removeFromSuperview()
         }
         views = []
         contentViews.removeAll()
+        grid.removeAll()
     }
 
     public func prepareGrid(_ attachments: [ImageAttachment]) -> [CGRect] {
@@ -168,90 +241,129 @@ class InlineImagesGridView: InlineAttachmentView {
         return rects
     }
     
-    func configure(_ attachments: [ImageAttachment]) {
+    func configure(
+        _ attachments: [ImageAttachment],
+        representedBy containerPrimary: String = ""
+    ) {
 //        subviews.forEach { $0.removeFromSuperview() }
         resetState()
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
-            if let url = attachments[index].url {
-                let view = InlineMessageImageView(frame: rect, primary: attachments[index].primary, url: url, isSensitive: attachments[index].isSensitive && !attachments[index].isSensitiveRevealed)
-                self.contentViews.append(view)
-                view.contentMode = .scaleAspectFill
-//                view.layer.masksToBounds = true
-//                view.layer.borderColor = UIColor.black.withAlphaComponent(0.1).cgColor
-//                view.layer.borderWidth = 1
-//                view.layer.cornerRadius = 7
-//                view.layer.masksToBounds = true
-                view.kf.setImage(
-                    with: url,
-                    placeholder: nil,
-                    options: [
-                        .alsoPrefetchToMemory,
-                        .waitForCache,
-                        .backgroundDecode,
-                    ]) { (result) in
-                        switch result {
-                            case .success(_):
-                                break
-                            case .failure(let error):
-                                print(error.errorCode)
-                        }
-                    }
-                
-                self.addSubview(view)
-                self.views.append(view)
-            } else {
-                
-            }
-            
+            let item = attachments[index]
+            let request = InlineAttachmentRepresentedRequest(
+                containerPrimary: containerPrimary,
+                referencePrimary: item.primary,
+                resourceIdentity: item.url?.absoluteString ?? "unavailable:\(item.primary)"
+            )
+            let view = InlineMessageImageView(
+                frame: rect,
+                primary: item.primary,
+                url: item.url,
+                isSensitive: item.isSensitive && !item.isSensitiveRevealed,
+                representedRequest: request
+            )
+            self.contentViews.append(view)
+            self.addSubview(view)
+            self.views.append(view)
         }
-        
+        refreshThumbnailBindings()
     }
 
-    func updateContent(_ attachments: [ImageAttachment]) {
+    func updateContent(
+        _ attachments: [ImageAttachment],
+        representedBy containerPrimary: String = ""
+    ) {
         if attachments.isEmpty {
-            self.views.forEach { $0.removeFromSuperview() }
-            self.views = []
-            self.contentViews.removeAll()
+            resetState()
             return
         }
 
         guard self.views.map(\.primary) == attachments.map(\.primary),
               self.views.count == attachments.count else {
-            configure(attachments)
+            configure(attachments, representedBy: containerPrimary)
             return
         }
 
         prepareGrid(attachments).enumerated().forEach { index, rect in
             let item = attachments[index]
-            guard let url = item.url else { return }
             let view = self.views[index]
+            let request = InlineAttachmentRepresentedRequest(
+                containerPrimary: containerPrimary,
+                referencePrimary: item.primary,
+                resourceIdentity: item.url?.absoluteString ?? "unavailable:\(item.primary)"
+            )
             view.frame = rect
             view.primary = item.primary
             view.isSensitive = item.isSensitive && !item.isSensitiveRevealed
-            if view.url != url {
-                view.url = url
-                view.kf.setImage(
-                    with: url,
-                    placeholder: nil,
-                    options: [
-                        .alsoPrefetchToMemory,
-                        .waitForCache,
-                        .backgroundDecode,
-                    ]
-                )
+            view.representedRequest = request
+            view.url = item.url
+        }
+        refreshThumbnailBindings()
+    }
+
+    func refreshThumbnailBindings() {
+        let scale = Double(window?.screen.scale ?? UIScreen.main.scale)
+        let style = ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
+        views.forEach { view in
+            guard view.frame.width > 0, view.frame.height > 0 else { return }
+            guard let url = view.url else {
+                view.cancelThumbnailBinding()
+                view.showUnavailablePlaceholder()
+                return
+            }
+            let request = ChatThumbnailRequest(
+                url: url,
+                displaySize: ChatCollectionPrefetchSize(
+                    width: Double(view.frame.width),
+                    height: Double(view.frame.height)
+                ),
+                scale: scale,
+                traitStyle: style
+            )
+            let consumer = ChatThumbnailConsumer(
+                identity: ChatCollectionPrefetchIdentity(
+                    kind: .image,
+                    messagePrimary: view.representedRequest.containerPrimary,
+                    referencePrimary: view.primary
+                ),
+                role: .visible(view.visibleConsumerID)
+            )
+            guard view.representedThumbnailRequest != request ||
+                    view.representedThumbnailConsumer != consumer else {
+                return
+            }
+
+            view.cancelThumbnailBinding()
+            view.showLoadingPlaceholder()
+            view.representedThumbnailRequest = request
+            view.representedThumbnailConsumer = consumer
+            view.thumbnailSubscription = thumbnailPipeline.acquire(
+                request,
+                consumer: consumer
+            ) { [weak view] result in
+                guard let view,
+                      view.representedThumbnailRequest == request,
+                      view.representedThumbnailConsumer == consumer else {
+                    return
+                }
+                switch result {
+                case .success(let delivery):
+                    view.showThumbnail(delivery.image)
+                case .failure:
+                    view.showUnavailablePlaceholder()
+                }
             }
         }
     }
     
     func handleTouch(at point: CGPoint, callback: (([URL], URL, String, Bool) -> Void)?) -> Bool {
         var isMyTouch: Bool = false
-        let urls = views.compactMap { $0.url }
+        let urls = views.compactMap(\.url)
         views.forEach {
             item in
             if !isMyTouch {
-                if item.frame.contains(point) {
-                    callback?(urls, item.url, item.primary, item.isSensitive)
+                if item.frame.contains(point), let url = item.url {
+                    callback?(urls, url, item.primary, item.isSensitive)
                     isMyTouch = true
                 }
             }

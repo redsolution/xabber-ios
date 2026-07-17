@@ -10,6 +10,7 @@ import XCTest
 import UIKit
 @testable import xabber
 
+@MainActor
 final class FloatingBottomBarViewTests: XCTestCase {
     func testDefaultEffectUsesNativeGlassWhenAvailable() throws {
         let effect = XabberGlassStyle.makeEffect(role: .bar, interactive: true)
@@ -93,6 +94,155 @@ final class FloatingBottomBarViewTests: XCTestCase {
         XCTAssertEqual(view.centerButton.layer.borderWidth, 0, accuracy: 0.001)
         XCTAssertEqual(view.centerButton.layer.shadowOpacity, 0, accuracy: 0.001)
     }
+
+    func testHidingLeftActionKeepsCenterFrameUnchanged() {
+        let view = makeLaidOutView()
+        let originalCenterFrame = view.centerEffectView.frame
+
+        view.applyActionPresentation(.init(isLeftVisible: false, isCenterVisible: true))
+        view.layoutIfNeeded()
+
+        XCTAssertTrue(view.leftButton.isHidden)
+        XCTAssertEqual(view.centerEffectView.frame, originalCenterFrame)
+    }
+
+    func testHidingCenterActionKeepsLeftFrameUnchanged() {
+        let view = makeLaidOutView()
+        let originalLeftFrame = view.leftButton.frame
+
+        view.applyActionPresentation(.init(isLeftVisible: true, isCenterVisible: false))
+        view.layoutIfNeeded()
+
+        XCTAssertTrue(view.centerEffectView.isHidden)
+        XCTAssertEqual(view.leftButton.frame, originalLeftFrame)
+    }
+
+    func testHidingCenterActionHidesEntireEffectSurface() {
+        let view = makeLaidOutView()
+
+        view.applyActionPresentation(.init(isLeftVisible: true, isCenterVisible: false))
+
+        XCTAssertTrue(view.centerEffectView.isHidden)
+        XCTAssertTrue(view.centerButton.isHidden)
+        XCTAssertFalse(view.centerEffectView.isUserInteractionEnabled)
+        XCTAssertFalse(view.centerButton.isUserInteractionEnabled)
+    }
+
+    func testVisibleActionIsEnabledAndAccessible() {
+        let view = makeLaidOutView()
+
+        view.applyActionPresentation(.init(isLeftVisible: true, isCenterVisible: true))
+
+        XCTAssertFalse(view.leftButton.isHidden)
+        XCTAssertTrue(view.leftButton.isEnabled)
+        XCTAssertTrue(view.leftButton.isUserInteractionEnabled)
+        XCTAssertTrue(view.leftButton.isAccessibilityElement)
+        XCTAssertFalse(view.leftButton.accessibilityElementsHidden)
+        XCTAssertFalse(view.centerEffectView.isHidden)
+        XCTAssertTrue(view.centerEffectView.isUserInteractionEnabled)
+        XCTAssertFalse(view.centerButton.isHidden)
+        XCTAssertTrue(view.centerButton.isEnabled)
+        XCTAssertTrue(view.centerButton.isUserInteractionEnabled)
+        XCTAssertTrue(view.centerButton.isAccessibilityElement)
+        XCTAssertFalse(view.centerButton.accessibilityElementsHidden)
+    }
+
+    func testHiddenActionIsDisabledAndAbsentFromAccessibility() {
+        let view = makeLaidOutView()
+
+        view.applyActionPresentation(.init(isLeftVisible: false, isCenterVisible: false))
+
+        XCTAssertTrue(view.leftButton.isHidden)
+        XCTAssertFalse(view.leftButton.isEnabled)
+        XCTAssertFalse(view.leftButton.isUserInteractionEnabled)
+        XCTAssertFalse(view.leftButton.isAccessibilityElement)
+        XCTAssertTrue(view.leftButton.accessibilityElementsHidden)
+        XCTAssertTrue(view.centerEffectView.isHidden)
+        XCTAssertFalse(view.centerEffectView.isUserInteractionEnabled)
+        XCTAssertTrue(view.centerEffectView.accessibilityElementsHidden)
+        XCTAssertTrue(view.centerButton.isHidden)
+        XCTAssertFalse(view.centerButton.isEnabled)
+        XCTAssertFalse(view.centerButton.isUserInteractionEnabled)
+        XCTAssertFalse(view.centerButton.isAccessibilityElement)
+        XCTAssertTrue(view.centerButton.accessibilityElementsHidden)
+    }
+
+    func testHiddenLeftSlotPassesTouchesThrough() {
+        let view = makeLaidOutView()
+        let leftPoint = view.convert(
+            CGPoint(x: view.leftButton.bounds.midX, y: view.leftButton.bounds.midY),
+            from: view.leftButton
+        )
+
+        view.applyActionPresentation(.init(isLeftVisible: false, isCenterVisible: true))
+
+        XCTAssertNil(view.hitTest(leftPoint, with: nil))
+    }
+
+    func testHiddenCenterSlotPassesTouchesThrough() {
+        let view = makeLaidOutView()
+        let centerPoint = view.convert(
+            CGPoint(x: view.centerEffectView.bounds.midX, y: view.centerEffectView.bounds.midY),
+            from: view.centerEffectView
+        )
+
+        view.applyActionPresentation(.init(isLeftVisible: true, isCenterVisible: false))
+
+        XCTAssertNil(view.hitTest(centerPoint, with: nil))
+    }
+
+    func testFullyHiddenActionContainerPassesTouchesThrough() {
+        let view = makeLaidOutView()
+        let leftPoint = view.convert(
+            CGPoint(x: view.leftButton.bounds.midX, y: view.leftButton.bounds.midY),
+            from: view.leftButton
+        )
+        let centerPoint = view.convert(
+            CGPoint(x: view.centerEffectView.bounds.midX, y: view.centerEffectView.bounds.midY),
+            from: view.centerEffectView
+        )
+
+        view.applyActionPresentation(.init(isLeftVisible: false, isCenterVisible: false))
+
+        XCTAssertNil(view.hitTest(leftPoint, with: nil))
+        XCTAssertNil(view.hitTest(centerPoint, with: nil))
+    }
+
+    func testRestoringActionReusesOriginalFrameAndAccessibilityIdentifier() {
+        let view = makeLaidOutView()
+        view.leftButton.accessibilityIdentifier = "test_left_action"
+        view.leftButton.accessibilityLabel = "Filter"
+        view.leftButton.accessibilityValue = "On"
+        view.setCenterButtonTitle(
+            "Action",
+            accessibilityIdentifier: "test_center_action",
+            accessibilityLabel: "Action"
+        )
+        let originalLeftFrame = view.leftButton.frame
+        let originalCenterFrame = view.centerEffectView.frame
+
+        view.applyActionPresentation(.init(isLeftVisible: false, isCenterVisible: false))
+        view.applyActionPresentation(.init(isLeftVisible: true, isCenterVisible: true))
+        view.layoutIfNeeded()
+
+        XCTAssertEqual(view.leftButton.frame, originalLeftFrame)
+        XCTAssertEqual(view.centerEffectView.frame, originalCenterFrame)
+        XCTAssertEqual(view.leftButton.accessibilityIdentifier, "test_left_action")
+        XCTAssertEqual(view.leftButton.accessibilityLabel, "Filter")
+        XCTAssertEqual(view.leftButton.accessibilityValue, "On")
+        XCTAssertEqual(view.centerButton.accessibilityIdentifier, "test_center_action")
+        XCTAssertEqual(view.centerButton.accessibilityLabel, "Action")
+    }
+
+    private func makeLaidOutView() -> FloatingBottomBarView {
+        let view = FloatingBottomBarView(frame: CGRect(x: 0, y: 0, width: 360, height: 44))
+
+        view.layoutIfNeeded()
+        view.centerEffectView.layoutIfNeeded()
+        view.centerEffectView.contentView.layoutIfNeeded()
+
+        return view
+    }
 }
 
 @MainActor
@@ -113,6 +263,116 @@ final class BottomSearchHostViewTests: XCTestCase {
         view.setExpanded(true, animated: false)
 
         XCTAssertTrue(view.isExpanded)
+        XCTAssertEqual(view.transitionPhase, .expanded)
+        XCTAssertTrue(view.hidesUnderlyingActions)
+        XCTAssertTrue(view.collapsedButton.isHidden)
+        XCTAssertFalse(view.surfaceView.isHidden)
+    }
+
+    func testAnimatedExpansionStartsAtCollapsedButtonGeometryWithoutHidingOutgoingButton() throws {
+        let view = makeLaidOutSearchView()
+        view.animatorFactory = longRunningAnimator
+        let collapsedFrame = view.collapsedButton.frame
+
+        view.setExpanded(true, animated: true)
+        let animator = try XCTUnwrap(view.transitionAnimator)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0
+        defer { animator.stopAnimation(true) }
+
+        XCTAssertTrue(view.isExpanded)
+        XCTAssertEqual(view.transitionPhase, .expanding)
+        XCTAssertFalse(view.hidesUnderlyingActions)
+        XCTAssertEqual(view.transitionGeometry?.startSurfaceFrame, collapsedFrame)
+        XCTAssertEqual(view.currentInteractiveSurfaceFrame, collapsedFrame)
+        XCTAssertFalse(view.collapsedButton.isHidden)
+        XCTAssertFalse(view.surfaceView.isHidden)
+    }
+
+    func testAnimatedExpansionEndsAtFullWidthSurfaceGeometry() throws {
+        let view = makeLaidOutSearchView()
+        view.animatorFactory = longRunningAnimator
+        let expandedFrame = view.surfaceView.frame
+
+        view.setExpanded(true, animated: true)
+        try finishTransition(in: view, at: .end)
+
+        XCTAssertEqual(view.transitionPhase, .expanded)
+        XCTAssertTrue(view.hidesUnderlyingActions)
+        XCTAssertEqual(view.currentInteractiveSurfaceFrame, expandedFrame)
+        XCTAssertEqual(view.surfaceView.transform, .identity)
+        XCTAssertTrue(view.collapsedButton.isHidden)
+        XCTAssertFalse(view.surfaceView.isHidden)
+    }
+
+    func testAnimatedExpansionKeepsOneContinuousMorphSurfaceVisible() throws {
+        let view = makeLaidOutSearchView()
+        view.animatorFactory = longRunningAnimator
+
+        view.setExpanded(true, animated: true)
+        let animator = try XCTUnwrap(view.transitionAnimator)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.5
+
+        XCTAssertFalse(view.surfaceView.isHidden)
+        XCTAssertGreaterThan(view.currentInteractiveSurfaceFrame.width, BottomSearchHostView.Metrics.buttonSize)
+        XCTAssertLessThan(view.currentInteractiveSurfaceFrame.width, view.surfaceView.bounds.width)
+
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: .end)
+        XCTAssertFalse(view.surfaceView.isHidden)
+        XCTAssertEqual(view.transitionPhase, .expanded)
+    }
+
+    func testExpandThenCollapseReversesActiveAnimatorAndSettlesCollapsed() throws {
+        let view = makeLaidOutSearchView()
+        view.animatorFactory = longRunningAnimator
+
+        view.setExpanded(true, animated: true)
+        let animator = try XCTUnwrap(view.transitionAnimator)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.4
+
+        view.setExpanded(false, animated: true)
+        animator.pauseAnimation()
+
+        XCTAssertTrue(animator.isReversed)
+        XCTAssertEqual(view.transitionPhase, .collapsing)
+        XCTAssertFalse(view.hidesUnderlyingActions)
+
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: .start)
+
+        XCTAssertFalse(view.isExpanded)
+        XCTAssertEqual(view.transitionPhase, .collapsed)
+        XCTAssertFalse(view.hidesUnderlyingActions)
+        XCTAssertFalse(view.collapsedButton.isHidden)
+        XCTAssertTrue(view.surfaceView.isHidden)
+    }
+
+    func testCollapseThenExpandReversesActiveAnimatorAndSettlesExpanded() throws {
+        let view = makeLaidOutSearchView()
+        view.animatorFactory = longRunningAnimator
+        view.setExpanded(true, animated: false)
+
+        view.setExpanded(false, animated: true)
+        let animator = try XCTUnwrap(view.transitionAnimator)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.4
+
+        view.setExpanded(true, animated: true)
+        animator.pauseAnimation()
+
+        XCTAssertTrue(animator.isReversed)
+        XCTAssertEqual(view.transitionPhase, .expanding)
+        XCTAssertFalse(view.hidesUnderlyingActions)
+
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: .start)
+
+        XCTAssertTrue(view.isExpanded)
+        XCTAssertEqual(view.transitionPhase, .expanded)
+        XCTAssertTrue(view.hidesUnderlyingActions)
         XCTAssertTrue(view.collapsedButton.isHidden)
         XCTAssertFalse(view.surfaceView.isHidden)
     }
@@ -162,6 +422,29 @@ final class BottomSearchHostViewTests: XCTestCase {
         XCTAssertNil(view.hitTest(outsideSurfacePoint, with: nil))
     }
 
+    func testTransitionHitTestingFollowsCurrentMorphGeometry() throws {
+        let view = makeLaidOutSearchView()
+        view.animatorFactory = longRunningAnimator
+
+        view.setExpanded(true, animated: true)
+        let animator = try XCTUnwrap(view.transitionAnimator)
+        animator.pauseAnimation()
+        animator.fractionComplete = 0.25
+        defer { animator.stopAnimation(true) }
+
+        let interactiveFrame = view.currentInteractiveSurfaceFrame
+        let interactivePoint = CGPoint(x: interactiveFrame.midX, y: interactiveFrame.midY)
+        let actionPoint = CGPoint(
+            x: BottomSearchHostView.Metrics.horizontalInset,
+            y: interactiveFrame.midY
+        )
+
+        let surfaceHit = view.hitTest(interactivePoint, with: nil)
+        XCTAssertTrue(surfaceHit === view.surfaceView || surfaceHit?.isDescendant(of: view.surfaceView) == true)
+        XCTAssertFalse(interactiveFrame.contains(actionPoint))
+        XCTAssertNil(view.hitTest(actionPoint, with: nil))
+    }
+
     func testExpandedSearchTextFieldUsesTransparentChrome() throws {
         let view = BottomSearchHostView(frame: CGRect(x: 0, y: 0, width: 393, height: 44))
 
@@ -182,20 +465,104 @@ final class BottomSearchHostViewTests: XCTestCase {
         XCTAssertNil(view.searchTextField.layer.shadowColor)
     }
 
-    func testQueryChangesNotifyOwnerAndCancelClearsQuery() {
+    func testQueryChangesNotifyOwnerAndCancelClearsQueryWithOneResetCallback() {
         let view = BottomSearchHostView(frame: .zero)
         var observedQueries: [String?] = []
-        var didCancel = false
+        var cancelCount = 0
         view.onQueryChanged = { observedQueries.append($0) }
-        view.onCancel = { didCancel = true }
+        view.onCancel = { cancelCount += 1 }
 
         view.setExpanded(true, animated: false)
         view.setQuery("romeo", notify: true)
         view.cancelButton.sendActions(for: .touchUpInside)
 
-        XCTAssertEqual(observedQueries.compactMap { $0 }, ["romeo", ""])
-        XCTAssertTrue(didCancel)
+        XCTAssertEqual(observedQueries.compactMap { $0 }, ["romeo"])
+        XCTAssertEqual(cancelCount, 1)
         XCTAssertFalse(view.isExpanded)
         XCTAssertEqual(view.query, "")
+    }
+
+    func testReduceMotionSettlesAtRequestedEndpointAndCallsPhaseObserverOnce() {
+        let view = makeLaidOutSearchView()
+        var observedPhases: [BottomSearchHostView.TransitionPhase] = []
+        view.reduceMotionEnabledProvider = { true }
+        view.onTransitionPhaseChanged = { observedPhases.append($0) }
+
+        view.setExpanded(true, animated: true)
+
+        XCTAssertEqual(view.transitionPhase, .expanded)
+        XCTAssertNil(view.transitionAnimator)
+        XCTAssertEqual(observedPhases, [.expanded])
+
+        view.setExpanded(false, animated: true)
+
+        XCTAssertEqual(view.transitionPhase, .collapsed)
+        XCTAssertNil(view.transitionAnimator)
+        XCTAssertEqual(observedPhases, [.expanded, .collapsed])
+    }
+
+    func testSameValueRequestIsIdempotent() {
+        let view = makeLaidOutSearchView()
+        var observedPhases: [BottomSearchHostView.TransitionPhase] = []
+        view.onTransitionPhaseChanged = { observedPhases.append($0) }
+
+        view.setExpanded(false, animated: true)
+        XCTAssertTrue(observedPhases.isEmpty)
+        XCTAssertNil(view.transitionAnimator)
+
+        view.setExpanded(true, animated: false)
+        view.setExpanded(true, animated: true)
+
+        XCTAssertEqual(observedPhases, [.expanded])
+        XCTAssertNil(view.transitionAnimator)
+    }
+
+    func testTransitionAndEndpointsExposeOnlyCurrentAccessibilitySurface() throws {
+        let view = makeLaidOutSearchView()
+        view.animatorFactory = longRunningAnimator
+
+        XCTAssertFalse(view.collapsedButton.accessibilityElementsHidden)
+        XCTAssertTrue(view.surfaceView.accessibilityElementsHidden)
+
+        view.setExpanded(true, animated: true)
+        let animator = try XCTUnwrap(view.transitionAnimator)
+        animator.pauseAnimation()
+
+        XCTAssertTrue(view.collapsedButton.accessibilityElementsHidden)
+        XCTAssertFalse(view.surfaceView.accessibilityElementsHidden)
+
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: .end)
+
+        XCTAssertTrue(view.collapsedButton.accessibilityElementsHidden)
+        XCTAssertFalse(view.surfaceView.accessibilityElementsHidden)
+    }
+
+    private func makeLaidOutSearchView() -> BottomSearchHostView {
+        let view = BottomSearchHostView(frame: CGRect(x: 0, y: 0, width: 393, height: 44))
+
+        view.layoutIfNeeded()
+        view.surfaceView.layoutIfNeeded()
+        view.surfaceView.contentView.layoutIfNeeded()
+
+        return view
+    }
+
+    private func longRunningAnimator(
+        duration: TimeInterval,
+        curve: UIView.AnimationCurve
+    ) -> UIViewPropertyAnimator {
+        UIViewPropertyAnimator(duration: max(duration, 10), curve: curve)
+    }
+
+    private func finishTransition(
+        in view: BottomSearchHostView,
+        at position: UIViewAnimatingPosition
+    ) throws {
+        let animator = try XCTUnwrap(view.transitionAnimator)
+
+        animator.pauseAnimation()
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: position)
     }
 }

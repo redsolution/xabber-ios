@@ -52,7 +52,7 @@ enum ChatAnchorFetchPolicy {
     static func initialPlan(
         for anchor: ChatMessageAnchorRef,
         pageSize: Int
-    ) -> ChatAnchorRemoteFetchPlan {
+    ) -> ChatAnchorRemoteFetchPlan? {
         if let archivedId = anchor.archivedId,
            archivedId.isNotEmpty {
             return .exactArchivedId(archivedId)
@@ -76,9 +76,10 @@ enum ChatAnchorFetchPolicy {
     private static func dateWindowPlan(
         for anchor: ChatMessageAnchorRef,
         pageSize: Int
-    ) -> ChatAnchorRemoteFetchPlan {
-        let start = Date(timeIntervalSince1970: anchor.sourceDate.timeIntervalSince1970 - windowPadding)
-        let end = Date(timeIntervalSince1970: anchor.sourceDate.timeIntervalSince1970 + windowPadding)
+    ) -> ChatAnchorRemoteFetchPlan? {
+        guard let sourceDate = anchor.sourceDate else { return nil }
+        let start = Date(timeIntervalSince1970: sourceDate.timeIntervalSince1970 - windowPadding)
+        let end = Date(timeIntervalSince1970: sourceDate.timeIntervalSince1970 + windowPadding)
         return .dateWindow(start: start, end: end, max: pageSize)
     }
 }
@@ -110,22 +111,46 @@ enum ChatAnchorContextPrefetchMode: Equatable {
     case background
 }
 
+enum ChatAnchorContextPrefetchDispatchPhase: Equatable {
+    case beforePositioning
+}
+
+enum ChatAnchorContextPrefetchDispatchPolicy {
+    static func phase(
+        for mode: ChatAnchorContextPrefetchMode
+    ) -> ChatAnchorContextPrefetchDispatchPhase {
+        _ = mode
+        return .beforePositioning
+    }
+}
+
 enum ChatAnchorContextPrefetchModePolicy {
     static func mode(
         for source: ChatOpenMessageRequestSource,
         hasLocalMatch: Bool,
         isSynced: Bool
     ) -> ChatAnchorContextPrefetchMode {
-        if source == .search {
-            return hasLocalMatch ? .background : .blocking
-        }
-
-        if hasLocalMatch && isSynced {
+        _ = source
+        _ = isSynced
+        if hasLocalMatch {
             return .background
         }
 
         return .blocking
     }
+}
+
+enum ChatAnchorContextCoverageBoundary: Equatable {
+    case complete
+    case knownGap
+    case unknown
+}
+
+struct ChatAnchorContextCoverage: Equatable {
+    let olderLocalCount: Int
+    let newerLocalCount: Int
+    let olderBoundary: ChatAnchorContextCoverageBoundary
+    let newerBoundary: ChatAnchorContextCoverageBoundary
 }
 
 enum ChatAnchorContextPrefetchPolicy {
@@ -135,26 +160,150 @@ enum ChatAnchorContextPrefetchPolicy {
         pageSize: Int,
         archivedId: String?
     ) -> ChatAnchorContextPrefetchPlan {
+        plan(
+            coverage: ChatAnchorContextCoverage(
+                olderLocalCount: max(0, observerIndex),
+                newerLocalCount: max(0, totalCount - observerIndex - 1),
+                olderBoundary: .unknown,
+                newerBoundary: .unknown
+            ),
+            pageSize: pageSize,
+            archivedId: archivedId
+        )
+    }
+
+    static func plan(
+        coverage: ChatAnchorContextCoverage,
+        pageSize: Int,
+        archivedId: String?
+    ) -> ChatAnchorContextPrefetchPlan {
         guard let archivedId,
-              archivedId.isNotEmpty,
-              totalCount > 0 else {
+              archivedId.isNotEmpty else {
             return ChatAnchorContextPrefetchPlan(newerPageSize: nil, olderPageSize: nil)
         }
 
         let targetContextPerSide = max(1, pageSize / 2)
-        let olderLocalCount = max(0, observerIndex)
-        let newerLocalCount = max(0, totalCount - observerIndex - 1)
-        let newerDeficit = newerLocalCount < targetContextPerSide
-            ? min(targetContextPerSide - newerLocalCount, targetContextPerSide)
+        let newerDeficit = coverage.newerLocalCount < targetContextPerSide &&
+            coverage.newerBoundary != .complete
+            ? min(targetContextPerSide - coverage.newerLocalCount, targetContextPerSide)
             : 0
-        let olderDeficit = olderLocalCount < targetContextPerSide
-            ? min(targetContextPerSide - olderLocalCount, targetContextPerSide)
+        let olderDeficit = coverage.olderLocalCount < targetContextPerSide &&
+            coverage.olderBoundary != .complete
+            ? min(targetContextPerSide - coverage.olderLocalCount, targetContextPerSide)
             : 0
 
         return ChatAnchorContextPrefetchPlan(
             newerPageSize: newerDeficit > 0 ? newerDeficit : nil,
             olderPageSize: olderDeficit > 0 ? olderDeficit : nil
         )
+    }
+
+    static func coverage(
+        observerIndex: Int,
+        totalCount: Int,
+        targetArchivedId: String,
+        residentArchivedIds: [String?] = [],
+        archiveState: ChatArchiveStateSnapshot
+    ) -> ChatAnchorContextCoverage {
+        let targetDate = ChatInitialPositionPolicy.archiveDate(from: targetArchivedId)
+        let hasKnownOlderGap = targetDate.map { targetDate in
+            archiveState.knownGaps.contains { gap in
+                guard let newerEdge = ChatInitialPositionPolicy.archiveDate(
+                    from: gap.newerRangeOldestArchiveId
+                ) else { return false }
+                return newerEdge <= targetDate
+            }
+        } ?? false
+        let hasKnownNewerGap = targetDate.map { targetDate in
+            archiveState.knownGaps.contains { gap in
+                guard let olderEdge = ChatInitialPositionPolicy.archiveDate(
+                    from: gap.olderRangeNewestArchiveId
+                ) else { return false }
+                return olderEdge >= targetDate
+            }
+        } ?? archiveState.hasKnownNewerGap
+
+        var olderLocalCount = max(0, observerIndex)
+        var newerLocalCount = max(0, totalCount - observerIndex - 1)
+        if residentArchivedIds.isNotEmpty,
+           residentArchivedIds.indices.contains(observerIndex) {
+            if let nearestOlderGap = nearestOlderGap(
+                to: targetArchivedId,
+                in: archiveState.knownGaps
+            ),
+               let firstContiguousIndex = residentArchivedIds.indices.first(where: { index in
+                   guard index <= observerIndex,
+                         let archivedId = residentArchivedIds[index] else {
+                       return false
+                   }
+                   return isAtOrNewer(archivedId, than: nearestOlderGap.newerRangeOldestArchiveId)
+               }) {
+                olderLocalCount = max(0, observerIndex - firstContiguousIndex)
+            }
+
+            if let nearestNewerGap = nearestNewerGap(
+                to: targetArchivedId,
+                in: archiveState.knownGaps
+            ),
+               let lastContiguousIndex = residentArchivedIds.indices.last(where: { index in
+                   guard index >= observerIndex,
+                         let archivedId = residentArchivedIds[index] else {
+                       return false
+                   }
+                   return isAtOrOlder(archivedId, than: nearestNewerGap.olderRangeNewestArchiveId)
+               }) {
+                newerLocalCount = max(0, lastContiguousIndex - observerIndex)
+            }
+        }
+
+        return ChatAnchorContextCoverage(
+            olderLocalCount: olderLocalCount,
+            newerLocalCount: newerLocalCount,
+            olderBoundary: hasKnownOlderGap
+                ? .knownGap
+                : (archiveState.fullArchiveLoaded ? .complete : .unknown),
+            newerBoundary: hasKnownNewerGap
+                ? .knownGap
+                : (archiveState.newerLiveEdgeReached ? .complete : .unknown)
+        )
+    }
+
+    private static func nearestOlderGap(
+        to targetArchivedId: String,
+        in knownGaps: [RegularChatArchiveGap]
+    ) -> RegularChatArchiveGap? {
+        knownGaps
+            .filter { isAtOrOlder($0.newerRangeOldestArchiveId, than: targetArchivedId) }
+            .max {
+                compareArchiveIds($0.newerRangeOldestArchiveId, $1.newerRangeOldestArchiveId)
+                    == .orderedAscending
+            }
+    }
+
+    private static func nearestNewerGap(
+        to targetArchivedId: String,
+        in knownGaps: [RegularChatArchiveGap]
+    ) -> RegularChatArchiveGap? {
+        knownGaps
+            .filter { isAtOrNewer($0.olderRangeNewestArchiveId, than: targetArchivedId) }
+            .min {
+                compareArchiveIds($0.olderRangeNewestArchiveId, $1.olderRangeNewestArchiveId)
+                    == .orderedAscending
+            }
+    }
+
+    private static func isAtOrNewer(_ lhs: String, than rhs: String) -> Bool {
+        guard let comparison = compareArchiveIds(lhs, rhs) else {
+            return lhs >= rhs
+        }
+        return comparison != .orderedAscending
+    }
+
+    private static func isAtOrOlder(_ lhs: String, than rhs: String) -> Bool {
+        guard let comparison = compareArchiveIds(lhs, rhs) else {
+            return lhs <= rhs
+        }
+        return comparison != .orderedDescending
     }
 
     static func completionAction(
@@ -182,6 +331,34 @@ enum ChatAnchorContextPrefetchPolicy {
     }
 }
 
+enum ChatAnchorContextCoverageResolver {
+    static func coverage(
+        observerIndex: Int?,
+        residentArchivedIds: [String?],
+        targetArchivedId: String,
+        archiveState: ChatArchiveStateSnapshot
+    ) -> ChatAnchorContextCoverage {
+        guard let observerIndex,
+              residentArchivedIds.indices.contains(observerIndex) else {
+            return ChatAnchorContextPrefetchPolicy.coverage(
+                observerIndex: 0,
+                totalCount: 1,
+                targetArchivedId: targetArchivedId,
+                residentArchivedIds: [targetArchivedId],
+                archiveState: archiveState
+            )
+        }
+
+        return ChatAnchorContextPrefetchPolicy.coverage(
+            observerIndex: observerIndex,
+            totalCount: residentArchivedIds.count,
+            targetArchivedId: targetArchivedId,
+            residentArchivedIds: residentArchivedIds,
+            archiveState: archiveState
+        )
+    }
+}
+
 enum ChatInitialScrollPolicy {
     static func shouldDeferDefaultScroll(
         hasPendingAnchorRequest: Bool,
@@ -203,8 +380,11 @@ enum ChatInitialAnchorBootstrapPolicy {
             return false
         }
 
-        if source == .initialUnreadBoundary || source == .search {
-            return !(isSynced && messageCount > 0 && hasLocalAnchor)
+        if source == .initialUnreadBoundary ||
+            source == .search ||
+            source == .pushNotification ||
+            source == .mentionNotification {
+            return !(messageCount > 0 && hasLocalAnchor)
         }
 
         if isSynced,
@@ -223,46 +403,11 @@ enum ChatInitialAnchorBootstrapPolicy {
     }
 
     static func needsLocalAnchorLookup(source: ChatOpenMessageRequestSource) -> Bool {
-        source == .savedVisiblePosition || source == .initialUnreadBoundary || source == .search
-    }
-}
-
-enum ChatUnreadBoundaryFirstFramePolicy {
-    enum Decision: Equatable {
-        case wait
-        case unreadBoundary(anchorIndex: Int)
-    }
-
-    static func decision(
-        requestSource: ChatOpenMessageRequestSource,
-        isSynced: Bool,
-        observerCount: Int,
-        localAnchorIndex: Int?,
-        isPageUnlocked: Bool
-    ) -> Decision {
-        guard requestSource == .initialUnreadBoundary,
-              isSynced,
-              observerCount > 0,
-              let localAnchorIndex,
-              localAnchorIndex >= 0,
-              localAnchorIndex < observerCount,
-              isPageUnlocked else {
-            return .wait
-        }
-
-        return .unreadBoundary(anchorIndex: localAnchorIndex)
-    }
-
-    static func shouldApplySynchronously(
-        bootstrapState: ChatBootstrapViewState,
-        isShowingBootstrapPlaceholder: Bool,
-        decision: Decision
-    ) -> Bool {
-        guard case .unreadBoundary = decision else {
-            return false
-        }
-
-        return bootstrapState == .content && isShowingBootstrapPlaceholder
+        source == .savedVisiblePosition ||
+            source == .initialUnreadBoundary ||
+            source == .search ||
+            source == .pushNotification ||
+            source == .mentionNotification
     }
 }
 
@@ -272,7 +417,7 @@ enum ChatInitialAutomaticOpenPolicy {
     }
 
     static func shouldRestoreSavedVisiblePositionOnChatOpen() -> Bool {
-        false
+        true
     }
 }
 
@@ -290,11 +435,18 @@ enum ChatOpenMessageRequestHandlingPolicy {
     }
 
     static func shouldRestoreSavedFirstFramePosition() -> Bool {
-        return shouldHonorMessageAnchors()
+        true
     }
 
     static func shouldHonorMessageAnchorRequest(source: ChatOpenMessageRequestSource) -> Bool {
-        if source == .search || source == .initialUnreadBoundary || source == .mediaGallery {
+        if source == .mentionNotification ||
+            source == .pushNotification ||
+            source == .search ||
+            source == .initialUnreadBoundary ||
+            source == .savedVisiblePosition ||
+            source == .external ||
+            source == .directOpenAtMessage ||
+            source == .mediaGallery {
             return true
         }
 
@@ -557,13 +709,13 @@ enum ChatVisiblePositionPersistencePolicy {
     static func isLiveBottom(
         isNearBottom: Bool,
         lastRealDatasourcePrimary: String?,
-        observerPrimaryIndexMap: [String: Int],
+        residentPrimaryPositions: [String: Int],
         observerCount: Int
     ) -> Bool {
         guard isNearBottom,
               observerCount > 0,
               let lastRealDatasourcePrimary,
-              let observerIndex = observerPrimaryIndexMap[lastRealDatasourcePrimary] else {
+              let observerIndex = residentPrimaryPositions[lastRealDatasourcePrimary] else {
             return false
         }
 
@@ -689,7 +841,9 @@ struct ChatAnchorDatasourceApplyPlan {
 
 enum ChatAnchorDatasourceApplyPolicy {
     static func plan(for source: ChatOpenMessageRequestSource) -> ChatAnchorDatasourceApplyPlan {
-        if source == .search {
+        if source == .search ||
+            source == .pushNotification ||
+            source == .mentionNotification {
             return ChatAnchorDatasourceApplyPlan(mode: .targetedDiff, invalidateLayout: false)
         }
 
@@ -736,6 +890,7 @@ enum ChatAnchorFailureRecoveryPolicy {
 
 struct ChatAnchorExecutionState: Equatable {
     let request: ChatOpenMessageRequest
+    let transactionToken: ChatAnchorTransactionToken
     var usesBootstrapLoading: Bool = false
     var lastAttemptedRemotePlan: ChatAnchorRemoteFetchPlan? = nil
     var remoteQueryId: String? = nil
@@ -748,6 +903,16 @@ struct ChatAnchorExecutionState: Equatable {
     var contextPrefetchPersistedMessageCount: Int = 0
     var didObserveContextPostIdleTick: Bool = false
     var isPositioning: Bool = false
+
+    init(
+        request: ChatOpenMessageRequest,
+        transactionToken: ChatAnchorTransactionToken = ChatAnchorTransactionToken(),
+        usesBootstrapLoading: Bool = false
+    ) {
+        self.request = request
+        self.transactionToken = transactionToken
+        self.usesBootstrapLoading = usesBootstrapLoading
+    }
 }
 
 struct ChatAnchorExecutionHooks {
@@ -902,6 +1067,12 @@ enum ChatLoadedMessageNavigationPolicy {
             isAnchorable(item)
         }
 
+        if let messagePrimary = anchor.messagePrimary,
+           messagePrimary.isNotEmpty,
+           let match = anchorableItems.first(where: { $0.element.primary == messagePrimary }) {
+            return match.offset
+        }
+
         if let archivedId = anchor.archivedId,
            archivedId.isNotEmpty,
            let match = anchorableItems.first(where: { $0.element.archivedId == archivedId }) {
@@ -909,18 +1080,40 @@ enum ChatLoadedMessageNavigationPolicy {
         }
 
         if let messageId = anchor.messageId,
-           messageId.isNotEmpty,
-           let match = anchorableItems.first(where: { $0.element.messageId == messageId }) {
-            return match.offset
+           messageId.isNotEmpty {
+            let matches = anchorableItems.filter {
+                $0.element.messageId == messageId
+                    && (anchor.authorId?.isNotEmpty != true || $0.element.groupchatAuthorId == anchor.authorId)
+            }
+            if matches.count == 1, let match = matches.first {
+                return match.offset
+            }
         }
 
-        if let messagePrimary = anchor.messagePrimary,
-           messagePrimary.isNotEmpty,
-           let match = anchorableItems.first(where: { $0.element.primary == messagePrimary }) {
-            return match.offset
+        if let sourceDate = anchor.sourceDate,
+           let fingerprint = LastChatsSearchFingerprint.normalize(anchor.bodyFingerprint) {
+            let matches = anchorableItems.filter {
+                abs($0.element.sentDate.timeIntervalSince(sourceDate)) <= LastChatsSearchLocalResolver.dateTolerance
+                    && (anchor.authorId?.isNotEmpty != true || $0.element.groupchatAuthorId == anchor.authorId)
+                    && LastChatsSearchFingerprint.normalize(searchBody(in: $0.element.kind)) == fingerprint
+            }
+            if matches.count == 1, let match = matches.first {
+                return match.offset
+            }
         }
 
         return nil
+    }
+
+    private static func searchBody(in kind: MessageKind) -> String? {
+        switch kind {
+        case .attributedText(let value), .system(let value), .initial(let value):
+            return value.string
+        case .emoji(let value):
+            return value
+        case .sticker, .call, .skeleton, .date, .unread:
+            return nil
+        }
     }
 
     private static func firstIncomingAfterBoundaryIndex(
@@ -1467,7 +1660,7 @@ extension ChatViewController {
         }
         searchResultsListViewController?.retainModeSwitchScrollAnchor(for: id)
 
-        if currentPage.locked || searchResultNavigationState.isBusy {
+        if timelineInteractionState.locked || searchResultNavigationState.isBusy {
             recordPendingSearchResultNavigation(
                 index: targetIndex,
                 scrollDirection: direction
@@ -1886,7 +2079,12 @@ extension ChatViewController {
             self.updateChatCollectionInsets(inputHeight: inputHeight)
             self.becomeFirstResponder()
             self.navigationItem.setHidesBackButton(false, animated: false)
-            self.messagesCollectionView.reloadDataAndKeepOffset()
+            self.applyChatDatasource(
+                self.datasource,
+                mode: .fullReload(keepOffset: true),
+                animated: false,
+                suppressDefaultBottomScroll: true
+            )
             UIView.performWithoutAnimation {
                 self.configureNavbar()
             }
@@ -2338,11 +2536,17 @@ extension ChatViewController {
     }
 
     private func currentSearchResultIndexForPanel() -> Int {
-        guard let committedIndex = searchPresentationState.committedResultIndex,
-              searchMessagesQueue.indices.contains(committedIndex) else {
-            return -1
+        if let committedIndex = searchPresentationState.committedResultIndex,
+           searchMessagesQueue.indices.contains(committedIndex) {
+            return committedIndex
         }
-        return committedIndex
+
+        if let positioningIndex = searchResultNavigationState.currentIndex,
+           searchMessagesQueue.indices.contains(positioningIndex) {
+            return positioningIndex
+        }
+
+        return -1
     }
 
     private func setSearchResultsPanelContextLoading(_ isLoadingContext: Bool) {
@@ -2495,7 +2699,7 @@ extension ChatViewController {
     }
 
     private func hasActiveSearchResultAnchorWork() -> Bool {
-        currentPage.locked ||
+        timelineInteractionState.locked ||
         pendingOpenMessageRequest != nil ||
         activeAnchorExecutionState != nil ||
         isApplyingBootstrapAnchorWindow ||
@@ -2719,7 +2923,7 @@ extension ChatViewController {
             generation: searchPresentationState.generation
         )
 
-        if currentPage.locked || searchResultNavigationState.isBusy {
+        if timelineInteractionState.locked || searchResultNavigationState.isBusy {
             recordPendingSearchResultNavigation(index: nextIndex, scrollDirection: scrollDirection)
             return
         }
@@ -2785,7 +2989,7 @@ extension ChatViewController {
                 generation: searchPresentationState.generation
             )
         )
-        if currentPage.locked || searchResultNavigationState.isBusy {
+        if timelineInteractionState.locked || searchResultNavigationState.isBusy {
             recordPendingSearchResultNavigation(index: target, scrollDirection: .up)
         } else {
             openSearchResult(at: target, direction: .up)
@@ -2806,6 +3010,43 @@ extension ChatViewController {
             return
         }
 
+        if let executionState = self.activeAnchorExecutionState,
+           executionState.request == request,
+           executionState.contextPrefetchPendingQueryIds.isNotEmpty {
+            self.pendingOpenMessageRequest = request
+            self.activeAnchorExecutionHooks = hooks ?? self.activeAnchorExecutionHooks
+            self.syncAnchorExecutionFlags()
+            return
+        }
+        if let executionState = self.activeAnchorExecutionState,
+           executionState.request != request {
+            self.cancelActiveAnchorExecution(
+                token: executionState.transactionToken,
+                failure: .superseded,
+                invokeFailureHook: false
+            )
+        }
+        if self.shouldRetargetPendingInitialFirstFrame {
+            ConnectionDiagnosticsLogger.log(
+                event: "chat_anchor_first_frame_retarget_requested",
+                stream: .primary,
+                jid: nil,
+                details: [
+                    "source": request.source.rawValue,
+                    "hadPriorContentApply": self.initialFirstContentApplyCount > 0,
+                    "showsSkeleton": self.showSkeletonObserver.value
+                ]
+            )
+            if request.source == .search {
+                self.markSearchResultNavigationLoadingContext(for: request)
+                self.setSearchResultsPanelContextLoading(true)
+            }
+            self.pendingOpenMessageRequest = request
+            self.activeAnchorExecutionHooks = hooks
+            self.syncAnchorExecutionFlags()
+            self.loadInitialDatasource(performPendingOpenMessageRequest: false)
+            return
+        }
         if self.performLoadedOpenMessageRequestIfPossible(request, hooks: hooks) {
             return
         }
@@ -2813,13 +3054,18 @@ extension ChatViewController {
             self.markSearchResultNavigationLoadingContext(for: request)
             self.setSearchResultsPanelContextLoading(true)
         }
-        if self.activeAnchorExecutionState?.request != request {
-            self.activeAnchorExecutionState = nil
-        }
         self.pendingOpenMessageRequest = request
         self.activeAnchorExecutionHooks = hooks
         self.syncAnchorExecutionFlags()
         self.performPendingOpenMessageRequestIfNeeded(trigger: .manual)
+    }
+
+    private var shouldRetargetPendingInitialFirstFrame: Bool {
+        guard self.isViewLoaded,
+              self.timelineSession != nil else {
+            return false
+        }
+        return !self.datasource.contains { !$0.isFakeMessage }
     }
 
     private func handleSuppressedOpenMessageRequest(animated: Bool) {
@@ -2828,12 +3074,11 @@ extension ChatViewController {
 
     internal func clearSuppressedOpenMessageRequestState() {
         if let executionState = self.activeAnchorExecutionState {
-            if let remoteQueryId = executionState.remoteQueryId {
-                self.unregisterRemoteHistoryPersistenceSource(queryId: remoteQueryId)
-            }
-            executionState.contextPrefetchQueryIds.forEach {
-                self.unregisterRemoteHistoryPersistenceSource(queryId: $0)
-            }
+            self.cancelActiveAnchorExecution(
+                token: executionState.transactionToken,
+                failure: .superseded,
+                invokeFailureHook: false
+            )
         }
 
         self.pendingOpenMessageRequest = nil
@@ -2850,7 +3095,7 @@ extension ChatViewController {
         self.setLoadingIndicatorVisible(false)
         self.setArchiveLoading(false)
         self.setDatasourceLoadingEnabled(true)
-        self.currentPage.unlock()
+        self.timelineInteractionState.unlock()
     }
 
     private func syncAnchorExecutionFlags() {
@@ -2896,13 +3141,13 @@ extension ChatViewController {
         }
 
         let candidates = self.visiblePositionPersistenceCandidates()
+        let residentSnapshot = self.timelineSession?.snapshot
         let viewportCenterY = self.messagesCollectionView.contentOffset.y + (self.messagesCollectionView.bounds.height / 2)
-        self.ensureObserverLookupMaps()
         let isLiveBottom = ChatVisiblePositionPersistencePolicy.isLiveBottom(
             isNearBottom: self.isNearBottom(),
             lastRealDatasourcePrimary: self.lastRealDatasourceMessagePrimary(),
-            observerPrimaryIndexMap: self.observerPrimaryIndexMap,
-            observerCount: self.messagesObserver?.count ?? 0
+            residentPrimaryPositions: residentSnapshot?.residentIndex.primaryIndexByID ?? [:],
+            observerCount: residentSnapshot?.items.count ?? 0
         )
         let isBlockedByAnchorNavigation = self.isApplyingBootstrapAnchorWindow
             || self.pendingOpenMessageRequest != nil
@@ -3036,6 +3281,17 @@ extension ChatViewController {
     }
 
     private func indexPathForLoadedMessage(request: ChatOpenMessageRequest) -> IndexPath? {
+        if case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution {
+            guard let target = self.timelineSession?.firstIncoming(
+                afterArchiveBoundaryId: boundaryArchivedId
+            ),
+                  let section = self.datasourceSnapshot.primaryIndex[target.primary],
+                  section < self.datasource.count else {
+                return nil
+            }
+            return IndexPath(row: 0, section: section)
+        }
+
         guard let section = ChatLoadedMessageNavigationPolicy.index(in: self.datasource, for: request),
               section < self.datasource.count else {
             return nil
@@ -3104,7 +3360,7 @@ extension ChatViewController {
             archivedId: item.archivedId,
             highlight: highlight,
             animated: animated,
-            completion: completion
+            completion: { _ in completion?() }
         )
         return true
     }
@@ -3125,7 +3381,10 @@ extension ChatViewController {
         guard let target = self.datasourceItem(at: indexPath) else {
             return false
         }
+        let executionState = self.ensureActiveAnchorExecutionState(for: request)
+        let transactionToken = executionState.transactionToken
         let activeHooks = hooks ?? self.activeAnchorExecutionHooks
+        self.activeAnchorExecutionHooks = activeHooks
         let usesTransientHighlight = request.source.usesTransientHighlight && request.highlight
         let contextPrefetchMode = ChatAnchorContextPrefetchModePolicy.mode(
             for: request.source,
@@ -3139,10 +3398,6 @@ extension ChatViewController {
 
         if contextPrefetchMode == .blocking {
             self.pendingOpenMessageRequest = request
-            if self.activeAnchorExecutionState?.request != request {
-                self.activeAnchorExecutionState = self.initialAnchorExecutionState(for: request)
-            }
-            self.activeAnchorExecutionHooks = activeHooks
             self.syncAnchorExecutionFlags()
             if self.prepareContextPrefetchIfNeeded(around: resolvedTarget, request: request) {
                 if request.source == .search {
@@ -3153,23 +3408,42 @@ extension ChatViewController {
             }
         }
 
-        self.pendingOpenMessageRequest = nil
-        self.activeAnchorExecutionState = nil
-        self.activeAnchorExecutionHooks = nil
+        if contextPrefetchMode == .background,
+           ChatAnchorContextPrefetchDispatchPolicy.phase(for: contextPrefetchMode) == .beforePositioning {
+            self.startBackgroundContextPrefetchIfNeeded(
+                around: resolvedTarget,
+                request: request
+            )
+        }
+
         self.isApplyingBootstrapAnchorWindow = false
         self.syncAnchorExecutionFlags()
         self.setLoadingIndicatorVisible(false)
         self.setArchiveLoading(false)
         self.setDatasourceLoadingEnabled(true)
-        self.currentPage.unlock()
+        self.timelineInteractionState.unlock()
 
-        activeHooks?.onPositioningStarted?()
+        self.notifyAnchorPositioningStarted(token: transactionToken)
+        if request.source == .search {
+            self.setSearchResultsPanelContextLoading(false)
+        }
         self.positionMessage(
             primary: target.primary,
             archivedId: target.archivedId,
             highlight: request.highlight && !usesTransientHighlight,
             animated: activeHooks?.animatedScroll ?? false,
-            completion: {
+            preferredScrollDirection: request.source == .search ? activeHooks?.direction : nil,
+            completion: { didPosition in
+                guard didPosition else {
+                    self.failActiveAnchorExecution(
+                        token: transactionToken,
+                        failure: .targetDeleted
+                    )
+                    return
+                }
+                guard self.anchorTransactionGate.accept(.scroll, token: transactionToken) == .accepted else {
+                    return
+                }
                 if usesTransientHighlight {
                     self.applyTransientMessageHighlight(primary: target.primary)
                 }
@@ -3177,436 +3451,89 @@ extension ChatViewController {
                     for: request,
                     positionedPrimary: target.primary
                 )
-                activeHooks?.onPositioned?()
-                if contextPrefetchMode == .background {
-                    self.startBackgroundContextPrefetchIfNeeded(
-                        around: resolvedTarget,
-                        request: request
-                    )
-                }
+                self.finishActiveAnchorExecution(token: transactionToken)
             }
         )
         return true
     }
 
     private func savedPositionFirstFrameObserverIndex(
-        for request: ChatOpenMessageRequest
+        for request: ChatOpenMessageRequest,
+        residentSnapshot: ChatTimelineSessionSnapshot? = nil
     ) -> Int? {
         guard request.source == .savedVisiblePosition,
-              self.messagesObserver != nil else {
+              let timelineSession = self.timelineSession else {
             return nil
         }
+        let snapshot = residentSnapshot ?? timelineSession.snapshot
 
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            guard let message = provider.message(
-                primary: request.anchor.messagePrimary,
-                archivedId: request.anchor.archivedId,
-                messageId: request.anchor.messageId
-            ) else {
-                return nil
-            }
-            return provider.index(of: message)
-        } catch {
-            DDLogDebug("ChatViewController.savedPositionFirstFrameObserverIndex: \(error.localizedDescription)")
+        guard let message = timelineSession.resolvedMessage(
+            primary: request.anchor.messagePrimary,
+            archivedId: request.anchor.archivedId,
+            messageId: request.anchor.messageId
+        ) else {
             return nil
         }
+        return snapshot.residentIndex.index(primary: message.primary)
+            ?? RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(message.archivedId)
+                .flatMap { snapshot.residentIndex.index(archivedId: $0) }
+            ?? snapshot.residentIndex.index(messageId: message.messageId)
     }
 
-    @discardableResult
-    internal func applySavedPositionFirstFrameWindowIfNeeded(isSynced: Bool) -> Bool {
-        guard ChatOpenMessageRequestHandlingPolicy.shouldRestoreSavedFirstFramePosition(),
-              let request = self.pendingOpenMessageRequest,
-              request.owner == self.owner,
-              request.chatJid == self.jid,
-              request.conversationType == self.conversationType,
-              self.messagesObserver != nil,
-              self.currentPage.isUnlocked else {
-            return false
-        }
-
-        let localAnchorIndex = self.savedPositionFirstFrameObserverIndex(for: request)
-        let archiveCoverageContext = self.savedPositionFirstFrameArchiveCoverageContext(localAnchorIndex: localAnchorIndex)
-        let decision = ChatSavedPositionFirstFramePolicy.decision(
-            requestSource: request.source,
-            isSynced: isSynced,
-            observerCount: self.messagesObserver.count,
-            localAnchorIndex: localAnchorIndex,
-            pageSize: self.datasourcePageSize,
-            isPageUnlocked: self.currentPage.isUnlocked,
-            archivedIdsByIndex: archiveCoverageContext.archivedIdsByIndex,
-            knownGaps: archiveCoverageContext.knownGaps
+    internal func beginPreparedLocalFirstFrameAnchor(request: ChatOpenMessageRequest) {
+        var executionState = ChatAnchorExecutionState(
+            request: request,
+            usesBootstrapLoading: false
         )
-
-        guard ChatSavedPositionFirstFramePolicy.shouldApplySynchronously(
-                bootstrapState: self.currentBootstrapViewState(),
-                isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
-                decision: decision
-              ),
-              case .savedPosition(let anchorIndex, _) = decision,
-              anchorIndex < self.messagesObserver.count else {
-            return false
-        }
-
-        let message = self.messagesObserver[anchorIndex]
-        let target = ResolvedJumpTarget(
-            primary: message.primary,
-            archivedId: message.archivedId.isNotEmpty ? message.archivedId : nil
+        executionState.isPositioning = true
+        _ = self.anchorTransactionGate.begin(
+            token: executionState.transactionToken,
+            requestIdentity: self.anchorRequestIdentity(request)
         )
-        let hooks = self.activeAnchorExecutionHooks
-
-        return self.currentPage.setCustomPage(anchorIndex / self.datasourcePageSize) {
-            var executionState = ChatAnchorExecutionState(
-                request: request,
-                usesBootstrapLoading: false
-            )
-            executionState.isPositioning = true
-            self.activeAnchorExecutionState = executionState
-            self.syncAnchorExecutionFlags()
-            self.isApplyingBootstrapAnchorWindow = true
-            self.setShouldShowInitialMessage(false)
-            self.setLoadingIndicatorVisible(false)
-            self.setArchiveLoading(false)
-            self.setDatasourceLoadingEnabled(false)
-
-            guard self.applyFirstFrameAnchorSnapshot(message: message, target: target),
-                  ChatSavedPositionFirstFrameCompletionPolicy.renderedWindowAction(
-                    requestSource: request.source,
-                    targetExistsInSnapshot: self.datasourceSnapshotContainsTarget(target)
-                  ) == .finishRequest else {
-                self.recoverSavedPositionFirstFrameRequest(trigger: .manual)
-                return
-            }
-
-            self.positionMessage(
-                primary: target.primary,
-                archivedId: target.archivedId,
-                highlight: false,
-                animated: false,
-                completion: {
-                    self.finishActiveAnchorExecution()
-                    self.scheduleMentionReadOnVisibleIfNeeded(
-                        for: request,
-                        positionedPrimary: target.primary
-                    )
-                    hooks?.onPositioned?()
-                    self.startBackgroundContextPrefetchIfNeeded(
-                        around: target,
-                        request: request
-                    )
-                }
-            )
-        }
-    }
-
-    @discardableResult
-    internal func applyUnreadBoundaryFirstFrameWindowIfNeeded(isSynced: Bool) -> Bool {
-        guard let request = self.pendingOpenMessageRequest,
-              request.source == .initialUnreadBoundary,
-              request.owner == self.owner,
-              request.chatJid == self.jid,
-              request.conversationType == self.conversationType,
-              self.messagesObserver != nil,
-              self.currentPage.isUnlocked else {
-            return false
-        }
-
-        guard let localAnchor = self.unreadBoundaryFirstFrameLocalAnchor(for: request) else {
-            return false
-        }
-
-        let decision = ChatUnreadBoundaryFirstFramePolicy.decision(
-            requestSource: request.source,
-            isSynced: isSynced,
-            observerCount: self.messagesObserver.count,
-            localAnchorIndex: localAnchor.index,
-            isPageUnlocked: self.currentPage.isUnlocked
-        )
-
-        guard ChatUnreadBoundaryFirstFramePolicy.shouldApplySynchronously(
-                bootstrapState: self.currentBootstrapViewState(),
-                isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
-                decision: decision
-              ),
-              case .unreadBoundary(let anchorIndex) = decision else {
-            return false
-        }
-
-        let message = localAnchor.message
-        let target = ResolvedJumpTarget(
-            primary: message.primary,
-            archivedId: message.archivedId.isNotEmpty ? message.archivedId : nil
-        )
-        let hooks = self.activeAnchorExecutionHooks
-
-        return self.currentPage.setCustomPage(anchorIndex / self.datasourcePageSize) {
-            var executionState = ChatAnchorExecutionState(
-                request: request,
-                usesBootstrapLoading: false
-            )
-            executionState.isPositioning = true
-            self.activeAnchorExecutionState = executionState
-            self.syncAnchorExecutionFlags()
-            self.isApplyingBootstrapAnchorWindow = true
-            self.setShouldShowInitialMessage(false)
-            self.setLoadingIndicatorVisible(false)
-            self.setArchiveLoading(false)
-            self.setSkeletonVisible(false)
-            self.setDatasourceLoadingEnabled(false)
-
-            guard self.applyFirstFrameAnchorSnapshot(message: message, target: target),
-                  self.datasourceSnapshotContainsTarget(target) else {
-                self.recoverUnreadBoundaryFirstFrameRequest(trigger: .manual)
-                return
-            }
-
-            self.positionMessage(
-                primary: target.primary,
-                archivedId: target.archivedId,
-                highlight: false,
-                animated: false,
-                completion: {
-                    self.finishActiveAnchorExecution()
-                    self.scheduleMentionReadOnVisibleIfNeeded(
-                        for: request,
-                        positionedPrimary: target.primary
-                    )
-                    hooks?.onPositioned?()
-                    self.startBackgroundContextPrefetchIfNeeded(
-                        around: target,
-                        request: request
-                    )
-                }
-            )
-        }
-    }
-
-    @discardableResult
-    internal func applySearchFirstFrameWindowIfNeeded(isSynced: Bool) -> Bool {
-        guard let request = self.pendingOpenMessageRequest,
-              request.source == .search,
-              request.owner == self.owner,
-              request.chatJid == self.jid,
-              request.conversationType == self.conversationType,
-              self.messagesObserver != nil,
-              self.currentPage.isUnlocked else {
-            return false
-        }
-
-        guard isSynced,
-              let localAnchor = self.searchFirstFrameLocalAnchor(for: request),
-              self.messagesObserver.count > 0,
-              localAnchor.index >= 0,
-              localAnchor.index < self.messagesObserver.count else {
-            return false
-        }
-
-        guard self.currentBootstrapViewState() == .content,
-              self.isShowingBootstrapPlaceholder else {
-            return false
-        }
-
-        let message = localAnchor.message
-        let target = ResolvedJumpTarget(
-            primary: message.primary,
-            archivedId: message.archivedId.isNotEmpty ? message.archivedId : nil
-        )
-        let hooks = self.activeAnchorExecutionHooks
-
-        return self.currentPage.setCustomPage(localAnchor.index / self.datasourcePageSize) {
-            var executionState = ChatAnchorExecutionState(
-                request: request,
-                usesBootstrapLoading: false
-            )
-            executionState.isPositioning = true
-            self.activeAnchorExecutionState = executionState
-            self.syncAnchorExecutionFlags()
-            self.isApplyingBootstrapAnchorWindow = true
-            self.setShouldShowInitialMessage(false)
-            self.setLoadingIndicatorVisible(false)
-            self.setArchiveLoading(false)
-            self.setSkeletonVisible(false)
-            self.setDatasourceLoadingEnabled(false)
-
-            guard self.applyFirstFrameAnchorSnapshot(message: message, target: target),
-                  self.datasourceSnapshotContainsTarget(target) else {
-                self.recoverSearchFirstFrameRequest(trigger: .manual)
-                return
-            }
-
-            self.positionMessage(
-                primary: target.primary,
-                archivedId: target.archivedId,
-                highlight: request.highlight,
-                animated: false,
-                completion: {
-                    self.finishActiveAnchorExecution()
-                    self.scheduleMentionReadOnVisibleIfNeeded(
-                        for: request,
-                        positionedPrimary: target.primary
-                    )
-                    hooks?.onPositioned?()
-                    self.startBackgroundContextPrefetchIfNeeded(
-                        around: target,
-                        request: request
-                    )
-                }
-            )
-        }
-    }
-
-    private func applyFirstFrameAnchorSnapshot(
-        message: MessageStorageItem,
-        target: ResolvedJumpTarget
-    ) -> Bool {
-        do {
-            self.datasetMappingGeneration += 1
-            let boundaryPlaceholder = self.activeHistoryBoundaryPlaceholder
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            var engine = ChatVirtualTimelineEngine(
-                provider: provider,
-                pageSize: self.datasourcePageSize,
-                state: self.virtualTimelineState.normalized(
-                    owner: self.owner,
-                    jid: self.jid,
-                    conversationType: self.conversationType
-                ),
-                archiveState: self.loadChatArchiveStateSnapshot()
-            )
-            let snapshot = engine.openAround(
-                anchor: ChatTimelineAnchor(
-                    primary: message.primary,
-                    archivedId: message.archivedId,
-                    messageId: message.messageId,
-                    date: message.date
-                )
-            )
-            let frozenItems = snapshot.items.map { $0.freeze() }
-            guard frozenItems.isNotEmpty else {
-                return false
-            }
-
-            let nextVirtualState = snapshot.state.withRuntimePlaceholder(boundaryPlaceholder)
-            var mappedDatasource = self.mapDataset(dataset: frozenItems)
-            if let boundaryPlaceholder {
-                mappedDatasource = self.datasourceByAddingHistoryBoundaryPlaceholder(
-                    to: mappedDatasource,
-                    position: boundaryPlaceholder
-                )
-            }
-
-            self.virtualTimelineState = nextVirtualState
-            self.boundedTimelineWindowState = ChatBoundedTimelineWindowState(virtualState: nextVirtualState)
-            self.syncCurrentPage(with: ChatDatasetWindow(minIndex: 0, maxIndex: frozenItems.count))
-            self.applyChatDatasource(
-                mappedDatasource,
-                mode: .fullReload(),
-                animated: false,
-                invalidateLayout: false
-            )
-            return self.datasourceSnapshotContainsTarget(target)
-        } catch {
-            DDLogDebug("ChatViewController.applyFirstFrameAnchorSnapshot: \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    private func datasourceSnapshotContainsTarget(_ target: ResolvedJumpTarget) -> Bool {
-        self.datasourceSnapshot.primaryIndex[target.primary] != nil
-            || (target.archivedId.flatMap { self.datasourceSnapshot.archivedIdIndex[$0] } != nil)
-    }
-
-    private func recoverSavedPositionFirstFrameRequest(trigger: ChatAnchorExecutionResumeTrigger) {
-        guard let state = self.activeAnchorExecutionState,
-              state.request.source == .savedVisiblePosition else {
-            self.failActiveAnchorExecution()
-            return
-        }
-
-        var recoveredState = state
-        recoveredState.isPositioning = false
-        recoveredState.isRemoteFetchInFlight = false
-        self.activeAnchorExecutionState = recoveredState
-        self.isApplyingBootstrapAnchorWindow = false
-        self.syncAnchorExecutionFlags()
-        self.setLoadingIndicatorVisible(false)
-        self.setArchiveLoading(false)
-        self.setDatasourceLoadingEnabled(true)
-        self.currentPage.unlock()
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  self.pendingOpenMessageRequest == recoveredState.request else {
-                return
-            }
-            self.performPendingOpenMessageRequestIfNeeded(trigger: trigger)
-        }
-    }
-
-    private func recoverUnreadBoundaryFirstFrameRequest(trigger: ChatAnchorExecutionResumeTrigger) {
-        guard let state = self.activeAnchorExecutionState,
-              state.request.source == .initialUnreadBoundary else {
-            self.failActiveAnchorExecution()
-            return
-        }
-
-        var recoveredState = state
-        recoveredState.usesBootstrapLoading = true
-        recoveredState.isPositioning = false
-        recoveredState.isRemoteFetchInFlight = false
-        self.activeAnchorExecutionState = recoveredState
-        self.isApplyingBootstrapAnchorWindow = false
+        self.activeAnchorExecutionState = executionState
+        self.isApplyingBootstrapAnchorWindow = true
         self.syncAnchorExecutionFlags()
         self.setLoadingIndicatorVisible(false)
         self.setArchiveLoading(false)
         self.setDatasourceLoadingEnabled(false)
-        self.currentPage.unlock()
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  self.pendingOpenMessageRequest == recoveredState.request else {
-                return
-            }
-            self.performPendingOpenMessageRequestIfNeeded(trigger: trigger)
-        }
+        self.notifyAnchorPositioningStarted(token: executionState.transactionToken)
     }
 
-    private func recoverSearchFirstFrameRequest(trigger: ChatAnchorExecutionResumeTrigger) {
-        guard let state = self.activeAnchorExecutionState,
-              state.request.source == .search else {
-            self.failActiveAnchorExecution()
-            return
+    internal func finishPreparedLocalFirstFrameAnchor(
+        request: ChatOpenMessageRequest,
+        primary: String,
+        archivedId: String?
+    ) {
+        if request.highlight {
+            self.applyTransientMessageHighlight(primary: primary)
         }
-
-        var recoveredState = state
-        recoveredState.usesBootstrapLoading = true
-        recoveredState.isPositioning = false
-        recoveredState.isRemoteFetchInFlight = false
-        self.activeAnchorExecutionState = recoveredState
-        self.isApplyingBootstrapAnchorWindow = false
-        self.syncAnchorExecutionFlags()
-        self.setLoadingIndicatorVisible(false)
-        self.setArchiveLoading(false)
-        self.setDatasourceLoadingEnabled(false)
-        self.currentPage.unlock()
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  self.pendingOpenMessageRequest == recoveredState.request else {
-                return
-            }
-            self.performPendingOpenMessageRequestIfNeeded(trigger: trigger)
+        self.scheduleMentionReadOnVisibleIfNeeded(
+            for: request,
+            positionedPrimary: primary
+        )
+        let contextPrefetchMode = ChatAnchorContextPrefetchModePolicy.mode(
+            for: request.source,
+            hasLocalMatch: true,
+            isSynced: self.currentChatIsSyncedForAnchorBootstrap()
+        )
+        if contextPrefetchMode == .background,
+           ChatAnchorContextPrefetchDispatchPolicy.phase(for: contextPrefetchMode) == .beforePositioning {
+            self.startBackgroundContextPrefetchIfNeeded(
+                around: ResolvedJumpTarget(primary: primary, archivedId: archivedId),
+                request: request
+            )
         }
+        ConnectionDiagnosticsLogger.log(
+            event: "chat_anchor_local_first_frame_positioned",
+            stream: .primary,
+            jid: nil,
+            details: [
+                "source": request.source.rawValue,
+                "residentAtLiveTail": self.virtualTimelineState.isResidentAtLiveTail,
+                "realMessageCount": self.datasource.lazy.filter { !$0.isFakeMessage }.count
+            ]
+        )
+        self.finishActiveAnchorExecution(token: self.activeAnchorExecutionState?.transactionToken)
     }
 
     private func initialAnchorExecutionState(
@@ -3616,6 +3543,49 @@ extension ChatViewController {
             request: request,
             usesBootstrapLoading: self.shouldUseBootstrapLoading(for: request)
         )
+    }
+
+    @discardableResult
+    private func ensureActiveAnchorExecutionState(
+        for request: ChatOpenMessageRequest
+    ) -> ChatAnchorExecutionState {
+        if let state = self.activeAnchorExecutionState,
+           state.request == request {
+            if self.anchorTransactionGate.snapshot.activeToken != state.transactionToken {
+                _ = self.anchorTransactionGate.begin(
+                    token: state.transactionToken,
+                    requestIdentity: self.anchorRequestIdentity(request)
+                )
+            }
+            return state
+        }
+
+        let state = self.initialAnchorExecutionState(for: request)
+        _ = self.anchorTransactionGate.begin(
+            token: state.transactionToken,
+            requestIdentity: self.anchorRequestIdentity(request)
+        )
+        self.activeAnchorExecutionState = state
+        return state
+    }
+
+    private func anchorRequestIdentity(_ request: ChatOpenMessageRequest) -> String {
+        [
+            request.owner,
+            request.chatJid,
+            request.conversationType.rawValue,
+            request.anchor.messagePrimary ?? "",
+            request.anchor.archivedId ?? "",
+            request.anchor.messageId ?? "",
+            request.source.rawValue
+        ].joined(separator: "|")
+    }
+
+    private func notifyAnchorPositioningStarted(token: ChatAnchorTransactionToken) {
+        guard self.anchorTransactionGate.markPositioningStarted(token: token) else {
+            return
+        }
+        self.activeAnchorExecutionHooks?.onPositioningStarted?()
     }
 
     private func shouldUseBootstrapLoading(for request: ChatOpenMessageRequest) -> Bool {
@@ -3661,15 +3631,17 @@ extension ChatViewController {
         self.setSkeletonVisible(false)
     }
 
-    private func finishActiveAnchorExecution() {
-        if let executionState = self.activeAnchorExecutionState {
-            if let remoteQueryId = executionState.remoteQueryId {
-                self.unregisterRemoteHistoryPersistenceSource(queryId: remoteQueryId)
-            }
-            executionState.contextPrefetchQueryIds.forEach {
-                self.unregisterRemoteHistoryPersistenceSource(queryId: $0)
-            }
+    private func finishActiveAnchorExecution(token: ChatAnchorTransactionToken? = nil) {
+        guard let executionState = self.activeAnchorExecutionState else {
+            return
         }
+        let effectiveToken = token ?? executionState.transactionToken
+        guard executionState.transactionToken == effectiveToken,
+              self.anchorTransactionGate.finish(token: effectiveToken) else {
+            return
+        }
+        let onPositioned = self.activeAnchorExecutionHooks?.onPositioned
+        self.cleanupAnchorExecutionResources(executionState)
         self.pendingOpenMessageRequest = nil
         self.activeAnchorExecutionState = nil
         self.activeAnchorExecutionHooks = nil
@@ -3679,20 +3651,32 @@ extension ChatViewController {
         self.setLoadingIndicatorVisible(false)
         self.setDatasourceLoadingEnabled(true)
         self.setSearchResultsPanelContextLoading(false)
+        onPositioned?()
     }
 
-    private func failActiveAnchorExecution() {
+    private func failActiveAnchorExecution(
+        token: ChatAnchorTransactionToken? = nil,
+        failure: ChatAnchorTransactionFailure = .targetMissing
+    ) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in
-                self?.failActiveAnchorExecution()
+                self?.failActiveAnchorExecution(token: token, failure: failure)
             }
             return
         }
 
-        let executionState = self.activeAnchorExecutionState
+        guard let executionState = self.activeAnchorExecutionState else {
+            return
+        }
+        let effectiveToken = token ?? executionState.transactionToken
+        guard executionState.transactionToken == effectiveToken,
+              self.anchorTransactionGate.fail(token: effectiveToken, failure: failure) else {
+            return
+        }
         let onFailed = self.activeAnchorExecutionHooks?.onFailed
-        self.finishActiveAnchorExecution()
-        let usesBootstrapLoading = executionState?.usesBootstrapLoading == true
+        self.cleanupAnchorExecutionResources(executionState)
+        self.clearAnchorExecutionPresentationState()
+        let usesBootstrapLoading = executionState.usesBootstrapLoading
         let hasFailureHook = onFailed != nil
         if ChatAnchorFailureRecoveryPolicy.shouldReapplyBootstrapState(usesBootstrapLoading: usesBootstrapLoading) {
             let bootstrapState = self.currentBootstrapViewState()
@@ -3708,17 +3692,69 @@ extension ChatViewController {
             return
         }
         guard ChatAnchorFailureRecoveryPolicy.shouldRunDefaultFailurePresentation(
-            requestSource: executionState?.request.source,
+            requestSource: executionState.request.source,
             usesBootstrapLoading: usesBootstrapLoading,
             hasFailureHook: hasFailureHook
         ) else { return }
-        if case .search? = executionState?.request.source {
+        if case .search = executionState.request.source {
             self.postChatSearchAccessibilityAnnouncement(
                 .positioningFailure,
                 generation: self.searchPresentationState.generation
             )
         }
         self.view.makeToast("Original message is no longer available")
+    }
+
+    internal func cancelActiveAnchorExecutionForLifecycle() {
+        guard let executionState = self.activeAnchorExecutionState else {
+            return
+        }
+        self.cancelActiveAnchorExecution(
+            token: executionState.transactionToken,
+            failure: .disappeared,
+            invokeFailureHook: false
+        )
+    }
+
+    private func cancelActiveAnchorExecution(
+        token: ChatAnchorTransactionToken,
+        failure: ChatAnchorTransactionFailure,
+        invokeFailureHook: Bool
+    ) {
+        guard let executionState = self.activeAnchorExecutionState,
+              executionState.transactionToken == token,
+              self.anchorTransactionGate.cancel(token: token, failure: failure) else {
+            return
+        }
+        let onFailed = invokeFailureHook ? self.activeAnchorExecutionHooks?.onFailed : nil
+        self.cleanupAnchorExecutionResources(executionState)
+        self.clearAnchorExecutionPresentationState()
+        onFailed?()
+    }
+
+    private func cleanupAnchorExecutionResources(_ executionState: ChatAnchorExecutionState) {
+        var queryIds = executionState.contextPrefetchQueryIds
+        if let remoteQueryId = executionState.remoteQueryId {
+            queryIds.insert(remoteQueryId)
+        }
+        queryIds.forEach { queryId in
+            self.anchorTransactionTimeoutWorkItems.removeValue(forKey: queryId)?.cancel()
+            self.anchorTransactionTokenByQueryId.removeValue(forKey: queryId)
+            self.abortedRemoteHistoryQueryIds.insert(queryId)
+            self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+        }
+    }
+
+    private func clearAnchorExecutionPresentationState() {
+        self.pendingOpenMessageRequest = nil
+        self.activeAnchorExecutionState = nil
+        self.activeAnchorExecutionHooks = nil
+        self.isApplyingBootstrapAnchorWindow = false
+        self.syncAnchorExecutionFlags()
+        self.setSearchAnchorNavigationScrollLocked(false)
+        self.setLoadingIndicatorVisible(false)
+        self.setDatasourceLoadingEnabled(true)
+        self.setSearchResultsPanelContextLoading(false)
     }
 
     @discardableResult
@@ -3734,13 +3770,26 @@ extension ChatViewController {
             queryId = "MAM jump window: \(NanoID.new(6))"
         }
 
-        var state = self.activeAnchorExecutionState ?? self.initialAnchorExecutionState(for: request)
+        var state = self.ensureActiveAnchorExecutionState(for: request)
+        let transactionToken = state.transactionToken
         state.lastAttemptedRemotePlan = plan
         state.remoteQueryId = queryId
         state.isRemoteFetchInFlight = true
         state.isWaitingForObserverSync = false
         state.isPositioning = false
         self.activeAnchorExecutionState = state
+        guard self.anchorTransactionGate.acquire(.query(queryId), token: transactionToken) else {
+            return nil
+        }
+        guard self.anchorTransactionGate.acquire(.loader, token: transactionToken),
+              request.source != .search || self.anchorTransactionGate.acquire(
+                .scrollLock,
+                token: transactionToken
+              ) else {
+            return nil
+        }
+        self.anchorTransactionTokenByQueryId[queryId] = transactionToken
+        self.scheduleAnchorTransactionTimeout(queryId: queryId, token: transactionToken)
         self.syncAnchorExecutionFlags()
         self.setDatasourceLoadingEnabled(false)
         self.setSearchAnchorNavigationScrollLockedIfNeeded(true, for: request)
@@ -3760,7 +3809,7 @@ extension ChatViewController {
             }
         )
 
-        self.performArchiveAction(queryIds: [queryId], { stream, mam in
+        self.performArchiveAction(queryIds: [queryId], transactionToken: transactionToken, { stream, mam in
             switch plan {
             case .exactArchivedId(let archivedId):
                 _ = mam.fetchAnchorMessage(
@@ -3786,7 +3835,7 @@ extension ChatViewController {
                 )
             }
         }, unavailable: {
-            self.failActiveAnchorExecution()
+            self.failActiveAnchorExecution(token: transactionToken, failure: .disconnected)
         })
 
         return queryId
@@ -3794,13 +3843,23 @@ extension ChatViewController {
 
     private func performArchiveAction(
         queryIds: Set<String> = [],
+        transactionToken: ChatAnchorTransactionToken? = nil,
         _ action: @escaping (XMPPStream, MessageArchiveManager) -> Void,
         unavailable: (() -> Void)? = nil
     ) {
+        if let transactionToken,
+           self.anchorTransactionGate.snapshot.activeToken != transactionToken {
+            return
+        }
         queryIds.forEach {
             self.registerRemoteHistoryEndPageDispatcher(queryId: $0)
+            self.registerRemoteHistoryFailureDispatcher(queryId: $0)
         }
         let fallback = {
+            if let transactionToken,
+               self.anchorTransactionGate.snapshot.activeToken != transactionToken {
+                return
+            }
             guard let account = AccountManager.shared.find(for: self.owner) else {
                 queryIds.forEach {
                     self.unregisterRemoteHistoryEndPageDispatcher(queryId: $0)
@@ -3810,6 +3869,10 @@ extension ChatViewController {
             }
 
             account.action { user, stream in
+                if let transactionToken,
+                   self.anchorTransactionGate.snapshot.activeToken != transactionToken {
+                    return
+                }
                 queryIds.forEach {
                     self.registerRemoteHistoryPersistenceSource(user.messages, queryId: $0)
                 }
@@ -3818,17 +3881,50 @@ extension ChatViewController {
         }
 
         XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            if let transactionToken,
+               self.anchorTransactionGate.snapshot.activeToken != transactionToken {
+                return
+            }
+            session.logConnectionDiagnostics(
+                event: "ui_action_chat_archive_dispatch",
+                details: [
+                    "mamPresent": session.mam != nil,
+                    "messagesPresent": session.messages != nil,
+                    "registeredQueryCount": queryIds.count,
+                    "transactionScoped": transactionToken != nil
+                ]
+            )
             if let mam = session.mam {
                 queryIds.forEach {
                     self.registerRemoteHistoryPersistenceSource(session.messages, queryId: $0)
                 }
                 action(stream, mam)
+                session.logConnectionDiagnostics(event: "ui_action_chat_archive_action_returned")
             } else {
                 fallback()
             }
         } fail: {
             fallback()
         }
+    }
+
+    private func scheduleAnchorTransactionTimeout(
+        queryId: String,
+        token: ChatAnchorTransactionToken
+    ) {
+        self.anchorTransactionTimeoutWorkItems.removeValue(forKey: queryId)?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.anchorTransactionTokenByQueryId[queryId] == token else {
+                return
+            }
+            self.failActiveAnchorExecution(token: token, failure: .timeout)
+        }
+        self.anchorTransactionTimeoutWorkItems[queryId] = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + ChatInteractiveRemoteArchiveTimeoutPolicy.timeout,
+            execute: workItem
+        )
     }
 
     private func unreadBoundaryCandidate(for message: MessageStorageItem) -> ChatUnreadBoundaryTargetPolicy.Candidate {
@@ -3844,71 +3940,53 @@ extension ChatViewController {
     private func firstLoadedIncomingMessageAfterUnreadBoundary(
         _ boundaryArchivedId: String
     ) -> MessageStorageItem? {
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
+        self.timelineSession?.firstIncoming(afterArchiveBoundaryId: boundaryArchivedId)
+            ?? self.timelineSession?.resolvedMessage(
+                primary: nil,
+                archivedId: boundaryArchivedId,
+                messageId: nil
             )
-            return provider.firstIncoming(afterArchiveBoundaryId: boundaryArchivedId)
-                ?? provider.message(primary: nil, archivedId: boundaryArchivedId, messageId: nil)
-        } catch {
-            DDLogDebug("ChatViewController.firstLoadedIncomingMessageAfterUnreadBoundary: \(error.localizedDescription)")
-            return nil
-        }
     }
 
     private func unreadBoundaryFirstFrameLocalAnchor(
-        for request: ChatOpenMessageRequest
+        for request: ChatOpenMessageRequest,
+        residentSnapshot: ChatTimelineSessionSnapshot? = nil
     ) -> (message: MessageStorageItem, index: Int)? {
         guard request.source == .initialUnreadBoundary,
               case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution else {
             return nil
         }
 
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            guard let message = provider.firstIncoming(afterArchiveBoundaryId: boundaryArchivedId) else {
-                return nil
-            }
-
-            return (message, provider.index(of: message))
-        } catch {
-            DDLogDebug("ChatViewController.unreadBoundaryFirstFrameLocalAnchor: \(error.localizedDescription)")
+        guard let timelineSession = self.timelineSession else { return nil }
+        let snapshot = residentSnapshot ?? timelineSession.snapshot
+        guard let message = timelineSession.firstIncoming(
+            afterArchiveBoundaryId: boundaryArchivedId
+        ) else {
             return nil
         }
+        let index = snapshot.residentIndex.index(primary: message.primary) ?? 0
+        return (message, index)
     }
 
     private func searchFirstFrameLocalAnchor(
-        for request: ChatOpenMessageRequest
+        for request: ChatOpenMessageRequest,
+        residentSnapshot: ChatTimelineSessionSnapshot? = nil
     ) -> (message: MessageStorageItem, index: Int)? {
         guard request.source == .search else {
             return nil
         }
 
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            let anchor = request.anchor
-            guard let message = self.searchProviderMessage(for: anchor, provider: provider) else {
-                return nil
-            }
-
-            return (message, provider.index(of: message))
-        } catch {
-            DDLogDebug("ChatViewController.searchFirstFrameLocalAnchor: \(error.localizedDescription)")
+        guard let timelineSession = self.timelineSession else { return nil }
+        let snapshot = residentSnapshot ?? timelineSession.snapshot
+        guard let message = self.sessionAnchorMessage(for: request)?.message else {
             return nil
         }
+        let index = snapshot.residentIndex.index(primary: message.primary)
+                ?? RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(message.archivedId)
+                    .flatMap({ snapshot.residentIndex.index(archivedId: $0) })
+                ?? snapshot.residentIndex.index(messageId: message.messageId)
+                ?? 0
+        return (message, index)
     }
 
     private func resolvedTargetAfterContextPrefetch(
@@ -3927,110 +4005,72 @@ extension ChatViewController {
     private func localAnchorMessage(
         for request: ChatOpenMessageRequest
     ) -> (message: MessageStorageItem, matchSource: ChatAnchorLookupMatchSource)? {
-        if let providerMatch = self.providerAnchorMessage(for: request) {
-            return providerMatch
-        }
-
-        if let observerMatch = self.observerAnchorMessage(for: request) {
-            return observerMatch
-        }
-
-        if let savedPositionMatch = self.savedVisiblePositionMessageFromLocalRealm(for: request) {
-            return savedPositionMatch
-        }
-
-        guard request.source != .savedVisiblePosition else {
-            return nil
-        }
-
-        return self.metadataFallbackAnchorMessage(for: request)
+        self.sessionAnchorMessage(for: request)
     }
 
-    private func providerAnchorMessage(
+    private func sessionAnchorMessage(
         for request: ChatOpenMessageRequest
     ) -> (message: MessageStorageItem, matchSource: ChatAnchorLookupMatchSource)? {
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
+        guard let timelineSession = self.timelineSession else { return nil }
 
-            if case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution,
-               let message = provider.firstIncoming(afterArchiveBoundaryId: boundaryArchivedId)
-                    ?? provider.message(primary: nil, archivedId: boundaryArchivedId, messageId: nil) {
-                return (message, .unreadBoundaryAfter)
+        if case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution,
+           let message = timelineSession.firstIncoming(afterArchiveBoundaryId: boundaryArchivedId)
+                ?? timelineSession.resolvedMessage(primary: nil, archivedId: boundaryArchivedId, messageId: nil) {
+            return (message, .unreadBoundaryAfter)
+        }
+
+        if request.source == .search {
+            guard let message = timelineSession
+                .resolvedSearchMessageResolution(anchor: request.anchor)
+                .message else {
+                return nil
             }
-
-            let anchor = request.anchor
-            if request.source == .search,
-               let message = self.searchProviderMessage(for: anchor, provider: provider) {
-                if let archivedId = anchor.archivedId,
-                   archivedId.isNotEmpty,
-                   message.archivedId == archivedId {
-                    return (message, .archivedId)
-                }
-                if let messageId = anchor.messageId,
-                   messageId.isNotEmpty,
-                   message.messageId == messageId {
-                    return (message, .messageId)
-                }
-                return (message, .primary)
+            let source: ChatAnchorLookupMatchSource
+            if request.anchor.messagePrimary == message.primary {
+                source = .primary
+            } else if request.anchor.archivedId == message.archivedId {
+                source = .archivedId
+            } else if request.anchor.messageId == message.messageId {
+                source = .messageId
+            } else {
+                source = .metadataFallback
             }
+            return (message, source)
+        }
 
-            if let message = provider.message(
-                primary: anchor.messagePrimary,
-                archivedId: anchor.archivedId,
-                messageId: anchor.messageId
+        let anchor = request.anchor
+        let orderedLookups: [(ChatAnchorLookupMatchSource, String?, String?, String?)] = [
+            (.primary, anchor.messagePrimary, nil, nil),
+            (.archivedId, nil, anchor.archivedId, nil),
+            (.messageId, nil, nil, anchor.messageId)
+        ]
+
+        for (source, primary, archivedId, messageId) in orderedLookups {
+            guard primary?.isNotEmpty == true || archivedId?.isNotEmpty == true || messageId?.isNotEmpty == true else {
+                continue
+            }
+            if let message = timelineSession.resolvedMessage(
+                primary: primary,
+                archivedId: archivedId,
+                messageId: messageId
             ) {
-                if let messagePrimary = anchor.messagePrimary,
-                   messagePrimary.isNotEmpty,
-                   message.primary == messagePrimary {
-                    return (message, .primary)
-                }
-                if let archivedId = anchor.archivedId,
-                   archivedId.isNotEmpty,
-                   message.archivedId == archivedId {
-                    return (message, .archivedId)
-                }
-                if let messageId = anchor.messageId,
-                   messageId.isNotEmpty,
-                   message.messageId == messageId {
-                    return (message, .messageId)
-                }
-                return (message, .metadataFallback)
+                return (message, source)
             }
-        } catch {
-            DDLogDebug("ChatViewController.providerAnchorMessage: \(error.localizedDescription)")
         }
 
         return nil
     }
 
-    private func searchProviderMessage(
-        for anchor: ChatMessageAnchorRef,
-        provider: ChatLocalHistoryPageProvider
-    ) -> MessageStorageItem? {
-        if let archivedId = anchor.archivedId,
-           archivedId.isNotEmpty,
-           let message = provider.message(primary: nil, archivedId: archivedId, messageId: nil) {
-            return message
+    private func typedAnchorResolutionFailure(
+        for request: ChatOpenMessageRequest
+    ) -> ChatAnchorTransactionFailure {
+        guard request.source == .search,
+              let timelineSession = self.timelineSession else {
+            return .targetMissing
         }
-
-        if let messageId = anchor.messageId,
-           messageId.isNotEmpty,
-           let message = provider.message(primary: nil, archivedId: nil, messageId: messageId) {
-            return message
-        }
-
-        if let messagePrimary = anchor.messagePrimary,
-           messagePrimary.isNotEmpty,
-           let message = provider.message(primary: messagePrimary, archivedId: nil, messageId: nil) {
-            return message
-        }
-
-        return nil
+        return timelineSession
+            .resolvedSearchMessageResolution(anchor: request.anchor)
+            .failure ?? .targetMissing
     }
 
     internal func hasLocalAnchorForBootstrap(_ request: ChatOpenMessageRequest) -> Bool {
@@ -4047,12 +4087,18 @@ extension ChatViewController {
         }
 
         guard request.source == .savedVisiblePosition,
-              self.messagesObserver != nil,
-              let localAnchorIndex = self.savedPositionFirstFrameObserverIndex(for: request) else {
+              let residentSnapshot = self.timelineSession?.snapshot,
+              let localAnchorIndex = self.savedPositionFirstFrameObserverIndex(
+                for: request,
+                residentSnapshot: residentSnapshot
+              ) else {
             return true
         }
 
-        let archiveCoverageContext = self.savedPositionFirstFrameArchiveCoverageContext(localAnchorIndex: localAnchorIndex)
+        let archiveCoverageContext = self.savedPositionFirstFrameArchiveCoverageContext(
+            localAnchorIndex: localAnchorIndex,
+            residentSnapshot: residentSnapshot
+        )
         guard archiveCoverageContext.knownGaps.isNotEmpty else {
             return true
         }
@@ -4060,7 +4106,7 @@ extension ChatViewController {
         if case .savedPosition = ChatSavedPositionFirstFramePolicy.decision(
             requestSource: request.source,
             isSynced: true,
-            observerCount: self.messagesObserver.count,
+            observerCount: residentSnapshot.items.count,
             localAnchorIndex: localAnchorIndex,
             pageSize: self.datasourcePageSize,
             isPageUnlocked: true,
@@ -4077,8 +4123,21 @@ extension ChatViewController {
         archivedIdsByIndex: [Int: String],
         knownGaps: [RegularChatArchiveGap]
     ) {
+        self.savedPositionFirstFrameArchiveCoverageContext(
+            localAnchorIndex: localAnchorIndex,
+            residentSnapshot: self.timelineSession?.snapshot
+        )
+    }
+
+    private func savedPositionFirstFrameArchiveCoverageContext(
+        localAnchorIndex: Int?,
+        residentSnapshot: ChatTimelineSessionSnapshot?
+    ) -> (
+        archivedIdsByIndex: [Int: String],
+        knownGaps: [RegularChatArchiveGap]
+    ) {
         guard self.conversationType == .regular,
-              self.messagesObserver != nil else {
+              let residentSnapshot else {
             return ([:], [])
         }
 
@@ -4093,7 +4152,7 @@ extension ChatViewController {
         }
 
         let window = ChatDatasetCoordinator(pageSize: self.datasourcePageSize)
-            .replacementWindow(around: localAnchorIndex, totalCount: self.messagesObserver.count)
+            .replacementWindow(around: localAnchorIndex, totalCount: residentSnapshot.items.count)
         let sampledIndices = Set([
             window.minIndex,
             localAnchorIndex,
@@ -4101,157 +4160,15 @@ extension ChatViewController {
         ])
 
         var archivedIdsByIndex: [Int: String] = [:]
-        do {
-            let provider = ChatLocalHistoryPageProvider(
-                realm: try WRealm.safe(),
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            for index in sampledIndices {
-                if let archiveId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(provider.item(at: index)?.archivedId) {
-                    archivedIdsByIndex[index] = archiveId
-                }
+        for index in sampledIndices where residentSnapshot.items.indices.contains(index) {
+            if let archiveId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
+                residentSnapshot.items[index].archivedId
+            ) {
+                archivedIdsByIndex[index] = archiveId
             }
-        } catch {
-            DDLogDebug("ChatViewController.savedPositionFirstFrameArchiveCoverageContext: \(error.localizedDescription)")
         }
 
         return (archivedIdsByIndex, archiveState.knownGaps)
-    }
-
-    private func observerAnchorMessage(
-        for request: ChatOpenMessageRequest
-    ) -> (message: MessageStorageItem, matchSource: ChatAnchorLookupMatchSource)? {
-        self.ensureObserverLookupMaps()
-        let anchor = request.anchor
-
-        if case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution,
-           let message = self.firstLoadedIncomingMessageAfterUnreadBoundary(boundaryArchivedId) {
-            return (message, .unreadBoundaryAfter)
-        }
-
-        if request.source == .search {
-            if let archivedId = anchor.archivedId,
-               archivedId.isNotEmpty,
-               let observerIndex = self.observerArchivedIdIndexMap[archivedId],
-               observerIndex < self.messagesObserver.count {
-                return (self.messagesObserver[observerIndex], .archivedId)
-            }
-
-            if let messageId = anchor.messageId,
-               messageId.isNotEmpty,
-               let observerIndex = self.observerMessageIdIndexMap[messageId],
-               observerIndex < self.messagesObserver.count {
-                return (self.messagesObserver[observerIndex], .messageId)
-            }
-        }
-
-        if let messagePrimary = anchor.messagePrimary,
-           messagePrimary.isNotEmpty,
-           let observerIndex = self.observerPrimaryIndexMap[messagePrimary],
-           observerIndex < self.messagesObserver.count {
-            return (self.messagesObserver[observerIndex], .primary)
-        }
-
-        if let archivedId = anchor.archivedId,
-           archivedId.isNotEmpty,
-           let observerIndex = self.observerArchivedIdIndexMap[archivedId],
-           observerIndex < self.messagesObserver.count {
-            return (self.messagesObserver[observerIndex], .archivedId)
-        }
-
-        if let messageId = anchor.messageId,
-           messageId.isNotEmpty,
-           let observerIndex = self.observerMessageIdIndexMap[messageId],
-           observerIndex < self.messagesObserver.count {
-            return (self.messagesObserver[observerIndex], .messageId)
-        }
-
-        return nil
-    }
-
-    private func savedVisiblePositionMessageFromLocalRealm(
-        for request: ChatOpenMessageRequest
-    ) -> (message: MessageStorageItem, matchSource: ChatAnchorLookupMatchSource)? {
-        guard request.source == .savedVisiblePosition else {
-            return nil
-        }
-
-        let anchor = request.anchor
-
-        do {
-            let realm = try WRealm.safe()
-            let messages = realm
-                .objects(MessageStorageItem.self)
-                .filter(
-                    "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@",
-                    request.owner,
-                    request.chatJid,
-                    request.conversationType.rawValue
-                )
-
-            if let messagePrimary = anchor.messagePrimary,
-               messagePrimary.isNotEmpty,
-               let message = messages.filter("primary == %@", messagePrimary).first {
-                self.ensureObserverLookupMaps(force: true)
-                guard self.observerPrimaryIndexMap[message.primary] != nil else {
-                    return nil
-                }
-                return (message, .primary)
-            }
-
-            if let archivedId = anchor.archivedId,
-               archivedId.isNotEmpty,
-               let message = messages.filter("archivedId == %@", archivedId).first {
-                self.ensureObserverLookupMaps(force: true)
-                guard self.observerPrimaryIndexMap[message.primary] != nil else {
-                    return nil
-                }
-                return (message, .archivedId)
-            }
-
-            if let messageId = anchor.messageId,
-               messageId.isNotEmpty,
-               let message = messages.filter("messageId == %@", messageId).first {
-                self.ensureObserverLookupMaps(force: true)
-                guard self.observerPrimaryIndexMap[message.primary] != nil else {
-                    return nil
-                }
-                return (message, .messageId)
-            }
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-        }
-
-        return nil
-    }
-
-    private func metadataFallbackAnchorMessage(
-        for request: ChatOpenMessageRequest
-    ) -> (message: MessageStorageItem, matchSource: ChatAnchorLookupMatchSource)? {
-        let anchor = request.anchor
-
-        do {
-            let realm = try WRealm.safe()
-            if let message = MentionNotificationSync.matchingMessage(
-                owner: request.owner,
-                sourceChatJid: request.chatJid,
-                conversationType: request.conversationType,
-                sourceArchivedId: anchor.archivedId,
-                sourceMessageId: anchor.messageId,
-                sourceMessageDate: anchor.sourceDate,
-                sourceSenderId: anchor.authorId,
-                sourceBodyFingerprint: anchor.bodyFingerprint,
-                in: realm
-            ) {
-                return (message, .metadataFallback)
-            }
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-        }
-
-        return nil
     }
 
     private func resolvedJumpTarget(
@@ -4259,12 +4176,12 @@ extension ChatViewController {
         archivedId: String? = nil,
         messageId: String? = nil
     ) -> ResolvedJumpTarget? {
-        self.ensureObserverLookupMaps()
+        guard let snapshot = self.timelineSession?.snapshot else { return nil }
 
         if let primary,
-           let observerIndex = self.observerPrimaryIndexMap[primary],
-           observerIndex < self.messagesObserver.count {
-            let item = self.messagesObserver[observerIndex]
+           let observerIndex = snapshot.residentIndex.index(primary: primary),
+           snapshot.items.indices.contains(observerIndex) {
+            let item = snapshot.items[observerIndex]
             return ResolvedJumpTarget(
                 primary: item.primary,
                 archivedId: item.archivedId.isNotEmpty ? item.archivedId : nil
@@ -4273,9 +4190,9 @@ extension ChatViewController {
 
         if let archivedId,
            archivedId.isNotEmpty,
-           let observerIndex = self.observerArchivedIdIndexMap[archivedId],
-           observerIndex < self.messagesObserver.count {
-            let item = self.messagesObserver[observerIndex]
+           let observerIndex = snapshot.residentIndex.index(archivedId: archivedId),
+           snapshot.items.indices.contains(observerIndex) {
+            let item = snapshot.items[observerIndex]
             return ResolvedJumpTarget(
                 primary: item.primary,
                 archivedId: item.archivedId.isNotEmpty ? item.archivedId : nil
@@ -4284,9 +4201,9 @@ extension ChatViewController {
 
         if let messageId,
            messageId.isNotEmpty,
-           let observerIndex = self.observerMessageIdIndexMap[messageId],
-           observerIndex < self.messagesObserver.count {
-            let item = self.messagesObserver[observerIndex]
+           let observerIndex = snapshot.residentIndex.index(messageId: messageId),
+           snapshot.items.indices.contains(observerIndex) {
+            let item = snapshot.items[observerIndex]
             return ResolvedJumpTarget(
                 primary: item.primary,
                 archivedId: item.archivedId.isNotEmpty ? item.archivedId : nil
@@ -4322,15 +4239,30 @@ extension ChatViewController {
         direction: ChatDirection,
         completion: @escaping (ResolvedJumpTarget) -> Void
     ) {
-        self.ensureObserverLookupMaps()
-        guard let observerIndex = self.observerPrimaryIndexMap[target.primary] else {
-            completion(target)
+        guard let snapshot = self.timelineSession?.snapshot,
+              let observerIndex = snapshot.residentIndex.index(primary: target.primary) else {
+            self.chatScrollDirection = direction
+            self.mapAndApplyTimelineAnchor(
+                ChatTimelineAnchor(
+                    primary: target.primary,
+                    archivedId: target.archivedId,
+                    messageId: nil,
+                    date: nil
+                ),
+                mode: .fullReload(),
+                animated: false,
+                completion: { completion(target) },
+                cancelledCompletion: { completion(target) }
+            )
             return
         }
 
-        let window = self.datasetCoordinator.replacementWindow(around: observerIndex, totalCount: self.messagesObserver.count)
+        let window = self.datasetCoordinator.replacementWindow(
+            around: observerIndex,
+            totalCount: snapshot.items.count
+        )
         self.chatScrollDirection = direction
-        self.currentPage.setCustomPage(observerIndex / self.datasourcePageSize) {
+        self.timelineInteractionState.performLocked {
             self.syncCurrentPage(with: window)
             self.mapAndApplyWindow(window, mode: .fullReload(), completion: {
                 completion(target)
@@ -4343,8 +4275,10 @@ extension ChatViewController {
         archivedId: String? = nil,
         highlight: Bool,
         animated: Bool,
-        completion: (() -> Void)? = nil
+        preferredScrollDirection: ChatDirection? = nil,
+        completion: ((Bool) -> Void)? = nil
     ) {
+        _ = preferredScrollDirection
         self.preventHidingDate = true
         self.messagesCollectionView.layoutIfNeeded()
         if highlight {
@@ -4357,33 +4291,112 @@ extension ChatViewController {
             ?? archivedId.flatMap({ self.datasourceSnapshot.archivedIdIndex[$0] }) else {
             self.preventHidingDate = false
             self.setDatasourceLoadingEnabled(true)
-            self.currentPage.unlock()
-            completion?()
+            self.timelineInteractionState.unlock()
+            completion?(false)
             return
         }
         let indexPath = IndexPath(row: 0, section: scrollIndex)
+        guard let targetOffsetY = self.centeredContentOffsetY(for: indexPath) else {
+            self.preventHidingDate = false
+            self.setDatasourceLoadingEnabled(true)
+            self.timelineInteractionState.unlock()
+            completion?(false)
+            return
+        }
 
-        self.messagesCollectionView.scrollToItem(
-            at: indexPath,
-            at: .centeredVertically,
-            animated: animated
-        )
-
-        let finalizeDelay: TimeInterval = animated ? 0.35 : 0.0
-        DispatchQueue.main.asyncAfter(deadline: .now() + finalizeDelay) {
-            if let cell = self.messagesCollectionView.cellForItem(at: indexPath) as? MessageContentCell {
+        let finalize = {
+            let currentItem = self.datasourceItem(at: indexPath)
+            let didPosition = ChatAnchorPositionVerificationPolicy.isPositioned(
+                expectedPrimary: primary,
+                expectedArchivedId: archivedId,
+                actualPrimary: currentItem?.primary,
+                actualArchivedId: currentItem?.archivedId,
+                actualOffsetY: self.messagesCollectionView.contentOffset.y,
+                targetOffsetY: targetOffsetY
+            )
+            if didPosition,
+               let cell = self.messagesCollectionView.cellForItem(at: indexPath) as? MessageContentCell {
                 cell.setSelected(state: highlight)
+            }
+            if didPosition {
+                self.retainPositionedMessageAnchor(
+                    primary: primary,
+                    archivedId: archivedId,
+                    indexPath: indexPath
+                )
             }
             if self.inSearchMode.value || self.xabberInputView.state == .search {
                 self.refreshVisibleSearchSelection()
             }
             self.preventHidingDate = false
-            self.currentPage.unlock()
+            self.timelineInteractionState.unlock()
             self.setFloatingDateVisible(true)
             self.setFloatingDateHidden(true)
             self.setDatasourceLoadingEnabled(true)
-            completion?()
+            completion?(didPosition)
         }
+
+        guard animated else {
+            self.messagesCollectionView.scrollToItem(
+                at: indexPath,
+                at: .centeredVertically,
+                animated: false
+            )
+            finalize()
+            return
+        }
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock(finalize)
+        self.messagesCollectionView.scrollToItem(
+            at: indexPath,
+            at: .centeredVertically,
+            animated: true
+        )
+        CATransaction.commit()
+    }
+
+    private func centeredContentOffsetY(for indexPath: IndexPath) -> CGFloat? {
+        guard let attributes = self.messagesCollectionView.layoutAttributesForItem(at: indexPath) else {
+            return nil
+        }
+
+        let insets = self.messagesCollectionView.adjustedContentInset
+        let contentHeight = self.messagesCollectionView.collectionViewLayout.collectionViewContentSize.height
+        let viewportHeight = self.messagesCollectionView.bounds.height
+        let minOffsetY = -insets.top
+        let maxOffsetY = max(minOffsetY, contentHeight - viewportHeight + insets.bottom)
+        let targetOffsetY = attributes.frame.midY - (viewportHeight / 2)
+        return min(max(targetOffsetY, minOffsetY), maxOffsetY)
+    }
+
+    private func retainPositionedMessageAnchor(
+        primary: String,
+        archivedId: String?,
+        indexPath: IndexPath
+    ) {
+        guard let item = self.datasourceItem(at: indexPath),
+              let frame = self.messagesCollectionView.layoutAttributesForItem(at: indexPath)?.frame
+                ?? self.messagesCollectionView.cellForItem(at: indexPath)?.frame else {
+            self.retainedMessageAnchor = nil
+            return
+        }
+        self.retainedMessageAnchor = ChatRetainedMessageAnchor(
+            primary: primary,
+            archivedId: archivedId ?? item.archivedId,
+            displayRevision: self.anchorDisplayRevision(for: item),
+            viewportRelativeMinY: frame.minY - self.messagesCollectionView.contentOffset.y
+        )
+    }
+
+    internal func anchorDisplayRevision(for item: Datasource) -> String {
+        [
+            item.primary,
+            item.archivedId ?? "",
+            item.messageId,
+            String(item.editDate?.timeIntervalSince1970 ?? 0),
+            String(describing: item.kind)
+        ].joined(separator: "|")
     }
 
     private func scheduleMentionReadOnVisibleIfNeeded(
@@ -4429,6 +4442,8 @@ extension ChatViewController {
         anchorKey: String? = nil
     ) {
         state.contextPrefetchQueryIds.forEach {
+            self.anchorTransactionTimeoutWorkItems.removeValue(forKey: $0)?.cancel()
+            self.anchorTransactionTokenByQueryId.removeValue(forKey: $0)
             self.unregisterRemoteHistoryPersistenceSource(queryId: $0)
         }
         state.contextPrefetchAnchorKey = anchorKey
@@ -4437,12 +4452,6 @@ extension ChatViewController {
         state.contextPrefetchExpectedMessageCount = 0
         state.contextPrefetchPersistedMessageCount = 0
         state.didObserveContextPostIdleTick = false
-    }
-
-    private func isMessagePipelineIdle(for queryIds: Set<String>) -> Bool {
-        !queryIds.contains {
-            ChatRemoteHistoryCompletionCoordinator.hasPendingMessages(owner: self.owner, queryId: $0)
-        }
     }
 
     private func scheduleContextPrefetchObserverResumeIfNeeded(delay: TimeInterval = 0) {
@@ -4487,7 +4496,9 @@ extension ChatViewController {
             let action = ChatAnchorContextPrefetchPolicy.resumeAction(
                 pendingQueryIds: executionState.contextPrefetchPendingQueryIds,
                 totalPersistedMessageCount: executionState.contextPrefetchPersistedMessageCount,
-                areMessagePipelinesIdle: self.isMessagePipelineIdle(for: executionState.contextPrefetchQueryIds),
+                // A query leaves `contextPrefetchPendingQueryIds` only from the
+                // post-persistence-barrier final callback.
+                areMessagePipelinesIdle: executionState.contextPrefetchPendingQueryIds.isEmpty,
                 didObservePostIdleTick: executionState.didObserveContextPostIdleTick
             )
 
@@ -4512,16 +4523,25 @@ extension ChatViewController {
         self.resetContextPrefetchState(&executionState, anchorKey: anchorKey)
         self.activeAnchorExecutionState = executionState
 
-        self.ensureObserverLookupMaps()
-        guard let observerIndex = self.observerPrimaryIndexMap[target.primary] else {
-            self.syncAnchorExecutionFlags()
-            return false
-        }
-
+        let residentSnapshot = self.timelineSession?.snapshot
+        let residentArchivedIds = residentSnapshot?.items.map(\.archivedId) ?? []
+        let observerIndex = residentSnapshot?.residentIndex.index(primary: target.primary)
         let effectiveArchivedId = request.anchor.archivedId ?? target.archivedId
+        let coverage = effectiveArchivedId.map {
+            ChatAnchorContextCoverageResolver.coverage(
+                observerIndex: observerIndex,
+                residentArchivedIds: residentArchivedIds,
+                targetArchivedId: $0,
+                archiveState: self.loadChatArchiveStateSnapshot()
+            )
+        }
         let plan = ChatAnchorContextPrefetchPolicy.plan(
-            observerIndex: observerIndex,
-            totalCount: self.messagesObserver.count,
+            coverage: coverage ?? ChatAnchorContextCoverage(
+                olderLocalCount: observerIndex ?? 0,
+                newerLocalCount: max(0, residentArchivedIds.count - (observerIndex ?? 0) - 1),
+                olderBoundary: .unknown,
+                newerBoundary: .unknown
+            ),
             pageSize: self.datasourcePageSize,
             archivedId: effectiveArchivedId
         )
@@ -4536,6 +4556,23 @@ extension ChatViewController {
         let newerQueryId = plan.newerPageSize.map { _ in "MAM jump context newer: \(NanoID.new(6))" }
         let olderQueryId = plan.olderPageSize.map { _ in "MAM jump context older: \(NanoID.new(6))" }
         let queryIds = Set([newerQueryId, olderQueryId].compactMap { $0 })
+        let transactionToken = executionState.transactionToken
+        guard queryIds.allSatisfy({ queryId in
+            self.anchorTransactionGate.acquire(.query(queryId), token: transactionToken)
+        }) else {
+            return false
+        }
+        guard self.anchorTransactionGate.acquire(.loader, token: transactionToken),
+              request.source != .search || self.anchorTransactionGate.acquire(
+                .scrollLock,
+                token: transactionToken
+              ) else {
+            return false
+        }
+        queryIds.forEach { queryId in
+            self.anchorTransactionTokenByQueryId[queryId] = transactionToken
+            self.scheduleAnchorTransactionTimeout(queryId: queryId, token: transactionToken)
+        }
 
         var updatedState = executionState
         updatedState.contextPrefetchQueryIds = queryIds
@@ -4562,10 +4599,10 @@ extension ChatViewController {
         case .activityIndicator:
             self.setLoadingIndicatorVisible(true)
         }
-        self.performArchiveAction(queryIds: queryIds, { stream, mam in
+        self.performArchiveAction(queryIds: queryIds, transactionToken: transactionToken, { stream, mam in
             if let newerPageSize = plan.newerPageSize,
                let newerQueryId {
-                _ = mam.getPrevHistory(
+                _ = mam.requestNewerHistoryPage(
                     stream,
                     for: self.jid,
                     conversationType: self.conversationType,
@@ -4579,7 +4616,7 @@ extension ChatViewController {
 
             if let olderPageSize = plan.olderPageSize,
                let olderQueryId {
-                _ = mam.getNextHistory(
+                _ = mam.requestOlderHistoryPage(
                     stream,
                     for: self.jid,
                     conversationType: self.conversationType,
@@ -4593,6 +4630,7 @@ extension ChatViewController {
         }, unavailable: { [weak self] in
             guard let self,
                   var state = self.activeAnchorExecutionState,
+                  state.transactionToken == transactionToken,
                   state.contextPrefetchAnchorKey == anchorKey else {
                 return
             }
@@ -4609,19 +4647,25 @@ extension ChatViewController {
         around target: ResolvedJumpTarget,
         request: ChatOpenMessageRequest
     ) {
-        guard self.messagesObserver != nil else {
-            return
-        }
-
-        self.ensureObserverLookupMaps()
-        guard let observerIndex = self.observerPrimaryIndexMap[target.primary] else {
-            return
-        }
-
+        let residentSnapshot = self.timelineSession?.snapshot
+        let residentArchivedIds = residentSnapshot?.items.map(\.archivedId) ?? []
+        let observerIndex = residentSnapshot?.residentIndex.index(primary: target.primary)
         let effectiveArchivedId = request.anchor.archivedId ?? target.archivedId
+        let coverage = effectiveArchivedId.map {
+            ChatAnchorContextCoverageResolver.coverage(
+                observerIndex: observerIndex,
+                residentArchivedIds: residentArchivedIds,
+                targetArchivedId: $0,
+                archiveState: self.loadChatArchiveStateSnapshot()
+            )
+        }
         let plan = ChatAnchorContextPrefetchPolicy.plan(
-            observerIndex: observerIndex,
-            totalCount: self.messagesObserver.count,
+            coverage: coverage ?? ChatAnchorContextCoverage(
+                olderLocalCount: observerIndex ?? 0,
+                newerLocalCount: max(0, residentArchivedIds.count - (observerIndex ?? 0) - 1),
+                olderBoundary: .unknown,
+                newerBoundary: .unknown
+            ),
             pageSize: self.datasourcePageSize,
             archivedId: effectiveArchivedId
         )
@@ -4634,7 +4678,7 @@ extension ChatViewController {
 
         self.performArchiveAction({ stream, mam in
             if let newerPageSize = plan.newerPageSize {
-                _ = mam.getPrevHistory(
+                _ = mam.requestNewerHistoryPage(
                     stream,
                     for: self.jid,
                     conversationType: self.conversationType,
@@ -4647,7 +4691,7 @@ extension ChatViewController {
             }
 
             if let olderPageSize = plan.olderPageSize {
-                _ = mam.getNextHistory(
+                _ = mam.requestOlderHistoryPage(
                     stream,
                     for: self.jid,
                     conversationType: self.conversationType,
@@ -4687,13 +4731,8 @@ extension ChatViewController {
             return
         }
 
-        if self.activeAnchorExecutionState?.request != request {
-            self.activeAnchorExecutionState = self.initialAnchorExecutionState(for: request)
-        }
-
-        guard var executionState = self.activeAnchorExecutionState else {
-            return
-        }
+        var executionState = self.ensureActiveAnchorExecutionState(for: request)
+        let transactionToken = executionState.transactionToken
 
         let localMatch = self.localAnchorMessage(for: request)
         let action = ChatAnchorExecutionPolicy.resumeAction(
@@ -4742,8 +4781,7 @@ extension ChatViewController {
             self.activeAnchorExecutionState = resolvedExecutionState
             self.syncAnchorExecutionFlags()
             self.beginBootstrapAnchorContentTransitionIfNeeded()
-            let hooks = self.activeAnchorExecutionHooks
-            let direction = hooks?.direction ?? .up
+            let direction = self.activeAnchorExecutionHooks?.direction ?? .up
             self.chatScrollDirection = direction
             let timelineAnchor = ChatTimelineAnchor(
                 primary: positionTarget.primary,
@@ -4756,42 +4794,80 @@ extension ChatViewController {
                 mode: applyPlan.mode,
                 animated: false,
                 invalidateLayout: applyPlan.invalidateLayout,
-                completion: {
+                centerTargetInViewport: true,
+                shouldApply: {
+                    self.anchorTransactionGate.accept(
+                        .mapping,
+                        token: transactionToken
+                    ) == .accepted
+                },
+                transactionCompletion: { result in
+                    guard self.anchorTransactionGate.accept(
+                        .apply,
+                        token: transactionToken
+                    ) == .accepted else {
+                        return
+                    }
+
+                    guard case .committed(let diagnostics) = result,
+                          diagnostics.programmaticOffsetMutationCount <= 1,
+                          diagnostics.nextRunLoopCorrectionCount == 0,
+                          (diagnostics.anchorError ?? 0) <= 1,
+                          let section = self.datasourceSnapshot.primaryIndex[positionTarget.primary],
+                          self.datasource.indices.contains(section),
+                          self.datasource[section].archivedId == positionTarget.archivedId || positionTarget.archivedId == nil,
+                          self.anchorTransactionGate.accept(
+                            .scroll,
+                            token: transactionToken
+                          ) == .accepted else {
+                        self.failActiveAnchorExecution(
+                            token: transactionToken,
+                            failure: .targetDeleted
+                        )
+                        return
+                    }
+
                     let usesTransientHighlight = request.source.usesTransientHighlight && request.highlight
-                    hooks?.onPositioningStarted?()
-                    self.positionMessage(
+                    let indexPath = IndexPath(item: 0, section: section)
+                    self.retainPositionedMessageAnchor(
                         primary: positionTarget.primary,
                         archivedId: positionTarget.archivedId,
-                        highlight: request.highlight && !usesTransientHighlight,
-                        animated: hooks?.animatedScroll ?? false,
-                        completion: {
-                            if usesTransientHighlight {
-                                self.applyTransientMessageHighlight(primary: positionTarget.primary)
-                            }
-                            self.finishActiveAnchorExecution()
-                            self.scheduleMentionReadOnVisibleIfNeeded(
-                                for: request,
-                                positionedPrimary: positionTarget.primary
-                            )
-                            hooks?.onPositioned?()
-                            if contextPrefetchMode == .background {
-                                self.startBackgroundContextPrefetchIfNeeded(
-                                    around: positionTarget,
-                                    request: request
-                                )
-                            }
-                        }
+                        indexPath: indexPath
                     )
-            }, cancelledCompletion: {
-                self.failActiveAnchorExecution()
+                    if usesTransientHighlight {
+                        self.applyTransientMessageHighlight(primary: positionTarget.primary)
+                    } else if request.highlight,
+                              let cell = self.messagesCollectionView.cellForItem(at: indexPath) as? MessageContentCell {
+                        cell.setSelected(state: true)
+                    }
+                    self.scheduleMentionReadOnVisibleIfNeeded(
+                        for: request,
+                        positionedPrimary: positionTarget.primary
+                    )
+                    if contextPrefetchMode == .background,
+                       ChatAnchorContextPrefetchDispatchPolicy.phase(for: contextPrefetchMode) == .beforePositioning {
+                        self.startBackgroundContextPrefetchIfNeeded(
+                            around: positionTarget,
+                            request: request
+                        )
+                    }
+                    self.finishActiveAnchorExecution(token: transactionToken)
+                },
+                completion: nil,
+                cancelledCompletion: {
+                self.failActiveAnchorExecution(token: transactionToken)
             })
+            self.notifyAnchorPositioningStarted(token: transactionToken)
         case .startRemoteFetch(let plan):
             _ = self.startRemoteAnchorFetch(plan: plan, for: request)
         case .waitForObserverSync, .none:
             self.syncAnchorExecutionFlags()
             return
         case .fail:
-            self.failActiveAnchorExecution()
+            self.failActiveAnchorExecution(
+                token: transactionToken,
+                failure: self.typedAnchorResolutionFailure(for: request)
+            )
             return
         }
     }
@@ -4822,13 +4898,11 @@ extension ChatViewController {
         guard request.owner == self.owner,
               request.chatJid == self.jid,
               request.conversationType == self.conversationType,
-              self.messagesObserver != nil else {
+              self.timelineSession != nil else {
             return
         }
 
-        if self.activeAnchorExecutionState?.request != request {
-            self.activeAnchorExecutionState = self.initialAnchorExecutionState(for: request)
-        }
+        _ = self.ensureActiveAnchorExecutionState(for: request)
         self.syncAnchorExecutionFlags()
         self.resumeAnchorExecutionIfNeeded(trigger: trigger)
     }
@@ -4842,16 +4916,19 @@ extension ChatViewController {
     ) {
         func update() {
             self.setLoadingIndicatorVisible(false)
-            self.ensureObserverLookupMaps()
-            guard let index = self.observerArchivedIdIndexMap[archivedId] else {
+            guard let snapshot = self.timelineSession?.snapshot,
+                  let index = snapshot.residentIndex.index(archivedId: archivedId) else {
                 notFound?()
                 return
             }
-            let window = self.datasetCoordinator.replacementWindow(around: index, totalCount: self.messagesObserver.count)
-            self.currentPage.setCustomPage(index / self.datasourcePageSize) {
+            let window = self.datasetCoordinator.replacementWindow(
+                around: index,
+                totalCount: snapshot.items.count
+            )
+            self.timelineInteractionState.performLocked {
                 self.syncCurrentPage(with: window)
                 callback(self.sliceForWindow(window), index - window.minIndex)
-                self.currentPage.unlock()
+                self.timelineInteractionState.unlock()
                 self.setFloatingDateVisible(true)
             }
         }
@@ -4889,8 +4966,7 @@ extension ChatViewController {
         
         self.setFloatingDateVisible(false)
         self.pinnedDateView.hide(withoutAnimation: true)
-        self.ensureObserverLookupMaps()
-        if self.observerArchivedIdIndexMap[archivedId] != nil {
+        if self.timelineSession?.snapshot.residentIndex.index(archivedId: archivedId) != nil {
             update()
             self.setDatasourceLoadingEnabled(true)
         } else {
@@ -5365,17 +5441,17 @@ extension ChatViewController {
             return
         }
 
-        let tag = 0xA11D10
-        cell.contentView.subviews
-            .filter { $0.tag == tag }
-            .forEach { $0.removeFromSuperview() }
-
-        let overlay = UIView(frame: cell.contentView.bounds)
-        overlay.tag = tag
-        overlay.isUserInteractionEnabled = false
-        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        overlay.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.18)
-        cell.contentView.addSubview(overlay)
+        let revision = self.anchorDisplayRevision(for: self.datasource[section])
+        ChatAnchorHighlightOverlay.install(
+            on: cell,
+            primary: primary,
+            revision: revision
+        )
+        guard let overlay = cell.contentView.subviews.last,
+              ChatAnchorHighlightOverlay.representedPrimary(in: cell) == primary,
+              ChatAnchorHighlightOverlay.representedRevision(in: cell) == revision else {
+            return
+        }
 
         UIView.animate(
             withDuration: 0.25,
@@ -5385,7 +5461,10 @@ extension ChatViewController {
                 overlay.alpha = 0
             },
             completion: { _ in
-                overlay.removeFromSuperview()
+                if ChatAnchorHighlightOverlay.representedPrimary(in: cell) == primary,
+                   ChatAnchorHighlightOverlay.representedRevision(in: cell) == revision {
+                    ChatAnchorHighlightOverlay.remove(from: cell)
+                }
             }
         )
     }
@@ -5407,7 +5486,10 @@ extension ChatViewController {
         guard let target = self.unreadMentionsState.jumpTarget else {
             return
         }
-        let direction: ChatDirection = (target.observerIndex ?? Int.max) < (self.visibleRealMessagePrimaries().compactMap { self.observerPrimaryIndexMap[$0] }.min() ?? Int.max)
+        let residentIndex = self.timelineSession?.snapshot.residentIndex
+        let direction: ChatDirection = (target.observerIndex ?? Int.max) < (self.visibleRealMessagePrimaries().compactMap {
+            residentIndex?.index(primary: $0)
+        }.min() ?? Int.max)
             ? .down
             : .up
         self.navigateToUnreadMention(target, direction: direction)
@@ -5422,7 +5504,7 @@ extension ChatViewController {
             return
         }
 
-        guard self.currentPage.isUnlocked else {
+        guard self.timelineInteractionState.isUnlocked else {
             return
         }
 
@@ -5595,7 +5677,6 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             ("statePersisted", state.persistedMessageCount)
         ])
         DispatchQueue.main.async {
-            let enteredAt = Date()
             ChatArchiveDebugTrace.log("chatDidReceiveEndPageEnter", [
                 ("owner", self.owner),
                 ("jid", self.jid),
@@ -5607,8 +5688,17 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count),
                 ("datasourceCount", self.datasource.count),
                 ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
-                ("currentPageLocked", self.currentPage.locked)
+                ("currentPageLocked", self.timelineInteractionState.locked)
             ])
+            if let transactionToken = self.anchorTransactionTokenByQueryId[queryId] {
+                guard self.anchorTransactionGate.accept(
+                    .remoteFinal(queryId: queryId),
+                    token: transactionToken
+                ) == .accepted else {
+                    return
+                }
+                self.anchorTransactionTimeoutWorkItems.removeValue(forKey: queryId)?.cancel()
+            }
             if self.abortedRemoteHistoryQueryIds.contains(queryId),
                self.interactiveHistoryPageLoadContext?.queryId != queryId {
                 self.abortedRemoteHistoryQueryIds.remove(queryId)
@@ -5625,99 +5715,189 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 ])
                 return
             }
+
+            let finalPage = ChatRemoteHistoryFinalPage(
+                state: state,
+                first: first,
+                last: last,
+                count: count
+            )
+            if let context = self.interactiveHistoryPageLoadContext,
+               context.queryId == queryId {
+                self.cancelInteractiveRemoteArchiveTimeout(queryId: queryId)
+                let disposition = self.remoteHistoryQueryCoordinator.receiveFinal(
+                    queryId: queryId,
+                    generation: context.generation,
+                    page: finalPage
+                ) { [weak self] result in
+                    guard let self else { return }
+                    switch result {
+                    case .success(let committedPage):
+                        guard committedPage.descriptor.conversationKey == self.chatTimelineConversationKey,
+                              self.interactiveHistoryPageLoadContext?.queryId == queryId,
+                              self.interactiveHistoryPageLoadContext?.generation == committedPage.descriptor.generation else {
+                            return
+                        }
+                        self.handleCommittedRemoteHistoryFinal(
+                            queryId: queryId,
+                            originalState: state,
+                            first: first,
+                            last: last,
+                            count: count,
+                            completion: committedPage.persistence,
+                            barrierDurationMs: ChatArchiveDebugTrace.milliseconds(since: enqueuedAt)
+                        )
+                    case .failure(let error):
+                        self.handleInteractiveRemoteArchiveFailure(
+                            queryId: queryId,
+                            reason: .serverError,
+                            streamKind: .unknown,
+                            errorDescription: error.localizedDescription
+                        )
+                    }
+                }
+                switch disposition {
+                case .accepted:
+                    _ = self.markRemoteHistoryEndPageCompletionIfNeeded(queryId: queryId)
+                    return
+                case .duplicate:
+                    ChatArchiveDebugTrace.log("remoteHistoryFinalDuplicate")
+                    return
+                case .stale:
+                    ChatArchiveDebugTrace.log("remoteHistoryFinalStale", [
+                        ("generation", context.generation)
+                    ])
+                    return
+                case .unknown:
+                    break
+                }
+            }
+
+            switch self.remoteHistoryQueryCoordinator.classifyUnhandledFinal(queryId: queryId) {
+            case .duplicate:
+                self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+                ChatArchiveDebugTrace.log("remoteHistoryFinalDuplicateWithoutContext")
+                return
+            case .stale:
+                self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+                ChatArchiveDebugTrace.log("remoteHistoryFinalStaleWithoutContext")
+                return
+            case .accepted, .unknown:
+                break
+            }
+
             let shouldDedupeCompletion = self.remoteHistoryEndPageDispatcherTokens[queryId] != nil ||
                 self.completedRemoteHistoryEndPageQueryIds.contains(queryId)
             if shouldDedupeCompletion {
                 guard self.markRemoteHistoryEndPageCompletionIfNeeded(queryId: queryId) else {
-                    DDLogDebug("ChatViewController.remoteHistoryFinalDuplicate queryId=\(queryId)")
+                    ChatArchiveDebugTrace.log("remoteHistoryFinalDuplicate")
                     return
                 }
             }
-            let flushStartedAt = Date()
-            let completion = ChatRemoteHistoryCompletionCoordinator.flushQueryMessages(
+            let requestConversationKey = self.chatTimelineConversationKey
+            let barrierStartedAt = Date()
+            ChatRemoteHistoryCompletionCoordinator.flushQueryMessagesAsync(
                 owner: self.owner,
                 queryId: queryId,
                 state: state,
                 conversationJid: self.jid,
                 conversationType: self.conversationType
-            )
-            let flushDurationMs = ChatArchiveDebugTrace.milliseconds(since: flushStartedAt)
-            let effectiveState = completion.state
-            let visibleRows = completion.persistenceSummary.visibleRows(
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
-            ChatArchiveDebugTrace.log("chatDidReceiveEndPageAfterFlush", [
-                ("owner", self.owner),
-                ("jid", self.jid),
-                ("conversationType", self.conversationType.rawValue),
-                ("queryId", queryId),
-                ("flushMs", flushDurationMs),
-                ("flushed", completion.flushedMessageCount),
-                ("effectivePersisted", effectiveState.persistedMessageCount),
-                ("visibleRows", visibleRows),
-                ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count),
-                ("datasourceCount", self.datasource.count),
-                ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-")
-            ])
-            DDLogDebug("ChatViewController.remoteHistoryFinal queryId=\(queryId) statePersisted=\(state.persistedMessageCount) flushed=\(completion.flushedMessageCount) effectivePersisted=\(effectiveState.persistedMessageCount) count=\(count) received=\(completion.persistenceSummary.received) queued=\(completion.persistenceSummary.queued) savedNew=\(completion.persistenceSummary.savedNew) updatedExisting=\(completion.persistenceSummary.updatedExisting) skipped=\(completion.persistenceSummary.skipped) failed=\(completion.persistenceSummary.failed) visibleRows=\(visibleRows)")
-            if self.handleInitialBootstrapEndPageIfNeeded(
-                queryId: queryId,
-                state: effectiveState,
-                count: count,
-                persistedMessageCount: effectiveState.persistedMessageCount,
-                persistedRowsForQuery: completion.persistenceSummary.persistedRows,
-                visibleRowsForConversation: visibleRows
-            ) {
-                ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
-                    ("queryId", queryId),
-                    ("handler", "initialBootstrap")
-                ])
-                return
+            ) { [weak self] completion in
+                DispatchQueue.main.async {
+                    guard let self,
+                          self.chatTimelineConversationKey == requestConversationKey else {
+                        return
+                    }
+                    self.handleCommittedRemoteHistoryFinal(
+                        queryId: queryId,
+                        originalState: state,
+                        first: first,
+                        last: last,
+                        count: count,
+                        completion: completion,
+                        barrierDurationMs: ChatArchiveDebugTrace.milliseconds(since: barrierStartedAt)
+                    )
+                }
             }
-            if self.completeInteractiveHistoryPageLoadIfNeeded(
-                queryId: queryId,
-                state: effectiveState,
-                first: first,
-                last: last,
-                count: count,
-                persistedRowsForQuery: completion.persistenceSummary.persistedRows,
-                visibleRowsForConversation: visibleRows
-            ) {
-                ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
-                    ("queryId", queryId),
-                    ("handler", "interactivePaging")
-                ])
-                return
-            }
-            if self.handleAnchorContextPrefetchEndPageIfNeeded(queryId: queryId, state: effectiveState, count: count) {
-                ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
-                    ("queryId", queryId),
-                    ("handler", "anchorContextPrefetch")
-                ])
-                return
-            }
-            if self.handleAnchorRemoteFetchEndPageIfNeeded(queryId: queryId, state: effectiveState, count: count) {
-                ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
-                    ("queryId", queryId),
-                    ("handler", "anchorRemoteFetch")
-                ])
-                return
-            }
-            if self.finishInChatSearchQueryIfCurrent(queryId: queryId, emptyList: first == last) {
-                ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [
-                    ("queryId", queryId),
-                    ("handler", "search")
-                ])
-                return
-            }
-            ChatArchiveDebugTrace.log("chatDidReceiveEndPageUnhandled", [
-                ("queryId", queryId),
-                ("count", count),
-                ("effectivePersisted", effectiveState.persistedMessageCount)
-            ])
         }
+    }
+
+    private func handleCommittedRemoteHistoryFinal(
+        queryId: String,
+        originalState: MessageArchivePageEndState,
+        first: String,
+        last: String,
+        count: Int,
+        completion: ChatRemoteHistoryCompletionResult,
+        barrierDurationMs: Int
+    ) {
+        if let transactionToken = self.anchorTransactionTokenByQueryId[queryId] {
+            guard self.anchorTransactionGate.accept(
+                .persistence(queryId: queryId),
+                token: transactionToken
+            ) == .accepted else {
+                return
+            }
+        }
+        let effectiveState = completion.state
+        let visibleRows = completion.persistenceSummary.visibleRows(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType
+        )
+        ChatArchiveDebugTrace.log("chatDidReceiveEndPageAfterFlush", [
+            ("owner", self.owner),
+            ("jid", self.jid),
+            ("conversationType", self.conversationType.rawValue),
+            ("queryId", queryId),
+            ("flushMs", barrierDurationMs),
+            ("flushed", completion.flushedMessageCount),
+            ("effectivePersisted", effectiveState.persistedMessageCount),
+            ("visibleRows", visibleRows),
+            ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count),
+            ("datasourceCount", self.datasource.count),
+            ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-")
+        ])
+        if self.handleInitialBootstrapEndPageIfNeeded(
+            queryId: queryId,
+            state: effectiveState,
+            count: count,
+            persistedMessageCount: effectiveState.persistedMessageCount,
+            persistedRowsForQuery: completion.persistenceSummary.persistedRows,
+            visibleRowsForConversation: visibleRows
+        ) {
+            ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [("queryId", queryId), ("handler", "initialBootstrap")])
+            return
+        }
+        if self.completeInteractiveHistoryPageLoadIfNeeded(
+            queryId: queryId,
+            state: effectiveState,
+            first: first,
+            last: last,
+            count: count,
+            persistedRowsForQuery: completion.persistenceSummary.persistedRows,
+            visibleRowsForConversation: visibleRows
+        ) {
+            ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [("queryId", queryId), ("handler", "interactivePaging")])
+            return
+        }
+        if self.handleAnchorContextPrefetchEndPageIfNeeded(queryId: queryId, state: effectiveState, count: count) {
+            ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [("queryId", queryId), ("handler", "anchorContextPrefetch")])
+            return
+        }
+        if self.handleAnchorRemoteFetchEndPageIfNeeded(queryId: queryId, state: effectiveState, count: count) {
+            ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [("queryId", queryId), ("handler", "anchorRemoteFetch")])
+            return
+        }
+        if self.finishInChatSearchQueryIfCurrent(queryId: queryId, emptyList: first == last) {
+            ChatArchiveDebugTrace.log("chatDidReceiveEndPageHandled", [("queryId", queryId), ("handler", "search")])
+            return
+        }
+        ChatArchiveDebugTrace.log("chatDidReceiveEndPageUnhandled", [
+            ("queryId", queryId),
+            ("count", count),
+            ("effectivePersisted", effectiveState.persistedMessageCount)
+        ])
     }
     
     func didReceiveMessage(_ item: MessageStorageItem, queryId: String) {
@@ -5740,6 +5920,10 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
               executionState.contextPrefetchQueryIds.contains(queryId) else {
             return false
         }
+
+        self.anchorTransactionTokenByQueryId.removeValue(forKey: queryId)
+        self.anchorTransactionTimeoutWorkItems.removeValue(forKey: queryId)?.cancel()
+        self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
 
         executionState.contextPrefetchPendingQueryIds.remove(queryId)
         executionState.contextPrefetchExpectedMessageCount += max(0, count)
@@ -5792,6 +5976,10 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             return false
         }
 
+        self.anchorTransactionTokenByQueryId.removeValue(forKey: queryId)
+        self.anchorTransactionTimeoutWorkItems.removeValue(forKey: queryId)?.cancel()
+        self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+
         executionState.isRemoteFetchInFlight = false
         executionState.remoteQueryId = nil
         executionState.isPositioning = false
@@ -5839,14 +6027,42 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             if let request = self.pendingOpenMessageRequest {
                 _ = self.startRemoteAnchorFetch(plan: plan, for: request)
             } else {
-                self.failActiveAnchorExecution()
+                self.failActiveAnchorExecution(failure: .targetMissing)
             }
         case .fail:
-            self.failActiveAnchorExecution()
+            let failure = self.pendingOpenMessageRequest
+                .map { self.typedAnchorResolutionFailure(for: $0) } ?? .targetMissing
+            self.failActiveAnchorExecution(failure: failure)
         case .none:
             self.syncAnchorExecutionFlags()
         }
 
+        return true
+    }
+
+    @discardableResult
+    internal func handleAnchorRemoteFailureIfNeeded(
+        queryId: String,
+        reason: MessageArchiveRequestFailureReason
+    ) -> Bool {
+        guard let transactionToken = self.anchorTransactionTokenByQueryId[queryId],
+              self.anchorTransactionGate.accept(
+                .remoteFailure(queryId: queryId),
+                token: transactionToken
+              ) == .accepted else {
+            return false
+        }
+
+        let failure: ChatAnchorTransactionFailure
+        switch reason {
+        case .timeout:
+            failure = .timeout
+        case .uiActionDisconnect, .requestStartFailed:
+            failure = .disconnected
+        case .serverError, .malformedResponse:
+            failure = .iqError
+        }
+        self.failActiveAnchorExecution(token: transactionToken, failure: failure)
         return true
     }
 }

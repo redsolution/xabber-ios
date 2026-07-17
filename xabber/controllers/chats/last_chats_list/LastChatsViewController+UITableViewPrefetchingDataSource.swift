@@ -24,6 +24,10 @@ import UIKit
 extension LastChatsViewController: UITableViewDataSourcePrefetching {
     
     func tableView(_ tableView: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
+        if isShowingSearchResults {
+            indexPaths.forEach(chatSearchResultsController.loadNextSearchPageIfNeeded)
+            return
+        }
 //        indexPaths.forEach {
 //            _ = chats?[$0.row].rosterItem.getStatus()
 //        }

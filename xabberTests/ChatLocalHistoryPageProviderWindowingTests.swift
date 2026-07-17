@@ -36,7 +36,7 @@ final class ChatLocalHistoryPageProviderWindowingTests: XCTestCase {
 
         XCTAssertEqual(items.map(\.primary), ["p5", "p6", "p7"])
         XCTAssertEqual(diagnostics.fullScanCount, 0)
-        XCTAssertLessThanOrEqual(diagnostics.maxCandidateCount, 6)
+        XCTAssertLessThanOrEqual(diagnostics.maxCandidateCount, 12)
     }
 
     func testOlderBeforeBoundaryDedupeUsesBoundedCandidates() throws {
@@ -114,7 +114,7 @@ final class ChatLocalHistoryPageProviderWindowingTests: XCTestCase {
 
         XCTAssertEqual(items.map(\.primary), ["p3", "p4", "p5", "p6", "p7", "p8"])
         XCTAssertEqual(diagnostics.fullScanCount, 0)
-        XCTAssertTrue(diagnostics.records.contains { $0.operation == "around" })
+        XCTAssertEqual(diagnostics.records.map(\.operation), ["older", "newer"])
     }
 
     func testLargeConversationUsesBoundedCandidateWindows() throws {

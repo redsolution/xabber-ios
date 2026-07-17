@@ -246,7 +246,6 @@
 import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
-import Kingfisher
 import CoreMedia
 import CocoaLumberjack
 import RealmSwift
@@ -256,12 +255,22 @@ class InlineVideosGridView: InlineAttachmentView {
     class InlineMessageVideoView: UIImageView {
         var primary: String
         var url: URL?
+        var previewURL: URL?
+        var representedRequest: InlineAttachmentRepresentedRequest
+        var representedThumbnailRequest: ChatThumbnailRequest?
+        var representedThumbnailConsumer: ChatThumbnailConsumer?
+        var thumbnailSubscription: ChatThumbnailSubscription?
+        let visibleConsumerID = UUID()
         var isSensitive: Bool {
             didSet {
-                sensitiveOverlay.isHidden = !isSensitive
+                updateSensitiveAppearance()
             }
         }
-        private let sensitiveOverlay = SensitiveMediaOverlayView()
+        private var sensitiveOverlay: SensitiveMediaOverlayView?
+
+        var hasSensitiveOverlay: Bool {
+            sensitiveOverlay != nil
+        }
         
         internal let playButton: UIButton = {
             var conf = UIButton.Configuration.borderless()
@@ -278,17 +287,22 @@ class InlineVideosGridView: InlineAttachmentView {
             return button
         }()
         
-        init(frame: CGRect, primary: String, url: URL?, isSensitive: Bool) {
+        init(
+            frame: CGRect,
+            primary: String,
+            url: URL?,
+            isSensitive: Bool,
+            representedRequest: InlineAttachmentRepresentedRequest
+        ) {
             self.primary = primary
             self.url = url
+            self.previewURL = nil
             self.isSensitive = isSensitive
+            self.representedRequest = representedRequest
             super.init(frame: frame)
             playButton.center = self.center
             addSubview(playButton)
-            addSubview(sensitiveOverlay)
-            sensitiveOverlay.frame = bounds
-            sensitiveOverlay.isUserInteractionEnabled = false
-            sensitiveOverlay.isHidden = !isSensitive
+            updateSensitiveAppearance()
         }
         
         required init?(coder: NSCoder) {
@@ -298,21 +312,55 @@ class InlineVideosGridView: InlineAttachmentView {
         override func layoutSubviews() {
             super.layoutSubviews()
             playButton.center = CGPoint(x: bounds.midX, y: bounds.midY)
-            sensitiveOverlay.frame = bounds
+            sensitiveOverlay?.frame = bounds
             bringSubviewToFront(playButton)
-            bringSubviewToFront(sensitiveOverlay)
+            if let sensitiveOverlay {
+                bringSubviewToFront(sensitiveOverlay)
+            }
+        }
+
+        func cancelThumbnailBinding() {
+            thumbnailSubscription?.cancel()
+            thumbnailSubscription = nil
+            representedThumbnailRequest = nil
+            representedThumbnailConsumer = nil
+        }
+
+        private func updateSensitiveAppearance() {
+            if isSensitive {
+                let overlay = sensitiveOverlay ?? SensitiveMediaOverlayView()
+                if sensitiveOverlay == nil {
+                    sensitiveOverlay = overlay
+                    overlay.isUserInteractionEnabled = false
+                    addSubview(overlay)
+                }
+                overlay.frame = bounds
+                bringSubviewToFront(overlay)
+            } else {
+                sensitiveOverlay?.removeFromSuperview()
+                sensitiveOverlay = nil
+            }
         }
     }
     
     var views: [InlineMessageVideoView] = []
+    var thumbnailPipeline: ChatThumbnailServing = ChatMediaThumbnailPipeline.shared
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        refreshThumbnailBindings()
+    }
 
     func resetState() {
         views.forEach {
-            $0.kf.cancelDownloadTask()
+            $0.cancelThumbnailBinding()
+            $0.image = nil
+            $0.backgroundColor = .clear
             $0.removeFromSuperview()
         }
         views = []
         contentViews.removeAll()
+        grid.removeAll()
     }
 
     public func prepareGrid(_ attachments: [VideoAttachment]) -> [CGRect] {
@@ -401,7 +449,10 @@ class InlineVideosGridView: InlineAttachmentView {
         return rects
     }
     
-    func configure(_ attachments: [VideoAttachment]) {
+    func configure(
+        _ attachments: [VideoAttachment],
+        representedBy containerPrimary: String = ""
+    ) {
         resetState()
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
@@ -409,75 +460,125 @@ class InlineVideosGridView: InlineAttachmentView {
                 frame: rect,
                 primary: attachments[index].primary,
                 url: attachments[index].url,
-                isSensitive: attachments[index].isSensitive && !attachments[index].isSensitiveRevealed
+                isSensitive: attachments[index].isSensitive && !attachments[index].isSensitiveRevealed,
+                representedRequest: representedRequest(
+                    for: attachments[index],
+                    containerPrimary: containerPrimary
+                )
             )
+            view.previewURL = attachments[index].previewUrl
             self.contentViews.append(view)
             view.contentMode = .scaleAspectFill
             view.layer.cornerRadius = 7
             view.layer.masksToBounds = true
-            if let previewUrl = attachments[index].previewUrl {
-                
-                view.kf.setImage(
-                    with: previewUrl,
-                    placeholder: nil,
-                    options: [
-                        .alsoPrefetchToMemory,
-                        .waitForCache,
-                        .backgroundDecode,
-                    ]) { (result) in
-                        switch result {
-                            case .success(_):
-                                break
-                            case .failure(let error):
-                                print(error.errorCode)
-                        }
-                    }
-            } else {
+            if attachments[index].previewUrl == nil {
                 view.backgroundColor = .black
             }
             self.addSubview(view)
             self.views.append(view)
             
         }
-        
+        refreshThumbnailBindings()
     }
 
-    func updateContent(_ attachments: [VideoAttachment]) {
+    func updateContent(
+        _ attachments: [VideoAttachment],
+        representedBy containerPrimary: String = ""
+    ) {
         if attachments.isEmpty {
-            self.views.forEach { $0.removeFromSuperview() }
-            self.views = []
-            self.contentViews.removeAll()
+            resetState()
             return
         }
 
         guard self.views.map(\.primary) == attachments.map(\.primary),
               self.views.count == attachments.count else {
-            configure(attachments)
+            configure(attachments, representedBy: containerPrimary)
             return
         }
 
         prepareGrid(attachments).enumerated().forEach { index, rect in
             let item = attachments[index]
             let view = self.views[index]
+            let request = representedRequest(
+                for: item,
+                containerPrimary: containerPrimary
+            )
             view.frame = rect
             view.primary = item.primary
             view.url = item.url
+            view.previewURL = item.previewUrl
             view.isSensitive = item.isSensitive && !item.isSensitiveRevealed
-            if let previewUrl = item.previewUrl {
-                view.kf.setImage(
-                    with: previewUrl,
-                    placeholder: nil,
-                    options: [
-                        .alsoPrefetchToMemory,
-                        .waitForCache,
-                        .backgroundDecode,
-                    ]
-                )
-            } else {
+            view.representedRequest = request
+            view.backgroundColor = item.previewUrl == nil ? .black : .clear
+        }
+        refreshThumbnailBindings()
+    }
+
+    func refreshThumbnailBindings() {
+        let scale = Double(window?.screen.scale ?? UIScreen.main.scale)
+        let style = ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
+        views.forEach { view in
+            guard let previewURL = view.previewURL else {
+                view.cancelThumbnailBinding()
                 view.image = nil
                 view.backgroundColor = .black
+                return
+            }
+            guard view.frame.width > 0, view.frame.height > 0 else { return }
+            let request = ChatThumbnailRequest(
+                url: previewURL,
+                displaySize: ChatCollectionPrefetchSize(
+                    width: Double(view.frame.width),
+                    height: Double(view.frame.height)
+                ),
+                scale: scale,
+                traitStyle: style
+            )
+            let consumer = ChatThumbnailConsumer(
+                identity: ChatCollectionPrefetchIdentity(
+                    kind: .videoPreview,
+                    messagePrimary: view.representedRequest.containerPrimary,
+                    referencePrimary: view.primary
+                ),
+                role: .visible(view.visibleConsumerID)
+            )
+            guard view.representedThumbnailRequest != request ||
+                    view.representedThumbnailConsumer != consumer else {
+                return
+            }
+
+            view.cancelThumbnailBinding()
+            view.image = nil
+            view.backgroundColor = .clear
+            view.representedThumbnailRequest = request
+            view.representedThumbnailConsumer = consumer
+            view.thumbnailSubscription = thumbnailPipeline.acquire(
+                request,
+                consumer: consumer
+            ) { [weak view] result in
+                guard let view,
+                      view.representedThumbnailRequest == request,
+                      view.representedThumbnailConsumer == consumer,
+                      case .success(let delivery) = result else {
+                    return
+                }
+                view.image = delivery.image
             }
         }
+    }
+
+    private func representedRequest(
+        for attachment: VideoAttachment,
+        containerPrimary: String
+    ) -> InlineAttachmentRepresentedRequest {
+        InlineAttachmentRepresentedRequest(
+            containerPrimary: containerPrimary,
+            referencePrimary: attachment.primary,
+            resourceIdentity: [
+                attachment.url?.absoluteString ?? "",
+                attachment.previewUrl?.absoluteString ?? ""
+            ].joined(separator: "|")
+        )
     }
     
     func handleTouch(at point: CGPoint, callback: (([URL], URL, String, Bool) -> Void)?) -> Bool {

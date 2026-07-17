@@ -23,6 +23,10 @@ import Foundation
 import os.signpost
 
 enum ChatPerformanceSignpostPhase: String, CaseIterable {
+    case openRequest = "chat.open_request"
+    case localSnapshotReady = "chat.local_snapshot_ready"
+    case firstContentCommitted = "chat.first_content_committed"
+    case firstStableFrame = "chat.first_stable_frame"
     case chatOpenToFirstFrame = "chat.open_to_first_frame"
     case mapDataset = "chat.map_dataset"
     case datasourceDiff = "chat.datasource_diff"
@@ -35,10 +39,26 @@ enum ChatPerformanceSignpostPhase: String, CaseIterable {
     case observerRefresh = "chat.observer_refresh"
     case referencePrepare = "chat.reference_prepare"
     case mediaPrefetch = "chat.media_prefetch"
+    case mediaVisibleHit = "chat.media_visible_hit"
+    case pagePlan = "chat.page_plan"
+    case pageQuery = "chat.page_query"
+    case pagePersist = "chat.page_persist"
+    case pageApply = "chat.page_apply"
+    case anchorReceived = "chat.anchor_received"
+    case anchorResolved = "chat.anchor_resolved"
+    case anchorCentered = "chat.anchor_centered"
     case messagePersistence = "chat.message_persistence"
 
     var signpostName: StaticString {
         switch self {
+        case .openRequest:
+            return "chat.open_request"
+        case .localSnapshotReady:
+            return "chat.local_snapshot_ready"
+        case .firstContentCommitted:
+            return "chat.first_content_committed"
+        case .firstStableFrame:
+            return "chat.first_stable_frame"
         case .chatOpenToFirstFrame:
             return "chat.open_to_first_frame"
         case .mapDataset:
@@ -63,6 +83,22 @@ enum ChatPerformanceSignpostPhase: String, CaseIterable {
             return "chat.reference_prepare"
         case .mediaPrefetch:
             return "chat.media_prefetch"
+        case .mediaVisibleHit:
+            return "chat.media_visible_hit"
+        case .pagePlan:
+            return "chat.page_plan"
+        case .pageQuery:
+            return "chat.page_query"
+        case .pagePersist:
+            return "chat.page_persist"
+        case .pageApply:
+            return "chat.page_apply"
+        case .anchorReceived:
+            return "chat.anchor_received"
+        case .anchorResolved:
+            return "chat.anchor_resolved"
+        case .anchorCentered:
+            return "chat.anchor_centered"
         case .messagePersistence:
             return "chat.message_persistence"
         }
@@ -183,6 +219,14 @@ enum ChatPerformanceSignposts {
 
     static func begin(_ phase: ChatPerformanceSignpostPhase) -> Interval {
         Interval(phase: phase)
+    }
+
+    static func event(_ phase: ChatPerformanceSignpostPhase) {
+        os_signpost(
+            .event,
+            log: log,
+            name: phase.signpostName
+        )
     }
 
     @discardableResult

@@ -30,11 +30,14 @@ extension LastChatsViewController: SearchResultsDelegateProtocol {
         InPlaceSearchResultRouteHelper.open(
             item,
             updater: chatSearchResultsController,
-            dismissSearch: { [weak self] in
-                self?.dismissBottomSearchForRoute()
+            dismissSearch: { [weak self] disposition in
+                self?.dismissBottomSearchForRoute(disposition: disposition)
             },
             reload: { [weak self] in
                 self?.reloadInPlaceSearchResultsIfNeeded()
+            },
+            onUnavailable: { [weak self] presentation in
+                self?.presentUnavailableSearchResult(presentation)
             },
             openNewChat: { [weak self] item, openMessageRequest, completion in
                 self?.stackNewChat(
@@ -47,5 +50,23 @@ extension LastChatsViewController: SearchResultsDelegateProtocol {
                 }
             }
         )
+    }
+
+    private func presentUnavailableSearchResult(
+        _ presentation: LastChatsSearchUnavailablePresentation
+    ) {
+        let alert = UIAlertController(
+            title: presentation.title,
+            message: presentation.message,
+            preferredStyle: .alert
+        )
+        alert.view.accessibilityIdentifier = presentation.accessibilityIdentifier
+        alert.addAction(
+            UIAlertAction(
+                title: "OK".localizeString(id: "ok", arguments: []),
+                style: .default
+            )
+        )
+        present(alert, animated: true)
     }
 }

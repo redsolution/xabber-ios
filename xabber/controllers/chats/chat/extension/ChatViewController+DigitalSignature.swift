@@ -24,14 +24,14 @@ import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 import YubiKit
 
-protocol TimeSignatureBlockingPanelDelegate {
+protocol TimeSignatureBlockingPanelDelegate: AnyObject {
     func onSignButtonTouchUpInside()
 }
 
 extension ChatViewController {
     class TimeSignatureBlockingPanel: UIView {
         
-        var delegate: TimeSignatureBlockingPanelDelegate? = nil
+        weak var delegate: TimeSignatureBlockingPanelDelegate? = nil
         
         let stack: UIStackView = {
             let stack = UIStackView()

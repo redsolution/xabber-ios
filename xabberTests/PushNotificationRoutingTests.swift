@@ -217,6 +217,95 @@ final class PushNotificationRoutingTests: XCTestCase {
         XCTAssertEqual(decoded.stanzaId, "legacy-1")
     }
 
+    func testLocalMessageNotificationBuildsExactMessageAnchorRequest() throws {
+        let timestamp = Date(timeIntervalSince1970: 1_711_283_200).timeIntervalSinceReferenceDate
+        let producedRoute = LocalMessageNotificationRouteFactory.make(
+            owner: owner,
+            routeJid: "juliet@example.com",
+            conversationType: "regular",
+            stanzaId: "1711283200000000",
+            senderJid: "juliet@example.com",
+            senderNickname: nil
+        )
+        let decodedRoute = try XCTUnwrap(
+            PushNotificationRoutePayload(userInfo: producedRoute.userInfo(timestamp: timestamp))
+        )
+
+        let request = try XCTUnwrap(
+            PushNotificationMessageOpenRequestFactory.make(
+                route: decodedRoute,
+                fallbackConversationType: .regular
+            )
+        )
+
+        XCTAssertEqual(request.source, .pushNotification)
+        XCTAssertEqual(request.anchor.archivedId, "1711283200000000")
+        XCTAssertNil(request.anchor.messageId)
+        XCTAssertEqual(request.anchor.authorId, "juliet@example.com")
+        XCTAssertEqual(request.anchor.sourceDate, Date(timeIntervalSince1970: 1_711_283_200))
+        XCTAssertTrue(request.highlight)
+        XCTAssertTrue(request.markReadOnVisible)
+    }
+
+    func testForegroundNotificationTapStillOpensTheExactMessageRoute() {
+        let plan = MessageNotificationTapRoutingPolicy.plan(
+            applicationIsActive: true,
+            atStart: false
+        )
+
+        XCTAssertTrue(plan.opensChat)
+        XCTAssertFalse(plan.clearsUnread)
+        XCTAssertNil(plan.legacyFallbackAction)
+    }
+
+    func testBackgroundLocalOrPushNotificationTapUsesTheSameChatRoute() {
+        let foregroundPlan = MessageNotificationTapRoutingPolicy.plan(
+            applicationIsActive: false,
+            atStart: false
+        )
+        let coldStartPlan = MessageNotificationTapRoutingPolicy.plan(
+            applicationIsActive: false,
+            atStart: true
+        )
+
+        XCTAssertTrue(foregroundPlan.opensChat)
+        XCTAssertTrue(foregroundPlan.clearsUnread)
+        XCTAssertEqual(foregroundPlan.legacyFallbackAction, "foregroundChat")
+        XCTAssertTrue(coldStartPlan.opensChat)
+        XCTAssertTrue(coldStartPlan.clearsUnread)
+        XCTAssertEqual(coldStartPlan.legacyFallbackAction, "initialChat")
+    }
+
+    func testRichPushNotificationBuildsTheSameExactMessageAnchorRequest() throws {
+        let preview = try parseArchivedMessage(
+            """
+            <message from='juliet@example.com/mobile' to='romeo@example.com' id='push-message-id'>
+              <body>Hello Romeo</body>
+              <stanza-id xmlns='urn:xmpp:sid:0' by='juliet@example.com' id='1711283200000000'/>
+            </message>
+            """
+        )
+        let decodedRoute = try XCTUnwrap(
+            PushNotificationRoutePayload(
+                userInfo: preview.route.userInfo(
+                    timestamp: Date(timeIntervalSince1970: 1_711_283_200).timeIntervalSinceReferenceDate
+                )
+            )
+        )
+
+        let request = try XCTUnwrap(
+            PushNotificationMessageOpenRequestFactory.make(
+                route: decodedRoute,
+                fallbackConversationType: .regular
+            )
+        )
+
+        XCTAssertEqual(request.chatJid, "juliet@example.com")
+        XCTAssertEqual(request.anchor.archivedId, "1711283200000000")
+        XCTAssertEqual(request.anchor.messageId, "push-message-id")
+        XCTAssertEqual(request.source, .pushNotification)
+    }
+
     private func parseArchivedMessage(_ messageXML: String) throws -> PushNotificationPreview {
         try XCTUnwrap(parseOptionalArchivedMessage(messageXML))
     }

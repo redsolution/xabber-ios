@@ -39,14 +39,14 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     private func shortContentRemotePagingSuppressionContext(
         availability: ChatScrollBoundaryAvailability
     ) -> BoundaryPagingSuppressionContext {
-        let contentHeight = self.messagesCollectionView.collectionViewLayout.collectionViewContentSize.height
+        let contentHeight = self.messagesCollectionView.contentSize.height
         let visibleHeight = max(
             0,
             self.messagesCollectionView.bounds.height -
                 self.messagesCollectionView.adjustedContentInset.top -
                 self.messagesCollectionView.adjustedContentInset.bottom
         )
-        let hasRealMessages = self.datasource.contains { !$0.isFakeMessage }
+        let hasRealMessages = self.scrollResidentMetadata.firstRealSection != nil
         let shouldSuppress = ChatShortContentRemotePagingSuppressionPolicy.shouldSuppressRemoteBoundaryPaging(
             hasRealMessages: hasRealMessages,
             hasLocalOlderAvailable: availability.hasLocalOlderPage,
@@ -83,15 +83,6 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             hasRemoteNewerAvailable: availability.hasRemoteNewerPage,
             suppressRemoteBoundaryPaging: suppressionContext.suppressRemoteBoundaryPaging
         )
-        self.logBoundaryPagingDecision(
-            trigger: "interactive",
-            boundaryContext: boundaryContext,
-            availability: availability,
-            suppressionContext: suppressionContext,
-            residentCount: residentCount,
-            gestureTranslationY: gestureTranslationY,
-            selectedDirection: pageDirection
-        )
         return pageDirection
     }
 
@@ -115,62 +106,11 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             hasRemoteNewerAvailable: availability.hasRemoteNewerPage,
             suppressRemoteBoundaryPaging: suppressionContext.suppressRemoteBoundaryPaging
         )
-        self.logBoundaryPagingDecision(
-            trigger: "dragEnd",
-            boundaryContext: boundaryContext,
-            availability: availability,
-            suppressionContext: suppressionContext,
-            residentCount: residentCount,
-            gestureTranslationY: gestureTranslationY,
-            selectedDirection: pageDirection
-        )
         return pageDirection
     }
 
-    private func logBoundaryPagingDecision(
-        trigger: String,
-        boundaryContext: ChatHistoryPagingBoundaryContext,
-        availability: ChatScrollBoundaryAvailability,
-        suppressionContext: BoundaryPagingSuppressionContext,
-        residentCount: Int,
-        gestureTranslationY: CGFloat,
-        selectedDirection: ChatHistoryPageDirection?
-    ) {
-        ChatArchiveDebugTrace.log("boundaryPagingDecision", [
-            ("owner", self.owner),
-            ("jid", self.jid),
-            ("conversationType", self.conversationType.rawValue),
-            ("trigger", trigger),
-            ("selectedDirection", selectedDirection.map { "\($0)" } ?? "-"),
-            ("firstRealSection", boundaryContext.firstRealSection ?? -1),
-            ("lastRealSection", boundaryContext.lastRealSection ?? -1),
-            ("visibleRealSections", boundaryContext.visibleRealSections.map(String.init).joined(separator: ",")),
-            ("localOlder", availability.hasLocalOlderPage),
-            ("localNewer", availability.hasLocalNewerPage),
-            ("gapAbove", availability.hasKnownArchiveGapAbove),
-            ("gapBelow", availability.hasKnownArchiveGapBelow),
-            ("remoteOlder", availability.hasRemoteOlderPage),
-            ("remoteNewer", availability.hasRemoteNewerPage),
-            ("remoteInFlight", availability.isRemotePageInFlight),
-            ("suppressRemoteBoundaryPaging", suppressionContext.suppressRemoteBoundaryPaging),
-            ("contentHeight", Int(suppressionContext.contentHeight)),
-            ("visibleHeight", Int(suppressionContext.visibleHeight)),
-            ("residentCount", residentCount),
-            ("isResidentAtLiveTail", self.virtualTimelineState.isResidentAtLiveTail),
-            ("canLoadDatasource", self.canLoadDatasource),
-            ("gestureTranslationY", Int(gestureTranslationY)),
-            ("scrollMotionState", self.currentScrollMotionState().rawValue),
-            ("executionAction", "-"),
-            ("preparedLocalPageId", self.pendingPreparedLocalHistoryPage?.id ?? "-"),
-            ("pendingDirection", self.pendingDeferredRemoteHistoryDirection.map { "\($0)" } ?? "-"),
-            ("discardReason", "-")
-        ])
-    }
-
     private func triggerInteractiveBoundaryPagingIfNeeded(_ request: ChatScrollWorkRequest) {
-        let boundaryContext = self.pagingBoundaryContext(
-            visibleSections: request.visibleIndexPaths.map(\.section)
-        )
+        let boundaryContext = request.visibleMetadata.boundaryContext
         let pageDirection = self.interactiveBoundaryPagingDirection(
             isUserScrolling: request.isUserScrolling,
             gestureTranslationY: request.gestureTranslationY,
@@ -231,6 +171,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             gestureTranslationY: scrollView.panGestureRecognizer.translation(in: scrollView).y,
             isUserScrolling: scrollView.isDragging || scrollView.isDecelerating || scrollView.isTracking,
             visibleIndexPaths: visibleIndexPaths,
+            visibleMetadata: self.scrollResidentMetadata.capture(indexPaths: visibleIndexPaths),
             work: work
         )
     }
@@ -258,11 +199,17 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             scrollSignpost.end()
         }
         let effectiveWork = request.effectiveWork(
-            isInteractionGateActive: ChatUIResponsivenessGate.shared.isActive
+            isInteractionGateActive: ChatUIResponsivenessGate.shared.isActive,
+            currentVisibleMetadataGeneration: self.scrollResidentMetadata.generation
+        )
+        let frameDecision = self.scrollFramePlanner.plan(
+            request: request,
+            currentReadPosition: self.currentViewportReadBoundaryPosition(),
+            effectiveWork: effectiveWork
         )
 
         if effectiveWork.contains(.updateScrollPosition) {
-            if self.currentPage.isUnlocked {
+            if self.timelineInteractionState.isUnlocked {
                 if request.contentOffsetY > self.previousContentOffsetY {
                     self.chatScrollDirection = .down
                 } else {
@@ -275,24 +222,28 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
 
         if effectiveWork.contains(.evaluateBoundaryPaging),
            request.isUserScrolling,
-           self.currentPage.isUnlocked {
+           self.timelineInteractionState.isUnlocked {
             self.triggerInteractiveBoundaryPagingIfNeeded(request)
         }
 
         if effectiveWork.contains(.updateFloatingDate) {
-            if !self.preventHidingDate {
-                self.pinnedDateView.hide()
+            if let floatingDate = frameDecision.floatingDate {
+                if !self.preventHidingDate {
+                    self.pinnedDateView.hide()
+                }
+                self.setFloatingDateVisible(true)
+                self.updateFloatingDate(floatingDate)
             }
-            self.setFloatingDateVisible(true)
-            self.willUpdateFloatingDate()
         }
 
-        if effectiveWork.contains(.advanceReadBoundary) {
-            self.advanceReadBoundaryFromVisibleMessages(indexPaths: request.visibleIndexPaths)
+        if effectiveWork.contains(.advanceReadBoundary),
+           let readTarget = frameDecision.readTarget {
+            self.advanceReadBoundary(to: readTarget)
         }
 
-        if effectiveWork.contains(.updateVoiceQueue) {
-            self.updateVisibleVoiceMessageQueue()
+        if effectiveWork.contains(.updateVoiceQueue),
+           let voiceDescriptors = frameDecision.voiceDescriptors {
+            VoiceMessagePlaybackCoordinator.shared.setVisibleVoiceMessages(voiceDescriptors)
         }
     }
     
@@ -302,6 +253,11 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
 
     func collectionView(_ collectionView: UICollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
         collectionPrefetchCoordinator.cancelPrefetchingForItems(at: indexPaths)
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        self.retainedMessageAnchor = nil
+        self.scrollFramePlanner.invalidateFloatingDate()
     }
     
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
@@ -318,23 +274,12 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     }
     
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        (cell as? ChatOffscreenWorkManaging)?.resumeOnscreenWork()
 //        if self.canLoadDatasource {
 //            if (self.messagesCollectionView.contentSize.height - self.messagesCollectionView.contentOffset.y) < self.view.bounds.height {
 //                self.canLoadDatasource = false
 //                self.onTouchEndPage(direction: .up)
 //            } 
-//        }
-//        if self.canLoadDatasource {
-//            if self.currentPage.minIndex > 0 {
-//                if let datasourcePrimary = self.datasource.first?.primary,
-//                   let observerPrimary = self.messagesObserver.first?.primary,
-//                   datasourcePrimary != observerPrimary {
-//                    if self.messagesCollectionView.contentOffset.y < 0 {
-//                        self.canLoadDatasource = false
-//                        self.onTouchStartPage(direction: .down)
-//                    }
-//                }
-//            }
 //        }
         
         self.enqueueScrollWork(
@@ -344,6 +289,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     }
     
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        (cell as? ChatOffscreenWorkManaging)?.cancelOffscreenWork()
         self.enqueueScrollWork(
             visibleIndexPaths: self.currentVisibleIndexPaths(),
             work: [.updateFloatingDate, .advanceReadBoundary, .updateVoiceQueue]

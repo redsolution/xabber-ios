@@ -45,7 +45,31 @@ extension LastChatsViewController {
         searchController.searchResultsUpdater = chatSearchResultsController
     }
 
-    internal func dismissBottomSearchForRoute() {
+    internal func dismissBottomSearchForRoute(
+        disposition: LastChatsSearchRouteDisposition
+    ) {
+        let timing = LastChatsSearchDismissalPolicy.timing(
+            for: disposition,
+            route: stackedNavigationRoute(for: self)
+        )
+        guard timing == .immediate else {
+            pendingBottomSearchDismissalAfterRoute = true
+            return
+        }
+        performBottomSearchDismissalForRoute()
+    }
+
+    internal func completePendingBottomSearchDismissalAfterRoute() {
+        guard pendingBottomSearchDismissalAfterRoute else { return }
+        pendingBottomSearchDismissalAfterRoute = false
+        performBottomSearchDismissalForRoute()
+    }
+
+    internal func cancelPendingBottomSearchDismissalAfterCancelledRoute() {
+        pendingBottomSearchDismissalAfterRoute = false
+    }
+
+    private func performBottomSearchDismissalForRoute() {
         BottomInPlaceSearchHostHelper.dismiss(
             searchView: bottomSearchHostView,
             updater: chatSearchResultsController,

@@ -203,6 +203,10 @@ open class MessageLabel: UILabel {
 
     private func setTextStorage(_ newText: NSAttributedString?, shouldParse: Bool) {
 
+        if shouldParse {
+            rangesForDetectors.removeAll()
+        }
+
         guard let newText = newText, newText.length > 0 else {
             textStorage.setAttributedString(NSAttributedString())
             setNeedsDisplay()
@@ -215,11 +219,11 @@ open class MessageLabel: UILabel {
         let mutableText = NSMutableAttributedString(attributedString: newText)
         mutableText.addAttribute(.paragraphStyle, value: style, range: range)
         
-//        if shouldParse {
-//            rangesForDetectors.removeAll()
-//            let results = parse(text: mutableText)
-//            setRangesForDetectors(in: results)
-//        }
+        if shouldParse {
+            setAttributedLinkRanges(in: mutableText)
+            let results = parse(text: mutableText)
+            setRangesForDetectors(in: results)
+        }
         
         for (detector, rangeTuples) in rangesForDetectors {
             if enabledDetectors.contains(detector) {
@@ -335,6 +339,9 @@ open class MessageLabel: UILabel {
                 ranges.append(tuple)
                 rangesForDetectors.updateValue(ranges, forKey: .phoneNumber)
             case .link:
+                if containsExistingURLRange(overlapping: result.range) {
+                    continue
+                }
                 var ranges = rangesForDetectors[.url] ?? []
                 let tuple: (NSRange, MessageTextCheckingType) = (result.range, .link(result.url))
                 ranges.append(tuple)
@@ -353,12 +360,49 @@ open class MessageLabel: UILabel {
 
     }
 
+    private func setAttributedLinkRanges(in text: NSAttributedString) {
+        let fullRange = NSRange(location: 0, length: text.length)
+        text.enumerateAttribute(.link, in: fullRange) { value, range, _ in
+            guard let url = Self.url(from: value) else { return }
+            var ranges = rangesForDetectors[.url] ?? []
+            ranges.append((range, .link(url)))
+            rangesForDetectors[.url] = ranges
+        }
+    }
+
+    private func containsExistingURLRange(overlapping candidate: NSRange) -> Bool {
+        guard let ranges = rangesForDetectors[.url] else { return false }
+        return ranges.contains { range, _ in
+            NSIntersectionRange(range, candidate).length > 0
+        }
+    }
+
+    private static func url(from value: Any?) -> URL? {
+        switch value {
+        case let url as URL:
+            return url
+        case let url as NSURL:
+            return url as URL
+        case let string as String:
+            return URL(string: string)
+        default:
+            return nil
+        }
+    }
+
     // MARK: - Gesture Handling
 
     private func stringIndex(at location: CGPoint) -> Int? {
         guard textStorage.length > 0 else { return nil }
 
         var location = location
+
+        let insetBounds = bounds.inset(by: textInsets)
+        guard insetBounds.contains(location) else { return nil }
+        textContainer.size = CGSize(
+            width: max(0, insetBounds.width),
+            height: max(0, insetBounds.height)
+        )
 
         location.x -= textInsets.left
         location.y -= textInsets.top

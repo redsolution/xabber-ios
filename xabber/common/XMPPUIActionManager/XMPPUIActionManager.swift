@@ -50,6 +50,51 @@ enum XMPPUIActionPreparedConnectDecision: Equatable {
     case missingJID
 }
 
+final class XMPPUIActionPendingRequestRegistry {
+    struct Entry {
+        let id: UUID
+        let owner: String
+        let action: (XMPPStream, XMPPUIActionManager) -> Void
+        let fail: () -> Void
+    }
+
+    private var entries: [Entry] = []
+
+    var count: Int {
+        return entries.count
+    }
+
+    @discardableResult
+    func enqueue(
+        owner: String,
+        action: @escaping (XMPPStream, XMPPUIActionManager) -> Void,
+        fail: @escaping () -> Void
+    ) -> UUID {
+        let entry = Entry(id: UUID(), owner: owner, action: action, fail: fail)
+        entries.append(entry)
+        return entry.id
+    }
+
+    func take(owner: String) -> [Entry] {
+        let matching = entries.filter { $0.owner == owner }
+        entries.removeAll { $0.owner == owner }
+        return matching
+    }
+
+    func takeAll() -> [Entry] {
+        let pending = entries
+        entries.removeAll(keepingCapacity: true)
+        return pending
+    }
+
+    func remove(id: UUID) -> Entry? {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else {
+            return nil
+        }
+        return entries.remove(at: index)
+    }
+}
+
 final class XMPPUIActionLifecycleCoordinator {
     private let gate: AccountStreamLifecycleGate
     private(set) var currentOwner: String?
@@ -207,6 +252,7 @@ final class XMPPUIActionLifecycleCoordinator {
 }
 
 class XMPPUIActionManager: NSObject {
+    private static let pendingRequestTimeout: TimeInterval = 10
     
     open class var shared: XMPPUIActionManager {
         struct XMPPUIActionManagerSingleton {
@@ -226,6 +272,7 @@ class XMPPUIActionManager: NSObject {
     
     var queue: DispatchQueue
     private let queueKey = DispatchSpecificKey<Void>()
+    private let pendingRequestRegistry = XMPPUIActionPendingRequestRegistry()
 
     var groupchat: GroupchatManager? = nil
     var avatarUploader: AvatarUploadManager? = nil
@@ -342,40 +389,22 @@ class XMPPUIActionManager: NSObject {
                 action(self.stream, self)
 
             case .start(let start):
-                guard retryCounter <= 3 else {
-                    self.logConnectionDiagnostics(
-                        event: "perform_request_failed_waiting_for_auth",
-                        details: ["retryCounter": retryCounter]
+                if let previousOwner = start.previousOwner {
+                    self.failPendingPerformRequests(
+                        owner: previousOwner,
+                        reason: "ownerSwitch"
                     )
-                    fail()
-                    return
                 }
+                self.enqueuePendingPerformRequest(owner: owner, action: action, fail: fail)
                 self.startUIActionStream(
                     start,
                     trigger: .uiActionPerformRequest,
                     keepAlive: 60,
                     details: ["retryCounter": retryCounter]
                 )
-                self.schedulePerformRequestRetry(
-                    owner: owner,
-                    action: action,
-                    fail: fail,
-                    retryCounter: retryCounter
-                )
 
             case .waiting(let waitingOwner, let phase, let activeAttemptID):
-                guard retryCounter <= 3 else {
-                    self.logConnectionDiagnostics(
-                        event: "perform_request_failed_waiting_for_auth",
-                        phase: phase,
-                        details: [
-                            "retryCounter": retryCounter,
-                            "activeAttempt": activeAttemptID.map(String.init) ?? "none"
-                        ]
-                    )
-                    fail()
-                    return
-                }
+                self.enqueuePendingPerformRequest(owner: owner, action: action, fail: fail)
                 self.logConnectionDiagnostics(
                     event: "ui_action_perform_request_waiting",
                     phase: phase,
@@ -385,13 +414,20 @@ class XMPPUIActionManager: NSObject {
                         "activeAttempt": activeAttemptID.map(String.init) ?? "none"
                     ]
                 )
-                self.schedulePerformRequestRetry(
-                    owner: owner,
-                    action: action,
-                    fail: fail,
-                    retryCounter: retryCounter
-                )
             }
+        }
+    }
+
+    public final func cancelPendingArchiveRequest(owner: String, queryId: String) {
+        guard owner.isNotEmpty,
+              queryId.isNotEmpty else {
+            return
+        }
+        self.performOnManagerQueue {
+            guard self.currentJid == owner else {
+                return
+            }
+            _ = self.mam?.cancelPendingArchiveRequest(queryId: queryId)
         }
     }
 
@@ -403,20 +439,73 @@ class XMPPUIActionManager: NSObject {
         }
     }
 
-    private func schedulePerformRequestRetry(
+    private func enqueuePendingPerformRequest(
         owner: String,
         action: @escaping ((XMPPStream, XMPPUIActionManager) -> Void),
-        fail: @escaping (() -> Void),
-        retryCounter: Int
+        fail: @escaping (() -> Void)
     ) {
-        self.queue.asyncAfter(deadline: .now() + 2) {
-            self.performRequest(
-                owner: owner,
-                action: action,
-                fail: fail,
-                retryCounter: retryCounter + 1
+        let id = self.pendingRequestRegistry.enqueue(
+            owner: owner,
+            action: action,
+            fail: fail
+        )
+        self.logConnectionDiagnostics(
+            event: "ui_action_perform_request_queued",
+            details: ["pendingRequestCount": self.pendingRequestRegistry.count]
+        )
+        self.queue.asyncAfter(deadline: .now() + Self.pendingRequestTimeout) { [weak self] in
+            guard let self = self,
+                  let pending = self.pendingRequestRegistry.remove(id: id) else {
+                return
+            }
+            self.logConnectionDiagnostics(
+                event: "perform_request_failed_waiting_for_auth",
+                jid: pending.owner,
+                details: [
+                    "reason": "timeout",
+                    "pendingRequestCount": self.pendingRequestRegistry.count
+                ]
+            )
+            pending.fail()
+        }
+    }
+
+    final func resumePendingPerformRequests(owner: String) {
+        let pending = self.pendingRequestRegistry.take(owner: owner)
+        guard pending.isNotEmpty else { return }
+        self.logConnectionDiagnostics(
+            event: "ui_action_perform_request_resumed_after_auth",
+            jid: owner,
+            details: [
+                "resumedRequestCount": pending.count,
+                "pendingRequestCount": self.pendingRequestRegistry.count,
+                "mamPresent": self.mam != nil,
+                "messagesPresent": self.messages != nil
+            ]
+        )
+        pending.forEach { request in
+            request.action(self.stream, self)
+            self.logConnectionDiagnostics(
+                event: "ui_action_perform_request_action_returned",
+                jid: owner
             )
         }
+    }
+
+    final func failPendingPerformRequests(owner: String? = nil, reason: String) {
+        let pending = owner.map(self.pendingRequestRegistry.take(owner:))
+            ?? self.pendingRequestRegistry.takeAll()
+        guard pending.isNotEmpty else { return }
+        self.logConnectionDiagnostics(
+            event: "ui_action_pending_requests_failed",
+            jid: owner,
+            details: [
+                "reason": reason,
+                "failedRequestCount": pending.count,
+                "pendingRequestCount": self.pendingRequestRegistry.count
+            ]
+        )
+        pending.forEach { $0.fail() }
     }
 
     private func handleConnectDecision(
@@ -575,6 +664,7 @@ class XMPPUIActionManager: NSObject {
             return
         case .missingJID:
             self.lifecycleCoordinator.markFailed()
+            self.failPendingPerformRequests(owner: owner, reason: "missingPreparedJID")
             self.logConnectionDiagnostics(
                 event: "connect_request_skipped_gate",
                 attemptID: attemptID,
@@ -600,6 +690,7 @@ class XMPPUIActionManager: NSObject {
             try preparedStream.connect(withTimeout: 15)
         } catch {
             self.lifecycleCoordinator.markFailed()
+            self.failPendingPerformRequests(owner: owner, reason: "connectThrow")
             self.logConnectionDiagnostics(
                 event: "connect_throw",
                 attemptID: attemptID,
@@ -630,6 +721,8 @@ class XMPPUIActionManager: NSObject {
         let owner = self.currentJid ?? self.stream.myJID?.bare
         let oldStream = self.stream
         let oldState = ConnectionDiagnosticsLogger.stateDescription(for: oldStream)
+
+        self.failPendingPerformRequests(owner: owner, reason: "localDisconnect")
 
         if logEvents {
             self.logConnectionDiagnostics(

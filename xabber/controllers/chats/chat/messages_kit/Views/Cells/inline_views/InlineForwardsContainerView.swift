@@ -11,7 +11,7 @@ import UIKit
 import MaterialComponents.MDCPalettes
 
 class InlineMessageAttachmentView: ModernContainerView {
-    
+
     let quoteLine: UIView = {
         let view = UIView(frame: .zero)
         
@@ -19,7 +19,7 @@ class InlineMessageAttachmentView: ModernContainerView {
         
         return view
     }()
-    
+
     let authorLabel: MessageLabel = {
         let label = MessageLabel(frame: .zero)
         
@@ -311,6 +311,9 @@ class InlineMessageAttachmentView: ModernContainerView {
     }
     
     func setupSubviews() {
+        guard containerView.superview !== self else {
+            return
+        }
         addSubview(containerView)
         containerView.addSubview(authorLabel)
         containerView.addSubview(imagesView)
@@ -332,14 +335,26 @@ class InlineMessageAttachmentView: ModernContainerView {
     }
 
     func updateContent(_ message: MessageAttachment, palette: MDCPalette) {
+        if messagePrimary.isNotEmpty,
+           messagePrimary != message.primary {
+            resetAttachmentContent()
+        }
         self.messagePrimary = message.primary
-        imagesView.updateContent(message.images)
-        videosView.updateContent(message.videos)
-        locationsView.updateContent(message.locations)
-        contactsView.updateContent(message.contacts, palette: palette)
+        imagesView.updateContent(message.images, representedBy: message.primary)
+        videosView.updateContent(message.videos, representedBy: message.primary)
+        locationsView.updateContent(message.locations, representedBy: message.primary)
+        contactsView.updateContent(
+            message.contacts,
+            palette: palette,
+            representedBy: message.primary
+        )
         audiosView.delegate = self.delegate
         audiosView.updateContent(message.audios, palette: palette)
-        filesView.updateContent(message.files, palette: palette)
+        filesView.updateContent(
+            message.files,
+            palette: palette,
+            representedBy: message.primary
+        )
         messageLabel.attributedText = message.textMessage
         authorLabel.attributedText = message.attributedAuthor
 //        let radius = CommonConfigManager.shared.messageStyleConfig.containers.level_1.border.getRadiusFor(index: "16")
@@ -357,10 +372,103 @@ class InlineMessageAttachmentView: ModernContainerView {
             self.layer.backgroundColor = palette.tint100.cgColor//MDCPalette.blue.tint100.cgColor
         }
         self.quoteLine.backgroundColor = palette.tint500
-        self.layoutSubviews()
+        self.setNeedsLayout()
 //        configure(tail: "none", side: .left, radiusLU: 12, radiusRU: 12, radiusRB: 10, radiusLB: 12, padding: 0)
 //        self.bubble.layer.backgroundColor = MDCPalette.green.tint100.cgColor
         
+    }
+
+    func prepareForReuse() {
+        resetAttachmentContent()
+        delegate = nil
+        messagePrimary = ""
+        messageLabel.attributedText = nil
+        authorLabel.attributedText = nil
+        layer.backgroundColor = UIColor.clear.cgColor
+        quoteLine.backgroundColor = UIColor.clear
+    }
+
+    func updateFileTransferStates(_ message: MessageAttachment) {
+        guard messagePrimary == message.primary else { return }
+        filesView.updateTransferStates(message.files, representedBy: message.primary)
+    }
+
+    func cancelOffscreenFileWork() {
+        locationsView.cancelOffscreenWork()
+        contactsView.cancelOffscreenWork()
+        filesView.cancelOffscreenWork()
+    }
+
+    func cancelOffscreenWork() {
+        cancelOffscreenFileWork()
+        audiosView.cancelOffscreenWork()
+    }
+
+    func resumeOnscreenFileWork() {
+        locationsView.resumeOnscreenWork()
+        contactsView.resumeOnscreenWork()
+        filesView.resumeOnscreenWork()
+    }
+
+    func resumeOnscreenWork() {
+        resumeOnscreenFileWork()
+        audiosView.resumeOnscreenWork()
+    }
+
+    @discardableResult
+    func renderVoiceMessageState(
+        referencePrimary: String,
+        state: VoiceMessagePlaybackState
+    ) -> Bool {
+        audiosView.render(state: state, for: referencePrimary)
+    }
+
+    private func resetAttachmentContent() {
+        imagesView.resetState()
+        videosView.resetState()
+        locationsView.resetState()
+        contactsView.resetState()
+        audiosView.resetState()
+        filesView.resetState()
+    }
+
+    func reflowAttachmentFrames(for message: MessageAttachment) {
+        reflow(
+            views: imagesView.views,
+            frames: imagesView.prepareGrid(message.images)
+        )
+        reflow(
+            views: videosView.views,
+            frames: videosView.prepareGrid(message.videos)
+        )
+        reflow(
+            views: locationsView.views,
+            frames: locationsView.prepareGrid(message.locations)
+        )
+        reflow(
+            views: contactsView.views,
+            frames: contactsView.prepareGrid(message.contacts)
+        )
+        reflow(
+            views: audiosView.views,
+            frames: audiosView.prepareGrid(message.audios)
+        )
+        reflow(
+            views: filesView.views,
+            frames: filesView.prepareGrid(message.files)
+        )
+        imagesView.refreshThumbnailBindings()
+        videosView.refreshThumbnailBindings()
+    }
+
+    private func reflow<View: UIView>(
+        views: [View],
+        frames: [CGRect]
+    ) {
+        for (viewIndex, view) in views.enumerated() {
+            guard frames.indices.contains(viewIndex) else { continue }
+            view.frame = frames[viewIndex]
+        }
     }
     
     func handleTouch(at touchPoint: CGPoint) -> Bool {
@@ -414,8 +522,8 @@ class InlineMessageAttachmentView: ModernContainerView {
                 return true
             }
         } else {
-            let translatedPoint = touchPoint.translate(x: -self.messageLabel.frame.minX, y: -self.messageLabel.frame.minY)
-            return messageLabel.handleGesture(translatedPoint)
+            let labelPoint = convert(touchPoint, to: messageLabel)
+            return messageLabel.handleGesture(labelPoint)
         }
         return false
     }
@@ -430,25 +538,139 @@ extension Array {
 class InlineForwardsContainerView: InlineAttachmentView {
     
     var inlineViews: [InlineMessageAttachmentView] = []
-    
+    private var representedMessages: [MessageAttachment] = []
+    private var representedPalette: MDCPalette = .amber
+    private weak var representedDelegate: MessageCellDelegate?
+    private var representedLayoutAttributes: MessagesCollectionViewLayoutAttributes?
+    private var hasAppliedLayout = false
+
     func layout(with attributes: MessagesCollectionViewLayoutAttributes) {
-        // Do not remove all subviews immediately; only adjust as needed
-        if attributes.forwardsInlineViewSize.isEmpty {
-            subviews.forEach { $0.removeFromSuperview() }
-            inlineViews.removeAll()
+        representedLayoutAttributes = attributes
+        hasAppliedLayout = true
+        synchronizeChildren(updateExistingContent: false)
+    }
+
+    func configure(_ messages: [MessageAttachment], palette: MDCPalette, delegate: MessageCellDelegate?) {
+        representedMessages = messages
+        representedPalette = palette
+        representedDelegate = delegate
+        if messages.isEmpty {
+            resetState()
             return
         }
-        
+        synchronizeChildren(updateExistingContent: true)
+    }
+
+    func updateContent(_ messages: [MessageAttachment], palette: MDCPalette, delegate: MessageCellDelegate?) {
+        representedMessages = messages
+        representedPalette = palette
+        representedDelegate = delegate
+        if messages.isEmpty {
+            resetState()
+            return
+        }
+
+        synchronizeChildren(updateExistingContent: true)
+    }
+
+    func updateFileTransferStates(_ messages: [MessageAttachment]) {
+        guard messages.count == inlineViews.count else { return }
+        zip(inlineViews, messages).forEach { view, message in
+            view.updateFileTransferStates(message)
+        }
+    }
+
+    func cancelOffscreenWork() {
+        inlineViews.forEach { $0.cancelOffscreenWork() }
+    }
+
+    func resumeOnscreenWork() {
+        inlineViews.forEach { $0.resumeOnscreenWork() }
+    }
+
+    @discardableResult
+    func renderVoiceMessageState(
+        referencePrimary: String,
+        state: VoiceMessagePlaybackState
+    ) -> Bool {
+        for view in inlineViews where view.renderVoiceMessageState(
+            referencePrimary: referencePrimary,
+            state: state
+        ) {
+            return true
+        }
+        return false
+    }
+
+    func resetState() {
+        representedMessages.removeAll()
+        representedDelegate = nil
+        representedLayoutAttributes = nil
+        hasAppliedLayout = false
+        inlineViews.forEach { view in
+            view.prepareForReuse()
+            view.removeFromSuperview()
+        }
+        inlineViews.removeAll()
+        contentViews.removeAll()
+        grid.removeAll()
+    }
+
+    private func synchronizeChildren(updateExistingContent: Bool) {
+        let layoutSizes = representedLayoutAttributes?.forwardsInlineViewSize ?? []
+        let desiredCount: Int
+        if hasAppliedLayout {
+            if representedMessages.isEmpty {
+                desiredCount = layoutSizes.count
+            } else {
+                desiredCount = min(representedMessages.count, layoutSizes.count)
+            }
+        } else {
+            desiredCount = representedMessages.count
+        }
+
+        while inlineViews.count < desiredCount {
+            let view = InlineMessageAttachmentView(frame: .zero)
+            view.setupSubviews()
+            inlineViews.append(view)
+            addSubview(view)
+        }
+        while inlineViews.count > desiredCount {
+            let view = inlineViews.removeLast()
+            view.prepareForReuse()
+            view.removeFromSuperview()
+        }
+
+        for index in 0..<desiredCount {
+            let view = inlineViews[index]
+            if let message = representedMessages[safe: index] {
+                if view.messagePrimary != message.primary {
+                    if view.messagePrimary.isNotEmpty {
+                        view.prepareForReuse()
+                    }
+                    view.delegate = representedDelegate
+                    view.configure(message, palette: representedPalette)
+                } else if updateExistingContent {
+                    view.delegate = representedDelegate
+                    view.updateContent(message, palette: representedPalette)
+                }
+            }
+        }
+
+        guard let attributes = representedLayoutAttributes else {
+            return
+        }
+        layoutChildren(with: attributes)
+    }
+
+    private func layoutChildren(
+        with attributes: MessagesCollectionViewLayoutAttributes
+    ) {
         var offset: CGFloat = 0
-        for (index, sizeItem) in attributes.forwardsInlineViewSize.enumerated() {
-            let view = inlineViews[safe: index] ?? {
-                let newView = InlineMessageAttachmentView(frame: .zero)
-                inlineViews.append(newView)
-                newView.setupSubviews()
-                addSubview(newView)
-                return newView
-            }()
-            
+        for (index, view) in inlineViews.enumerated() {
+            guard let sizeItem = attributes.forwardsInlineViewSize[safe: index] else {
+                continue
+            }
             view.frame = CGRect(
                 origin: CGPoint(x: 0, y: offset).padding(
                     x: attributes.inlineContainerSizePadding.left,
@@ -459,8 +681,6 @@ class InlineForwardsContainerView: InlineAttachmentView {
                     height: attributes.inlineContainerSizePadding.vertical
                 )
             )
-            
-            // Update layout without resetting content
             view.layoutContainerView(with: sizeItem, attributes: attributes)
             view.layoutAuthorLabel(with: sizeItem, attributes: attributes)
             view.layoutImagesView(with: sizeItem, attributes: attributes)
@@ -471,10 +691,12 @@ class InlineForwardsContainerView: InlineAttachmentView {
             view.layoutFilesView(with: sizeItem, attributes: attributes)
             view.layoutLabelView(with: sizeItem, attributes: attributes)
             view.layoutTimeMarker(with: sizeItem, attributes: attributes)
-            
-            offset += sizeItem.messageContainer.height + attributes.inlineContainerSizePadding.vertical
-            let radius = CommonConfigManager.shared.messageStyleConfig.containers.level_1.border.getRadiusFor(index: attributes.cornerRadius)
-            
+
+            offset += sizeItem.messageContainer.height
+                + attributes.inlineContainerSizePadding.vertical
+            let radius = CommonConfigManager.shared.messageStyleConfig
+                .containers.level_1.border
+                .getRadiusFor(index: attributes.cornerRadius)
             view.configure(
                 side: attributes.side,
                 radiusLU: radius.leftUpper,
@@ -482,120 +704,19 @@ class InlineForwardsContainerView: InlineAttachmentView {
                 radiusRB: radius.rightBottom,
                 radiusLB: radius.leftBottom
             )
-        }
-        
-        // Trim excess views
-        while inlineViews.count > attributes.forwardsInlineViewSize.count {
-            inlineViews.removeLast().removeFromSuperview()
-        }
-        
-    }
-    
-//    func layout(with attributes: MessagesCollectionViewLayoutAttributes) {
-//        subviews.forEach { $0.removeFromSuperview() }
-//        print("REDRAW", attributes.messagePrimary)
-//        self.inlineViews.removeAll()
-//        if attributes.forwardsInlineViewSize.isEmpty {
-//            return
-//        }
-//        var offset: CGFloat = 0
-//        attributes.forwardsInlineViewSize.enumerated().forEach {
-//            (index, sizeItem) in
-////            let view = inlineViews[index]
-//            let view = InlineMessageAttachmentView(frame: CGRect(
-//                origin: CGPoint(x: 0, y: offset).padding(
-//                    x: attributes.inlineContainerSizePadding.left,
-//                    y: attributes.inlineContainerSizePadding.top
-//                ),
-//                size: sizeItem.messageContainer.padding(
-//                    width: attributes.inlineContainerSizePadding.horizontal,
-//                    height: attributes.inlineContainerSizePadding.vertical
-//                )
-//            ))
-//            view.frame = CGRect(
-//                origin: CGPoint(x: 0, y: offset).padding(
-//                    x: attributes.inlineContainerSizePadding.left,
-//                    y: attributes.inlineContainerSizePadding.top
-//                ),
-//                size: sizeItem.messageContainer.padding(
-//                    width: attributes.inlineContainerSizePadding.horizontal,
-//                    height: attributes.inlineContainerSizePadding.vertical
-//                )
-//            )
-//            addSubview(view)
-//            UIView.performWithoutAnimation {
-//                view.setupSubviews()
-//                view.layoutContainerView(with: sizeItem, attributes: attributes)
-//                view.layoutAuthorLabel(with: sizeItem, attributes: attributes)
-//                view.layoutImagesView(with: sizeItem, attributes: attributes)
-//                view.layoutVideosView(with: sizeItem, attributes: attributes)
-//                view.layoutAudiosView(with: sizeItem, attributes: attributes)
-//                view.layoutFilesView (with: sizeItem, attributes: attributes)
-//                view.layoutLabelView (with: sizeItem, attributes: attributes)
-//                view.layoutTimeMarker(with: sizeItem, attributes: attributes)
-//            }
-//            
-//            inlineViews.append(view)
-//            offset += sizeItem.messageContainer.height
-//        }
-//    }
-    
-    func configure(_ messages: [MessageAttachment], palette: MDCPalette, delegate: MessageCellDelegate?) {
-        if messages.isEmpty { return }
-        
-        messages.enumerated().forEach {
-            (index, message) in
-//            let view = InlineMessageAttachmentView(frame: .zero)
-            if inlineViews.count > index {
-                inlineViews[index].delegate = delegate
-                inlineViews[index].configure(message, palette: palette)
+            if let message = representedMessages[safe: index] {
+                view.reflowAttachmentFrames(for: message)
             }
         }
     }
-
-    func updateContent(_ messages: [MessageAttachment], palette: MDCPalette, delegate: MessageCellDelegate?) {
-        if messages.isEmpty {
-            resetState()
-            return
-        }
-
-        guard inlineViews.map(\.messagePrimary) == messages.map(\.primary),
-              inlineViews.count == messages.count else {
-            configure(messages, palette: palette, delegate: delegate)
-            return
-        }
-
-        messages.enumerated().forEach { index, message in
-            inlineViews[index].delegate = delegate
-            inlineViews[index].updateContent(message, palette: palette)
-        }
-    }
     
-    func resetState() {
-        inlineViews.forEach { view in
-            view.messageLabel.attributedText = nil
-            view.authorLabel.attributedText = nil
-            
-            view.imagesView.views.removeAll()
-            view.filesView.views.removeAll()
-            view.locationsView.views.removeAll()
-            view.contactsView.views.removeAll()
-            view.audiosView.views.removeAll()
-        }
-    }
-    
-    func handleTouch(at touchPoint: CGPoint) {
-        var isMyTouch: Bool = false
-        self.inlineViews.forEach {
-            item in
-            if !isMyTouch {
-                if item.frame.contains(touchPoint) {
-                    let translatedPoint = touchPoint.translate(x: -item.frame.minX, y: -item.frame.minY)
-                    if item.handleTouch(at: translatedPoint) {
-                        isMyTouch = true
-                    }
-                }
+    func handleTouch(at touchPoint: CGPoint) -> Bool {
+        for item in inlineViews where item.frame.contains(touchPoint) {
+            let itemPoint = convert(touchPoint, to: item)
+            if item.handleTouch(at: itemPoint) {
+                return true
             }
         }
+        return false
     }
 }

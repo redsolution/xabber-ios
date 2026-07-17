@@ -66,7 +66,7 @@ extension LastCallsViewController {
             let realm = try WRealm.safe()
             if !realm.isInWriteTransaction {
                 try realm.write {
-                    realm.object(ofType: MessageStorageItem.self, forPrimaryKey: item.messagePrimary)?.isDeleted = true
+                    realm.object(ofType: MessageStorageItem.self, forPrimaryKey: item.messagePrimary)?.markDeleted()
                     if let referencePrimary = item.referencePrimary,
                        referencePrimary.hasPrefix(item.owner + "_") {
                         let callId = String(referencePrimary.dropFirst(item.owner.count + 1))

@@ -293,10 +293,10 @@ extension ChatViewController: MessageCellDelegate {
         }
 
         guard let indexPath = indexPathFor(cell),
-            let item = messagesObserver?[indexPath.section] else {
-                return
+              let primary = self.datasourceItem(at: indexPath)?.primary,
+              let item = self.timelineSession?.snapshot.item(primary: primary) else {
+            return
         }
-        let primary = item.primary
         
         
         
@@ -430,7 +430,7 @@ extension ChatViewController: MessageCellDelegate {
 //        }
 //        if groupchat {
 //            guard let indexPath = indexPathFor(cell),
-//                let item = messagesObserver?[indexPath.section],
+//                let item = residentMessages?[indexPath.section],
 //                let userId = item.groupchatMetadata?["id"] as? String else {
 //                    return
 //            }
@@ -612,7 +612,7 @@ extension ChatViewController: MessageCellDelegate {
         if let contentCell = cell as? MessageContentCell {
             guard let indexPath = self.messagesCollectionView.indexPath(for: cell) else { return }
             guard let datasourceItemPrimary = self.datasourceItem(at: indexPath)?.primary else { return }
-            guard let item = self.messagesObserver?.first(where: {$0.primary == datasourceItemPrimary}) else { return }
+            guard let item = self.timelineSession?.snapshot.item(primary: datasourceItemPrimary) else { return }
             if item.displayAs == .system { return }
             if forwardedIds.value.contains(item.primary) {
                 contentCell.setSelected(state: false)
@@ -679,7 +679,12 @@ extension ChatViewController: MessageCellDelegate {
             }
         }
         self.disableSelectMode()
-        self.messagesCollectionView.reloadDataAndKeepOffset()
+        self.applyChatDatasource(
+            self.datasource,
+            mode: .fullReload(keepOffset: true),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
     }
     
     func downloadVideo(_ primary: String) {
@@ -723,7 +728,7 @@ extension ChatViewController: MessageCellDelegate {
     
 //    func onCopyMessage(cell: MessageCollectionViewCell) {
 //        guard let indexPath = indexPathFor(cell),
-//            let item = messagesObserver?[indexPath.section] else {
+//            let item = residentMessages?[indexPath.section] else {
 //                return
 //        }
 //
@@ -747,7 +752,7 @@ extension ChatViewController: MessageCellDelegate {
 //
 //    func onReplyMessage(cell: MessageCollectionViewCell) {
 //        guard let indexPath = indexPathFor(cell),
-//            let item = messagesObserver?[indexPath.section] else {
+//            let item = residentMessages?[indexPath.section] else {
 //                return
 //        }
 //        let primary = item.primary
@@ -759,7 +764,7 @@ extension ChatViewController: MessageCellDelegate {
 //
 //    func onShareMessage(cell: MessageCollectionViewCell) {
 //        guard let indexPath = indexPathFor(cell),
-//            let item = messagesObserver?[indexPath.section] else {
+//            let item = residentMessages?[indexPath.section] else {
 //                return
 //        }
 //        let primary = item.primary
@@ -773,7 +778,7 @@ extension ChatViewController: MessageCellDelegate {
 //
 //    func onDeleteMessage(cell: MessageCollectionViewCell) {
 //        guard let indexPath = indexPathFor(cell),
-//            let item = messagesObserver?[indexPath.section] else {
+//            let item = residentMessages?[indexPath.section] else {
 //                return
 //        }
 //        let primary = item.primary
@@ -782,7 +787,7 @@ extension ChatViewController: MessageCellDelegate {
 //
 //    func onMoreAction(cell: MessageCollectionViewCell) {
 //        guard let indexPath = indexPathFor(cell),
-//            let item = messagesObserver?[indexPath.section] else {
+//            let item = residentMessages?[indexPath.section] else {
 //                return
 //        }
 //        let primary = item.primary
@@ -794,7 +799,7 @@ extension ChatViewController: MessageCellDelegate {
 //
 //    func onRetrySending(cell: MessageCollectionViewCell) {
 //        guard let indexPath = indexPathFor(cell),
-//            let item = messagesObserver?[indexPath.section] else {
+//            let item = residentMessages?[indexPath.section] else {
 //                return
 //        }
 //        let primary = item.primary
@@ -816,7 +821,7 @@ extension ChatViewController: MessageCellDelegate {
 //    func onEdit(cell: MessageCollectionViewCell) {
 //        if attachedMessagesIds.value.isNotEmpty || forwardedIds.value.isNotEmpty { return }
 //        guard let indexPath = indexPathFor(cell),
-//            let item = messagesObserver?[indexPath.section] else {
+//            let item = residentMessages?[indexPath.section] else {
 //                return
 //        }
 //        self.xabberInputView.textField.text = item.body.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -826,7 +831,7 @@ extension ChatViewController: MessageCellDelegate {
 //    func onPinMessage(cell: MessageCollectionViewCell) {
 //        guard groupchat,
 //            let indexPath = indexPathFor(cell),
-//            let item = messagesObserver?[indexPath.section] else {
+//            let item = residentMessages?[indexPath.section] else {
 //                return
 //        }
 //        var origin = self.view.center
@@ -882,9 +887,10 @@ extension ChatViewController: MessageCellDelegate {
             return false
         }
         guard MessageDeleteManager.availability(owner),
-            let indexPath = indexPathFor(cell),
-            let item = messagesObserver?[indexPath.section] else {
-                return false
+              let indexPath = indexPathFor(cell),
+              let primary = self.datasourceItem(at: indexPath)?.primary,
+              let item = self.timelineSession?.snapshot.item(primary: primary) else {
+            return false
         }
         return item.outgoing && item.archivedId.isNotEmpty && item.displayAs == .text
     }
@@ -957,12 +963,6 @@ extension ChatViewController: MessageCellDelegate {
 //        }
     }
     
-//    internal func showSubforwards(_ items: [MessageForwardsInlineStorageItem.Model]) {
-//        let vc = SubforwardsViewController()
-//        vc.configure(owner, jid: jid, items: items)
-//        showModal(vc)
-//    }
-//    
     internal func openFile(_ url: URL?) {
         guard let url = url,
             UIApplication.shared.canOpenURL(url) else {
@@ -984,13 +984,13 @@ extension ChatViewController: MessageCellDelegate {
 //            let references: [MessageReferenceStorageItem]?
 //            
 //            if let messageId = messageId {
-//                references = messagesObserver?[indexPath.section]
+//                references = residentMessages?[indexPath.section]
 //                    .inlineForwards
 //                    .first(where: { $0.messageId == messageId })?
 //                    .references
 //                    .toArray()
 //            } else {
-//                references = messagesObserver?[indexPath.section]
+//                references = residentMessages?[indexPath.section]
 //                    .references
 //                    .toArray()
 //                    .filter({ $0.kind == .voice })

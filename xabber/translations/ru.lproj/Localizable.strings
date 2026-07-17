@@ -5556,7 +5556,6 @@
 "chat_attachment_geolocation_denied_message" = "Доступ к геопозиции запрещён.";
 "chat_attachment_geolocation_restricted_message" = "Доступ к геопозиции ограничен.";
 "chat_attachment_geolocation_unavailable_message" = "Геопозиция недоступна.";
-
 /* Поиск внутри чата */
 "chat_search_field" = "Поиск в чате";
 "chat_search_title" = "Поиск";
@@ -5607,3 +5606,9 @@
 "chat_search_accessibility_month_year_picker" = "Выбор месяца и года";
 "selected" = "Выбрано";
 "today" = "Сегодня";
+"chat_search_result_unavailable_title" = "Сообщение недоступно";
+"chat_search_result_stale_message" = "Результаты поиска изменились. Выберите сообщение ещё раз.";
+"chat_search_result_missing_identity_message" = "В результате поиска недостаточно данных, чтобы открыть это сообщение.";
+"chat_search_result_not_found_message" = "Сообщение больше недоступно.";
+"chat_search_result_ambiguous_message" = "Этому результату соответствует несколько сообщений, поэтому ни одно из них не было открыто.";
+"chat_search_result_bounded_window_message" = "Не удалось определить сообщение в ограниченном окне поиска.";

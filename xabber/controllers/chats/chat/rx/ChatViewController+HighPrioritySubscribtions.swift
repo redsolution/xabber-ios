@@ -27,6 +27,20 @@ import DeepDiff
 import CocoaLumberjack
 import XMPPFramework.XMPPJID
 
+enum ChatInitialBootstrapTransport: Equatable {
+    case primaryAccount
+    case uiAction
+}
+
+enum ChatInitialBootstrapTransportPolicy {
+    static func resolve(
+        hasPrimaryAccount: Bool,
+        primaryStreamReady: Bool
+    ) -> ChatInitialBootstrapTransport {
+        hasPrimaryAccount && primaryStreamReady ? .primaryAccount : .uiAction
+    }
+}
+
 extension ChatViewController {
     private var chatPresentationRefreshKey: String {
         "chat.presentation.\(owner).\(jid).\(conversationType.rawValue)"
@@ -208,6 +222,10 @@ extension ChatViewController {
         self.bag = DisposeBag()
         let realm = try WRealm.safe()
         self.configureDataset()
+        self.appliedBootstrapLoadingState = self.hasCommittedRealContentInCurrentLifecycle
+            ? .content
+            : nil
+        self.lastBootstrapAtomicRevealPlan = nil
         self.cancelInitialBootstrapLocalHistoryFallback()
         let initialChatInstance = realm.object(
             ofType: LastChatsStorageItem.self,
@@ -225,87 +243,19 @@ extension ChatViewController {
         if initialBootstrapViewState == .skeleton {
             self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
         }
-        let bootstrapRequestCallbacks = MessageArchiveManager.RequestCallbacks(
-            onMessage: nil,
-            onEndPage: { [weak self] queryId, state, first, last, count in
-                self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
-            }
-        )
-        let bootstrapQueryId = "MAM bootstrap history: \(NanoID.new(6))"
-        self.registerRemoteHistoryEndPageDispatcher(queryId: bootstrapQueryId)
-
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            let result = session.mam?.syncChat(
-                stream,
-                jid: self.jid,
-                conversationType: self.conversationType,
-                pageSize: self.initialBootstrapArchiveRequestPageSize,
-                queryId: bootstrapQueryId,
-                callback: nil,
-                requestCallbacks: bootstrapRequestCallbacks
-            ) ?? .noop
-            if case .bootstrapStarted(let queryId) = result {
-                self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
-            } else {
-                self.unregisterRemoteHistoryEndPageDispatcher(queryId: bootstrapQueryId)
-            }
-            self.handleSyncChatStartResult(result)
-        } fail: {
-            guard let account = AccountManager.shared.find(for: self.owner) else {
-                self.unregisterRemoteHistoryEndPageDispatcher(queryId: bootstrapQueryId)
-                return
-            }
-            account.action({ user, stream in
-                let result = user.mam.syncChat(
-                    stream,
-                    jid: self.jid,
-                    conversationType: self.conversationType,
-                    pageSize: self.initialBootstrapArchiveRequestPageSize,
-                    queryId: bootstrapQueryId,
-                    callback: nil,
-                    requestCallbacks: bootstrapRequestCallbacks
-                )
-                if case .bootstrapStarted(let queryId) = result {
-                    self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
-                } else {
-                    self.unregisterRemoteHistoryEndPageDispatcher(queryId: bootstrapQueryId)
-                }
-                self.handleSyncChatStartResult(result)
-            })
-        }
+        self.requestInitialBootstrapArchive()
         
-        Observable
-            .collection(from: self.messagesObserver, synchronousStart: true)
-            .skip(1)
-            .debounce(.milliseconds(30), scheduler: MainScheduler.asyncInstance)
-            .observe(on: MainScheduler.asyncInstance)
-            .subscribe {
-                (_) in
-                self.handleMessagesObserverRefresh()
-            }
-            .disposed(by: self.bag)
-
         if self.conversationType == .group {
             do {
                 let realm = try WRealm.safe()
                 let myGroupUser = realm.objects(GroupchatUserStorageItem.self)
                     .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp())
-                let mentionNotifications = realm.objects(NotificationStorageItem.self)
-                    .filter("owner == %@ AND category_ == %@", self.owner, XMPPNotificationsManager.Category.mention.rawValue)
                 Observable
                     .collection(from: myGroupUser, synchronousStart: true)
                     .debounce(.milliseconds(30), scheduler: MainScheduler.asyncInstance)
                     .observe(on: MainScheduler.asyncInstance)
                     .subscribe(onNext: { _ in
-                        self.rebuildUnreadMentionItems()
-                        self.refreshUnreadMentionsNavigatorState(animated: true)
-                    })
-                    .disposed(by: self.bag)
-                Observable
-                    .collection(from: mentionNotifications, synchronousStart: true)
-                    .debounce(.milliseconds(30), scheduler: MainScheduler.asyncInstance)
-                    .observe(on: MainScheduler.asyncInstance)
-                    .subscribe(onNext: { _ in
+                        _ = self.timelineSession?.refreshUnreadMetadata()
                         self.rebuildUnreadMentionItems()
                         self.refreshUnreadMentionsNavigatorState(animated: true)
                     })
@@ -666,12 +616,92 @@ extension ChatViewController {
 
     }
     
+    internal func requestInitialBootstrapArchive(showFailureIfUnavailable: Bool = false) {
+        let callbacks = MessageArchiveManager.RequestCallbacks(
+            onMessage: nil,
+            onEndPage: { [weak self] queryId, state, first, last, count in
+                self?.didReceiveEndPage(
+                    queryId: queryId,
+                    state: state,
+                    first: first,
+                    last: last,
+                    count: count
+                )
+            }
+        )
+        let queryId = "MAM bootstrap history: \(NanoID.new(6))"
+        self.registerRemoteHistoryEndPageDispatcher(queryId: queryId)
+
+        let startRequest: (
+            _ stream: XMPPStream,
+            _ mam: MessageArchiveManager?,
+            _ messages: MessageManager?
+        ) -> Void = { [weak self] stream, mam, messages in
+            guard let self else { return }
+            let result = mam?.syncChat(
+                stream,
+                jid: self.jid,
+                conversationType: self.conversationType,
+                pageSize: self.initialBootstrapArchiveRequestPageSize,
+                queryId: queryId,
+                callback: nil,
+                requestCallbacks: callbacks
+            ) ?? .noop
+            if case .bootstrapStarted(let activeQueryId) = result {
+                self.registerRemoteHistoryPersistenceSource(
+                    messages,
+                    queryId: activeQueryId
+                )
+            } else {
+                self.unregisterRemoteHistoryEndPageDispatcher(queryId: queryId)
+            }
+            self.handleSyncChatStartResult(result)
+        }
+
+        let account = AccountManager.shared.find(for: self.owner)
+        let transport = ChatInitialBootstrapTransportPolicy.resolve(
+            hasPrimaryAccount: account != nil,
+            primaryStreamReady: account?.sendReadiness.snapshot.canFlushApplicationStanzas == true
+        )
+        if transport == .primaryAccount,
+           let account {
+            account.action { user, stream in
+                startRequest(stream, user.mam, user.messages)
+            }
+            return
+        }
+
+        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            startRequest(stream, session.mam, session.messages)
+        } fail: {
+            guard let account = AccountManager.shared.find(for: self.owner) else {
+                self.unregisterRemoteHistoryEndPageDispatcher(queryId: queryId)
+                if showFailureIfUnavailable {
+                    self.allowsBootstrapFailureFallback = true
+                    self.applyBootstrapLoadingState(self.currentBootstrapLoadingState())
+                }
+                return
+            }
+            account.action { user, stream in
+                startRequest(stream, user.mam, user.messages)
+            }
+        }
+    }
+
+    internal func retryInitialBootstrapAfterFailure() {
+        guard !self.isInitialBootstrapInFlight else { return }
+        self.allowsBootstrapFailureFallback = false
+        self.setBootstrapFailureVisible(false)
+        self.applyBootstrapLoadingState(self.currentBootstrapLoadingState())
+        self.requestInitialBootstrapArchive(showFailureIfUnavailable: true)
+    }
+
     internal func handleSyncChatStartResult(_ result: MessageArchiveManager.SyncChatStartResult) {
         DispatchQueue.main.async {
             switch result {
             case .bootstrapStarted(let queryId):
                 self.beginInitialBootstrapTracking(queryId: queryId)
-                self.applyBootstrapViewState(self.currentBootstrapViewState(), forceRender: true)
+                self.applyBootstrapLoadingState(self.currentBootstrapLoadingState(), forceRender: true)
                 self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
             case .gapRepairOnly, .noop:
                 self.resetInitialBootstrapTracking()

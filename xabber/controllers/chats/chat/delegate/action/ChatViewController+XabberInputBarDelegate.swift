@@ -87,8 +87,6 @@ extension ChatViewController: XabberInputBarDelegate {
         guard self.recordedReferenceSessionID == sessionID else { return }
         func play(url: URL?) throws {
             AudioManager.shared.player?.stop()
-            self.currentPlayingView?.resetState()
-            self.currentPlayingView?.waveform.reset()
             if let url = url, let data = try AudioManager.shared.load(url) {
                 AudioManager.shared.player = try AVAudioPlayer(data: data, fileTypeHint: AVFileType.m4a.rawValue)
                 AudioManager.shared.currentPlayingTitle = self.ownerSender.displayName
@@ -953,6 +951,14 @@ extension ChatViewController: XabberInputBarDelegate {
     }
     
     func sendButtonTouchUp( with text: String) {
+        #if DEBUG || CHAT_PERFORMANCE_LAB
+        if let performanceFixtureSendHandler {
+            performanceFixtureSendHandler(text)
+            self.xabberInputView.clearComposer()
+            self.xabberInputView.textViewDidChange()
+            return
+        }
+        #endif
         let payload = self.xabberInputView.currentPayload()
         func sendMessage(_ payload: ComposerMessagePayload) {
             if self.recordedReferenceObject != nil {
@@ -962,17 +968,12 @@ extension ChatViewController: XabberInputBarDelegate {
                 self.xabberInputView.textViewDidChange()
                 let forwarded: [String] = self.attachedMessagesIds.value
                 self.draftMessageText.accept(nil)
-    //            canUpdateDataset = true
-    //            self.shouldChangeOffsetOnUpdate = false
-//                self.messagesCollectionView.scrollToTop(animated: true)
                 if let editedMessage = editMessageId.value,
                     editedMessage.isNotEmpty {
                     let primary = editedMessage
                     AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                         user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
                         user.messages.editSimpleMessage(payload.body, primary: primary, references: payload.references)
-                        //self.canUpdateDataset = true
-    //                    self.runDatasetUpdateTask()
                     })
                 } else {
                     self.beginSendToLocalRowSignpost()

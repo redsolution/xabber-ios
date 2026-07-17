@@ -149,7 +149,8 @@ class SystemMessageCell: MessageContentCell {
     /// Used to handle the cell's contentView's tap gesture.
     /// Return false when the contentView does not need to handle the gesture.
     override func cellContentView(canHandle touchPoint: CGPoint) -> Bool {
-        return messageLabel.handleGesture(touchPoint)
+        let labelPoint = messageContainerView.convert(touchPoint, to: messageLabel)
+        return messageLabel.handleGesture(labelPoint)
     }
     
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {

@@ -25,7 +25,7 @@ import AVFoundation
 /// framework provided `MessageCollectionViewCell` subclasses.
 class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
 
-    internal final let cache: MessageSizeCache = MessageSizeCache()
+    internal final let cache = ChatMessageLayoutCache()
     
     override class var layoutAttributesClass: AnyClass {
 //        let lay = UICollectionViewLayout()
@@ -77,12 +77,17 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     }
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
-        guard let attributesArray = super.layoutAttributesForElements(in: rect) as? [MessagesCollectionViewLayoutAttributes] else {
+        guard let attributesArray = super.layoutAttributesForElements(in: rect)?.compactMap({
+            $0.copy() as? MessagesCollectionViewLayoutAttributes
+        }) else {
             return nil
         }
         for attributes in attributesArray where attributes.representedElementCategory == .cell {
-            let cellSizeCalculator = cellSizeCalculatorForItem(at: attributes.indexPath)
-            cellSizeCalculator.configure(attributes: attributes)
+            let message = messagesDataSource.messageForItem(
+                at: attributes.indexPath,
+                in: messagesCollectionView
+            )
+            readyLayout(for: message).apply(to: attributes)
         }
 //        guard let attributes = super.layoutAttributesForElements(in: rect) else {
 //            return attributesArray
@@ -105,7 +110,10 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     }
     
     override func layoutAttributesForSupplementaryView(ofKind elementKind: String, at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
-        guard let attributes = super.layoutAttributesForSupplementaryView(ofKind: elementKind, at: indexPath) else { return nil }
+        guard let attributes = super.layoutAttributesForSupplementaryView(
+            ofKind: elementKind,
+            at: indexPath
+        )?.copy() as? UICollectionViewLayoutAttributes else { return nil }
         adjustAttributesIfNeeded(attributes)
         return attributes
     }
@@ -130,12 +138,17 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     }
     
     override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
-        guard let attributes = super.layoutAttributesForItem(at: indexPath) as? MessagesCollectionViewLayoutAttributes else {
+        guard let attributes = super.layoutAttributesForItem(
+            at: indexPath
+        )?.copy() as? MessagesCollectionViewLayoutAttributes else {
             return nil
         }
         if attributes.representedElementCategory == .cell {
-            let cellSizeCalculator = cellSizeCalculatorForItem(at: attributes.indexPath)
-            cellSizeCalculator.configure(attributes: attributes)
+            let message = messagesDataSource.messageForItem(
+                at: attributes.indexPath,
+                in: messagesCollectionView
+            )
+            readyLayout(for: message).apply(to: attributes)
         }
         return attributes
     }
@@ -154,94 +167,25 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     @objc
     private func handleOrientationChange(_ notification: Notification) {
         invalidateLayout()
-        cache.invalidate()
-    }
-
-    lazy var commonMessageSizeCalculator = CommonMessageSizeCalculator(layout: self)
-    lazy var systemMessageSizeCalculator = SystemMessageSizeCalculator(layout: self)
-    lazy var initialMessageSizeCalculator = InitialMessageSizeCalculator(layout: self)
-    lazy var callMessageSizeCalculator = CallMessageSizeCalculator(layout: self)
-
-    func cellSizeCalculatorForItem(at indexPath: IndexPath) -> CellSizeCalculator {
-        let message = messagesDataSource.messageForItem(at: indexPath, in: messagesCollectionView)
-        return cellSizeCalculator(for: message)
-    }
-
-    func cellSizeCalculator(for message: MessageType) -> CellSizeCalculator {
-        switch message.kind {
-            case .attributedText, .emoji, .skeleton(_):
-                return commonMessageSizeCalculator
-            case .system, .date, .unread, .call(_):
-                return systemMessageSizeCalculator
-            case .sticker(_):
-                return callMessageSizeCalculator//stickerMessageSizeCalculator
-            case .initial(_):
-                return initialMessageSizeCalculator
-//            case .call(_):
-//                return callMessageSizeCalculator
-        }
     }
 
     func sizeForItem(at indexPath: IndexPath) -> CGSize {
         let message = messagesDataSource.messageForItem(at: indexPath, in: messagesCollectionView)
-//        if let size = cache.get(for: message.primary) {
-//            return size
-//        } else {
-            let calculator: CellSizeCalculator
-            switch message.kind {
-                case .attributedText, .emoji, .skeleton(_):
-                    calculator = commonMessageSizeCalculator
-                case .system, .date, .unread, .call(_):
-                    calculator = systemMessageSizeCalculator
-                case .sticker(_):
-                    calculator = callMessageSizeCalculator
-                case .initial(_):
-                    calculator = initialMessageSizeCalculator
-//                case .call(_):
-//                    calculator = systemMessageSizeCalculator
-            }
-            let size = calculator.sizeForItem(at: indexPath)
-//            cache.cache(for: message.primary, size: size)
-            return size
-//        }
+        return readyLayout(for: message).cellSize
     }
 
     func sizeForMessage(_ message: MessageType) -> CGSize {
-        cellSizeCalculator(for: message).messageContainerSize(for: message)
+        cache.layout(forPrimary: message.primary)?.cellSize ?? .zero
     }
-    
-//    func setMessageIncomingMessagePadding(_ newPadding: UIEdgeInsets) {
-//        messageSizeCalculators().forEach { $0.incomingMessagePadding = newPadding }
-//    }
-//    
-//    func setMessageOutgoingMessagePadding(_ newPadding: UIEdgeInsets) {
-//        messageSizeCalculators().forEach { $0.outgoingMessagePadding = newPadding }
-//    }
-//    
-//    func setMessageIncomingMessageTopLabelAlignment(_ newAlignment: LabelAlignment) {
-//        messageSizeCalculators().forEach { $0.incomingMessageTopLabelAlignment = newAlignment }
-//    }
-//    
-//    func setMessageOutgoingMessageTopLabelAlignment(_ newAlignment: LabelAlignment) {
-//        messageSizeCalculators().forEach { $0.outgoingMessageTopLabelAlignment = newAlignment }
-//    }
-//    
-//    func setMessageIncomingMessageBottomLabelAlignment(_ newAlignment: LabelAlignment) {
-//        messageSizeCalculators().forEach { $0.incomingMessageBottomLabelAlignment = newAlignment }
-//    }
-//    
-//    func setMessageOutgoingMessageBottomLabelAlignment(_ newAlignment: LabelAlignment) {
-//        messageSizeCalculators().forEach { $0.outgoingMessageBottomLabelAlignment = newAlignment }
-//    }
-    
-    func messageSizeCalculators() -> [CellSizeCalculator] {
-//        return [commonMessageSizeCalculator, mediaMessageSizeCalculator, locationMessageSizeCalculator]
-        return []
+
+    private func readyLayout(for message: MessageType) -> ChatMessageLayout {
+        cache.layout(forPrimary: message.primary)
+            ?? ChatMessageLayout.fallback(for: message, width: itemWidth)
     }
     
     public final func invalidateLastMessageCachedSize(primary: String?) {
         if let primary = primary {
-            cache.invalidate(for: primary)
+            cache.invalidate(primary: primary)
         }
     }
     

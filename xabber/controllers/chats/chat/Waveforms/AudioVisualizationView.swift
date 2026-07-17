@@ -1,452 +1,507 @@
 //
-//
-//
-//  This program is free software; you can redistribute it and/or
-//  modify it under the terms of the GNU General Public License as
-//  published by the Free Software Foundation; either version 3 of the
-//  License.
-//
-//  This program is distributed in the hope that it will be useful,
-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-//  General Public License for more details.
-//
-//  You should have received a copy of the GNU General Public License along
-//  with this program; if not, write to the Free Software Foundation, Inc.,
-//  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-//
-//
+//  This program is free software; you can redistribute it and/or modify
+//  it under the terms of the GNU General Public License as published by
+//  the Free Software Foundation; either version 3 of the License.
 //
 
 import UIKit
 
-public class AudioVisualizationView: UIView {
-	public enum AudioVisualizationMode {
-		case read
-		case write
-	}
+enum ChatWaveformRevision {
+    static func make(identity: String, levels: [Float]) -> String {
+        var hash: UInt64 = 1_469_598_103_934_665_603
+        for level in levels {
+            hash ^= UInt64(level.bitPattern)
+            hash &*= 1_099_511_628_211
+        }
+        return "\(identity)-\(levels.count)-\(hash)"
+    }
+}
 
-    public enum AudioVisualizationType {
+struct ChatWaveformRenderMetrics: Equatable {
+    let sampleNormalizationCount: Int
+    let staticPathBuildCount: Int
+    let progressMutationCount: Int
+}
+
+enum ChatWaveformRenderInstrumentation {
+    private(set) static var sampleNormalizationCount = 0
+    private(set) static var staticPathBuildCount = 0
+    private(set) static var progressMutationCount = 0
+
+    static var snapshot: ChatWaveformRenderMetrics {
+        ChatWaveformRenderMetrics(
+            sampleNormalizationCount: sampleNormalizationCount,
+            staticPathBuildCount: staticPathBuildCount,
+            progressMutationCount: progressMutationCount
+        )
+    }
+
+    static func resetForTests() {
+        sampleNormalizationCount = 0
+        staticPathBuildCount = 0
+        progressMutationCount = 0
+        ChatWaveformStaticArtifactCache.shared.removeAll()
+    }
+
+    static func simulateMemoryWarningForTests() {
+        handleMemoryWarning()
+    }
+
+    static func handleMemoryWarning() {
+        ChatWaveformStaticArtifactCache.shared.removeAll()
+    }
+
+    fileprivate static func recordNormalization() {
+        sampleNormalizationCount += 1
+    }
+
+    fileprivate static func recordPathBuild() {
+        staticPathBuildCount += 1
+    }
+
+    fileprivate static func recordProgressMutation() {
+        progressMutationCount += 1
+    }
+}
+
+private struct ChatWaveformStaticArtifactKey: Hashable {
+    let revision: String
+    let widthPixels: Int
+    let heightPixels: Int
+    let barWidthPixels: Int
+    let spacingPixels: Int
+    let cornerRadiusPixels: Int
+    let type: AudioVisualizationView.AudioVisualizationType
+}
+
+private final class ChatWaveformStaticArtifactKeyBox: NSObject {
+    let value: ChatWaveformStaticArtifactKey
+
+    init(_ value: ChatWaveformStaticArtifactKey) {
+        self.value = value
+    }
+
+    override var hash: Int {
+        value.hashValue
+    }
+
+    override func isEqual(_ object: Any?) -> Bool {
+        (object as? ChatWaveformStaticArtifactKeyBox)?.value == value
+    }
+}
+
+private final class ChatWaveformStaticArtifact {
+    let path: CGPath
+
+    init(path: CGPath) {
+        self.path = path
+    }
+}
+
+private final class ChatWaveformStaticArtifactCache {
+    static let shared = ChatWaveformStaticArtifactCache()
+
+    private let storage: NSCache<ChatWaveformStaticArtifactKeyBox, ChatWaveformStaticArtifact> = {
+        let cache = NSCache<ChatWaveformStaticArtifactKeyBox, ChatWaveformStaticArtifact>()
+        cache.countLimit = ChatPerformanceResourceBudgets.waveformArtifactCount
+        return cache
+    }()
+    private init() {}
+
+    func artifact(
+        for key: ChatWaveformStaticArtifactKey,
+        levels: [Float],
+        size: CGSize,
+        barWidth: CGFloat,
+        spacing: CGFloat,
+        cornerRadius: CGFloat
+    ) -> ChatWaveformStaticArtifact {
+        let boxedKey = ChatWaveformStaticArtifactKeyBox(key)
+        if let cached = storage.object(forKey: boxedKey) {
+            return cached
+        }
+
+        ChatWaveformRenderInstrumentation.recordNormalization()
+        let samples = Self.normalizedSamples(
+            levels,
+            targetCount: max(1, Int(size.width / max(barWidth + spacing, 1)))
+        )
+        ChatWaveformRenderInstrumentation.recordPathBuild()
+        let path = Self.makePath(
+            samples: samples,
+            size: size,
+            barWidth: barWidth,
+            spacing: spacing,
+            cornerRadius: cornerRadius,
+            type: key.type
+        )
+        let artifact = ChatWaveformStaticArtifact(path: path)
+        storage.setObject(artifact, forKey: boxedKey)
+        return artifact
+    }
+
+    func removeAll() {
+        storage.removeAllObjects()
+    }
+
+    private static func normalizedSamples(_ levels: [Float], targetCount: Int) -> [CGFloat] {
+        guard !levels.isEmpty, targetCount > 0 else { return [] }
+        let clamped = levels.map { CGFloat(min(max($0, 0), 1)) }
+        if clamped.count == targetCount {
+            return clamped
+        }
+
+        return (0..<targetCount).map { targetIndex in
+            let lower = CGFloat(targetIndex) * CGFloat(clamped.count) / CGFloat(targetCount)
+            let upper = CGFloat(targetIndex + 1) * CGFloat(clamped.count) / CGFloat(targetCount)
+            let firstIndex = min(Int(floor(lower)), clamped.count - 1)
+            let lastIndex = min(max(Int(ceil(upper)) - 1, firstIndex), clamped.count - 1)
+
+            if firstIndex == lastIndex {
+                let nextIndex = min(firstIndex + 1, clamped.count - 1)
+                let fraction = lower - floor(lower)
+                return clamped[firstIndex] + ((clamped[nextIndex] - clamped[firstIndex]) * fraction)
+            }
+
+            let slice = clamped[firstIndex...lastIndex]
+            return slice.reduce(0, +) / CGFloat(slice.count)
+        }
+    }
+
+    private static func makePath(
+        samples: [CGFloat],
+        size: CGSize,
+        barWidth: CGFloat,
+        spacing: CGFloat,
+        cornerRadius: CGFloat,
+        type: AudioVisualizationView.AudioVisualizationType
+    ) -> CGPath {
+        let path = CGMutablePath()
+        let centerY = size.height / 2
+        let maximumHeight = max(size.height - 2, 1)
+
+        for (index, sample) in samples.enumerated() {
+            let height = max(2, sample * maximumHeight)
+            let originY: CGFloat
+            let renderedHeight: CGFloat
+            switch type {
+            case .top:
+                originY = centerY - height
+                renderedHeight = height
+            case .bottom:
+                originY = centerY
+                renderedHeight = height
+            case .both:
+                originY = centerY - height / 2
+                renderedHeight = height
+            }
+            let rect = CGRect(
+                x: CGFloat(index) * (barWidth + spacing),
+                y: originY,
+                width: barWidth,
+                height: renderedHeight
+            )
+            path.addPath(
+                UIBezierPath(
+                    roundedRect: rect,
+                    cornerRadius: min(cornerRadius, min(barWidth / 2, renderedHeight / 2))
+                ).cgPath
+            )
+        }
+        return path
+    }
+}
+
+public final class AudioVisualizationView: UIView {
+    public enum AudioVisualizationMode {
+        case read
+        case write
+    }
+
+    public enum AudioVisualizationType: Hashable {
         case top
         case bottom
         case both
     }
-    
-	@IBInspectable public var meteringLevelBarWidth: CGFloat = 3.0 {
-		didSet {
-			self.setNeedsDisplay()
-		}
-	}
-	@IBInspectable public var meteringLevelBarInterItem: CGFloat = 2.0 {
-		didSet {
-			self.setNeedsDisplay()
-		}
-	}
-	@IBInspectable public var meteringLevelBarCornerRadius: CGFloat = 2.0 {
-		didSet {
-			self.setNeedsDisplay()
-		}
-	}
 
-    public var audioVisualizationType: AudioVisualizationType = .both
-    
-	public var audioVisualizationMode: AudioVisualizationMode = .read
-    
-    public var barBackgroundFillColor: UIColor? = nil
-    
-    public var progressBarMiddleOffset: CGFloat? = nil
+    @IBInspectable public var meteringLevelBarWidth: CGFloat = 3 {
+        didSet { invalidateStaticArtifact() }
+    }
+
+    @IBInspectable public var meteringLevelBarInterItem: CGFloat = 2 {
+        didSet { invalidateStaticArtifact() }
+    }
+
+    @IBInspectable public var meteringLevelBarCornerRadius: CGFloat = 2 {
+        didSet { invalidateStaticArtifact() }
+    }
+
+    public var audioVisualizationType: AudioVisualizationType = .both {
+        didSet { invalidateStaticArtifact() }
+    }
+
+    public var audioVisualizationMode: AudioVisualizationMode = .read
+
+    public var barBackgroundFillColor: UIColor? {
+        didSet { updateLayerColors() }
+    }
+
+    public var progressBarMiddleOffset: CGFloat?
     public var progressBarLineHeight: CGFloat = 0
-	
-	public var audioVisualizationTimeInterval: TimeInterval = 0.05 // Time interval between each metering bar representation
+    public var audioVisualizationTimeInterval: TimeInterval = 0.05
+    public var startFrom: TimeInterval = 0
+    public var drawCallback: (() -> Void)?
 
-	// Specify a `gradientPercentage` to have the width of gradient be that percentage of the view width (starting from left)
-	// The rest of the screen will be filled by `self.gradientStartColor` to display nicely.
-	// Do not specify any `gradientPercentage` for gradient calculating fitting size automatically.
-	public var currentGradientPercentage: Float?
-    public var startFrom: TimeInterval = 0.0
-
-	private var meteringLevelsArray: [Float] = []	// Mutating recording array (values are percentage: 0.0 to 1.0)
-	private var meteringLevelsClusteredArray: [Float] = [] // Generated read mode array (values are percentage: 0.0 to 1.0)
-
-	private var currentMeteringLevelsArray: [Float] {
-        return meteringLevelsClusteredArray
-		if !self.meteringLevelsClusteredArray.isEmpty {
-			return meteringLevelsClusteredArray
-		}
-		return meteringLevelsArray
-	}
-
-	public var playChronometer: Chronometer?
-
-    public var drawCallback: (() -> Void)? = nil
-    
-	public var meteringLevels: [Float]? {
-		didSet {
-            if let meteringLevels = self.meteringLevels {
-                self.meteringLevels = self.scaleOuterArrayToFitScreen(meteringLevels)
-            }
-			if let meteringLevels = self.meteringLevels {
-				self.meteringLevelsClusteredArray = meteringLevels
-                self.setNeedsDisplay()
-			}
-		}
-	}
-
-	static var audioVisualizationDefaultGradientStartColor: UIColor {
-		return UIColor(red: 61.0 / 255.0, green: 20.0 / 255.0, blue: 117.0 / 255.0, alpha: 1.0)
-	}
-	static var audioVisualizationDefaultGradientEndColor: UIColor {
-		return UIColor(red: 166.0 / 255.0, green: 150.0 / 255.0, blue: 225.0 / 255.0, alpha: 1.0)
-	}
-	
-	@IBInspectable public var gradientStartColor: UIColor = AudioVisualizationView.audioVisualizationDefaultGradientStartColor {
-		didSet {
-			self.setNeedsDisplay()
-		}
-	}
-	@IBInspectable public var gradientEndColor: UIColor = AudioVisualizationView.audioVisualizationDefaultGradientEndColor {
-		didSet {
-			self.setNeedsDisplay()
-		}
-	}
-
-    override public init(frame: CGRect) {
-        super.init(frame: frame)
+    public static var audioVisualizationDefaultGradientStartColor: UIColor {
+        UIColor(red: 61 / 255, green: 20 / 255, blue: 117 / 255, alpha: 1)
     }
 
-    required public init?(coder aDecoder: NSCoder) {
-        super.init(coder: aDecoder)
+    public static var audioVisualizationDefaultGradientEndColor: UIColor {
+        UIColor(red: 166 / 255, green: 150 / 255, blue: 225 / 255, alpha: 1)
     }
 
-	override public func draw(_ rect: CGRect) {
-		super.draw(rect)
+    @IBInspectable public var gradientStartColor: UIColor = AudioVisualizationView.audioVisualizationDefaultGradientStartColor {
+        didSet { updateLayerColors() }
+    }
 
-		if let context = UIGraphicsGetCurrentContext() {
-			self.drawLevelBarsMaskAndGradient(inContext: context)
+    @IBInspectable public var gradientEndColor: UIColor = AudioVisualizationView.audioVisualizationDefaultGradientEndColor {
+        didSet { updateLayerColors() }
+    }
+
+    public var currentGradientPercentage: Float? {
+        didSet {
+            guard oldValue != currentGradientPercentage else { return }
+            applyProgressLayer(recordMetric: true)
         }
-	}
+    }
 
-	public func reset() {
-//		self.meteringLevels = nil
-        self.startFrom = 0.0
-		self.currentGradientPercentage = nil
-//		self.meteringLevelsClusteredArray.removeAll()
-//		self.meteringLevelsArray.removeAll()
-//		self.setNeedsDisplay()
-//        self.layoutSubviews()
-	}
-    
-//    public func fastReset() {
-//        self.meteringLevels = nil
-//    }
+    public var meteringLevels: [Float]? {
+        didSet {
+            let levels = meteringLevels ?? []
+            configureStaticWaveform(
+                levels: levels,
+                revision: ChatWaveformRevision.make(identity: "legacy", levels: levels)
+            )
+        }
+    }
 
-	// MARK: - Record Mode Handling
+    public private(set) var playChronometer: Chronometer?
+    public private(set) var isPlayed = false
 
-	public func add(meteringLevel: Float) {
-		guard self.audioVisualizationMode == .write else {
-			fatalError("trying to populate audio visualization view in read mode")
-		}
+    var activeClockCount: Int {
+        playChronometer == nil ? 0 : 1
+    }
 
-		self.meteringLevelsArray.append(meteringLevel)
-		self.setNeedsDisplay()
-	}
+    var debugProgressMaskFrame: CGRect {
+        progressMaskLayer.frame
+    }
 
-	public func scaleSoundDataToFitScreen() -> [Float] {
-		if self.meteringLevelsArray.isEmpty {
-			return []
-		}
-        
-		self.meteringLevelsClusteredArray.removeAll()
-        var array: [Float] = []
-		var lastPosition: Int = 0
-        
-		for index in 0..<self.maximumNumberBars {
-			let position: Float = Float(index) / Float(self.maximumNumberBars) * Float(self.meteringLevelsArray.count)
-			var h: Float = 0.0
+    private let backgroundBarsLayer = CAShapeLayer()
+    private let progressContainerLayer = CALayer()
+    private let progressGradientLayer = CAGradientLayer()
+    private let progressBarsMaskLayer = CAShapeLayer()
+    private let progressMaskLayer = CALayer()
+    private var sourceLevels: [Float] = []
+    private var sourceRevision = ""
+    private var lastArtifactKey: ChatWaveformStaticArtifactKey?
+    private var recordingLevels: [Float] = []
+    private var recordingRevision = 0
 
-			if self.maximumNumberBars > self.meteringLevelsArray.count && floor(position) != position {
-				let low: Int = Int(floor(position))
-				let high: Int = Int(ceil(position))
+    public override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupLayers()
+    }
 
-				if high < self.meteringLevelsArray.count {
-					h = self.meteringLevelsArray[low] + ((position - Float(low)) * (self.meteringLevelsArray[high] - self.meteringLevelsArray[low]))
-				} else {
-					h = self.meteringLevelsArray[low]
-				}
-			} else {
-				for nestedIndex in lastPosition...Int(position) {
-					h += self.meteringLevelsArray[nestedIndex]
-				}
-				let stepsNumber = Int(1 + position - Float(lastPosition))
-				h = h / Float(stepsNumber)
-			}
+    public required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupLayers()
+    }
 
-			lastPosition = Int(position)
-			array.append(h)
-		}
-        self.meteringLevelsClusteredArray = array
-//		self.setNeedsDisplay()
-		return self.meteringLevelsClusteredArray
-	}
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        installStaticArtifactIfNeeded()
+        updateLayerFrames()
+    }
+
+    public func configureStaticWaveform(levels: [Float], revision: String) {
+        guard sourceRevision != revision else {
+            installStaticArtifactIfNeeded()
+            return
+        }
+        sourceLevels = levels
+        sourceRevision = revision
+        lastArtifactKey = nil
+        installStaticArtifactIfNeeded()
+    }
+
+    public func setProgress(_ progress: Float?) {
+        currentGradientPercentage = progress
+    }
+
+    public func reset() {
+        pause()
+        startFrom = 0
+        setProgress(nil)
+    }
+
+    public func add(meteringLevel: Float) {
+        guard audioVisualizationMode == .write else {
+            assertionFailure("Trying to populate audio visualization view in read mode")
+            return
+        }
+        recordingLevels.append(meteringLevel)
+        recordingRevision += 1
+        configureStaticWaveform(
+            levels: recordingLevels,
+            revision: "recording-\(recordingRevision)"
+        )
+    }
+
+    public func scaleSoundDataToFitScreen() -> [Float] {
+        scaleOuterArrayToFitScreen(recordingLevels)
+    }
 
     public func scaleOuterArrayToFitScreen(_ array: [Float]) -> [Float] {
-        
-        var out: [Float] = []
-        var lastPosition: Int = 0
-        
-        for index in 0..<self.maximumNumberBars {
-            let position: Float = Float(index) / Float(self.maximumNumberBars) * Float(array.count)
-            var h: Float = 0.0
-
-            if self.maximumNumberBars > array.count && floor(position) != position {
-                let low: Int = Int(floor(position))
-                let high: Int = Int(ceil(position))
-
-                if high < array.count {
-                    h = array[low] + ((position - Float(low)) * (array[high] - array[low]))
-                } else {
-                    h = array[low]
-                }
-            } else {
-                if array.isEmpty { return out }
-                for nestedIndex in lastPosition...Int(position) {
-                    h += array[nestedIndex]
-                }
-                let stepsNumber = Int(1 + position - Float(lastPosition))
-                h = h / Float(stepsNumber)
-            }
-
-            lastPosition = Int(position)
-            out.append(h)
-        }
-        return out
+        let count = max(1, Int(bounds.width / max(meteringLevelBarWidth + meteringLevelBarInterItem, 1)))
+        return Self.resampled(array, targetCount: count)
     }
-    
-	// PRAGMA: - Play Mode Handling
 
-    var isPlayed: Bool = false
-    
-	public func play(for duration: TimeInterval) {
-		guard self.audioVisualizationMode == .read else {
-			fatalError("trying to read audio visualization in write mode")
-		}
-
-		guard self.meteringLevels != nil else {
-			fatalError("trying to read audio visualization of non initialized sound record")
-		}
+    public func play(for duration: TimeInterval) {
+        guard audioVisualizationMode == .read, !sourceLevels.isEmpty else { return }
+        playChronometer?.pause()
+        let remainingDuration = max(duration, 0)
+        let totalDuration = max(max(startFrom + remainingDuration, remainingDuration), 0.001)
+        let chronometer = Chronometer(withTimeInterval: audioVisualizationTimeInterval)
+        playChronometer = chronometer
         isPlayed = true
-		if let currentChronometer = self.playChronometer {
-			currentChronometer.start() // resume current
-			return
-		}
-
-		self.playChronometer = Chronometer(withTimeInterval: self.audioVisualizationTimeInterval)
-		self.playChronometer?.start(shouldFire: false)
-
-		self.playChronometer?.timerDidUpdate = { [weak self] timerDuration in
-			guard let this = self else {
-				return
-			}
-			
-			if timerDuration >= duration {
-				this.stop()
-				return
-			}
-			
-            this.currentGradientPercentage = Float(this.startFrom + timerDuration) / Float(this.startFrom + duration)
-			this.setNeedsDisplay()
-            this.drawCallback?()
-		}
-	}
-
-	public func pause() {
-		guard let chronometer = self.playChronometer else { //, chronometer.isPlaying
-            self.stop()
-            return
-		}
-        isPlayed = false
-		self.playChronometer?.pause()
-	}
-
-	public func stop() {
-        isPlayed = false
-		self.playChronometer?.stop()
-		self.playChronometer = nil
-
-		self.currentGradientPercentage = 0.0
-		self.setNeedsDisplay()
-//        self.currentGradientPercentage = nil
-	}
-
-	// MARK: - Mask + Gradient
-
-	private func drawLevelBarsMaskAndGradient(inContext context: CGContext) {
-		if self.currentMeteringLevelsArray.isEmpty {
-			return
-		}
-
-		context.saveGState()
-
-		UIGraphicsBeginImageContextWithOptions(self.frame.size, false, 0.0)
-
-		let maskContext = UIGraphicsGetCurrentContext()
-		UIColor.black.set()
-
-		self.drawMeteringLevelBars(inContext: maskContext!)
-//        if let offset = self.progressBarMiddleOffset {
-//            self.drawProcessIndicator(setOffset: offset, height: self.progressBarLineHeight, context: maskContext!)
-//        }
-
-		let mask = UIGraphicsGetCurrentContext()?.makeImage()
-		UIGraphicsEndImageContext()
-
-		context.clip(to: self.bounds, mask: mask!)
-
-		self.drawGradient(inContext: context)
-
-		context.restoreGState()
-	}
-
-	private func drawGradient(inContext context: CGContext) {
-		if self.currentMeteringLevelsArray.isEmpty {
-			return
-		}
-
-		context.saveGState()
-
-		let startPoint = CGPoint(x: 0.0, y: self.centerY)
-        var endPoint: CGPoint
-        if self.barBackgroundFillColor == nil {
-            endPoint = CGPoint(x: self.xLeftMostBar() + self.meteringLevelBarWidth, y: self.centerY)
-        } else {
-            endPoint = startPoint
-        }
-
-		if let gradientPercentage = self.currentGradientPercentage {
-			endPoint = CGPoint(x: self.frame.size.width * CGFloat(gradientPercentage), y: self.centerY)
-		}
-
-		let colorSpace = CGColorSpaceCreateDeviceRGB()
-		let colorLocations: [CGFloat] = [0.0, 1.0]
-		let colors = [self.gradientStartColor.cgColor, self.gradientEndColor.cgColor]
-
-		let gradient = CGGradient(colorsSpace: colorSpace, colors: colors as CFArray, locations: colorLocations)
-
-		context.drawLinearGradient(gradient!, start: startPoint, end: endPoint, options: CGGradientDrawingOptions(rawValue: 0))
-
-		context.restoreGState()
-
-		if self.currentGradientPercentage != nil || self.barBackgroundFillColor != nil {
-            self.drawPlainBackground(inContext: context, fillFromXCoordinate: endPoint.x, percentage: self.currentGradientPercentage)
-		}
-	}
-
-    private func drawPlainBackground(inContext context: CGContext, fillFromXCoordinate xCoordinate: CGFloat, percentage: Float?) {
-		context.saveGState()
-
-		let squarePath = UIBezierPath()
-
-		squarePath.move(to: CGPoint(x: xCoordinate, y: 0.0))
-		squarePath.addLine(to: CGPoint(x: self.frame.size.width, y: 0.0))
-		squarePath.addLine(to: CGPoint(x: self.frame.size.width, y: self.frame.size.height))
-		squarePath.addLine(to: CGPoint(x: xCoordinate, y: self.frame.size.height))
-
-		squarePath.close()
-		squarePath.addClip()
-        if percentage == nil {
-            self.gradientEndColor.setFill()
-        } else {
-            (self.barBackgroundFillColor ?? self.gradientStartColor).setFill()
-        }
-		
-		squarePath.fill()
-
-		context.restoreGState()
-	}
-
-	// MARK: - Bars
-
-	private func drawMeteringLevelBars(inContext context: CGContext) {
-		let offset = max(self.currentMeteringLevelsArray.count - self.maximumNumberBars, 0)
-
-		for index in offset..<self.currentMeteringLevelsArray.count {
-            switch audioVisualizationType {
-            case .top:
-                self.drawBar(index - offset, meteringLevelIndex: index, isUpperBar: false, context: context)
-            case .bottom:
-                self.drawBar(index - offset, meteringLevelIndex: index, isUpperBar: true, context: context)
-            case .both:
-                self.drawBar(index - offset, meteringLevelIndex: index, isUpperBar: true, context: context)
-//                self.drawBar(index - offset, meteringLevelIndex: index, isUpperBar: false, context: context)
+        chronometer.timerDidUpdate = { [weak self, weak chronometer] elapsed in
+            guard let self, self.playChronometer === chronometer else { return }
+            if elapsed >= remainingDuration {
+                self.stop()
+                return
             }
-		}
-	}
-
-	private func drawBar(_ barIndex: Int, meteringLevelIndex: Int, isUpperBar: Bool, context: CGContext) {
-		context.saveGState()
-
-		var barPath: UIBezierPath!
-
-		let xPointForMeteringLevel = self.xPointForMeteringLevel(barIndex)
-		let heightForMeteringLevel = self.heightForMeteringLevel(self.currentMeteringLevelsArray[meteringLevelIndex]) * 2
-
-		if isUpperBar {
-            barPath = UIBezierPath(roundedRect: CGRect(x: xPointForMeteringLevel, y: self.centerY - (heightForMeteringLevel / 2),
-				width: self.meteringLevelBarWidth, height: heightForMeteringLevel), cornerRadius: self.meteringLevelBarCornerRadius)
-		} else {
-            barPath = UIBezierPath(roundedRect: CGRect(x: xPointForMeteringLevel, y: self.centerY - 1, width: self.meteringLevelBarWidth,
-				height: heightForMeteringLevel), cornerRadius: self.meteringLevelBarCornerRadius)
-		}
-
-		UIColor.black.set()
-		barPath.fill()
-
-		context.restoreGState()
-	}
-    
-    private func drawProcessIndicator(setOffset offset: CGFloat, height: CGFloat, context: CGContext) {
-        context.saveGState()
-        
-        let progressBarPath = UIBezierPath()
-        let middleCoord = self.centerY - offset
-        
-        progressBarPath.move(to: CGPoint(x: 0, y: middleCoord))
-        progressBarPath.addLine(to: CGPoint(x: self.frame.size.width, y: middleCoord))
-        progressBarPath.addLine(to: CGPoint(x: self.frame.size.width, y: middleCoord - height))
-        progressBarPath.addLine(to: CGPoint(x: 0, y: middleCoord - height))
-        
-        progressBarPath.close()
-        progressBarPath.addClip()
-        
-        (self.barBackgroundFillColor ?? self.gradientStartColor).setFill()
-        progressBarPath.fill()
-        
-        context.restoreGState()
+            self.setProgress(Float((self.startFrom + elapsed) / totalDuration))
+            self.drawCallback?()
+        }
+        chronometer.start(shouldFire: false)
     }
 
-	// MARK: - Points Helpers
+    public func pause() {
+        isPlayed = false
+        playChronometer?.pause()
+        playChronometer = nil
+    }
 
-	private var centerY: CGFloat {
-        return self.frame.size.height / 2
-	}
+    public func stop() {
+        let chronometer = playChronometer
+        playChronometer = nil
+        isPlayed = false
+        chronometer?.stop()
+        setProgress(0)
+    }
 
-	private var maximumBarHeight: CGFloat {
-		return self.frame.size.height / 2.0
-	}
+    private func setupLayers() {
+        isOpaque = false
+        layer.addSublayer(backgroundBarsLayer)
+        layer.addSublayer(progressContainerLayer)
+        progressContainerLayer.addSublayer(progressGradientLayer)
+        progressGradientLayer.mask = progressBarsMaskLayer
+        progressMaskLayer.backgroundColor = UIColor.black.cgColor
+        progressContainerLayer.mask = progressMaskLayer
+        updateLayerColors()
+        updateLayerFrames()
+    }
 
-	private var maximumNumberBars: Int {
-		return Int(self.frame.size.width / (self.meteringLevelBarWidth + self.meteringLevelBarInterItem))
-	}
+    private func invalidateStaticArtifact() {
+        lastArtifactKey = nil
+        installStaticArtifactIfNeeded()
+    }
 
-	private func xLeftMostBar() -> CGFloat {
-		return self.xPointForMeteringLevel(min(self.maximumNumberBars - 1, self.currentMeteringLevelsArray.count - 1))
-	}
+    private func installStaticArtifactIfNeeded() {
+        guard bounds.width > 0, bounds.height > 0, !sourceLevels.isEmpty else {
+            if sourceLevels.isEmpty {
+                backgroundBarsLayer.path = nil
+                progressBarsMaskLayer.path = nil
+                lastArtifactKey = nil
+            }
+            return
+        }
+        let scale = max(window?.screen.scale ?? UIScreen.main.scale, 1)
+        let key = ChatWaveformStaticArtifactKey(
+            revision: sourceRevision,
+            widthPixels: Int((bounds.width * scale).rounded()),
+            heightPixels: Int((bounds.height * scale).rounded()),
+            barWidthPixels: Int((meteringLevelBarWidth * scale).rounded()),
+            spacingPixels: Int((meteringLevelBarInterItem * scale).rounded()),
+            cornerRadiusPixels: Int((meteringLevelBarCornerRadius * scale).rounded()),
+            type: audioVisualizationType
+        )
+        guard key != lastArtifactKey else { return }
+        let artifact = ChatWaveformStaticArtifactCache.shared.artifact(
+            for: key,
+            levels: sourceLevels,
+            size: bounds.size,
+            barWidth: meteringLevelBarWidth,
+            spacing: meteringLevelBarInterItem,
+            cornerRadius: meteringLevelBarCornerRadius
+        )
+        withoutLayerAnimations {
+            backgroundBarsLayer.path = artifact.path
+            progressBarsMaskLayer.path = artifact.path
+        }
+        lastArtifactKey = key
+    }
 
-	private func heightForMeteringLevel(_ meteringLevel: Float) -> CGFloat {
-		return CGFloat(meteringLevel) * self.maximumBarHeight
-	}
+    private func updateLayerFrames() {
+        withoutLayerAnimations {
+            backgroundBarsLayer.frame = bounds
+            progressContainerLayer.frame = bounds
+            progressGradientLayer.frame = bounds
+            progressBarsMaskLayer.frame = bounds
+            applyProgressLayer(recordMetric: false)
+        }
+    }
 
-	private func xPointForMeteringLevel(_ atIndex: Int) -> CGFloat {
-		return CGFloat(atIndex) * (self.meteringLevelBarWidth + self.meteringLevelBarInterItem)
-	}
+    private func updateLayerColors() {
+        withoutLayerAnimations {
+            backgroundBarsLayer.fillColor = (barBackgroundFillColor ?? gradientEndColor).cgColor
+            progressGradientLayer.colors = [gradientStartColor.cgColor, gradientEndColor.cgColor]
+            progressGradientLayer.startPoint = CGPoint(x: 0, y: 0.5)
+            progressGradientLayer.endPoint = CGPoint(x: 1, y: 0.5)
+        }
+    }
+
+    private func applyProgressLayer(recordMetric: Bool) {
+        let progress = CGFloat(min(max(currentGradientPercentage ?? 1, 0), 1))
+        withoutLayerAnimations {
+            progressMaskLayer.frame = CGRect(
+                x: 0,
+                y: 0,
+                width: bounds.width * progress,
+                height: bounds.height
+            )
+        }
+        if recordMetric {
+            ChatWaveformRenderInstrumentation.recordProgressMutation()
+        }
+    }
+
+    private func withoutLayerAnimations(_ updates: () -> Void) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        updates()
+        CATransaction.commit()
+    }
+
+    private static func resampled(_ levels: [Float], targetCount: Int) -> [Float] {
+        guard !levels.isEmpty, targetCount > 0 else { return [] }
+        if levels.count == targetCount { return levels }
+        return (0..<targetCount).map { index in
+            let position = Float(index) * Float(max(levels.count - 1, 0)) / Float(max(targetCount - 1, 1))
+            let lower = min(Int(floor(position)), levels.count - 1)
+            let upper = min(lower + 1, levels.count - 1)
+            let fraction = position - Float(lower)
+            return levels[lower] + ((levels[upper] - levels[lower]) * fraction)
+        }
+    }
 }

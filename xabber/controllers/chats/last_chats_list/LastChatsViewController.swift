@@ -162,7 +162,7 @@ public final class ChangesWithIndexPath {
     }
 }
 
-protocol SharedAudioPlayerPanelDelegate {
+protocol SharedAudioPlayerPanelDelegate: AnyObject {
     func shouldShow()
     func shouldHide()
     func shouldPlay()
@@ -716,6 +716,30 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         case archived
         case saved
     }
+
+    internal struct BottomBarPresentation: Equatable {
+        let actions: FloatingBottomBarView.ActionPresentation
+        let isActionBarHidden: Bool
+    }
+
+    internal static func bottomBarPresentation(
+        unreadChatsCount: Int,
+        hasConnectingEnabledAccounts: Bool,
+        filter: Filter,
+        shouldShowBottomBar: Bool,
+        hidesUnderlyingActions: Bool
+    ) -> BottomBarPresentation {
+        let routeSupportsUnreadActions = shouldShowBottomBar && (filter == .chats || filter == .unread)
+        let hasUnreadActions = routeSupportsUnreadActions && unreadChatsCount > 0
+
+        return BottomBarPresentation(
+            actions: FloatingBottomBarView.ActionPresentation(
+                isLeftVisible: hasUnreadActions,
+                isCenterVisible: hasUnreadActions && !hasConnectingEnabledAccounts
+            ),
+            isActionBarHidden: hidesUnderlyingActions || !routeSupportsUnreadActions
+        )
+    }
     
     enum SpecialMessageKind: Equatable {
         case none
@@ -973,6 +997,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }()
 
     internal let bottomSearchHostView = BottomSearchHostView(frame: .zero)
+    internal var pendingBottomSearchDismissalAfterRoute = false
+    internal let bottomOverlayInsetCoordinator = BottomOverlayInsetCoordinator()
     
     internal let pullDownTableHeaderView: PullDownTableHeaderView = {
         let view = PullDownTableHeaderView(frame: .zero)
@@ -999,12 +1025,11 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             accessibilityIdentifier: "last_chats_mark_all_read_button",
             accessibilityLabel: title
         )
-        view.setCenterButtonEnabled(false)
-
         return view
     }()
 
     private var unreadCounterBag: DisposeBag = DisposeBag()
+    internal private(set) var unreadChatsCount: Int = 0
     
     internal var isFirstLayout: Bool = false
     
@@ -1719,10 +1744,6 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
     internal final var markAllReadButton: UIButton {
         floatingBottomBarView.centerButton
-    }
-
-    internal final var isMarkAllReadButtonEnabled: Bool {
-        floatingBottomBarView.centerButton.isEnabled
     }
 
     internal var hasConnectingEnabledAccounts: Bool {
@@ -2965,14 +2986,14 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
 
     internal final func updateUnreadChatsCounter(count: Int? = nil) {
-        let unreadChatsCount: Int
+        let resolvedUnreadChatsCount: Int
 
         if let count = count {
-            unreadChatsCount = count
+            resolvedUnreadChatsCount = count
         } else {
             do {
                 let realm = try WRealm.safe()
-                unreadChatsCount = realm
+                resolvedUnreadChatsCount = realm
                     .objects(LastChatsStorageItem.self)
                     .filter(
                         "isArchived == false AND unread > 0 AND owner IN %@",
@@ -2981,13 +3002,15 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     .count
             } catch {
                 DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
-                unreadChatsCount = 0
+                resolvedUnreadChatsCount = 0
             }
         }
 
-        self.floatingBottomBarView.setCenterButtonEnabled(
-            unreadChatsCount > 0 && !self.hasConnectingEnabledAccounts
-        )
+        self.unreadChatsCount = max(0, resolvedUnreadChatsCount)
+        if self.unreadChatsCount == 0, self.filter.value == .unread {
+            self.normalState = .chats
+            self.filter.accept(.chats)
+        }
         self.updateFloatingToolbarFilterButtonState()
     }
 
@@ -3038,27 +3061,26 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         let imageName = isUnreadFilterActive
             ? "line.3.horizontal.decrease.circle.fill"
             : "line.3.horizontal.decrease.circle"
+        let presentation = Self.bottomBarPresentation(
+            unreadChatsCount: self.unreadChatsCount,
+            hasConnectingEnabledAccounts: self.hasConnectingEnabledAccounts,
+            filter: self.filter.value,
+            shouldShowBottomBar: self.shouldShowBottomBar,
+            hidesUnderlyingActions: self.bottomSearchHostView.hidesUnderlyingActions
+        )
 
         self.floatingBottomBarView.updateLeftButton(imageName: imageName, isActive: isUnreadFilterActive)
-        self.floatingBottomBarView.isHidden = self.bottomSearchHostView.isExpanded ||
-            !self.shouldShowBottomBar ||
-            self.filter.value == .saved
+        self.floatingBottomBarView.applyActionPresentation(presentation.actions)
+        self.floatingBottomBarView.isHidden = presentation.isActionBarHidden
         self.floatingBottomBarView.refreshAppearance()
     }
 
     internal final func updateTableInsetsForFloatingToolbar() {
-        let isToolbarVisible = self.floatingBottomBarView.superview != nil && !self.floatingBottomBarView.isHidden
-        let isBottomSearchVisible = self.bottomSearchHostView.superview != nil && !self.bottomSearchHostView.isHidden
-        let bottomInset = isToolbarVisible || isBottomSearchVisible
-            ? max(FloatingBottomBarView.Metrics.reservedBottomInset, BottomSearchHostView.Metrics.reservedBottomInset)
-            : 0
-
-        if self.tableView.contentInset.bottom != bottomInset {
-            self.tableView.contentInset.bottom = bottomInset
-        }
-        if self.tableView.verticalScrollIndicatorInsets.bottom != bottomInset {
-            self.tableView.verticalScrollIndicatorInsets.bottom = bottomInset
-        }
+        self.bottomOverlayInsetCoordinator.apply(
+            to: self.tableView,
+            in: self.view,
+            overlays: [self.floatingBottomBarView, self.bottomSearchHostView]
+        )
     }
 
     private final func subscribeUnreadChatsCounter() {
@@ -3269,12 +3291,12 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
         self.markUnreadChatsAsRead(targets)
         self.canUpdateDataset = true
-        self.runDatasetUpdateTask()
 
         if self.filter.value == .unread {
-            self.filter.accept(normalState)
+            self.updateUnreadChatsCounter(count: 0)
             self.configureBarsAfterFilterChange()
         } else {
+            self.runDatasetUpdateTask()
             self.updateUnreadChatsCounter()
         }
     }
@@ -3359,6 +3381,11 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         self.view.bringSubviewToFront(self.floatingBottomBarView)
         self.view.bringSubviewToFront(self.bottomSearchHostView)
     }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        self.updateTableInsetsForFloatingToolbar()
+    }
     
     
     
@@ -3418,6 +3445,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        cancelPendingBottomSearchDismissalAfterCancelledRoute()
         self.isNavigationTransitionActive = false
         self.flushPendingNavigationTransitionWork()
         updateTitle(filter.value)
@@ -3458,6 +3486,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        completePendingBottomSearchDismissalAfterRoute()
         endLeftMenuFirstPresentationQuietMode()
         unsubscribe()
     }

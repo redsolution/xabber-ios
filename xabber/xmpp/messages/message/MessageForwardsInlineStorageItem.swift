@@ -89,55 +89,23 @@ class MessageForwardsInlineStorageItem: Object {
     }
     
     public final func createRefBody(_ attrs: [NSAttributedString.Key: Any], searchedText: String? = nil, searchedTextColor: UIColor? = nil) -> NSAttributedString {
-        let string = NSMutableAttributedString(string: body.trimmingCharacters(in: .newlines))
-        string.addAttributes(attrs, range: NSRange(location: 0, length: string.length))
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = .byWordWrapping
-        paragraph.lineSpacing = 1.5
-        paragraph.allowsDefaultTighteningForTruncation = true
-        for reference in references {
-            if reference.end <= reference.begin { continue }
-            if reference.end > body.utf16.count { continue }
-            switch reference.kind {
-            case .markup:
-                if let styles = reference.metadata?["styles"] as? [String] {
-                    for style in styles {
-                        if style == "bold" {
-                            string.addAttribute(NSAttributedString.Key.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).bold(), range: reference.range)
-                        }
-                        if style == "italic" {
-                            if styles.contains("bold") {
-                                string.addAttribute(NSAttributedString.Key.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).boldItalic(), range: reference.range)
-                            } else {
-                                string.addAttribute(NSAttributedString.Key.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).italic(), range: reference.range)
-                            }
-                        }
-                        if style == "underline" {
-                            string.addAttribute(NSAttributedString.Key.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: reference.range)
-                        }
-                        if style == "strike" {
-                            string.addAttribute(NSAttributedString.Key.strikethroughStyle, value: 1, range: reference.range)
-//                            string.addAttribute(NSAttributedString.Key.strikethroughColor, value: MDCPalette.grey.tint900.cgColor, range: reference.range)
-                        }
-                        if style == "uri" {
-                            if let url = reference.metadata?["uri"] as? String {
-                                string.addAttribute(NSAttributedString.Key.link, value: url, range: reference.range)
-                            }
-                        }
-                    }
-                }
-            default: break
-            }
+        let mentionColor = AccountColorManager.shared
+            .palette(for: forwardJid.isNotEmpty ? forwardJid : owner)
+            .tint700
+        let formattedReferences = Array(references).compactMap { reference -> ChatAttributedBodyReference? in
+            guard reference.kind == .markup || reference.kind == .mention else { return nil }
+            return ChatAttributedBodyReference(
+                storageReference: reference,
+                mentionColor: mentionColor
+            )
         }
-        if let searchedText = searchedText {
-            let range = (string.string as NSString).range(of: searchedText, options: [.caseInsensitive, .diacriticInsensitive])
-            string.addAttribute(.backgroundColor, value: searchedTextColor ?? MDCPalette.blue.tint200, range: range)
-        }
-        string.addAttribute(NSAttributedString.Key.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: string.length))
-        if string.string.starts(with: "\n") {
-            string.deleteCharacters(in: NSRange(0..<"\n".count))
-        }
-        return string
+        return ChatAttributedBodyFormatter.format(
+            body: body,
+            references: formattedReferences,
+            attributes: attrs,
+            searchedText: searchedText,
+            searchedTextColor: searchedTextColor
+        )
     }
     
 }

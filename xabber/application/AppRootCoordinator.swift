@@ -595,6 +595,9 @@ final class AppRootCoordinator: NSObject {
 
     private var blurEffectView: UIVisualEffectView?
     private var pendingRoute: AppRoute?
+    #if DEBUG || CHAT_PERFORMANCE_LAB
+    private var performanceFixtureDescriptor: ChatPerformanceUITestLaunchDescriptor?
+    #endif
 
     init(window: UIWindow, appDelegate: AppDelegate?) {
         self.window = window
@@ -605,6 +608,17 @@ final class AppRootCoordinator: NSObject {
     }
 
     func start(connectionOptions: UIScene.ConnectionOptions, restorationActivity: NSUserActivity?) {
+        #if DEBUG || CHAT_PERFORMANCE_LAB
+        if let descriptor = ChatPerformanceUITestLaunchPolicy.descriptor() {
+            performanceFixtureDescriptor = descriptor
+            window.rootViewController = UINavigationController(
+                rootViewController: ChatPerformanceFixtureViewController(descriptor: descriptor)
+            )
+            applyCompatibilityReferences()
+            return
+        }
+        #endif
+
         let launchUserInfo = connectionOptions.notificationResponse?.notification.request.content.userInfo
         pendingRoute = route(from: connectionOptions) ?? route(from: restorationActivity)
         rebuildRoot(userInfo: launchUserInfo)
@@ -648,6 +662,9 @@ final class AppRootCoordinator: NSObject {
     }
 
     func sceneWillResignActive() {
+        #if DEBUG || CHAT_PERFORMANCE_LAB
+        guard performanceFixtureDescriptor == nil else { return }
+        #endif
         let lifecycleActions = AppRootLifecyclePolicy.actions(for: .willResignActive)
         ConnectionDiagnosticsLogger.log(
             event: "scene_lifecycle_will_resign_active",
@@ -667,6 +684,9 @@ final class AppRootCoordinator: NSObject {
     }
 
     func sceneDidEnterBackground() {
+        #if DEBUG || CHAT_PERFORMANCE_LAB
+        guard performanceFixtureDescriptor == nil else { return }
+        #endif
         ConnectionDiagnosticsLogger.log(
             event: "scene_lifecycle_did_enter_background",
             stream: .primary,
@@ -692,6 +712,9 @@ final class AppRootCoordinator: NSObject {
     }
 
     func sceneWillEnterForeground() {
+        #if DEBUG || CHAT_PERFORMANCE_LAB
+        guard performanceFixtureDescriptor == nil else { return }
+        #endif
         ConnectionDiagnosticsLogger.log(
             event: "scene_lifecycle_will_enter_foreground",
             stream: .primary,
@@ -705,6 +728,9 @@ final class AppRootCoordinator: NSObject {
     }
 
     func sceneDidBecomeActive() {
+        #if DEBUG || CHAT_PERFORMANCE_LAB
+        guard performanceFixtureDescriptor == nil else { return }
+        #endif
         ConnectionDiagnosticsLogger.log(
             event: "scene_lifecycle_did_become_active",
             stream: .primary,
@@ -949,12 +975,13 @@ final class AppRootCoordinator: NSObject {
         switch CommonConfigManager.shared.interfaceType {
         case .split:
             if let leftMenuDelegate = NotifyManager.shared.leftMenuDelegate {
-                leftMenuDelegate.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType) { vc in
-                    configureCallback?(vc)
-                    if let openMessageRequest {
-                        vc?.queueOpenMessageRequest(openMessageRequest)
-                    }
-                }
+                leftMenuDelegate.openChatlistWithChat(
+                    owner: owner,
+                    jid: jid,
+                    conversationType: conversationType,
+                    openMessageRequest: openMessageRequest,
+                    configure: configureCallback
+                )
                 return true
             }
 

@@ -9,6 +9,16 @@
 import UIKit
 
 final class FloatingBottomBarView: UIView {
+    struct ActionPresentation: Equatable {
+        let isLeftVisible: Bool
+        let isCenterVisible: Bool
+
+        static let allVisible = ActionPresentation(
+            isLeftVisible: true,
+            isCenterVisible: true
+        )
+    }
+
     enum Metrics {
         static let height: CGFloat = NativeGlassBarStyle.minimumHeight
         static let bottomOffset: CGFloat = NativeGlassBarStyle.bottomOffset
@@ -66,6 +76,8 @@ final class FloatingBottomBarView: UIView {
         return button
     }()
 
+    private(set) var actionPresentation: ActionPresentation = .allVisible
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         setup()
@@ -80,10 +92,18 @@ final class FloatingBottomBarView: UIView {
         leftButton.accessibilityValue = isActive ? "On" : "Off"
     }
 
-    func setCenterButtonEnabled(_ isEnabled: Bool) {
-        centerButton.isEnabled = isEnabled
-        centerEffectView.alpha = isEnabled ? 1.0 : 0.55
-        centerButton.accessibilityValue = isEnabled ? nil : "Disabled"
+    func applyActionPresentation(_ presentation: ActionPresentation) {
+        actionPresentation = presentation
+        applyVisibility(presentation.isLeftVisible, to: leftButton)
+        applyVisibility(presentation.isCenterVisible, to: centerButton)
+
+        centerEffectView.isHidden = !presentation.isCenterVisible
+        centerEffectView.isUserInteractionEnabled = presentation.isCenterVisible
+        centerEffectView.accessibilityElementsHidden = !presentation.isCenterVisible
+        centerEffectView.alpha = 1
+        if presentation.isCenterVisible {
+            centerButton.accessibilityValue = nil
+        }
     }
 
     func setCenterButtonTitle(
@@ -102,6 +122,31 @@ final class FloatingBottomBarView: UIView {
             to: leftButton,
             tintColor: NativeGlassBarStyle.iconTintColor
         )
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isUserInteractionEnabled,
+              !isHidden,
+              alpha >= 0.01,
+              self.point(inside: point, with: event) else {
+            return nil
+        }
+
+        if actionPresentation.isLeftVisible {
+            let leftPoint = leftButton.convert(point, from: self)
+            if let hitView = leftButton.hitTest(leftPoint, with: event) {
+                return hitView
+            }
+        }
+
+        if actionPresentation.isCenterVisible {
+            let centerPoint = centerEffectView.convert(point, from: self)
+            if let hitView = centerEffectView.hitTest(centerPoint, with: event) {
+                return hitView
+            }
+        }
+
+        return nil
     }
 
     private func setup() {
@@ -141,7 +186,7 @@ final class FloatingBottomBarView: UIView {
         ])
 
         configure(button: leftButton, imageName: "line.3.horizontal.decrease.circle")
-        setCenterButtonEnabled(true)
+        applyActionPresentation(.allVisible)
     }
 
     private func configure(button: UIButton, imageName: String) {
@@ -152,6 +197,15 @@ final class FloatingBottomBarView: UIView {
             tintColor: NativeGlassBarStyle.iconTintColor,
             image: image
         )
+    }
+
+    private func applyVisibility(_ isVisible: Bool, to button: UIButton) {
+        button.isHidden = !isVisible
+        button.isEnabled = isVisible
+        button.isUserInteractionEnabled = isVisible
+        button.isAccessibilityElement = isVisible
+        button.accessibilityElementsHidden = !isVisible
+        button.alpha = 1
     }
 }
 
@@ -167,6 +221,20 @@ final class BottomSearchHostView: UIView, UITextFieldDelegate {
         static let tableInsetPadding: CGFloat = 12
         static let reservedBottomInset = height + bottomOffset + tableInsetPadding
     }
+
+    enum TransitionPhase: Equatable {
+        case collapsed
+        case expanding
+        case expanded
+        case collapsing
+    }
+
+    struct TransitionGeometry: Equatable {
+        let startSurfaceFrame: CGRect
+        let endSurfaceFrame: CGRect
+    }
+
+    typealias AnimatorFactory = (TimeInterval, UIView.AnimationCurve) -> UIViewPropertyAnimator
 
     let collapsedButton: UIButton = {
         let button = UIButton(type: .system)
@@ -232,9 +300,44 @@ final class BottomSearchHostView: UIView, UITextFieldDelegate {
     }()
 
     private(set) var isExpanded: Bool = false
+    private(set) var transitionPhase: TransitionPhase = .collapsed
+    private(set) var transitionGeometry: TransitionGeometry?
+    private(set) var transitionAnimator: UIViewPropertyAnimator?
+    var animatorFactory: AnimatorFactory = { duration, curve in
+        UIViewPropertyAnimator(duration: duration, curve: curve)
+    }
+    var reduceMotionEnabledProvider: () -> Bool = {
+        UIAccessibility.isReduceMotionEnabled
+    }
     var onBegin: (() -> Void)?
     var onQueryChanged: ((String?) -> Void)?
     var onCancel: (() -> Void)?
+    var onTransitionPhaseChanged: ((TransitionPhase) -> Void)?
+
+    var hidesUnderlyingActions: Bool {
+        transitionPhase == .expanded
+    }
+
+    var currentInteractiveSurfaceFrame: CGRect {
+        switch transitionPhase {
+        case .collapsed:
+            return untransformedFrame(of: collapsedButton)
+        case .expanded:
+            return untransformedFrame(of: surfaceView)
+        case .expanding, .collapsing:
+            guard let geometry = transitionGeometry else {
+                return isExpanded
+                    ? untransformedFrame(of: surfaceView)
+                    : untransformedFrame(of: collapsedButton)
+            }
+            let progress = min(max(transitionAnimator?.fractionComplete ?? 0, 0), 1)
+            return Self.interpolate(
+                from: geometry.startSurfaceFrame,
+                to: geometry.endSurfaceFrame,
+                progress: progress
+            )
+        }
+    }
 
     var query: String {
         searchTextField.text ?? ""
@@ -251,12 +354,27 @@ final class BottomSearchHostView: UIView, UITextFieldDelegate {
 
     func setExpanded(_ expanded: Bool, animated: Bool) {
         guard isExpanded != expanded else {
-            updateVisibility(animated: animated)
             return
         }
 
         isExpanded = expanded
-        updateVisibility(animated: animated)
+        if !animated || reduceMotionEnabledProvider() {
+            stopActiveTransition()
+            settle(atExpanded: expanded, notifyPhaseChange: true)
+            updateFirstResponder(forExpanded: expanded)
+            return
+        }
+
+        if reverseActiveTransition(towardExpanded: expanded) {
+            updateFirstResponder(forExpanded: expanded)
+            return
+        }
+
+        startTransition(towardExpanded: expanded)
+        updateFirstResponder(forExpanded: expanded)
+    }
+
+    private func updateFirstResponder(forExpanded expanded: Bool) {
         if expanded {
             searchTextField.becomeFirstResponder()
         } else {
@@ -276,7 +394,8 @@ final class BottomSearchHostView: UIView, UITextFieldDelegate {
             return nil
         }
 
-        if isExpanded {
+        switch transitionPhase {
+        case .expanded:
             let surfacePoint = convert(point, to: surfaceView)
             guard !surfaceView.isHidden,
                   surfaceView.alpha > 0.01,
@@ -284,15 +403,22 @@ final class BottomSearchHostView: UIView, UITextFieldDelegate {
                 return nil
             }
             return surfaceView.hitTest(surfacePoint, with: event)
+        case .collapsed:
+            let buttonPoint = convert(point, to: collapsedButton)
+            guard !collapsedButton.isHidden,
+                  collapsedButton.alpha > 0.01,
+                  collapsedButton.point(inside: buttonPoint, with: event) else {
+                return nil
+            }
+            return collapsedButton.hitTest(buttonPoint, with: event)
+        case .expanding, .collapsing:
+            guard currentInteractiveSurfaceFrame.contains(point),
+                  !surfaceView.isHidden else {
+                return nil
+            }
+            let surfacePoint = convert(point, to: surfaceView)
+            return surfaceView.hitTest(surfacePoint, with: event) ?? surfaceView
         }
-
-        let buttonPoint = convert(point, to: collapsedButton)
-        guard !collapsedButton.isHidden,
-              collapsedButton.alpha > 0.01,
-              collapsedButton.point(inside: buttonPoint, with: event) else {
-            return nil
-        }
-        return collapsedButton.hitTest(buttonPoint, with: event)
     }
 
     @discardableResult
@@ -358,7 +484,7 @@ final class BottomSearchHostView: UIView, UITextFieldDelegate {
         cancelButton.addTarget(self, action: #selector(onCancelButtonTouchUp), for: .touchUpInside)
         searchTextField.addTarget(self, action: #selector(onTextFieldEditingChanged), for: .editingChanged)
         searchTextField.delegate = self
-        updateVisibility(animated: false)
+        settle(atExpanded: false, notifyPhaseChange: false)
     }
 
     private func applyTransparentSearchTextFieldChrome() {
@@ -376,30 +502,178 @@ final class BottomSearchHostView: UIView, UITextFieldDelegate {
         searchTextField.layer.shadowPath = nil
     }
 
-    private func updateVisibility(animated: Bool) {
-        let updates = {
-            self.collapsedButton.isHidden = self.isExpanded
-            self.collapsedButton.alpha = self.isExpanded ? 0 : 1
-            self.surfaceView.isHidden = !self.isExpanded
-            self.surfaceView.alpha = self.isExpanded ? 1 : 0
-        }
+    private func startTransition(towardExpanded expanded: Bool) {
+        layoutIfNeeded()
+        surfaceView.layoutIfNeeded()
 
-        guard animated else {
-            updates()
+        let collapsedFrame = untransformedFrame(of: collapsedButton)
+        let expandedFrame = untransformedFrame(of: surfaceView)
+        guard collapsedFrame.width > 0, expandedFrame.width > 0 else {
+            settle(atExpanded: expanded, notifyPhaseChange: true)
             return
         }
 
-        if isExpanded {
-            surfaceView.isHidden = false
-        } else {
-            collapsedButton.isHidden = false
+        let startExpanded = !expanded
+        let startFrame = startExpanded ? expandedFrame : collapsedFrame
+        let endFrame = expanded ? expandedFrame : collapsedFrame
+        transitionGeometry = TransitionGeometry(
+            startSurfaceFrame: startFrame,
+            endSurfaceFrame: endFrame
+        )
+        transitionStartExpanded = startExpanded
+        transitionEndExpanded = expanded
+
+        prepareTransition(startExpanded: startExpanded, collapsedFrame: collapsedFrame, expandedFrame: expandedFrame)
+        setTransitionPhase(expanded ? .expanding : .collapsing)
+
+        let animator = animatorFactory(0.28, .easeInOut)
+        animator.addAnimations { [weak self] in
+            guard let self else { return }
+            self.surfaceView.transform = expanded
+                ? .identity
+                : self.transform(from: expandedFrame, to: collapsedFrame)
+            self.collapsedButton.alpha = expanded ? 0 : 1
+            self.searchTextField.alpha = expanded ? 1 : 0
+            self.cancelButton.alpha = expanded ? 1 : 0
+        }
+        animator.addCompletion { [weak self, weak animator] position in
+            guard let self,
+                  let animator,
+                  self.transitionAnimator === animator else {
+                return
+            }
+            self.completeTransition(at: position)
+        }
+        transitionAnimator = animator
+        animator.startAnimation()
+    }
+
+    private var transitionStartExpanded: Bool?
+    private var transitionEndExpanded: Bool?
+
+    private func reverseActiveTransition(towardExpanded expanded: Bool) -> Bool {
+        guard let animator = transitionAnimator,
+              let startExpanded = transitionStartExpanded,
+              let endExpanded = transitionEndExpanded,
+              expanded == startExpanded || expanded == endExpanded else {
+            return false
         }
 
-        UIView.animate(
-            withDuration: 0.18,
-            delay: 0,
-            options: [.beginFromCurrentState, .curveEaseInOut],
-            animations: updates
+        animator.pauseAnimation()
+        animator.isReversed = expanded == startExpanded
+        setTransitionPhase(expanded ? .expanding : .collapsing)
+        animator.continueAnimation(withTimingParameters: nil, durationFactor: 1)
+        return true
+    }
+
+    private func prepareTransition(
+        startExpanded: Bool,
+        collapsedFrame: CGRect,
+        expandedFrame: CGRect
+    ) {
+        collapsedButton.isHidden = false
+        surfaceView.isHidden = false
+        surfaceView.isUserInteractionEnabled = true
+        collapsedButton.isUserInteractionEnabled = false
+
+        collapsedButton.alpha = startExpanded ? 0 : 1
+        searchTextField.alpha = startExpanded ? 1 : 0
+        cancelButton.alpha = startExpanded ? 1 : 0
+        surfaceView.alpha = 1
+        surfaceView.transform = startExpanded
+            ? .identity
+            : transform(from: expandedFrame, to: collapsedFrame)
+
+        collapsedButton.accessibilityElementsHidden = true
+        surfaceView.accessibilityElementsHidden = false
+    }
+
+    private func completeTransition(at position: UIViewAnimatingPosition) {
+        let completedExpanded: Bool
+        switch position {
+        case .start:
+            completedExpanded = transitionStartExpanded ?? isExpanded
+        case .end:
+            completedExpanded = transitionEndExpanded ?? isExpanded
+        case .current:
+            completedExpanded = isExpanded
+        @unknown default:
+            completedExpanded = isExpanded
+        }
+
+        isExpanded = completedExpanded
+        transitionAnimator = nil
+        transitionGeometry = nil
+        transitionStartExpanded = nil
+        transitionEndExpanded = nil
+        settle(atExpanded: completedExpanded, notifyPhaseChange: true)
+    }
+
+    private func settle(atExpanded expanded: Bool, notifyPhaseChange: Bool) {
+        isExpanded = expanded
+        surfaceView.transform = .identity
+        surfaceView.alpha = 1
+        surfaceView.isHidden = !expanded
+        surfaceView.isUserInteractionEnabled = expanded
+        surfaceView.accessibilityElementsHidden = !expanded
+
+        collapsedButton.alpha = expanded ? 0 : 1
+        collapsedButton.isHidden = expanded
+        collapsedButton.isUserInteractionEnabled = !expanded
+        collapsedButton.accessibilityElementsHidden = expanded
+
+        searchTextField.alpha = expanded ? 1 : 0
+        cancelButton.alpha = expanded ? 1 : 0
+
+        let phase: TransitionPhase = expanded ? .expanded : .collapsed
+        if notifyPhaseChange {
+            setTransitionPhase(phase)
+        } else {
+            transitionPhase = phase
+        }
+    }
+
+    private func stopActiveTransition() {
+        guard let animator = transitionAnimator else { return }
+        transitionAnimator = nil
+        transitionGeometry = nil
+        transitionStartExpanded = nil
+        transitionEndExpanded = nil
+        animator.stopAnimation(true)
+    }
+
+    private func setTransitionPhase(_ phase: TransitionPhase) {
+        guard transitionPhase != phase else { return }
+        transitionPhase = phase
+        onTransitionPhaseChanged?(phase)
+    }
+
+    private func untransformedFrame(of view: UIView) -> CGRect {
+        CGRect(
+            x: view.center.x - view.bounds.width / 2,
+            y: view.center.y - view.bounds.height / 2,
+            width: view.bounds.width,
+            height: view.bounds.height
+        )
+    }
+
+    private func transform(from sourceFrame: CGRect, to targetFrame: CGRect) -> CGAffineTransform {
+        CGAffineTransform(
+            a: targetFrame.width / sourceFrame.width,
+            b: 0,
+            c: 0,
+            d: targetFrame.height / sourceFrame.height,
+            tx: targetFrame.midX - sourceFrame.midX,
+            ty: targetFrame.midY - sourceFrame.midY
+        )
+    }
+
+    private static func interpolate(from start: CGRect, to end: CGRect, progress: CGFloat) -> CGRect {
+        CGRect(
+            x: start.minX + (end.minX - start.minX) * progress,
+            y: start.minY + (end.minY - start.minY) * progress,
+            width: start.width + (end.width - start.width) * progress,
+            height: start.height + (end.height - start.height) * progress
         )
     }
 
@@ -411,7 +685,7 @@ final class BottomSearchHostView: UIView, UITextFieldDelegate {
 
     @objc
     private func onCancelButtonTouchUp(_ sender: UIButton) {
-        setQuery("", notify: true)
+        setQuery("", notify: false)
         setExpanded(false, animated: true)
         onCancel?()
     }

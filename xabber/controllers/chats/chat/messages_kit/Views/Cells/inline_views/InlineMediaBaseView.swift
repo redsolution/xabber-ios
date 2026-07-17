@@ -21,6 +21,12 @@
 import Foundation
 import UIKit
 
+struct InlineAttachmentRepresentedRequest: Hashable {
+    let containerPrimary: String
+    let referencePrimary: String
+    let resourceIdentity: String
+}
+
 //class InlineMediaBaseView: UIView {
 //    struct GridItem {
 //        let cell: CGRect

@@ -1755,7 +1755,9 @@ class ModernXabberInputView: UIView {
             self.playButton.addTarget(self, action: #selector(self.onPlayButtonTouchUpInside), for: .touchUpInside)
             let gesture = UIPanGestureRecognizer(target: self, action: #selector(self.onPanGestureAppear))
             self.waveform.addGestureRecognizer(gesture)
-            self.waveform.drawCallback = updateTimeLabel
+            self.waveform.drawCallback = { [weak self] in
+                self?.updateTimeLabel()
+            }
         }
         
         public final func updateTimeLabel() {
@@ -1779,10 +1781,10 @@ class ModernXabberInputView: UIView {
             switch sender.state {
                 case .changed:
                     self.waveform.pause()
-                    self.waveform.currentGradientPercentage = percentage
+                    self.waveform.setProgress(percentage)
                 case .ended:
                     self.waveform.stop()
-                    self.waveform.currentGradientPercentage = percentage
+                    self.waveform.setProgress(percentage)
                     guard let newDuration = self.delegate?.didSetAudioPositionBar(percentage: percentage) else {
                         return
                     }
@@ -1793,12 +1795,11 @@ class ModernXabberInputView: UIView {
                         return
                     }
                     let percentage: Float = Float(currentDuration / duration)
-                    self.waveform.currentGradientPercentage = percentage
+                    self.waveform.setProgress(percentage)
                     self.waveform.play(for: self.duration - currentDuration)
                 default:
                     break
             }
-            self.waveform.setNeedsDisplay()
         }
         
         var palette: MDCPalette = .amber
@@ -2298,6 +2299,7 @@ class ModernXabberInputView: UIView {
 
     let textField: InputTextView = {
         let field = InputTextView(frame: .zero)
+        field.accessibilityIdentifier = "chat.composer.text_field"
         
         field.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         field.setContentHuggingPriority(UILayoutPriority(249), for: .horizontal)

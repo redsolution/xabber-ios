@@ -207,9 +207,9 @@ extension ChatViewController: MessagesDataSource {
     func audioMessageReference(at indexPath: IndexPath, messageId: String?, index: Int?) -> MessageReferenceStorageItem? {
 //        let references: [MessageReferenceStorageItem]?
 //        if let messageId = messageId {
-//            references = messagesObserver?[indexPath.section].inlineForwards.first(where: { $0.messageId == messageId })?.references.toArray().filter({ $0.kind == .voice })
+//            references = residentMessages?[indexPath.section].inlineForwards.first(where: { $0.messageId == messageId })?.references.toArray().filter({ $0.kind == .voice })
 //        } else {
-//            references = messagesObserver?[indexPath.section].references.toArray().filter({ $0.kind == .voice })
+//            references = residentMessages?[indexPath.section].references.toArray().filter({ $0.kind == .voice })
 //        }
 //        if let index = index {
 //            return references?[index]
@@ -227,7 +227,7 @@ extension ChatViewController: MessagesDataSource {
 ////            OpusAudio.shared.player?.isPlaying ?? false {
 ////            return .pause
 ////        }
-////        guard let item = messagesObserver?[indexPath.section] else {
+////        guard let item = residentMessages?[indexPath.section] else {
 ////            return .play
 ////        }
 ////        

@@ -418,7 +418,7 @@
 //    
 //    internal func onTapPinnedMessage() {
 //        if let messageId = currentPinnedMessageId,
-//            let index = messagesObserver?.firstIndex(where: { $0.archivedId == messageId }) {
+//            let index = residentMessages?.firstIndex(where: { $0.archivedId == messageId }) {
 //            DispatchQueue.main.async {
 //                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: true)
 //                self.scrollItemIndexPath = IndexPath(row: 0, section: index)

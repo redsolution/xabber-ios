@@ -175,6 +175,7 @@ public class MessageContentCell: MessageCollectionViewCell {
         super.prepareForReuse()
         isSelectedMessage = false
         drawSelectionMode()
+        ChatAnchorHighlightOverlay.remove(from: self)
         cellTopLabel.text = nil
         messageTopLabel.text = nil
         messageBottomLabel.text = nil
@@ -240,6 +241,16 @@ public class MessageContentCell: MessageCollectionViewCell {
     }
 
     override func reconfigureContent(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
+        applyBaseContent(with: message, at: indexPath, and: messagesCollectionView)
+    }
+
+    override func reconfigureContent(
+        with message: MessageType,
+        at indexPath: IndexPath,
+        and messagesCollectionView: MessagesCollectionView,
+        changeMask: ChatMessageChangeMask
+    ) {
+        _ = changeMask
         applyBaseContent(with: message, at: indexPath, and: messagesCollectionView)
     }
 

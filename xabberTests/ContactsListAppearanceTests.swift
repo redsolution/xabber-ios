@@ -86,6 +86,100 @@ final class ContactsListAppearanceTests: XCTestCase {
         }
     }
 
+    private func addRosterItem(
+        owner: String,
+        jid: String,
+        isContact: Bool = true,
+        subscription: RosterStorageItem.Subsccribtion = .both,
+        ask: RosterStorageItem.Ask = .none,
+        groups: [String] = []
+    ) {
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            let item = RosterStorageItem()
+            item.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
+            item.owner = owner
+            item.jid = jid
+            item.username = jid
+            item.isContact = isContact
+            item.subscribtion = subscription
+            item.ask = ask
+            item.groups.append(objectsIn: groups)
+            realm.add(item, update: .modified)
+        }
+    }
+
+    private func addJoinedGroup(
+        owner: String,
+        jid: String,
+        privacy: GroupChatStorageItem.Privacy = .publicChat,
+        peerToPeer: Bool = false,
+        groups: [String] = []
+    ) {
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            let group = GroupChatStorageItem()
+            group.primary = GroupChatStorageItem.genPrimary(jid: jid, owner: owner)
+            group.owner = owner
+            group.jid = jid
+            group.name = jid
+            group.privacy = privacy
+            group.peerToPeer = peerToPeer
+            realm.add(group, update: .modified)
+
+            let rosterItem = RosterStorageItem()
+            rosterItem.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
+            rosterItem.owner = owner
+            rosterItem.jid = jid
+            rosterItem.username = jid
+            rosterItem.isContact = false
+            rosterItem.subscribtion = .both
+            rosterItem.groups.append(objectsIn: groups)
+            realm.add(rosterItem, update: .modified)
+        }
+    }
+
+    private func addIncomingGroupInvite(owner: String, groupJid: String) {
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            let invite = GroupchatInvitesStorageItem()
+            invite.primary = GroupchatInvitesStorageItem.genIncomingPrimary(
+                groupchat: groupJid,
+                owner: owner
+            )
+            invite.owner = owner
+            invite.groupchat = groupJid
+            invite.jid = "inviter@example.com"
+            invite.outgoing = false
+            invite.isRead = false
+            realm.add(invite, update: .modified)
+        }
+    }
+
+    private func deriveContactsState(
+        category: String?,
+        filteredAccounts: Set<String> = [],
+        filteredGroups: Set<String> = [],
+        showOffline: Bool = true,
+        isGroup: Bool = false,
+        searchQuery: String? = nil
+    ) -> ContactsListCoordinator.DerivedState {
+        let realm = try! WRealm.safe()
+        let state = ContactsFilterState(
+            category: category,
+            filteredAccounts: filteredAccounts,
+            filteredGroups: filteredGroups,
+            showOffline: showOffline,
+            isGroup: isGroup,
+            searchQuery: searchQuery
+        )
+        return ContactsListCoordinator.deriveState(
+            realm: realm,
+            state: state,
+            datasourceBuilder: { _, _ in [[]] }
+        )
+    }
+
     private func registerAccountColor(owner: String, colorKey: String) {
         AccountColorManager.shared.accounts.insert(
             AccountColorManager.ColorForJid(
@@ -402,6 +496,25 @@ final class ContactsListAppearanceTests: XCTestCase {
         )
     }
 
+    func testContactsUsesGeometryBasedBottomOverlayInsetCoordinator() {
+        let controller = ContactsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+
+        container.loadViewIfNeeded()
+        container.view.layoutIfNeeded()
+        navigationController.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        controller.updateTableInsetsForBottomSearch()
+
+        XCTAssertGreaterThan(controller.bottomOverlayInsetCoordinator.appliedBottomContribution, 0)
+        XCTAssertEqual(
+            controller.tableView.contentInset.bottom,
+            controller.bottomOverlayInsetCoordinator.appliedBottomContribution,
+            accuracy: 0.001
+        )
+    }
+
     func testContactsConfigureSearchBarInstallsBottomSearchWithoutMutatingAppearance() {
         let controller = ContactsViewController()
         _ = UINavigationController(rootViewController: controller)
@@ -451,7 +564,7 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertNil(controller.navigationItem.searchController)
     }
 
-    func testContactsBottomSearchExpandsWithoutShowingLegacyBottomBar() {
+    func testContactsBottomSearchExpandsWithoutShowingLegacyBottomBar() throws {
         let controller = ContactsViewController()
         let container = embedInTraitContainer(controller, horizontalSizeClass: .regular)
 
@@ -461,8 +574,15 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertNil(controller.navigationItem.searchController)
         XCTAssertTrue(controller.bottomBar.superview == nil || controller.bottomBar.isHidden)
         XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
+        controller.bottomSearchHostView.animatorFactory = { _, curve in
+            UIViewPropertyAnimator(duration: 10, curve: curve)
+        }
 
         controller.bottomSearchHostView.collapsedButton.sendActions(for: .touchUpInside)
+        let expansionAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        expansionAnimator.pauseAnimation()
+        expansionAnimator.stopAnimation(false)
+        expansionAnimator.finishAnimation(at: .end)
 
         XCTAssertTrue(controller.bottomSearchHostView.isExpanded)
         XCTAssertTrue(controller.bottomSearchHostView.collapsedButton.isHidden)
@@ -470,12 +590,15 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertTrue(controller.bottomBar.superview == nil || controller.bottomBar.isHidden)
     }
 
-    func testContactsCompactBottomSearchExpansionHidesAndRestoresActionBar() {
+    func testContactsCompactBottomSearchExpansionHidesActionBarOnlyAfterMorphAndRestoresBeforeCollapse() throws {
         let controller = ContactsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
 
         container.loadViewIfNeeded()
+        controller.bottomSearchHostView.animatorFactory = { _, curve in
+            UIViewPropertyAnimator(duration: 10, curve: curve)
+        }
 
         XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
 
@@ -483,13 +606,26 @@ final class ContactsListAppearanceTests: XCTestCase {
 
         XCTAssertTrue(controller.bottomSearchHostView.isExpanded)
         XCTAssertFalse(controller.bottomSearchHostView.surfaceView.isHidden)
+        XCTAssertEqual(controller.bottomSearchHostView.transitionPhase, .expanding)
+        XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
+        let expansionAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        expansionAnimator.pauseAnimation()
+        expansionAnimator.stopAnimation(false)
+        expansionAnimator.finishAnimation(at: .end)
+
         XCTAssertTrue(controller.isContactsCompactBottomBarHidden)
 
         controller.bottomSearchHostView.cancelButton.sendActions(for: .touchUpInside)
 
         XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
-        XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
+        XCTAssertEqual(controller.bottomSearchHostView.transitionPhase, .collapsing)
         XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
+        let collapseAnimator = try XCTUnwrap(controller.bottomSearchHostView.transitionAnimator)
+        collapseAnimator.pauseAnimation()
+        collapseAnimator.stopAnimation(false)
+        collapseAnimator.finishAnimation(at: .end)
+
+        XCTAssertFalse(controller.bottomSearchHostView.collapsedButton.isHidden)
     }
 
     func testGroupsListUsesSameInsetGroupedTransparentSplitAppearanceInRegularWidth() {
@@ -811,6 +947,226 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertEqual(controller.tableView(controller.tableView, willSelectRowAt: categoryIndexPath), categoryIndexPath)
         controller.tableView(controller.tableView, didSelectRowAt: categoryIndexPath)
         XCTAssertEqual(spy.categoryFilters, ["public"])
+    }
+
+    func testContactsOnlineFilterHiddenWhenCurrentUnfilteredScopeHasNoRosterRows() {
+        addEnabledAccount(owner: "owner@example.com")
+
+        let derivedState = deriveContactsState(category: "all")
+
+        XCTAssertEqual(derivedState.filterablePresenceRowCount, 0)
+    }
+
+    func testContactsRequestOnlyScopeDoesNotCountAsOnlineFilterData() {
+        let owner = "owner@example.com"
+        addEnabledAccount(owner: owner)
+        addRosterItem(
+            owner: owner,
+            jid: "request@example.com",
+            subscription: .none,
+            ask: .in
+        )
+        let derivedState = deriveContactsState(category: "subscribtions")
+
+        XCTAssertTrue(ContactsListSupport.hasAnyContactAreaContent(context: derivedState.context))
+        XCTAssertEqual(derivedState.filterablePresenceRowCount, 0)
+    }
+
+    func testContactsOnlineFilterVisibleWithOfflineOnlyContact() {
+        let owner = "owner@example.com"
+        addEnabledAccount(owner: owner)
+        addRosterItem(owner: owner, jid: "offline@example.com")
+
+        let derivedState = deriveContactsState(category: "all")
+
+        XCTAssertEqual(derivedState.filterablePresenceRowCount, 1)
+    }
+
+    func testContactsOnlineFilterAvailabilityIgnoresSearchQuery() {
+        let owner = "owner@example.com"
+        addEnabledAccount(owner: owner)
+        addRosterItem(owner: owner, jid: "alice@example.com")
+
+        let derivedState = deriveContactsState(category: "all", searchQuery: "missing")
+
+        XCTAssertEqual(derivedState.filterablePresenceRowCount, 1)
+    }
+
+    func testContactsOnlineFilterAvailabilityIgnoresCurrentOnlineFilterResult() {
+        let owner = "owner@example.com"
+        addEnabledAccount(owner: owner)
+        addRosterItem(owner: owner, jid: "offline@example.com")
+
+        let derivedState = deriveContactsState(category: "online", showOffline: false)
+
+        XCTAssertEqual(derivedState.filterablePresenceRowCount, 1)
+    }
+
+    func testContactsActiveOnlineFilterResetsWhenLastApplicableContactDisappears() {
+        let controller = ContactsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+        container.loadViewIfNeeded()
+        controller.category = "online"
+        controller.showOffline = false
+
+        controller.applyMappedDataset(
+            [[]],
+            featureHasAnyContent: true,
+            hasResolvedSnapshot: true,
+            filterablePresenceRowCount: 0,
+            forceFullReload: true
+        )
+
+        XCTAssertEqual(controller.category, "all")
+        XCTAssertTrue(controller.showOffline)
+        XCTAssertTrue(controller.contactsCompactBottomBarFilterButton.isHidden)
+    }
+
+    func testGroupsOnlineFilterHiddenWhenCurrentUnfilteredScopeHasNoJoinedGroups() {
+        addEnabledAccount(owner: "owner@example.com")
+
+        let derivedState = deriveContactsState(category: "public", isGroup: true)
+
+        XCTAssertEqual(derivedState.filterablePresenceRowCount, 0)
+    }
+
+    func testGroupsInvitationOnlyScopeDoesNotCountAsOnlineFilterData() {
+        let owner = "owner@example.com"
+        addEnabledAccount(owner: owner)
+        addIncomingGroupInvite(owner: owner, groupJid: "invited@conference.example.com")
+        let derivedState = deriveContactsState(category: "invitations", isGroup: true)
+
+        XCTAssertTrue(ContactsListSupport.hasAnyGroupAreaContent(context: derivedState.context))
+        XCTAssertEqual(derivedState.filterablePresenceRowCount, 0)
+    }
+
+    func testGroupsOnlineFilterVisibleWithOfflineOnlyJoinedGroup() {
+        let owner = "owner@example.com"
+        addEnabledAccount(owner: owner)
+        addJoinedGroup(owner: owner, jid: "room@conference.example.com")
+
+        let derivedState = deriveContactsState(category: "public", isGroup: true)
+
+        XCTAssertEqual(derivedState.filterablePresenceRowCount, 1)
+    }
+
+    func testGroupsActiveOnlineFilterResetsWhenLastApplicableGroupDisappears() {
+        let controller = ContactsViewController()
+        controller.isGroup = true
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+        container.loadViewIfNeeded()
+        controller.category = "public"
+        controller.showOffline = false
+
+        controller.applyMappedDataset(
+            [[]],
+            featureHasAnyContent: true,
+            hasResolvedSnapshot: true,
+            filterablePresenceRowCount: 0,
+            forceFullReload: true
+        )
+
+        XCTAssertEqual(controller.category, "public")
+        XCTAssertTrue(controller.showOffline)
+        XCTAssertTrue(controller.contactsCompactBottomBarFilterButton.isHidden)
+    }
+
+    func testCategoryAccountAndCircleScopeDriveFilterableRowCount() {
+        let firstOwner = "first@example.com"
+        let secondOwner = "second@example.com"
+        addEnabledAccount(owner: firstOwner)
+        addEnabledAccount(owner: secondOwner, order: 1)
+        addRosterItem(owner: firstOwner, jid: "friend@example.com", groups: ["Friends"])
+        addRosterItem(owner: firstOwner, jid: "coworker@example.com", groups: ["Work"])
+        addRosterItem(owner: secondOwner, jid: "other@example.com", groups: ["Friends"])
+
+        let scopedState = deriveContactsState(
+            category: "all",
+            filteredAccounts: [firstOwner],
+            filteredGroups: ["Friends"]
+        )
+        let requestCategoryState = deriveContactsState(
+            category: "requests",
+            filteredAccounts: [firstOwner],
+            filteredGroups: ["Friends"]
+        )
+
+        XCTAssertEqual(scopedState.filterablePresenceRowCount, 1)
+        XCTAssertEqual(requestCategoryState.filterablePresenceRowCount, 0)
+    }
+
+    func testHidingOnlineFilterDoesNotMovePrimaryOrSearchFrames() {
+        let controller = ContactsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
+        container.loadViewIfNeeded()
+        container.view.layoutIfNeeded()
+        navigationController.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        controller.applyMappedDataset(
+            [[]],
+            featureHasAnyContent: true,
+            hasResolvedSnapshot: true,
+            filterablePresenceRowCount: 1,
+            forceFullReload: true
+        )
+        controller.view.layoutIfNeeded()
+        let primaryFrame = controller.contactsCompactBottomBarPrimaryButton.convert(
+            controller.contactsCompactBottomBarPrimaryButton.bounds,
+            to: controller.view
+        )
+        let searchFrame = controller.bottomSearchHostView.collapsedButton.convert(
+            controller.bottomSearchHostView.collapsedButton.bounds,
+            to: controller.view
+        )
+
+        controller.applyMappedDataset(
+            [[]],
+            featureHasAnyContent: false,
+            hasResolvedSnapshot: true,
+            filterablePresenceRowCount: 0,
+            forceFullReload: true
+        )
+        controller.view.layoutIfNeeded()
+
+        XCTAssertTrue(controller.contactsCompactBottomBarFilterButton.isHidden)
+        XCTAssertEqual(
+            controller.contactsCompactBottomBarPrimaryButton.convert(
+                controller.contactsCompactBottomBarPrimaryButton.bounds,
+                to: controller.view
+            ),
+            primaryFrame
+        )
+        XCTAssertEqual(
+            controller.bottomSearchHostView.collapsedButton.convert(
+                controller.bottomSearchHostView.collapsedButton.bounds,
+                to: controller.view
+            ),
+            searchFrame
+        )
+    }
+
+    func testRegularWidthNavbarActionsRemainUnchangedWhenOnlineFilterHasNoData() {
+        let controller = ContactsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .regular)
+        container.loadViewIfNeeded()
+        let identifiers = controller.navigationItem.rightBarButtonItems?.compactMap(\.accessibilityIdentifier)
+
+        controller.applyMappedDataset(
+            [[]],
+            featureHasAnyContent: false,
+            hasResolvedSnapshot: true,
+            filterablePresenceRowCount: 0,
+            forceFullReload: true
+        )
+
+        XCTAssertEqual(
+            controller.navigationItem.rightBarButtonItems?.compactMap(\.accessibilityIdentifier),
+            identifiers
+        )
     }
 
     func testContactsCompactSplitUsesBottomActionsAndClearsNavbarDuplicates() throws {

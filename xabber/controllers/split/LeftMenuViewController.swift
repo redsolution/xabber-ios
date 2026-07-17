@@ -2233,7 +2233,13 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
         self.didSelectRootScreenBy(key: key, category: category)
     }
     
-    func openChatlistWithChat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType, configure: ((ChatViewController?) -> Void)?) {
+    func openChatlistWithChat(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        openMessageRequest: ChatOpenMessageRequest?,
+        configure: ((ChatViewController?) -> Void)?
+    ) {
         self.previousSelectedKey = nil
         if let vc = self.chatsVc {
             vc.filter.accept(.chats)
@@ -2241,7 +2247,13 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                 self.previousSelectedKey = "chat"
             }
             vc.leftMenuSelectRootCategoryDelegate = self
-            vc.stackNewChat(owner: owner, jid: jid, conversationType: conversationType, configure: configure)
+            vc.stackNewChat(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                openMessageRequest: openMessageRequest,
+                configure: configure
+            )
 //                    self.showEmptyDetail(for: .emptyChat)
         } else {
             let vc = LastChatsViewController()
@@ -2250,7 +2262,13 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                 self.previousSelectedKey = "chat"
             }
             vc.leftMenuSelectRootCategoryDelegate = self
-            vc.stackNewChat(owner: owner, jid: jid, conversationType: conversationType, configure: configure)
+            vc.stackNewChat(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                openMessageRequest: openMessageRequest,
+                configure: configure
+            )
 //                    self.showEmptyDetail(for: .emptyChat)
         }
     }
@@ -2258,5 +2276,28 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
 
 protocol LeftMenuSelectRootScreenDelegate {
     func selectRootScreenAndCategory(screen key: String, category: String?)
-    func openChatlistWithChat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType, configure: ((ChatViewController?) -> Void)?)
+    func openChatlistWithChat(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        openMessageRequest: ChatOpenMessageRequest?,
+        configure: ((ChatViewController?) -> Void)?
+    )
+}
+
+extension LeftMenuSelectRootScreenDelegate {
+    func openChatlistWithChat(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        configure: ((ChatViewController?) -> Void)?
+    ) {
+        openChatlistWithChat(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType,
+            openMessageRequest: nil,
+            configure: configure
+        )
+    }
 }

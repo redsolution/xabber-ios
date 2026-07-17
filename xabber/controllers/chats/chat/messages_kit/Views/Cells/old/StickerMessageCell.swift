@@ -20,30 +20,67 @@
 
 import Foundation
 import UIKit
-import Kingfisher
 import MaterialComponents.MDCPalettes
 
-class StickerMessageCell: MessageContentCell {
-    internal var imageView: UIImageView = {
+class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
+    private enum DeliveryState {
+        case idle
+        case loading
+        case loaded
+        case failed
+    }
+
+    internal let imageView: UIImageView = {
         let view = UIImageView()
-        
+        view.contentMode = .scaleAspectFit
+        view.clipsToBounds = true
+        view.backgroundColor = ChatStickerPlaceholder.color
         return view
     }()
-    
+
+    var thumbnailPipeline: ChatThumbnailServing = ChatMediaThumbnailPipeline.shared
+    private(set) var representedStickerPrimary: String?
+    private var representedMessagePrimary: String?
+    private var representedAttachment: ImageAttachment?
+    private var representedThumbnailRequest: ChatThumbnailRequest?
+    private var representedThumbnailConsumer: ChatThumbnailConsumer?
+    private var thumbnailSubscription: ChatThumbnailSubscription?
+    private var deliveryState: DeliveryState = .idle
+    private let visibleConsumerID = UUID()
+
     override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
         super.apply(layoutAttributes)
         if let attributes = layoutAttributes as? MessagesCollectionViewLayoutAttributes {
-            let insets = attributes.messageLabelInsets
-            imageView.frame = CGRect(x: messageContainerView.bounds.minX + insets.left + 2,
-                                     y: messageContainerView.bounds.minY + insets.top + 2,
-                                     width: messageContainerView.bounds.width - insets.horizontal - 4,
-                                     height: messageContainerView.bounds.height - insets.vertical - 4)
+            imageView.frame = CGRect(origin: .zero, size: attributes.messageContainerSize)
+            refreshStickerBinding()
         }
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        cancelOffscreenWork()
+        representedStickerPrimary = nil
+        representedMessagePrimary = nil
+        representedAttachment = nil
+        representedThumbnailRequest = nil
+        representedThumbnailConsumer = nil
+        deliveryState = .idle
         imageView.image = nil
+        imageView.backgroundColor = ChatStickerPlaceholder.color
+    }
+
+    func cancelOffscreenWork() {
+        thumbnailSubscription?.cancel()
+        thumbnailSubscription = nil
+        representedThumbnailRequest = nil
+        representedThumbnailConsumer = nil
+        deliveryState = .idle
+        imageView.image = nil
+        imageView.backgroundColor = ChatStickerPlaceholder.color
+    }
+
+    func resumeOnscreenWork() {
+        refreshStickerBinding()
     }
 
     override func setupSubviews() {
@@ -53,30 +90,123 @@ class StickerMessageCell: MessageContentCell {
 
     override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
         super.configure(with: message, at: indexPath, and: messagesCollectionView)
-//        guard let displayDelegate = messagesCollectionView.messagesDisplayDelegate,
-//            let datasource = messagesCollectionView.messagesDataSource else {
-//            fatalError(MessageKitError.nilMessagesDisplayDelegate)
-//        }
-//        self.messageContainerView.bubbleImage.image = nil
-//        self.messageContainerView.shadowImage.image = nil
         switch message.kind {
-        case .sticker(let reference):
-                break
-//            guard let uri = reference.metadata?["uri"] as? String,
-//                let url = URL(string: uri) else {
-//                    return
-//            }
-//            imageView.kf.indicatorType = .activity
-//            imageView.kf.setImage(
-//                with: KF.ImageResource(downloadURL: url),
-//                placeholder: InlineGridImagePlaceholderView(frame: CGRect(origin: .zero,
-//                                                                          size: imageView.frame.size)),
-//                options: []
-//            )
-//            imageView.contentMode = .scaleAspectFill
-//            imageView.layer.cornerRadius = 2
-//            imageView.layer.masksToBounds = true
+        case .sticker(let attachment):
+            represent(attachment, messagePrimary: message.primary)
+            refreshStickerBinding()
         default: break
+        }
+    }
+
+    func bindSticker(
+        _ attachment: ImageAttachment,
+        messagePrimary: String,
+        displaySize: CGSize,
+        scale: Double,
+        traitStyle: ChatThumbnailTraitStyle
+    ) {
+        represent(attachment, messagePrimary: messagePrimary)
+        imageView.frame = CGRect(origin: .zero, size: displaySize)
+        acquireSticker(
+            attachment,
+            messagePrimary: messagePrimary,
+            displaySize: displaySize,
+            scale: scale,
+            traitStyle: traitStyle
+        )
+    }
+
+    private func represent(
+        _ attachment: ImageAttachment,
+        messagePrimary: String
+    ) {
+        if representedStickerPrimary != attachment.primary ||
+            representedMessagePrimary != messagePrimary {
+            cancelOffscreenWork()
+        }
+        representedAttachment = attachment
+        representedStickerPrimary = attachment.primary
+        representedMessagePrimary = messagePrimary
+        imageView.image = nil
+        imageView.backgroundColor = ChatStickerPlaceholder.color
+    }
+
+    private func refreshStickerBinding() {
+        guard let attachment = representedAttachment,
+              let messagePrimary = representedMessagePrimary,
+              imageView.bounds.width > 0,
+              imageView.bounds.height > 0 else {
+            return
+        }
+        acquireSticker(
+            attachment,
+            messagePrimary: messagePrimary,
+            displaySize: imageView.bounds.size,
+            scale: Double(window?.screen.scale ?? UIScreen.main.scale),
+            traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
+        )
+    }
+
+    private func acquireSticker(
+        _ attachment: ImageAttachment,
+        messagePrimary: String,
+        displaySize: CGSize,
+        scale: Double,
+        traitStyle: ChatThumbnailTraitStyle
+    ) {
+        guard let url = attachment.url,
+              displaySize.width > 0,
+              displaySize.height > 0 else {
+            return
+        }
+        let request = ChatThumbnailRequest(
+            url: url,
+            displaySize: ChatCollectionPrefetchSize(
+                width: Double(displaySize.width),
+                height: Double(displaySize.height)
+            ),
+            scale: scale,
+            traitStyle: traitStyle
+        )
+        let consumer = ChatThumbnailConsumer(
+            identity: ChatCollectionPrefetchIdentity(
+                kind: .sticker,
+                messagePrimary: messagePrimary,
+                referencePrimary: attachment.primary
+            ),
+            role: .visible(visibleConsumerID)
+        )
+        if representedThumbnailRequest == request,
+           representedThumbnailConsumer == consumer,
+           deliveryState != .failed {
+            return
+        }
+
+        thumbnailSubscription?.cancel()
+        representedThumbnailRequest = request
+        representedThumbnailConsumer = consumer
+        deliveryState = .loading
+        imageView.image = nil
+        imageView.backgroundColor = ChatStickerPlaceholder.color
+        thumbnailSubscription = thumbnailPipeline.acquire(
+            request,
+            consumer: consumer
+        ) { [weak self] result in
+            guard let self,
+                  self.representedThumbnailRequest == request,
+                  self.representedThumbnailConsumer == consumer else {
+                return
+            }
+            switch result {
+            case .success(let delivery):
+                self.deliveryState = .loaded
+                self.imageView.image = delivery.image
+                self.imageView.backgroundColor = .clear
+            case .failure:
+                self.deliveryState = .failed
+                self.imageView.image = nil
+                self.imageView.backgroundColor = ChatStickerPlaceholder.color
+            }
         }
     }
     

@@ -6553,6 +6553,7 @@ What’s your name?";
 "chat_attachment_accessibility_selected_order" = "Selected %@";
 "chat_attachment_accessibility_selection_limit_reached" = "Selection limit reached";
 "chat_attachment_action_retry" = "Retry";
+"chat_bootstrap_history_failure" = "Couldn’t load message history";
 "chat_attachment_action_remove" = "Remove";
 "chat_attachment_action_cancel" = "Cancel";
 "chat_attachment_action_done" = "Done";
@@ -6630,7 +6631,6 @@ What’s your name?";
 "chat_attachment_geolocation_denied_message" = "Location access is denied.";
 "chat_attachment_geolocation_restricted_message" = "Location access is restricted.";
 "chat_attachment_geolocation_unavailable_message" = "Location is unavailable.";
-
 /* In-chat search */
 "chat_search_field" = "Search this chat";
 "chat_search_title" = "Search";
@@ -6681,3 +6681,9 @@ What’s your name?";
 "chat_search_accessibility_month_year_picker" = "Month and year picker";
 "selected" = "Selected";
 "today" = "Today";
+"chat_search_result_unavailable_title" = "Message unavailable";
+"chat_search_result_stale_message" = "Search results have changed. Please select the message again.";
+"chat_search_result_missing_identity_message" = "This search result does not contain enough information to open its message.";
+"chat_search_result_not_found_message" = "The message is no longer available.";
+"chat_search_result_ambiguous_message" = "Several messages match this result, so none was opened.";
+"chat_search_result_bounded_window_message" = "The message could not be identified within the bounded search window.";

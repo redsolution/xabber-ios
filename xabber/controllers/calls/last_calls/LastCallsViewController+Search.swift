@@ -31,23 +31,23 @@ extension LastCallsViewController {
         installBottomSearchHostIfNeeded()
         bottomSearchHostView.searchTextField.placeholder = callsSearchPlaceholderText
         searchController.searchBar.placeholder = callsSearchPlaceholderText
+        bottomSearchHostView.onTransitionPhaseChanged = { [weak self] _ in
+            self?.bottomSearchPresentationStateDidChange()
+        }
         bottomSearchHostView.onBegin = { [weak self] in
             guard let self else { return }
             self.callsSearchQuery = self.bottomSearchHostView.query
             self.reloadCallDatasource()
-            self.bottomSearchPresentationStateDidChange()
         }
         bottomSearchHostView.onQueryChanged = { [weak self] query in
             guard let self else { return }
             self.callsSearchQuery = query
             self.reloadCallDatasource()
-            self.bottomSearchPresentationStateDidChange()
         }
         bottomSearchHostView.onCancel = { [weak self] in
             guard let self else { return }
             self.callsSearchQuery = nil
             self.reloadCallDatasource()
-            self.bottomSearchPresentationStateDidChange()
         }
     }
 
@@ -81,18 +81,11 @@ extension LastCallsViewController {
     }
 
     internal func updateTableInsetsForBottomSearch() {
-        let isBottomSearchVisible = bottomSearchHostView.superview != nil && !bottomSearchHostView.isHidden
-        let isCompactBarVisible = callsCompactBottomBarView.superview != nil && !isCallsCompactBottomBarHidden
-        let bottomInset = isBottomSearchVisible || isCompactBarVisible
-            ? max(BottomSearchHostView.Metrics.reservedBottomInset, FloatingBottomBarView.Metrics.reservedBottomInset)
-            : 0
-
-        if tableView.contentInset.bottom != bottomInset {
-            tableView.contentInset.bottom = bottomInset
-        }
-        if tableView.verticalScrollIndicatorInsets.bottom != bottomInset {
-            tableView.verticalScrollIndicatorInsets.bottom = bottomInset
-        }
+        bottomOverlayInsetCoordinator.apply(
+            to: tableView,
+            in: view,
+            overlays: [callsCompactBottomBarView, bottomSearchHostView]
+        )
     }
 
     internal func reloadInPlaceSearchResultsIfNeeded() {

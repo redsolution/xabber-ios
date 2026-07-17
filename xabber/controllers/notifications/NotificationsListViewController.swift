@@ -588,6 +588,7 @@ class NotificationsListViewController: SimpleBaseViewController {
     var unreadOnly: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     var filterMenu: UIMenu = UIMenu()
     internal let bottomSearchHostView = BottomSearchHostView(frame: .zero)
+    internal let bottomOverlayInsetCoordinator = BottomOverlayInsetCoordinator()
     internal let notificationsCompactBottomBarView = FloatingBottomBarView(frame: .zero)
     private let datasourceQueue = DispatchQueue(label: "com.xabber.notifications.datasource", qos: .userInitiated)
     private var datasourceGeneration: Int = 0
@@ -690,20 +691,19 @@ class NotificationsListViewController: SimpleBaseViewController {
         )
         bottomSearchHostView.isHidden = false
         bottomSearchHostView.searchTextField.placeholder = "Search".localizeString(id: "search", arguments: [])
-        bottomSearchHostView.onBegin = { [weak self] in
+        bottomSearchHostView.onTransitionPhaseChanged = { [weak self] _ in
             self?.notificationBottomSearchPresentationStateDidChange()
         }
+        bottomSearchHostView.onBegin = nil
         bottomSearchHostView.onQueryChanged = { [weak self] query in
             guard let self else { return }
             self.notificationSearchQuery = query ?? ""
             self.scheduleDatasourceReload()
-            self.notificationBottomSearchPresentationStateDidChange()
         }
         bottomSearchHostView.onCancel = { [weak self] in
             guard let self else { return }
             self.notificationSearchQuery = ""
             self.scheduleDatasourceReload()
-            self.notificationBottomSearchPresentationStateDidChange()
         }
         updateNotificationsTableInsetsForBottomSearch()
     }
@@ -767,6 +767,11 @@ class NotificationsListViewController: SimpleBaseViewController {
             configureNotificationsBottomSearchIfNeeded()
         }
 
+        let hasMatchingUnreadNotifications = matchingUnreadNotificationCount() > 0
+        if !hasMatchingUnreadNotifications, unreadOnly.value {
+            unreadOnly.accept(false)
+        }
+
         let isActive = unreadOnly.value
         notificationsCompactBottomBarView.leftButton.accessibilityIdentifier = "notifications_unread_filter_button"
         notificationsCompactBottomBarView.leftButton.accessibilityLabel = "Unread notifications filter"
@@ -781,8 +786,14 @@ class NotificationsListViewController: SimpleBaseViewController {
             accessibilityIdentifier: "notifications_read_all_bottom_button",
             accessibilityLabel: readAllTitle
         )
-        notificationsCompactBottomBarView.setCenterButtonEnabled(matchingUnreadNotificationCount() > 0)
-        notificationsCompactBottomBarView.isHidden = !shouldUseNotificationsCompactBottomBar || bottomSearchHostView.isExpanded
+        notificationsCompactBottomBarView.applyActionPresentation(
+            .init(
+                isLeftVisible: hasMatchingUnreadNotifications,
+                isCenterVisible: hasMatchingUnreadNotifications
+            )
+        )
+        notificationsCompactBottomBarView.isHidden = !shouldUseNotificationsCompactBottomBar ||
+            bottomSearchHostView.hidesUnderlyingActions
         notificationsCompactBottomBarView.refreshAppearance()
 
         if notificationsCompactBottomBarView.superview != nil {
@@ -793,19 +804,11 @@ class NotificationsListViewController: SimpleBaseViewController {
     }
 
     internal final func updateNotificationsTableInsetsForBottomSearch() {
-        let isBottomSearchVisible = bottomSearchHostView.superview != nil && !bottomSearchHostView.isHidden
-        let isCompactBarVisible = notificationsCompactBottomBarView.superview != nil &&
-            !isNotificationsCompactBottomBarHidden
-        let bottomInset = isBottomSearchVisible || isCompactBarVisible
-            ? max(BottomSearchHostView.Metrics.reservedBottomInset, FloatingBottomBarView.Metrics.reservedBottomInset)
-            : 0
-
-        if tableView.contentInset.bottom != bottomInset {
-            tableView.contentInset.bottom = bottomInset
-        }
-        if tableView.verticalScrollIndicatorInsets.bottom != bottomInset {
-            tableView.verticalScrollIndicatorInsets.bottom = bottomInset
-        }
+        bottomOverlayInsetCoordinator.apply(
+            to: tableView,
+            in: view,
+            overlays: [notificationsCompactBottomBarView, bottomSearchHostView]
+        )
     }
 
     @objc
@@ -1272,6 +1275,11 @@ class NotificationsListViewController: SimpleBaseViewController {
         )
         button.accessibilityIdentifier = "notifications_back_to_chats_button"
         return button
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateNotificationsTableInsetsForBottomSearch()
     }
 
     override func viewDidLoad() {

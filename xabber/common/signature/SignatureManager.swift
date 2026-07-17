@@ -29,7 +29,7 @@ import RxSwift
 import RealmSwift
 import CryptoSwift
 
-protocol SignatureManagerDelegate {
+protocol SignatureManagerDelegate: AnyObject {
     func didConnectionStop(with error: Error?)
     func didGenerateDigitalSignature(with error: Error?)
     func retrieveCertificate(with error: Error?)
@@ -116,7 +116,7 @@ class SignatureManager: NSObject {
     public var certificate: SecCertificate? = nil
     public var rootCertificate: SecCertificate? = nil
     
-    public var delegate: SignatureManagerDelegate? = nil
+    public weak var delegate: SignatureManagerDelegate? = nil
     fileprivate var checkSignatureTimestampTimer: Timer? = nil
     fileprivate var isCheckSignatureDialogShowed: Bool = false
     

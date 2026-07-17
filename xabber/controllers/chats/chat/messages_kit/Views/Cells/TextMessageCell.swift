@@ -22,37 +22,6 @@ import UIKit
 import MapKit
 import MaterialComponents.MDCPalettes
 
-protocol TextMessageCellAvatarLoading: AnyObject {
-    func loadGroupAvatar(
-        url: String,
-        userId: String,
-        jid: String,
-        owner: String,
-        size: CGFloat,
-        completion: @escaping (UIImage?) -> Void
-    )
-}
-
-final class DefaultTextMessageCellAvatarLoader: TextMessageCellAvatarLoading {
-    func loadGroupAvatar(
-        url: String,
-        userId: String,
-        jid: String,
-        owner: String,
-        size: CGFloat,
-        completion: @escaping (UIImage?) -> Void
-    ) {
-        DefaultAvatarManager.shared.getGroupAvatar(
-            url: url,
-            userId: userId,
-            jid: jid,
-            owner: owner,
-            size: size,
-            callback: completion
-        )
-    }
-}
-
 struct TextMessageCellAvatarIdentity: Equatable {
     let messagePrimary: String
     let avatarUrl: String
@@ -60,6 +29,7 @@ struct TextMessageCellAvatarIdentity: Equatable {
     let jid: String
     let owner: String
     let displayName: String
+    let request: ChatAvatarRequest
 }
 
 class InlineLocationsGridView: InlineAttachmentView {
@@ -93,23 +63,54 @@ class InlineLocationsGridView: InlineAttachmentView {
         }()
 
         var location: LocationAttachment
-        private let snapshotProvider: ChatLocationSnapshotProviding
-        private var requestedSnapshotKey: String?
+        private let snapshotPipeline: ChatLocationSnapshotServing
+        private var screenScale: Double
+        private var traitStyle: ChatThumbnailTraitStyle
+        private var representedContainerPrimary = ""
+        private(set) var representedSnapshotRequest: ChatLocationSnapshotRequest?
+        private var snapshotSubscription: ChatLocationSnapshotSubscription?
+        private var snapshotDeliveryToken: UUID?
+        private var isSnapshotWorkEnabled = true
+        private var snapshotNeedsResume = false
+
+        var renderedSnapshotImage: UIImage? {
+            imageView.image
+        }
 
         init(
             frame: CGRect,
             location: LocationAttachment,
-            snapshotProvider: ChatLocationSnapshotProviding
+            snapshotPipeline: ChatLocationSnapshotServing,
+            screenScale: Double,
+            traitStyle: ChatThumbnailTraitStyle
         ) {
             self.location = location
-            self.snapshotProvider = snapshotProvider
+            self.snapshotPipeline = snapshotPipeline
+            self.screenScale = max(1, screenScale)
+            self.traitStyle = traitStyle
             super.init(frame: frame)
             setup()
-            update(location)
+            update(location, representedBy: "")
         }
 
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
+        }
+
+        func updateRenderingEnvironment(
+            screenScale: Double,
+            traitStyle: ChatThumbnailTraitStyle
+        ) {
+            let nextScale = max(1, screenScale)
+            guard self.screenScale != nextScale || self.traitStyle != traitStyle else { return }
+            snapshotSubscription?.cancel()
+            snapshotSubscription = nil
+            snapshotDeliveryToken = nil
+            representedSnapshotRequest = nil
+            self.screenScale = nextScale
+            self.traitStyle = traitStyle
+            snapshotNeedsResume = !isSnapshotWorkEnabled
+            setNeedsLayout()
         }
 
         private func setup() {
@@ -120,12 +121,63 @@ class InlineLocationsGridView: InlineAttachmentView {
             accessibilityTraits = [.button, .image]
         }
 
-        func update(_ location: LocationAttachment) {
+        func update(
+            _ location: LocationAttachment,
+            representedBy containerPrimary: String = ""
+        ) {
+            let previousIdentity = representedAttachmentIdentity
+            let nextIdentity = InlineAttachmentRepresentedRequest(
+                containerPrimary: containerPrimary,
+                referencePrimary: location.primary,
+                resourceIdentity: [
+                    String(location.coordinate.latitude),
+                    String(location.coordinate.longitude),
+                    location.snapshotURL?.absoluteString ?? ""
+                ].joined(separator: "|")
+            )
+            if previousIdentity != nextIdentity {
+                snapshotSubscription?.cancel()
+                snapshotSubscription = nil
+                snapshotDeliveryToken = nil
+                representedSnapshotRequest = nil
+                if previousIdentity?.resourceIdentity != nextIdentity.resourceIdentity {
+                    imageView.image = nil
+                }
+            }
             self.location = location
-            requestedSnapshotKey = nil
-            imageView.image = location.snapshotURL.flatMap { UIImage(contentsOfFile: $0.path) }
+            representedContainerPrimary = containerPrimary
+            representedAttachmentIdentity = nextIdentity
             addressLabel.text = location.address?.isNotEmpty == true ? location.address : location.geoURI
             accessibilityLabel = addressLabel.text
+            setNeedsLayout()
+        }
+
+        func resetState() {
+            snapshotSubscription?.cancel()
+            snapshotSubscription = nil
+            snapshotDeliveryToken = nil
+            representedSnapshotRequest = nil
+            representedContainerPrimary = ""
+            representedAttachmentIdentity = nil
+            snapshotNeedsResume = false
+            imageView.image = nil
+            addressLabel.text = nil
+            accessibilityLabel = nil
+        }
+
+        func cancelOffscreenWork() {
+            isSnapshotWorkEnabled = false
+            guard snapshotSubscription != nil else { return }
+            snapshotSubscription?.cancel()
+            snapshotSubscription = nil
+            snapshotDeliveryToken = nil
+            representedSnapshotRequest = nil
+            snapshotNeedsResume = true
+        }
+
+        func resumeOnscreenWork() {
+            isSnapshotWorkEnabled = true
+            snapshotNeedsResume = false
             setNeedsLayout()
         }
 
@@ -149,52 +201,142 @@ class InlineLocationsGridView: InlineAttachmentView {
         }
 
         private func loadSnapshotIfNeeded() {
-            guard imageView.image == nil,
+            guard isSnapshotWorkEnabled,
                   bounds.width > 1,
                   bounds.height > 1 else {
                 return
             }
-            let key = "\(location.primary):\(Int(bounds.width))x\(Int(bounds.height))"
-            guard requestedSnapshotKey != key else {
-                return
-            }
-            requestedSnapshotKey = key
-            let resolvedLocation = ChatAttachmentResolvedLocation(
-                coordinate: AttachmentLocationCoordinate(
-                    latitude: location.coordinate.latitude,
-                    longitude: location.coordinate.longitude
-                ),
-                displayAddress: location.address,
-                accuracy: nil
-            )
-            snapshotProvider.makeSnapshot(
-                for: resolvedLocation,
+            let request = snapshotRequest(
+                for: location,
                 size: bounds.size
-            ) { [weak self, primary = location.primary] result in
-                DispatchQueue.main.async {
-                    guard let self,
-                          self.location.primary == primary,
-                          case .success(let url) = result,
-                          let image = UIImage(contentsOfFile: url.path) else {
-                        return
-                    }
-                    self.location.snapshotURL = url
-                    self.imageView.image = image
+            )
+            guard representedSnapshotRequest != request else { return }
+            snapshotSubscription?.cancel()
+            representedSnapshotRequest = request
+            let deliveryToken = UUID()
+            snapshotDeliveryToken = deliveryToken
+            let consumerIdentity = ChatCollectionPrefetchIdentity(
+                kind: .locationSnapshot,
+                messagePrimary: representedContainerPrimary.isEmpty
+                    ? location.primary
+                    : representedContainerPrimary,
+                referencePrimary: location.primary
+            )
+            let subscription = snapshotPipeline.acquire(
+                request,
+                consumer: ChatLocationSnapshotConsumer(
+                    identity: consumerIdentity,
+                    role: .visible(UUID())
+                )
+            ) { [weak self, request, deliveryToken] result in
+                guard let self,
+                      self.representedSnapshotRequest == request,
+                      self.snapshotDeliveryToken == deliveryToken,
+                      case .success(let delivery) = result else {
+                    return
                 }
+                self.snapshotSubscription = nil
+                self.snapshotDeliveryToken = nil
+                self.snapshotNeedsResume = false
+                self.imageView.image = delivery.image
+            }
+            if snapshotDeliveryToken == deliveryToken {
+                snapshotSubscription = subscription
+            } else {
+                subscription.cancel()
             }
         }
+
+        private func snapshotRequest(
+            for location: LocationAttachment,
+            size: CGSize
+        ) -> ChatLocationSnapshotRequest {
+            ChatLocationSnapshotRequest(
+                latitude: location.coordinate.latitude,
+                longitude: location.coordinate.longitude,
+                sourceURL: location.snapshotURL,
+                displaySize: ChatCollectionPrefetchSize(
+                    width: Double(size.width),
+                    height: Double(size.height)
+                ),
+                scale: screenScale,
+                mapStyle: .standard,
+                traitStyle: traitStyle
+            )
+        }
+
+        private var representedAttachmentIdentity: InlineAttachmentRepresentedRequest?
     }
 
     var views: [LocationView] = []
-    private let snapshotProvider: ChatLocationSnapshotProviding
+    private let snapshotPipeline: ChatLocationSnapshotServing
+    private var screenScale: Double
+    private var traitStyle: ChatThumbnailTraitStyle
+    private var isSnapshotWorkEnabled = true
 
-    init(snapshotProvider: ChatLocationSnapshotProviding = MapKitChatLocationSnapshotProvider()) {
-        self.snapshotProvider = snapshotProvider
+    init(
+        snapshotPipeline: ChatLocationSnapshotServing = ChatLocationSnapshotPipeline.shared,
+        screenScale: Double = Double(UIScreen.main.scale),
+        traitStyle: ChatThumbnailTraitStyle = ChatThumbnailTraitStyle(UIScreen.main.traitCollection.userInterfaceStyle)
+    ) {
+        self.snapshotPipeline = snapshotPipeline
+        self.screenScale = max(1, screenScale)
+        self.traitStyle = traitStyle
         super.init(frame: .zero)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func updateRenderingEnvironment(
+        screenScale: Double,
+        traitStyle: ChatThumbnailTraitStyle
+    ) {
+        let nextScale = max(1, screenScale)
+        guard self.screenScale != nextScale || self.traitStyle != traitStyle else { return }
+        self.screenScale = nextScale
+        self.traitStyle = traitStyle
+        views.forEach {
+            $0.updateRenderingEnvironment(screenScale: nextScale, traitStyle: traitStyle)
+        }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateRenderingEnvironment(
+            screenScale: Double(window?.screen.scale ?? UIScreen.main.scale),
+            traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
+        )
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle else { return }
+        updateRenderingEnvironment(
+            screenScale: Double(window?.screen.scale ?? UIScreen.main.scale),
+            traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
+        )
+    }
+
+    func resetState() {
+        views.forEach { view in
+            view.resetState()
+            view.removeFromSuperview()
+        }
+        views.removeAll()
+        contentViews.removeAll()
+        grid.removeAll()
+    }
+
+    func cancelOffscreenWork() {
+        isSnapshotWorkEnabled = false
+        views.forEach { $0.cancelOffscreenWork() }
+    }
+
+    func resumeOnscreenWork() {
+        isSnapshotWorkEnabled = true
+        views.forEach { $0.resumeOnscreenWork() }
     }
 
     func prepareGrid(_ attachments: [LocationAttachment]) -> [CGRect] {
@@ -209,40 +351,51 @@ class InlineLocationsGridView: InlineAttachmentView {
         }
     }
 
-    func configure(_ attachments: [LocationAttachment]) {
-        views.forEach { $0.removeFromSuperview() }
-        views = []
-        contentViews.removeAll()
+    func configure(
+        _ attachments: [LocationAttachment],
+        representedBy containerPrimary: String = ""
+    ) {
+        resetState()
 
         prepareGrid(attachments).enumerated().forEach { index, rect in
             let view = LocationView(
                 frame: rect,
                 location: attachments[index],
-                snapshotProvider: snapshotProvider
+                snapshotPipeline: snapshotPipeline,
+                screenScale: screenScale,
+                traitStyle: traitStyle
             )
+            if !isSnapshotWorkEnabled {
+                view.cancelOffscreenWork()
+            }
             addSubview(view)
+            view.update(attachments[index], representedBy: containerPrimary)
             views.append(view)
             contentViews.append(view)
         }
     }
 
-    func updateContent(_ attachments: [LocationAttachment]) {
+    func updateContent(
+        _ attachments: [LocationAttachment],
+        representedBy containerPrimary: String = ""
+    ) {
         if attachments.isEmpty {
-            views.forEach { $0.removeFromSuperview() }
-            views = []
-            contentViews.removeAll()
+            resetState()
             return
         }
 
         guard views.map(\.location.primary) == attachments.map(\.primary),
               views.count == attachments.count else {
-            configure(attachments)
+            configure(attachments, representedBy: containerPrimary)
             return
         }
 
         prepareGrid(attachments).enumerated().forEach { index, rect in
             views[index].frame = rect
-            views[index].update(attachments[index])
+            views[index].update(
+                attachments[index],
+                representedBy: containerPrimary
+            )
         }
     }
 
@@ -255,7 +408,7 @@ class InlineLocationsGridView: InlineAttachmentView {
     }
 }
 
-public class TextMessageCell: MessageContentCell {
+public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
     
     let offsetBetweenForwards: CGFloat = 2
     
@@ -344,8 +497,12 @@ public class TextMessageCell: MessageContentCell {
         return label
     }()
 
-    var avatarLoader: TextMessageCellAvatarLoading = DefaultTextMessageCellAvatarLoader()
+    var avatarPipeline: ChatAvatarServing = ChatAvatarPipeline.shared
     private(set) var representedAvatarIdentity: TextMessageCellAvatarIdentity?
+    private var avatarSubscription: ChatAvatarSubscription?
+    private var avatarDeliveryToken: UUID?
+    private var isAvatarWorkEnabled = true
+    private var avatarNeedsResume = false
     
     
         
@@ -357,6 +514,7 @@ public class TextMessageCell: MessageContentCell {
     
     
     public override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
+        super.apply(layoutAttributes)
         if let attributes = layoutAttributes as? MessagesCollectionViewLayoutAttributes {
             layoutAuthorView(with: attributes)
             layoutForwardsContainer(with: attributes)
@@ -369,8 +527,23 @@ public class TextMessageCell: MessageContentCell {
             layoutLabelView(with: attributes)
             layoutWarningLabel(with: attributes)
             layoutTimeMarker(with: attributes)
+            ChatMessageFrameGeometryValidator.assertValid(
+                frames: [
+                    .init(name: "author", frame: authorView.frame),
+                    .init(name: "forwards", frame: forwardsContainer.frame),
+                    .init(name: "images", frame: imagesView.frame),
+                    .init(name: "videos", frame: videosView.frame),
+                    .init(name: "locations", frame: locationsView.frame),
+                    .init(name: "contacts", frame: contactsView.frame),
+                    .init(name: "audios", frame: audiosView.frame),
+                    .init(name: "files", frame: filesView.frame),
+                    .init(name: "text", frame: labelContainer.frame),
+                    .init(name: "warning", frame: warningLabel.frame),
+                    .init(name: "time", frame: timeMarker.frame)
+                ],
+                containerBounds: CGRect(origin: .zero, size: attributes.messageContainerSize)
+            )
         }
-        super.apply(layoutAttributes)
     }
     
     func layoutAuthorView(with attributes: MessagesCollectionViewLayoutAttributes) {
@@ -556,6 +729,7 @@ public class TextMessageCell: MessageContentCell {
             radiusRB: radius.rightBottom,
             radiusLB: radius.leftBottom
         )
+        self.imagesView.refreshThumbnailBindings()
     }
     
     func layoutVideosView(with attributes: MessagesCollectionViewLayoutAttributes) {
@@ -597,6 +771,7 @@ public class TextMessageCell: MessageContentCell {
             radiusRB: radius.rightBottom,
             radiusLB: radius.leftBottom
         )
+        self.videosView.refreshThumbnailBindings()
     }
     
     func layoutAudiosView(with attributes: MessagesCollectionViewLayoutAttributes) {
@@ -705,7 +880,7 @@ public class TextMessageCell: MessageContentCell {
             origin: CGPoint(x: 0, y: offset),
             size: CGSize(
                 width: attributes.textInlineViewSize.width + attributes.messageLabelInsets.horizontal,
-                height: attributes.textInlineViewSize.width + attributes.messageLabelInsets.vertical
+                height: attributes.textInlineViewSize.height + attributes.messageLabelInsets.vertical
             )
         )
         messageLabel.frame = CGRect(
@@ -744,7 +919,14 @@ public class TextMessageCell: MessageContentCell {
         
         super.prepareForReuse()
         
+        avatarSubscription?.cancel()
+        avatarSubscription = nil
+        avatarDeliveryToken = nil
         representedAvatarIdentity = nil
+        avatarNeedsResume = false
+        messagePrimary = ""
+        avatarView.image = nil
+        avatarView.isHidden = true
         messageLabel.attributedText = nil
         messageLabel.text = nil
         forwardsContainer.resetState()
@@ -788,6 +970,91 @@ public class TextMessageCell: MessageContentCell {
         applyTextContent(with: message, at: indexPath, and: messagesCollectionView, reuseInlineViews: true)
     }
 
+    override func reconfigureContent(
+        with message: MessageType,
+        at indexPath: IndexPath,
+        and messagesCollectionView: MessagesCollectionView,
+        changeMask: ChatMessageChangeMask
+    ) {
+        let lightweightMask: ChatMessageChangeMask = [.chrome, .fileTransferState]
+        if changeMask.subtracting(lightweightMask).isEmpty {
+            if changeMask.contains(.chrome) {
+                applyChromeUpdate(with: message, at: indexPath, and: messagesCollectionView)
+            }
+            if changeMask.contains(.fileTransferState) {
+                applyFileTransferStateUpdate(with: message)
+            }
+            return
+        }
+        applyTextContent(with: message, at: indexPath, and: messagesCollectionView, reuseInlineViews: true)
+    }
+
+    @discardableResult
+    override func renderVoiceMessageState(
+        referencePrimary: String,
+        state: VoiceMessagePlaybackState
+    ) -> Bool {
+        audiosView.render(state: state, for: referencePrimary) ||
+            forwardsContainer.renderVoiceMessageState(
+                referencePrimary: referencePrimary,
+                state: state
+            )
+    }
+
+    private func applyChromeUpdate(
+        with message: MessageType,
+        at indexPath: IndexPath,
+        and messagesCollectionView: MessagesCollectionView
+    ) {
+        messagePrimary = message.primary
+        super.reconfigureContent(
+            with: message,
+            at: indexPath,
+            and: messagesCollectionView,
+            changeMask: [.chrome]
+        )
+        warningLabel.text = message.messageWarningText
+        warningLabel.isHidden = message.messageWarningText == nil
+        timeMarker.configure(
+            text: message.timeMarkerText,
+            indicator: message.indicator,
+            withBackplate: usesTimeMarkerBackplate(for: message)
+        )
+    }
+
+    private func applyFileTransferStateUpdate(with message: MessageType) {
+        messagePrimary = message.primary
+        filesView.updateTransferStates(message.files, representedBy: message.primary)
+        forwardsContainer.updateFileTransferStates(message.forwards)
+    }
+
+    func cancelOffscreenWork() {
+        isAvatarWorkEnabled = false
+        if avatarSubscription != nil {
+            avatarSubscription?.cancel()
+            avatarSubscription = nil
+            avatarDeliveryToken = nil
+            avatarNeedsResume = representedAvatarIdentity != nil
+        }
+        locationsView.cancelOffscreenWork()
+        contactsView.cancelOffscreenWork()
+        audiosView.cancelOffscreenWork()
+        filesView.cancelOffscreenWork()
+        forwardsContainer.cancelOffscreenWork()
+    }
+
+    func resumeOnscreenWork() {
+        isAvatarWorkEnabled = true
+        if avatarNeedsResume, let identity = representedAvatarIdentity {
+            startAvatarRequest(identity)
+        }
+        locationsView.resumeOnscreenWork()
+        contactsView.resumeOnscreenWork()
+        audiosView.resumeOnscreenWork()
+        filesView.resumeOnscreenWork()
+        forwardsContainer.resumeOnscreenWork()
+    }
+
     private func applyTextContent(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView, reuseInlineViews: Bool) {
         self.messagePrimary = message.primary
         super.configure(with: message, at: indexPath, and: messagesCollectionView)
@@ -802,42 +1069,48 @@ public class TextMessageCell: MessageContentCell {
         authorView.attributedText = message.attributedAuthor
         warningLabel.text = message.messageWarningText
         warningLabel.isHidden = message.messageWarningText == nil
-        var timeMarkerWithBackplate: Bool = false
-        if message.images.isNotEmpty || message.videos.isNotEmpty || message.locations.isNotEmpty,
-           message.files.isEmpty,
-           message.contacts.isEmpty,
-           message.audios.isEmpty {
-            switch message.kind {
-                case .attributedText(let text):
-                    if text.string.isEmpty {
-                        timeMarkerWithBackplate = true
-                    }
-                default:
-                    break
-            }
-        }
         let palette = AccountColorManager.shared.palette(for: message.owner)
-        self.timeMarker.configure(text: message.timeMarkerText, indicator: message.indicator, withBackplate: timeMarkerWithBackplate)
+        self.timeMarker.configure(
+            text: message.timeMarkerText,
+            indicator: message.indicator,
+            withBackplate: usesTimeMarkerBackplate(for: message)
+        )
         if reuseInlineViews {
-            self.imagesView.updateContent(message.images)
-            self.locationsView.updateContent(message.locations)
-            self.contactsView.updateContent(message.contacts, palette: palette)
-            self.filesView.updateContent(message.files, palette: palette)
+            self.imagesView.updateContent(message.images, representedBy: message.primary)
+            self.locationsView.updateContent(message.locations, representedBy: message.primary)
+            self.contactsView.updateContent(
+                message.contacts,
+                palette: palette,
+                representedBy: message.primary
+            )
+            self.filesView.updateContent(
+                message.files,
+                palette: palette,
+                representedBy: message.primary
+            )
         } else {
-            self.imagesView.configure(message.images)
-            self.locationsView.configure(message.locations)
-            self.contactsView.configure(message.contacts, palette: palette)
-            self.filesView.configure(message.files, palette: palette)
+            self.imagesView.configure(message.images, representedBy: message.primary)
+            self.locationsView.configure(message.locations, representedBy: message.primary)
+            self.contactsView.configure(
+                message.contacts,
+                palette: palette,
+                representedBy: message.primary
+            )
+            self.filesView.configure(
+                message.files,
+                palette: palette,
+                representedBy: message.primary
+            )
         }
         self.audiosView.delegate = delegate
         if reuseInlineViews {
             self.audiosView.updateContent(message.audios, palette: palette)
             self.forwardsContainer.updateContent(message.forwards, palette: palette, delegate: delegate)
-            self.videosView.updateContent(message.videos)
+            self.videosView.updateContent(message.videos, representedBy: message.primary)
         } else {
             self.audiosView.configure(message.audios, palette: palette)
             self.forwardsContainer.configure(message.forwards, palette: palette, delegate: delegate)
-            self.videosView.configure(message.videos)
+            self.videosView.configure(message.videos, representedBy: message.primary)
         }
         self.imagesView.layer.backgroundColor = MDCPalette.grey.tint100.cgColor
         
@@ -845,66 +1118,117 @@ public class TextMessageCell: MessageContentCell {
         configureAvatar(for: message)
     }
 
+    private func usesTimeMarkerBackplate(for message: MessageType) -> Bool {
+        guard message.images.isNotEmpty || message.videos.isNotEmpty || message.locations.isNotEmpty,
+              message.files.isEmpty,
+              message.contacts.isEmpty,
+              message.audios.isEmpty,
+              case .attributedText(let text) = message.kind else {
+            return false
+        }
+        return text.string.isEmpty
+    }
+
     private func resetReusableAttachmentState() {
         imagesView.resetState()
         videosView.resetState()
-        audiosView.views.forEach { view in
-            view.resetWaveform()
-            view.resetState()
-            view.delegate = nil
-        }
+        locationsView.resetState()
+        contactsView.resetState()
+        audiosView.resetState()
+        filesView.resetState()
     }
 
     private func configureAvatar(for message: MessageType) {
         guard message.withAvatar else {
+            avatarSubscription?.cancel()
+            avatarSubscription = nil
+            avatarDeliveryToken = nil
             representedAvatarIdentity = nil
+            avatarNeedsResume = false
             avatarView.isHidden = true
             avatarView.image = nil
             return
         }
 
         avatarView.isHidden = false
-        let fallback = UIImageView.getDefaultAvatar(
-            for: message.groupchatAuthorNickname,
-            owner: message.owner,
-            size: 32
+        let request = ChatAvatarRequest(
+            entityIdentity: message.groupchatAuthorId.isNotEmpty
+                ? message.groupchatAuthorId
+                : message.jid,
+            remoteURL: message.avatarUrl.flatMap(URL.init(string:)),
+            displayName: message.groupchatAuthorNickname,
+            colorKey: message.groupchatAuthorId.isNotEmpty
+                ? message.groupchatAuthorId
+                : message.owner,
+            displaySize: ChatCollectionPrefetchSize(width: 32, height: 32),
+            scale: Double(window?.screen.scale ?? UIScreen.main.scale),
+            traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
         )
-        guard let avatarUrl = message.avatarUrl else {
-            representedAvatarIdentity = nil
-            avatarView.image = fallback
-            return
-        }
-
         let identity = TextMessageCellAvatarIdentity(
             messagePrimary: message.primary,
-            avatarUrl: avatarUrl,
+            avatarUrl: message.avatarUrl ?? "",
             userId: message.groupchatAuthorId,
             jid: message.jid,
             owner: message.owner,
-            displayName: message.groupchatAuthorNickname
+            displayName: message.groupchatAuthorNickname,
+            request: request
         )
+        if representedAvatarIdentity == identity {
+            if isAvatarWorkEnabled, avatarNeedsResume {
+                startAvatarRequest(identity)
+            }
+            return
+        }
+        let previousRequest = representedAvatarIdentity?.request
+        avatarSubscription?.cancel()
+        avatarSubscription = nil
+        avatarDeliveryToken = nil
         representedAvatarIdentity = identity
-        avatarView.image = fallback
+        if previousRequest != request {
+            avatarView.image = nil
+        }
+        guard isAvatarWorkEnabled else {
+            avatarNeedsResume = true
+            return
+        }
+        startAvatarRequest(identity)
+    }
 
-        avatarLoader.loadGroupAvatar(
-            url: avatarUrl,
-            userId: message.groupchatAuthorId,
-            jid: message.jid,
-            owner: message.owner,
-            size: 32
-        ) { [weak self] image in
-            let applyImage = {
-                guard let self,
-                      self.representedAvatarIdentity == identity else {
-                    return
-                }
-                self.avatarView.image = image ?? fallback
+    private func startAvatarRequest(_ identity: TextMessageCellAvatarIdentity) {
+        avatarNeedsResume = false
+        let deliveryToken = UUID()
+        avatarDeliveryToken = deliveryToken
+        let prefetchIdentity = ChatCollectionPrefetchIdentity(
+            kind: .avatar,
+            messagePrimary: identity.messagePrimary,
+            referencePrimary: identity.userId.isNotEmpty
+                ? identity.userId
+                : identity.messagePrimary
+        )
+        let subscription = avatarPipeline.acquire(
+            identity.request,
+            consumer: ChatAvatarConsumer(
+                identity: prefetchIdentity,
+                role: .visible(UUID())
+            )
+        ) { [weak self, identity, deliveryToken] result in
+            guard let self,
+                  self.representedAvatarIdentity == identity,
+                  self.avatarDeliveryToken == deliveryToken,
+                  self.isAvatarWorkEnabled else {
+                return
             }
-            if Thread.isMainThread {
-                applyImage()
-            } else {
-                DispatchQueue.main.async(execute: applyImage)
+            self.avatarSubscription = nil
+            self.avatarDeliveryToken = nil
+            self.avatarNeedsResume = false
+            if case .success(let delivery) = result {
+                self.avatarView.image = delivery.image
             }
+        }
+        if avatarDeliveryToken == deliveryToken {
+            avatarSubscription = subscription
+        } else {
+            subscription.cancel()
         }
     }
 
@@ -970,10 +1294,13 @@ public class TextMessageCell: MessageContentCell {
             }
         }
         if self.forwardsContainer.frame.contains(touchPoint) {
-            let translatedPoint = touchPoint.translate(x: -self.forwardsContainer.frame.minX, y: -self.forwardsContainer.frame.minY)
-            self.forwardsContainer.handleTouch(at: translatedPoint)
+            let forwardPoint = messageContainerView.convert(touchPoint, to: forwardsContainer)
+            if forwardsContainer.handleTouch(at: forwardPoint) {
+                return true
+            }
         }
-        return messageLabel.handleGesture(touchPoint)
+        let labelPoint = messageContainerView.convert(touchPoint, to: messageLabel)
+        return messageLabel.handleGesture(labelPoint)
     }
     
 }

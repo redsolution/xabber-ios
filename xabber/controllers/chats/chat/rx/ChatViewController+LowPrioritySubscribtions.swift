@@ -469,7 +469,8 @@ extension ChatViewController {
                             )
                         )
                         self.setShouldShowInitialMessage(
-                            self.messagesObserver.isEmpty && self.bootstrapViewState(chatInstance: chatInstance) == .empty
+                            self.timelineSession?.snapshot.items.isEmpty == true
+                                && self.bootstrapViewState(chatInstance: chatInstance) == .empty
                         )
 	                    } catch {
 	                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")

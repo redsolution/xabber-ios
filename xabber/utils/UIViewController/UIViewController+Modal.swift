@@ -223,6 +223,13 @@ protocol StackedNavigationPresentationPreparing: AnyObject {
     func prepareForStackedNavigationPresentation(targetBounds: CGRect?)
 }
 
+protocol AsyncStackedNavigationPresentationPreparing: AnyObject {
+    func prepareForStackedNavigationPresentation(
+        targetBounds: CGRect?,
+        completion: @escaping () -> Void
+    )
+}
+
 struct ModalPresentationCurrentControllerAccess {
     let get: () -> UIViewController?
     let set: (UIViewController?) -> Void
@@ -494,13 +501,32 @@ private func currentNavigationController(for presenter: UIViewController) -> UIN
         ?? navigationControllers.last
 }
 
-private func prepareStackedDestination(_ vc: UIViewController, targetBounds: CGRect?) {
+private func prepareStackedDestination(
+    _ vc: UIViewController,
+    targetBounds: CGRect?,
+    completion: @escaping () -> Void
+) {
     let start = CFAbsoluteTimeGetCurrent()
+    var didComplete = false
+    let finishOnce = {
+        guard !didComplete else { return }
+        didComplete = true
+#if DEBUG
+        DDLogDebug("showStacked.prepareStackedDestination for \(type(of: vc)) took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - start))s")
+#endif
+        completion()
+    }
+
+    if let asyncDestination = vc as? AsyncStackedNavigationPresentationPreparing {
+        asyncDestination.prepareForStackedNavigationPresentation(
+            targetBounds: targetBounds,
+            completion: finishOnce
+        )
+        return
+    }
     (vc as? StackedNavigationPresentationPreparing)?
         .prepareForStackedNavigationPresentation(targetBounds: targetBounds)
-#if DEBUG
-    DDLogDebug("showStacked.prepareStackedDestination for \(type(of: vc)) took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - start))s")
-#endif
+    finishOnce()
 }
 
 private func configureStackedChatBackgroundPresentation(
@@ -584,21 +610,28 @@ public func showStacked(_ vc: UIViewController, in presenter: UIViewController) 
         let targetBounds = navigationController?.view.bounds ?? presenter.view.bounds
         let backgroundMode = ContinuousSplitBackgroundExperiment.mode(for: presenter)
         configureStackedChatBackgroundPresentation(vc, route: route, presenter: presenter)
-        if backgroundMode != .stockCompact {
-            prepareStackedDestination(vc, targetBounds: targetBounds)
+        let present = {
+            if let navigationController {
+                navigationController.pushViewController(vc, animated: true)
+            } else {
+                presenter.show(vc, sender: presenter)
+            }
         }
-//            presenter.splitViewController?.showDetailViewController(NavBarController(rootViewController: vc), sender: presenter)
-        if let navigationController {
-            navigationController.pushViewController(vc, animated: true)
+        if backgroundMode != .stockCompact || vc is AsyncStackedNavigationPresentationPreparing {
+            prepareStackedDestination(vc, targetBounds: targetBounds, completion: present)
         } else {
-            presenter.show(vc, sender: presenter)
+            present()
         }
     case .splitDetailReplacement:
         guard let splitViewController else {
             let navigationController = currentNavigationController(for: presenter)
             configureStackedChatBackgroundPresentation(vc, route: .currentNavigationPush, presenter: presenter)
-            prepareStackedDestination(vc, targetBounds: navigationController?.view.bounds ?? presenter.view.bounds)
-            navigationController?.pushViewController(vc, animated: true)
+            prepareStackedDestination(
+                vc,
+                targetBounds: navigationController?.view.bounds ?? presenter.view.bounds
+            ) {
+                navigationController?.pushViewController(vc, animated: true)
+            }
             return
         }
 //            presenter.splitViewController?.showDetailViewController(vc, sender: presenter)
@@ -614,10 +647,11 @@ public func showStacked(_ vc: UIViewController, in presenter: UIViewController) 
                 splitViewController: splitViewController,
                 presenter: presenter
             )
-        )
-        splitViewController.setViewController(nvc, for: .secondary)
-        splitViewController.show(.secondary)
-        hidePrimaryAfterDetailTransition(splitViewController)
+        ) {
+            splitViewController.setViewController(nvc, for: .secondary)
+            splitViewController.show(.secondary)
+            hidePrimaryAfterDetailTransition(splitViewController)
+        }
     }
 #if DEBUG
     DDLogDebug("showStacked route:\(route) for \(type(of: vc)) took \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - start))s")
