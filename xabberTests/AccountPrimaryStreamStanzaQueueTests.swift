@@ -25,6 +25,53 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         super.tearDown()
     }
 
+    func testAccountManagerSnapshotStorageReleasesDisplacedValuesOutsideLock() {
+        let storage = AccountManagerSnapshotStorage<AccountManagerStorageReleaseProbe>()
+        let released = expectation(description: "displaced value released without registry-lock deadlock")
+        var probe: AccountManagerStorageReleaseProbe? = AccountManagerStorageReleaseProbe { [weak storage] in
+            _ = storage?.snapshot()
+            released.fulfill()
+        }
+        weak var weakProbe = probe
+        storage.replace(with: [probe!])
+        probe = nil
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            storage.replace(with: [])
+        }
+
+        wait(for: [released], timeout: 1)
+        XCTAssertNil(weakProbe)
+    }
+
+    func testAccountManagerSnapshotStorageSerializesConcurrentAppendAndRemove() {
+        let storage = AccountManagerSnapshotStorage<Int>()
+        let appendGroup = DispatchGroup()
+
+        for value in 0..<200 {
+            appendGroup.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                storage.append(value)
+                appendGroup.leave()
+            }
+        }
+
+        XCTAssertEqual(appendGroup.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(Set(storage.snapshot()), Set(0..<200))
+
+        let removeGroup = DispatchGroup()
+        for value in 0..<200 {
+            removeGroup.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = storage.removeFirst { $0 == value }
+                removeGroup.leave()
+            }
+        }
+
+        XCTAssertEqual(removeGroup.wait(timeout: .now() + 2), .success)
+        XCTAssertTrue(storage.snapshot().isEmpty)
+    }
+
     func testTrackerRegistersBeforeSendAndAssignsMissingStanzaId() {
         let harness = makeTrackerHarness()
         let message = XMPPMessage(messageType: .chat, to: XMPPJID(string: "juliet@example.com"), elementID: nil)
@@ -162,6 +209,37 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         XCTAssertEqual(harness.timeouts.map(\.stanzaId), ["client-iq-get"])
     }
 
+    func testLivenessProbeRemainsSMTrackedWithoutApplicationTimeout() {
+        let harness = makeTrackerHarness()
+        _ = harness.tracker.track(stanzaId: "liveness-1", kind: .iq, replayPolicy: .livenessProbeIQ)
+
+        harness.scheduler.advance(by: 30)
+
+        XCTAssertTrue(harness.timeouts.isEmpty)
+        XCTAssertEqual(
+            harness.tracker.snapshotTrackedPrimaryStanzas().map(\.stanzaId),
+            ["liveness-1"]
+        )
+    }
+
+    func testPingManagerQueuePressurePreservesPendingResultCorrelation() {
+        let manager = PingManager(withOwner: "owner@example.com")
+        var sent: [XMPPIQ] = []
+        var localCapacityCount = 0
+
+        (1...3).forEach { _ in
+            manager.send(
+                onSuccess: { sent.append($0) },
+                onFailure: { localCapacityCount += 1 }
+            )
+        }
+
+        XCTAssertEqual(sent.count, 2)
+        XCTAssertEqual(localCapacityCount, 1)
+        XCTAssertTrue(manager.isTrackedResult(XMPPIQ(iqType: .result, elementID: sent[0].elementID)))
+        XCTAssertTrue(manager.isTrackedResult(XMPPIQ(iqType: .result, elementID: sent[1].elementID)))
+    }
+
     func testAckRequestCoordinatorRequestsAtTenthStanza() {
         let scheduler = AccountPrimaryStreamTestScheduler()
         let recorder = AccountPrimaryStreamAckRequestRecorder()
@@ -195,6 +273,7 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
 
         (1...10).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        coordinator.noteAckRequestSent()
         (11...25).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
         scheduler.advance(by: 30)
 
@@ -218,6 +297,7 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
 
         (1...10).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        coordinator.noteAckRequestSent()
         (11...15).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
         scheduler.advance(by: 2)
 
@@ -232,6 +312,7 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
 
         (1...10).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        coordinator.noteAckRequestSent()
         (11...15).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
         scheduler.advance(by: 2)
 
@@ -253,6 +334,260 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         scheduler.advance(by: 1)
 
         XCTAssertEqual(recorder.requestCount, 2)
+    }
+
+    func testAckRequestCoordinatorTimesOutOnlyOutstandingSMRequest() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        (1...10).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        coordinator.noteAckRequestSent()
+        scheduler.advance(by: 29.9)
+        XCTAssertEqual(recorder.responseTimeoutCount, 0)
+
+        scheduler.advance(by: 0.1)
+
+        XCTAssertEqual(recorder.responseTimeoutCount, 1)
+    }
+
+    func testAckRequestCoordinatorRollsBackWhenFrameworkNeverConfirmsSend() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        XCTAssertTrue(coordinator.requestAckForLiveness())
+        XCTAssertFalse(coordinator.requestAckForLiveness())
+
+        scheduler.advance(by: 2)
+
+        XCTAssertEqual(recorder.requestNotSentCount, 1)
+        XCTAssertEqual(recorder.responseTimeoutCount, 0)
+        XCTAssertTrue(coordinator.requestAckForLiveness())
+        XCTAssertEqual(recorder.requestCount, 2)
+    }
+
+    func testAckRequestCoordinatorRetriesPostRequestBatchWhenSendWasNotConfirmed() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        (1...10).forEach { coordinator.noteStanzaSent(id: "trigger-\($0)") }
+        (1...5).forEach { coordinator.noteStanzaSent(id: "after-request-\($0)") }
+
+        scheduler.advance(by: 2)
+
+        XCTAssertEqual(recorder.requestNotSentCount, 1)
+        XCTAssertEqual(recorder.requestCount, 2)
+    }
+
+    func testAckRequestCoordinatorCancelsResponseTimeoutWhenSMAckArrives() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        (1...10).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        coordinator.noteAckRequestSent()
+        scheduler.advance(by: 20)
+        coordinator.noteAck(ids: (1...10).map { "stanza-\($0)" })
+        scheduler.advance(by: 20)
+
+        XCTAssertEqual(recorder.responseTimeoutCount, 0)
+    }
+
+    func testAckRequestCoordinatorResetCancelsOutstandingResponseTimeout() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        (1...10).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        coordinator.noteAckRequestSent()
+        coordinator.reset()
+        scheduler.advance(by: 30)
+
+        XCTAssertEqual(recorder.responseTimeoutCount, 0)
+    }
+
+    func testProcessedIdsFromPreviousSMAckDoNotCancelNextResponseTimeout() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        (1...10).forEach { coordinator.noteStanzaSent(id: "first-\($0)") }
+        (1...10).forEach { coordinator.noteStanzaSent(id: "second-\($0)") }
+        coordinator.noteAckRequestSent()
+        coordinator.noteRawAck()
+        XCTAssertEqual(recorder.requestCount, 1)
+
+        coordinator.noteAcknowledgedStanzaIds((1...10).map { "first-\($0)" })
+        XCTAssertEqual(recorder.requestCount, 2)
+        coordinator.noteAckRequestSent()
+
+        coordinator.noteAcknowledgedStanzaIds((1...10).map { "first-\($0)" })
+        scheduler.advance(by: 30)
+
+        XCTAssertEqual(recorder.responseTimeoutCount, 1)
+    }
+
+    func testRawAckWithoutProcessedIdsDoesNotLeaveCoordinatorOutstanding() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        XCTAssertTrue(coordinator.requestAckForLiveness())
+        coordinator.noteAckRequestSent()
+        coordinator.noteRawAck()
+
+        scheduler.advance(by: 1)
+
+        XCTAssertEqual(recorder.responseTimeoutCount, 0)
+        XCTAssertTrue(coordinator.requestAckForLiveness())
+        XCTAssertEqual(recorder.requestCount, 2)
+    }
+
+    func testRawAckWithoutProcessedIdsRequestsPostRequestBatchAfterGrace() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        (1...10).forEach { coordinator.noteStanzaSent(id: "trigger-\($0)") }
+        coordinator.noteAckRequestSent()
+        (1...5).forEach { coordinator.noteStanzaSent(id: "after-request-\($0)") }
+        coordinator.noteRawAck()
+
+        XCTAssertEqual(recorder.requestCount, 1)
+        scheduler.advance(by: 1)
+
+        XCTAssertEqual(recorder.requestCount, 2)
+    }
+
+    func testLivenessSMRequestIsSingleFlightAndCanRunAgainAfterRawAck() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        XCTAssertTrue(coordinator.requestAckForLiveness())
+        XCTAssertFalse(coordinator.requestAckForLiveness())
+        XCTAssertEqual(recorder.requestCount, 1)
+
+        coordinator.noteAckRequestSent()
+        coordinator.noteRawAck()
+
+        XCTAssertTrue(coordinator.requestAckForLiveness())
+        XCTAssertEqual(recorder.requestCount, 2)
+    }
+
+    func testInitialRosterRequestCoordinatorTimesOutExactRequestOnce() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        var timedOutIds: [String] = []
+        let coordinator = AccountInitialRosterRequestCoordinator(
+            configuration: .init(responseTimeout: 5),
+            scheduler: scheduler,
+            onTimeout: { timedOutIds.append($0) }
+        )
+
+        coordinator.begin(id: "roster-1")
+        scheduler.advance(by: 4.9)
+        XCTAssertTrue(timedOutIds.isEmpty)
+
+        scheduler.advance(by: 0.1)
+        scheduler.advance(by: 10)
+
+        XCTAssertEqual(timedOutIds, ["roster-1"])
+        XCTAssertFalse(coordinator.complete(id: "roster-1"))
+    }
+
+    func testInitialRosterRequestCoordinatorIgnoresStaleCompletion() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        var timedOutIds: [String] = []
+        let coordinator = AccountInitialRosterRequestCoordinator(
+            configuration: .init(responseTimeout: 5),
+            scheduler: scheduler,
+            onTimeout: { timedOutIds.append($0) }
+        )
+
+        coordinator.begin(id: "roster-old")
+        coordinator.begin(id: "roster-current")
+
+        XCTAssertFalse(coordinator.complete(id: "roster-old"))
+        scheduler.advance(by: 5)
+
+        XCTAssertEqual(timedOutIds, ["roster-current"])
+    }
+
+    func testInitialRosterRequestCoordinatorResetCancelsOldSessionTimeout() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        var timedOutIds: [String] = []
+        let coordinator = AccountInitialRosterRequestCoordinator(
+            configuration: .init(responseTimeout: 5),
+            scheduler: scheduler,
+            onTimeout: { timedOutIds.append($0) }
+        )
+
+        coordinator.begin(id: "roster-old-session")
+        XCTAssertEqual(coordinator.reset(), "roster-old-session")
+        scheduler.advance(by: 5)
+
+        XCTAssertTrue(timedOutIds.isEmpty)
+    }
+
+    func testInterruptedInitialRosterRequestRetriesExactlyOnceAfterSMResume() throws {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let manager = RosterManager(
+            withOwner: "roster-resume-\(UUID().uuidString)@example.com",
+            initialRosterScheduler: scheduler
+        )
+
+        manager.request(XMPPStream())
+        let interruptedRequestId = try XCTUnwrap(manager.queryIds.first)
+
+        manager.clearInitialRosterSession()
+
+        XCTAssertFalse(manager.queryIds.contains(interruptedRequestId))
+        XCTAssertTrue(manager.retryInitialRosterAfterResumeIfNeeded(XMPPStream()))
+        let retriedRequestId = try XCTUnwrap(manager.queryIds.first)
+        XCTAssertNotEqual(retriedRequestId, interruptedRequestId)
+        XCTAssertEqual(manager.queryIds.count, 1)
+
+        XCTAssertFalse(manager.retryInitialRosterAfterResumeIfNeeded(XMPPStream()))
+        XCTAssertEqual(manager.queryIds.count, 1)
+        XCTAssertTrue(manager.queryIds.contains(retriedRequestId))
+    }
+
+    func testClearingWithoutOutstandingInitialRosterDoesNotRetryAfterSMResume() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let manager = RosterManager(
+            withOwner: "roster-no-resume-retry-\(UUID().uuidString)@example.com",
+            initialRosterScheduler: scheduler
+        )
+
+        manager.clearInitialRosterSession()
+
+        XCTAssertFalse(manager.retryInitialRosterAfterResumeIfNeeded(XMPPStream()))
+        XCTAssertTrue(manager.queryIds.isEmpty)
+    }
+
+    func testInitialRosterQueryOmitsMissingOrWhitespaceVersion() {
+        XCTAssertNil(AccountInitialRosterRequestCoordinator.makeQuery(version: nil).attribute(forName: "ver"))
+        XCTAssertNil(AccountInitialRosterRequestCoordinator.makeQuery(version: "  ").attribute(forName: "ver"))
+        XCTAssertEqual(
+            AccountInitialRosterRequestCoordinator.makeQuery(version: "roster-v2").attributeStringValue(forName: "ver"),
+            "roster-v2"
+        )
+    }
+
+    func testInitialRosterApplyFailureInvalidatesPersistedVersion() {
+        let owner = "roster-version-\(UUID().uuidString)@example.com"
+        defer {
+            SettingManager.shared.removeItem(for: owner, scope: .roster, key: "version")
+        }
+        SettingManager.shared.saveItem(for: owner, scope: .roster, key: "version", value: "roster-v1")
+        let manager = RosterManager(withOwner: owner)
+
+        manager.resolveRosterVersion(serverVersion: "roster-v2", rosterApplySucceeded: false)
+
+        XCTAssertNil(manager.version)
+        XCTAssertNil(SettingManager.shared.getKey(for: owner, scope: .roster, key: "version"))
     }
 
     func testAckTimeoutFiresOnceForSameOldestGeneration() {
@@ -910,11 +1245,19 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
             child: DDXMLElement(name: "vCard", xmlns: "vcard-temp")
         )
         let userMessage = XMPPMessage(messageType: .chat, to: XMPPJID(string: "romeo@example.com"), elementID: "message-1")
+        let rosterIQ = XMPPIQ(
+            iqType: .get,
+            elementID: "roster-1",
+            child: DDXMLElement(name: "query", xmlns: "jabber:iq:roster")
+        )
+        let initialPresence = XMPPPresence()
         let unavailable = XMPPPresence(type: .unavailable)
 
         XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(syncIQ, replayPolicy: .notReplayable))
         XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(resultIQ, replayPolicy: .notReplayable))
         XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(userMessage, replayPolicy: .durableRegularMessage(originId: "message-1")))
+        XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(rosterIQ, replayPolicy: .notReplayable))
+        XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(initialPresence, replayPolicy: .latestPresence(scope: "available:broadcast")))
         XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(unavailable, replayPolicy: .latestPresence(scope: "account-unavailable")))
         XCTAssertFalse(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(vCardIQ, replayPolicy: .notReplayable))
     }
@@ -989,10 +1332,9 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         )
     }
 
-    func testBootstrapSendGateStillQueuesBackgroundIQsDuringBootstrap() {
+    func testBootstrapSendGateStillQueuesNonCriticalBackgroundIQsDuringBootstrap() {
         let owner = "romeo@example.com"
         let backgroundIQs = [
-            XMPPIQ(iqType: .get, elementID: "roster", child: DDXMLElement(name: "query", xmlns: "jabber:iq:roster")),
             XMPPIQ(iqType: .set, elementID: "push", child: DDXMLElement(name: "enable", xmlns: "https://xabber.com/protocol/push")),
             XMPPIQ(iqType: .get, to: XMPPJID(string: "juliet@example.com"), elementID: "vcard", child: DDXMLElement(name: "vCard", xmlns: "vcard-temp")),
             XMPPIQ(iqType: .get, elementID: "mam", child: DDXMLElement(name: "query", xmlns: "urn:xmpp:mam:2")),
@@ -1159,9 +1501,11 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         let gate = AccountPrimaryStreamBootstrapSendGate(now: { now })
         let awayPresence = XMPPPresence()
         awayPresence.addAttribute(withName: "id", stringValue: "presence-away")
+        awayPresence.addAttribute(withName: "to", stringValue: "romeo@example.com")
         awayPresence.addChild(DDXMLElement(name: "show", stringValue: "away"))
         let chatPresence = XMPPPresence()
         chatPresence.addAttribute(withName: "id", stringValue: "presence-chat")
+        chatPresence.addAttribute(withName: "to", stringValue: "romeo@example.com")
         chatPresence.addChild(DDXMLElement(name: "show", stringValue: "chat"))
 
         XCTAssertEqual(
@@ -1204,10 +1548,22 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         recorder: AccountPrimaryStreamAckRequestRecorder
     ) -> AccountPrimaryStreamAckRequestCoordinator {
         AccountPrimaryStreamAckRequestCoordinator(
-            configuration: .init(stanzaThreshold: 10, maxDelay: 1),
+            configuration: .init(
+                stanzaThreshold: 10,
+                maxDelay: 1,
+                sendConfirmationTimeout: 2,
+                ackProcessingGrace: 1,
+                responseTimeout: 30
+            ),
             scheduler: scheduler,
             requestAck: {
                 recorder.requestCount += 1
+            },
+            onAckRequestNotSent: {
+                recorder.requestNotSentCount += 1
+            },
+            onAckResponseTimeout: {
+                recorder.responseTimeoutCount += 1
             }
         )
     }
@@ -1386,6 +1742,18 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
     }
 }
 
+private final class AccountManagerStorageReleaseProbe {
+    private let onDeinit: () -> Void
+
+    init(onDeinit: @escaping () -> Void) {
+        self.onDeinit = onDeinit
+    }
+
+    deinit {
+        onDeinit()
+    }
+}
+
 private struct AccountPrimaryStreamTrackerHarness {
     let tracker: AccountPrimaryStreamStanzaTracker
     let scheduler: AccountPrimaryStreamTestScheduler
@@ -1412,6 +1780,8 @@ private final class AccountPrimaryStreamTimeoutBox {
 
 private final class AccountPrimaryStreamAckRequestRecorder {
     var requestCount = 0
+    var requestNotSentCount = 0
+    var responseTimeoutCount = 0
 }
 
 private final class AccountPrimaryStreamSendCoordinatorRecorder {

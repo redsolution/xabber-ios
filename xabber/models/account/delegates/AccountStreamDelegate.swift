@@ -309,6 +309,7 @@ extension Account: XMPPStreamDelegate {
             ],
             rawXML: resumeResponse?.xmlString
         )
+        self.syncManager.prepareForAuthenticatedStream(didResume: didResume)
         self.primaryStreamAckRequestCoordinator.reset()
         let ackedIds = (resumedStanzaIds as? [Any])?.compactMap { $0 as? String } ?? []
         if didResume {
@@ -434,6 +435,21 @@ extension Account: XMPPStreamDelegate {
         self.connectionResilience.streamDidLeaveBinding(reason: "stream-error")
         self.sendReadiness.markStreamError(self.streamErrorName(error))
     }
+
+    func xmppStream(_ sender: XMPPStream, didReceiveCustomElement element: DDXMLElement) {
+        guard sender === self.xmppStream,
+              element.name == "a",
+              let namespace = element.xmlns(),
+              namespace == "urn:xmpp:sm:3" || namespace == "urn:xmpp:sm:2" else {
+            return
+        }
+        self.primaryStreamAckRequestCoordinator.noteRawAck()
+        self.connectionResilience.noteStreamManagementAck()
+        self.logConnectionDiagnostics(
+            event: "stream_management_raw_ack_received",
+            details: ["handledCount": element.attributeStringValue(forName: "h") ?? "none"]
+        )
+    }
     
     func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
         guard sender === self.xmppStream else {
@@ -468,6 +484,8 @@ extension Account: XMPPStreamDelegate {
         self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
         self.primaryStreamStanzaTracker.noteStreamDidDisconnect(canResume: self.sm.canResumeStream())
         self.primaryStreamAckRequestCoordinator.reset()
+        self.roster.clearInitialRosterSession()
+        self.syncManager.suspendInitialPresenceUntilAuthenticatedStream()
         self.connectionResilience.streamDidDisconnect(
             cause: disconnect.cause,
             reconnectAlreadyScheduled: disconnect.reconnectAlreadyScheduled
@@ -1076,13 +1094,14 @@ extension Account: XMPPStreamManagementDelegate {
     }
 
     func xmppStreamManagementDidRequestAck(_ sender: XMPPStreamManagement) {
+        self.primaryStreamAckRequestCoordinator.noteAckRequestSent()
         self.logConnectionDiagnostics(event: "stream_management_ack_requested")
     }
 
     func xmppStreamManagement(_ sender: XMPPStreamManagement, didReceiveAckForStanzaIds stanzaIds: [Any]) {
         let ackedIds = stanzaIds.compactMap { $0 as? String }
         _ = self.primaryStreamStanzaTracker.noteAck(ids: ackedIds)
-        self.primaryStreamAckRequestCoordinator.noteAck(ids: ackedIds)
+        self.primaryStreamAckRequestCoordinator.noteAcknowledgedStanzaIds(ackedIds)
         self.logConnectionDiagnostics(
             event: "stream_management_ack_received",
             details: ["ackedCount": stanzaIds.count]

@@ -46,6 +46,8 @@ extension Account {
         if didResume {
             self.sendReadiness.markStreamManagementResumeSucceeded()
             self.sendCoordinator.streamManagementResumeSucceeded()
+            self.syncManager.restoreAfterStreamManagementResume()
+            self.roster.retryInitialRosterAfterResumeIfNeeded(self.xmppStream)
             AccountManager.shared.markAsConnected(jid: self.jid)
 //            self.presence()
             DispatchQueue.main.async {
@@ -284,18 +286,14 @@ extension Account {
     }
     
     public final func didReceiveRoster() {
-        self.queue.asyncAfter(deadline: .now() + 1) {
-            let finishRosterBootstrap = {
-                if !self.sm.didResume {
-                    self.presence()
-                }
-                self.queue.asyncAfter(deadline: .now() + 1) {
-                    self.updateExtensions()
-                }
+        self.syncManager.sendInitialPresenceIfNeeded()
+        let finishRosterBootstrap = {
+            self.queue.asyncAfter(deadline: .now() + 1) {
+                self.updateExtensions()
             }
-            if !self.syncManager.deferPostBootstrapWorkIfNeeded(finishRosterBootstrap) {
-                finishRosterBootstrap()
-            }
+        }
+        if !self.syncManager.deferPostBootstrapWorkIfNeeded(finishRosterBootstrap) {
+            finishRosterBootstrap()
         }
 //        if self.sm.canResumeStream() {
 //            return

@@ -30,6 +30,7 @@ enum PrimaryStreamStanzaKind: String, Equatable {
 enum PrimaryStreamReplayPolicy: Equatable {
     case notReplayable
     case iqResponse
+    case livenessProbeIQ
     case durableRegularMessage(originId: String)
     case latestPresence(scope: String)
     case safeIdempotentIQ(retainedXML: String)
@@ -40,7 +41,7 @@ enum PrimaryStreamReplayPolicy: Equatable {
         switch self {
         case .safeIdempotentIQ(let retainedXML):
             return retainedXML.utf8.count
-        case .notReplayable, .iqResponse, .durableRegularMessage, .latestPresence, .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
+        case .notReplayable, .iqResponse, .livenessProbeIQ, .durableRegularMessage, .latestPresence, .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
             return 0
         }
     }
@@ -62,14 +63,14 @@ enum PrimaryStreamReplayPolicy: Equatable {
             return 10
         case .longRunningBackgroundIQ:
             return 5
-        case .notReplayable, .iqResponse:
+        case .notReplayable, .iqResponse, .livenessProbeIQ:
             return 0
         }
     }
 
     var requiresAckTimeout: Bool {
         switch self {
-        case .iqResponse, .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
+        case .iqResponse, .livenessProbeIQ, .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
             return false
         case .notReplayable, .durableRegularMessage, .latestPresence, .safeIdempotentIQ:
             return true
@@ -78,7 +79,7 @@ enum PrimaryStreamReplayPolicy: Equatable {
 
     var requiresOutboundHealthConfirmation: Bool {
         switch self {
-        case .iqResponse, .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
+        case .iqResponse, .livenessProbeIQ, .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
             return false
         case .notReplayable, .durableRegularMessage, .latestPresence, .safeIdempotentIQ:
             return true
@@ -98,14 +99,20 @@ enum PrimaryStreamStanzaTrackingPolicy {
         for stanza: XMPPElement,
         requestedPolicy: PrimaryStreamReplayPolicy
     ) -> PrimaryStreamReplayPolicy {
-        guard stanza.name?.lowercased() == "iq",
-              let type = stanza.attributeStringValue(forName: "type")?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased(),
-              type == "result" || type == "error" else {
+        guard stanza.name?.lowercased() == "iq" else {
             return requestedPolicy
         }
-        return .iqResponse
+        let type = stanza.attributeStringValue(forName: "type")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if type == "get",
+           stanza.element(forName: "ping", xmlns: "urn:xmpp:ping") != nil {
+            return .livenessProbeIQ
+        }
+        if type == "result" || type == "error" {
+            return .iqResponse
+        }
+        return requestedPolicy
     }
 }
 
@@ -211,16 +218,36 @@ final class AccountPrimaryStreamBootstrapSendGate {
             return true
         }
 
+        if isInitialRosterRequest(stanza) {
+            return true
+        }
+
         if stanza.name == "iq" {
             let type = stanza.attributeStringValue(forName: "type")?.lowercased()
             return type == "result" || type == "error"
         }
 
         if stanza.name == "presence" {
-            return stanza.attributeStringValue(forName: "type")?.lowercased() == "unavailable"
+            let type = stanza.attributeStringValue(forName: "type")?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if type == "unavailable" {
+                return true
+            }
+            let isAvailable = type == nil || type?.isEmpty == true || type == "available"
+            let hasRecipient = stanza.attributeStringValue(forName: "to")?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty == false
+            return isAvailable && !hasRecipient && replayPolicy.latestPresenceScope == "available:broadcast"
         }
 
         return false
+    }
+
+    static func isInitialRosterRequest(_ stanza: XMPPElement) -> Bool {
+        stanza.name == "iq"
+            && stanza.attributeStringValue(forName: "type")?.lowercased() == "get"
+            && stanza.element(forName: "query", xmlns: "jabber:iq:roster") != nil
     }
 
     static func isLoginCriticalSelfDiscoInfo(_ stanza: XMPPElement, ownerBareJID: String?) -> Bool {
@@ -343,13 +370,24 @@ final class AccountPrimaryStreamAckRequestCoordinator {
     struct Configuration {
         let stanzaThreshold: Int
         let maxDelay: TimeInterval
+        let sendConfirmationTimeout: TimeInterval
+        let ackProcessingGrace: TimeInterval
+        let responseTimeout: TimeInterval
 
-        static let production = Configuration(stanzaThreshold: 10, maxDelay: 1)
+        static let production = Configuration(
+            stanzaThreshold: 10,
+            maxDelay: 1,
+            sendConfirmationTimeout: 2,
+            ackProcessingGrace: 1,
+            responseTimeout: 30
+        )
     }
 
     private let configuration: Configuration
     private let scheduler: AccountConnectionResilienceScheduling
     private let requestAck: () -> Void
+    private let onAckRequestNotSent: () -> Void
+    private let onAckResponseTimeout: () -> Void
     private let queue = DispatchQueue(label: "com.xabber.account.primary-stream-ack-request")
 
     private var pendingSentAtById: [String: TimeInterval] = [:]
@@ -357,17 +395,30 @@ final class AccountPrimaryStreamAckRequestCoordinator {
     private var isRequestOutstanding = false
     private var timer: AccountConnectionResilienceCancellable?
     private var timerGeneration: UInt64 = 0
+    private var sendConfirmationTimer: AccountConnectionResilienceCancellable?
+    private var sendConfirmationTimerGeneration: UInt64 = 0
+    private var ackProcessingTimer: AccountConnectionResilienceCancellable?
+    private var ackProcessingTimerGeneration: UInt64 = 0
+    private var responseTimer: AccountConnectionResilienceCancellable?
+    private var responseTimerGeneration: UInt64 = 0
 
     init(
         configuration: Configuration = .production,
         scheduler: AccountConnectionResilienceScheduling,
-        requestAck: @escaping () -> Void
+        requestAck: @escaping () -> Void,
+        onAckRequestNotSent: @escaping () -> Void,
+        onAckResponseTimeout: @escaping () -> Void
     ) {
         precondition(configuration.stanzaThreshold > 0)
         precondition(configuration.maxDelay > 0)
+        precondition(configuration.sendConfirmationTimeout > 0)
+        precondition(configuration.ackProcessingGrace > 0)
+        precondition(configuration.responseTimeout > 0)
         self.configuration = configuration
         self.scheduler = scheduler
         self.requestAck = requestAck
+        self.onAckRequestNotSent = onAckRequestNotSent
+        self.onAckResponseTimeout = onAckResponseTimeout
     }
 
     func noteStanzaSent(id: String?) {
@@ -386,18 +437,75 @@ final class AccountPrimaryStreamAckRequestCoordinator {
         }
     }
 
+    @discardableResult
+    func requestAckForLiveness() -> Bool {
+        let shouldRequest = queue.sync { () -> Bool in
+            guard !isRequestOutstanding else { return false }
+            isRequestOutstanding = true
+            pendingSentAtById.removeAll()
+            orderedPendingIds.removeAll()
+            cancelTimerLocked()
+            armSendConfirmationTimerLocked()
+            return true
+        }
+        if shouldRequest {
+            requestAck()
+        }
+        return shouldRequest
+    }
+
+    func noteAckRequestSent() {
+        queue.sync {
+            guard isRequestOutstanding, responseTimer == nil else { return }
+            cancelSendConfirmationTimerLocked()
+            responseTimerGeneration += 1
+            let generation = responseTimerGeneration
+            responseTimer = scheduler.schedule(after: configuration.responseTimeout) { [weak self] in
+                self?.responseTimerDidFire(generation: generation)
+            }
+        }
+    }
+
     func noteAck(ids: [String]) {
         let acknowledgedIds = Set(ids)
         let shouldRequest = queue.sync { () -> Bool in
-            if acknowledgedIds.isEmpty == false {
-                acknowledgedIds.forEach { pendingSentAtById.removeValue(forKey: $0) }
-                orderedPendingIds.removeAll { acknowledgedIds.contains($0) }
-            }
+            removeAcknowledgedStanzaIdsLocked(acknowledgedIds)
+            guard isRequestOutstanding else { return false }
             isRequestOutstanding = false
+            cancelSendConfirmationTimerLocked()
+            cancelAckProcessingTimerLocked()
+            cancelResponseTimerLocked()
             return evaluatePendingLocked()
         }
         if shouldRequest {
             requestAck()
+        }
+    }
+
+    func noteAcknowledgedStanzaIds(_ ids: [String]) {
+        let acknowledgedIds = Set(ids)
+        let shouldRequest = queue.sync { () -> Bool in
+            removeAcknowledgedStanzaIdsLocked(acknowledgedIds)
+            guard ackProcessingTimer != nil else { return false }
+            cancelAckProcessingTimerLocked()
+            return evaluatePendingLocked()
+        }
+        if shouldRequest {
+            requestAck()
+        }
+    }
+
+    func noteRawAck() {
+        queue.sync {
+            guard isRequestOutstanding else { return }
+            isRequestOutstanding = false
+            cancelSendConfirmationTimerLocked()
+            cancelResponseTimerLocked()
+            if orderedPendingIds.isEmpty {
+                cancelAckProcessingTimerLocked()
+            } else {
+                scheduleAckProcessingTimerLocked()
+            }
         }
     }
 
@@ -407,6 +515,9 @@ final class AccountPrimaryStreamAckRequestCoordinator {
             orderedPendingIds.removeAll()
             isRequestOutstanding = false
             cancelTimerLocked()
+            cancelSendConfirmationTimerLocked()
+            cancelAckProcessingTimerLocked()
+            cancelResponseTimerLocked()
         }
     }
 
@@ -434,6 +545,7 @@ final class AccountPrimaryStreamAckRequestCoordinator {
             pendingSentAtById.removeAll()
             orderedPendingIds.removeAll()
             cancelTimerLocked()
+            armSendConfirmationTimerLocked()
             return true
         }
 
@@ -461,10 +573,97 @@ final class AccountPrimaryStreamAckRequestCoordinator {
         }
     }
 
+    private func responseTimerDidFire(generation: UInt64) {
+        let shouldNotify = queue.sync { () -> Bool in
+            guard generation == responseTimerGeneration,
+                  isRequestOutstanding else {
+                return false
+            }
+            responseTimer = nil
+            return true
+        }
+        if shouldNotify {
+            onAckResponseTimeout()
+        }
+    }
+
+    private func sendConfirmationTimerDidFire(generation: UInt64) {
+        let outcome = queue.sync { () -> (notify: Bool, request: Bool) in
+            guard generation == sendConfirmationTimerGeneration,
+                  isRequestOutstanding,
+                  responseTimer == nil else {
+                return (false, false)
+            }
+            sendConfirmationTimer = nil
+            isRequestOutstanding = false
+            cancelAckProcessingTimerLocked()
+            return (true, evaluatePendingLocked())
+        }
+        if outcome.notify {
+            onAckRequestNotSent()
+        }
+        if outcome.request {
+            requestAck()
+        }
+    }
+
+    private func ackProcessingTimerDidFire(generation: UInt64) {
+        let shouldRequest = queue.sync { () -> Bool in
+            guard generation == ackProcessingTimerGeneration else { return false }
+            ackProcessingTimer = nil
+            return evaluatePendingLocked()
+        }
+        if shouldRequest {
+            requestAck()
+        }
+    }
+
+    private func removeAcknowledgedStanzaIdsLocked(_ acknowledgedIds: Set<String>) {
+        guard acknowledgedIds.isEmpty == false else { return }
+        acknowledgedIds.forEach { pendingSentAtById.removeValue(forKey: $0) }
+        orderedPendingIds.removeAll { acknowledgedIds.contains($0) }
+    }
+
+    private func armSendConfirmationTimerLocked() {
+        cancelSendConfirmationTimerLocked()
+        sendConfirmationTimerGeneration += 1
+        let generation = sendConfirmationTimerGeneration
+        sendConfirmationTimer = scheduler.schedule(after: configuration.sendConfirmationTimeout) { [weak self] in
+            self?.sendConfirmationTimerDidFire(generation: generation)
+        }
+    }
+
+    private func scheduleAckProcessingTimerLocked() {
+        cancelAckProcessingTimerLocked()
+        ackProcessingTimerGeneration += 1
+        let generation = ackProcessingTimerGeneration
+        ackProcessingTimer = scheduler.schedule(after: configuration.ackProcessingGrace) { [weak self] in
+            self?.ackProcessingTimerDidFire(generation: generation)
+        }
+    }
+
     private func cancelTimerLocked() {
         timer?.cancel()
         timer = nil
         timerGeneration += 1
+    }
+
+    private func cancelSendConfirmationTimerLocked() {
+        sendConfirmationTimer?.cancel()
+        sendConfirmationTimer = nil
+        sendConfirmationTimerGeneration += 1
+    }
+
+    private func cancelAckProcessingTimerLocked() {
+        ackProcessingTimer?.cancel()
+        ackProcessingTimer = nil
+        ackProcessingTimerGeneration += 1
+    }
+
+    private func cancelResponseTimerLocked() {
+        responseTimer?.cancel()
+        responseTimer = nil
+        responseTimerGeneration += 1
     }
 }
 

@@ -73,6 +73,111 @@ final class AppLaunchEnvironmentPolicyTests: XCTestCase {
     }
 }
 
+final class CommonChatStatesManagerEmissionTests: XCTestCase {
+    func testExpireDoesNotEmitWhenStateSetIsUnchanged() {
+        let manager = CommonChatStatesManager()
+        var emissionCount = 0
+        let disposable = manager.observed.subscribe(onNext: { _ in
+            emissionCount += 1
+        })
+        defer {
+            disposable.dispose()
+            manager.bag = .init()
+        }
+
+        XCTAssertEqual(emissionCount, 1)
+
+        manager.expire()
+
+        XCTAssertEqual(emissionCount, 1)
+    }
+
+    func testClearDoesNotEmitWhenChatStateIsMissing() {
+        let manager = CommonChatStatesManager()
+        var emissionCount = 0
+        let disposable = manager.observed.subscribe(onNext: { _ in
+            emissionCount += 1
+        })
+        defer {
+            disposable.dispose()
+            manager.bag = .init()
+        }
+
+        manager.clear(jid: "missing@example.com", owner: "owner@example.com")
+
+        XCTAssertEqual(emissionCount, 1)
+    }
+
+    func testExpireBatchesMultipleStaleStateTransitionsIntoOneEmission() {
+        let manager = CommonChatStatesManager()
+        var emissionCount = 0
+        let disposable = manager.observed.subscribe(onNext: { _ in
+            emissionCount += 1
+        })
+        defer {
+            disposable.dispose()
+            manager.bag = .init()
+        }
+        manager.update(jid: "one@example.com", owner: "owner@example.com", state: .typing)
+        manager.update(jid: "two@example.com", owner: "owner@example.com", state: .voice)
+        manager.observed.value.forEach {
+            $0.date = Date(timeIntervalSinceNow: -16)
+        }
+        let emissionsBeforeExpiration = emissionCount
+
+        manager.expire()
+
+        XCTAssertEqual(emissionCount, emissionsBeforeExpiration + 1)
+        XCTAssertEqual(manager.observed.value.count, 2)
+        XCTAssertTrue(manager.observed.value.allSatisfy { $0.state == .none })
+    }
+
+    func testDuplicateStateRefreshesExpirationWithoutPresentationEmission() {
+        let manager = CommonChatStatesManager()
+        var emissionCount = 0
+        let disposable = manager.observed.subscribe(onNext: { _ in
+            emissionCount += 1
+        })
+        defer {
+            disposable.dispose()
+            manager.bag = .init()
+        }
+        manager.update(jid: "one@example.com", owner: "owner@example.com", state: .typing)
+        let item = try! XCTUnwrap(manager.observed.value.first)
+        item.date = Date(timeIntervalSinceNow: -10)
+        let staleDate = item.date
+        let emissionsBeforeRefresh = emissionCount
+
+        manager.update(jid: "one@example.com", owner: "owner@example.com", state: .typing)
+
+        XCTAssertEqual(emissionCount, emissionsBeforeRefresh)
+        XCTAssertGreaterThan(item.date, staleDate)
+    }
+
+    func testRealStateTransitionStillEmits() {
+        let manager = CommonChatStatesManager()
+        var emissionCount = 0
+        var emittedRawStates: [Int] = []
+        let disposable = manager.observed.subscribe(onNext: { value in
+            emissionCount += 1
+            if let rawState = value.first?.state.rawValue {
+                emittedRawStates.append(rawState)
+            }
+        })
+        defer {
+            disposable.dispose()
+            manager.bag = .init()
+        }
+        manager.update(jid: "one@example.com", owner: "owner@example.com", state: .typing)
+        let emissionsBeforeTransition = emissionCount
+
+        manager.update(jid: "one@example.com", owner: "owner@example.com", state: .none)
+
+        XCTAssertEqual(emissionCount, emissionsBeforeTransition + 1)
+        XCTAssertTrue(emittedRawStates.contains(ChatStatesManager.ComposingType.none.rawValue))
+    }
+}
+
 final class ChatFloatingHeaderLayoutPolicyTests: XCTestCase {
     func testCollectionInsetsReserveNavbarAtTopAndComposerAtBottom() {
         let insets = ChatFloatingHeaderLayoutPolicy.collectionInsets(
@@ -6956,7 +7061,7 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.recorder.sendPingCount, 2)
     }
 
-    func testPingTimeoutForcesAccidentalDisconnectAndReconnect() {
+    func testPingTimeoutDoesNotCloseEstablishedSMStream() {
         let harness = makeHarness(canResume: true)
 
         harness.coordinator.setForegroundActive(true)
@@ -6965,9 +7070,9 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
         harness.scheduler.advance(by: 15)
         harness.scheduler.advance(by: 8)
 
-        XCTAssertEqual(harness.recorder.forceCloseCauses, [.pingTimeout])
-        XCTAssertEqual(harness.recorder.reconnectTriggers, [.resilienceRetry])
-        XCTAssertEqual(harness.recorder.staleReasons, [.pingTimeout])
+        XCTAssertTrue(harness.recorder.forceCloseCauses.isEmpty)
+        XCTAssertTrue(harness.recorder.reconnectTriggers.isEmpty)
+        XCTAssertTrue(harness.recorder.staleReasons.isEmpty)
     }
 
     func testForcedDisconnectCallbackDoesNotScheduleSecondReconnect() {
@@ -6975,13 +7080,16 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
 
         harness.coordinator.setForegroundActive(true)
         harness.coordinator.streamDidReachOnline(resumed: false)
-        harness.scheduler.advance(by: 15)
-        harness.scheduler.advance(by: 8)
+        harness.coordinator.requestImmediateReconnect(
+            cause: .streamManagementAckTimeout,
+            trigger: .resilienceRetry
+        )
+        harness.scheduler.advance(by: 0)
 
         XCTAssertEqual(harness.recorder.reconnectTriggers, [.resilienceRetry])
 
         harness.coordinator.streamDidDisconnect(
-            cause: .pingTimeout,
+            cause: .streamManagementAckTimeout,
             reconnectAlreadyScheduled: true
         )
         harness.scheduler.advance(by: 0)
@@ -6992,7 +7100,7 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
         )
     }
 
-    func testPrimaryStreamAckTimeoutProbesBeforeClosingHealthyStream() {
+    func testApplicationStanzaTimeoutIsDiagnosticOnlyForEstablishedStream() {
         let harness = makeHarness()
 
         harness.coordinator.setForegroundActive(true)
@@ -7000,7 +7108,7 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
         harness.coordinator.notePrimaryStreamAckTimeout(stanzaId: "iq-result", generation: 1)
         harness.scheduler.advance(by: 0)
 
-        XCTAssertEqual(harness.recorder.sendPingCount, 1)
+        XCTAssertEqual(harness.recorder.sendPingCount, 0)
         XCTAssertTrue(harness.recorder.forceCloseCauses.isEmpty)
 
         harness.coordinator.noteStreamManagementAck()
@@ -7009,7 +7117,20 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
         XCTAssertTrue(harness.recorder.forceCloseCauses.isEmpty)
     }
 
-    func testForegroundOnlineWithoutConfirmedTrafficMarksSuspectedStaleAndReconnects() {
+    func testPrimaryStreamTrackingLimitIsDiagnosticOnlyForEstablishedStream() {
+        let harness = makeHarness()
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidReachOnline(resumed: false)
+        harness.coordinator.notePrimaryStreamTrackingLimitRejected(.countLimit(max: 1))
+        harness.scheduler.advance(by: 0)
+
+        XCTAssertTrue(harness.recorder.forceCloseCauses.isEmpty)
+        XCTAssertTrue(harness.recorder.reconnectTriggers.isEmpty)
+        XCTAssertTrue(harness.recorder.staleReasons.isEmpty)
+    }
+
+    func testForegroundOnlineWithoutConfirmedTrafficUsesNonFatalProbe() {
         let policy = AccountConnectionResiliencePolicy(
             pingInterval: 45,
             pingTimeout: 8,
@@ -7031,13 +7152,14 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
         harness.coordinator.streamDidReachOnline(resumed: false)
         harness.scheduler.advance(by: 45)
 
-        XCTAssertEqual(harness.recorder.forceCloseCauses, [.pingTimeout])
-        XCTAssertEqual(harness.recorder.reconnectTriggers, [.resilienceRetry])
-        XCTAssertEqual(harness.recorder.staleReasons, [.noConfirmedTraffic])
-        XCTAssertTrue(harness.coordinator.healthSnapshot.isSuspectedStale)
+        XCTAssertEqual(harness.recorder.sendPingCount, 1)
+        XCTAssertTrue(harness.recorder.forceCloseCauses.isEmpty)
+        XCTAssertTrue(harness.recorder.reconnectTriggers.isEmpty)
+        XCTAssertTrue(harness.recorder.staleReasons.isEmpty)
+        XCTAssertFalse(harness.coordinator.healthSnapshot.isSuspectedStale)
     }
 
-    func testOutboundApplicationStanzaWithoutConfirmationMarksStaleAndReconnects() {
+    func testOutboundApplicationConfirmationTimeoutIsDiagnosticOnly() {
         let harness = makeHarness()
 
         harness.coordinator.setForegroundActive(true)
@@ -7045,13 +7167,13 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
         harness.coordinator.noteOutboundApplicationStanza(id: "message-1")
         harness.scheduler.advance(by: 8)
 
-        XCTAssertEqual(harness.recorder.forceCloseCauses, [.pingTimeout])
-        XCTAssertEqual(harness.recorder.reconnectTriggers, [.resilienceRetry])
-        XCTAssertEqual(harness.recorder.staleReasons, [.outboundConfirmationTimeout])
+        XCTAssertTrue(harness.recorder.forceCloseCauses.isEmpty)
+        XCTAssertTrue(harness.recorder.reconnectTriggers.isEmpty)
+        XCTAssertTrue(harness.recorder.staleReasons.isEmpty)
         XCTAssertEqual(harness.coordinator.healthSnapshot.lastOutboundStanzaAt, 0)
     }
 
-    func testBlockedStreamQueueModelStillTimesOutLivenessWatchdog() {
+    func testBlockedApplicationQueueDoesNotCloseEstablishedSMStream() {
         let harness = makeHarness(canResume: true)
 
         harness.coordinator.setForegroundActive(true)
@@ -7062,8 +7184,21 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
 
         harness.scheduler.advance(by: 8)
 
-        XCTAssertEqual(harness.recorder.forceCloseCauses, [.pingTimeout])
+        XCTAssertTrue(harness.recorder.forceCloseCauses.isEmpty)
+        XCTAssertTrue(harness.recorder.reconnectTriggers.isEmpty)
+    }
+
+    func testStreamManagementAckTimeoutClosesEstablishedStream() {
+        let harness = makeHarness(canResume: true)
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidReachOnline(resumed: false)
+        harness.coordinator.noteStreamManagementAckTimeout()
+        harness.scheduler.advance(by: 0)
+
+        XCTAssertEqual(harness.recorder.forceCloseCauses, [.streamManagementAckTimeout])
         XCTAssertEqual(harness.recorder.reconnectTriggers, [.resilienceRetry])
+        XCTAssertEqual(harness.recorder.staleReasons, [.streamManagementAckTimeout])
     }
 
     func testIntentionalDisconnectDoesNotAutoReconnect() {
@@ -27560,6 +27695,307 @@ final class ClientSynchronizationManagerTests: XCTestCase {
 
     private func makeIQ(xml: String) throws -> XMPPIQ {
         XMPPIQ(from: try makeElement(xml: xml))
+    }
+
+    func testInitialPresenceClaimIsIndependentOfSyncVersionAndIdempotent() {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.version = ""
+        manager.prepareInitialPresenceForAuthenticatedStream(didResume: false)
+
+        XCTAssertTrue(manager.claimInitialPresenceSend())
+        XCTAssertFalse(manager.claimInitialPresenceSend())
+    }
+
+    func testFullAuthenticationStartsNewInitialPresenceSessionAfterLifecycleSuspension() {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.prepareInitialPresenceForAuthenticatedStream(didResume: false)
+        XCTAssertTrue(manager.claimInitialPresenceSend())
+        manager.suspendInitialPresenceUntilAuthenticatedStream()
+        manager.reset()
+
+        manager.prepareInitialPresenceForAuthenticatedStream(didResume: false)
+        XCTAssertTrue(manager.claimInitialPresenceSend())
+        XCTAssertFalse(manager.claimInitialPresenceSend())
+    }
+
+    func testSMResumePreservesSentInitialPresenceAcrossLifecycleSuspension() {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.prepareInitialPresenceForAuthenticatedStream(didResume: false)
+        XCTAssertTrue(manager.claimInitialPresenceSend())
+        manager.suspendInitialPresenceUntilAuthenticatedStream()
+        manager.reset()
+        manager.prepareInitialPresenceForAuthenticatedStream(didResume: true)
+
+        XCTAssertFalse(manager.claimInitialPresenceSend())
+    }
+
+    func testSMResumeMaySendWhenInterruptedSessionHadNotSentInitialPresence() {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.prepareInitialPresenceForAuthenticatedStream(didResume: false)
+        manager.suspendInitialPresenceUntilAuthenticatedStream()
+        manager.reset()
+        manager.prepareInitialPresenceForAuthenticatedStream(didResume: true)
+
+        XCTAssertTrue(manager.claimInitialPresenceSend())
+        XCTAssertFalse(manager.claimInitialPresenceSend())
+    }
+
+    func testGenericSyncResetKeepsCurrentAuthenticatedStreamPresenceClaimReady() {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.prepareInitialPresenceForAuthenticatedStream(didResume: false)
+
+        manager.reset()
+
+        XCTAssertTrue(manager.claimInitialPresenceSend())
+        XCTAssertFalse(manager.claimInitialPresenceSend())
+    }
+
+    func testLifecycleSuspensionBlocksStaleInitialPresenceClaimUntilStreamOutcome() {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.prepareInitialPresenceForAuthenticatedStream(didResume: false)
+
+        manager.suspendInitialPresenceUntilAuthenticatedStream()
+        manager.reset()
+
+        XCTAssertFalse(manager.claimInitialPresenceSend())
+    }
+
+    func testRepeatedResetPreservesSentClaimForSMResume() {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.prepareInitialPresenceForAuthenticatedStream(didResume: false)
+        XCTAssertTrue(manager.claimInitialPresenceSend())
+
+        manager.suspendInitialPresenceUntilAuthenticatedStream()
+        manager.reset()
+        manager.reset()
+        manager.prepareInitialPresenceForAuthenticatedStream(didResume: true)
+
+        XCTAssertFalse(manager.claimInitialPresenceSend())
+    }
+
+    func testDeferredBroadcastFlushConsumesNewAuthenticatedStreamPresenceClaim() {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.prepareInitialPresenceForAuthenticatedStream(didResume: false)
+        XCTAssertTrue(manager.claimInitialPresenceSend())
+        manager.suspendInitialPresenceUntilAuthenticatedStream()
+        manager.reset()
+        manager.prepareInitialPresenceForAuthenticatedStream(didResume: false)
+
+        XCTAssertTrue(manager.claimInitialPresenceForDeferredBroadcastFlush())
+        XCTAssertFalse(manager.claimInitialPresenceSend())
+    }
+
+    func testBroadcastPresenceBoundaryConsumesInitialPresenceClaim() {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.prepareInitialPresenceForAuthenticatedStream(didResume: false)
+
+        manager.noteBroadcastPresenceWillSend()
+
+        XCTAssertFalse(manager.claimInitialPresenceSend())
+    }
+
+    func testFullAuthenticationClearsOutstandingSyncFromFailedResume() {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.isAvailable = true
+        let stream = XMPPStream()
+
+        XCTAssertTrue(manager.sync(stream))
+        XCTAssertFalse(manager.sync(stream))
+
+        manager.prepareForAuthenticatedStream(didResume: false)
+
+        XCTAssertTrue(manager.sync(stream))
+    }
+
+    func testSuccessfulSMResumePreservesOutstandingSyncSession() {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.isAvailable = true
+        let stream = XMPPStream()
+
+        XCTAssertTrue(manager.sync(stream))
+
+        manager.prepareForAuthenticatedStream(didResume: true)
+
+        XCTAssertFalse(manager.sync(stream))
+    }
+
+    func testStaleSnapshotApplyCannotCompleteNewAuthenticatedSyncSession() throws {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.isAvailable = true
+        manager.prepareForAuthenticatedStream(didResume: false)
+        let oldStream = XMPPStream()
+        XCTAssertTrue(manager.sync(oldStream))
+        let oldQueryId = try XCTUnwrap(manager.queryIds.last)
+        let applyEntered = expectation(description: "old snapshot apply entered")
+        let releaseApply = DispatchSemaphore(value: 0)
+        manager.beforeApplyingSyncPayload = {
+            applyEntered.fulfill()
+            _ = releaseApply.wait(timeout: .now() + 5)
+        }
+        let oldResult = try makeIQ(xml: """
+        <iq type='result' id='\(oldQueryId)'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1711283296000011'>
+            <set xmlns='http://jabber.org/protocol/rsm'><count>0</count></set>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: oldResult))
+        wait(for: [applyEntered], timeout: 2)
+
+        manager.prepareForAuthenticatedStream(didResume: false)
+        let newStream = XMPPStream()
+        XCTAssertTrue(manager.sync(newStream))
+        let newQueryId = try XCTUnwrap(manager.queryIds.last)
+        XCTAssertNotEqual(newQueryId, oldQueryId)
+
+        releaseApply.signal()
+        manager.waitForPendingSnapshotApplies()
+
+        XCTAssertFalse(manager.acountSynced)
+        XCTAssertTrue(manager.queryIds.contains(newQueryId))
+        XCTAssertFalse(manager.sync(newStream))
+    }
+
+    func testOldGenericSyncResultCannotResetNewAuthenticatedSyncSession() throws {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.isAvailable = true
+        let oldStream = XMPPStream()
+        XCTAssertTrue(manager.sync(oldStream))
+        let oldQueryId = try XCTUnwrap(manager.queryIds.last)
+        let resetEntered = expectation(description: "old result reached reset boundary")
+        let handlerFinished = expectation(description: "old result handler finished")
+        let releaseReset = DispatchSemaphore(value: 0)
+        manager.beforeResettingSyncResult = {
+            resetEntered.fulfill()
+            _ = releaseReset.wait(timeout: .now() + 5)
+        }
+        let oldResult = try makeIQ(xml: "<iq type='result' id='\(oldQueryId)'/>")
+
+        DispatchQueue.global().async {
+            _ = manager.read(withIQ: oldResult)
+            handlerFinished.fulfill()
+        }
+        wait(for: [resetEntered], timeout: 2)
+
+        manager.prepareForAuthenticatedStream(didResume: false)
+        let newStream = XMPPStream()
+        XCTAssertTrue(manager.sync(newStream))
+        let newQueryId = try XCTUnwrap(manager.queryIds.last)
+
+        releaseReset.signal()
+        wait(for: [handlerFinished], timeout: 2)
+
+        XCTAssertTrue(manager.queryIds.contains(newQueryId))
+        XCTAssertFalse(manager.sync(newStream))
+    }
+
+    func testStalePaginationFailureCannotResetNewAuthenticatedSyncSession() throws {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.isAvailable = true
+        let oldStream = XMPPStream()
+        XCTAssertTrue(manager.sync(oldStream, after: "page-1"))
+        let oldQueryId = try XCTUnwrap(manager.queryIds.last)
+        let resetEntered = expectation(description: "old pagination reached reset boundary")
+        let releaseReset = DispatchSemaphore(value: 0)
+        manager.beforeResettingSnapshotFailure = {
+            resetEntered.fulfill()
+            _ = releaseReset.wait(timeout: .now() + 5)
+        }
+        let oldResult = try makeIQ(xml: """
+        <iq type='result' id='\(oldQueryId)'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1711283296000013'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <last>page-1</last><count>1</count>
+            </set>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: oldResult))
+        wait(for: [resetEntered], timeout: 2)
+
+        manager.prepareForAuthenticatedStream(didResume: false)
+        let newStream = XMPPStream()
+        XCTAssertTrue(manager.sync(newStream))
+        let newQueryId = try XCTUnwrap(manager.queryIds.last)
+
+        releaseReset.signal()
+        manager.waitForPendingSnapshotApplies()
+
+        XCTAssertTrue(manager.queryIds.contains(newQueryId))
+        XCTAssertFalse(manager.sync(newStream))
+    }
+
+    func testStalePaginationContinuationCannotJoinNewAuthenticatedSyncSession() throws {
+        try prepareManagedAccount()
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.isAvailable = true
+        let oldStream = XMPPStream()
+        XCTAssertTrue(manager.sync(oldStream, after: "page-1"))
+        let oldQueryId = try XCTUnwrap(manager.queryIds.last)
+        let continuationEntered = expectation(description: "old continuation reached dispatch boundary")
+        let releaseContinuation = DispatchSemaphore(value: 0)
+        manager.beforeDispatchingSnapshotContinuation = {
+            continuationEntered.fulfill()
+            _ = releaseContinuation.wait(timeout: .now() + 5)
+        }
+        let oldResult = try makeIQ(xml: """
+        <iq type='result' id='\(oldQueryId)'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1711283296000014'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <last>page-2</last><count>1</count>
+            </set>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: oldResult))
+        wait(for: [continuationEntered], timeout: 2)
+
+        manager.prepareForAuthenticatedStream(didResume: false)
+        let newStream = XMPPStream()
+        XCTAssertTrue(manager.sync(newStream))
+        let newQueryId = try XCTUnwrap(manager.queryIds.last)
+
+        releaseContinuation.signal()
+        manager.waitForPendingSnapshotApplies()
+
+        XCTAssertEqual(manager.queryIds.count, 1)
+        XCTAssertTrue(manager.queryIds.contains(newQueryId))
+        XCTAssertFalse(manager.sync(newStream))
+    }
+
+    func testSnapshotCompletionDoesNotOwnInitialPresence() throws {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.isAvailable = true
+        manager.prepareForAuthenticatedStream(didResume: false)
+        let stream = XMPPStream()
+        XCTAssertTrue(manager.sync(stream))
+        let queryId = try XCTUnwrap(manager.queryIds.last)
+        let attemptsLock = NSLock()
+        var initialPresenceAttempts = 0
+        manager.initialPresenceSendAttemptObserver = {
+            attemptsLock.lock()
+            initialPresenceAttempts += 1
+            attemptsLock.unlock()
+        }
+        let result = try makeIQ(xml: """
+        <iq type='result' id='\(queryId)'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1711283296000012'>
+            <set xmlns='http://jabber.org/protocol/rsm'><count>0</count></set>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: result))
+        manager.waitForPendingSnapshotApplies()
+
+        attemptsLock.lock()
+        let attempts = initialPresenceAttempts
+        attemptsLock.unlock()
+        XCTAssertEqual(attempts, 0)
+        XCTAssertTrue(manager.claimInitialPresenceSend())
     }
 
     private func insertLastChat(

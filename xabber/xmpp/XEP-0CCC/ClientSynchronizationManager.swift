@@ -285,6 +285,15 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         let max: Int
     }
 
+    private struct TrackedSyncRequest {
+        let diagnostics: SyncRequestDiagnostics
+        let generation: UInt64
+    }
+
+    private enum SyncSessionApplyError: Error {
+        case invalidated
+    }
+
     private struct SnapshotCompletionActions {
         let shouldRunInviteFallback: Bool
         let snapshotRepairTargets: [MessageArchiveManager.SnapshotRepairTarget]
@@ -345,10 +354,11 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     open var isAvailable: Bool = false
     open var version: String = ""
     private var temporaryVer: String? = nil
-    private let syncQueryIds = SynchronizedArray<String>()
     private let applyQueue = DispatchQueue(label: "com.xabber.client-sync.apply")
     private let stateQueue = DispatchQueue(label: "com.xabber.client-sync.state")
-    private var syncRequestInfoById: [String: SyncRequestDiagnostics] = [:]
+    private let syncLifecycleLock = NSLock()
+    private var syncRequestInfoById: [String: TrackedSyncRequest] = [:]
+    private var syncSessionGeneration: UInt64 = 0
     private var phase: SyncPhase = .idle
     private var activeSnapshotStamp: String? = nil
     private var activeSnapshotRequestedStampMode: SnapshotRequestStampMode? = nil
@@ -362,7 +372,13 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     private var pendingPostBootstrapWork: [() -> Void] = []
     private var needsCatchUpAfterSnapshot = false
     
-    internal var isPresenceSended: Bool = false
+    private enum InitialPresenceSessionState {
+        case awaitingAuthenticatedStream(wasSent: Bool)
+        case ready
+        case sent
+    }
+
+    private var initialPresenceSessionState: InitialPresenceSessionState = .awaitingAuthenticatedStream(wasSent: false)
     
     internal var acountSynced: Bool = false
     private var ignorePush: Bool = false
@@ -370,6 +386,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     internal var firstSync: Bool = true
     internal var beforeApplyingSyncPayload: (() throws -> Void)?
     internal var syncRequestObserver: ((SyncRequestDiagnostics) -> Void)?
+    internal var initialPresenceSendAttemptObserver: (() -> Void)?
+    internal var beforeResettingSyncResult: (() -> Void)?
+    internal var beforeResettingSnapshotFailure: (() -> Void)?
+    internal var beforeDispatchingSnapshotContinuation: (() -> Void)?
     
     enum ConversationStatus: String {
         case archived = "archived"
@@ -595,7 +615,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             return true
         }
         guard after == nil,
-              syncQueryIds.isEmpty else {
+              stateQueue.sync(execute: { syncRequestInfoById.isEmpty }) else {
             return false
         }
         let canRecover = stateQueue.sync {
@@ -617,25 +637,55 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
     }
 
+    private func isCurrentSyncSessionGeneration(_ generation: UInt64) -> Bool {
+        stateQueue.sync { syncSessionGeneration == generation }
+    }
+
     private func registerSyncQuery(_ elementId: String, request: SyncRequestDiagnostics) {
         queryIds.insert(elementId)
-        syncQueryIds.insert(elementId)
         stateQueue.sync {
-            syncRequestInfoById[elementId] = request
+            syncRequestInfoById[elementId] = TrackedSyncRequest(
+                diagnostics: request,
+                generation: syncSessionGeneration
+            )
         }
+    }
+
+    private func consumeTrackedSyncRequest(_ elementId: String) -> TrackedSyncRequest? {
+        syncLifecycleLock.lock()
+        let trackedRequest = stateQueue.sync {
+            syncRequestInfoById.removeValue(forKey: elementId)
+        }
+        if trackedRequest != nil {
+            queryIds.remove(elementId)
+        }
+        syncLifecycleLock.unlock()
+        return trackedRequest
+    }
+
+    private func registerGenericQueryId(_ elementId: String) {
+        syncLifecycleLock.lock()
+        queryIds.insert(elementId)
+        syncLifecycleLock.unlock()
+    }
+
+    private func consumeGenericQueryId(_ elementId: String) -> Bool {
+        syncLifecycleLock.lock()
+        let isTracked = queryIds.contains(elementId)
+        if isTracked {
+            queryIds.remove(elementId)
+        }
+        syncLifecycleLock.unlock()
+        return isTracked
     }
 
     @discardableResult
-    private func unregisterSyncQuery(_ elementId: String) -> SyncRequestDiagnostics? {
-        queryIds.remove(elementId)
-        syncQueryIds.remove(elementId)
-        return stateQueue.sync {
-            syncRequestInfoById.removeValue(forKey: elementId)
-        }
-    }
-
-    private func resetSyncStateAfterFailure() {
-        stateQueue.sync {
+    private func resetSyncStateAfterFailure(expectedGeneration: UInt64? = nil) -> Bool {
+        let didReset = stateQueue.sync {
+            if let expectedGeneration,
+               syncSessionGeneration != expectedGeneration {
+                return false
+            }
             phase = .idle
             activeSnapshotStamp = nil
             activeSnapshotRequestedStampMode = nil
@@ -647,8 +697,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             pendingInviteInfoRequests.removeAll()
             pendingInviteMemberRequests.removeAll()
             needsCatchUpAfterSnapshot = false
+            return true
         }
-        temporaryVer = nil
+        if didReset {
+            temporaryVer = nil
+        }
+        return didReset
     }
 
     private func processQueueItems(_ queueItems: Set<MessageManager.MessageQueueItem>) {
@@ -666,9 +720,14 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 
     private func applySyncPayload(
         conversations: [DDXMLElement],
-        accountCreateDate: Date?
+        accountCreateDate: Date?,
+        expectedGeneration: UInt64? = nil
     ) throws -> SyncPayloadApplyResult {
         try beforeApplyingSyncPayload?()
+        if let expectedGeneration,
+           !isCurrentSyncSessionGeneration(expectedGeneration) {
+            throw SyncSessionApplyError.invalidated
+        }
         var snapshotRepairTargets: [MessageArchiveManager.SnapshotRepairTarget] = []
         var seenSnapshotRepairTargets = Set<MessageArchiveManager.SnapshotRepairTarget>()
         let recordSnapshotRepairTarget: (MessageArchiveManager.SnapshotRepairTarget) -> Void = { target in
@@ -704,12 +763,20 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         )
     }
 
-    private func beginApplyingPage(snapshotStamp: String, request: SyncRequestDiagnostics?) {
+    @discardableResult
+    private func beginApplyingPage(
+        snapshotStamp: String,
+        request: SyncRequestDiagnostics?,
+        expectedGeneration: UInt64
+    ) -> Bool {
         let requestedStampMode = request.map { SnapshotRequestStampMode.fromAttribute($0.stamp) }
             ?? stateQueue.sync { activeSnapshotRequestedStampMode }
             ?? Self.normalizedSyncString(lastCompletedSnapshotStamp).map { SnapshotRequestStampMode.value($0) }
             ?? .absent
-        stateQueue.sync {
+        let didBegin = stateQueue.sync {
+            guard syncSessionGeneration == expectedGeneration else {
+                return false
+            }
             isApplyingPage = true
             if activeSnapshotStamp == nil {
                 activeSnapshotStamp = snapshotStamp
@@ -718,12 +785,22 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     phase = .snapshotInProgress
                 }
             }
+            return true
         }
+        guard didBegin else { return false }
         markSnapshotBootstrapInProgress(requestedStampMode: requestedStampMode, after: request?.after)
+        return isCurrentSyncSessionGeneration(expectedGeneration)
     }
 
-    private func finishApplyingPage(snapshotStamp: String, isFinalPage: Bool) -> SnapshotCompletionActions {
+    private func finishApplyingPage(
+        snapshotStamp: String,
+        isFinalPage: Bool,
+        expectedGeneration: UInt64
+    ) -> SnapshotCompletionActions? {
         stateQueue.sync {
+            guard syncSessionGeneration == expectedGeneration else {
+                return nil
+            }
             isApplyingPage = false
             if isFinalPage {
                 let actions = SnapshotCompletionActions(
@@ -748,8 +825,25 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 return actions
             } else {
                 phase = .catchingUp
-                return .none
+                return SnapshotCompletionActions.none
             }
+        }
+    }
+
+    @discardableResult
+    private func recordAppliedSnapshotPage(
+        _ result: SyncPayloadApplyResult,
+        expectedGeneration: UInt64
+    ) -> Bool {
+        stateQueue.sync {
+            guard syncSessionGeneration == expectedGeneration else {
+                return false
+            }
+            result.snapshotRepairTargets.forEach { pendingSnapshotRepairTargets.insert($0) }
+            if result.detectedInvite {
+                shouldRequestInviteFallbackAfterSnapshot = true
+            }
+            return true
         }
     }
 
@@ -868,8 +962,14 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
     }
 
-    private func noteReceivedConversationKeys(_ keys: [String]) -> Int {
+    private func noteReceivedConversationKeys(
+        _ keys: [String],
+        expectedGeneration: UInt64
+    ) -> Int? {
         stateQueue.sync {
+            guard syncSessionGeneration == expectedGeneration else {
+                return nil
+            }
             var duplicateCount = 0
             keys.forEach { key in
                 if !seenSnapshotConversationKeys.insert(key).inserted {
@@ -880,9 +980,14 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
     }
 
-    private func shouldRequestNextSnapshotPage(after nextPageToken: String, currentAfter: String?) -> Bool {
+    private func shouldRequestNextSnapshotPage(
+        after nextPageToken: String,
+        currentAfter: String?,
+        expectedGeneration: UInt64
+    ) -> Bool {
         stateQueue.sync {
-            guard nextPageToken.isNotEmpty,
+            guard syncSessionGeneration == expectedGeneration,
+                  nextPageToken.isNotEmpty,
                   nextPageToken != currentAfter,
                   !requestedSnapshotAfterTokens.contains(nextPageToken) else {
                 return false
@@ -1108,7 +1213,31 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     }
     
     open func sync(_ xmppStream: XMPPStream, customVer: String? = nil, after: String? = nil) -> Bool {
-        if !isAvailable || !canStartSyncWithStalePhaseRecovery(after: after) { return false }
+        return performSync(
+            xmppStream,
+            customVer: customVer,
+            after: after,
+            expectedGeneration: nil
+        )
+    }
+
+    private func performSync(
+        _ xmppStream: XMPPStream,
+        customVer: String?,
+        after: String?,
+        expectedGeneration: UInt64?
+    ) -> Bool {
+        syncLifecycleLock.lock()
+        if let expectedGeneration,
+           !stateQueue.sync(execute: { syncSessionGeneration == expectedGeneration }) {
+            syncLifecycleLock.unlock()
+            return false
+        }
+        guard isAvailable,
+              canStartSyncWithStalePhaseRecovery(after: after) else {
+            syncLifecycleLock.unlock()
+            return false
+        }
         acountSynced = false
         let elementId = xmppStream.generateUUID
         let query = DDXMLElement(name: "query", xmlns: ClientSynchronizationManager.primaryNamespace)
@@ -1126,6 +1255,15 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         to: nil,
                         elementID: elementId,
                         child: query)
+        let diagnostics = SyncRequestDiagnostics(
+            id: elementId,
+            stamp: requestedStamp,
+            after: after,
+            before: nil,
+            max: pageSize
+        )
+        registerSyncQuery(elementId, request: diagnostics)
+        syncLifecycleLock.unlock()
         let sendStartedAt = Date()
         logSyncTrace("requestSendStart", [
             ("id", elementId),
@@ -1143,14 +1281,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             ("max", pageSize),
             ("durationMs", Int(Date().timeIntervalSince(sendStartedAt) * 1000))
         ])
-        let diagnostics = SyncRequestDiagnostics(
-            id: elementId,
-            stamp: requestedStamp,
-            after: after,
-            before: nil,
-            max: pageSize
-        )
-        registerSyncQuery(elementId, request: diagnostics)
         syncRequestObserver?(diagnostics)
         logSyncTrace("request", [
             ("id", elementId),
@@ -1196,7 +1326,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 query.addChild(conversation)
                 if self.isAvailable {
                     xmppStream.send(XMPPIQ(iqType: .set, elementID: elementId, child: query))
-                    self.queryIds.insert(elementId)
+                    self.registerGenericQueryId(elementId)
                     return true
                 } else {
                     return false
@@ -1242,7 +1372,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 query.addChild(conversation)
                 if self.isAvailable {
                     xmppStream.send(XMPPIQ(iqType: .set, elementID: elementId, child: query))
-                    self.queryIds.insert(elementId)
+                    self.registerGenericQueryId(elementId)
                     return true
                 } else {
                     return false
@@ -1288,7 +1418,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 }
             query.addChild(conversation)
             xmppStream.send(XMPPIQ(iqType: .set, elementID: elementId, child: query))
-            self.queryIds.insert(elementId)
+            self.registerGenericQueryId(elementId)
         } catch {
             DDLogDebug("ClientSynchronizationManager: \(#function). \(error.localizedDescription)")
         }
@@ -1431,53 +1561,129 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 //      </synchronization>
 //    </iq>
 
-    private func sendInitialPresenceIfNeeded() {
-        guard !isPresenceSended && self.version.isNotEmpty else {
-            return
+    internal func claimInitialPresenceSend() -> Bool {
+        stateQueue.sync {
+            guard case .ready = initialPresenceSessionState else { return false }
+            initialPresenceSessionState = .sent
+            return true
         }
-        isPresenceSended = true
-        AccountManager
-            .shared
-            .find(for: owner)?
-            .unsafeAction { (user, stream) in
-                user.msgDeleteManager.enable(stream)
-                if !user.sm.didResume {
-                    user.presence()
+    }
+
+    @discardableResult
+    internal func claimInitialPresenceForDeferredBroadcastFlush() -> Bool {
+        claimInitialPresenceSend()
+    }
+
+    internal func noteBroadcastPresenceWillSend() {
+        _ = claimInitialPresenceSend()
+    }
+
+    internal func prepareInitialPresenceForAuthenticatedStream(didResume: Bool) {
+        stateQueue.sync {
+            if didResume {
+                switch initialPresenceSessionState {
+                case .awaitingAuthenticatedStream(let wasSent):
+                    initialPresenceSessionState = wasSent ? .sent : .ready
+                case .ready, .sent:
+                    break
                 }
+            } else {
+                initialPresenceSessionState = .ready
             }
+        }
+    }
+
+    internal func suspendInitialPresenceUntilAuthenticatedStream() {
+        stateQueue.sync {
+            let wasSent: Bool
+            switch initialPresenceSessionState {
+            case .sent:
+                wasSent = true
+            case .awaitingAuthenticatedStream(let previousWasSent):
+                wasSent = previousWasSent
+            case .ready:
+                wasSent = false
+            }
+            initialPresenceSessionState = .awaitingAuthenticatedStream(wasSent: wasSent)
+        }
+    }
+
+    @discardableResult
+    internal func sendInitialPresenceIfNeeded() -> Bool {
+        initialPresenceSendAttemptObserver?()
+        guard let account = AccountManager.shared.find(for: owner) else {
+            return false
+        }
+        account.action { [weak self] (user, stream) in
+            guard stream.isAuthenticated,
+                  self?.claimInitialPresenceSend() == true else {
+                return
+            }
+            user.msgDeleteManager.enable(stream)
+            user.presence()
+        }
+        return true
+    }
+
+    internal func restoreAfterStreamManagementResume() {
+        guard let account = AccountManager.shared.find(for: owner) else { return }
+        account.action { [weak self] (user, stream) in
+            guard stream.isAuthenticated else { return }
+            user.msgDeleteManager.enable(stream)
+            if self?.claimInitialPresenceSend() == true {
+                user.presence()
+            }
+        }
+    }
+
+    internal func waitForPendingSnapshotApplies() {
+        applyQueue.sync {}
     }
     
     internal func readSnapshot(_ iq: XMPPIQ) -> Bool {
         guard iq.iqType == .result else {
             return false
         }
-        let isTrackedSyncQuery = iq.elementID.map { syncQueryIds.contains($0) } == true
-        if let query = syncQueryElement(in: iq) {
-            logSyncTrace("responseReceivedBeforeParse", [
-                ("id", iq.elementID),
-                ("isTracked", isTrackedSyncQuery),
-                ("iqType", iq.type),
-                ("queryNamespace", query.xmlns()),
-                ("queryStamp", query.attributeStringValue(forName: "stamp")),
-                ("childCount", query.children?.count)
-            ])
+        guard let elementId = iq.elementID,
+              let query = syncQueryElement(in: iq) else {
+            return false
         }
+        let trackedRequest = consumeTrackedSyncRequest(elementId)
+        let isTrackedSyncQuery = trackedRequest != nil
+        logSyncTrace("responseReceivedBeforeParse", [
+            ("id", elementId),
+            ("isTracked", isTrackedSyncQuery),
+            ("iqType", iq.type),
+            ("queryNamespace", query.xmlns()),
+            ("queryStamp", query.attributeStringValue(forName: "stamp")),
+            ("childCount", query.children?.count)
+        ])
+        guard let trackedRequest,
+              isCurrentSyncSessionGeneration(trackedRequest.generation) else {
+            logSyncTrace("staleSnapshotResponseIgnored", [
+                ("id", elementId),
+                ("isTracked", isTrackedSyncQuery)
+            ])
+            return true
+        }
+        let expectedGeneration = trackedRequest.generation
+        let request: SyncRequestDiagnostics? = trackedRequest.diagnostics
         guard let page = ClientSyncPageParser.parseSnapshotPage(
             from: iq,
             pageSize: self.pageSize,
             namespace: ClientSynchronizationManager.primaryNamespace,
             updateOmemo: updateOmemoMessages(_:)
         ) else {
-            guard isTrackedSyncQuery,
-                  let query = syncQueryElement(in: iq) else {
-                return false
+            guard isCurrentSyncSessionGeneration(expectedGeneration) else {
+                logSyncTrace("staleSnapshotParseFailureIgnored", [("id", elementId)])
+                return true
             }
-            let request = iq.elementID.flatMap { unregisterSyncQuery($0) }
             let requestedStampMode = request.map { SnapshotRequestStampMode.fromAttribute($0.stamp) }
                 ?? stateQueue.sync { activeSnapshotRequestedStampMode }
                 ?? .absent
             markSnapshotBootstrapInProgress(requestedStampMode: requestedStampMode, after: request?.after)
             stateQueue.sync {
+                guard syncSessionGeneration == expectedGeneration else { return }
                 if phase == .idle || phase == .live {
                     phase = .snapshotInProgress
                 }
@@ -1494,10 +1700,22 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             ])
             return true
         }
-        let request = iq.elementID.flatMap { unregisterSyncQuery($0) }
-        let duplicateConversationCount = noteReceivedConversationKeys(conversationKeys(from: page.conversations))
+        guard beginApplyingPage(
+            snapshotStamp: page.stamp,
+            request: request,
+            expectedGeneration: expectedGeneration
+        ), let duplicateConversationCount = noteReceivedConversationKeys(
+            conversationKeys(from: page.conversations),
+            expectedGeneration: expectedGeneration
+        ) else {
+            logSyncTrace("staleSnapshotPageIgnoredBeforeApply", [
+                ("id", elementId),
+                ("snapshotStamp", page.stamp)
+            ])
+            return true
+        }
         logSyncTrace("pageReceived", [
-            ("id", iq.elementID),
+            ("id", elementId),
             ("requestedStamp", request?.stamp),
             ("requestedAfter", request?.after),
             ("requestedBefore", request?.before),
@@ -1511,9 +1729,15 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             ("duplicateConversations", duplicateConversationCount),
             ("isFinalByParser", page.isFinalPage)
         ])
-        beginApplyingPage(snapshotStamp: page.stamp, request: request)
 
         applyQueue.async {
+            guard self.isCurrentSyncSessionGeneration(expectedGeneration) else {
+                self.logSyncTrace("staleSnapshotPageIgnoredBeforeApply", [
+                    ("id", elementId),
+                    ("snapshotStamp", page.stamp)
+                ])
+                return
+            }
             let applyStartedAt = Date()
             self.logSyncTrace("pageApplyStart", [
                 ("snapshotStamp", page.stamp),
@@ -1524,11 +1748,18 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 let accountCreateDate = try WRealm.safe().object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner)?.createdAt
                 let applyResult = try self.applySyncPayload(
                     conversations: page.conversations,
-                    accountCreateDate: accountCreateDate
+                    accountCreateDate: accountCreateDate,
+                    expectedGeneration: expectedGeneration
                 )
-                self.deferSnapshotRepairTargets(applyResult.snapshotRepairTargets)
-                if applyResult.detectedInvite {
-                    self.noteInviteFallbackNeeded()
+                guard self.recordAppliedSnapshotPage(
+                    applyResult,
+                    expectedGeneration: expectedGeneration
+                ) else {
+                    self.logSyncTrace("staleSnapshotPageIgnoredAfterApply", [
+                        ("id", elementId),
+                        ("snapshotStamp", page.stamp)
+                    ])
+                    return
                 }
                 let applyFinishedAt = Date()
 
@@ -1546,13 +1777,37 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 
                 if page.isFinalPage {
                     let completionStartedAt = Date()
-                    let actions = self.finishApplyingPage(snapshotStamp: page.stamp, isFinalPage: true)
-                    self.clearSnapshotBootstrapInProgress()
-                    self.lastCompletedSnapshotStamp = page.stamp
-                    self.markLastRecognizedEventStamp(page.stamp)
-                    self.firstSync = false
-                    self.acountSynced = true
-                    self.temporaryVer = nil
+                    guard let actions = self.finishApplyingPage(
+                        snapshotStamp: page.stamp,
+                        isFinalPage: true,
+                        expectedGeneration: expectedGeneration
+                    ) else {
+                        self.logSyncTrace("staleSnapshotCompletionIgnored", [
+                            ("id", elementId),
+                            ("snapshotStamp", page.stamp)
+                        ])
+                        return
+                    }
+                    let didPersistCompletion = self.stateQueue.sync {
+                        guard self.syncSessionGeneration == expectedGeneration else {
+                            return false
+                        }
+                        self.clearSnapshotBootstrapInProgress()
+                        self.lastCompletedSnapshotStamp = page.stamp
+                        self.markLastRecognizedEventStamp(page.stamp)
+                        self.firstSync = false
+                        self.acountSynced = true
+                        self.temporaryVer = nil
+                        return true
+                    }
+                    guard didPersistCompletion,
+                          self.isCurrentSyncSessionGeneration(expectedGeneration) else {
+                        self.logSyncTrace("staleSnapshotCompletionIgnored", [
+                            ("id", elementId),
+                            ("snapshotStamp", page.stamp)
+                        ])
+                        return
+                    }
                     AccountManager.shared.changeNewUserState(for: self.owner, to: .dataLoaded)
                     self.logSyncTrace("snapshotComplete", [
                         ("snapshotStamp", page.stamp),
@@ -1564,49 +1819,103 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     ])
                     if actions.needsCatchUpSync {
                         AccountManager.shared.find(for: self.owner)?.unsafeAction { _, stream in
-                            _ = self.sync(stream)
+                            _ = self.performSync(
+                                stream,
+                                customVer: nil,
+                                after: nil,
+                                expectedGeneration: expectedGeneration
+                            )
                         }
                     }
+                    guard self.isCurrentSyncSessionGeneration(expectedGeneration) else { return }
                     self.flushSnapshotCompletionActions(actions)
-                    self.sendInitialPresenceIfNeeded()
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
+                        guard self.isCurrentSyncSessionGeneration(expectedGeneration) else { return }
                         user.csi.active(stream, by: .synchronization)
                     })
+                    guard self.isCurrentSyncSessionGeneration(expectedGeneration) else { return }
                     AccountManager.shared.find(for: self.owner)?.mam.scheduleRegularIdleBackfillIfNeeded()
                     return
                 }
 
                 guard let nextPageToken = page.nextPageToken,
-                      self.shouldRequestNextSnapshotPage(after: nextPageToken, currentAfter: request?.after) else {
-                    _ = self.finishApplyingPage(snapshotStamp: page.stamp, isFinalPage: false)
+                      self.shouldRequestNextSnapshotPage(
+                        after: nextPageToken,
+                        currentAfter: request?.after,
+                        expectedGeneration: expectedGeneration
+                      ) else {
+                    guard self.finishApplyingPage(
+                        snapshotStamp: page.stamp,
+                        isFinalPage: false,
+                        expectedGeneration: expectedGeneration
+                    ) != nil else {
+                        self.logSyncTrace("staleSnapshotPaginationFailureIgnored", [
+                            ("id", elementId),
+                            ("snapshotStamp", page.stamp)
+                        ])
+                        return
+                    }
                     self.logSyncTrace("paginationStalled", [
                         ("snapshotStamp", page.stamp),
                         ("requestedAfter", request?.after),
                         ("nextPageToken", page.nextPageToken),
                         ("persistedSnapshotStamp", "withheld")
                     ])
-                    self.resetSyncStateAfterFailure()
+                    self.beforeResettingSnapshotFailure?()
+                    _ = self.resetSyncStateAfterFailure(expectedGeneration: expectedGeneration)
                     return
                 }
 
-                _ = self.finishApplyingPage(snapshotStamp: page.stamp, isFinalPage: false)
+                guard self.finishApplyingPage(
+                    snapshotStamp: page.stamp,
+                    isFinalPage: false,
+                    expectedGeneration: expectedGeneration
+                ) != nil else {
+                    self.logSyncTrace("staleSnapshotContinuationIgnored", [
+                        ("id", elementId),
+                        ("snapshotStamp", page.stamp)
+                    ])
+                    return
+                }
                 self.logSyncTrace("pageContinuation", [
                     ("snapshotStamp", page.stamp),
                     ("after", nextPageToken),
                     ("persistedSnapshotStamp", "withheld"),
                     ("schedulingGapMs", Int(Date().timeIntervalSince(applyFinishedAt) * 1000))
                 ])
+                self.beforeDispatchingSnapshotContinuation?()
                 AccountManager.shared.find(for: self.owner)?.unsafeAction { _, stream in
-                    _ = self.sync(stream, after: nextPageToken)
+                    _ = self.performSync(
+                        stream,
+                        customVer: nil,
+                        after: nextPageToken,
+                        expectedGeneration: expectedGeneration
+                    )
                 }
                 self.logSyncTrace("pageContinuationDispatched", [
                     ("snapshotStamp", page.stamp),
                     ("after", nextPageToken),
                     ("dispatchGapMs", Int(Date().timeIntervalSince(applyFinishedAt) * 1000))
                 ])
+            } catch SyncSessionApplyError.invalidated {
+                self.logSyncTrace("staleSnapshotPageIgnoredDuringApply", [
+                    ("id", elementId),
+                    ("snapshotStamp", page.stamp)
+                ])
             } catch {
-                _ = self.finishApplyingPage(snapshotStamp: page.stamp, isFinalPage: page.isFinalPage)
-                self.resetSyncStateAfterFailure()
+                guard self.finishApplyingPage(
+                    snapshotStamp: page.stamp,
+                    isFinalPage: page.isFinalPage,
+                    expectedGeneration: expectedGeneration
+                ) != nil else {
+                    self.logSyncTrace("staleSnapshotFailureIgnored", [
+                        ("id", elementId),
+                        ("snapshotStamp", page.stamp)
+                    ])
+                    return
+                }
+                self.beforeResettingSnapshotFailure?()
+                _ = self.resetSyncStateAfterFailure(expectedGeneration: expectedGeneration)
                 self.logSyncTrace("pageApplyFailed", [
                     ("snapshotStamp", page.stamp),
                     ("error", error.localizedDescription),
@@ -2144,52 +2453,43 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 
     internal func readError(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
-              iq.iqType == .error,
-              queryIds.contains(elementId) else {
+              iq.iqType == .error else {
             return false
         }
-        let isSyncQuery = syncQueryIds.contains(elementId)
-        queryIds.remove(elementId)
-        if isSyncQuery {
-            _ = unregisterSyncQuery(elementId)
+        if let trackedRequest = consumeTrackedSyncRequest(elementId) {
             logSyncTrace("syncResultUnexpectedGenericPath", [
                 ("id", elementId),
                 ("persistedSnapshotStamp", "withheld")
             ])
             stateQueue.sync {
+                guard syncSessionGeneration == trackedRequest.generation else { return }
                 if phase == .idle || phase == .live {
                     phase = .snapshotInProgress
                 }
             }
+            return true
         }
-        return true
+        return consumeGenericQueryId(elementId)
     }
     
     internal func readResult(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
-              iq.iqType == .result,
-              queryIds.contains(elementId) else { // BAD ACCESS
-                return false
+              iq.iqType == .result else {
+            return false
         }
-        let trackedSyncRequest = stateQueue.sync {
-            syncRequestInfoById[elementId] != nil
-        }
-        let isSyncQuery = trackedSyncRequest || syncQueryIds.contains(elementId) || syncQueryElement(in: iq) != nil
-        let isSnapshotPhase = stateQueue.sync {
-            phase == .snapshotInProgress || phase == .catchingUp
-        }
-        queryIds.remove(elementId)
-        if isSyncQuery || isSnapshotPhase {
-            _ = unregisterSyncQuery(elementId)
+        if let trackedRequest = consumeTrackedSyncRequest(elementId) {
             logSyncTrace("syncError", [
                 ("id", elementId),
-                ("isTrackedSyncQuery", isSyncQuery),
+                ("isTrackedSyncQuery", true),
                 ("persistedSnapshotStamp", "withheld")
             ])
-            reset()
-            temporaryVer = nil
+            beforeResettingSyncResult?()
+            if resetSyncSession(expectedGeneration: trackedRequest.generation) {
+                temporaryVer = nil
+            }
+            return true
         }
-        return true
+        return consumeGenericQueryId(elementId)
     }
     
     public final func isSynced() -> Bool {
@@ -2199,11 +2499,15 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         return true
     }
     
-    public final func reset() {
-        self.queryIds.removeAll()
-        self.syncQueryIds.removeAll()
-        self.isPresenceSended = false
-        stateQueue.sync {
+    @discardableResult
+    private func resetSyncSession(expectedGeneration: UInt64? = nil) -> Bool {
+        syncLifecycleLock.lock()
+        let didReset = stateQueue.sync {
+            if let expectedGeneration,
+               self.syncSessionGeneration != expectedGeneration {
+                return false
+            }
+            self.syncSessionGeneration &+= 1
             self.phase = .idle
             self.activeSnapshotStamp = nil
             self.activeSnapshotRequestedStampMode = nil
@@ -2217,7 +2521,24 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             self.pendingPostBootstrapWork.removeAll()
             self.needsCatchUpAfterSnapshot = false
             self.syncRequestInfoById.removeAll()
+            return true
         }
+        if didReset {
+            self.queryIds.removeAll()
+        }
+        syncLifecycleLock.unlock()
+        return didReset
+    }
+
+    public final func reset() {
+        _ = resetSyncSession()
+    }
+
+    final func prepareForAuthenticatedStream(didResume: Bool) {
+        if !didResume {
+            reset()
+        }
+        prepareInitialPresenceForAuthenticatedStream(didResume: didResume)
     }
     
     static func remove(for owner: String, commitTransaction: Bool) {

@@ -587,6 +587,55 @@ private final class AccountDeletionDiagnosticsSessionBox {
     }
 }
 
+final class AccountManagerSnapshotStorage<Element> {
+    private let lock = NSLock()
+    private var elements: [Element]
+
+    init(_ elements: [Element] = []) {
+        self.elements = elements
+    }
+
+    func snapshot() -> [Element] {
+        lock.lock()
+        let result = elements
+        lock.unlock()
+        return result
+    }
+
+    func replace(with newElements: [Element]) {
+        lock.lock()
+        let displacedElements = elements
+        elements = newElements
+        lock.unlock()
+
+        // Account teardown may re-enter AccountManager.find(for:). Keep removed
+        // accounts alive until after the registry lock has been released.
+        withExtendedLifetime(displacedElements) {}
+    }
+
+    func append(_ element: Element) {
+        lock.lock()
+        elements.append(element)
+        lock.unlock()
+    }
+
+    @discardableResult
+    func removeFirst(where predicate: (Element) -> Bool) -> Element? {
+        lock.lock()
+        let removedElement: Element?
+        if let index = elements.firstIndex(where: predicate) {
+            removedElement = elements.remove(at: index)
+        } else {
+            removedElement = nil
+        }
+        lock.unlock()
+
+        // Returning the removed element guarantees that its destruction, which
+        // may re-enter AccountManager, happens after the lock is released.
+        return removedElement
+    }
+}
+
 public class AccountManager: NSObject {
     
     enum Pipeline {
@@ -645,7 +694,11 @@ public class AccountManager: NSObject {
     var newAccountJid: String = ""
     var newAccountObservable: BehaviorRelay<UserObserver> = BehaviorRelay(value: UserObserver(jid: "", state: .none))
     
-    var users: [Account]
+    private let userStorage = AccountManagerSnapshotStorage<Account>()
+    var users: [Account] {
+        get { userStorage.snapshot() }
+        set { userStorage.replace(with: newValue) }
+    }
     var accountDeletionDiagnosticsRecorder: AccountDeletionDiagnosticsRecorder = .live
     
     var bag: DisposeBag = DisposeBag()
@@ -670,7 +723,6 @@ public class AccountManager: NSObject {
     }
 
     override init() {
-        self.users = []
         super.init()
         addObservers()
     }
@@ -860,7 +912,7 @@ public class AccountManager: NSObject {
         
         self.markAsConnecting(jid: jid)
         let newAccount = Account(jid: jid, queue: queue)
-        self.users.append(newAccount)
+        self.userStorage.append(newAccount)
         newAccount.asyncConnect(trigger: .initialLoad)
 
         if let nickname = nickname {
@@ -874,9 +926,8 @@ public class AccountManager: NSObject {
     }
     
     func reloadAccount(withJid jid: String, autoConnect: Bool = true) {
-        if let index = self.users.firstIndex(where: { $0.jid == jid }) {
-            self.users[index].disconnect(hard: true, cause: .intentionalShutdown)
-            self.users.remove(at: index)
+        if let account = self.userStorage.removeFirst(where: { $0.jid == jid }) {
+            account.disconnect(hard: true, cause: .intentionalShutdown)
         }
         self.add(withJid: jid, autoConnect: autoConnect)
     }
@@ -899,7 +950,7 @@ public class AccountManager: NSObject {
         )
 
         let newAccount = Account(jid: jid, queue: queue)
-        self.users.append(newAccount)
+        self.userStorage.append(newAccount)
         if autoConnect {
             newAccount.asyncConnect(trigger: .addExistingAccount)
         }
@@ -941,9 +992,7 @@ public class AccountManager: NSObject {
         self.find(for: jid)?.disable()
         NotifyManager.shared.clearNotificationsFor(account: jid)
         do {
-            if let index = users.firstIndex(where: { $0.jid == jid }) {
-                users.remove(at: index)
-            }
+            _ = userStorage.removeFirst(where: { $0.jid == jid })
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
                 try realm.write {
@@ -1083,10 +1132,8 @@ public class AccountManager: NSObject {
     }
 
     private func removeAccountFromMemory(jid: String) {
-        if let index = users.firstIndex(where: { $0.jid == jid }) {
-            autoreleasepool { () -> Void in
-                users.remove(at: index)
-            }
+        autoreleasepool { () -> Void in
+            _ = userStorage.removeFirst(where: { $0.jid == jid })
         }
     }
 

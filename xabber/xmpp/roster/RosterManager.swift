@@ -22,6 +22,121 @@ import Foundation
 import XMPPFramework
 import RealmSwift
 
+final class AccountInitialRosterRequestCoordinator {
+    struct Configuration {
+        let responseTimeout: TimeInterval
+
+        static let production = Configuration(responseTimeout: 5)
+    }
+
+    private enum State {
+        case idle
+        case waiting(id: String)
+        case fallbackReleased(id: String)
+
+        var requestId: String? {
+            switch self {
+            case .idle:
+                return nil
+            case .waiting(let id), .fallbackReleased(let id):
+                return id
+            }
+        }
+    }
+
+    private let configuration: Configuration
+    private let scheduler: AccountConnectionResilienceScheduling
+    private let onTimeout: (String) -> Void
+    private let queue = DispatchQueue(label: "com.xabber.account.initial-roster-request")
+    private var state: State = .idle
+    private var timer: AccountConnectionResilienceCancellable?
+    private var timerGeneration: UInt64 = 0
+
+    init(
+        configuration: Configuration = .production,
+        scheduler: AccountConnectionResilienceScheduling,
+        onTimeout: @escaping (String) -> Void
+    ) {
+        precondition(configuration.responseTimeout > 0)
+        self.configuration = configuration
+        self.scheduler = scheduler
+        self.onTimeout = onTimeout
+    }
+
+    @discardableResult
+    func begin(id: String) -> String? {
+        queue.sync {
+            let supersededId = state.requestId
+            cancelTimerLocked()
+            state = .waiting(id: id)
+            timerGeneration += 1
+            let generation = timerGeneration
+            timer = scheduler.schedule(after: configuration.responseTimeout) { [weak self] in
+                self?.timerDidFire(id: id, generation: generation)
+            }
+            return supersededId
+        }
+    }
+
+    @discardableResult
+    func complete(id: String) -> Bool {
+        queue.sync {
+            switch state {
+            case .waiting(let currentId) where currentId == id:
+                cancelTimerLocked()
+                state = .idle
+                return true
+            case .fallbackReleased(let currentId) where currentId == id:
+                state = .idle
+                return false
+            case .idle, .waiting, .fallbackReleased:
+                return false
+            }
+        }
+    }
+
+    @discardableResult
+    func reset() -> String? {
+        queue.sync {
+            let cancelledId = state.requestId
+            cancelTimerLocked()
+            state = .idle
+            return cancelledId
+        }
+    }
+
+    static func makeQuery(version: String?) -> DDXMLElement {
+        let query = DDXMLElement(name: "query", xmlns: "jabber:iq:roster")
+        if let normalizedVersion = version?.trimmingCharacters(in: .whitespacesAndNewlines),
+           normalizedVersion.isEmpty == false {
+            query.addAttribute(withName: "ver", stringValue: normalizedVersion)
+        }
+        return query
+    }
+
+    private func timerDidFire(id: String, generation: UInt64) {
+        let shouldNotify = queue.sync { () -> Bool in
+            guard generation == timerGeneration,
+                  case .waiting(let currentId) = state,
+                  currentId == id else {
+                return false
+            }
+            timer = nil
+            state = .fallbackReleased(id: id)
+            return true
+        }
+        if shouldNotify {
+            onTimeout(id)
+        }
+    }
+
+    private func cancelTimerLocked() {
+        timer?.cancel()
+        timer = nil
+        timerGeneration += 1
+    }
+}
+
 class RosterManager: AbstractXMPPManager {
     
     class QueueItem: Hashable {
@@ -55,6 +170,14 @@ class RosterManager: AbstractXMPPManager {
     
     internal var queueItems: SynchronizedArray<QueueItem> = SynchronizedArray<QueueItem>()
     internal var isInitialRosterReceived: Bool = false
+    private let initialRosterScheduler: AccountConnectionResilienceScheduling
+    private lazy var initialRosterRequestCoordinator = AccountInitialRosterRequestCoordinator(
+        scheduler: initialRosterScheduler,
+        onTimeout: { [weak self] elementId in
+            self?.initialRosterRequestDidTimeout(elementId)
+        }
+    )
+    private var needsInitialRosterRetryAfterResume = false
     
     override func namespaces() -> [String] {
         return ["jabber:iq:roster", ]
@@ -65,19 +188,32 @@ class RosterManager: AbstractXMPPManager {
     }
     
     override init(withOwner owner: String) {
+        self.initialRosterScheduler = DispatchAccountConnectionResilienceScheduler(
+            queue: DispatchQueue(label: "com.xabber.roster.initial-timeout.\(owner)")
+        )
+        super.init(withOwner: owner)
+        version = SettingManager.shared.getKey(for: owner, scope: .roster, key: "version")
+    }
+
+    init(
+        withOwner owner: String,
+        initialRosterScheduler: AccountConnectionResilienceScheduling
+    ) {
+        self.initialRosterScheduler = initialRosterScheduler
         super.init(withOwner: owner)
         version = SettingManager.shared.getKey(for: owner, scope: .roster, key: "version")
     }
     
     open func request(_ xmppStream: XMPPStream) {
+        needsInitialRosterRetryAfterResume = false
         isInitialRosterReceived = false
         let elementId = xmppStream.generateUUID
-        let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
-        query.addAttribute(withName: "ver", stringValue: version ?? " ")
-//        isInitialRosterReceived = true
-        AccountManager.shared.find(for: owner)?.didReceiveRoster()
-        xmppStream.send(XMPPIQ(iqType: .get, elementID: elementId, child: query))
+        let query = AccountInitialRosterRequestCoordinator.makeQuery(version: version)
+        if let supersededId = initialRosterRequestCoordinator.begin(id: elementId) {
+            queryIds.remove(supersededId)
+        }
         queryIds.insert(elementId)
+        xmppStream.send(XMPPIQ(iqType: .get, elementID: elementId, child: query))
     }
     
     open func setContact(_ xmppStream: XMPPStream, jid: String, getNickFromVCard: Bool = false, nickname preferredNickname: String? = nil, groups: [String] = [], shouldAddSystemMessage: Bool = false, callback: ((String?, String?, Bool) -> Void)? = nil) {
@@ -233,16 +369,21 @@ class RosterManager: AbstractXMPPManager {
             let elementId = iq.elementID else {
             return false
         }
-        
-        if queryIds.contains(elementId) {
+
+        let isRosterPush = iq.iqType == .set
+        if isRosterPush == false {
+            guard queryIds.contains(elementId) else { return false }
+            queryIds.remove(elementId)
+        } else if queryIds.contains(elementId) {
             queryIds.remove(elementId)
         }
         
-        if iq.iqType == .set {
+        if isRosterPush {
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                 user.presence()
             })
         }
+        var rosterApplySucceeded = true
         do {
             let realm = try  WRealm.safe()
             
@@ -475,6 +616,7 @@ class RosterManager: AbstractXMPPManager {
             }
             
         } catch {
+            rosterApplySucceeded = false
             DDLogDebug("RosterManager: \(#function). \(error.localizedDescription)")
         }
         
@@ -483,10 +625,15 @@ class RosterManager: AbstractXMPPManager {
             queueItems.remove(item)
         }
         if iq.iqType == .set { return true }
-        if let newVersion = query.attributeStringValue(forName: "ver") {
-            version = newVersion
-            SettingManager.shared.saveItem(for: owner, scope: .roster, key: "version", value: newVersion)
-        }
+        resolveRosterVersion(
+            serverVersion: query.attributeStringValue(forName: "ver"),
+            rosterApplySucceeded: rosterApplySucceeded
+        )
+
+        completeInitialRosterRequestIfNeeded(
+            elementId,
+            reason: rosterApplySucceeded ? "resultApplied" : "storageFallback"
+        )
 
         return true
     }
@@ -498,6 +645,7 @@ class RosterManager: AbstractXMPPManager {
                 return false
         }
         queryIds.remove(elementId)
+        completeInitialRosterRequestIfNeeded(elementId, reason: "errorFallback")
         
         let error = errorElement.name
         if let item = queueItems.first(where: { $0.elementId == elementId }) {
@@ -512,11 +660,66 @@ class RosterManager: AbstractXMPPManager {
             queryIds.contains(elementId) else {
                 return false
         }
-//        queryIds.remove(elementId)
+        queryIds.remove(elementId)
+        completeInitialRosterRequestIfNeeded(elementId, reason: "emptyResult")
         if let item = queueItems.first(where: { $0.elementId == elementId }) {
             item.callback?(item.value, nil, true)
             queueItems.remove(item)
         }
+        return true
+    }
+
+    private func completeInitialRosterRequestIfNeeded(_ elementId: String, reason: String) {
+        guard initialRosterRequestCoordinator.complete(id: elementId) else { return }
+        finishInitialRosterRequest(reason: reason)
+    }
+
+    private func initialRosterRequestDidTimeout(_ elementId: String) {
+        guard queryIds.contains(elementId),
+              let account = AccountManager.shared.find(for: owner),
+              account.xmppStream.isAuthenticated,
+              account.sm.didResume == false else {
+            return
+        }
+        finishInitialRosterRequest(reason: "timeoutFallback")
+    }
+
+    private func finishInitialRosterRequest(reason: String) {
+        isInitialRosterReceived = true
+        guard let account = AccountManager.shared.find(for: owner) else { return }
+        account.logConnectionDiagnostics(
+            event: "initial_roster_resolved",
+            details: ["reason": reason]
+        )
+        account.didReceiveRoster()
+    }
+
+    internal func resolveRosterVersion(serverVersion: String?, rosterApplySucceeded: Bool) {
+        guard rosterApplySucceeded else {
+            version = nil
+            SettingManager.shared.removeItem(for: owner, scope: .roster, key: "version")
+            return
+        }
+        guard let serverVersion else { return }
+        version = serverVersion
+        SettingManager.shared.saveItem(for: owner, scope: .roster, key: "version", value: serverVersion)
+    }
+
+    func clearInitialRosterSession() {
+        if let cancelledId = initialRosterRequestCoordinator.reset() {
+            needsInitialRosterRetryAfterResume = true
+            queryIds.remove(cancelledId)
+        }
+        isInitialRosterReceived = false
+    }
+
+    @discardableResult
+    func retryInitialRosterAfterResumeIfNeeded(_ xmppStream: XMPPStream) -> Bool {
+        guard needsInitialRosterRetryAfterResume else { return false }
+        request(xmppStream)
+        AccountManager.shared.find(for: owner)?.logConnectionDiagnostics(
+            event: "initial_roster_retry_after_sm_resume"
+        )
         return true
     }
     

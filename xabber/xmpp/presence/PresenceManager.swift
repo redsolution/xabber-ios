@@ -76,7 +76,8 @@ class PresenceManager: AbstractXMPPManager {
             .asObservable()
             .debounce(.milliseconds(200), scheduler: self.processingScheduler)
             .observe(on: self.processingScheduler)
-            .subscribe(onNext: { (results) in
+            .subscribe(onNext: { [weak self] (results) in
+                guard let self else { return }
                 let presences = results.compactMap({ return $0 })
                 AccountManager.shared.find(for: self.owner)?.action { [weak self] account, _ in
                     guard let self else { return }

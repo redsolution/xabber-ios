@@ -76,10 +76,10 @@ class CommonChatStatesManager {
     
     open var observed: BehaviorRelay<Set<ChatStateMetadata>> = BehaviorRelay(value: Set<ChatStateMetadata>())
 
-    private func updateObserved(_ transform: @escaping (inout Set<ChatStateMetadata>) -> Void) {
+    private func updateObserved(_ transform: @escaping (inout Set<ChatStateMetadata>) -> Bool) {
         let apply = {
             var value = self.observed.value
-            transform(&value)
+            guard transform(&value) else { return }
             self.observed.accept(value)
         }
 
@@ -94,31 +94,47 @@ class CommonChatStatesManager {
         let item = ChatStateMetadata(jid: jid, owner: owner, state: state)
         updateObserved { value in
             if let existingItem = value.first(where: { $0.jid == jid && $0.owner == owner }) {
+                if existingItem.state == state {
+                    existingItem.update(state)
+                    return false
+                }
                 value.remove(existingItem)
             }
             value.insert(item)
+            return true
         }
     }
     
     open func clear(jid: String, owner: String) {
         updateObserved { value in
-            if let index = value.firstIndex(where: { $0.jid == jid && $0.owner == owner }) {
-                value.remove(at: index)
+            guard let index = value.firstIndex(where: { $0.jid == jid && $0.owner == owner }) else {
+                return false
             }
+            value.remove(at: index)
+            return true
         }
     }
     
     open func expire() {
         let now = Date()
         updateObserved { value in
-            value
-                .filter { now.timeIntervalSince($0.date) > 1 && $0.state == .none }
-                .forEach { value.remove($0) }
+            let completedItems = value.filter {
+                now.timeIntervalSince($0.date) > 1 && $0.state == .none
+            }
+            let staleActiveItems = value.filter {
+                now.timeIntervalSince($0.date) > 15 && $0.state != .none
+            }
+            guard completedItems.isNotEmpty || staleActiveItems.isNotEmpty else {
+                return false
+            }
+
+            completedItems.forEach { value.remove($0) }
+            staleActiveItems.forEach { item in
+                value.remove(item)
+                value.insert(ChatStateMetadata(jid: item.jid, owner: item.owner, state: .none))
+            }
+            return true
         }
-        observed
-            .value
-            .filter { now.timeIntervalSince($0.date) > 15 }
-            .forEach { self.update(jid: $0.jid, owner: $0.owner, state: .none) }
     }
     
     open func state(for jid: String, owner: String) -> ChatStatesManager.ComposingType{

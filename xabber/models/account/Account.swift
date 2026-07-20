@@ -588,6 +588,7 @@ enum AccountDisconnectCause: String, Equatable {
     case backgroundSuspension
     case accidentalSocket
     case pingTimeout
+    case streamManagementAckTimeout
     case bindingTimeout
     case retryableAuthFailure
     case permanentAuthFailure
@@ -597,7 +598,7 @@ enum AccountDisconnectCause: String, Equatable {
         switch self {
         case .intentionalShutdown, .accountDeletion, .resourceUpdate, .backgroundSuspension, .permanentAuthFailure:
             return true
-        case .accidentalSocket, .pingTimeout, .bindingTimeout, .retryableAuthFailure, .serverStreamError:
+        case .accidentalSocket, .pingTimeout, .streamManagementAckTimeout, .bindingTimeout, .retryableAuthFailure, .serverStreamError:
             return false
         }
     }
@@ -816,6 +817,7 @@ enum AccountConnectionStaleReason: String, Equatable {
     case outboundConfirmationTimeout
     case primaryStreamAckTimeout
     case primaryStreamTrackingLimit
+    case streamManagementAckTimeout
     case bindingTimeout
 }
 
@@ -1105,6 +1107,20 @@ final class AccountConnectionResilienceCoordinator {
         }
     }
 
+    func noteStreamManagementAckTimeout() {
+        withStateLock {
+            guard isOnline, !isSuspectedStale else {
+                log(
+                    "stream_management_ack_timeout_ignored",
+                    ["online": isOnline, "suspectedStale": isSuspectedStale]
+                )
+                return
+            }
+            log("stream_management_ack_timeout", [:])
+            forceCloseAfterStreamManagementAckTimeout()
+        }
+    }
+
     func noteDeliveryReceipt(originId: String, stanzaId: String) {
         withStateLock {
             recordConfirmedActivity(reason: "delivery-receipt", kind: .deliveryReceipt)
@@ -1139,11 +1155,12 @@ final class AccountConnectionResilienceCoordinator {
             }
             log(
                 "resilience_primary_stream_ack_timeout",
-                ["id": stanzaId ?? "none", "generation": generation]
+                [
+                    "id": stanzaId ?? "none",
+                    "generation": generation,
+                    "action": "diagnosticOnly"
+                ]
             )
-            outboundConfirmationTimer?.cancel()
-            outboundConfirmationTimer = nil
-            sendLivenessProbeNow()
         }
     }
 
@@ -1153,8 +1170,6 @@ final class AccountConnectionResilienceCoordinator {
                 "resilience_primary_stream_tracking_limit_rejected",
                 ["violation": String(describing: violation), "online": isOnline]
             )
-            guard isOnline, !isSuspectedStale else { return }
-            forceCloseAfterLivenessFailure(reason: .primaryStreamTrackingLimit)
         }
     }
 
@@ -1177,6 +1192,16 @@ final class AccountConnectionResilienceCoordinator {
             } else {
                 handlePingTimeout()
             }
+        }
+    }
+
+    func notePingNotSent(reason: String) {
+        withStateLock {
+            pendingPing = false
+            pingTimeoutTimer?.cancel()
+            pingTimeoutTimer = nil
+            log("resilience_ping_not_sent", ["reason": reason])
+            scheduleLivenessTick()
         }
     }
 
@@ -1363,10 +1388,11 @@ final class AccountConnectionResilienceCoordinator {
            scheduler.now - lastActivityAt >= policy.staleActivityTimeout {
             log(
                 "resilience_liveness_stale_activity",
-                ["age": scheduler.now - lastActivityAt]
+                [
+                    "age": scheduler.now - lastActivityAt,
+                    "action": "probeOnly"
+                ]
             )
-            forceCloseAfterLivenessFailure(reason: .noConfirmedTraffic)
-            return
         }
 
         pendingPing = true
@@ -1393,14 +1419,13 @@ final class AccountConnectionResilienceCoordinator {
         missedPings += 1
         log(
             "resilience_ping_timeout",
-            ["missedPings": missedPings, "limit": policy.maxMissedPings]
+            [
+                "missedPings": missedPings,
+                "limit": policy.maxMissedPings,
+                "action": "diagnosticOnly"
+            ]
         )
-
-        guard missedPings >= policy.maxMissedPings else {
-            scheduleLivenessTick()
-            return
-        }
-        forceCloseAfterLivenessFailure(reason: .pingTimeout)
+        scheduleLivenessTick()
     }
 
     private func handleBindingTimeout() {
@@ -1436,15 +1461,15 @@ final class AccountConnectionResilienceCoordinator {
         }
     }
 
-    private func forceCloseAfterLivenessFailure(reason: AccountConnectionStaleReason) {
+    private func forceCloseAfterStreamManagementAckTimeout() {
         cancelLiveness()
-        markSuspectedStale(reason)
+        markSuspectedStale(.streamManagementAckTimeout)
         isOnline = false
         let actions = self.actions
         runAfterStateUnlock { [weak self] in
-            actions.forceClose(.pingTimeout)
+            actions.forceClose(.streamManagementAckTimeout)
             self?.requestImmediateReconnect(
-                cause: .pingTimeout,
+                cause: .streamManagementAckTimeout,
                 trigger: .resilienceRetry
             )
         }
@@ -1462,11 +1487,14 @@ final class AccountConnectionResilienceCoordinator {
 
     private func handleOutboundConfirmationTimeout() {
         guard isOnline, !isSuspectedStale else { return }
+        outboundConfirmationTimer = nil
         log(
             "resilience_outbound_confirmation_timeout",
-            ["timeout": policy.outboundConfirmationTimeout]
+            [
+                "timeout": policy.outboundConfirmationTimeout,
+                "action": "diagnosticOnly"
+            ]
         )
-        forceCloseAfterLivenessFailure(reason: .outboundConfirmationTimeout)
     }
 
     private func fireReconnectLocked(cause: AccountDisconnectCause, trigger: AccountConnectTrigger) {
@@ -2998,13 +3026,14 @@ final class Account: NSObject {
     lazy var sendCoordinator: AccountSendCoordinator = AccountSendCoordinator(account: self)
     private lazy var connectionResilienceQueue = DispatchQueue(label: "com.xabber.account.connection-resilience.\(self.jid)")
     private lazy var connectionResilienceScheduler = DispatchAccountConnectionResilienceScheduler(queue: self.connectionResilienceQueue)
+    private lazy var streamManagementAckScheduler = DispatchAccountConnectionResilienceScheduler(queue: self.queue)
     private var lastEndpointResolutionSettingsKey: String?
     lazy var connectionResilience = AccountConnectionResilienceCoordinator(
         policy: .aggressive(),
         scheduler: self.connectionResilienceScheduler,
         actions: AccountConnectionResilienceActions(
             sendPing: { [weak self] in
-                self?.sendResiliencePing() ?? false
+                self?.requestResilienceStreamManagementAck() ?? false
             },
             forceClose: { [weak self] cause in
                 self?.forceCloseForResilience(cause: cause)
@@ -3067,9 +3096,19 @@ final class Account: NSObject {
     )
     lazy var primaryStreamAckRequestCoordinator = AccountPrimaryStreamAckRequestCoordinator(
         configuration: .production,
-        scheduler: self.connectionResilienceScheduler,
+        scheduler: self.streamManagementAckScheduler,
         requestAck: { [weak self] in
             self?.sm.requestAck()
+        },
+        onAckRequestNotSent: { [weak self] in
+            self?.logConnectionDiagnostics(
+                event: "stream_management_ack_request_not_sent",
+                trigger: .livenessProbe
+            )
+            self?.connectionResilience.notePingNotSent(reason: "streamManagementRequestNotSent")
+        },
+        onAckResponseTimeout: { [weak self] in
+            self?.connectionResilience.noteStreamManagementAckTimeout()
         }
     )
     private lazy var primaryStreamBootstrapSendGate = AccountPrimaryStreamBootstrapSendGate(
@@ -3182,7 +3221,10 @@ final class Account: NSObject {
         self.xmppStream = XMPPStream()
         self.presences = PresenceManager(withOwner: self.jid)
         self.messages = MessageManager(withOwner: self.jid, activeStream: true)
-        self.roster = RosterManager(withOwner: self.jid)
+        self.roster = RosterManager(
+            withOwner: self.jid,
+            initialRosterScheduler: DispatchAccountConnectionResilienceScheduler(queue: queue)
+        )
         self.mam = MessageArchiveManager(withOwner: self.jid)
         self.carbons = CarbonsManager(withOwner: self.jid)
         self.lastChats = LastChats(withOwner: self.jid)
@@ -3340,6 +3382,8 @@ final class Account: NSObject {
             switch tracked.replayPolicy {
             case .iqResponse:
                 event = "primary_stream_iq_response_stanza_observed"
+            case .livenessProbeIQ:
+                event = "primary_stream_liveness_probe_stanza_observed"
             case .bootstrapClientSyncIQ:
                 event = "primary_stream_bootstrap_sync_stanza_observed"
             case .longRunningBackgroundIQ:
@@ -3609,6 +3653,8 @@ final class Account: NSObject {
         self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
         self.primaryStreamStanzaTracker.noteStreamDidDisconnect(canResume: self.sm.canResumeStream())
         self.primaryStreamAckRequestCoordinator.reset()
+        self.roster.clearInitialRosterSession()
+        self.syncManager.suspendInitialPresenceUntilAuthenticatedStream()
         self.statusState.accept(.offline)
         self.statusMessage.accept(RosterUtils.shared.convertStatus(.offline))
         self.xmppStream.abortConnecting()
@@ -3991,38 +4037,22 @@ final class Account: NSObject {
         self.isBinded = false
     }
 
-    private func sendResiliencePing() -> Bool {
+    private func requestResilienceStreamManagementAck() -> Bool {
         self.queue.async { [weak self] in
             guard let self else { return }
-            guard !self.syncManager.isBootstrapCriticalSyncInProgress() else {
-                self.logConnectionDiagnostics(
-                    event: "resilience_ping_suppressed_bootstrap_sync",
-                    trigger: .livenessProbe,
-                    details: ["reason": "bootstrapSync"]
-                )
-                self.connectionResilience.notePingResult(success: true)
-                return
-            }
             guard self.xmppStream.isAuthenticated else {
-                self.logConnectionDiagnostics(event: "resilience_ping_send_skipped", trigger: .livenessProbe, details: ["reason": "notAuthenticated"])
-                self.connectionResilience.notePingResult(success: false)
+                self.logConnectionDiagnostics(event: "resilience_sm_ack_request_skipped", trigger: .livenessProbe, details: ["reason": "notAuthenticated"])
+                self.connectionResilience.notePingNotSent(reason: "notAuthenticated")
                 return
             }
-
-            self.ping.send(
-                onSuccess: { iq in
-                    self.logConnectionDiagnostics(
-                        event: "resilience_ping_iq_sent",
-                        trigger: .livenessProbe,
-                        details: ["id": iq.elementID ?? "none"]
-                    )
-                    self.sendPrimaryStanza(iq, replayPolicy: .notReplayable)
-                },
-                onFailure: {
-                    self.logConnectionDiagnostics(event: "resilience_ping_queue_limit", trigger: .livenessProbe)
-                    self.connectionResilience.notePingResult(success: false)
-                }
+            let requested = self.primaryStreamAckRequestCoordinator.requestAckForLiveness()
+            self.logConnectionDiagnostics(
+                event: requested ? "resilience_sm_ack_request_queued" : "resilience_sm_ack_request_coalesced",
+                trigger: .livenessProbe
             )
+            if !requested {
+                self.connectionResilience.notePingNotSent(reason: "streamManagementAckAlreadyOutstanding")
+            }
         }
         return true
     }
@@ -4465,6 +4495,9 @@ final class Account: NSObject {
                 .object(ofType: AccountStorageItem.self,
                         forPrimaryKey: self.jid)?
                 .resource {
+                if opponentJid == nil {
+                    self.syncManager.noteBroadcastPresenceWillSend()
+                }
                 self.presences.updateMyself(self.xmppStream,
                                             with: instance,
                                             ver: self.disco.generateVer(),
@@ -4488,6 +4521,9 @@ final class Account: NSObject {
                         realm.add(instance, update: .modified)
                         realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)?.resource = instance
                     }
+                }
+                if opponentJid == nil {
+                    self.syncManager.noteBroadcastPresenceWillSend()
                 }
                 self.presences.updateMyself(xmppStream, with: instance, ver: self.disco.generateVer(), to: opponentJid)
                 self.statusState.accept(.online)
@@ -4513,6 +4549,7 @@ final class Account: NSObject {
                         self.statusMessage.accept(newMessage!.isNotEmpty ? newMessage! : RosterUtils.shared.convertStatus(newStatus))
                     }
                     self.statusState.accept(newStatus)
+                    self.syncManager.noteBroadcastPresenceWillSend()
                     self.presences.updateMyself(self.xmppStream,
                                                 with: instance,
                                                 ver: self.disco.generateVer(),
@@ -4588,6 +4625,8 @@ final class Account: NSObject {
         self.msgDeleteManager.clearSession()
         self.devices.clearSession()
         self.groupchats.reset()
+        self.roster.clearInitialRosterSession()
+        self.syncManager.suspendInitialPresenceUntilAuthenticatedStream()
         self.syncManager.reset()
     }
 

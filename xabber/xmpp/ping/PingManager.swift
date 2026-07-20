@@ -43,19 +43,18 @@ class PingManager: AbstractXMPPManager {
     }
     
     func send(onSuccess: (XMPPIQ) -> Void, onFailure: () -> Void) {
+        guard self.queryIds.count < self.undeliveredQueryLimit else {
+            onFailure()
+            return
+        }
         let elementId: String = UUID().uuidString
         self.queryIds.insert(elementId)
-        if self.queryIds.count > self.undeliveredQueryLimit {
-            self.queryIds.removeAll()
-            onFailure()
-        } else {
-            onSuccess(XMPPIQ(
-                iqType: .get,
-                to: XMPPJID(string: domain),
-                elementID: elementId,
-                child: DDXMLElement(name: "ping",
-                                    xmlns: getPrimaryNamespace())))
-        }
+        onSuccess(XMPPIQ(
+            iqType: .get,
+            to: XMPPJID(string: domain),
+            elementID: elementId,
+            child: DDXMLElement(name: "ping",
+                                xmlns: getPrimaryNamespace())))
     }
     
     private final func readResult(_ iq: XMPPIQ) -> Bool {
