@@ -29,6 +29,7 @@ enum PrimaryStreamStanzaKind: String, Equatable {
 
 enum PrimaryStreamReplayPolicy: Equatable {
     case notReplayable
+    case iqResponse
     case durableRegularMessage(originId: String)
     case latestPresence(scope: String)
     case safeIdempotentIQ(retainedXML: String)
@@ -39,7 +40,7 @@ enum PrimaryStreamReplayPolicy: Equatable {
         switch self {
         case .safeIdempotentIQ(let retainedXML):
             return retainedXML.utf8.count
-        case .notReplayable, .durableRegularMessage, .latestPresence, .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
+        case .notReplayable, .iqResponse, .durableRegularMessage, .latestPresence, .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
             return 0
         }
     }
@@ -61,14 +62,14 @@ enum PrimaryStreamReplayPolicy: Equatable {
             return 10
         case .longRunningBackgroundIQ:
             return 5
-        case .notReplayable:
+        case .notReplayable, .iqResponse:
             return 0
         }
     }
 
     var requiresAckTimeout: Bool {
         switch self {
-        case .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
+        case .iqResponse, .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
             return false
         case .notReplayable, .durableRegularMessage, .latestPresence, .safeIdempotentIQ:
             return true
@@ -77,7 +78,7 @@ enum PrimaryStreamReplayPolicy: Equatable {
 
     var requiresOutboundHealthConfirmation: Bool {
         switch self {
-        case .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
+        case .iqResponse, .bootstrapClientSyncIQ, .longRunningBackgroundIQ:
             return false
         case .notReplayable, .durableRegularMessage, .latestPresence, .safeIdempotentIQ:
             return true
@@ -89,6 +90,22 @@ enum PrimaryStreamReplayPolicy: Equatable {
             return true
         }
         return false
+    }
+}
+
+enum PrimaryStreamStanzaTrackingPolicy {
+    static func replayPolicy(
+        for stanza: XMPPElement,
+        requestedPolicy: PrimaryStreamReplayPolicy
+    ) -> PrimaryStreamReplayPolicy {
+        guard stanza.name?.lowercased() == "iq",
+              let type = stanza.attributeStringValue(forName: "type")?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(),
+              type == "result" || type == "error" else {
+            return requestedPolicy
+        }
+        return .iqResponse
     }
 }
 
@@ -322,6 +339,135 @@ enum PrimaryStreamStanzaIdentifier {
     }
 }
 
+final class AccountPrimaryStreamAckRequestCoordinator {
+    struct Configuration {
+        let stanzaThreshold: Int
+        let maxDelay: TimeInterval
+
+        static let production = Configuration(stanzaThreshold: 10, maxDelay: 1)
+    }
+
+    private let configuration: Configuration
+    private let scheduler: AccountConnectionResilienceScheduling
+    private let requestAck: () -> Void
+    private let queue = DispatchQueue(label: "com.xabber.account.primary-stream-ack-request")
+
+    private var pendingSentAtById: [String: TimeInterval] = [:]
+    private var orderedPendingIds: [String] = []
+    private var isRequestOutstanding = false
+    private var timer: AccountConnectionResilienceCancellable?
+    private var timerGeneration: UInt64 = 0
+
+    init(
+        configuration: Configuration = .production,
+        scheduler: AccountConnectionResilienceScheduling,
+        requestAck: @escaping () -> Void
+    ) {
+        precondition(configuration.stanzaThreshold > 0)
+        precondition(configuration.maxDelay > 0)
+        self.configuration = configuration
+        self.scheduler = scheduler
+        self.requestAck = requestAck
+    }
+
+    func noteStanzaSent(id: String?) {
+        guard let id = id?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
+            return
+        }
+
+        let shouldRequest = queue.sync { () -> Bool in
+            guard pendingSentAtById[id] == nil else { return false }
+            pendingSentAtById[id] = scheduler.now
+            orderedPendingIds.append(id)
+            return evaluatePendingLocked()
+        }
+        if shouldRequest {
+            requestAck()
+        }
+    }
+
+    func noteAck(ids: [String]) {
+        let acknowledgedIds = Set(ids)
+        let shouldRequest = queue.sync { () -> Bool in
+            if acknowledgedIds.isEmpty == false {
+                acknowledgedIds.forEach { pendingSentAtById.removeValue(forKey: $0) }
+                orderedPendingIds.removeAll { acknowledgedIds.contains($0) }
+            }
+            isRequestOutstanding = false
+            return evaluatePendingLocked()
+        }
+        if shouldRequest {
+            requestAck()
+        }
+    }
+
+    func reset() {
+        queue.sync {
+            pendingSentAtById.removeAll()
+            orderedPendingIds.removeAll()
+            isRequestOutstanding = false
+            cancelTimerLocked()
+        }
+    }
+
+    private func evaluatePendingLocked() -> Bool {
+        guard !orderedPendingIds.isEmpty else {
+            cancelTimerLocked()
+            return false
+        }
+        guard isRequestOutstanding == false else {
+            cancelTimerLocked()
+            return false
+        }
+
+        guard let oldestId = orderedPendingIds.first,
+              let oldestSentAt = pendingSentAtById[oldestId] else {
+            pendingSentAtById.removeAll()
+            orderedPendingIds.removeAll()
+            cancelTimerLocked()
+            return false
+        }
+
+        let age = max(0, scheduler.now - oldestSentAt)
+        if orderedPendingIds.count >= configuration.stanzaThreshold || age >= configuration.maxDelay {
+            isRequestOutstanding = true
+            pendingSentAtById.removeAll()
+            orderedPendingIds.removeAll()
+            cancelTimerLocked()
+            return true
+        }
+
+        scheduleTimerLocked(after: configuration.maxDelay - age)
+        return false
+    }
+
+    private func scheduleTimerLocked(after delay: TimeInterval) {
+        guard timer == nil else { return }
+        timerGeneration += 1
+        let generation = timerGeneration
+        timer = scheduler.schedule(after: max(0, delay)) { [weak self] in
+            self?.timerDidFire(generation: generation)
+        }
+    }
+
+    private func timerDidFire(generation: UInt64) {
+        let shouldRequest = queue.sync { () -> Bool in
+            guard generation == timerGeneration else { return false }
+            timer = nil
+            return evaluatePendingLocked()
+        }
+        if shouldRequest {
+            requestAck()
+        }
+    }
+
+    private func cancelTimerLocked() {
+        timer?.cancel()
+        timer = nil
+        timerGeneration += 1
+    }
+}
+
 enum PrimaryStreamSendRouting {
     static func primaryAccount(owner: String, stream: XMPPStream) -> Account? {
         guard let account = AccountManager.shared.find(for: owner),
@@ -434,6 +580,25 @@ final class AccountPrimaryStreamStanzaTracker {
         queue.sync {
             let removed = ids.compactMap { removeLocked(id: $0) }
             if removed.isEmpty == false {
+                scheduleTimeoutLocked()
+            }
+            return removed
+        }
+    }
+
+    @discardableResult
+    func noteIQResponse(stanzaId: String?, type: String?) -> PrimaryStreamTrackedStanza? {
+        guard let stanzaId = stanzaId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !stanzaId.isEmpty,
+              let type = type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              type == "result" || type == "error" else {
+            return nil
+        }
+
+        return queue.sync {
+            guard trackedById[stanzaId]?.kind == .iq else { return nil }
+            let removed = removeLocked(id: stanzaId)
+            if removed != nil {
                 scheduleTimeoutLocked()
             }
             return removed

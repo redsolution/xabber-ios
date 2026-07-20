@@ -309,6 +309,7 @@ extension Account: XMPPStreamDelegate {
             ],
             rawXML: resumeResponse?.xmlString
         )
+        self.primaryStreamAckRequestCoordinator.reset()
         let ackedIds = (resumedStanzaIds as? [Any])?.compactMap { $0 as? String } ?? []
         if didResume {
             _ = self.primaryStreamStanzaTracker.noteResumeSucceeded(ackedIds: ackedIds)
@@ -408,12 +409,14 @@ extension Account: XMPPStreamDelegate {
         self.statusState.accept(.offline)
         self.resetConfigs()
         self.carbonsEnabled = false
-        self.connectionGate.markDisconnected()
-        let cause = self.pendingDisconnectCause ?? .serverStreamError
-        self.pendingDisconnectCause = nil
+        AccountStreamDisconnectLifecyclePolicy.apply(.toldToDisconnect, to: self.connectionGate)
+        let cause = self.pendingDisconnectContext.cause ?? .serverStreamError
         self.sendReadiness.markDisconnected(cause: cause)
         self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
-        self.connectionResilience.streamDidDisconnect(cause: cause)
+        self.logConnectionDiagnostics(
+            event: "disconnect_told_waiting_for_terminal_callback",
+            details: ["cause": cause.rawValue]
+        )
     }
     
     func xmppStream(_ sender: XMPPStream, didReceiveError error: DDXMLElement) {
@@ -454,18 +457,21 @@ extension Account: XMPPStreamDelegate {
                 AccountManager.shared.changeNewUserState(for: self.jid, to: .failure("Server not found"))
             }
         }
-        self.connectionGate.markDisconnected()
+        AccountStreamDisconnectLifecyclePolicy.apply(.didDisconnect, to: self.connectionGate)
         AccountManager.shared.markAsNotConnecting(
             jid: self.jid,
             reason: "stream_disconnect",
             clearAuthentication: true
         )
-        let cause = self.pendingDisconnectCause ?? .accidentalSocket
-        self.pendingDisconnectCause = nil
-        self.sendReadiness.markDisconnected(cause: cause)
+        let disconnect = self.pendingDisconnectContext.consume(defaultCause: .accidentalSocket)
+        self.sendReadiness.markDisconnected(cause: disconnect.cause)
         self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
         self.primaryStreamStanzaTracker.noteStreamDidDisconnect(canResume: self.sm.canResumeStream())
-        self.connectionResilience.streamDidDisconnect(cause: cause)
+        self.primaryStreamAckRequestCoordinator.reset()
+        self.connectionResilience.streamDidDisconnect(
+            cause: disconnect.cause,
+            reconnectAlreadyScheduled: disconnect.reconnectAlreadyScheduled
+        )
     }
 
     func xmppStream(_ sender: XMPPStream, willSend iq: XMPPIQ) -> XMPPIQ? {
@@ -491,6 +497,19 @@ extension Account: XMPPStreamDelegate {
     }
 
     func xmppStream(_ sender: XMPPStream, didReceive iq: XMPPIQ) -> Bool {
+        if sender === self.xmppStream,
+           let correlated = self.primaryStreamStanzaTracker.noteIQResponse(
+            stanzaId: iq.elementID,
+            type: iq.type
+        ) {
+            self.logConnectionDiagnostics(
+                event: "primary_stream_iq_response_correlated",
+                details: [
+                    "id": correlated.stanzaId,
+                    "type": iq.type ?? "none"
+                ]
+            )
+        }
         self.logConnectionDiagnostics(
             event: "stanza_receive_iq",
             details: [
@@ -1023,6 +1042,7 @@ extension Account: XMPPStreamDelegate {
 extension Account: XMPPStreamManagementDelegate {
     
     func xmppStreamManagement(_ sender: XMPPStreamManagement, wasEnabled enabled: DDXMLElement) {
+        self.primaryStreamAckRequestCoordinator.reset()
         self.logConnectionDiagnostics(
             event: "stream_management_enabled",
             rawXML: enabled.xmlString
@@ -1032,6 +1052,7 @@ extension Account: XMPPStreamManagementDelegate {
     }
     
     func xmppStreamManagement(_ sender: XMPPStreamManagement, wasNotEnabled failed: DDXMLElement) {
+        self.primaryStreamAckRequestCoordinator.reset()
         self.logConnectionDiagnostics(
             event: "stream_management_not_enabled",
             rawXML: failed.xmlString
@@ -1061,6 +1082,7 @@ extension Account: XMPPStreamManagementDelegate {
     func xmppStreamManagement(_ sender: XMPPStreamManagement, didReceiveAckForStanzaIds stanzaIds: [Any]) {
         let ackedIds = stanzaIds.compactMap { $0 as? String }
         _ = self.primaryStreamStanzaTracker.noteAck(ids: ackedIds)
+        self.primaryStreamAckRequestCoordinator.noteAck(ids: ackedIds)
         self.logConnectionDiagnostics(
             event: "stream_management_ack_received",
             details: ["ackedCount": stanzaIds.count]

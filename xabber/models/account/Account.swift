@@ -399,6 +399,41 @@ struct AccountStreamConnectPreflight {
     }
 }
 
+enum AccountResilienceReconnectPreflight {
+    static func shouldStart(
+        lifecyclePhase: AccountStreamLifecyclePhase,
+        pendingDisconnectCause: AccountDisconnectCause? = nil
+    ) -> Bool {
+        guard pendingDisconnectCause?.isIntentional != true else { return false }
+        return lifecyclePhase.allowsNewConnect
+    }
+}
+
+enum AccountResilienceForceClosePreflight {
+    static func shouldForceClose(pendingDisconnectCause: AccountDisconnectCause?) -> Bool {
+        pendingDisconnectCause?.isIntentional != true
+    }
+}
+
+enum AccountStreamDisconnectLifecycleEvent {
+    case toldToDisconnect
+    case didDisconnect
+}
+
+enum AccountStreamDisconnectLifecyclePolicy {
+    static func apply(
+        _ event: AccountStreamDisconnectLifecycleEvent,
+        to gate: AccountStreamLifecycleGate
+    ) {
+        switch event {
+        case .toldToDisconnect:
+            break
+        case .didDisconnect:
+            gate.markDisconnected()
+        }
+    }
+}
+
 enum AccountForegroundConnectionRecoveryDecision: Equatable {
     case skip
     case requestImmediateReconnect
@@ -569,6 +604,29 @@ enum AccountDisconnectCause: String, Equatable {
 
     var allowsAutoReconnect: Bool {
         !isIntentional
+    }
+}
+
+struct AccountPendingDisconnectContext {
+    private(set) var cause: AccountDisconnectCause?
+    private(set) var reconnectAlreadyScheduled = false
+
+    mutating func set(cause: AccountDisconnectCause, reconnectAlreadyScheduled: Bool) {
+        self.cause = cause
+        self.reconnectAlreadyScheduled = reconnectAlreadyScheduled
+    }
+
+    mutating func consume(
+        defaultCause: AccountDisconnectCause
+    ) -> (cause: AccountDisconnectCause, reconnectAlreadyScheduled: Bool) {
+        let result = (cause ?? defaultCause, reconnectAlreadyScheduled)
+        clear()
+        return result
+    }
+
+    mutating func clear() {
+        cause = nil
+        reconnectAlreadyScheduled = false
     }
 }
 
@@ -945,13 +1003,22 @@ final class AccountConnectionResilienceCoordinator {
         )
     }
 
-    func streamDidDisconnect(cause: AccountDisconnectCause) {
+    func streamDidDisconnect(
+        cause: AccountDisconnectCause,
+        reconnectAlreadyScheduled: Bool = false
+    ) {
         withStateLock {
-            streamDidDisconnectLocked(cause: cause)
+            streamDidDisconnectLocked(
+                cause: cause,
+                reconnectAlreadyScheduled: reconnectAlreadyScheduled
+            )
         }
     }
 
-    private func streamDidDisconnectLocked(cause: AccountDisconnectCause) {
+    private func streamDidDisconnectLocked(
+        cause: AccountDisconnectCause,
+        reconnectAlreadyScheduled: Bool
+    ) {
         cancelBindingWatchdog(reason: "stream-disconnected")
         isOnline = false
         pendingPing = false
@@ -965,11 +1032,22 @@ final class AccountConnectionResilienceCoordinator {
         stableOnlineTimer = nil
         log(
             "resilience_stream_disconnected",
-            ["cause": cause.rawValue, "willReconnect": cause.allowsAutoReconnect]
+            [
+                "cause": cause.rawValue,
+                "willReconnect": cause.allowsAutoReconnect && !reconnectAlreadyScheduled,
+                "reconnectAlreadyScheduled": reconnectAlreadyScheduled
+            ]
         )
         guard cause.allowsAutoReconnect else {
             cancelRetry()
             pausedReconnect = nil
+            return
+        }
+        guard !reconnectAlreadyScheduled else {
+            log(
+                "resilience_disconnect_reconnect_already_scheduled",
+                ["cause": cause.rawValue]
+            )
             return
         }
         scheduleReconnect(cause: cause, trigger: .resilienceRetry)
@@ -1063,7 +1141,9 @@ final class AccountConnectionResilienceCoordinator {
                 "resilience_primary_stream_ack_timeout",
                 ["id": stanzaId ?? "none", "generation": generation]
             )
-            forceCloseAfterLivenessFailure(reason: .primaryStreamAckTimeout)
+            outboundConfirmationTimer?.cancel()
+            outboundConfirmationTimer = nil
+            sendLivenessProbeNow()
         }
     }
 
@@ -2985,6 +3065,13 @@ final class Account: NSObject {
             )
         }
     )
+    lazy var primaryStreamAckRequestCoordinator = AccountPrimaryStreamAckRequestCoordinator(
+        configuration: .production,
+        scheduler: self.connectionResilienceScheduler,
+        requestAck: { [weak self] in
+            self?.sm.requestAck()
+        }
+    )
     private lazy var primaryStreamBootstrapSendGate = AccountPrimaryStreamBootstrapSendGate(
         now: { [weak self] in
             self?.connectionResilienceScheduler.now ?? ProcessInfo.processInfo.systemUptime
@@ -2992,7 +3079,7 @@ final class Account: NSObject {
     )
     private var networkPathMonitor: AccountNetworkPathMonitoring?
     private var isConnectionResilienceMonitoringStarted = false
-    var pendingDisconnectCause: AccountDisconnectCause?
+    var pendingDisconnectContext = AccountPendingDisconnectContext()
 //  XMPPFramework modules
     var reconnect: XMPPReconnect
 //  custom modules
@@ -3251,6 +3338,8 @@ final class Account: NSObject {
         } else {
             let event: String
             switch tracked.replayPolicy {
+            case .iqResponse:
+                event = "primary_stream_iq_response_stanza_observed"
             case .bootstrapClientSyncIQ:
                 event = "primary_stream_bootstrap_sync_stanza_observed"
             case .longRunningBackgroundIQ:
@@ -3267,7 +3356,7 @@ final class Account: NSObject {
             )
         }
         if sendReadiness.snapshot.canFlushApplicationStanzas {
-            sm.requestAck()
+            primaryStreamAckRequestCoordinator.noteStanzaSent(id: stanza.elementID)
         }
     }
 
@@ -3287,8 +3376,12 @@ final class Account: NSObject {
         for stanza: XMPPElement,
         requestedPolicy: PrimaryStreamReplayPolicy
     ) -> PrimaryStreamReplayPolicy {
-        guard requestedPolicy == .notReplayable else {
-            return requestedPolicy
+        let trackingPolicy = PrimaryStreamStanzaTrackingPolicy.replayPolicy(
+            for: stanza,
+            requestedPolicy: requestedPolicy
+        )
+        guard trackingPolicy == .notReplayable else {
+            return trackingPolicy
         }
         if ClientSynchronizationManager.isClientSyncPaginationIQ(stanza) {
             return .bootstrapClientSyncIQ
@@ -3462,7 +3555,7 @@ final class Account: NSObject {
         }
         self.sm.autoResume = true
         self.sm.addDelegate(self, delegateQueue: self.queue)
-        self.sm.automaticallyRequestAcks(afterStanzaCount: 1, orTimeout: 4)
+        self.sm.automaticallyRequestAcks(afterStanzaCount: 0, orTimeout: 0)
         self.logConnectionDiagnostics(
             event: "stream_management_prepared",
             details: [
@@ -3512,9 +3605,10 @@ final class Account: NSObject {
         self.xmppTaskScheduler.reset()
         self.cancelDelayedConnectTimer()
         self.connectionGate.reset()
-        self.sendReadiness.markDisconnected(cause: self.pendingDisconnectCause ?? .accidentalSocket)
+        self.sendReadiness.markDisconnected(cause: self.pendingDisconnectContext.cause ?? .accidentalSocket)
         self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
         self.primaryStreamStanzaTracker.noteStreamDidDisconnect(canResume: self.sm.canResumeStream())
+        self.primaryStreamAckRequestCoordinator.reset()
         self.statusState.accept(.offline)
         self.statusMessage.accept(RosterUtils.shared.convertStatus(.offline))
         self.xmppStream.abortConnecting()
@@ -3522,6 +3616,7 @@ final class Account: NSObject {
         self.xmppStream.asyncSocket.disconnect()
         self.xmppStream.removeDelegate(self)
         self.xmppStream = XMPPStream()
+        self.pendingDisconnectContext.clear()
         self.logConnectionDiagnostics(event: "reset_stream_completed")
     }
     
@@ -3956,7 +4051,17 @@ final class Account: NSObject {
         self.statusMessage.accept("Offline")
         self.queue.async { [weak self] in
             guard let self else { return }
-            self.pendingDisconnectCause = cause
+            guard AccountResilienceForceClosePreflight.shouldForceClose(
+                pendingDisconnectCause: self.pendingDisconnectContext.cause
+            ) else {
+                self.logConnectionDiagnostics(
+                    event: "resilience_force_close_skipped_intentional_disconnect",
+                    trigger: .livenessProbe,
+                    details: ["cause": cause.rawValue]
+                )
+                return
+            }
+            self.pendingDisconnectContext.set(cause: cause, reconnectAlreadyScheduled: true)
             self.reconnect.autoReconnect = false
             self.logConnectionDiagnostics(
                 event: "resilience_force_close",
@@ -3988,6 +4093,23 @@ final class Account: NSObject {
         )
         self.queue.async { [weak self] in
             guard let self else { return }
+            let lifecycle = self.connectionGate.snapshot()
+            let frameworkPhase = self.frameworkActivePhase()
+            guard AccountResilienceReconnectPreflight.shouldStart(
+                lifecyclePhase: lifecycle.phase,
+                pendingDisconnectCause: self.pendingDisconnectContext.cause
+            ) else {
+                self.logConnectionDiagnostics(
+                    event: "resilience_reconnect_execution_skipped_active_attempt",
+                    trigger: trigger,
+                    details: [
+                        "cause": cause.rawValue,
+                        "activeAttempt": lifecycle.activeAttemptID.map(String.init) ?? "none",
+                        "frameworkPhase": frameworkPhase?.rawValue ?? "none"
+                    ]
+                )
+                return
+            }
             self.resetStream()
             _ = self.requestConnect(
                 trigger: trigger,
@@ -4232,7 +4354,10 @@ final class Account: NSObject {
     func disconnect(hard: Bool = false, cause: AccountDisconnectCause? = nil) {
         let wasDisconnected = self.xmppStream.isDisconnected
         let resolvedCause = cause ?? .intentionalShutdown
-        self.pendingDisconnectCause = resolvedCause
+        self.pendingDisconnectContext.set(
+            cause: resolvedCause,
+            reconnectAlreadyScheduled: false
+        )
         self.sendReadiness.markDisconnected(cause: resolvedCause)
         self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
         self.primaryStreamStanzaTracker.noteStreamDidDisconnect(canResume: self.sm.canResumeStream())
@@ -4255,8 +4380,12 @@ final class Account: NSObject {
             clearAuthentication: true
         )
         if wasDisconnected {
+            let disconnect = self.pendingDisconnectContext.consume(defaultCause: resolvedCause)
             self.connectionGate.markDisconnected()
-            self.connectionResilience.streamDidDisconnect(cause: resolvedCause)
+            self.connectionResilience.streamDidDisconnect(
+                cause: disconnect.cause,
+                reconnectAlreadyScheduled: disconnect.reconnectAlreadyScheduled
+            )
             DDLogDebug("account disconnect completed locally jid=\(self.jid) hard=\(hard) reason=streamAlreadyDisconnected")
             self.logConnectionDiagnostics(
                 event: "disconnect_completed_local",

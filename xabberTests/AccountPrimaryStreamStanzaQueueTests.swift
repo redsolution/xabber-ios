@@ -60,6 +60,201 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         XCTAssertTrue(harness.tracker.snapshotTrackedPrimaryStanzas().isEmpty)
     }
 
+    func testIQResultRemovesOnlyMatchingTrackedIQ() {
+        let harness = makeTrackerHarness()
+        _ = harness.tracker.track(stanzaId: "iq-1", kind: .iq, replayPolicy: .notReplayable)
+        _ = harness.tracker.track(stanzaId: "iq-2", kind: .iq, replayPolicy: .notReplayable)
+        _ = harness.tracker.track(stanzaId: "message-1", kind: .message, replayPolicy: .notReplayable)
+
+        let removed = harness.tracker.noteIQResponse(stanzaId: "iq-1", type: "result")
+
+        XCTAssertEqual(removed?.stanzaId, "iq-1")
+        XCTAssertEqual(
+            harness.tracker.snapshotTrackedPrimaryStanzas().map(\.stanzaId),
+            ["iq-2", "message-1"]
+        )
+    }
+
+    func testIQErrorRemovesMatchingTrackedIQAndCancelsItsTimeout() {
+        let harness = makeTrackerHarness()
+        _ = harness.tracker.track(stanzaId: "iq-1", kind: .iq, replayPolicy: .notReplayable)
+
+        let removed = harness.tracker.noteIQResponse(stanzaId: "iq-1", type: "error")
+        let duplicate = harness.tracker.noteIQResponse(stanzaId: "iq-1", type: "error")
+        harness.scheduler.advance(by: 30)
+
+        XCTAssertEqual(removed?.stanzaId, "iq-1")
+        XCTAssertNil(duplicate)
+        XCTAssertTrue(harness.timeouts.isEmpty)
+        XCTAssertTrue(harness.tracker.snapshotTrackedPrimaryStanzas().isEmpty)
+    }
+
+    func testIQCorrelationIgnoresRequestsUnknownIdsAndNonIQStanzas() {
+        let harness = makeTrackerHarness()
+        _ = harness.tracker.track(stanzaId: "iq-1", kind: .iq, replayPolicy: .notReplayable)
+        _ = harness.tracker.track(stanzaId: "message-1", kind: .message, replayPolicy: .notReplayable)
+
+        XCTAssertNil(harness.tracker.noteIQResponse(stanzaId: "iq-1", type: "get"))
+        XCTAssertNil(harness.tracker.noteIQResponse(stanzaId: "unknown", type: "result"))
+        XCTAssertNil(harness.tracker.noteIQResponse(stanzaId: "message-1", type: "result"))
+        XCTAssertEqual(
+            harness.tracker.snapshotTrackedPrimaryStanzas().map(\.stanzaId),
+            ["iq-1", "message-1"]
+        )
+    }
+
+    func testIQResponsesUseTimeoutFreeNonReplayablePolicy() {
+        let result = XMPPIQ(iqType: .result, elementID: "result-1")
+        let error = XMPPIQ(iqType: .error, elementID: "error-1")
+        let mixedCaseResult = XMPPIQ(iqType: .result, elementID: "mixed-result-1")
+        mixedCaseResult.attribute(forName: "type")?.stringValue = " RESULT "
+        let get = XMPPIQ(iqType: .get, elementID: "get-1")
+        let set = XMPPIQ(iqType: .set, elementID: "set-1")
+
+        XCTAssertEqual(
+            PrimaryStreamStanzaTrackingPolicy.replayPolicy(for: result, requestedPolicy: .notReplayable),
+            .iqResponse
+        )
+        XCTAssertEqual(
+            PrimaryStreamStanzaTrackingPolicy.replayPolicy(
+                for: error,
+                requestedPolicy: .safeIdempotentIQ(retainedXML: "must-not-replay")
+            ),
+            .iqResponse
+        )
+        XCTAssertEqual(
+            PrimaryStreamStanzaTrackingPolicy.replayPolicy(for: mixedCaseResult, requestedPolicy: .notReplayable),
+            .iqResponse
+        )
+        XCTAssertEqual(
+            PrimaryStreamStanzaTrackingPolicy.replayPolicy(for: get, requestedPolicy: .notReplayable),
+            .notReplayable
+        )
+        XCTAssertEqual(
+            PrimaryStreamStanzaTrackingPolicy.replayPolicy(for: set, requestedPolicy: .notReplayable),
+            .notReplayable
+        )
+    }
+
+    func testIQResponseRemainsSMTrackedWithoutApplicationTimeout() {
+        let harness = makeTrackerHarness()
+        _ = harness.tracker.track(stanzaId: "server-iq-result", kind: .iq, replayPolicy: .iqResponse)
+
+        harness.scheduler.advance(by: 30)
+
+        XCTAssertTrue(harness.timeouts.isEmpty)
+        XCTAssertEqual(
+            harness.tracker.snapshotTrackedPrimaryStanzas().map(\.stanzaId),
+            ["server-iq-result"]
+        )
+
+        _ = harness.tracker.noteAck(ids: ["server-iq-result"])
+
+        XCTAssertTrue(harness.tracker.snapshotTrackedPrimaryStanzas().isEmpty)
+    }
+
+    func testIQRequestStillArmsApplicationTimeout() {
+        let harness = makeTrackerHarness()
+        _ = harness.tracker.track(stanzaId: "client-iq-get", kind: .iq, replayPolicy: .notReplayable)
+
+        harness.scheduler.advance(by: 5)
+
+        XCTAssertEqual(harness.timeouts.map(\.stanzaId), ["client-iq-get"])
+    }
+
+    func testAckRequestCoordinatorRequestsAtTenthStanza() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        (1...9).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        XCTAssertEqual(recorder.requestCount, 0)
+
+        coordinator.noteStanzaSent(id: "stanza-10")
+
+        XCTAssertEqual(recorder.requestCount, 1)
+    }
+
+    func testAckRequestCoordinatorRequestsPartialBatchAfterOneSecond() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        coordinator.noteStanzaSent(id: "stanza-1")
+        scheduler.advance(by: 0.99)
+        XCTAssertEqual(recorder.requestCount, 0)
+
+        scheduler.advance(by: 0.01)
+
+        XCTAssertEqual(recorder.requestCount, 1)
+    }
+
+    func testAckRequestCoordinatorAllowsOnlyOneOutstandingRequest() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        (1...10).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        (11...25).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        scheduler.advance(by: 30)
+
+        XCTAssertEqual(recorder.requestCount, 1)
+    }
+
+    func testAckRequestCoordinatorIgnoresCancelledTimerAfterThresholdRequest() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        (1...10).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        scheduler.fireCancelledCallbacks()
+
+        XCTAssertEqual(recorder.requestCount, 1)
+    }
+
+    func testAckRequestCoordinatorRequestsAgedPendingBatchAfterOutstandingAck() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        (1...10).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        (11...15).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        scheduler.advance(by: 2)
+
+        coordinator.noteAck(ids: (1...10).map { "stanza-\($0)" })
+
+        XCTAssertEqual(recorder.requestCount, 2)
+    }
+
+    func testAckRequestCoordinatorDoesNotRequestWhenAckCoversAllPendingStanzas() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        (1...10).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        (11...15).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        scheduler.advance(by: 2)
+
+        coordinator.noteAck(ids: (1...15).map { "stanza-\($0)" })
+
+        XCTAssertEqual(recorder.requestCount, 1)
+    }
+
+    func testAckRequestCoordinatorResetStartsFreshBatch() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        let recorder = AccountPrimaryStreamAckRequestRecorder()
+        let coordinator = makeAckRequestCoordinator(scheduler: scheduler, recorder: recorder)
+
+        (1...10).forEach { coordinator.noteStanzaSent(id: "stanza-\($0)") }
+        XCTAssertEqual(recorder.requestCount, 1)
+
+        coordinator.reset()
+        coordinator.noteStanzaSent(id: "next-stream-stanza")
+        scheduler.advance(by: 1)
+
+        XCTAssertEqual(recorder.requestCount, 2)
+    }
+
     func testAckTimeoutFiresOnceForSameOldestGeneration() {
         let harness = makeTrackerHarness()
         _ = harness.tracker.track(stanzaId: "message-1", kind: .message, replayPolicy: .notReplayable)
@@ -1004,6 +1199,19 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         )
     }
 
+    private func makeAckRequestCoordinator(
+        scheduler: AccountPrimaryStreamTestScheduler,
+        recorder: AccountPrimaryStreamAckRequestRecorder
+    ) -> AccountPrimaryStreamAckRequestCoordinator {
+        AccountPrimaryStreamAckRequestCoordinator(
+            configuration: .init(stanzaThreshold: 10, maxDelay: 1),
+            scheduler: scheduler,
+            requestAck: {
+                recorder.requestCount += 1
+            }
+        )
+    }
+
     private func makeSendCoordinator(
         owner: String = "owner@example.com",
         isReady: @escaping () -> Bool,
@@ -1200,6 +1408,10 @@ private struct AccountPrimaryStreamTrackerHarness {
 
 private final class AccountPrimaryStreamTimeoutBox {
     var timeouts: [PrimaryStreamTrackedStanza] = []
+}
+
+private final class AccountPrimaryStreamAckRequestRecorder {
+    var requestCount = 0
 }
 
 private final class AccountPrimaryStreamSendCoordinatorRecorder {

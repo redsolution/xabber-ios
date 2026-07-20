@@ -6970,6 +6970,45 @@ final class AccountConnectionResilienceCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.recorder.staleReasons, [.pingTimeout])
     }
 
+    func testForcedDisconnectCallbackDoesNotScheduleSecondReconnect() {
+        let harness = makeHarness(canResume: true)
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidReachOnline(resumed: false)
+        harness.scheduler.advance(by: 15)
+        harness.scheduler.advance(by: 8)
+
+        XCTAssertEqual(harness.recorder.reconnectTriggers, [.resilienceRetry])
+
+        harness.coordinator.streamDidDisconnect(
+            cause: .pingTimeout,
+            reconnectAlreadyScheduled: true
+        )
+        harness.scheduler.advance(by: 0)
+
+        XCTAssertEqual(harness.recorder.reconnectTriggers, [.resilienceRetry])
+        XCTAssertTrue(
+            harness.recorder.diagnosticsEvents.contains("resilience_disconnect_reconnect_already_scheduled")
+        )
+    }
+
+    func testPrimaryStreamAckTimeoutProbesBeforeClosingHealthyStream() {
+        let harness = makeHarness()
+
+        harness.coordinator.setForegroundActive(true)
+        harness.coordinator.streamDidReachOnline(resumed: false)
+        harness.coordinator.notePrimaryStreamAckTimeout(stanzaId: "iq-result", generation: 1)
+        harness.scheduler.advance(by: 0)
+
+        XCTAssertEqual(harness.recorder.sendPingCount, 1)
+        XCTAssertTrue(harness.recorder.forceCloseCauses.isEmpty)
+
+        harness.coordinator.noteStreamManagementAck()
+        harness.scheduler.advance(by: 8)
+
+        XCTAssertTrue(harness.recorder.forceCloseCauses.isEmpty)
+    }
+
     func testForegroundOnlineWithoutConfirmedTrafficMarksSuspectedStaleAndReconnects() {
         let policy = AccountConnectionResiliencePolicy(
             pingInterval: 45,
@@ -8890,6 +8929,142 @@ final class AccountStreamConnectPreflightTests: XCTestCase {
         }
 
         return attemptID
+    }
+}
+
+final class AccountResilienceReconnectPreflightTests: XCTestCase {
+
+    func testOnlyDisconnectedIdleOrFailedStateCanResetForResilienceReconnect() {
+        XCTAssertTrue(
+            AccountResilienceReconnectPreflight.shouldStart(
+                lifecyclePhase: .idle
+            )
+        )
+        XCTAssertTrue(
+            AccountResilienceReconnectPreflight.shouldStart(
+                lifecyclePhase: .failed
+            )
+        )
+
+        let activePhases: [AccountStreamLifecyclePhase] = [
+            .connecting,
+            .tlsNegotiating,
+            .authenticating,
+            .binding,
+            .postAuthSetup,
+            .online,
+            .disconnecting
+        ]
+        activePhases.forEach { phase in
+            XCTAssertFalse(
+                AccountResilienceReconnectPreflight.shouldStart(
+                    lifecyclePhase: phase
+                ),
+                phase.rawValue
+            )
+        }
+    }
+
+    func testIntentionalPendingDisconnectRejectsAlreadyQueuedReconnect() {
+        XCTAssertFalse(
+            AccountResilienceReconnectPreflight.shouldStart(
+                lifecyclePhase: .idle,
+                pendingDisconnectCause: .intentionalShutdown
+            )
+        )
+        XCTAssertTrue(
+            AccountResilienceReconnectPreflight.shouldStart(
+                lifecyclePhase: .idle,
+                pendingDisconnectCause: .pingTimeout
+            )
+        )
+    }
+}
+
+final class AccountResilienceForceClosePreflightTests: XCTestCase {
+
+    func testIntentionalDisconnectCannotBeOverwrittenByQueuedLivenessClose() {
+        XCTAssertFalse(
+            AccountResilienceForceClosePreflight.shouldForceClose(
+                pendingDisconnectCause: .intentionalShutdown
+            )
+        )
+        XCTAssertTrue(
+            AccountResilienceForceClosePreflight.shouldForceClose(
+                pendingDisconnectCause: nil
+            )
+        )
+        XCTAssertTrue(
+            AccountResilienceForceClosePreflight.shouldForceClose(
+                pendingDisconnectCause: .pingTimeout
+            )
+        )
+    }
+}
+
+final class AccountStreamDisconnectLifecyclePolicyTests: XCTestCase {
+
+    func testToldToDisconnectIsNonTerminalAndDidDisconnectReleasesGate() {
+        let gate = AccountStreamLifecycleGate()
+        guard case .start = gate.beginConnect(trigger: .initialLoad) else {
+            XCTFail("Expected connect to start")
+            return
+        }
+        gate.markDisconnecting()
+
+        AccountStreamDisconnectLifecyclePolicy.apply(.toldToDisconnect, to: gate)
+        XCTAssertEqual(gate.snapshot().phase, .disconnecting)
+
+        AccountStreamDisconnectLifecyclePolicy.apply(.didDisconnect, to: gate)
+        XCTAssertEqual(gate.snapshot().phase, .idle)
+    }
+}
+
+final class AccountPendingDisconnectContextTests: XCTestCase {
+
+    func testTerminalCallbackConsumesActualReconnectSchedulingState() {
+        var context = AccountPendingDisconnectContext()
+        context.set(cause: .pingTimeout, reconnectAlreadyScheduled: true)
+
+        let consumed = context.consume(defaultCause: .accidentalSocket)
+
+        XCTAssertEqual(consumed.cause, .pingTimeout)
+        XCTAssertTrue(consumed.reconnectAlreadyScheduled)
+        XCTAssertNil(context.cause)
+        XCTAssertFalse(context.reconnectAlreadyScheduled)
+    }
+
+    func testNewStreamBoundaryClearsOldForcedDisconnectContext() {
+        var context = AccountPendingDisconnectContext()
+        context.set(cause: .pingTimeout, reconnectAlreadyScheduled: true)
+
+        context.clear()
+
+        let consumed = context.consume(defaultCause: .accidentalSocket)
+        XCTAssertEqual(consumed.cause, .accidentalSocket)
+        XCTAssertFalse(consumed.reconnectAlreadyScheduled)
+    }
+
+    func testIntentionalDisconnectReplacesScheduledForcedReconnect() {
+        var context = AccountPendingDisconnectContext()
+        context.set(cause: .pingTimeout, reconnectAlreadyScheduled: true)
+
+        context.set(cause: .intentionalShutdown, reconnectAlreadyScheduled: false)
+
+        XCTAssertEqual(context.cause, .intentionalShutdown)
+        XCTAssertFalse(context.reconnectAlreadyScheduled)
+    }
+
+    func testAlreadyDisconnectedTerminalPathDoesNotLeakIntentionalCauseToNextStream() {
+        var context = AccountPendingDisconnectContext()
+        context.set(cause: .intentionalShutdown, reconnectAlreadyScheduled: false)
+
+        let localTerminal = context.consume(defaultCause: .intentionalShutdown)
+        let nextStreamTerminal = context.consume(defaultCause: .accidentalSocket)
+
+        XCTAssertEqual(localTerminal.cause, .intentionalShutdown)
+        XCTAssertEqual(nextStreamTerminal.cause, .accidentalSocket)
+        XCTAssertFalse(nextStreamTerminal.reconnectAlreadyScheduled)
     }
 }
 
