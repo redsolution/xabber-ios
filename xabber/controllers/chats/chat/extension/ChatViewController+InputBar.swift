@@ -20,93 +20,38 @@
 
 import Foundation
 import UIKit
-import AVFoundation
-import Photos
-import MaterialComponents.MDCPalettes
-import CocoaLumberjack
 
 extension ChatViewController {
-        
-    internal func askPhotoPermision(callback: @escaping ((Bool) -> Void)) {
-        if let value = self.isAccessToPhotoGranted {
-            callback(value)
-            return
-        }
-        switch PHPhotoLibrary.authorizationStatus() {
-        
-        case .notDetermined:
-            PHPhotoLibrary.requestAuthorization { (status) in
-                switch status {
-                case .restricted, .notDetermined, .denied:
-                    self.isAccessToPhotoGranted = false
-                    callback(false)
-                case .authorized, .limited:
-                    self.isAccessToPhotoGranted = true
-                    callback(true)
-                @unknown default:
-                    self.isAccessToPhotoGranted = false
-                    callback(false)
-                }
-            }
-        case .denied, .restricted:
-            self.isAccessToPhotoGranted = false
-            callback(false)
-        case .authorized, .limited:
-            self.isAccessToPhotoGranted = true
-            callback(true)
-        @unknown default:
-            self.isAccessToPhotoGranted = false
-            callback(false)
-        }
-        
-    }
-    
+
     @objc
     internal func showImagePicker() {
         self.view.endEditing(false)
         DispatchQueue.main.async {
-            let isCloudStorageAvailable = AccountManager.shared.find(for: self.owner)?.cloudStorage.isAvailable() ?? false
+            guard let account = AccountManager.shared.find(for: self.owner) else {
+                ToastPresenter().presentError(message: "File transfer is unavailable for this account.".localizeString(id: "media_picker_error_upload_unavailable", arguments: []))
+                return
+            }
             let route = ChatAttachmentPickerRoutingPolicy.route(
                 isTelegramAttachmentPickerEnabled: CommonConfigManager.shared.config.use_telegram_attachment_picker,
-                isCloudStorageAvailable: isCloudStorageAvailable
+                availabilityState: account.cloudStorage.availabilityRelay.value
             )
 
             switch route {
-            case .legacyImagePicker:
-                self.presentLegacyImagePickerAfterPhotoPermission()
             case .telegramAttachmentFlow:
                 self.presentTelegramAttachmentFlow()
             case .blocked(.cloudStorageUnavailable):
                 ToastPresenter().presentError(message: "File transfer is unavailable for this account.".localizeString(id: "media_picker_error_upload_unavailable", arguments: []))
+            case .blocked(.cloudStoragePending):
+                account.cloudStorage.resumeAvailabilityWorkIfNeeded(
+                    stream: account.xmppStream,
+                    disco: account.disco
+                )
+                ToastPresenter().present(
+                    message: "Cloud Storage is still connecting. Please try again shortly."
+                        .localizeString(id: "media_picker_cloud_storage_connecting", arguments: [])
+                )
             }
         }
-    }
-
-    private func presentLegacyImagePickerAfterPhotoPermission() {
-        askPhotoPermision { (value) in
-//            DispatchQueue.main.asyncAfter(deadline: .now() + (keyboardState ? 0.0 : 0.0)) {
-            DispatchQueue.main.async {
-                if value {
-//                    if AccountManager.shared.find(for: self.owner)?.httpUploads.isAvailable() ?? false {
-//                    if AccountManager.shared.find(for: self.owner)?.xUploads.isAvailable() ?? false {
-                    self.presentLegacyImagePicker()
-                } else {
-                    ToastPresenter().presentError(message: "Photo Library access is required to select images.".localizeString(id: "media_picker_error_photo_permission", arguments: []))
-                }
-            }
-        }
-    }
-
-    private func presentLegacyImagePicker() {
-        let picker = ImagePickerViewController()
-        picker.jid = self.jid
-        picker.owner = self.owner
-        picker.delegate = self
-        picker.conversationType = self.conversationType
-        picker.forwardedMessages = self.attachedMessagesIds.value
-        picker.modalTransitionStyle = .coverVertical
-        picker.modalPresentationStyle = .overFullScreen
-        self.present(picker, animated: false, completion: nil)
     }
 
     private func presentTelegramAttachmentFlow() {
@@ -241,7 +186,7 @@ extension ChatViewController: ChatAttachmentFlowCoordinatorDelegate {
     }
 
     func chatAttachmentFlowCoordinatorDidDismiss(_ coordinator: ChatAttachmentFlowCoordinator) {
-        onDismissPicker()
+        restoreInputAccessoryAfterAttachmentPickerDismissal()
         clearChatAttachmentFlowCoordinatorIfNeeded(coordinator)
     }
 

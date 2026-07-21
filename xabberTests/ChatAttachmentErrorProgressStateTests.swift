@@ -56,6 +56,14 @@ final class ChatAttachmentErrorProgressStateTests: XCTestCase {
         XCTAssertTrue(failed.showsRetryAction)
     }
 
+    func testMediaUploadTracePrivacyPolicyRejectsIdentityAndCredentialFields() {
+        ["owner", "jid", "token", "endpoint", "URL", "galleryURL", "baseURL"].forEach {
+            XCTAssertFalse(ChatAttachmentMediaUploadTracePrivacyPolicy.shouldIncludeDetail(named: $0))
+        }
+        XCTAssertTrue(ChatAttachmentMediaUploadTracePrivacyPolicy.shouldIncludeDetail(named: "draftCount"))
+        XCTAssertTrue(ChatAttachmentMediaUploadTracePrivacyPolicy.shouldIncludeDetail(named: "conversationType"))
+    }
+
     func testSheetDoesNotShowPreparingBannerForPendingSelectionBeforeSend() {
         let source = Task20SelectionSourceController(source: .gallery)
         let sheet = makeSheet(source: source)
@@ -157,6 +165,42 @@ final class ChatAttachmentErrorProgressStateTests: XCTestCase {
         XCTAssertEqual(delegate.failures, [])
         XCTAssertFalse(sheet.statusBannerView.isHidden)
         XCTAssertEqual(sheet.statusBannerView.titleLabel.text, "File transfer unavailable")
+    }
+
+    func testCloudStoragePendingRetryRequestsSendAgainForPreparedDrafts() {
+        let prepared = preparedDraft(id: "asset:prepared")
+        let source = Task20SelectionSourceController(source: .gallery)
+        let delegate = Task20PickerDelegate()
+        let sheet = makeSheet(source: source)
+        sheet.delegate = delegate
+
+        sheet.loadViewIfNeeded()
+        source.replaceDrafts([prepared])
+        sheet.applySendBlockedReason(.cloudStoragePending)
+        sheet.statusBannerView.retryButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(delegate.requestedDraftIDs, [[prepared.id]])
+        XCTAssertTrue(sheet.statusBannerView.isHidden)
+    }
+
+    func testCloudStoragePendingRetryFromPreviewRequestsSendAgainInsteadOfRetryingPreparedDraft() {
+        let prepared = preparedDraft(id: "asset:prepared")
+        let source = Task20SelectionSourceController(source: .gallery)
+        let delegate = Task20PickerDelegate()
+        let sheet = makeSheet(source: source)
+        sheet.delegate = delegate
+
+        sheet.loadViewIfNeeded()
+        source.replaceDrafts([prepared])
+        sheet.selectionPreviewBarView.previewButton.sendActions(for: .touchUpInside)
+        let preview = try! XCTUnwrap(sheet.previewViewController)
+        sheet.applySendBlockedReason(.cloudStoragePending)
+
+        preview.statusBannerView.retryButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(delegate.requestedDraftIDs, [[prepared.id]])
+        XCTAssertEqual(sheet.selectedAttachmentDrafts.first?.preparationState, prepared.preparationState)
+        XCTAssertTrue(preview.statusBannerView.isHidden)
     }
 
     private static let context = ChatAttachmentFlowContext(
@@ -266,6 +310,36 @@ private final class Task20PreviewDelegate: ChatAttachmentPreviewViewControllerDe
     func chatAttachmentPreviewViewController(
         _ preview: ChatAttachmentPreviewViewController,
         didRequestSend drafts: [AttachmentDraft]
+    ) {}
+}
+
+private final class Task20PickerDelegate: ChatAttachmentPickerViewControllerDelegate {
+    private(set) var requestedDraftIDs: [[String]] = []
+
+    func chatAttachmentSheetViewControllerDidDismiss(_ sheet: ChatAttachmentPickerViewController) {}
+    func chatAttachmentSheetViewControllerDidSend(_ sheet: ChatAttachmentPickerViewController) {}
+
+    func chatAttachmentSheetViewController(
+        _ sheet: ChatAttachmentPickerViewController,
+        didRequestSend drafts: [AttachmentDraft],
+        captionState: ChatAttachmentCaptionState
+    ) {
+        requestedDraftIDs.append(drafts.map(\.id))
+    }
+
+    func chatAttachmentSheetViewController(
+        _ sheet: ChatAttachmentPickerViewController,
+        didRequestPremiumFor owner: String
+    ) {}
+
+    func chatAttachmentSheetViewController(
+        _ sheet: ChatAttachmentPickerViewController,
+        didFailWith error: ChatAttachmentFlowError
+    ) {}
+
+    func chatAttachmentSheetViewController(
+        _ sheet: ChatAttachmentPickerViewController,
+        didUpdateSelectionCount count: Int
     ) {}
 }
 

@@ -214,7 +214,7 @@ final class AccountPrimaryStreamBootstrapSendGate {
             return true
         }
 
-        if isLoginCriticalSelfDiscoInfo(stanza, ownerBareJID: ownerBareJID) {
+        if loginCriticalDiscoReason(stanza, ownerBareJID: ownerBareJID) != nil {
             return true
         }
 
@@ -263,6 +263,41 @@ final class AccountPrimaryStreamBootstrapSendGate {
         let node = query.attributeStringValue(forName: "node")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return node?.isEmpty ?? true
+    }
+
+    static func isLoginCriticalRootServerDiscoInfo(
+        _ stanza: XMPPElement,
+        ownerBareJID: String?
+    ) -> Bool {
+        guard stanza.name == "iq",
+              stanza.attributeStringValue(forName: "type")?.lowercased() == "get",
+              let ownerBareJID,
+              let ownerJID = XMPPJID(string: ownerBareJID),
+              let toBareJID = normalizedBareJID(stanza.attributeStringValue(forName: "to")),
+              toBareJID == ownerJID.domain.lowercased(),
+              let query = stanza.element(
+                forName: "query",
+                xmlns: "http://jabber.org/protocol/disco#info"
+              ) else {
+            return false
+        }
+
+        let node = query.attributeStringValue(forName: "node")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return node?.isEmpty ?? true
+    }
+
+    static func loginCriticalDiscoReason(
+        _ stanza: XMPPElement,
+        ownerBareJID: String?
+    ) -> String? {
+        if isLoginCriticalSelfDiscoInfo(stanza, ownerBareJID: ownerBareJID) {
+            return "loginCriticalSelfDiscoInfo"
+        }
+        if isLoginCriticalRootServerDiscoInfo(stanza, ownerBareJID: ownerBareJID) {
+            return "loginCriticalRootServerDiscoInfo"
+        }
+        return nil
     }
 
     func prepareForSend(

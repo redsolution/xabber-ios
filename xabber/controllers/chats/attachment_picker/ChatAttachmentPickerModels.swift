@@ -15,15 +15,29 @@ enum ChatAttachmentFlowError: Error, Equatable {
 
 enum ChatAttachmentPickerBlockReason: Equatable {
     case cloudStorageUnavailable
+    case cloudStoragePending
 }
 
 enum ChatAttachmentPickerRoute: Equatable {
-    case legacyImagePicker
     case telegramAttachmentFlow
     case blocked(ChatAttachmentPickerBlockReason)
 }
 
 enum ChatAttachmentPickerRoutingPolicy {
+    static func route(
+        isTelegramAttachmentPickerEnabled: Bool?,
+        availabilityState: CloudStorageAvailabilityState
+    ) -> ChatAttachmentPickerRoute {
+        switch availabilityState {
+        case .ready:
+            return .telegramAttachmentFlow
+        case .discovering, .authorizing, .retryableFailure:
+            return .blocked(.cloudStoragePending)
+        case .unsupported:
+            return .blocked(.cloudStorageUnavailable)
+        }
+    }
+
     static func route(
         isTelegramAttachmentPickerEnabled: Bool?,
         isCloudStorageAvailable: Bool
@@ -32,55 +46,6 @@ enum ChatAttachmentPickerRoutingPolicy {
             return .blocked(.cloudStorageUnavailable)
         }
 
-        if isTelegramAttachmentPickerEnabled ?? true {
-            return .telegramAttachmentFlow
-        }
-
-        return .legacyImagePicker
-    }
-}
-
-enum ChatAttachmentPickerLegacyFallbackRetentionReason: Equatable {
-    case productSignoffMissing
-    case sendParityIncomplete
-    case focusedTestsFailed
-    case appBuildFailed
-    case manualSmokeMissing
-    case rollbackBlockerPresent
-}
-
-enum ChatAttachmentPickerLegacyFallbackDecision: Equatable {
-    case retainLegacyFallback(ChatAttachmentPickerLegacyFallbackRetentionReason)
-    case eligibleToRemoveLegacyFallback
-}
-
-enum ChatAttachmentPickerRolloutPolicy {
-    static func decision(
-        hasProductSignoffForDefaultOnRollout: Bool,
-        sendParityVerified: Bool,
-        focusedTestsPassed: Bool,
-        appBuildPassed: Bool,
-        manualSmokePassed: Bool,
-        hasRollbackBlockers: Bool
-    ) -> ChatAttachmentPickerLegacyFallbackDecision {
-        guard hasProductSignoffForDefaultOnRollout else {
-            return .retainLegacyFallback(.productSignoffMissing)
-        }
-        guard sendParityVerified else {
-            return .retainLegacyFallback(.sendParityIncomplete)
-        }
-        guard focusedTestsPassed else {
-            return .retainLegacyFallback(.focusedTestsFailed)
-        }
-        guard appBuildPassed else {
-            return .retainLegacyFallback(.appBuildFailed)
-        }
-        guard manualSmokePassed else {
-            return .retainLegacyFallback(.manualSmokeMissing)
-        }
-        guard !hasRollbackBlockers else {
-            return .retainLegacyFallback(.rollbackBlockerPresent)
-        }
-        return .eligibleToRemoveLegacyFallback
+        return .telegramAttachmentFlow
     }
 }

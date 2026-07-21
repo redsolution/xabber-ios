@@ -14,16 +14,16 @@ final class ChatAttachmentPickerEntryPointTests: XCTestCase {
         super.tearDown()
     }
 
-    func testFlagOffAndCloudStorageAvailableSelectsLegacyPicker() {
+    func testLegacyFeatureFlagOffStillSelectsCurrentAttachmentFlow() {
         let route = ChatAttachmentPickerRoutingPolicy.route(
             isTelegramAttachmentPickerEnabled: false,
             isCloudStorageAvailable: true
         )
 
-        XCTAssertEqual(route, .legacyImagePicker)
+        XCTAssertEqual(route, .telegramAttachmentFlow)
     }
 
-    func testFlagOnAndCloudStorageAvailableSelectsTelegramAttachmentFlow() {
+    func testFlagOnAndCloudStorageAvailableSelectsCurrentAttachmentFlow() {
         let route = ChatAttachmentPickerRoutingPolicy.route(
             isTelegramAttachmentPickerEnabled: true,
             isCloudStorageAvailable: true
@@ -32,7 +32,7 @@ final class ChatAttachmentPickerEntryPointTests: XCTestCase {
         XCTAssertEqual(route, .telegramAttachmentFlow)
     }
 
-    func testCloudStorageUnavailableBlocksLegacyRoute() {
+    func testCloudStorageUnavailableBlocksRouteWhenLegacyFlagIsOff() {
         let route = ChatAttachmentPickerRoutingPolicy.route(
             isTelegramAttachmentPickerEnabled: false,
             isCloudStorageAvailable: false
@@ -41,7 +41,7 @@ final class ChatAttachmentPickerEntryPointTests: XCTestCase {
         XCTAssertEqual(route, .blocked(.cloudStorageUnavailable))
     }
 
-    func testCloudStorageUnavailableBlocksTelegramAttachmentRoute() {
+    func testCloudStorageUnavailableBlocksRouteWhenLegacyFlagIsOn() {
         let route = ChatAttachmentPickerRoutingPolicy.route(
             isTelegramAttachmentPickerEnabled: true,
             isCloudStorageAvailable: false
@@ -63,69 +63,4 @@ final class ChatAttachmentPickerEntryPointTests: XCTestCase {
         XCTAssertEqual(route, .telegramAttachmentFlow)
     }
 
-    func testRolloutPolicyRetainsLegacyFallbackWithoutProductSignoff() {
-        let decision = ChatAttachmentPickerRolloutPolicy.decision(
-            hasProductSignoffForDefaultOnRollout: false,
-            sendParityVerified: true,
-            focusedTestsPassed: true,
-            appBuildPassed: true,
-            manualSmokePassed: true,
-            hasRollbackBlockers: false
-        )
-
-        XCTAssertEqual(decision, .retainLegacyFallback(.productSignoffMissing))
-    }
-
-    func testRolloutPolicyRetainsLegacyFallbackWhenManualSmokeIsMissing() {
-        let decision = ChatAttachmentPickerRolloutPolicy.decision(
-            hasProductSignoffForDefaultOnRollout: true,
-            sendParityVerified: true,
-            focusedTestsPassed: true,
-            appBuildPassed: true,
-            manualSmokePassed: false,
-            hasRollbackBlockers: false
-        )
-
-        XCTAssertEqual(decision, .retainLegacyFallback(.manualSmokeMissing))
-    }
-
-    func testRolloutPolicyMarksLegacyRemovalEligibleOnlyAfterAllGatesPass() {
-        let decision = ChatAttachmentPickerRolloutPolicy.decision(
-            hasProductSignoffForDefaultOnRollout: true,
-            sendParityVerified: true,
-            focusedTestsPassed: true,
-            appBuildPassed: true,
-            manualSmokePassed: true,
-            hasRollbackBlockers: false
-        )
-
-        XCTAssertEqual(decision, .eligibleToRemoveLegacyFallback)
-    }
-
-    func testRollbackRouteRemainsValidWhenLegacyFallbackIsRetained() {
-        let decision = ChatAttachmentPickerRolloutPolicy.decision(
-            hasProductSignoffForDefaultOnRollout: false,
-            sendParityVerified: true,
-            focusedTestsPassed: true,
-            appBuildPassed: true,
-            manualSmokePassed: true,
-            hasRollbackBlockers: false
-        )
-
-        XCTAssertEqual(decision, .retainLegacyFallback(.productSignoffMissing))
-        XCTAssertEqual(
-            ChatAttachmentPickerRoutingPolicy.route(
-                isTelegramAttachmentPickerEnabled: false,
-                isCloudStorageAvailable: true
-            ),
-            .legacyImagePicker
-        )
-        XCTAssertEqual(
-            ChatAttachmentPickerRoutingPolicy.route(
-                isTelegramAttachmentPickerEnabled: true,
-                isCloudStorageAvailable: true
-            ),
-            .telegramAttachmentFlow
-        )
-    }
 }

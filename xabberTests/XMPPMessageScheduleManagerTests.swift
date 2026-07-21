@@ -33,11 +33,14 @@ final class XMPPMessageScheduleManagerTests: XCTestCase {
 
     func testAvailabilityFollowsAuthoritativeDomainDisco() throws {
         let disco = ServerDiscoManager(withOwner: owner)
-        disco.queryIds.insert("domain-feature-1")
-        disco.serverFeatureQueryIds.insert("domain-feature-1")
+        let stream = ScheduleCapturingXMPPStream()
+        disco.requestServerFeatures(stream)
+        let firstQueryID = try XCTUnwrap(
+            stream.sentElements.last?.attributeStringValue(forName: "id")
+        )
 
         XCTAssertTrue(disco.read(withIQ: try makeIQ("""
-        <iq type='result' from='example.com' id='domain-feature-1'>
+        <iq type='result' from='example.com' id='\(firstQueryID)'>
           <query xmlns='http://jabber.org/protocol/disco#info'>
             <feature var='\(XMPPMessageScheduleManager.namespace)'/>
           </query>
@@ -52,11 +55,13 @@ final class XMPPMessageScheduleManagerTests: XCTestCase {
             XMPPMessageScheduleManager.namespace
         )
 
-        disco.queryIds.insert("domain-feature-2")
-        disco.serverFeatureQueryIds.insert("domain-feature-2")
+        disco.requestServerFeatures(stream)
+        let secondQueryID = try XCTUnwrap(
+            stream.sentElements.last?.attributeStringValue(forName: "id")
+        )
 
         XCTAssertTrue(disco.read(withIQ: try makeIQ("""
-        <iq type='result' from='example.com' id='domain-feature-2'>
+        <iq type='result' from='example.com' id='\(secondQueryID)'>
           <query xmlns='http://jabber.org/protocol/disco#info'>
             <feature var='urn:xmpp:mam:2'/>
           </query>

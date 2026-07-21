@@ -415,11 +415,11 @@ final class ChatBottomScrollAlignmentPolicyTests: XCTestCase {
         )
     }
 
-    func testMediaSendCallbackRequestsOutgoingScrollSynchronouslyOnMainThread() {
+    func testAttachmentSendCompletionRequestsOutgoingScrollSynchronouslyOnMainThread() {
         XCTAssertTrue(Thread.isMainThread)
         let chat = ChatViewController()
 
-        chat.onSendMessage()
+        chat.finishOutgoingAttachmentSend(requestScroll: true)
 
         XCTAssertNotNil(chat.pendingOutgoingAutoScrollRequest)
     }
@@ -40147,6 +40147,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(fakeTokenClient.exchangeCodes, ["basic-code"])
         XCTAssertEqual(configuration.token(for: .basic, baseURL: basicGalleryURL), "basic-confirm-token")
         XCTAssertEqual(configuration.token(for: .premium, baseURL: premiumGalleryURL), "premium-token")
+        XCTAssertEqual(manager.availabilityRelay.value, .ready(endpoint: premiumGalleryURL))
         XCTAssertEqual(fakeClient.quotaCallCount, 0)
     }
 
@@ -40163,6 +40164,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(fakeTokenClient.exchangeCodes, ["premium-code"])
         XCTAssertEqual(configuration.token(for: .premium, baseURL: premiumGalleryURL), "premium-confirm-token")
         XCTAssertEqual(configuration.token(for: .basic, baseURL: basicGalleryURL), "basic-token")
+        XCTAssertEqual(manager.availabilityRelay.value, .ready(endpoint: basicGalleryURL))
         XCTAssertEqual(fakeClient.quotaCallCount, 0)
     }
 
@@ -40331,11 +40333,15 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         let configuration = AccountGalleryConfiguration(owner: owner)
         configuration.reconcilePremiumGalleryAvailability(isAvailable: true, storageURL: premiumGalleryURL.absoluteString)
         configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
-        let elementId = "media-gallery-disco"
-        account.disco.queryIds.insert(elementId)
+        var elementId: String?
+        ServerDiscoManager.cloudDiscoveryWillRegisterQueryTestingHandler = { _, queryID in
+            elementId = queryID
+        }
+        defer { ServerDiscoManager.cloudDiscoveryWillRegisterQueryTestingHandler = nil }
+        account.disco.requestServerFeatures(account.xmppStream)
 
         XCTAssertTrue(try account.disco.readFeatures(withIQ: makeMediaGalleryDiscoIQ(
-            id: elementId,
+            id: XCTUnwrap(elementId),
             galleryURL: "https://discovered-gallery.example/api/v1/"
         )))
 
@@ -40344,6 +40350,71 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(account.avatarUploader.node, "https://premium.example/api/")
         XCTAssertEqual(fakeTokenClient.codeRequestBaseURLs.map(\.absoluteString), ["https://discovered-gallery.example/api/"])
         XCTAssertEqual(fakeTokenClient.codeRequestFullJIDs, [account.xmppStream.myJID?.full ?? ""])
+    }
+
+    func testLateQuotaSuccessAfterScopedTokenIsClearedCannotRestoreReadyState() throws {
+        let account = makeAccount()
+        let manager = account.cloudStorage
+        let staleContext = try XCTUnwrap(manager.currentGalleryRequestContext())
+        let callback = expectation(description: "stale quota callback is released")
+        var callbackResult: CloudStorageQuotaRefreshResult?
+
+        manager.refreshQuota(reason: .manual) { result in
+            callbackResult = result
+            callback.fulfill()
+        }
+        XCTAssertEqual(fakeClient.statsCallCount, 1)
+
+        manager.handleUnauthorized(context: staleContext)
+        XCTAssertEqual(
+            manager.availabilityRelay.value,
+            .authorizing(endpoint: basicGalleryURL)
+        )
+        XCTAssertNil(manager.currentGalleryRequestContext())
+
+        fakeClient.completeStats(
+            .response(statusCode: 200, value: statsPayload(quota: 3000, totalUsed: 1200))
+        )
+        wait(for: [callback], timeout: 1)
+
+        XCTAssertEqual(callbackResult, .pending)
+        XCTAssertEqual(
+            manager.availabilityRelay.value,
+            .authorizing(endpoint: basicGalleryURL)
+        )
+        XCTAssertFalse(manager.isAvailable())
+        XCTAssertEqual(
+            AccountGalleryConfiguration(owner: owner).token(for: .basic, baseURL: basicGalleryURL),
+            ""
+        )
+    }
+
+    func testReplacementScopedTokenSupersedesInFlightQuotaRequestInsteadOfCoalescing() {
+        let manager = XabberUploadManager(withOwner: owner)
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        let superseded = expectation(description: "superseded quota callback")
+        let replacement = expectation(description: "replacement quota callback")
+
+        manager.refreshQuota(reason: .manual) { result in
+            XCTAssertEqual(result, .pending)
+            superseded.fulfill()
+        }
+        configuration.storeToken("replacement-token", galleryType: .basic, baseURL: basicGalleryURL)
+        manager.noteTokenResolved(galleryType: .basic, endpoint: basicGalleryURL)
+        manager.refreshQuota(reason: .tokenReceived) { result in
+            XCTAssertEqual(result, .success)
+            replacement.fulfill()
+        }
+
+        wait(for: [superseded], timeout: 1)
+        XCTAssertEqual(fakeClient.statsCallCount, 2)
+        XCTAssertEqual(fakeClient.statsTokens, ["basic-token", "replacement-token"])
+
+        fakeClient.completeStats(
+            .response(statusCode: 200, value: statsPayload(quota: 3000, totalUsed: 1200))
+        )
+        wait(for: [replacement], timeout: 1)
+        XCTAssertEqual(manager.availabilityRelay.value, .ready(endpoint: basicGalleryURL))
     }
 
     func testNetworkFailureKeepsCachedQuota() throws {
@@ -40912,9 +40983,11 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         configuration.storeBasicGalleryURL("https://basic.example/api/")
         configuration.storeToken("basic-token", galleryType: .basic, baseURL: URL(string: "https://basic.example/api/")!)
         let manager = XabberUploadManager(withOwner: owner)
+        let staleExpectation = expectation(description: "stale refresh released")
 
         manager.refreshQuota(reason: .manual) { result in
-            XCTFail("Stale refresh should not complete with \(result)")
+            XCTAssertEqual(result, .pending)
+            staleExpectation.fulfill()
         }
         XCTAssertEqual(fakeClient.statsBaseURLs.first?.absoluteString, "https://basic.example/api/")
 
@@ -40926,7 +40999,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
             XCTAssertEqual(result, .success)
             premiumExpectation.fulfill()
         }
-        wait(for: [premiumExpectation], timeout: 1)
+        wait(for: [staleExpectation, premiumExpectation], timeout: 1)
 
         fakeClient.completeStats(.response(statusCode: 200, value: statsPayload(quota: 100, totalUsed: 99, imagesUsed: 99)))
 
@@ -40950,13 +41023,20 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
             .response(statusCode: 200, value: statsPayload(quota: 9000, totalUsed: 900, imagesUsed: 90)),
             .response(statusCode: 200, value: statsPayload(quota: 2000, totalUsed: 200, imagesUsed: 20))
         ]
-        let manager = XabberUploadManager(withOwner: owner)
+        CloudStorageQuotaRefreshCoordinator.shared.refreshOwnerHandler = { _, _, _, completion in
+            completion?(.pending)
+        }
+        let account = makeAccount()
+        let manager = account.cloudStorage
 
         XCTAssertTrue(configuration.switchGallery(to: .basic))
+        manager.requestAuthIfNeeded(galleryType: .basic, baseURL: basicGalleryURL)
         XCTAssertTrue(try manager.read(withIQ: makeConfirmIQ(code: "basic-1", url: "https://gallery.example/api/v1/account/xmpp_code_request/xmpp_auth")))
         XCTAssertTrue(configuration.switchGallery(to: .premium))
+        manager.requestAuthIfNeeded(galleryType: .premium, baseURL: premiumGalleryURL)
         XCTAssertTrue(try manager.read(withIQ: makeConfirmIQ(code: "premium-1", url: "https://premium.example/api/v1/account/xmpp_code_request/xmpp_auth")))
         XCTAssertTrue(configuration.switchGallery(to: .basic))
+        manager.requestAuthIfNeeded(galleryType: .basic, baseURL: basicGalleryURL)
         XCTAssertTrue(try manager.read(withIQ: makeConfirmIQ(code: "basic-2", url: "https://gallery.example/api/v1/account/xmpp_code_request/xmpp_auth")))
 
         XCTAssertEqual(configuration.token(for: .basic, baseURL: basicGalleryURL), "basic-token-2")

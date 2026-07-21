@@ -199,6 +199,18 @@ enum ChatAttachmentSendFeedbackPolicy {
                 showsRemoveAction: false,
                 blocksSend: true
             )
+        case .cloudStoragePending:
+            return ChatAttachmentStatusBannerViewModel(
+                kind: .retryableFailure,
+                title: ChatAttachmentLocalization.string(.statusFileTransferUnavailableTitle),
+                message: "Cloud Storage is still connecting. Please try again shortly."
+                    .localizeString(id: "media_picker_cloud_storage_connecting", arguments: []),
+                progress: nil,
+                blockedItemCount: 0,
+                showsRetryAction: true,
+                showsRemoveAction: false,
+                blocksSend: true
+            )
         case .referenceBuildFailed:
             return ChatAttachmentStatusBannerViewModel(
                 kind: .retryableFailure,

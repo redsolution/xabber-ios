@@ -1594,8 +1594,7 @@ class ChatViewController: MessagesViewController {
 
     var contactStatus: String? = nil
     
-// gallery
-    var isAccessToPhotoGranted: Bool? = nil
+// attachments
     var chatAttachmentFlowCoordinator: ChatAttachmentFlowCoordinating? = nil
     
 // Status

@@ -25,6 +25,97 @@ import Alamofire
 import CocoaLumberjack
 import RealmSwift
 import Kingfisher
+import RxCocoa
+
+enum CloudStorageAvailabilityStage: String, Equatable {
+    case discovery
+    case authorization
+    case quota
+    case disconnected
+}
+
+enum CloudStorageAvailabilityState: Equatable {
+    case discovering
+    case authorizing(endpoint: URL)
+    case ready(endpoint: URL)
+    case unsupported
+    case retryableFailure(stage: CloudStorageAvailabilityStage, endpoint: URL?)
+
+    var endpoint: URL? {
+        switch self {
+        case .authorizing(let endpoint), .ready(let endpoint):
+            return endpoint
+        case .retryableFailure(_, let endpoint):
+            return endpoint
+        case .discovering, .unsupported:
+            return nil
+        }
+    }
+}
+
+/// Serializes replayable availability transitions without holding a lock while
+/// RxSwift synchronously notifies subscribers. A transition requested from a
+/// subscriber (or another callback thread) is queued behind the current relay
+/// emission, so concurrent callbacks cannot reorder state commits and relay
+/// emissions.
+final class CloudStorageAvailabilityPublisher {
+    let relay: BehaviorRelay<CloudStorageAvailabilityState>
+
+    private let lock = NSLock()
+    private var pendingStates: [CloudStorageAvailabilityState] = []
+    private var inFlightState: CloudStorageAvailabilityState?
+    private var acceptedState: CloudStorageAvailabilityState
+    private var isDraining = false
+    private let willAccept: (CloudStorageAvailabilityState) -> Void
+
+    init(
+        initialState: CloudStorageAvailabilityState,
+        willAccept: @escaping (CloudStorageAvailabilityState) -> Void = { _ in }
+    ) {
+        relay = BehaviorRelay(value: initialState)
+        acceptedState = initialState
+        self.willAccept = willAccept
+    }
+
+    func publish(_ state: CloudStorageAvailabilityState) {
+        lock.lock()
+        let latestScheduledState = pendingStates.last ?? inFlightState ?? acceptedState
+        guard latestScheduledState != state else {
+            lock.unlock()
+            return
+        }
+        pendingStates.append(state)
+        let shouldDrain = !isDraining
+        isDraining = true
+        lock.unlock()
+
+        guard shouldDrain else { return }
+        drain()
+    }
+
+    private func drain() {
+        while true {
+            lock.lock()
+            guard !pendingStates.isEmpty else {
+                inFlightState = nil
+                isDraining = false
+                lock.unlock()
+                return
+            }
+            let state = pendingStates.removeFirst()
+            inFlightState = state
+            lock.unlock()
+
+            willAccept(state)
+            relay.accept(state)
+
+            lock.lock()
+            acceptedState = state
+            inFlightState = nil
+            lock.unlock()
+        }
+    }
+}
 
 enum CloudStorageQuotaRefreshReason: String {
     case appLaunch
@@ -41,6 +132,7 @@ enum CloudStorageQuotaRefreshReason: String {
 
 enum CloudStorageQuotaRefreshResult: String {
     case success
+    case pending
     case unavailable
     case unauthorized
     case failure
@@ -226,6 +318,13 @@ struct AccountGalleryConfiguration: Equatable {
         return true
     }
 
+    func clearBasicGalleryURL() {
+        let beforeType = currentGalleryType
+        let beforeURL = currentGalleryURL
+        SettingManager.shared.removeItem(for: owner, scope: .xabberUploadManager, key: Keys.basicGalleryURL)
+        postChangeIfNeeded(previousType: beforeType, previousURL: beforeURL)
+    }
+
     @discardableResult
     func reconcilePremiumGalleryAvailability(
         isAvailable: Bool,
@@ -356,6 +455,7 @@ struct AccountGalleryConfiguration: Equatable {
         clearKnownTokens()
 
         [
+            Keys.basicGalleryURL,
             Keys.premiumGalleryURL,
             Keys.premiumAvailable,
             Keys.premiumStorageMegabytes,
@@ -1112,6 +1212,21 @@ final class CloudStorageQuotaRefreshCoordinator {
         }
     }
 
+    var availabilityResumeOwnerHandler: (String) -> Void = { owner in
+        guard let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        account.action { user, stream in
+            guard stream.isAuthenticated else {
+                return
+            }
+            user.cloudStorage.resumeAvailabilityWorkIfNeeded(
+                stream: stream,
+                disco: user.disco
+            )
+        }
+    }
+
     private init() {
         NotificationCenter.default.addObserver(
             self,
@@ -1138,6 +1253,9 @@ final class CloudStorageQuotaRefreshCoordinator {
             completion?(.unavailable)
             return
         }
+        if reason == .foreground {
+            availabilityResumeOwnerHandler(owner)
+        }
         refreshOwnerHandler(owner, reason, force, completion)
     }
 
@@ -1148,11 +1266,28 @@ final class CloudStorageQuotaRefreshCoordinator {
 
     @objc private func cloudStorageGalleryDidChange(_ notification: Notification) {
         guard let owner = notification.userInfo?["jid"] as? String else { return }
+        AccountManager.shared.find(for: owner)?.action { user, _ in
+            user.cloudStorage.reconcileSelectedGalleryAvailability()
+        }
         refresh(owner: owner, reason: .galleryEndpointChanged, force: true)
     }
 
     func resetTestingHooks() {
         ownersProvider = { AccountManager.shared.users.map { $0.jid } }
+        availabilityResumeOwnerHandler = { owner in
+            guard let account = AccountManager.shared.find(for: owner) else {
+                return
+            }
+            account.action { user, stream in
+                guard stream.isAuthenticated else {
+                    return
+                }
+                user.cloudStorage.resumeAvailabilityWorkIfNeeded(
+                    stream: stream,
+                    disco: user.disco
+                )
+            }
+        }
         refreshOwnerHandler = { owner, reason, force, completion in
             guard let account = AccountManager.shared.find(for: owner) else {
                 completion?(.unavailable)
@@ -1186,7 +1321,9 @@ class XabberUploadManager: AbstractXMPPManager {
     static var quotaAPIClient: CloudStorageQuotaAPIClient = AlamofireCloudStorageQuotaAPIClient()
     static var tokenAPIClient: CloudStorageTokenAPIClient = AlamofireCloudStorageTokenAPIClient()
     static var tokenExpiredTestingHandler: ((CloudStorageGalleryRequestContext) -> Void)?
+    static var authorizationSuccessWillCommitTestingHandler: (() -> Void)?
     static var networkPathMonitorFactory: () -> AccountNetworkPathMonitoring? = { AccountNWPathMonitor() }
+    static var authorizationTimeoutInterval: TimeInterval = 10
 
     internal var node: String? = nil
 
@@ -1194,7 +1331,7 @@ class XabberUploadManager: AbstractXMPPManager {
     internal var maxFileSize: Int? = nil
     private let quotaRefreshLock = NSLock()
     private var isQuotaRefreshInFlight = false
-    private var quotaRefreshInFlightContextIdentity: String?
+    private var quotaRefreshInFlightContext: CloudStorageGalleryRequestContext?
     private var quotaRefreshGeneration = 0
     private var quotaRefreshCallbacks: [(CloudStorageQuotaRefreshResult) -> Void] = []
     private let gallerySlotQueueLock = NSRecursiveLock()
@@ -1205,6 +1342,14 @@ class XabberUploadManager: AbstractXMPPManager {
     private var galleryNetworkPathMonitor: AccountNetworkPathMonitoring?
     private var galleryNetworkPathSnapshot: AccountNetworkPathSnapshot?
     private var galleryNetworkPathGeneration = 0
+    private let availabilityPublisher: CloudStorageAvailabilityPublisher
+    let availabilityRelay: BehaviorRelay<CloudStorageAvailabilityState>
+    private let authorizationLock = NSRecursiveLock()
+    private var authorizationGeneration = 0
+    private var authorizationInFlightIdentity: String?
+    private var authorizationInFlightGeneration: Int?
+    private var tokenExchangeInFlightIdentity: String?
+    private var authorizationTimeoutWorkItem: DispatchWorkItem?
 
     var token: String {
         get {
@@ -1221,21 +1366,180 @@ class XabberUploadManager: AbstractXMPPManager {
 
 
     override init(withOwner owner: String) {
+        let initialAvailabilityState = Self.initialAvailabilityState(owner: owner)
+        let availabilityPublisher = CloudStorageAvailabilityPublisher(
+            initialState: initialAvailabilityState,
+            willAccept: { state in
+                DDLogDebug(
+                    "CLOUD_AVAILABILITY state=\(XabberUploadManager.diagnosticName(for: state)) endpointKnown=\(state.endpoint != nil)"
+                )
+            }
+        )
+        self.availabilityPublisher = availabilityPublisher
+        self.availabilityRelay = availabilityPublisher.relay
         super.init(withOwner: owner)
         startGalleryNetworkPathMonitoring()
     }
 
     deinit {
+        authorizationTimeoutWorkItem?.cancel()
         galleryNetworkPathMonitor?.cancel()
     }
 
     open func isAvailable() -> Bool {
-        guard let node = AccountGalleryConfiguration(owner: owner).currentGalleryURL?.absoluteString else {
+        guard let context = currentGalleryRequestContext() else {
             return false
         }
-        self.node = node
+        self.node = context.baseURL.absoluteString
         self.maxFileSize = Int(SettingManager.shared.getKey(for: owner, scope: .xabberUploadManager, key: "max_file_size") ?? "")
-        return node.isNotEmpty
+        return true
+    }
+
+    func beginAvailabilityDiscovery() {
+        switch availabilityRelay.value {
+        case .ready, .authorizing:
+            return
+        case .retryableFailure(_, let endpoint) where endpoint != nil:
+            return
+        case .discovering, .unsupported, .retryableFailure:
+            publishAvailability(.discovering)
+        }
+    }
+
+    func resolveAuthoritativeDiscovery(endpoint: URL?) {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        if let endpoint = endpoint,
+           let normalizedEndpoint = AccountGalleryConfiguration.normalizedBaseURL(from: endpoint.absoluteString) {
+            _ = configuration.storeBasicGalleryURL(normalizedEndpoint.absoluteString)
+            reconcileSelectedGalleryAvailability()
+            return
+        }
+
+        configuration.clearBasicGalleryURL()
+        if configuration.currentGalleryURL != nil {
+            synchronizeAvailabilityWithCurrentConfiguration()
+        } else {
+            cancelAuthorization()
+            publishAvailability(.unsupported)
+        }
+    }
+
+    func markAvailabilityRetryableFailure(stage: CloudStorageAvailabilityStage) {
+        if case .unsupported = availabilityRelay.value, stage == .disconnected {
+            return
+        }
+        if stage == .disconnected,
+           case .retryableFailure(let existingStage, let endpoint) = availabilityRelay.value {
+            publishAvailability(.retryableFailure(stage: existingStage, endpoint: endpoint))
+            return
+        }
+        if stage == .authorization || stage == .disconnected {
+            cancelAuthorization()
+        }
+        let endpoint = availabilityRelay.value.endpoint
+            ?? AccountGalleryConfiguration(owner: owner).currentGalleryURL
+        publishAvailability(.retryableFailure(stage: stage, endpoint: endpoint))
+    }
+
+    func resumeAvailabilityWorkIfNeeded(
+        stream xmppStream: XMPPStream,
+        disco: ServerDiscoManager
+    ) {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+
+        func resumeAuthorizationOrDiscovery() {
+            guard let endpoint = configuration.currentGalleryURL else {
+                disco.requestServerFeatures(xmppStream)
+                return
+            }
+            let galleryType = configuration.currentGalleryType
+            if configuration.token(for: galleryType, baseURL: endpoint).isNotEmpty {
+                publishAvailability(.ready(endpoint: endpoint))
+            } else {
+                requestAuthIfNeeded(galleryType: galleryType, baseURL: endpoint)
+            }
+        }
+
+        switch availabilityRelay.value {
+        case .unsupported, .ready:
+            return
+        case .discovering:
+            disco.requestServerFeatures(xmppStream)
+        case .authorizing:
+            resumeAuthorizationOrDiscovery()
+        case .retryableFailure(let stage, _):
+            switch stage {
+            case .discovery:
+                disco.requestServerFeatures(xmppStream)
+            case .authorization, .disconnected:
+                resumeAuthorizationOrDiscovery()
+            case .quota:
+                guard currentGalleryRequestContext() != nil else {
+                    resumeAuthorizationOrDiscovery()
+                    return
+                }
+                refreshQuota(reason: .foreground, force: true)
+            }
+        }
+    }
+
+    func noteTokenResolved(galleryType: AccountGalleryType, endpoint: URL) {
+        let target = GalleryTokenRequestTarget(owner: owner, galleryType: galleryType, baseURL: endpoint)
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        guard configuration.token(for: galleryType, baseURL: endpoint).isNotEmpty else {
+            return
+        }
+        finishAuthorization(identity: target.identity, generation: nil)
+        guard configuration.currentGalleryIdentity == target.identity else { return }
+        publishAvailability(.ready(endpoint: endpoint))
+    }
+
+    private static func initialAvailabilityState(owner: String) -> CloudStorageAvailabilityState {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        guard let endpoint = configuration.currentGalleryURL else {
+            return .discovering
+        }
+        if configuration.token(for: configuration.currentGalleryType, baseURL: endpoint).isNotEmpty {
+            return .ready(endpoint: endpoint)
+        }
+        return .authorizing(endpoint: endpoint)
+    }
+
+    private func synchronizeAvailabilityWithCurrentConfiguration() {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        guard let endpoint = configuration.currentGalleryURL else {
+            return
+        }
+        self.node = endpoint.absoluteString
+        if configuration.token(for: configuration.currentGalleryType, baseURL: endpoint).isNotEmpty {
+            publishAvailability(.ready(endpoint: endpoint))
+        } else {
+            publishAvailability(.authorizing(endpoint: endpoint))
+        }
+    }
+
+    func reconcileSelectedGalleryAvailability() {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        guard let endpoint = configuration.currentGalleryURL else {
+            return
+        }
+        let galleryType = configuration.currentGalleryType
+        synchronizeAvailabilityWithCurrentConfiguration()
+        requestAuthIfNeeded(galleryType: galleryType, baseURL: endpoint)
+    }
+
+    private func publishAvailability(_ state: CloudStorageAvailabilityState) {
+        availabilityPublisher.publish(state)
+    }
+
+    private static func diagnosticName(for state: CloudStorageAvailabilityState) -> String {
+        switch state {
+        case .discovering: return "discovering"
+        case .authorizing: return "authorizing"
+        case .ready: return "ready"
+        case .unsupported: return "unsupported"
+        case .retryableFailure(let stage, _): return "retryable-\(stage.rawValue)"
+        }
     }
 
     func currentGalleryRequestContext() -> CloudStorageGalleryRequestContext? {
@@ -2376,9 +2680,25 @@ class XabberUploadManager: AbstractXMPPManager {
     ) {
         guard let context = currentGalleryRequestContext() else {
             DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
-            enable()
-            completion?(.unavailable)
-            postQuotaRefreshDidFinish(reason: reason, result: .unavailable)
+            let result: CloudStorageQuotaRefreshResult
+            switch availabilityRelay.value {
+            case .discovering, .authorizing:
+                result = .pending
+            case .unsupported:
+                result = .unavailable
+            case .retryableFailure(let stage, _):
+                switch stage {
+                case .discovery, .authorization, .disconnected:
+                    result = .pending
+                case .quota:
+                    result = .failure
+                }
+            case .ready:
+                markAvailabilityRetryableFailure(stage: .quota)
+                result = .failure
+            }
+            completion?(result)
+            postQuotaRefreshDidFinish(reason: reason, result: result)
             return
         }
 
@@ -2398,6 +2718,15 @@ class XabberUploadManager: AbstractXMPPManager {
         Self.quotaAPIClient.getStats(baseURL: context.baseURL, token: context.token) { [weak self] response in
             guard let self = self else { return }
             guard self.isCurrentQuotaRefresh(generation: generation, context: context) else { return }
+            guard self.currentGalleryRequestContext() == context else {
+                self.finishQuotaRefresh(
+                    generation: generation,
+                    context: context,
+                    reason: reason,
+                    result: .pending
+                )
+                return
+            }
 
             switch response {
             case .response(let code, let value, _):
@@ -2428,7 +2757,7 @@ class XabberUploadManager: AbstractXMPPManager {
         statsPayload payload: CloudStorageQuotaStatsPayload,
         context: CloudStorageGalleryRequestContext
     ) -> Bool {
-        guard isCurrent(context) else {
+        guard currentGalleryRequestContext() == context else {
             return false
         }
         do {
@@ -2479,30 +2808,34 @@ class XabberUploadManager: AbstractXMPPManager {
         completion: ((CloudStorageQuotaRefreshResult) -> Void)?
     ) -> Int? {
         quotaRefreshLock.lock()
-        defer { quotaRefreshLock.unlock() }
-
         if isQuotaRefreshInFlight,
-           quotaRefreshInFlightContextIdentity == context.identity {
+           quotaRefreshInFlightContext == context {
             if let completion = completion {
                 quotaRefreshCallbacks.append(completion)
             }
+            quotaRefreshLock.unlock()
             return nil
         }
 
+        let supersededCallbacks = isQuotaRefreshInFlight ? quotaRefreshCallbacks : []
         quotaRefreshGeneration += 1
         isQuotaRefreshInFlight = true
-        quotaRefreshInFlightContextIdentity = context.identity
+        quotaRefreshInFlightContext = context
         quotaRefreshCallbacks = completion.map { [$0] } ?? []
-        return quotaRefreshGeneration
+        let generation = quotaRefreshGeneration
+        quotaRefreshLock.unlock()
+
+        supersededCallbacks.forEach { $0(.pending) }
+        return generation
     }
 
     private func isCurrentQuotaRefresh(generation: Int, context: CloudStorageGalleryRequestContext) -> Bool {
         quotaRefreshLock.lock()
         let isCurrentGeneration = isQuotaRefreshInFlight
             && quotaRefreshGeneration == generation
-            && quotaRefreshInFlightContextIdentity == context.identity
+            && quotaRefreshInFlightContext == context
         quotaRefreshLock.unlock()
-        return isCurrentGeneration && isCurrent(context)
+        return isCurrentGeneration
     }
 
     private func finishQuotaRefresh(
@@ -2514,18 +2847,30 @@ class XabberUploadManager: AbstractXMPPManager {
         quotaRefreshLock.lock()
         guard isQuotaRefreshInFlight,
               quotaRefreshGeneration == generation,
-              quotaRefreshInFlightContextIdentity == context.identity else {
+              quotaRefreshInFlightContext == context else {
             quotaRefreshLock.unlock()
             return
         }
         let callbacks = quotaRefreshCallbacks
         quotaRefreshCallbacks = []
         isQuotaRefreshInFlight = false
-        quotaRefreshInFlightContextIdentity = nil
+        quotaRefreshInFlightContext = nil
         quotaRefreshLock.unlock()
 
-        postQuotaRefreshDidFinish(reason: reason, result: result, context: context)
-        callbacks.forEach { $0(result) }
+        let deliveredResult: CloudStorageQuotaRefreshResult
+        if result == .unauthorized || currentGalleryRequestContext() == context {
+            deliveredResult = result
+        } else {
+            deliveredResult = .pending
+        }
+
+        // Quota freshness is independent from Cloud operational readiness.
+        // A timeout, 5xx, or malformed stats payload does not invalidate the
+        // already-scoped endpoint/token pair, and a stale success must not
+        // overwrite a disconnected availability state. HTTP 401 is handled
+        // above by tokenWasExpired(_:) and starts scoped reauthorization.
+        postQuotaRefreshDidFinish(reason: reason, result: deliveredResult, context: context)
+        callbacks.forEach { $0(deliveredResult) }
     }
 
     private func postQuotaRefreshDidStart(reason: CloudStorageQuotaRefreshReason, context: CloudStorageGalleryRequestContext) {
@@ -2712,11 +3057,31 @@ class XabberUploadManager: AbstractXMPPManager {
             handler(context)
             return
         }
-        AccountGalleryConfiguration(owner: owner).clearToken(galleryType: context.galleryType, baseURL: context.baseURL)
-        AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
-            guard let fullJID = stream.myJID?.full else { return }
-            user.cloudStorage.getCode(fullJID: fullJID, target: GalleryTokenRequestTarget(context: context))
-        })
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        guard configuration.currentGalleryIdentity == context.identity else {
+            return
+        }
+        let currentToken = configuration.token(
+            for: context.galleryType,
+            baseURL: context.baseURL
+        )
+        guard currentToken.isEmpty || currentToken == context.token else {
+            DDLogDebug(
+                "CLOUD_AVAILABILITY ignoredStaleUnauthorized=true tokenRotated=true endpointKnown=true"
+            )
+            noteTokenResolved(
+                galleryType: context.galleryType,
+                endpoint: context.baseURL
+            )
+            return
+        }
+        if currentToken == context.token {
+            configuration.clearToken(
+                galleryType: context.galleryType,
+                baseURL: context.baseURL
+            )
+        }
+        requestAuthIfNeeded(galleryType: context.galleryType, baseURL: context.baseURL)
     }
 
     private struct PagePayload {
@@ -2907,28 +3272,72 @@ class XabberUploadManager: AbstractXMPPManager {
     }
 
     final func requestAuthIfNeeded(galleryType: AccountGalleryType, baseURL: URL) {
-        guard AccountGalleryConfiguration(owner: owner).token(for: galleryType, baseURL: baseURL).isEmpty,
-              let fulljid = AccountManager.shared.find(for: self.owner)?.xmppStream.myJID?.full else {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        let target = GalleryTokenRequestTarget(owner: owner, galleryType: galleryType, baseURL: baseURL)
+        let selectedIdentity = configuration.currentGalleryIdentity
+        guard configuration.token(for: galleryType, baseURL: baseURL).isEmpty else {
+            noteTokenResolved(galleryType: galleryType, endpoint: baseURL)
             return
         }
-        getCode(fullJID: fulljid, target: GalleryTokenRequestTarget(owner: owner, galleryType: galleryType, baseURL: baseURL))
+        if selectedIdentity == target.identity {
+            publishAvailability(.authorizing(endpoint: baseURL))
+        }
+        guard let stream = AccountManager.shared.find(for: self.owner)?.xmppStream else {
+            DDLogDebug(
+                "CLOUD_AVAILABILITY authorizationDeferred=true accountRegistered=false endpointKnown=true"
+            )
+            return
+        }
+        guard let fulljid = stream.myJID?.full else {
+            if selectedIdentity == target.identity {
+                publishAvailability(
+                    .retryableFailure(stage: .authorization, endpoint: baseURL)
+                )
+            }
+            DDLogDebug(
+                "CLOUD_AVAILABILITY authorizationDeferred=true boundJID=false endpointKnown=true"
+            )
+            return
+        }
+        guard let generation = beginAuthorization(
+            target: target,
+            selectedIdentity: selectedIdentity
+        ) else {
+            return
+        }
+        getCode(fullJID: fulljid, target: target, generation: generation)
     }
 
     //MARK: - Sends inquiry to the server in order to get non-permanent code
-    private func getCode(fullJID: String, target: GalleryTokenRequestTarget, failCallback: ((String?) -> Void)? = nil) {
-        Self.tokenAPIClient.requestCode(baseURL: target.baseURL, fullJID: fullJID) { response in
+    private func getCode(
+        fullJID: String,
+        target: GalleryTokenRequestTarget,
+        generation: Int,
+        failCallback: ((String?) -> Void)? = nil
+    ) {
+        Self.tokenAPIClient.requestCode(baseURL: target.baseURL, fullJID: fullJID) { [weak self] response in
+            guard let self = self,
+                  self.isCurrentAuthorization(identity: target.identity, generation: generation) else {
+                return
+            }
             switch response {
-            case .response(let code, let value, _):
+            case .response(let code, _, _):
+                DDLogDebug(
+                    "CLOUD_AVAILABILITY authorizationCodeResponse=true statusCode=\(code ?? -1)"
+                )
                 if let code = code, code >= 200 && code < 300 {
-                    DDLogDebug(value ?? [:])
+                    DDLogDebug("CLOUD_AVAILABILITY authorizationCodeRequested=true")
                 } else {
                     failCallback?(nil)
+                    self.failAuthorization(target: target, generation: generation)
                 }
-            case .failure(_, let error, _):
-                DispatchQueue.main.async {
-                    ToastPresenter().presentError(message: "Cloud storage is inactive")
-                }
+            case .failure(let code, let error, _):
+                let errorCode = (error as NSError?)?.code ?? 0
+                DDLogDebug(
+                    "CLOUD_AVAILABILITY authorizationCodeFailure=true statusCode=\(code ?? -1) errorCode=\(errorCode)"
+                )
                 failCallback?(error?.localizedDescription)
+                self.failAuthorization(target: target, generation: generation)
                 DDLogDebug(error?.localizedDescription ?? "Unknown error")
             }
         }
@@ -2956,35 +3365,227 @@ class XabberUploadManager: AbstractXMPPManager {
               let target = tokenTarget(forConfirmURL: confirm.attributeStringValue(forName: "url")) else {
                 return false
               }
-        getToken(withCode: code, target: target, failCallback: nil)
+        guard let generation = beginTokenExchange(target: target) else {
+            DDLogDebug("CLOUD_AVAILABILITY ignoredStaleTokenConfirmation=true")
+            return true
+        }
+        getToken(withCode: code, target: target, generation: generation, failCallback: nil)
         return true
     }
 
 
     //MARK: - Receives token from API by sending non-permanent code
     //MARK: - Token is saved in UserDefaults
-    private func getToken(withCode code: String, target: GalleryTokenRequestTarget, failCallback: ((Error?) -> Void)?) {
+    private func getToken(
+        withCode code: String,
+        target: GalleryTokenRequestTarget,
+        generation: Int,
+        failCallback: ((Error?) -> Void)?
+    ) {
         Self.tokenAPIClient.exchangeCode(baseURL: target.baseURL, owner: owner, code: code) { [weak self] response in
-            guard let self = self else { return }
+            guard let self = self,
+                  self.isCurrentAuthorization(identity: target.identity, generation: generation) else {
+                return
+            }
             switch response {
             case .response(let statusCode, let value, _):
+                DDLogDebug(
+                    "CLOUD_AVAILABILITY authorizationTokenResponse=true statusCode=\(statusCode ?? -1)"
+                )
                 guard let statusCode = statusCode, statusCode >= 200 && statusCode < 300,
                       let data = value as? NSDictionary,
                       let token = data["token"] as? String,
                       token.isNotEmpty else {
                     failCallback?(nil)
+                    self.failAuthorization(target: target, generation: generation)
                     return
                 }
-                AccountGalleryConfiguration(owner: self.owner).storeToken(token, galleryType: target.galleryType, baseURL: target.baseURL)
+                Self.authorizationSuccessWillCommitTestingHandler?()
+                guard self.commitAuthorizationSuccess(
+                    token: token,
+                    target: target,
+                    generation: generation
+                ) else {
+                    DDLogDebug("CLOUD_AVAILABILITY ignoredStaleAuthorizationSuccess=true")
+                    return
+                }
                 self.postGalleryTokenDidChange(target: target)
                 if AccountGalleryConfiguration(owner: self.owner).currentGalleryIdentity == target.identity {
                     self.refreshQuota(reason: .tokenReceived, force: true)
                 }
-                DDLogDebug("Received media gallery token for \(target.identity)")
-            case .failure(_, let error, _):
+                DDLogDebug("CLOUD_AVAILABILITY authorizationCompleted=true")
+            case .failure(let statusCode, let error, _):
+                let errorCode = (error as NSError?)?.code ?? 0
+                DDLogDebug(
+                    "CLOUD_AVAILABILITY authorizationTokenFailure=true statusCode=\(statusCode ?? -1) errorCode=\(errorCode)"
+                )
                 failCallback?(error)
+                self.failAuthorization(target: target, generation: generation)
             }
         }
+    }
+
+    private func commitAuthorizationSuccess(
+        token: String,
+        target: GalleryTokenRequestTarget,
+        generation: Int
+    ) -> Bool {
+        authorizationLock.lock()
+        defer { authorizationLock.unlock() }
+
+        guard authorizationInFlightIdentity == target.identity,
+              authorizationInFlightGeneration == generation,
+              tokenExchangeInFlightIdentity == target.identity else {
+            return false
+        }
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        let knownEndpoint: URL?
+        switch target.galleryType {
+        case .basic:
+            knownEndpoint = configuration.basicGalleryURL
+        case .premium:
+            knownEndpoint = configuration.premiumGalleryURL
+        }
+        guard AccountGalleryConfiguration.galleryIdentity(
+            owner: owner,
+            type: target.galleryType,
+            url: knownEndpoint
+        ) == target.identity else {
+            return false
+        }
+
+        configuration.storeToken(
+            token,
+            galleryType: target.galleryType,
+            baseURL: target.baseURL
+        )
+        clearAuthorizationAttemptLocked()
+        if configuration.currentGalleryIdentity == target.identity {
+            publishAvailability(.ready(endpoint: target.baseURL))
+        }
+        return true
+    }
+
+    private func beginAuthorization(
+        target: GalleryTokenRequestTarget,
+        selectedIdentity: String
+    ) -> Int? {
+        authorizationLock.lock()
+        if target.identity != selectedIdentity,
+           authorizationInFlightIdentity == selectedIdentity {
+            authorizationLock.unlock()
+            return nil
+        }
+        if authorizationInFlightIdentity == target.identity {
+            authorizationLock.unlock()
+            return nil
+        }
+        authorizationTimeoutWorkItem?.cancel()
+        authorizationGeneration += 1
+        let generation = authorizationGeneration
+        authorizationInFlightIdentity = target.identity
+        authorizationInFlightGeneration = generation
+        tokenExchangeInFlightIdentity = nil
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.authorizationDidTimeout(target: target, generation: generation)
+        }
+        authorizationTimeoutWorkItem = workItem
+        authorizationLock.unlock()
+        DispatchQueue.global(qos: .utility).asyncAfter(
+            deadline: .now() + Self.authorizationTimeoutInterval,
+            execute: workItem
+        )
+        return generation
+    }
+
+    private func beginTokenExchange(target: GalleryTokenRequestTarget) -> Int? {
+        authorizationLock.lock()
+        defer { authorizationLock.unlock() }
+        if authorizationInFlightIdentity == target.identity,
+           let generation = authorizationInFlightGeneration {
+            guard tokenExchangeInFlightIdentity != target.identity else {
+                return nil
+            }
+            tokenExchangeInFlightIdentity = target.identity
+            return generation
+        }
+
+        // A ready manager may receive a token rotation confirmation that was
+        // requested immediately before this manager instance was recreated.
+        // Retryable/authorizing managers require a live request generation so
+        // a late confirmation cannot revive a timed-out attempt.
+        guard case .ready = availabilityRelay.value else {
+            return nil
+        }
+        authorizationGeneration += 1
+        let generation = authorizationGeneration
+        authorizationInFlightIdentity = target.identity
+        authorizationInFlightGeneration = generation
+        tokenExchangeInFlightIdentity = target.identity
+        authorizationTimeoutWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.authorizationDidTimeout(target: target, generation: generation)
+        }
+        authorizationTimeoutWorkItem = workItem
+        DispatchQueue.global(qos: .utility).asyncAfter(
+            deadline: .now() + Self.authorizationTimeoutInterval,
+            execute: workItem
+        )
+        return generation
+    }
+
+    private func isCurrentAuthorization(identity: String, generation: Int) -> Bool {
+        authorizationLock.lock()
+        defer { authorizationLock.unlock() }
+        return authorizationInFlightIdentity == identity
+            && authorizationInFlightGeneration == generation
+    }
+
+    private func finishAuthorization(identity: String, generation: Int?) {
+        authorizationLock.lock()
+        let identityMatches = authorizationInFlightIdentity == identity
+            || tokenExchangeInFlightIdentity == identity
+        let generationMatches = generation == nil || authorizationInFlightGeneration == generation
+        guard identityMatches, generationMatches else {
+            authorizationLock.unlock()
+            return
+        }
+        clearAuthorizationAttemptLocked()
+        authorizationLock.unlock()
+    }
+
+    private func failAuthorization(target: GalleryTokenRequestTarget, generation: Int) {
+        authorizationLock.lock()
+        defer { authorizationLock.unlock() }
+        guard authorizationInFlightIdentity == target.identity,
+              authorizationInFlightGeneration == generation else {
+            return
+        }
+        clearAuthorizationAttemptLocked()
+        guard AccountGalleryConfiguration(owner: owner).currentGalleryIdentity == target.identity else {
+            return
+        }
+        publishAvailability(.retryableFailure(stage: .authorization, endpoint: target.baseURL))
+    }
+
+    private func authorizationDidTimeout(target: GalleryTokenRequestTarget, generation: Int) {
+        DDLogDebug("CLOUD_AVAILABILITY authorizationTimeout=true endpointKnown=true")
+        failAuthorization(target: target, generation: generation)
+    }
+
+    private func cancelAuthorization() {
+        authorizationLock.lock()
+        authorizationGeneration += 1
+        clearAuthorizationAttemptLocked()
+        authorizationLock.unlock()
+    }
+
+    private func clearAuthorizationAttemptLocked() {
+        authorizationTimeoutWorkItem?.cancel()
+        authorizationTimeoutWorkItem = nil
+        authorizationInFlightIdentity = nil
+        authorizationInFlightGeneration = nil
+        tokenExchangeInFlightIdentity = nil
     }
 
     private func postGalleryTokenDidChange(target: GalleryTokenRequestTarget) {

@@ -25,11 +25,41 @@ import XMPPFramework
 
 class ServerDiscoManager: AbstractXMPPManager {
 
+    enum CloudDiscoveryTerminalKind: Equatable {
+        case response
+        case error
+        case timeout
+        case disconnect
+    }
+
+    private enum CloudDiscoveryRegistrationPhase: Equatable {
+        case reserved
+        case registered
+    }
+
+    private struct ActiveCloudDiscoveryQuery {
+        let elementID: String
+        var phase: CloudDiscoveryRegistrationPhase
+        var timeoutWorkItem: DispatchWorkItem?
+    }
+
     static let clientName: String = CommonConfigManager.shared.config.app_name
+    static var cloudDiscoveryTimeoutInterval: TimeInterval = 6
+    static let retryableServerCapabilitiesMarker = "__retryable_server_capabilities__"
+    static var cloudDiscoveryWillRegisterQueryTestingHandler: ((ServerDiscoManager, String) -> Void)?
+    static var cloudDiscoveryDidRegisterQueryTestingHandler: ((ServerDiscoManager) -> Void)?
+    static var cloudDiscoveryDidConsumeTerminalTestingHandler: ((CloudDiscoveryTerminalKind) -> Void)?
 
     var hasCachedFeatures: Bool = false
     var features: SynchronizedArray<String> = SynchronizedArray<String>()
-    var serverFeatureQueryIds: SynchronizedArray<String> = SynchronizedArray<String>()
+    private let cloudDiscoveryLock = NSRecursiveLock()
+    private var activeCloudDiscoveryQuery: ActiveCloudDiscoveryQuery?
+
+    var activeCloudDiscoveryQueryIDForTesting: String? {
+        cloudDiscoveryLock.lock()
+        defer { cloudDiscoveryLock.unlock() }
+        return activeCloudDiscoveryQuery?.elementID
+    }
 
     var clientFeatures: [String] = []
 
@@ -38,6 +68,14 @@ class ServerDiscoManager: AbstractXMPPManager {
         clientFeatures.append("http://jabber.org/protocol/disco#info")
         clientFeatures.append("http://jabber.org/protocol/disco#items")
 //        clientFeatures.append("http://jabber.org/protocol/caps")
+    }
+
+    deinit {
+        cloudDiscoveryLock.lock()
+        let timeoutWorkItem = activeCloudDiscoveryQuery?.timeoutWorkItem
+        activeCloudDiscoveryQuery = nil
+        cloudDiscoveryLock.unlock()
+        timeoutWorkItem?.cancel()
     }
 
     open func register(_ module: AbstractXMPPManager) {
@@ -88,12 +126,58 @@ class ServerDiscoManager: AbstractXMPPManager {
 
     func requestServerFeatures(_ xmppStream: XMPPStream) {
         let elementId = xmppStream.generateUUID
+        cloudDiscoveryLock.lock()
+        guard activeCloudDiscoveryQuery == nil else {
+            cloudDiscoveryLock.unlock()
+            return
+        }
+        activeCloudDiscoveryQuery = ActiveCloudDiscoveryQuery(
+            elementID: elementId,
+            phase: .reserved,
+            timeoutWorkItem: nil
+        )
+        AccountManager.shared.find(for: owner)?.cloudStorage.beginAvailabilityDiscovery()
+        cloudDiscoveryLock.unlock()
+
+        Self.cloudDiscoveryWillRegisterQueryTestingHandler?(self, elementId)
+
+        cloudDiscoveryLock.lock()
+        guard activeCloudDiscoveryQuery?.elementID == elementId,
+              activeCloudDiscoveryQuery?.phase == .reserved else {
+            cloudDiscoveryLock.unlock()
+            return
+        }
+        activeCloudDiscoveryQuery?.phase = .registered
+        Self.cloudDiscoveryDidRegisterQueryTestingHandler?(self)
+        guard activeCloudDiscoveryQuery?.elementID == elementId,
+              activeCloudDiscoveryQuery?.phase == .registered else {
+            cloudDiscoveryLock.unlock()
+            return
+        }
+        let timeoutWorkItem = makeCloudDiscoveryTimeoutWorkItem(for: elementId)
+        activeCloudDiscoveryQuery?.timeoutWorkItem = timeoutWorkItem
+        DispatchQueue.global(qos: .utility).asyncAfter(
+            deadline: .now() + Self.cloudDiscoveryTimeoutInterval,
+            execute: timeoutWorkItem
+        )
         xmppStream.send(XMPPIQ(iqType: .get,
                                to: xmppStream.myJID?.domainJID,
                                elementID: elementId,
                                child: DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")))
-        self.queryIds.insert(elementId)
-        self.serverFeatureQueryIds.insert(elementId)
+        cloudDiscoveryLock.unlock()
+    }
+
+    @discardableResult
+    func cancelCloudDiscoveryForDisconnect() -> Bool {
+        guard consumeActiveCloudDiscovery(
+            elementID: nil,
+            terminal: .disconnect,
+            requiresRegisteredQuery: false
+        ) != nil else {
+            return false
+        }
+        completeRetryableServerCapabilitiesOnboarding()
+        return true
     }
 
     func requestItems(_ xmppStream: XMPPStream) {
@@ -118,9 +202,25 @@ class ServerDiscoManager: AbstractXMPPManager {
     override func read(withIQ iq: XMPPIQ) -> Bool {
         switch true {
         case readIdentityRequest(withIQ: iq): return true
+        case readFeatureError(withIQ: iq): return true
         case readFeatures(withIQ: iq): return true
         default: return false
         }
+    }
+
+    private func readFeatureError(withIQ iq: XMPPIQ) -> Bool {
+        guard iq.iqType == .error,
+              let elementID = iq.elementID,
+              consumeActiveCloudDiscovery(
+                elementID: elementID,
+                terminal: .error,
+                requiresRegisteredQuery: true
+              ) != nil else {
+            return false
+        }
+        AccountManager.shared.find(for: owner)?.cloudStorage.markAvailabilityRetryableFailure(stage: .discovery)
+        completeRetryableServerCapabilitiesOnboarding()
+        return true
     }
 //    <iq xmlns="jabber:client" lang="ru" to="igor.boldin@redsolution.com/xabber-ios-BF9ED1E2" from="notify.redsolution.com" type="result" id="DA41EFEC-DB97-42F1-BAA1-31DB09E0A438">
 //      <query xmlns="http://jabber.org/protocol/disco#info">
@@ -136,19 +236,40 @@ class ServerDiscoManager: AbstractXMPPManager {
             let query = iq.element(forName: "query",
                                    xmlns: "http://jabber.org/protocol/disco#info") ??
                 iq.element(forName: "query",
-                           xmlns: "http://jabber.org/protocol/disco#items"),
-            self.queryIds.contains(elementId)  else {
+                           xmlns: "http://jabber.org/protocol/disco#items") else {
                 return false
         }
-        let isServerFeatureResponse = serverFeatureQueryIds.contains(elementId)
-        if isServerFeatureResponse {
-            serverFeatureQueryIds.remove(elementId)
+        let isServerFeatureResponse: Bool
+        if query.xmlns() == "http://jabber.org/protocol/disco#info" {
+            isServerFeatureResponse = consumeActiveCloudDiscovery(
+                elementID: elementId,
+                terminal: .response,
+                requiresRegisteredQuery: true
+            ) != nil
+        } else {
+            isServerFeatureResponse = false
+        }
+        guard isServerFeatureResponse || queryIds.contains(elementId) else {
+            return false
+        }
+        if !isServerFeatureResponse {
+            queryIds.remove(elementId)
         }
 
         switch query.xmlns() ?? "none" {
         case "http://jabber.org/protocol/disco#info":
             if isServerFeatureResponse {
                 parseMessageScheduleSettings(query.elements(forName: "feature"), authoritative: true)
+            }
+            let discoveredGalleryEndpoint = parseAndStoreUrls(
+                query: query,
+                nspace: "urn:xabber:http:url",
+                allowsGalleryMutation: isServerFeatureResponse
+            )
+            if isServerFeatureResponse {
+                AccountManager.shared.find(for: owner)?.cloudStorage.resolveAuthoritativeDiscovery(
+                    endpoint: discoveredGalleryEndpoint
+                )
             }
             if parseClientIdentity(iq: iq) {
                 return true
@@ -184,8 +305,6 @@ class ServerDiscoManager: AbstractXMPPManager {
 //                    return true
 //                }
             }
-
-            self.parseAndStoreUrls(query: query, nspace: "urn:xabber:http:url")
 
             let features = query.elements(forName: "feature")
             var caps: [String] = []
@@ -249,9 +368,11 @@ class ServerDiscoManager: AbstractXMPPManager {
                     }
                 }
             }
-            AccountManager.shared.changeNewUserState(for: owner, to: .capsReceived(caps))
-            parseReliableMessageDeliverySettings(query.elements(forName: "feature"))
-            parseMessagesDeleteRewriteSettings(query.elements(forName: "feature"))
+            if isServerFeatureResponse {
+                AccountManager.shared.changeNewUserState(for: owner, to: .capsReceived(caps))
+                parseReliableMessageDeliverySettings(query.elements(forName: "feature"))
+                parseMessagesDeleteRewriteSettings(query.elements(forName: "feature"))
+            }
             return true
         case "http://jabber.org/protocol/disco#items":
             query.elements(forName: "item").forEach { item in
@@ -266,8 +387,14 @@ class ServerDiscoManager: AbstractXMPPManager {
         }
     }
 
-    private func parseAndStoreUrls(query: DDXMLElement, nspace: String) {
+    @discardableResult
+    private func parseAndStoreUrls(
+        query: DDXMLElement,
+        nspace: String,
+        allowsGalleryMutation: Bool
+    ) -> URL? {
         var xDictionary: [String : String] = [:]
+        var discoveredGalleryEndpoint: URL?
 
         for x in query.elements(forName: "x") {
 
@@ -306,9 +433,11 @@ class ServerDiscoManager: AbstractXMPPManager {
 
             if let namespace = xDictionary["namespace"], namespace == nspace {
 
-                if let galleryURL = xDictionary["galleryURL"] {
+                if allowsGalleryMutation, let galleryURL = xDictionary["galleryURL"] {
                     let galleryConfiguration = AccountGalleryConfiguration(owner: self.owner)
+                    let normalizedEndpoint = AccountGalleryConfiguration.normalizedBaseURL(from: galleryURL)
                     let didStoreBasicGalleryURL = galleryConfiguration.storeBasicGalleryURL(galleryURL)
+                    discoveredGalleryEndpoint = normalizedEndpoint
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, _ in
                         if didStoreBasicGalleryURL, let basicGalleryURL = galleryConfiguration.basicGalleryURL {
                             user.cloudStorage.requestAuthIfNeeded(galleryType: .basic, baseURL: basicGalleryURL)
@@ -324,6 +453,52 @@ class ServerDiscoManager: AbstractXMPPManager {
                 }
             }
         }
+        return discoveredGalleryEndpoint
+    }
+
+    private func makeCloudDiscoveryTimeoutWorkItem(for elementID: String) -> DispatchWorkItem {
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.cloudDiscoveryDidTimeout(elementID: elementID)
+        }
+        return workItem
+    }
+
+    private func cloudDiscoveryDidTimeout(elementID: String) {
+        guard consumeActiveCloudDiscovery(
+            elementID: elementID,
+            terminal: .timeout,
+            requiresRegisteredQuery: true
+        ) != nil else { return }
+        AccountManager.shared.find(for: owner)?.cloudStorage.markAvailabilityRetryableFailure(stage: .discovery)
+        completeRetryableServerCapabilitiesOnboarding()
+    }
+
+    @discardableResult
+    private func consumeActiveCloudDiscovery(
+        elementID: String?,
+        terminal: CloudDiscoveryTerminalKind,
+        requiresRegisteredQuery: Bool
+    ) -> ActiveCloudDiscoveryQuery? {
+        cloudDiscoveryLock.lock()
+        guard let activeQuery = activeCloudDiscoveryQuery,
+              elementID == nil || activeQuery.elementID == elementID,
+              !requiresRegisteredQuery || activeQuery.phase == .registered else {
+            cloudDiscoveryLock.unlock()
+            return nil
+        }
+        activeCloudDiscoveryQuery = nil
+        cloudDiscoveryLock.unlock()
+
+        activeQuery.timeoutWorkItem?.cancel()
+        Self.cloudDiscoveryDidConsumeTerminalTestingHandler?(terminal)
+        return activeQuery
+    }
+
+    private func completeRetryableServerCapabilitiesOnboarding() {
+        AccountManager.shared.changeNewUserState(
+            for: owner,
+            to: .capsReceived([Self.retryableServerCapabilitiesMarker])
+        )
     }
 
     private func getNotificationServiceNode(_ query: DDXMLElement, jid: String) -> Bool {
@@ -529,8 +704,8 @@ class ServerDiscoManager: AbstractXMPPManager {
     }
 
     override func clearSession() {
+        cancelCloudDiscoveryForDisconnect()
         queryIds.removeAll()
-        serverFeatureQueryIds.removeAll()
     }
 
     func parseClientFeatures(_ query: DDXMLElement?) -> ClientDiscoStorageItem {

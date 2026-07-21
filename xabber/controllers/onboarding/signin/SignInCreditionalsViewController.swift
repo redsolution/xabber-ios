@@ -25,6 +25,35 @@ import RxSwift
 import RxCocoa
 import MaterialComponents.MDCPalettes
 
+enum SignInTemporaryAccountCleanupPolicy {
+    static func shouldDelete(
+        temporaryAccountJid: String?,
+        didTransferAccountOwnership: Bool,
+        cleanupAlreadyPerformed: Bool
+    ) -> Bool {
+        guard !didTransferAccountOwnership,
+              !cleanupAlreadyPerformed,
+              let temporaryAccountJid else {
+            return false
+        }
+        return temporaryAccountJid
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isNotEmpty
+    }
+}
+
+enum SignInAttemptCallbackPolicy {
+    static func shouldAccept(
+        callbackGeneration: UInt64,
+        activeGeneration: UInt64,
+        callbackJid: String,
+        temporaryAccountJid: String?
+    ) -> Bool {
+        callbackGeneration == activeGeneration
+            && callbackJid == temporaryAccountJid
+    }
+}
+
 class SignInCreditionalsViewController: SimpleBaseViewController {
     
     enum ConnectionStep {
@@ -366,8 +395,53 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
     private var accountStateBag: DisposeBag = DisposeBag()
     
     private var connectionStep: ConnectionStep = .step1
-    
-    private var shouldDeleteAccount: Bool = true
+
+    private var signInAttemptGeneration: UInt64 = 0
+    private var temporaryAccountJid: String?
+    private var didTransferAccountOwnership: Bool = false
+    private var didPerformTemporaryAccountCleanup: Bool = false
+
+    private final func disposeAccountStateObservation() {
+        accountStateBag = DisposeBag()
+    }
+
+    private final func invalidateSignInAttemptObservation() {
+        signInAttemptGeneration &+= 1
+        disposeAccountStateObservation()
+    }
+
+    private final func prepareForNewSignInAttempt() -> UInt64 {
+        invalidateSignInAttemptObservation()
+        cleanupTemporaryAccountIfNeeded()
+        temporaryAccountJid = nil
+        didTransferAccountOwnership = false
+        didPerformTemporaryAccountCleanup = false
+        return signInAttemptGeneration
+    }
+
+    private final func transferTemporaryAccountOwnership() {
+        didTransferAccountOwnership = true
+        temporaryAccountJid = nil
+        disposeAccountStateObservation()
+    }
+
+    private final func cleanupTemporaryAccountIfNeeded() {
+        guard SignInTemporaryAccountCleanupPolicy.shouldDelete(
+            temporaryAccountJid: temporaryAccountJid,
+            didTransferAccountOwnership: didTransferAccountOwnership,
+            cleanupAlreadyPerformed: didPerformTemporaryAccountCleanup
+        ), let temporaryAccountJid else {
+            return
+        }
+        didPerformTemporaryAccountCleanup = true
+        self.temporaryAccountJid = nil
+        AccountManager.shared.deleteAccount(by: temporaryAccountJid)
+    }
+
+    private final func cancelCurrentSignInAttempt() {
+        invalidateSignInAttemptObservation()
+        cleanupTemporaryAccountIfNeeded()
+    }
     
     private final func doAnimationsBlock(animated: Bool, block: @escaping (() -> Void)) {
         if animated {
@@ -465,7 +539,7 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
     
     @objc
     override func close(_ sender: AnyObject) {
-        AccountManager.shared.deleteAccount(by: self.loginFieldValue)
+        cancelCurrentSignInAttempt()
         self.unsubscribe()
         self.dismiss(animated: true, completion: nil)
     }
@@ -505,9 +579,7 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
     }
 
     private final func continueToSignUp() {
-        if self.loginFieldValue.isNotEmpty {
-            AccountManager.shared.deleteAccount(by: self.loginFieldValue)
-        }
+        cancelCurrentSignInAttempt()
         XMPPRegistrationManager.shared.delegate = self
         self.shouldShowSignUp = true
         do {
@@ -517,7 +589,10 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
         }
     }
     
-    private final func subscribeOnNewAccountState() {
+    private final func subscribeOnNewAccountState(
+        expectedJid: String,
+        generation: UInt64
+    ) {
         self.accountStateBag = DisposeBag()
         DispatchQueue.main.async {
             [self.step1, self.step2, self.step3, self.step4].forEach { $0.reset() }
@@ -526,9 +601,17 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
         AccountManager
             .shared
             .newAccountObservable
-            .subscribe { observer in
-                DispatchQueue.main.async {
-                    if observer.jid == self.loginFieldValue {
+            .subscribe { [weak self] observer in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          SignInAttemptCallbackPolicy.shouldAccept(
+                            callbackGeneration: generation,
+                            activeGeneration: self.signInAttemptGeneration,
+                            callbackJid: observer.jid,
+                            temporaryAccountJid: self.temporaryAccountJid
+                          ) else {
+                        return
+                    }
                         switch observer.state {
                         case .none:
                             self.step2.isHidden = false
@@ -550,15 +633,24 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
                             self.connectionStep = .step4
                             break
                         case .capsReceived(let value):
+                            self.connectionStep = .step4
                             self.step4.setChecked(true)
-                            self.accountStateBag = DisposeBag()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                            self.transferTemporaryAccountOwnership()
+                            DispatchQueue.main.asyncAfter(
+                                deadline: .now() + SignInServerFeaturesRevealPolicy.screenPresentationDelay
+                            ) { [weak self] in
+                                guard let self,
+                                      self.signInAttemptGeneration == generation,
+                                      self.didTransferAccountOwnership,
+                                      self.navigationController?.topViewController === self else {
+                                    return
+                                }
                                 self.title = " "
                                 if CommonConfigManager.shared.config.show_server_features {
                                     let vc = SignInServerFeaturesViewController()
                                     vc.features = value
                                     vc.host = self.host
-                                    vc.jid = self.loginFieldValue
+                                    vc.jid = expectedJid
                                     vc.isModal = self.isModal
                                     self.navigationController?.setViewControllers([vc], animated: true)
                                 } else {
@@ -570,59 +662,62 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
                         case .dataLoaded:
                             break
                         case .streamError(let error):
-                            self.accountStateBag = DisposeBag()
+                            self.disposeAccountStateObservation()
                             self.unsubscribe()
                             if error == "policy-violation" {
                                 if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
+                                    self.transferTemporaryAccountOwnership()
                                     self.title = " "
                                     let vc = SignUpEnableNotificationsViewController()
                                     self.navigationController?.setViewControllers([vc], animated: true)
                                 } else {
-                                    self.accountStateBag = DisposeBag()
-                                    self.unsubscribe()
+                                    self.invalidateSignInAttemptObservation()
+                                    self.cleanupTemporaryAccountIfNeeded()
+                                    self.loginField.isEnabled = true
+                                    self.passwordField.isEnabled = true
+                                    self.makeButtonDisabled(true)
                                 }
-                            }
-                            
-                        case .failure(let error):
-                            AccountManager.shared.find(for: self.loginFieldValue)?.disconnect(hard: true)
-                            if self.shouldDeleteAccount {
-                                AccountManager.shared.deleteAccount(by: self.loginFieldValue)
+                            } else {
+                                self.invalidateSignInAttemptObservation()
+                                self.cleanupTemporaryAccountIfNeeded()
                                 self.loginField.isEnabled = true
                                 self.passwordField.isEnabled = true
                                 self.makeButtonDisabled(true)
-                                let localizedError: String = error
-                                    .replacingOccurrences(of: "-", with: " ")
-                                    .replacingOccurrences(of: "_", with: " ")
-                                UIView.performWithoutAnimation {
-                                    self.subtitleButton.setTitleColor(.systemRed, for: .disabled)
-                                    self.subtitleButton.setAttributedTitle(NSAttributedString(string: localizedError, attributes: [.foregroundColor: UIColor.systemRed]), for: .disabled)
-                                    self.subtitleButton.isEnabled = false
-                                }
-                                switch self.connectionStep {
-                                case .step1, .step2:
-                                    self.step1.setChecked(true)
-                                    self.step2.setError(true, text: nil)
-                                    [self.step3, self.step4].forEach { $0.reset() }
-                                    break
-                                case .step3:
-                                    [self.step1, self.step2].forEach { $0.setChecked(true) }
-                                    self.step3.setError(true, text: nil)
-                                    self.step4.reset()
-                                    break
-                                case .step4:
-                                    self.step4.setError(true, text: nil)
-                                    [self.step2, self.step3, self.step4].forEach { $0.reset() }
-                                    break
-                                }
-                                self.accountStateBag = DisposeBag()
-                            } else {
-                                AccountManager.shared.disable(jid: self.loginFieldValue)
+                            }
+
+                        case .failure(let error):
+                            self.invalidateSignInAttemptObservation()
+                            AccountManager.shared.find(for: expectedJid)?.disconnect(hard: true)
+                            self.cleanupTemporaryAccountIfNeeded()
+                            self.loginField.isEnabled = true
+                            self.passwordField.isEnabled = true
+                            self.makeButtonDisabled(true)
+                            let localizedError: String = error
+                                .replacingOccurrences(of: "-", with: " ")
+                                .replacingOccurrences(of: "_", with: " ")
+                            UIView.performWithoutAnimation {
+                                self.subtitleButton.setTitleColor(.systemRed, for: .disabled)
+                                self.subtitleButton.setAttributedTitle(NSAttributedString(string: localizedError, attributes: [.foregroundColor: UIColor.systemRed]), for: .disabled)
+                                self.subtitleButton.isEnabled = false
+                            }
+                            switch self.connectionStep {
+                            case .step1, .step2:
+                                self.step1.setChecked(true)
+                                self.step2.setError(true, text: nil)
+                                [self.step3, self.step4].forEach { $0.reset() }
+                                break
+                            case .step3:
+                                [self.step1, self.step2].forEach { $0.setChecked(true) }
+                                self.step3.setError(true, text: nil)
+                                self.step4.reset()
+                                break
+                            case .step4:
+                                self.step4.setError(true, text: nil)
+                                [self.step2, self.step3, self.step4].forEach { $0.reset() }
+                                break
                             }
                             break
                         }
-                    } else {
-                        self.accountStateBag = DisposeBag()
-                    }
                 }
             } onError: { error in
                 DDLogDebug("SignInCreditionalsViewController: \(#function). \(error.localizedDescription)")
@@ -774,19 +869,44 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
               passwordFieldValue.isNotEmpty else {
             return
         }
+        let attemptJid = loginFieldValue
+        let attemptPassword = passwordFieldValue
+        let attemptGeneration = prepareForNewSignInAttempt()
         self.loginField.isEnabled = false
         self.passwordField.isEnabled = false
         self.subtitleButton.setAttributedTitle(nil, for: .disabled)
         self.subtitleButton.isEnabled = false
-        AccountManager
+        let creationResult = AccountManager
             .shared
             .create(
-                jid: loginFieldValue,
-                password: passwordFieldValue,
+                jid: attemptJid,
+                password: attemptPassword,
                 nickname: nil,
                 isFromRegister: false
             )
-        subscribeOnNewAccountState()
+        guard creationResult == .created else {
+            self.loginField.isEnabled = true
+            self.passwordField.isEnabled = true
+            let localizedError = "Account already exists"
+                .localizeString(id: "account_already_exists", arguments: [])
+            UIView.performWithoutAnimation {
+                self.subtitleButton.setTitleColor(.systemRed, for: .disabled)
+                self.subtitleButton.setAttributedTitle(
+                    NSAttributedString(
+                        string: localizedError,
+                        attributes: [.foregroundColor: UIColor.systemRed]
+                    ),
+                    for: .disabled
+                )
+                self.subtitleButton.isEnabled = false
+            }
+            return
+        }
+        temporaryAccountJid = attemptJid
+        subscribeOnNewAccountState(
+            expectedJid: attemptJid,
+            generation: attemptGeneration
+        )
         self.view.endEditing(true)
     }
     
@@ -809,9 +929,7 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        if self.connectionStep != .step4 {
-            AccountManager.shared.deleteAccount(by: self.loginFieldValue)
-        }
+        cancelCurrentSignInAttempt()
     }
 }
 

@@ -1212,12 +1212,17 @@ final class ChatAttachmentPickerViewController: UIViewController {
     }
 
     private func retryUnavailableDraftsAndSend() {
-        guard selectedAttachmentDrafts.contains(where: { draft in
+        let hasUnavailableDrafts = selectedAttachmentDrafts.contains(where: { draft in
             if case .unavailable = draft.preparationState {
                 return true
             }
             return false
-        }) else {
+        })
+        guard hasUnavailableDrafts else {
+            guard sendFeedbackViewModel?.showsRetryAction == true else {
+                return
+            }
+            sendSelectedDraftsFromSheet()
             return
         }
 
@@ -1313,6 +1318,9 @@ extension ChatAttachmentPickerViewController: ChatAttachmentPreviewViewControlle
         _ preview: ChatAttachmentPreviewViewController,
         didRequestSend drafts: [AttachmentDraft]
     ) {
+        sendFeedbackViewModel = nil
+        preview.applySendFeedback(.hidden)
+        updateStatusBanner()
         delegate?.chatAttachmentSheetViewController(
             self,
             didRequestSend: drafts,

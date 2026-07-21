@@ -22,6 +22,173 @@ import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
 import XMPPFramework.XMPPJID
+import RxCocoa
+import RxSwift
+
+enum SignInCloudStorageFeaturePresentationPolicy {
+    struct Presentation: Equatable {
+        enum Status: Equatable {
+            case checking
+            case supported
+            case retryableFailure
+            case unsupported
+        }
+
+        let featureValue: Bool?
+        let isCapabilitySupported: Bool
+        let isPermanentFailure: Bool
+        let status: Status
+
+        /// A retryable failure is rendered as a transient warning instead of
+        /// an endless activity indicator. `featureValue` remains the semantic
+        /// capability value used by non-UI consumers.
+        var displayFeatureValue: Bool? {
+            featureValue
+        }
+    }
+
+    static func resolve(_ state: CloudStorageAvailabilityState) -> Presentation {
+        switch state {
+        case .discovering:
+            return Presentation(
+                featureValue: nil,
+                isCapabilitySupported: false,
+                isPermanentFailure: false,
+                status: .checking
+            )
+        case .authorizing, .ready:
+            return Presentation(
+                featureValue: true,
+                isCapabilitySupported: true,
+                isPermanentFailure: false,
+                status: .supported
+            )
+        case .unsupported:
+            return Presentation(
+                featureValue: false,
+                isCapabilitySupported: false,
+                isPermanentFailure: true,
+                status: .unsupported
+            )
+        case .retryableFailure(_, let endpoint):
+            return Presentation(
+                featureValue: endpoint.map { _ in true },
+                isCapabilitySupported: endpoint != nil,
+                isPermanentFailure: false,
+                status: .retryableFailure
+            )
+        }
+    }
+}
+
+enum SignInCloudStorageFeatureReducer {
+    struct State: Equatable {
+        let availabilityState: CloudStorageAvailabilityState
+        let presentation: SignInCloudStorageFeaturePresentationPolicy.Presentation
+
+        var shouldResolveControls: Bool {
+            if case .discovering = availabilityState {
+                return false
+            }
+            return true
+        }
+    }
+
+    static let initialState = State(
+        availabilityState: .discovering,
+        presentation: SignInCloudStorageFeaturePresentationPolicy.resolve(.discovering)
+    )
+
+    static func reduce(
+        _ state: State,
+        availabilityState: CloudStorageAvailabilityState
+    ) -> State {
+        guard state.availabilityState != availabilityState else {
+            return state
+        }
+        return State(
+            availabilityState: availabilityState,
+            presentation: SignInCloudStorageFeaturePresentationPolicy.resolve(availabilityState)
+        )
+    }
+}
+
+enum SignInServerFeaturesControlsMode: Equatable {
+    case fullySupported
+    case partiallySupported
+    case messageArchiveUnsupported
+    case temporarilyUnverified
+}
+
+enum SignInServerFeaturesControlsPolicy {
+    static func resolve(
+        serverCapabilitiesAreRetryable: Bool = false,
+        isMessageArchiveAvailable: Bool,
+        areOtherRequiredFeaturesAvailable: Bool,
+        cloudStorageAvailabilityState: CloudStorageAvailabilityState
+    ) -> SignInServerFeaturesControlsMode? {
+        if serverCapabilitiesAreRetryable {
+            return .temporarilyUnverified
+        }
+        guard case .discovering = cloudStorageAvailabilityState else {
+            guard isMessageArchiveAvailable else {
+                return .messageArchiveUnsupported
+            }
+            if case .unsupported = cloudStorageAvailabilityState {
+                return .partiallySupported
+            }
+            return areOtherRequiredFeaturesAvailable
+                ? .fullySupported
+                : .partiallySupported
+        }
+        return nil
+    }
+
+    static func resolve(
+        isMessageArchiveAvailable: Bool,
+        areOtherRequiredFeaturesAvailable: Bool,
+        cloudStorageFeatureValue: Bool?
+    ) -> SignInServerFeaturesControlsMode? {
+        guard let cloudStorageFeatureValue = cloudStorageFeatureValue else {
+            return nil
+        }
+        guard isMessageArchiveAvailable else {
+            return .messageArchiveUnsupported
+        }
+        return areOtherRequiredFeaturesAvailable && cloudStorageFeatureValue
+            ? .fullySupported
+            : .partiallySupported
+    }
+}
+
+enum SignInServerFeaturesRevealPolicy {
+    /// Keep the feature checklist legible without making capability discovery
+    /// look slower than it is. The seventh (File upload) row is resolved in
+    /// under one second after the server capabilities arrive.
+    static let screenPresentationDelay: TimeInterval = 0.10
+    static let featureCadence: TimeInterval = 0.12
+
+    static func totalDelayUntilFeature(at zeroBasedIndex: Int) -> TimeInterval {
+        screenPresentationDelay + featureCadence * Double(max(0, zeroBasedIndex) + 1)
+    }
+}
+
+enum SignInServerFeaturesRenderGatePolicy {
+    enum Action: Equatable {
+        case deferFullReload
+        case commitFullReload
+    }
+
+    static func action(
+        isPresentationActive: Bool,
+        isTableAttachedToWindow: Bool
+    ) -> Action {
+        guard isPresentationActive, isTableAttachedToWindow else {
+            return .deferFullReload
+        }
+        return .commitFullReload
+    }
+}
 
 class SignInServerFeaturesViewController: UIViewController {
     
@@ -459,6 +626,10 @@ class SignInServerFeaturesViewController: UIViewController {
     public var host: String? = nil
     
     public var features: [String] = []
+
+    private var serverCapabilitiesAreRetryable: Bool {
+        features.contains(ServerDiscoManager.retryableServerCapabilitiesMarker)
+    }
     
     private var isPushAvailable             : Bool? = nil
     private var isMamAvailable              : Bool? = nil
@@ -468,7 +639,33 @@ class SignInServerFeaturesViewController: UIViewController {
     private var isPubsubAvailable           : Bool? = nil
     private var isHTTPUploadAvailable       : Bool? = nil
 //    private var isXabberUploadAvailable     : Bool? = nil
-    
+    private var cloudStorageFeatureState = SignInCloudStorageFeatureReducer.initialState
+    private var cloudStorageUnsupportedText: NSAttributedString?
+    private let disposeBag = DisposeBag()
+    private var featureAppearanceTimer: Timer?
+    private var isPresentationActive: Bool = false
+    private var hasPendingFullTableRender: Bool = false
+    var fullTableRenderDidCommitForTesting: (() -> Void)?
+
+    private final func requestFullTableRender() {
+        hasPendingFullTableRender = true
+        commitPendingFullTableRenderIfPossible()
+    }
+
+    private final func commitPendingFullTableRenderIfPossible() {
+        guard hasPendingFullTableRender else {
+            return
+        }
+        guard SignInServerFeaturesRenderGatePolicy.action(
+            isPresentationActive: isPresentationActive,
+            isTableAttachedToWindow: tableView.window != nil
+        ) == .commitFullReload else {
+            return
+        }
+        hasPendingFullTableRender = false
+        fullTableRenderDidCommitForTesting?()
+        tableView.reloadData()
+    }
     
     let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .plain)
@@ -558,6 +755,7 @@ class SignInServerFeaturesViewController: UIViewController {
         let pubsubText = "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use Clandestino on this server.".localizeHTML(id: "signin_pubsub_error", arguments: [])
         
         let httpText = "File upload is not supported. Without file upload, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use Clandestino on servers without file upload support.".localizeHTML(id: "signin_file_upload_error", arguments: [])
+        cloudStorageUnsupportedText = httpText
         
 //        [syncText, pushText, mamText, rewriteText, devicesText, pubsubText, httpText].forEach({
 //            item in
@@ -567,6 +765,55 @@ class SignInServerFeaturesViewController: UIViewController {
 //            }
 //        })
         guard let host = XMPPJID(string: self.jid)?.domain else { return }
+
+        if serverCapabilitiesAreRetryable {
+            let retryableCapabilitiesText = "The server capability check could not be completed. This is temporary and does not mean that the server lacks these features."
+                .localizeHTML(id: "signin_server_capabilities_retryable_failure", arguments: [])
+            let retryableCloudText = "Could not verify Cloud Storage right now. The app will retry automatically."
+                .localizeHTML(id: "signin_cloud_storage_retryable_failure", arguments: [])
+            datasource = [
+                Datasource(
+                    key: "title",
+                    kind: .title,
+                    title: "Could not verify all capabilities of \(host) right now. You can continue; the app will retry automatically."
+                        .localizeString(id: "signin_server_capabilities_retryable_title", arguments: ["\(host)"]),
+                    isHidden: false
+                ),
+                Datasource(
+                    key: "featureServerCapabilities",
+                    kind: .feature,
+                    title: "Server capabilities".localizeString(id: "signin_server_capabilities", arguments: []),
+                    attributedText: retryableCapabilitiesText,
+                    value: false,
+                    isHidden: false
+                ),
+                Datasource(
+                    key: "featureHttpUpload",
+                    kind: .feature,
+                    title: "File upload".localizeString(id: "signin_file_upload", arguments: []),
+                    attributedText: retryableCloudText,
+                    isHidden: false
+                ),
+                Datasource(
+                    key: "subtitle",
+                    kind: .subtitle,
+                    title: "Server capabilities will be checked again automatically."
+                        .localizeString(id: "signin_server_capabilities_retryable_subtitle", arguments: [])
+                ),
+                Datasource(
+                    key: "registerButton",
+                    kind: .button,
+                    title: "Create new account".localizeString(id: "xmpp_login__button_sign_up", arguments: [])
+                ),
+                Datasource(
+                    key: "connectButton",
+                    kind: .button,
+                    title: "Proceed anyway".localizeString(id: "signin_proceed_anyway", arguments: []),
+                    value: false
+                )
+            ]
+            return
+        }
         
         datasource = [
             Datasource(key: "title",
@@ -625,25 +872,38 @@ class SignInServerFeaturesViewController: UIViewController {
         setup()
         configure()
         loadDatasource()
+        bindCloudStorageAvailability()
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         activateConstraints()
-        tableView.reloadData()
+        requestFullTableRender()
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        isPresentationActive = true
+        requestFullTableRender()
         continuesFeatureAppearing()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        commitPendingFullTableRenderIfPossible()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        isPresentationActive = false
+        featureAppearanceTimer?.invalidate()
+        featureAppearanceTimer = nil
     }
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        featureAppearanceTimer?.invalidate()
+        featureAppearanceTimer = nil
     }
     
     override func didReceiveMemoryWarning() {
@@ -682,15 +942,25 @@ class SignInServerFeaturesViewController: UIViewController {
     }
     
     private final func continuesFeatureAppearing() {
-        var counter: Int = 0
-        let repeatLimit: Int = 30
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.66, repeats: true) { timer in
-            guard let index = self.datasource.firstIndex(where: { $0.kind == .feature && $0.value == nil }) else {
+        featureAppearanceTimer?.invalidate()
+        guard isPresentationActive else {
+            featureAppearanceTimer = nil
+            return
+        }
+        let timer = Timer(
+            timeInterval: SignInServerFeaturesRevealPolicy.featureCadence,
+            repeats: true
+        ) { [weak self] timer in
+            guard let self, self.isPresentationActive else {
                 timer.invalidate()
                 return
             }
-            counter += 1
-            var allFeaturesInserted: Bool = false
+            guard let index = self.datasource.firstIndex(where: {
+                $0.kind == .feature && $0.value == nil
+            }) else {
+                timer.invalidate()
+                return
+            }
             var isLastFeatureChecked: Bool = false
             switch self.datasource[index].key {
             case "featureSync":
@@ -707,133 +977,166 @@ class SignInServerFeaturesViewController: UIViewController {
                 self.datasource[index].value = self.isPubsubAvailable
             case "featureHttpUpload":
                 isLastFeatureChecked = true
-                if let value = self.isHTTPUploadAvailable {
+                if let value = self.resolvedCloudStorageFeatureValue {
+                    self.isHTTPUploadAvailable = value
                     self.datasource[index].value = value
-                    allFeaturesInserted = true
-                } else {
-                    
-                    self.isHTTPUploadAvailable = AccountManager.shared.find(for: self.jid)?.cloudStorage.isAvailable() ?? false
                 }
 
             default: break
             }
-            if allFeaturesInserted {
-                self.tableView.performBatchUpdates {
-                    self.tableView.reloadRows(at: [IndexPath(row: index, section: 0)], with: .none)
-                } completion: { _ in
-                    
+            if isLastFeatureChecked {
+                guard self.datasource[index].value != nil else {
+                    return
                 }
                 timer.invalidate()
                 self.showControlsRows()
-            } else if !isLastFeatureChecked {
-                self.datasource[index + 1].isHidden = false
-                self.tableView.performBatchUpdates {
-                    self.tableView.reloadRows(at: [IndexPath(row: index, section: 0)], with: .none)
-                    self.tableView.insertRows(at: [IndexPath(row: index + 1, section: 0)], with: .top)
-                } completion: { _ in
-                    
-                }
+                return
             }
 
+            let nextIndex = index + 1
+            if self.datasource.indices.contains(nextIndex) {
+                self.datasource[nextIndex].isHidden = false
+            }
+            self.requestFullTableRender()
         }
+        featureAppearanceTimer = timer
         RunLoop.main.add(timer, forMode: .default)
+    }
+
+    private var resolvedCloudStorageFeatureValue: Bool? {
+        cloudStorageFeatureState.presentation.displayFeatureValue
+    }
+
+    private func bindCloudStorageAvailability() {
+        guard let manager = AccountManager.shared.find(for: jid)?.cloudStorage else {
+            applyCloudStorageAvailability(
+                .retryableFailure(stage: .discovery, endpoint: nil)
+            )
+            return
+        }
+        manager.availabilityRelay
+            .distinctUntilChanged()
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] state in
+                self?.applyCloudStorageAvailability(state)
+            })
+            .disposed(by: disposeBag)
+    }
+
+    private func applyCloudStorageAvailability(_ state: CloudStorageAvailabilityState) {
+        cloudStorageFeatureState = SignInCloudStorageFeatureReducer.reduce(
+            cloudStorageFeatureState,
+            availabilityState: state
+        )
+        let presentation = cloudStorageFeatureState.presentation
+        isHTTPUploadAvailable = presentation.featureValue
+        guard let index = datasource.firstIndex(where: { $0.key == "featureHttpUpload" }) else {
+            return
+        }
+
+        var presentationChanged = false
+        switch presentation.status {
+        case .retryableFailure:
+            let retryableText = "Could not verify Cloud Storage right now. The app will retry automatically."
+                .localizeHTML(id: "signin_cloud_storage_retryable_failure", arguments: [])
+            presentationChanged = datasource[index].attributedText != retryableText
+                || datasource[index].isDanger
+            datasource[index].attributedText = retryableText
+            datasource[index].isDanger = false
+        case .unsupported, .checking, .supported:
+            if let unsupportedText = cloudStorageUnsupportedText {
+                presentationChanged = datasource[index].attributedText != unsupportedText
+                datasource[index].attributedText = unsupportedText
+            }
+        }
+
+        guard datasource[index].isHidden == false else { return }
+
+        let displayFeatureValue = presentation.displayFeatureValue
+        let valueChanged = datasource[index].value != displayFeatureValue
+        datasource[index].value = displayFeatureValue
+        if valueChanged || presentationChanged {
+            requestFullTableRender()
+        }
+        guard cloudStorageFeatureState.shouldResolveControls else { return }
+        featureAppearanceTimer?.invalidate()
+        featureAppearanceTimer = nil
+        showControlsRows()
     }
     
     private final func showControlsRows() {
-        
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineHeightMultiple = 1.27
         paragraph.alignment = .center
-        
-        if (self.isPushAvailable ?? false)
-            && (self.isMamAvailable ?? false)
+
+        guard let subtitle = datasource.first(where: { $0.key == "subtitle" }),
+              let connectButton = datasource.first(where: { $0.key == "connectButton" }),
+              let registerButton = datasource.first(where: { $0.key == "registerButton" }) else {
+            return
+        }
+        subtitle.isHidden = true
+        connectButton.isHidden = true
+        registerButton.isHidden = true
+        connectButton.title = "Let's rock!"
+            .localizeString(id: "signin_lets_rock", arguments: [])
+        connectButton.value = true
+        registerButton.value = true
+
+        let areOtherRequiredFeaturesAvailable = (self.isPushAvailable ?? false)
             && (self.isSyncAvailable ?? false)
             && (self.isRewriteAvailable ?? false)
             && (self.isDeviceManagementAvailable ?? false)
             && (self.isPubsubAvailable ?? false)
-//            && (self.isXabberUploadAvailable ?? false)
-            && (self.isHTTPUploadAvailable ?? false) {
-            self.datasource.first(where: { $0.key == "subtitle" })?.isHidden = false
-            self.datasource.first(where: { $0.key == "connectButton" })?.isHidden = false
-            guard let subtitleIndex = self.datasource
-                    .filter({ !$0.isHidden })
-                    .firstIndex(where: { $0.key == "subtitle" }),
-                let connectButtonIndex = self.datasource
-                  .filter({ !$0.isHidden })
-                  .firstIndex(where: { $0.key == "connectButton" }) else {
-                return
-            }
-            self.datasource[subtitleIndex].attributedText = NSAttributedString(string: "Shiny! Everything’s fine! Press the button below and start messaging r-r-right away!!"
+        guard let controlsMode = SignInServerFeaturesControlsPolicy.resolve(
+            serverCapabilitiesAreRetryable: serverCapabilitiesAreRetryable,
+            isMessageArchiveAvailable: self.isMamAvailable ?? false,
+            areOtherRequiredFeaturesAvailable: areOtherRequiredFeaturesAvailable,
+            cloudStorageAvailabilityState: cloudStorageFeatureState.availabilityState
+        ) else {
+            return
+        }
+
+        switch controlsMode {
+        case .fullySupported:
+            subtitle.isHidden = false
+            connectButton.isHidden = false
+            subtitle.attributedText = NSAttributedString(string: "Shiny! Everything’s fine! Press the button below and start messaging r-r-right away!!"
                         .localizeString(id: "signin_start_messaging_message", arguments: []),
                         attributes: [.paragraphStyle: paragraph, .foregroundColor: MDCPalette.green.tint800, .font: UIFont.systemFont(ofSize: 15)])
-            self.datasource[connectButtonIndex].value = true
-            self.tableView.performBatchUpdates {
-                self.tableView.insertRows(
-                    at: [IndexPath(row: subtitleIndex, section: 0),
-                         IndexPath(row: connectButtonIndex, section: 0)],
-                    with: .bottom)
-            } completion: { _ in
-                
-            }
-        } else {
-            if (self.isMamAvailable ?? false) {
-                self.datasource.first(where: { $0.key == "subtitle" })?.isHidden = false
-                self.datasource.first(where: { $0.key == "connectButton" })?.isHidden = false
-                self.datasource.first(where: { $0.key == "registerButton" })?.isHidden = false
-                guard let subtitleIndex = self.datasource
-                        .filter({ !$0.isHidden })
-                        .firstIndex(where: { $0.key == "subtitle" }),
-                      let connectButtonIndex = self.datasource
-                        .filter({ !$0.isHidden })
-                        .firstIndex(where: { $0.key == "connectButton" }),
-                      let registerButtonIndex = self.datasource
-                        .filter({ !$0.isHidden })
-                        .firstIndex(where: { $0.key == "registerButton" }) else {
-                    return
-                }
-                let attrSubtitle = NSMutableAttributedString(string: "Not all necessary features are supported. Proceed using this account at your own risk, and with low expectations. However, we suggest creating a new account on a fully-compatible Xabber server.".localizeString(id: "signin_not_all_features", arguments: []),
-                        attributes: [.paragraphStyle: paragraph, .foregroundColor: MDCPalette.yellow.tint800, .font: UIFont.systemFont(ofSize: 15)])
-                let range = (attrSubtitle.string as NSString).range(of: "xabber.chat")
-                attrSubtitle.addAttribute(.font, value: UIFont.systemFont(ofSize: 13, weight: .medium), range: range)
-                self.datasource[subtitleIndex].attributedText = attrSubtitle
-                self.datasource[connectButtonIndex].title = "Proceed anyway"
-                    .localizeString(id: "signin_proceed_anyway", arguments: [])
-                self.datasource[connectButtonIndex].value = false
-                self.datasource[registerButtonIndex].value = true
-                self.tableView.performBatchUpdates {
-                    self.tableView.insertRows(
-                        at: [IndexPath(row: subtitleIndex, section: 0),
-                             IndexPath(row: connectButtonIndex, section: 0),
-                             IndexPath(row: registerButtonIndex, section: 0)],
-                        with: .bottom)
-                } completion: { _ in
-                    
-                }
-            } else {
-                self.datasource.first(where: { $0.key == "subtitle" })?.isHidden = false
-                self.datasource.first(where: { $0.key == "registerButton" })?.isHidden = false
-                guard let subtitleIndex = self.datasource
-                        .filter({ !$0.isHidden })
-                        .firstIndex(where: { $0.key == "subtitle" }),
-                      let registerButtonIndex = self.datasource
-                        .filter({ !$0.isHidden })
-                        .firstIndex(where: { $0.key == "registerButton" }) else {
-                    return
-                }
-                self.datasource[subtitleIndex].attributedText = NSAttributedString(string: "This server does not support message archive. It is impossible for Clandestino to work without message archive, so we suggest creating a new account on a fully-compatible Clandestno server.".localizeString(id: "signin_no_message_archive", arguments: []),
-                            attributes: [.paragraphStyle: paragraph, .foregroundColor: MDCPalette.red.tint800, .font: UIFont.systemFont(ofSize: 15)])
-                self.datasource[registerButtonIndex].value = true
-                self.tableView.performBatchUpdates {
-                    self.tableView.insertRows(
-                        at: [IndexPath(row: subtitleIndex, section: 0),
-                             IndexPath(row: registerButtonIndex, section: 0)],
-                        with: .bottom)
-                } completion: { _ in
-                    
-                }
-            }
-            
+        case .partiallySupported:
+            subtitle.isHidden = false
+            connectButton.isHidden = false
+            registerButton.isHidden = false
+            let attrSubtitle = NSMutableAttributedString(string: "Not all necessary features are supported. Proceed using this account at your own risk, and with low expectations. However, we suggest creating a new account on a fully-compatible Xabber server.".localizeString(id: "signin_not_all_features", arguments: []),
+                    attributes: [.paragraphStyle: paragraph, .foregroundColor: MDCPalette.yellow.tint800, .font: UIFont.systemFont(ofSize: 15)])
+            let range = (attrSubtitle.string as NSString).range(of: "xabber.chat")
+            attrSubtitle.addAttribute(.font, value: UIFont.systemFont(ofSize: 13, weight: .medium), range: range)
+            subtitle.attributedText = attrSubtitle
+            connectButton.title = "Proceed anyway"
+                .localizeString(id: "signin_proceed_anyway", arguments: [])
+            connectButton.value = false
+        case .messageArchiveUnsupported:
+            subtitle.isHidden = false
+            registerButton.isHidden = false
+            subtitle.attributedText = NSAttributedString(string: "This server does not support message archive. It is impossible for Clandestino to work without message archive, so we suggest creating a new account on a fully-compatible Clandestno server.".localizeString(id: "signin_no_message_archive", arguments: []),
+                        attributes: [.paragraphStyle: paragraph, .foregroundColor: MDCPalette.red.tint800, .font: UIFont.systemFont(ofSize: 15)])
+        case .temporarilyUnverified:
+            subtitle.isHidden = false
+            connectButton.isHidden = false
+            subtitle.attributedText = NSAttributedString(
+                string: "Some server capabilities could not be verified right now. You can continue safely; the app will retry automatically."
+                    .localizeString(id: "signin_server_capabilities_retryable_subtitle", arguments: []),
+                attributes: [
+                    .paragraphStyle: paragraph,
+                    .foregroundColor: MDCPalette.yellow.tint800,
+                    .font: UIFont.systemFont(ofSize: 15)
+                ]
+            )
+            connectButton.title = "Proceed anyway"
+                .localizeString(id: "signin_proceed_anyway", arguments: [])
+            connectButton.value = false
         }
+        requestFullTableRender()
     }
     
     private final func onRegisterButtonTouchUp() {

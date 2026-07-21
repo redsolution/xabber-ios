@@ -51,6 +51,11 @@ enum AccountDeletionCredentialCleanupPolicy {
     }
 }
 
+public enum AccountCreationResult: Equatable {
+    case created
+    case alreadyExists
+}
+
 struct AccountDeletionCleanupResult: Equatable {
     let jid: String
     let hard: Bool
@@ -887,7 +892,17 @@ public class AccountManager: NSObject {
         return users.first(where: { $0.jid == jid })
     }
     
-    public final func create(jid: String, password: String, nickname: String?, isFromRegister: Bool) {
+    @discardableResult
+    public final func create(
+        jid: String,
+        password: String,
+        nickname: String?,
+        isFromRegister: Bool
+    ) -> AccountCreationResult {
+        guard !users.contains(where: { $0.jid == jid }) else {
+            return .alreadyExists
+        }
+
         self.newAccountJid = jid
         SettingManager.shared.clear(for: jid)
         self.changeNewUserState(for: jid, to: .none)
@@ -899,7 +914,6 @@ public class AccountManager: NSObject {
         _ = keychain.removeObject(forKey: jid)
         _ = keychain.removeObject(forKey: [jid, "token"].prp())
         
-        if users.contains(where: { $0.jid == jid }) { return  }
         let queue = DispatchQueue(
             label: "com.xabber.stream.\(UUID().uuidString)",
             qos: .userInitiated,
@@ -923,6 +937,7 @@ public class AccountManager: NSObject {
         newAccount.resource = AccountManager.defaultResource
         newAccount.create()
         newAccount.isNewAccount = isFromRegister
+        return .created
     }
     
     func reloadAccount(withJid jid: String, autoConnect: Bool = true) {

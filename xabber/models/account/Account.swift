@@ -3300,8 +3300,11 @@ final class Account: NSObject {
         let effectiveReplayPolicy = primaryStreamReplayPolicy(for: stanza, requestedPolicy: replayPolicy)
         let isBootstrapActive = syncManager.isBootstrapCriticalSyncInProgress()
         if isBootstrapActive,
-           AccountPrimaryStreamBootstrapSendGate.isLoginCriticalSelfDiscoInfo(stanza, ownerBareJID: jid) {
-            logBootstrapSendGateAllowed(stanza: stanza, reason: "loginCriticalSelfDiscoInfo")
+           let reason = AccountPrimaryStreamBootstrapSendGate.loginCriticalDiscoReason(
+            stanza,
+            ownerBareJID: jid
+           ) {
+            logBootstrapSendGateAllowed(stanza: stanza, reason: reason)
         }
         if case .queued(let queuedId) = primaryStreamBootstrapSendGate.prepareForSend(
             stanza,
@@ -3345,8 +3348,11 @@ final class Account: NSObject {
         let effectiveReplayPolicy = primaryStreamReplayPolicy(for: stanza, requestedPolicy: replayPolicy)
         let isBootstrapActive = syncManager.isBootstrapCriticalSyncInProgress()
         if isBootstrapActive,
-           AccountPrimaryStreamBootstrapSendGate.isLoginCriticalSelfDiscoInfo(stanza, ownerBareJID: jid) {
-            logBootstrapSendGateAllowed(stanza: stanza, reason: "loginCriticalSelfDiscoInfo")
+           let reason = AccountPrimaryStreamBootstrapSendGate.loginCriticalDiscoReason(
+            stanza,
+            ownerBareJID: jid
+           ) {
+            logBootstrapSendGateAllowed(stanza: stanza, reason: reason)
         }
         if case .queued = primaryStreamBootstrapSendGate.prepareForSend(
             stanza,

@@ -1,10 +1,21 @@
 import Foundation
 import CocoaLumberjack
 
+enum ChatAttachmentMediaUploadTracePrivacyPolicy {
+    private static let sensitiveDetailKeys: Set<String> = [
+        "owner", "jid", "token", "endpoint", "url", "galleryurl", "baseurl"
+    ]
+
+    static func shouldIncludeDetail(named key: String) -> Bool {
+        !sensitiveDetailKeys.contains(key.lowercased())
+    }
+}
+
 private enum ChatAttachmentMediaUploadTrace {
     static func log(_ event: String, details: [(String, Any?)] = []) {
         let renderedDetails = details.compactMap { key, value -> String? in
-            guard let value else { return nil }
+            guard ChatAttachmentMediaUploadTracePrivacyPolicy.shouldIncludeDetail(named: key),
+                  let value else { return nil }
             return "\(key)=\(format(value))"
         }.joined(separator: " ")
         let suffix = renderedDetails.isEmpty ? "" : " \(renderedDetails)"
@@ -27,6 +38,7 @@ enum ChatAttachmentSendBlockReason: Equatable {
     case emptySelection
     case unpreparedDrafts
     case cloudStorageUnavailable
+    case cloudStoragePending
     case referenceBuildFailed
     case accountUnavailable
     case sendFailed
@@ -69,6 +81,10 @@ enum ChatAttachmentDraftUploadRequirementPolicy {
 
 protocol ChatAttachmentCloudStorageAvailabilityProviding: AnyObject {
     func isCloudStorageAvailable(owner: String) -> Bool
+}
+
+protocol ChatAttachmentCloudStorageStateProviding: AnyObject {
+    func cloudStorageAvailabilityState(owner: String) -> CloudStorageAvailabilityState
 }
 
 protocol ChatAttachmentQuotaRefreshing: AnyObject {
@@ -157,14 +173,25 @@ final class ChatAttachmentSendPipeline: ChatAttachmentSendCoordinating {
         let requiresUpload = ChatAttachmentDraftUploadRequirementPolicy.requiresUpload(drafts: drafts)
         if requiresUpload {
             guard cloudStorageAvailabilityProvider.isCloudStorageAvailable(owner: context.owner) else {
+                let blockReason: ChatAttachmentSendBlockReason
+                if let stateProvider = cloudStorageAvailabilityProvider as? ChatAttachmentCloudStorageStateProviding {
+                    switch stateProvider.cloudStorageAvailabilityState(owner: context.owner) {
+                    case .unsupported:
+                        blockReason = .cloudStorageUnavailable
+                    case .discovering, .authorizing, .ready, .retryableFailure:
+                        blockReason = .cloudStoragePending
+                    }
+                } else {
+                    blockReason = .cloudStorageUnavailable
+                }
                 ChatAttachmentMediaUploadTrace.log("picker_send_blocked", details: [
-                    ("reason", "cloudStorageUnavailable"),
+                    ("reason", blockReason == .cloudStorageUnavailable ? "cloudStorageUnavailable" : "cloudStoragePending"),
                     ("owner", context.owner),
                     ("conversationType", context.conversationType.rawValue),
                     ("draftCount", drafts.count),
                     ("uploadDraftCount", drafts.filter { $0.requiresUpload }.count)
                 ])
-                completion(.blocked(.cloudStorageUnavailable))
+                completion(.blocked(blockReason))
                 return
             }
 
@@ -241,9 +268,28 @@ final class ChatAttachmentSendPipeline: ChatAttachmentSendCoordinating {
     }
 }
 
-final class AccountChatAttachmentCloudStorageAvailabilityProvider: ChatAttachmentCloudStorageAvailabilityProviding {
+final class AccountChatAttachmentCloudStorageAvailabilityProvider:
+    ChatAttachmentCloudStorageAvailabilityProviding,
+    ChatAttachmentCloudStorageStateProviding {
     func isCloudStorageAvailable(owner: String) -> Bool {
-        AccountManager.shared.find(for: owner)?.cloudStorage.isAvailable() ?? false
+        guard let account = AccountManager.shared.find(for: owner) else {
+            return false
+        }
+        guard !account.cloudStorage.isAvailable() else {
+            return true
+        }
+        if case .unsupported = account.cloudStorage.availabilityRelay.value {
+            return false
+        }
+        account.cloudStorage.resumeAvailabilityWorkIfNeeded(
+            stream: account.xmppStream,
+            disco: account.disco
+        )
+        return false
+    }
+
+    func cloudStorageAvailabilityState(owner: String) -> CloudStorageAvailabilityState {
+        AccountManager.shared.find(for: owner)?.cloudStorage.availabilityRelay.value ?? .unsupported
     }
 }
 

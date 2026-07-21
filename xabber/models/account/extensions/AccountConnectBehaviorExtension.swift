@@ -54,6 +54,10 @@ extension Account {
                 ToastPresenter().presentSuccess(message: "SM did resume")
             }
             _ = self.syncManager.sync(self.xmppStream)
+            self.cloudStorage.resumeAvailabilityWorkIfNeeded(
+                stream: self.xmppStream,
+                disco: self.disco
+            )
         } else {
             DispatchQueue.main.async {
                 ToastPresenter().present(message: "Synchronization", image: imageLiteral("cloud"))

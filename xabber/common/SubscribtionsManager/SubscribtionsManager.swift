@@ -61,6 +61,12 @@ enum SubscriptionCatalogSource: Equatable {
     case empty
 }
 
+enum SubscribtionsRemovalIdentity: Equatable {
+    case skip
+    case jidOnly
+    case jidAndAccountUUID(String)
+}
+
 struct APIProduct {
     let id: Int
     let productId: String
@@ -205,11 +211,27 @@ class SubscribtionsManager: NSObject {
     }
 
     func remove(for owner: String, commitTransaction: Bool) {
+        let removalIdentity = Self.removalIdentity(for: owner)
+        guard removalIdentity != .skip else {
+            return
+        }
+
         do {
             let realm = try WRealm.safe()
-            let accountUUID = Self.appAccountToken(for: owner).uuidString
-            let collection = realm.objects(SubsriptionInfoRealmStorage.self)
-                .filter("jid == %@ OR accountUUID == %@", owner, accountUUID)
+            let objects = realm.objects(SubsriptionInfoRealmStorage.self)
+            let collection: Results<SubsriptionInfoRealmStorage>
+            switch removalIdentity {
+            case .skip:
+                return
+            case .jidOnly:
+                collection = objects.filter("jid == %@", owner)
+            case .jidAndAccountUUID(let accountUUID):
+                collection = objects.filter(
+                    "jid == %@ OR accountUUID == %@",
+                    owner,
+                    accountUUID
+                )
+            }
             if commitTransaction {
                 try realm.write {
                     realm.delete(collection)
@@ -229,6 +251,19 @@ class SubscribtionsManager: NSObject {
 
     static func appAccountToken(for jid: String) -> UUID {
         return jid.uuid()
+    }
+
+    static func removalIdentity(
+        for owner: String,
+        namespace: String = UUID.getNSForXMPPUUIDV5()
+    ) -> SubscribtionsRemovalIdentity {
+        guard owner.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty else {
+            return .skip
+        }
+        guard let accountUUID = UUID(namespaceString: namespace, name: owner) else {
+            return .jidOnly
+        }
+        return .jidAndAccountUUID(accountUUID.uuidString)
     }
 
     static func storeKitProductIdentifier(productId: String, priceId: String) -> String {

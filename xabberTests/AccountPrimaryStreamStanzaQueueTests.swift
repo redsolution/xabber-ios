@@ -1280,6 +1280,38 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         )
     }
 
+    func testBootstrapSendGateAllowsLoginCriticalRootServerDiscoInfoDuringBootstrap() {
+        let owner = "romeo@example.com"
+        let serverDiscoInfoIQ = XMPPIQ(
+            iqType: .get,
+            to: XMPPJID(string: "example.com"),
+            elementID: "server-disco-info",
+            child: DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")
+        )
+        let unrelatedServerDiscoInfoIQ = XMPPIQ(
+            iqType: .get,
+            to: XMPPJID(string: "other.example.com"),
+            elementID: "unrelated-server-disco-info",
+            child: DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")
+        )
+
+        XCTAssertTrue(
+            AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(
+                serverDiscoInfoIQ,
+                replayPolicy: .notReplayable,
+                ownerBareJID: owner
+            ),
+            "The authoritative Gallery/capability query must not expire behind bootstrap background work"
+        )
+        XCTAssertFalse(
+            AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(
+                unrelatedServerDiscoInfoIQ,
+                replayPolicy: .notReplayable,
+                ownerBareJID: owner
+            )
+        )
+    }
+
     func testBootstrapSendGateQueuesSimilarNonLoginCriticalDiscoDuringBootstrap() {
         let owner = "romeo@example.com"
         let selfDiscoItemsIQ = XMPPIQ(

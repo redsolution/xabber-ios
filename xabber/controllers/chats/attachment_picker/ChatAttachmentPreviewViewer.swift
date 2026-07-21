@@ -490,6 +490,7 @@ final class ChatAttachmentPreviewViewController: UIViewController {
     private let sendAvailabilityProvider: ([AttachmentDraft]) -> Bool
     private let composerTintColor: UIColor
     private var activeImageEditRequestID: Int?
+    private var sendFeedbackViewModel: ChatAttachmentStatusBannerViewModel?
 
     private(set) var drafts: [AttachmentDraft]
     private(set) var currentIndex: Int
@@ -762,8 +763,8 @@ final class ChatAttachmentPreviewViewController: UIViewController {
     }
 
     func applySendFeedback(_ viewModel: ChatAttachmentStatusBannerViewModel) {
-        statusBannerView.apply(viewModel)
-        statusBannerHeightConstraint?.constant = statusBannerView.isHidden ? 0 : 74
+        sendFeedbackViewModel = viewModel.kind == .hidden ? nil : viewModel
+        updateStatusBanner()
     }
 
     private func setCurrentIndex(_ index: Int, animated: Bool) {
@@ -815,6 +816,11 @@ final class ChatAttachmentPreviewViewController: UIViewController {
     }
 
     private func updateStatusBanner() {
+        if let sendFeedbackViewModel {
+            statusBannerView.apply(sendFeedbackViewModel)
+            statusBannerHeightConstraint?.constant = statusBannerView.isHidden ? 0 : 74
+            return
+        }
         guard let currentDraft else {
             statusBannerView.apply(.hidden)
             statusBannerHeightConstraint?.constant = 0
@@ -866,6 +872,18 @@ final class ChatAttachmentPreviewViewController: UIViewController {
     }
 
     private func retryCurrentDraft() {
+        if sendFeedbackViewModel?.showsRetryAction == true {
+            sendFeedbackViewModel = nil
+            updateStatusBanner()
+            delegate?.chatAttachmentPreviewViewController(
+                self,
+                didRequestSend: ChatAttachmentPreviewSendScopePolicy.draftsForSend(
+                    from: drafts,
+                    activeDraftID: currentDraft?.id
+                )
+            )
+            return
+        }
         guard let currentDraft else {
             return
         }
