@@ -102,7 +102,6 @@ final class ChatLifecycleMemoryDiagnosticsTests: XCTestCase {
         )
     }
 
-
     func testTwentyCyclePlateauAcceptsTenPercentAndRejectsGrowthBeyondBudget() {
         let stable = ChatMemoryPlateauDiagnostics.evaluate(
             samples: [100, 112, 108, 105, 104, 103, 104, 105, 104, 105, 104, 104, 105, 104, 105, 105, 104, 105, 104, 105],
@@ -211,6 +210,47 @@ final class ChatLifecycleMemoryDiagnosticsTests: XCTestCase {
         }
 
         XCTAssertNil(weakController)
+    }
+
+    @MainActor
+    func testCancellingUnpresentedStackedPreparationDropsRetainedCompletionsAndController() {
+        weak var weakController: ChatViewController?
+        weak var weakMappingToken: ChatDatasetMappingCancellationToken?
+        var callbackCount = 0
+
+        autoreleasepool {
+            var controller: ChatViewController? = ChatViewController()
+            controller?.owner = "cancelled-preparation-owner@example.com"
+            controller?.jid = "cancelled-preparation-chat@example.com"
+            controller?.conversationType = .regular
+            controller?.isPreparingStackedNavigationPresentation = true
+            let retainedController = controller
+            controller?.initialLocalFirstFrameCompletions.append {
+                _ = retainedController
+                callbackCount += 1
+            }
+            controller?.pendingBootstrapFirstFrameReadinessCompletions.append {
+                _ = retainedController
+                callbackCount += 1
+            }
+            let mappingToken = controller?.beginDatasetMappingJobForTesting()
+            controller?.initialLocalFirstFrameMappingToken = mappingToken
+            weakMappingToken = mappingToken
+            weakController = controller
+
+            controller?.cancelStackedNavigationPresentationPreparation()
+
+            XCTAssertTrue(mappingToken?.isCancelled == true)
+            XCTAssertTrue(controller?.initialLocalFirstFrameCompletions.isEmpty == true)
+            XCTAssertTrue(controller?.pendingBootstrapFirstFrameReadinessCompletions.isEmpty == true)
+            XCTAssertNil(controller?.initialLocalFirstFrameMappingToken)
+            XCTAssertFalse(controller?.isPreparingStackedNavigationPresentation == true)
+            controller = nil
+        }
+
+        XCTAssertEqual(callbackCount, 0)
+        XCTAssertNil(weakController)
+        XCTAssertNil(weakMappingToken)
     }
 
     private func makeRequest(

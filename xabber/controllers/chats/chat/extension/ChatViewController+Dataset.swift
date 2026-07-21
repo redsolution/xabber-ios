@@ -11394,6 +11394,9 @@ extension ChatViewController {
         hasTrustedPersistedBootstrapPage: Bool = false,
         completion: (() -> Void)? = nil
     ) -> Bool {
+        guard !self.isStackedNavigationPresentationPreparationCancelled else {
+            return false
+        }
         guard let session = self.timelineSession else {
             if let completion {
                 self.initialLocalFirstFrameCompletions.append(completion)
@@ -11577,6 +11580,9 @@ extension ChatViewController {
         }
         self.initialLocalFirstFrameMappingToken = nil
         self.initialLocalFirstFramePhase = .idle
+        guard !self.isStackedNavigationPresentationPreparationCancelled else {
+            return
+        }
         if mappingToken.isCancelled {
             if !self.finishInitialLocalFirstFramePreparationIfPresentationIsReady(),
                !self.didRunNavigationDisappearanceCleanup {
@@ -11745,8 +11751,12 @@ extension ChatViewController {
     }
 
     private func retryInitialLocalFirstFramePreparation() {
+        guard !self.isStackedNavigationPresentationPreparationCancelled else {
+            return
+        }
         DispatchQueue.main.async { [weak self] in
-            guard let self else {
+            guard let self,
+                  !self.isStackedNavigationPresentationPreparationCancelled else {
                 return
             }
             self.loadInitialDatasource(
@@ -11815,6 +11825,9 @@ extension ChatViewController {
     internal func whenBootstrapFirstFramePresentationIsReady(
         _ completion: @escaping () -> Void
     ) {
+        guard !self.isStackedNavigationPresentationPreparationCancelled else {
+            return
+        }
         if self.isCommittedStackedNavigationFirstFrameReady {
             completion()
             return

@@ -14630,6 +14630,36 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertTrue(completed)
     }
 
+    func testStackedNavigationPreparationCompletesWhenInitialMappingIsSuperseded() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 320)
+        let controller = makeController()
+        var completionCount = 0
+        var realRowsAtCompletion = 0
+        var hadCommittedSkeletonAtCompletion = false
+
+        controller.prepareForStackedNavigationPresentation(
+            targetBounds: CGRect(x: 0, y: 0, width: 390, height: 844)
+        ) {
+            completionCount += 1
+            realRowsAtCompletion = controller.datasource.filter { !$0.isFakeMessage }.count
+            hadCommittedSkeletonAtCompletion = controller.hasCommittedBootstrapSkeletonRows
+        }
+        _ = controller.beginDatasetMappingJobForTesting()
+
+        let deadline = Date().addingTimeInterval(2)
+        while completionCount == 0,
+              RunLoop.current.run(mode: .default, before: deadline),
+              Date() < deadline {}
+
+        XCTAssertEqual(completionCount, 1)
+        XCTAssertTrue(
+            realRowsAtCompletion == 80 || hadCommittedSkeletonAtCompletion,
+            "a superseded mapping must not release stacked navigation with a blank datasource"
+        )
+        XCTAssertFalse(controller.isPreparingStackedNavigationPresentation)
+    }
+
     func testDefaultOpenUsesLatestFirstFrame() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 320)

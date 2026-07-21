@@ -333,14 +333,40 @@ extension LastChatsViewController: UITableViewDelegate {
         openMessageRequest: ChatOpenMessageRequest? = nil,
         configure configureCallback: ((ChatViewController?) -> Void)? = nil
     ) {
+        let route = stackedNavigationRoute(for: self)
+        let usesSplitDetailColumn = route == .splitDetailReplacement
+        let navigationTarget = LastChatsNavigationSingleFlightCoordinator.Target(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType
+        )
+        let expectedNavigationController = self.navigationController
+        var navigationToken: UUID?
+
+        if !usesSplitDetailColumn {
+            switch chatNavigationSingleFlight.request(target: navigationTarget) {
+            case .started(let token):
+                navigationToken = token
+                DDLogDebug("LAST_CHATS_NAVIGATION event=started phase=preparing")
+            case .coalesced:
+                DDLogDebug("LAST_CHATS_NAVIGATION event=coalesced phase=preparing")
+                return
+            case .ignored:
+                if chatNavigationSingleFlight.state?.phase == .pushing {
+                    DDLogDebug("LAST_CHATS_NAVIGATION event=ignored phase=pushing")
+                } else {
+                    DDLogDebug("LAST_CHATS_NAVIGATION event=ignored phase=presented")
+                }
+                return
+            }
+        }
+
         ChatUIResponsivenessGate.shared.activate(
             reason: .chatOpen,
             duration: ChatUIResponsivenessGate.chatOpenHoldDuration
         )
-        let route = stackedNavigationRoute(for: self)
-        let usesSplitDetailColumn = route == .splitDetailReplacement
-        if !usesSplitDetailColumn {
-            beginOutgoingChatOpenNavigationDeferral()
+        if let navigationToken {
+            beginOutgoingChatOpenNavigationDeferral(token: navigationToken)
         }
         setSelectedChat(
             jid: jid,
@@ -388,7 +414,65 @@ extension LastChatsViewController: UITableViewDelegate {
         } else {
             self.currentChatVC = nil
         }
-        showStacked(vc, in: self)
+
+        guard let navigationToken else {
+            showStacked(vc, in: self)
+            return
+        }
+
+        let preparationHandle = showStacked(
+            vc,
+            in: self,
+            commitPresentation: { [weak self] in
+                guard let self else {
+                    return false
+                }
+                let currentNavigationController = self.navigationController
+                let presenterWindow = self.viewIfLoaded?.window
+                guard LastChatsNavigationPresenterIdentityPolicy.shouldCommit(
+                    expectedNavigationController: expectedNavigationController,
+                    currentNavigationController: currentNavigationController,
+                    isPresenterTopViewController: currentNavigationController?.topViewController === self,
+                    isPresenterVisibleInWindow: self.isAppeared && presenterWindow != nil,
+                    isPresenterInSelectedTabHierarchy:
+                        LastChatsNavigationPresenterHierarchyPolicy
+                            .isInSelectedTabHierarchy(self),
+                    isForegroundActiveScene:
+                        presenterWindow?.windowScene?.activationState == .foregroundActive,
+                    isCurrentNavigationPushRoute:
+                        stackedNavigationRoute(for: self) == .currentNavigationPush,
+                    presenterHasPresentedViewController: self.presentedViewController != nil,
+                    navigationControllerHasPresentedViewController:
+                        currentNavigationController?.presentedViewController != nil
+                ) else { return false }
+                return self.commitChatNavigationPush(
+                    token: navigationToken,
+                    target: navigationTarget
+                )
+            },
+            completion: { [weak self] didPresent in
+                guard let self else {
+                    return
+                }
+                if didPresent {
+                    if self.chatNavigationSingleFlight.markPresented(
+                        token: navigationToken,
+                        target: navigationTarget
+                    ) {
+                        DDLogDebug("LAST_CHATS_NAVIGATION event=presented phase=presented")
+                    }
+                } else {
+                    self.cancelChatNavigationPreparation(
+                        token: navigationToken,
+                        reason: .presentationGuardRejected
+                    )
+                }
+            }
+        )
+        _ = registerOutgoingChatOpenNavigationPreparation(
+            preparationHandle,
+            token: navigationToken
+        )
     }
 }
 

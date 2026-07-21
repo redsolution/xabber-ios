@@ -1685,6 +1685,7 @@ class ChatViewController: MessagesViewController {
     internal var backgroundPresentationMode: ChatBackgroundPresentationMode = .automatic
     internal var isNavigationTransitionActive: Bool = false
     internal var isPreparingStackedNavigationPresentation: Bool = false
+    internal var isStackedNavigationPresentationPreparationCancelled: Bool = false
     internal var shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion: Bool = false
     internal var didDeferOpenMessageRequestForNavigationTransition: Bool = false
     private var pendingNavigationTransitionWork: [() -> Void] = []
@@ -5902,6 +5903,7 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
             trigger: "stackedNavigationPreparation",
             targetBounds: targetBounds
         )
+        self.isStackedNavigationPresentationPreparationCancelled = false
         self.isPreparingStackedNavigationPresentation = true
         self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = true
         self.loadViewIfNeeded()
@@ -5931,15 +5933,64 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
             )
         }
 
+        let finishAfterCommittedFirstFrame = { [weak self] in
+            guard let self else {
+                completion()
+                return
+            }
+            guard !self.isStackedNavigationPresentationPreparationCancelled else {
+                return
+            }
+            self.whenBootstrapFirstFramePresentationIsReady { [weak self] in
+                guard let self,
+                      !self.isStackedNavigationPresentationPreparationCancelled else {
+                    return
+                }
+                self.isPreparingStackedNavigationPresentation = false
+                completion()
+            }
+        }
+
         guard shouldLoadInitialDatasource else {
-            self.isPreparingStackedNavigationPresentation = false
-            completion()
+            finishAfterCommittedFirstFrame()
             return
         }
-        self.loadInitialDatasource(performPendingOpenMessageRequest: false) { [weak self] in
-            self?.isPreparingStackedNavigationPresentation = false
-            completion()
+        self.loadInitialDatasource(performPendingOpenMessageRequest: false) {
+            finishAfterCommittedFirstFrame()
         }
+    }
+
+    func cancelStackedNavigationPresentationPreparation() {
+        self.isStackedNavigationPresentationPreparationCancelled = true
+        self.isPreparingStackedNavigationPresentation = false
+        self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = false
+        self.timelineSession?.cancelInitialFramePreparations()
+        self.initialLocalFirstFrameMappingToken?.cancel()
+        self.initialLocalFirstFrameMappingToken = nil
+        self.initialLocalFirstFramePhase = .idle
+        self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)
+        self.pendingBootstrapFirstFrameReadinessCompletions.removeAll(keepingCapacity: false)
+        self.initialLocalFirstFrameShouldPerformPendingRequest = false
+        self.cancelDatasetMappingJobs()
+    }
+
+    func stackedNavigationPresentationPreparationDidTimeOut() {
+        guard self.isPreparingStackedNavigationPresentation,
+              !self.isStackedNavigationPresentationPreparationCancelled else {
+            return
+        }
+        let hadCommittedFirstFrame = self.isCommittedStackedNavigationFirstFrameReady
+        if !hadCommittedFirstFrame {
+            // Preserve a deterministic loading surface while the already-started
+            // local first-frame work continues after the push.
+            self.applyBootstrapViewState(.skeleton, forceRender: true)
+        }
+        self.isPreparingStackedNavigationPresentation = false
+        DDLogDebug(
+            "LAST_CHATS_NAVIGATION event=destinationPreparationFallback " +
+            "hasPendingOpenMessageRequest=\(self.pendingOpenMessageRequest != nil) " +
+            "hadCommittedFirstFrame=\(hadCommittedFirstFrame)"
+        )
     }
 }
 

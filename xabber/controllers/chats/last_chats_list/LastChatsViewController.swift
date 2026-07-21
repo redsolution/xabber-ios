@@ -137,6 +137,147 @@ enum LastChatsSelectionReturnPolicy {
     }
 }
 
+struct LastChatsNavigationSingleFlightCoordinator {
+    static let defaultPreparationTimeout: TimeInterval = 10
+
+    struct Target: Equatable {
+        let owner: String
+        let jid: String
+        let conversationType: ClientSynchronizationManager.ConversationType
+    }
+
+    enum Phase: Equatable {
+        case preparing
+        case pushing
+        case presented
+    }
+
+    struct State: Equatable {
+        let token: UUID
+        let target: Target
+        var phase: Phase
+    }
+
+    enum RequestDecision: Equatable {
+        case started(UUID)
+        case coalesced(UUID)
+        case ignored(UUID)
+    }
+
+    private(set) var state: State?
+
+    mutating func request(target: Target, token: UUID = UUID()) -> RequestDecision {
+        guard let state else {
+            self.state = State(token: token, target: target, phase: .preparing)
+            return .started(token)
+        }
+
+        switch state.phase {
+        case .preparing:
+            guard state.target != target else {
+                return .coalesced(state.token)
+            }
+            self.state = State(token: token, target: target, phase: .preparing)
+            return .started(token)
+        case .pushing, .presented:
+            return .ignored(state.token)
+        }
+    }
+
+    func isPreparing(token: UUID, target: Target) -> Bool {
+        guard let state else {
+            return false
+        }
+        return state.token == token && state.target == target && state.phase == .preparing
+    }
+
+    @discardableResult
+    mutating func markPushing(token: UUID, target: Target) -> Bool {
+        guard isPreparing(token: token, target: target) else {
+            return false
+        }
+        state?.phase = .pushing
+        return true
+    }
+
+    @discardableResult
+    mutating func markPresented(token: UUID, target: Target) -> Bool {
+        guard let state,
+              state.token == token,
+              state.target == target,
+              state.phase == .pushing else {
+            return false
+        }
+        self.state?.phase = .presented
+        return true
+    }
+
+    @discardableResult
+    mutating func cancel(token: UUID) -> Bool {
+        guard state?.token == token else {
+            return false
+        }
+        state = nil
+        return true
+    }
+
+    mutating func reset() {
+        state = nil
+    }
+}
+
+enum LastChatsNavigationPreparationCancellationReason {
+    case presentationGuardRejected
+    case preparationTimedOut
+}
+
+enum LastChatsNavigationPresenterIdentityPolicy {
+    static func shouldCommit(
+        expectedNavigationController: UINavigationController?,
+        currentNavigationController: UINavigationController?,
+        isPresenterTopViewController: Bool,
+        isPresenterVisibleInWindow: Bool,
+        isPresenterInSelectedTabHierarchy: Bool,
+        isForegroundActiveScene: Bool,
+        isCurrentNavigationPushRoute: Bool,
+        presenterHasPresentedViewController: Bool,
+        navigationControllerHasPresentedViewController: Bool
+    ) -> Bool {
+        guard let expectedNavigationController,
+              let currentNavigationController,
+              expectedNavigationController === currentNavigationController else {
+            return false
+        }
+        return isPresenterTopViewController &&
+            isPresenterVisibleInWindow &&
+            isPresenterInSelectedTabHierarchy &&
+            isForegroundActiveScene &&
+            isCurrentNavigationPushRoute &&
+            !presenterHasPresentedViewController &&
+            !navigationControllerHasPresentedViewController
+    }
+}
+
+enum LastChatsNavigationPresenterHierarchyPolicy {
+    static func isInSelectedTabHierarchy(_ presenter: UIViewController) -> Bool {
+        guard let tabBarController = presenter.tabBarController else {
+            return true
+        }
+        guard let selectedViewController = tabBarController.selectedViewController else {
+            return false
+        }
+
+        var current: UIViewController? = presenter
+        while let candidate = current {
+            if candidate === selectedViewController {
+                return true
+            }
+            current = candidate.parent
+        }
+        return false
+    }
+}
+
 public final class ChangesWithIndexPath {
     public let insertedSections: IndexSet
     public let deletedSections: IndexSet
@@ -1038,6 +1179,11 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     private var pendingNavigationTransitionWork: [() -> Void] = []
     private var pendingDatasetUpdateAfterNavigationTransition: Bool = false
     private var shouldSuppressNextDatasetAnimation: Bool = false
+    private var outgoingChatOpenNavigationDeferralToken: UUID?
+    private var outgoingChatOpenNavigationPreparationToken: UUID?
+    private var outgoingChatOpenNavigationPreparationHandle: StackedNavigationPresentationPreparationHandle?
+    private var chatNavigationPreparationTimeoutWorkItem: DispatchWorkItem?
+    private var shouldResetChatNavigationTransactionOnNextAppearance: Bool = false
     private var bootstrapDatasetUpdateWorkItem: DispatchWorkItem?
     private var pendingDatasetUpdateAfterBootstrapCoalescing: Bool = false
     private var isExecutingBootstrapCoalescedDatasetUpdate: Bool = false
@@ -1081,6 +1227,19 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     open var splitDelegate: SplitViewControllerDelegate? = nil
     
     open var currentChatVC: ChatViewController? = nil
+    internal var chatNavigationSingleFlight = LastChatsNavigationSingleFlightCoordinator()
+    internal var hasActiveOutgoingChatOpenNavigationDeferral: Bool {
+        outgoingChatOpenNavigationDeferralToken != nil
+    }
+    internal var hasActiveOutgoingChatOpenNavigationPreparation: Bool {
+        outgoingChatOpenNavigationPreparationHandle != nil
+    }
+    internal var hasPendingChatNavigationPreparationTimeout: Bool {
+        guard let workItem = chatNavigationPreparationTimeoutWorkItem else {
+            return false
+        }
+        return !workItem.isCancelled
+    }
     internal var selectedChatIdentity: SelectedChatIdentity? = nil
     internal var voiceMessageStateObserverToken: UUID? = nil
     internal var pinnedVoicePlayerHeightConstraint: NSLayoutConstraint? = nil
@@ -1112,14 +1271,206 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
     }
 
-    internal func beginOutgoingChatOpenNavigationDeferral() {
+    internal func beginOutgoingChatOpenNavigationDeferral(
+        token: UUID? = nil,
+        preparationTimeout: TimeInterval = LastChatsNavigationSingleFlightCoordinator.defaultPreparationTimeout
+    ) {
+        let replacesPendingPreparation = outgoingChatOpenNavigationDeferralToken != nil
+        if let previousToken = outgoingChatOpenNavigationDeferralToken,
+           previousToken != token {
+            _ = cancelOutgoingChatOpenNavigationPreparation(token: previousToken)
+        }
         self.isNavigationTransitionActive = true
         self.shouldSuppressNextDatasetAnimation = true
-        DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=outgoingChatOpenDeferralBegin")
+        if replacesPendingPreparation {
+            DDLogDebug("LAST_CHATS_NAVIGATION event=preparationRetargeted")
+        } else {
+            DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=outgoingChatOpenDeferralBegin")
+        }
+
+        guard let token else {
+            return
+        }
+
+        chatNavigationPreparationTimeoutWorkItem?.cancel()
+        outgoingChatOpenNavigationDeferralToken = token
+        let timeout = preparationTimeout.isFinite
+            ? max(0, preparationTimeout)
+            : LastChatsNavigationSingleFlightCoordinator.defaultPreparationTimeout
+        let timeoutWorkItem = DispatchWorkItem { [weak self] in
+            self?.handleChatNavigationPreparationTimeout(token: token)
+        }
+        chatNavigationPreparationTimeoutWorkItem = timeoutWorkItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + timeout,
+            execute: timeoutWorkItem
+        )
+    }
+
+    @discardableResult
+    internal func registerOutgoingChatOpenNavigationPreparation(
+        _ handle: StackedNavigationPresentationPreparationHandle,
+        token: UUID
+    ) -> Bool {
+        guard outgoingChatOpenNavigationDeferralToken == token,
+              chatNavigationSingleFlight.state?.token == token,
+              chatNavigationSingleFlight.state?.phase == .preparing else {
+            handle.cancel()
+            return false
+        }
+        if let existingHandle = outgoingChatOpenNavigationPreparationHandle,
+           existingHandle !== handle {
+            existingHandle.cancel()
+        }
+        outgoingChatOpenNavigationPreparationToken = token
+        outgoingChatOpenNavigationPreparationHandle = handle
+        return true
+    }
+
+    @discardableResult
+    private func cancelOutgoingChatOpenNavigationPreparation(token: UUID) -> Bool {
+        guard outgoingChatOpenNavigationPreparationToken == token,
+              let handle = outgoingChatOpenNavigationPreparationHandle else {
+            return false
+        }
+        outgoingChatOpenNavigationPreparationToken = nil
+        outgoingChatOpenNavigationPreparationHandle = nil
+        handle.cancel()
+        return true
+    }
+
+    private func releaseOutgoingChatOpenNavigationPreparation(token: UUID) {
+        guard outgoingChatOpenNavigationPreparationToken == token else {
+            return
+        }
+        outgoingChatOpenNavigationPreparationToken = nil
+        outgoingChatOpenNavigationPreparationHandle = nil
+    }
+
+    @discardableResult
+    internal func cancelChatNavigationPreparation(
+        token: UUID,
+        reason: LastChatsNavigationPreparationCancellationReason
+    ) -> Bool {
+        guard outgoingChatOpenNavigationDeferralToken == token,
+              chatNavigationSingleFlight.state?.phase == .preparing,
+              chatNavigationSingleFlight.cancel(token: token),
+              endOutgoingChatOpenNavigationDeferral(token: token, cancelled: true) else {
+            return false
+        }
+        switch reason {
+        case .presentationGuardRejected:
+            DDLogDebug("LAST_CHATS_NAVIGATION event=preparationCancelled reason=guardRejected")
+        case .preparationTimedOut:
+            DDLogDebug("LAST_CHATS_NAVIGATION event=preparationCancelled reason=timeout")
+        }
+        return true
+    }
+
+    @discardableResult
+    internal func handleChatNavigationPreparationTimeout(token: UUID) -> Bool {
+        guard outgoingChatOpenNavigationDeferralToken == token,
+              chatNavigationSingleFlight.state?.token == token,
+              chatNavigationSingleFlight.state?.phase == .preparing else {
+            return false
+        }
+        return cancelChatNavigationPreparation(
+            token: token,
+            reason: .preparationTimedOut
+        )
+    }
+
+    @discardableResult
+    internal func commitChatNavigationPush(
+        token: UUID,
+        target: LastChatsNavigationSingleFlightCoordinator.Target
+    ) -> Bool {
+        guard outgoingChatOpenNavigationDeferralToken == token,
+              chatNavigationSingleFlight.markPushing(
+                token: token,
+                target: target
+              ) else {
+            return false
+        }
+        chatNavigationPreparationTimeoutWorkItem?.cancel()
+        chatNavigationPreparationTimeoutWorkItem = nil
+        releaseOutgoingChatOpenNavigationPreparation(token: token)
+        DDLogDebug("LAST_CHATS_NAVIGATION event=pushing phase=pushing")
+        return true
+    }
+
+    @discardableResult
+    private func endOutgoingChatOpenNavigationDeferral(
+        token: UUID,
+        cancelled: Bool
+    ) -> Bool {
+        guard outgoingChatOpenNavigationDeferralToken == token else {
+            return false
+        }
+        if cancelled {
+            _ = cancelOutgoingChatOpenNavigationPreparation(token: token)
+        } else {
+            releaseOutgoingChatOpenNavigationPreparation(token: token)
+        }
+        outgoingChatOpenNavigationDeferralToken = nil
+        chatNavigationPreparationTimeoutWorkItem?.cancel()
+        chatNavigationPreparationTimeoutWorkItem = nil
+        completeNavigationTransitionDeferral(cancelled: cancelled)
+        DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=outgoingChatOpenDeferralEnd")
+        return true
+    }
+
+    internal func resetChatNavigationTransaction(cancelled: Bool) {
+        let hadOutgoingDeferral = outgoingChatOpenNavigationDeferralToken != nil
+        let hadTransaction = chatNavigationSingleFlight.state != nil
+        if let preparationToken = outgoingChatOpenNavigationPreparationToken {
+            _ = cancelOutgoingChatOpenNavigationPreparation(token: preparationToken)
+        }
+        chatNavigationPreparationTimeoutWorkItem?.cancel()
+        chatNavigationPreparationTimeoutWorkItem = nil
+        outgoingChatOpenNavigationDeferralToken = nil
+        shouldResetChatNavigationTransactionOnNextAppearance = false
+        chatNavigationSingleFlight.reset()
+        if hadTransaction {
+            DDLogDebug("LAST_CHATS_NAVIGATION event=reset phase=idle")
+        }
+
+        if hadOutgoingDeferral || isNavigationTransitionActive {
+            completeNavigationTransitionDeferral(cancelled: cancelled)
+        } else {
+            flushPendingNavigationTransitionWork()
+        }
+    }
+
+    internal func markChatNavigationPresenterWillDisappear() {
+        guard chatNavigationSingleFlight.state != nil else {
+            return
+        }
+        shouldResetChatNavigationTransactionOnNextAppearance = true
+    }
+
+    internal func reconcileChatNavigationTransactionOnDidAppear() {
+        let preservesProgrammaticPreparation =
+            chatNavigationSingleFlight.state?.phase == .preparing &&
+            !shouldResetChatNavigationTransactionOnNextAppearance
+        shouldResetChatNavigationTransactionOnNextAppearance = false
+        guard !preservesProgrammaticPreparation else {
+            DDLogDebug("LAST_CHATS_NAVIGATION event=preparationPreserved reason=firstAppearance")
+            return
+        }
+        resetChatNavigationTransaction(cancelled: false)
     }
 
     private func completeNavigationTransitionDeferral(cancelled: Bool) {
         self.isNavigationTransitionActive = false
+        guard !cancelled else {
+            // A cancelled preparation/transition must not replay work captured
+            // for the invalidated presenter or conversation.
+            self.pendingNavigationTransitionWork.removeAll()
+            self.pendingDatasetUpdateAfterNavigationTransition = false
+            self.shouldSuppressNextDatasetAnimation = false
+            return
+        }
         let deferredDatasetAction = LastChatsBootstrapDatasetUpdatePolicy.deferredDatasetUpdateAction(
             cancelled: cancelled,
             hasPendingUpdate: self.pendingDatasetUpdateAfterNavigationTransition
@@ -1160,6 +1511,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     override func resetState() {
         super.resetState()
         self.currentChatVC = nil
+        self.resetChatNavigationTransaction(cancelled: true)
         self.selectedChatIdentity = nil
     }
     
@@ -3445,9 +3797,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        reconcileChatNavigationTransactionOnDidAppear()
         cancelPendingBottomSearchDismissalAfterCancelledRoute()
-        self.isNavigationTransitionActive = false
-        self.flushPendingNavigationTransitionWork()
         updateTitle(filter.value)
         self.navigationItem.backButtonTitle = "Chats"
         UIView.performWithoutAnimation {
@@ -3479,6 +3830,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        markChatNavigationPresenterWillDisappear()
         beginNavigationTransitionDeferralIfNeeded()
         NotifyManager.shared.setLastChats(displayed: false)
         isAppeared = false
