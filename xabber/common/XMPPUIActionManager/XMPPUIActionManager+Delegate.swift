@@ -304,7 +304,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         if let routingId = self.mamCompletionRoutingId(for: iq),
            self.routeMamCompletionIQIfNeeded(sender, iq: iq, stage: "willReceive") {
             self.preRoutedMamCompletionIQIds.insert(routingId)
-            self.messages?.storeMessagesNow()
+            self.messages?.scheduleQueuedMessagesDrainWithoutWaiting()
         }
         return iq
     }
@@ -384,17 +384,17 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 ],
                 rawXML: iq.xmlString
             )
-            self.messages?.storeMessagesNow()
+            self.messages?.scheduleQueuedMessagesDrainWithoutWaiting()
             return true
         }
         if self.routeMamCompletionIQIfNeeded(sender, iq: iq, stage: "didReceive") {
-            self.messages?.storeMessagesNow()
+            self.messages?.scheduleQueuedMessagesDrainWithoutWaiting()
             return true
         }
         switch true {
 //        case (self.sync?.read(withIQ: iq) ?? false): return true
         case (self.mam?.read(sender, withIQ: iq) ?? false):
-                self.messages?.storeMessagesNow()
+                self.messages?.scheduleQueuedMessagesDrainWithoutWaiting()
                 return true
         case (self.groupchat?.read(sender, withIQ: iq) ?? false): return true
         case (AccountManager.shared.find(for: self.currentJid ?? "")?.omemo.read(withIQ: iq) ?? false):

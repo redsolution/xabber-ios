@@ -89,6 +89,17 @@ struct MessageArchiveRequestFailureEvent: Equatable {
 
 enum ChatArchiveDebugTrace {
     typealias Sink = (String) -> Void
+    static let sampleEveryEnvironmentKey = "XABBER_CHAT_ARCHIVE_TRACE_SAMPLE_EVERY"
+    static let productionSampleEvery = 8
+
+    static func resolvedSampleEvery(environment: [String: String]) -> Int {
+        guard let rawValue = environment[sampleEveryEnvironmentKey],
+              let value = Int(rawValue),
+              value > 0 else {
+            return productionSampleEvery
+        }
+        return value
+    }
 
     #if DEBUG
     private struct Configuration {
@@ -104,7 +115,9 @@ enum ChatArchiveDebugTrace {
     private static var defaultConfiguration: Configuration {
         Configuration(
             enabled: true,
-            sampleEvery: 8,
+            sampleEvery: resolvedSampleEvery(
+                environment: ProcessInfo.processInfo.environment
+            ),
             invocationCount: 0,
             sink: { DDLogDebug($0) }
         )
@@ -563,6 +576,161 @@ enum MessageArchiveRequestFailureDispatcher {
                 ("reason", event.reason.rawValue),
                 ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt))
             ])
+        }
+        return true
+    }
+
+    static func resetForTests() {
+        lock.lock()
+        handlersByKey.removeAll()
+        lock.unlock()
+    }
+}
+
+/// One-shot, query-scoped preparation barrier for terminal MAM failures.
+///
+/// Archive consumers use this barrier to durably flush a retained partial
+/// page without blocking either the XMPP stream queue or the main queue. The
+/// transport callback/query remains registered until every matching handler
+/// acknowledges its terminal work. Ordinary failure publication happens only
+/// after that acknowledgement.
+enum MessageArchiveRequestFailurePreparationDispatcher {
+    struct Token: Hashable {
+        fileprivate let id: UUID
+        fileprivate let owner: String
+        fileprivate let queryId: String
+    }
+
+    private final class HandlerAcknowledgement {
+        private let lock = NSLock()
+        private var didAcknowledge = false
+        private let body: () -> Void
+
+        init(_ body: @escaping () -> Void) {
+            self.body = body
+        }
+
+        func acknowledge() {
+            lock.lock()
+            guard !didAcknowledge else {
+                lock.unlock()
+                return
+            }
+            didAcknowledge = true
+            lock.unlock()
+            body()
+        }
+    }
+
+    private final class PreparationGroup {
+        private let lock = NSLock()
+        private var remaining: Int
+        private var didComplete = false
+        private let completion: () -> Void
+
+        init(count: Int, completion: @escaping () -> Void) {
+            self.remaining = count
+            self.completion = completion
+        }
+
+        func makeAcknowledgement() -> () -> Void {
+            let acknowledgement = HandlerAcknowledgement {
+                self.finishOne()
+            }
+            return acknowledgement.acknowledge
+        }
+
+        private func finishOne() {
+            let shouldComplete: Bool
+            lock.lock()
+            remaining = max(0, remaining - 1)
+            shouldComplete = remaining == 0 && !didComplete
+            if shouldComplete {
+                didComplete = true
+            }
+            lock.unlock()
+            if shouldComplete {
+                completion()
+            }
+        }
+    }
+
+    private typealias Handler = (
+        MessageArchiveRequestFailureEvent,
+        @escaping () -> Void
+    ) -> Void
+
+    private static let lock = NSLock()
+    private static var handlersByKey: [String: [UUID: Handler]] = [:]
+
+    private static func key(owner: String, queryId: String) -> String {
+        "\(owner)\u{1F}archive-request-failure-preparation\u{1F}\(queryId)"
+    }
+
+    @discardableResult
+    static func register(
+        owner: String,
+        queryId: String,
+        handler: @escaping (
+            MessageArchiveRequestFailureEvent,
+            @escaping () -> Void
+        ) -> Void
+    ) -> Token {
+        let token = Token(id: UUID(), owner: owner, queryId: queryId)
+        guard owner.isNotEmpty,
+              queryId.isNotEmpty else {
+            return token
+        }
+
+        lock.lock()
+        handlersByKey[key(owner: owner, queryId: queryId), default: [:]][token.id] = handler
+        lock.unlock()
+        return token
+    }
+
+    static func unregister(_ token: Token) {
+        guard token.owner.isNotEmpty,
+              token.queryId.isNotEmpty else {
+            return
+        }
+
+        lock.lock()
+        let key = key(owner: token.owner, queryId: token.queryId)
+        handlersByKey[key]?.removeValue(forKey: token.id)
+        if handlersByKey[key]?.isEmpty == true {
+            handlersByKey.removeValue(forKey: key)
+        }
+        lock.unlock()
+    }
+
+    /// Starts all matching preparations. Missing handlers deliberately use an
+    /// immediate fallback so search, timestamp lookups, and unowned archive
+    /// requests retain their established cleanup behavior.
+    @discardableResult
+    static func prepare(
+        _ event: MessageArchiveRequestFailureEvent,
+        completion: @escaping () -> Void
+    ) -> Bool {
+        guard event.owner.isNotEmpty,
+              event.queryId.isNotEmpty else {
+            completion()
+            return false
+        }
+
+        lock.lock()
+        let handlers = handlersByKey.removeValue(
+            forKey: key(owner: event.owner, queryId: event.queryId)
+        )?.values.map { $0 } ?? []
+        lock.unlock()
+
+        guard handlers.isNotEmpty else {
+            completion()
+            return false
+        }
+
+        let group = PreparationGroup(count: handlers.count, completion: completion)
+        handlers.forEach { handler in
+            handler(event, group.makeAcknowledgement())
         }
         return true
     }
@@ -1239,8 +1407,80 @@ class MessageArchiveManager: AbstractXMPPManager {
     private var regularArchiveRequestKeyByQueryId: [String: RegularChatArchiveRequestKey] = [:]
     private let regularIdleBackfillTriggerLock = NSLock()
     private var regularIdleBackfillTriggerState = RegularIdleBackfillTriggerState()
+    private let archiveRequestLifecycleLock = NSRecursiveLock()
+    private var archiveRequestLifecycleGeneration: UInt64 = 0
     private let archiveQueryPurposeLock = NSLock()
     private var archiveQueryPurposeByQueryId: [String: RequestPurpose] = [:]
+    private struct PendingArchiveFailureTransaction {
+        let event: MessageArchiveRequestFailureEvent
+        var terminalWaiters: [() -> Void]
+    }
+    private final class PendingArchiveFailureCallGroup {
+        private final class Acknowledgement {
+            private let lock = NSLock()
+            private var didAcknowledge = false
+            private let body: () -> Void
+
+            init(_ body: @escaping () -> Void) {
+                self.body = body
+            }
+
+            func acknowledge() {
+                lock.lock()
+                guard !didAcknowledge else {
+                    lock.unlock()
+                    return
+                }
+                didAcknowledge = true
+                lock.unlock()
+                body()
+            }
+        }
+
+        private let lock = NSLock()
+        private var remaining = 1
+        private var didComplete = false
+        private let completion: () -> Void
+
+        init(completion: @escaping () -> Void) {
+            self.completion = completion
+        }
+
+        func enter() -> () -> Void {
+            lock.lock()
+            remaining += 1
+            lock.unlock()
+
+            let acknowledgement = Acknowledgement {
+                self.leave()
+            }
+            return acknowledgement.acknowledge
+        }
+
+        func finishRegistration() {
+            leave()
+        }
+
+        private func leave() {
+            let shouldComplete: Bool
+            lock.lock()
+            remaining = max(0, remaining - 1)
+            shouldComplete = remaining == 0 && !didComplete
+            if shouldComplete {
+                didComplete = true
+            }
+            lock.unlock()
+            if shouldComplete {
+                completion()
+            }
+        }
+    }
+    private let pendingArchiveFailureLock = NSLock()
+    private var pendingArchiveFailureTransactionsByQueryId: [String: PendingArchiveFailureTransaction] = [:]
+    typealias PendingArchiveFailureFinalizationDispatcher = (@escaping () -> Void) -> Void
+    var pendingArchiveFailureFinalizationDispatcher: PendingArchiveFailureFinalizationDispatcher = { work in
+        work()
+    }
     var snapshotRepairEnqueueObserver: ((SnapshotRepairTarget, AccountXMPPTaskScheduler.Priority, String) -> Void)?
     
     override init(withOwner owner: String) {
@@ -1597,7 +1837,8 @@ class MessageArchiveManager: AbstractXMPPManager {
     internal func publishPendingArchiveRequestFailures(
         streamKind: MessageArchiveEndPageEvent.StreamKind,
         reason: MessageArchiveRequestFailureReason,
-        errorDescription: String?
+        errorDescription: String?,
+        completion: (() -> Void)? = nil
     ) -> [MessageArchiveRequestFailureEvent] {
         let pendingItems = self.callbackQueueItems {
             $0.task.purpose.isArchiveHistoryProducing ||
@@ -1613,6 +1854,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 ("streamKind", streamKind.rawValue),
                 ("reason", reason.rawValue)
             ])
+            completion?()
             return []
         }
 
@@ -1627,6 +1869,9 @@ class MessageArchiveManager: AbstractXMPPManager {
             )
         }
 
+        let terminalGroup = PendingArchiveFailureCallGroup(
+            completion: completion ?? {}
+        )
         zip(pendingItems, events).forEach { item, event in
             if item.task.purpose == .search {
                 _ = self.failSearchArchiveSession(
@@ -1636,8 +1881,16 @@ class MessageArchiveManager: AbstractXMPPManager {
                 )
             } else if item.task.purpose == .timestampLookup {
                 self.notifyDidFailRequest(item.requestCallbacks, event: event)
+            } else if item.task.purpose.isArchiveHistoryProducing {
+                self.beginPendingArchiveFailure(
+                    item: item,
+                    event: event,
+                    terminal: terminalGroup.enter()
+                )
+                return
             }
             self.removePendingArchiveRequestAfterFailure(item)
+            self.publishPendingArchiveFailureEvent(event)
         }
 
         ChatArchiveDebugTrace.log("mamPendingRequestFailurePublish", [
@@ -1647,19 +1900,106 @@ class MessageArchiveManager: AbstractXMPPManager {
             ("pendingQueryCount", pendingQueryCount),
             ("queryIds", events.map(\.queryId).joined(separator: ","))
         ])
-        events.forEach {
-            let delivered = MessageArchiveRequestFailureDispatcher.publish($0)
-            if !delivered {
-                ChatArchiveDebugTrace.log("mamPendingRequestFailureDropNoHandler", [
-                    ("owner", self.owner),
-                    ("queryId", $0.queryId),
-                    ("streamKind", streamKind.rawValue),
-                    ("reason", reason.rawValue),
-                    ("pendingQueryCount", pendingQueryCount)
+        terminalGroup.finishRegistration()
+        return events
+    }
+
+    private func beginPendingArchiveFailure(
+        item: CallbackQueueItem,
+        event: MessageArchiveRequestFailureEvent,
+        terminal: @escaping () -> Void
+    ) {
+        let shouldStartPreparation: Bool
+        pendingArchiveFailureLock.lock()
+        if var transaction = pendingArchiveFailureTransactionsByQueryId[event.queryId] {
+            transaction.terminalWaiters.append(terminal)
+            pendingArchiveFailureTransactionsByQueryId[event.queryId] = transaction
+            shouldStartPreparation = false
+        } else {
+            pendingArchiveFailureTransactionsByQueryId[event.queryId] = PendingArchiveFailureTransaction(
+                event: event,
+                terminalWaiters: [terminal]
+            )
+            shouldStartPreparation = true
+        }
+        pendingArchiveFailureLock.unlock()
+
+        guard shouldStartPreparation else {
+            return
+        }
+
+        let preparationStartedAt = Date()
+        let finalizationDispatcher = pendingArchiveFailureFinalizationDispatcher
+        let prepared = MessageArchiveRequestFailurePreparationDispatcher.prepare(event) { [self] in
+            finalizationDispatcher { [self] in
+                ChatArchiveDebugTrace.log("mamPendingFailurePersistenceTerminal", [
+                    ("owner", owner),
+                    ("queryId", event.queryId),
+                    ("durationMs", ChatArchiveDebugTrace.milliseconds(since: preparationStartedAt))
                 ])
+                finalizePendingArchiveFailure(queryId: event.queryId, fallbackItem: item)
             }
         }
-        return events
+        ChatArchiveDebugTrace.log("mamPendingFailurePersistencePrepare", [
+            ("owner", owner),
+            ("queryId", event.queryId),
+            ("hasPreparation", prepared)
+        ])
+    }
+
+    private func hasPendingArchiveFailure(queryId: String) -> Bool {
+        guard queryId.isNotEmpty else {
+            return false
+        }
+        pendingArchiveFailureLock.lock()
+        let isPending = pendingArchiveFailureTransactionsByQueryId[queryId] != nil
+        pendingArchiveFailureLock.unlock()
+        return isPending
+    }
+
+    private func finalizePendingArchiveFailure(
+        queryId: String,
+        fallbackItem: CallbackQueueItem
+    ) {
+        pendingArchiveFailureLock.lock()
+        guard let transaction = pendingArchiveFailureTransactionsByQueryId[queryId] else {
+            pendingArchiveFailureLock.unlock()
+            return
+        }
+        pendingArchiveFailureLock.unlock()
+
+        if let currentItem = firstCallbackQueueItem(where: { $0.elementId == queryId }) {
+            removePendingArchiveRequestAfterFailure(currentItem)
+        } else {
+            removeArchiveRequestStateAfterFailure(queryId: fallbackItem.elementId)
+            if let taskQueryId = fallbackItem.task.queryId,
+               taskQueryId != fallbackItem.elementId {
+                removeArchiveRequestStateAfterFailure(queryId: taskQueryId)
+            }
+        }
+        publishPendingArchiveFailureEvent(transaction.event)
+
+        pendingArchiveFailureLock.lock()
+        let waiters = pendingArchiveFailureTransactionsByQueryId
+            .removeValue(forKey: queryId)?
+            .terminalWaiters ?? []
+        pendingArchiveFailureLock.unlock()
+        waiters.forEach { $0() }
+    }
+
+    private func publishPendingArchiveFailureEvent(
+        _ event: MessageArchiveRequestFailureEvent
+    ) {
+        let delivered = MessageArchiveRequestFailureDispatcher.publish(event)
+        if !delivered {
+            ChatArchiveDebugTrace.log("mamPendingRequestFailureDropNoHandler", [
+                ("owner", self.owner),
+                ("queryId", event.queryId),
+                ("streamKind", event.streamKind.rawValue),
+                ("reason", event.reason.rawValue),
+                ("pendingQueryCount", event.pendingQueryCount)
+            ])
+        }
     }
 
     private func removePendingArchiveRequestAfterFailure(_ item: CallbackQueueItem) {
@@ -2254,6 +2594,16 @@ class MessageArchiveManager: AbstractXMPPManager {
     
     func read(_ stream: XMPPStream, withIQ iq: XMPPIQ) -> Bool {
         let streamKind = Self.streamKind(for: stream)
+        if let elementId = iq.elementID,
+           hasPendingArchiveFailure(queryId: elementId) {
+            ChatArchiveDebugTrace.log("mamTerminalIQIgnoredDuringFailurePreparation", [
+                ("owner", owner),
+                ("queryId", elementId),
+                ("streamKind", streamKind.rawValue),
+                ("iqType", iq.type ?? "unknown")
+            ])
+            return true
+        }
         if iq.iqType == .error,
            let elementId = iq.elementID {
             let localCallbackRegistered = self.callbackQueueContains { $0.elementId == elementId }
@@ -2290,6 +2640,14 @@ class MessageArchiveManager: AbstractXMPPManager {
                         )
                     } else if item.task.purpose == .timestampLookup {
                         self.notifyDidFailRequest(item.requestCallbacks, event: event)
+                    }
+                    if item.task.purpose.isArchiveHistoryProducing {
+                        self.beginPendingArchiveFailure(
+                            item: item,
+                            event: event,
+                            terminal: {}
+                        )
+                        return true
                     }
                     self.removePendingArchiveRequestAfterFailure(item)
                     let delivered = MessageArchiveRequestFailureDispatcher.publish(event)
@@ -3044,6 +3402,9 @@ class MessageArchiveManager: AbstractXMPPManager {
             )
             return
         }
+        archiveRequestLifecycleLock.lock()
+        archiveRequestLifecycleGeneration &+= 1
+        defer { archiveRequestLifecycleLock.unlock() }
         let effectiveStart = dateConstraint.start
         registerArchiveQueryId(elementId, purpose: purpose)
         let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
@@ -3160,11 +3521,14 @@ class MessageArchiveManager: AbstractXMPPManager {
             tags: tags,
             withCounter: withCounter
         ) || (consumerManagesArchiveEnd && purpose == .latest)
+        let requestCursorId = (before ?? nextPage).flatMap { cursor in
+            cursor.isNotEmpty ? cursor : nil
+        }
         let task = MAMRequestItem(
             jid: jid,
             taskID: taskId,
             isGroupchat: isGroupchat,
-            messageId: before,
+            messageId: requestCursorId,
             conversationType: conversationType,
             isContinues: isContinues,
             maxDate: effectiveStart,
@@ -3986,6 +4350,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             }
 
             let deduplicationKey = target.deduplicationKey(owner: self.owner)
+            let queryId = "MAM snapshot repair: \(NanoID.new(6))"
             snapshotRepairEnqueueObserver?(target, .background, deduplicationKey)
             account.xmppTaskScheduler.enqueueAccountTask(
                 priority: .background,
@@ -3997,11 +4362,70 @@ class MessageArchiveManager: AbstractXMPPManager {
                     finish()
                     return
                 }
-                _ = user.mam.startSnapshotArchiveRepair(
+                user.messages.beginArchiveQueryBatch(queryId: queryId)
+                let completionLock = NSLock()
+                var didFinish = false
+                var failureToken: MessageArchiveRequestFailureDispatcher.Token?
+                var preparationToken: MessageArchiveRequestFailurePreparationDispatcher.Token?
+                let finishScheduler = {
+                    completionLock.lock()
+                    guard !didFinish else {
+                        completionLock.unlock()
+                        return
+                    }
+                    didFinish = true
+                    let token = failureToken
+                    let activePreparationToken = preparationToken
+                    completionLock.unlock()
+                    if let token {
+                        MessageArchiveRequestFailureDispatcher.unregister(token)
+                    }
+                    if let activePreparationToken {
+                        MessageArchiveRequestFailurePreparationDispatcher.unregister(
+                            activePreparationToken
+                        )
+                    }
+                    finish()
+                }
+                let flushPersistence = { (completion: @escaping () -> Void) in
+                    user.messages.finishArchiveQueryBatchAsync(queryId: queryId) { summary in
+                        ChatArchiveDebugTrace.log("snapshotRepairPersistenceTerminal", [
+                            ("persistedRows", summary.persistedRows),
+                            ("processedRows", summary.processedRows)
+                        ])
+                        completion()
+                    }
+                }
+                preparationToken = MessageArchiveRequestFailurePreparationDispatcher.register(
+                    owner: self.owner,
+                    queryId: queryId
+                ) { _, terminal in
+                    flushPersistence(terminal)
+                }
+                failureToken = MessageArchiveRequestFailureDispatcher.register(
+                    owner: self.owner,
+                    queryId: queryId,
+                    delivery: .synchronous
+                ) { _ in
+                    finishScheduler()
+                }
+                let startedQueryId = user.mam.startSnapshotArchiveRepair(
                     stream,
                     target: target,
-                    callback: finish
+                    queryId: queryId,
+                    callback: nil,
+                    requestCallbacks: RequestCallbacks(
+                        onEndPage: { _, _, _, _, _ in
+                            flushPersistence(finishScheduler)
+                        },
+                        onFailure: { _ in
+                            flushPersistence(finishScheduler)
+                        }
+                    )
                 )
+                if startedQueryId == nil {
+                    flushPersistence(finishScheduler)
+                }
             }
         }
     }
@@ -4137,7 +4561,27 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
     }
     
+    internal func archiveRequestGenerationSnapshot() -> UInt64 {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        return archiveRequestLifecycleGeneration
+    }
+
+    @discardableResult
+    internal func didResetState(ifArchiveRequestGenerationMatches expectedGeneration: UInt64) -> Bool {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        guard archiveRequestLifecycleGeneration == expectedGeneration else {
+            return false
+        }
+        self.didResetState()
+        return true
+    }
+
     func didResetState() {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        archiveRequestLifecycleGeneration &+= 1
         self.withRegularIdleBackfillTriggerState { $0.reset() }
         searchArchiveStateLock.lock()
         let activeSearchQueryIds = searchArchiveSessionsByQueryId.compactMap { queryId, session in
@@ -4146,13 +4590,13 @@ class MessageArchiveManager: AbstractXMPPManager {
         searchArchiveStateLock.unlock()
         activeSearchQueryIds.forEach { _ = cancelSearch(queryId: $0) }
         let pendingItems = self.drainCallbackQueueItems()
+        let pendingCallbacks = pendingItems.compactMap(\.callback)
         pendingItems.forEach { item in
             self.unregisterFallbackEndPageCallbacks(queryId: item.elementId)
             if let taskQueryId = item.task.queryId,
                taskQueryId != item.elementId {
                 self.unregisterFallbackEndPageCallbacks(queryId: taskQueryId)
             }
-            item.callback?()
         }
         self.queryIds.forEach { self.unregisterFallbackEndPageCallbacks(queryId: $0) }
         self.queryIds.removeAll()
@@ -4162,5 +4606,10 @@ class MessageArchiveManager: AbstractXMPPManager {
         self.regularArchiveInFlightByKey.removeAll()
         self.regularArchiveRequestKeyByQueryId.removeAll()
         self.clearArchiveQueryPurposeRegistry()
+        // Invoke callbacks after all old-session state has been cleared. A
+        // synchronous callback may start a new-generation request; the
+        // recursive lifecycle lock then lets it register without being erased
+        // by the reset that triggered the callback.
+        pendingCallbacks.forEach { $0() }
     }
 }

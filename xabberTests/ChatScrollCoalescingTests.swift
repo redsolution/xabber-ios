@@ -200,7 +200,7 @@ final class ChatScrollCoalescingTests: XCTestCase {
         XCTAssertEqual(selectedBoundaryIndex, 3)
     }
 
-    func testPagingRequestIsNotDuplicatedWhileRemotePageIsInFlight() {
+    func testEntireVisibleShortPageRequestsRemoteOlderOnlyOnceWhilePageIsInFlight() {
         var scheduled: [() -> Void] = []
         var requestCount = 0
         var isRemotePageInFlight = false
@@ -214,7 +214,7 @@ final class ChatScrollCoalescingTests: XCTestCase {
                     boundaryContext: ChatHistoryPagingBoundaryContext(
                         firstRealSection: 0,
                         lastRealSection: 3,
-                        visibleRealSections: [0]
+                        visibleRealSections: [0, 1, 2, 3]
                     ),
                     currentPageMinIndex: 0,
                     currentPageMaxIndex: 4,
@@ -222,7 +222,8 @@ final class ChatScrollCoalescingTests: XCTestCase {
                     hasLocalOlderAvailable: false,
                     hasLocalNewerAvailable: false,
                     hasRemoteOlderAvailable: !isRemotePageInFlight,
-                    hasRemoteNewerAvailable: false
+                    hasRemoteNewerAvailable: false,
+                    suppressRemoteBoundaryPaging: true
                 )
                 if direction != nil {
                     requestCount += 1
@@ -231,10 +232,10 @@ final class ChatScrollCoalescingTests: XCTestCase {
             }
         )
 
-        scheduler.enqueue(request(offsetY: -20, gestureTranslationY: 40, visibleSections: [0], work: [.evaluateBoundaryPaging]))
+        scheduler.enqueue(request(offsetY: -20, gestureTranslationY: 40, visibleSections: [0, 1, 2, 3], work: [.evaluateBoundaryPaging]))
         scheduled.removeFirst()()
 
-        scheduler.enqueue(request(offsetY: -24, gestureTranslationY: 42, visibleSections: [0], work: [.evaluateBoundaryPaging]))
+        scheduler.enqueue(request(offsetY: -24, gestureTranslationY: 42, visibleSections: [0, 1, 2, 3], work: [.evaluateBoundaryPaging]))
         scheduled.removeFirst()()
 
         XCTAssertEqual(requestCount, 1)

@@ -463,7 +463,13 @@ extension Account: XMPPStreamDelegate {
             error: error
         )
         self.cancelDelayedConnectTimer()
-        self.xmppTaskScheduler.reset()
+        let scheduler = self.xmppTaskScheduler
+        scheduler.reset()
+        _ = self.mam.publishPendingArchiveRequestFailures(
+            streamKind: .primary,
+            reason: .uiActionDisconnect,
+            errorDescription: self.disconnectErrorDescription(error)
+        )
         self.disco.cancelCloudDiscoveryForDisconnect()
         self.cloudStorage.markAvailabilityRetryableFailure(stage: .disconnected)
         self.discardBootstrapQueuedPrimaryStanzas(reason: "streamDisconnect")

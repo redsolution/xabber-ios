@@ -140,6 +140,173 @@ enum ChatAnchorContextPrefetchModePolicy {
     }
 }
 
+/// Owns persistence for archive work that intentionally outlives the anchor
+/// presentation transaction. It contains no view-controller reference: raw
+/// `<fin>` and disconnect delivery can safely arrive after back navigation.
+final class ChatDetachedRemoteHistoryPersistenceTransaction {
+    typealias Flush = (
+        _ queryId: String,
+        _ state: MessageArchivePageEndState,
+        _ completion: @escaping () -> Void
+    ) -> Void
+    typealias Unregister = (
+        _ queryId: String,
+        _ completion: @escaping () -> Void
+    ) -> Void
+
+    private enum Phase: Equatable {
+        case active
+        case finalizing
+        case terminal
+    }
+
+    private let owner: String
+    private let lock = NSLock()
+    private var phasesByQueryId: [String: Phase]
+    private var failureTokensByQueryId: [String: MessageArchiveRequestFailureDispatcher.Token] = [:]
+    private let terminal: ((String) -> Void)?
+    private let flush: Flush
+    private let unregister: Unregister
+
+    init(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        queryIds: Set<String>,
+        terminal: ((String) -> Void)? = nil,
+        flush: Flush? = nil,
+        unregister: Unregister? = nil
+    ) {
+        self.owner = owner
+        self.phasesByQueryId = Dictionary(
+            uniqueKeysWithValues: queryIds
+                .filter { $0.isNotEmpty }
+                .map { ($0, Phase.active) }
+        )
+        self.terminal = terminal
+        self.flush = flush ?? { queryId, state, completion in
+            ChatRemoteHistoryCompletionCoordinator.flushQueryMessagesAsync(
+                owner: owner,
+                queryId: queryId,
+                state: state,
+                conversationJid: jid,
+                conversationType: conversationType
+            ) { _ in
+                completion()
+            }
+        }
+        self.unregister = unregister ?? { queryId, completion in
+            ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+                owner: owner,
+                queryId: queryId,
+                completion: completion
+            )
+        }
+
+        self.phasesByQueryId.keys.forEach { queryId in
+            let token = MessageArchiveRequestFailureDispatcher.register(
+                owner: owner,
+                queryId: queryId,
+                delivery: .synchronous
+            ) { [self] event in
+                self.receiveFailure(queryId: event.queryId)
+            }
+            self.failureTokensByQueryId[queryId] = token
+        }
+    }
+
+    var requestCallbacks: MessageArchiveManager.RequestCallbacks {
+        MessageArchiveManager.RequestCallbacks(
+            onEndPage: { [self] queryId, state, _, _, _ in
+                self.receiveFinal(queryId: queryId, state: state)
+            }
+        )
+    }
+
+    func registerPersistenceSource(_ manager: MessageManager?, queryId: String) {
+        guard let manager,
+              isActive(queryId: queryId) else {
+            return
+        }
+        ChatRemoteHistoryCompletionCoordinator.registerPersistenceSource(
+            manager,
+            owner: owner,
+            queryId: queryId
+        )
+    }
+
+    func cancel() {
+        let queryIds: [String]
+        let tokens: [MessageArchiveRequestFailureDispatcher.Token]
+        lock.lock()
+        queryIds = phasesByQueryId.compactMap { queryId, phase in
+            phase == .active ? queryId : nil
+        }
+        queryIds.forEach { queryId in
+            phasesByQueryId[queryId] = .terminal
+        }
+        tokens = queryIds.compactMap { failureTokensByQueryId.removeValue(forKey: $0) }
+        lock.unlock()
+
+        tokens.forEach(MessageArchiveRequestFailureDispatcher.unregister)
+        queryIds.forEach { queryId in
+            unregister(queryId) { [terminal] in
+                terminal?(queryId)
+            }
+        }
+    }
+
+    private func isActive(queryId: String) -> Bool {
+        lock.lock()
+        let isActive = phasesByQueryId[queryId] == .active
+        lock.unlock()
+        return isActive
+    }
+
+    private func receiveFinal(
+        queryId: String,
+        state: MessageArchivePageEndState
+    ) {
+        let failureToken: MessageArchiveRequestFailureDispatcher.Token?
+        lock.lock()
+        guard phasesByQueryId[queryId] == .active else {
+            lock.unlock()
+            return
+        }
+        phasesByQueryId[queryId] = .finalizing
+        failureToken = failureTokensByQueryId.removeValue(forKey: queryId)
+        lock.unlock()
+
+        if let failureToken {
+            MessageArchiveRequestFailureDispatcher.unregister(failureToken)
+        }
+        flush(queryId, state) { [self] in
+            unregister(queryId) { [self] in
+                finish(queryId: queryId, expectedPhase: .finalizing)
+            }
+        }
+    }
+
+    private func receiveFailure(queryId: String) {
+        finish(queryId: queryId, expectedPhase: .active)
+    }
+
+    private func finish(queryId: String, expectedPhase: Phase) {
+        let shouldNotify: Bool
+        lock.lock()
+        shouldNotify = phasesByQueryId[queryId] == expectedPhase
+        if shouldNotify {
+            phasesByQueryId[queryId] = .terminal
+            failureTokensByQueryId.removeValue(forKey: queryId)
+        }
+        lock.unlock()
+
+        if shouldNotify {
+            terminal?(queryId)
+        }
+    }
+}
+
 enum ChatAnchorContextCoverageBoundary: Equatable {
     case complete
     case knownGap
@@ -3841,6 +4008,7 @@ extension ChatViewController {
     private func performArchiveAction(
         queryIds: Set<String> = [],
         transactionToken: ChatAnchorTransactionToken? = nil,
+        detachedPersistenceTransaction: ChatDetachedRemoteHistoryPersistenceTransaction? = nil,
         _ action: @escaping (XMPPStream, MessageArchiveManager) -> Void,
         unavailable: (() -> Void)? = nil
     ) {
@@ -3848,9 +4016,11 @@ extension ChatViewController {
            self.anchorTransactionGate.snapshot.activeToken != transactionToken {
             return
         }
-        queryIds.forEach {
-            self.registerRemoteHistoryEndPageDispatcher(queryId: $0)
-            self.registerRemoteHistoryFailureDispatcher(queryId: $0)
+        if detachedPersistenceTransaction == nil {
+            queryIds.forEach {
+                self.registerRemoteHistoryEndPageDispatcher(queryId: $0)
+                self.registerRemoteHistoryFailureDispatcher(queryId: $0)
+            }
         }
         let fallback = {
             if let transactionToken,
@@ -3858,8 +4028,13 @@ extension ChatViewController {
                 return
             }
             guard let account = AccountManager.shared.find(for: self.owner) else {
-                queryIds.forEach {
-                    self.unregisterRemoteHistoryEndPageDispatcher(queryId: $0)
+                if let detachedPersistenceTransaction {
+                    detachedPersistenceTransaction.cancel()
+                } else {
+                    queryIds.forEach {
+                        self.unregisterRemoteHistoryEndPageDispatcher(queryId: $0)
+                        self.unregisterRemoteHistoryFailureDispatcher(queryId: $0)
+                    }
                 }
                 unavailable?()
                 return
@@ -3871,7 +4046,14 @@ extension ChatViewController {
                     return
                 }
                 queryIds.forEach {
-                    self.registerRemoteHistoryPersistenceSource(user.messages, queryId: $0)
+                    if let detachedPersistenceTransaction {
+                        detachedPersistenceTransaction.registerPersistenceSource(
+                            user.messages,
+                            queryId: $0
+                        )
+                    } else {
+                        self.registerRemoteHistoryPersistenceSource(user.messages, queryId: $0)
+                    }
                 }
                 action(stream, user.mam)
             }
@@ -3893,7 +4075,14 @@ extension ChatViewController {
             )
             if let mam = session.mam {
                 queryIds.forEach {
-                    self.registerRemoteHistoryPersistenceSource(session.messages, queryId: $0)
+                    if let detachedPersistenceTransaction {
+                        detachedPersistenceTransaction.registerPersistenceSource(
+                            session.messages,
+                            queryId: $0
+                        )
+                    } else {
+                        self.registerRemoteHistoryPersistenceSource(session.messages, queryId: $0)
+                    }
                 }
                 action(stream, mam)
                 session.logConnectionDiagnostics(event: "ui_action_chat_archive_action_returned")
@@ -4673,33 +4862,53 @@ extension ChatViewController {
             return
         }
 
-        self.performArchiveAction({ stream, mam in
-            if let newerPageSize = plan.newerPageSize {
-                _ = mam.requestNewerHistoryPage(
-                    stream,
-                    for: self.jid,
-                    conversationType: self.conversationType,
-                    messageId: archivedId,
-                    pageSize: newerPageSize,
-                    queryId: nil,
-                    callback: nil,
-                    requestCallbacks: .none
-                )
-            }
+        let newerQueryId = plan.newerPageSize.map { _ in
+            "MAM prev history: \(NanoID.new(6))"
+        }
+        let olderQueryId = plan.olderPageSize.map { _ in
+            "MAM next history: \(NanoID.new(6))"
+        }
+        let queryIds = Set([newerQueryId, olderQueryId].compactMap { $0 })
+        let persistenceTransaction = ChatDetachedRemoteHistoryPersistenceTransaction(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType,
+            queryIds: queryIds
+        )
 
-            if let olderPageSize = plan.olderPageSize {
-                _ = mam.requestOlderHistoryPage(
-                    stream,
-                    for: self.jid,
-                    conversationType: self.conversationType,
-                    messageId: archivedId,
-                    pageSize: olderPageSize,
-                    queryId: nil,
-                    callback: nil,
-                    requestCallbacks: .none
-                )
+        self.performArchiveAction(
+            queryIds: queryIds,
+            detachedPersistenceTransaction: persistenceTransaction,
+            { stream, mam in
+                if let newerPageSize = plan.newerPageSize,
+                   let newerQueryId {
+                    _ = mam.requestNewerHistoryPage(
+                        stream,
+                        for: self.jid,
+                        conversationType: self.conversationType,
+                        messageId: archivedId,
+                        pageSize: newerPageSize,
+                        queryId: newerQueryId,
+                        callback: nil,
+                        requestCallbacks: persistenceTransaction.requestCallbacks
+                    )
+                }
+
+                if let olderPageSize = plan.olderPageSize,
+                   let olderQueryId {
+                    _ = mam.requestOlderHistoryPage(
+                        stream,
+                        for: self.jid,
+                        conversationType: self.conversationType,
+                        messageId: archivedId,
+                        pageSize: olderPageSize,
+                        queryId: olderQueryId,
+                        callback: nil,
+                        requestCallbacks: persistenceTransaction.requestCallbacks
+                    )
+                }
             }
-        })
+        )
     }
 
     private func revealLocalContentForSavedPositionIfNeeded(
@@ -5674,9 +5883,6 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             ("statePersisted", state.persistedMessageCount)
         ])
         DispatchQueue.main.async {
-            if self.initialBootstrapQueryId == queryId {
-                self.cancelInitialBootstrapTimeout()
-            }
             ChatArchiveDebugTrace.log("chatDidReceiveEndPageEnter", [
                 ("owner", self.owner),
                 ("jid", self.jid),
@@ -5724,7 +5930,6 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             )
             if let context = self.interactiveHistoryPageLoadContext,
                context.queryId == queryId {
-                self.cancelInteractiveRemoteArchiveTimeout(queryId: queryId)
                 let disposition = self.remoteHistoryQueryCoordinator.receiveFinal(
                     queryId: queryId,
                     generation: context.generation,
@@ -5898,6 +6103,29 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             ("count", count),
             ("effectivePersisted", effectiveState.persistedMessageCount)
         ])
+    }
+
+    internal func consumeInitialBootstrapCommittedPage(
+        _ page: ChatInitialBootstrapRequestCoordinator.CommittedPage
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.initialBootstrapQueryId == page.event.queryId else {
+                return
+            }
+            _ = self.markRemoteHistoryEndPageCompletionIfNeeded(
+                queryId: page.event.queryId
+            )
+            self.handleCommittedRemoteHistoryFinal(
+                queryId: page.event.queryId,
+                originalState: page.event.state,
+                first: page.event.first,
+                last: page.event.last,
+                count: page.event.count,
+                completion: page.completion,
+                barrierDurationMs: 0
+            )
+        }
     }
     
     func didReceiveMessage(_ item: MessageStorageItem, queryId: String) {

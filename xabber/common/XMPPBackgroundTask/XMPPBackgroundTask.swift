@@ -84,6 +84,10 @@ class XMPPBackgroundTask: NSObject {
         self.mam = MessageArchiveManager(withOwner: jid)
         self.messages = MessageManager(withOwner: jid, activeStream: false)
         super.init()
+        let mamFinalizationQueue = self.queue
+        self.mam.pendingArchiveFailureFinalizationDispatcher = { work in
+            mamFinalizationQueue.async(execute: work)
+        }
         self.messages.archiveQueryIdPersistenceResolver = { [weak self] queryId in
             self?.mam.shouldPersistArchiveQueryId(queryId) ?? false
         }

@@ -51,6 +51,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             hasRealMessages: hasRealMessages,
             hasLocalOlderAvailable: availability.hasLocalOlderPage,
             hasLocalNewerAvailable: availability.hasLocalNewerPage,
+            hasRemoteOlderAvailable: availability.hasRemoteOlderPage,
             contentHeight: contentHeight,
             visibleHeight: visibleHeight
         )

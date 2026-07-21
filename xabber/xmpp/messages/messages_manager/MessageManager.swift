@@ -281,6 +281,10 @@ class MessageManager: AbstractXMPPManager {
     internal var queuedMessageCountsByQueryId: [String: Int] = [:]
     internal var inFlightMessageCountsByQueryId: [String: Int] = [:]
     internal var archivePersistenceSummariesByQueryId: [String: ArchivePersistenceSummary] = [:]
+    /// Archive queries registered by a consumer that requires a durable page
+    /// boundary. Their rows stay in the serialized receiver buffer until the
+    /// matching terminal event flushes the whole query in bounded chunks.
+    internal var archiveQueryBatchIds: Set<String> = []
     internal var archiveQueryIdPersistenceResolver: ((String?) -> Bool)?
     internal var archiveBatchSaveFailureInjector: (() throws -> Void)?
     internal var messagePersistenceChunkSize: Int = 100

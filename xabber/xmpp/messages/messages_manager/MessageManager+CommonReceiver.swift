@@ -170,6 +170,65 @@ extension MessageManager {
         }
     }
 
+    internal func beginArchiveQueryBatch(queryId: String) {
+        guard queryId.isNotEmpty else {
+            return
+        }
+        self.performMessageQueueSync {
+            self.archiveQueryBatchIds.insert(queryId)
+            ChatArchiveDebugTrace.log("messageArchiveBatchBegin", [
+                ("activeBatchCount", self.archiveQueryBatchIds.count)
+            ])
+        }
+    }
+
+    internal func isArchiveQueryBatchActive(queryId: String) -> Bool {
+        guard queryId.isNotEmpty else {
+            return false
+        }
+        return self.performMessageQueueSync {
+            self.archiveQueryBatchIds.contains(queryId)
+        }
+    }
+
+    /// Persists the matching query in one serialized queue operation. The
+    /// underlying Realm writes remain bounded by `messagePersistenceChunkSize`
+    /// (capped at 100) and unrelated/live rows remain eligible for normal drain.
+    @discardableResult
+    internal func finishArchiveQueryBatchSummary(queryId: String) -> ArchivePersistenceSummary {
+        guard queryId.isNotEmpty else {
+            return ArchivePersistenceSummary()
+        }
+        return self.performMessageQueueSync {
+            let summary = self.storeMessagesNowSummary(forQueryId: queryId)
+            self.archiveQueryBatchIds.remove(queryId)
+            ChatArchiveDebugTrace.log("messageArchiveBatchFinish", [
+                ("persistedRows", summary.persistedRows),
+                ("processedRows", summary.processedRows),
+                ("activeBatchCount", self.archiveQueryBatchIds.count)
+            ])
+            self.scheduleQueuedMessagesDrainOnQueue()
+            return summary
+        }
+    }
+
+    internal func finishArchiveQueryBatchAsync(
+        queryId: String,
+        completion: ((ArchivePersistenceSummary) -> Void)? = nil
+    ) {
+        guard queryId.isNotEmpty else {
+            completion?(ArchivePersistenceSummary())
+            return
+        }
+        self.queue.async { [weak self] in
+            guard let self else {
+                completion?(ArchivePersistenceSummary())
+                return
+            }
+            completion?(self.finishArchiveQueryBatchSummary(queryId: queryId))
+        }
+    }
+
     internal func scheduleQueuedMessagesDrainIfNeeded() {
         self.performMessageQueueSync {
             self.scheduleQueuedMessagesDrainOnQueue()
@@ -182,10 +241,22 @@ extension MessageManager {
         }
     }
 
+    private func isEligibleForOrdinaryDrain(_ item: MessageQueueItem) -> Bool {
+        guard let queryId = item.queryId,
+              queryId.isNotEmpty else {
+            return true
+        }
+        return !self.archiveQueryBatchIds.contains(queryId)
+    }
+
+    private var hasOrdinaryDrainEligibleMessages: Bool {
+        self.queuedMessages.contains(where: self.isEligibleForOrdinaryDrain)
+    }
+
     private func scheduleQueuedMessagesDrainOnQueue() {
         guard self.isReceiverActive,
               !self.isQueuedMessagesDrainScheduled,
-              !self.queuedMessages.isEmpty else {
+              self.hasOrdinaryDrainEligibleMessages else {
             return
         }
         self.isQueuedMessagesDrainScheduled = true
@@ -212,7 +283,7 @@ extension MessageManager {
             self.adjustInFlightMessageCounts(for: results, delta: -1)
             AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
 
-            if self.isReceiverActive, !self.queuedMessages.isEmpty {
+            if self.isReceiverActive, self.hasOrdinaryDrainEligibleMessages {
                 self.scheduleQueuedMessagesDrainIfNeeded()
             }
         }
@@ -220,9 +291,9 @@ extension MessageManager {
 
     internal func drainQueuedMessages() -> Set<MessageQueueItem> {
         self.performMessageQueueSync {
-            let snapshot = self.queuedMessages
+            let snapshot = Set(self.queuedMessages.filter(self.isEligibleForOrdinaryDrain))
             self.adjustQueuedMessageCounts(for: snapshot, delta: -1)
-            self.queuedMessages.removeAll()
+            self.queuedMessages.subtract(snapshot)
             self.publishQueuedMessagesSnapshot()
             return snapshot
         }
@@ -232,7 +303,8 @@ extension MessageManager {
         
         static func == (lhs: MessageQueueItem, rhs: MessageQueueItem) -> Bool {
             return lhs.message.xmlString == rhs.message.xmlString &&
-                lhs.date == rhs.date
+                lhs.date == rhs.date &&
+                lhs.queryId == rhs.queryId
         }
         
         var isRead: Bool = true
@@ -270,6 +342,7 @@ extension MessageManager {
         func hash(into hasher: inout Hasher) {
             hasher.combine(message.xmlString)
             hasher.combine(date)
+            hasher.combine(queryId)
         }
     }
 
@@ -534,6 +607,18 @@ extension MessageManager {
         self.performMessageQueueSync {
             self.isReceiverActive = false
             self.isQueuedMessagesDrainScheduled = false
+            let activeQueryIds = self.archiveQueryBatchIds.sorted()
+            var persistedRows = 0
+            activeQueryIds.forEach { queryId in
+                persistedRows += self.storeMessagesNowSummary(forQueryId: queryId).persistedRows
+            }
+            self.archiveQueryBatchIds.removeAll()
+            if activeQueryIds.isNotEmpty {
+                ChatArchiveDebugTrace.log("messageArchiveBatchLifecycleFlush", [
+                    ("queryCount", activeQueryIds.count),
+                    ("persistedRows", persistedRows)
+                ])
+            }
         }
         clearQueue()
     }
@@ -1196,7 +1281,7 @@ extension MessageManager {
             return ArchivePersistenceSummary()
         }
 
-        let chunks = batch.chunks(maxSize: self.messagePersistenceChunkSize)
+        let chunks = batch.chunks(maxSize: min(max(1, self.messagePersistenceChunkSize), 100))
         var summary = ArchivePersistenceSummary()
         chunks.enumerated().forEach { index, chunk in
             self.messagePersistenceChunkSizes.append(chunk.messages.count)

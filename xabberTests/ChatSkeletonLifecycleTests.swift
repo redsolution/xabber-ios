@@ -722,6 +722,15 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         )
         XCTAssertTrue(MessageArchiveEndPageDispatcher.publish(finalEvent))
         XCTAssertNotNil(releasedManager.value)
+        let persistenceDeadline = Date().addingTimeInterval(2)
+        while coordinator.cachedCommittedPage(key: key, queryId: lease.queryId) == nil,
+              Date() < persistenceDeadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertNotNil(
+            coordinator.cachedCommittedPage(key: key, queryId: lease.queryId),
+            "reopen cache must be published only after the query persistence barrier"
+        )
 
         var reopenedManager: MessageManager?
         let reopened = coordinator.acquire(
@@ -1056,7 +1065,7 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
                 primaryStreamReady: true,
                 primaryBootstrapGateActive: true
             ),
-            .uiAction
+            .primaryAccount
         )
     }
 
@@ -1074,6 +1083,177 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
                 next: .content
             ),
             .apply
+        )
+    }
+
+    func testForcedEqualBlockingStateReappliesUntilSkeletonRowsAreCommitted() {
+        XCTAssertEqual(
+            ChatBootstrapStateApplicationPolicy.decision(
+                previous: .blockingArchive,
+                next: .blockingArchive,
+                hasCommittedContent: false,
+                forceRender: true,
+                hasCommittedSkeletonRows: false
+            ),
+            .apply
+        )
+        XCTAssertEqual(
+            ChatBootstrapStateApplicationPolicy.decision(
+                previous: .blockingArchive,
+                next: .blockingArchive,
+                hasCommittedContent: false,
+                forceRender: true,
+                hasCommittedSkeletonRows: true
+            ),
+            .noOp
+        )
+    }
+
+    func testBlockedInitialPreparationCompletesOnlyAfterSkeletonRowsCommit() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        controller.datasource = []
+        controller.appliedBootstrapLoadingState = .blockingArchive
+        controller.showSkeletonObserver.accept(true)
+        var completionCount = 0
+        var hadCommittedFrameAtCompletion = false
+        let completion = expectation(description: "committed bootstrap first frame")
+
+        XCTAssertTrue(
+            controller.prepareInitialLocalFirstFrame(
+                chatInstance: nil,
+                performPendingOpenMessageRequest: false
+            ) {
+                completionCount += 1
+                hadCommittedFrameAtCompletion =
+                    controller.hasCommittedBootstrapSkeletonRows &&
+                    controller.messagesCollectionView.numberOfSections == controller.datasource.count
+                completion.fulfill()
+            }
+        )
+
+        XCTAssertEqual(
+            completionCount,
+            0,
+            "stacked navigation preparation must not complete before the skeleton transaction"
+        )
+        wait(for: [completion], timeout: 2)
+        XCTAssertEqual(completionCount, 1)
+        XCTAssertTrue(hadCommittedFrameAtCompletion)
+
+        controller.performTerminalChatResourceTeardownForTesting()
+    }
+
+    func testContentTransitionReloadsWhenSkeletonHasNotCommittedAnyRows() {
+        XCTAssertTrue(
+            ChatBootstrapContentRenderPolicy.shouldReloadInitialWindow(
+                forceRender: false,
+                isShowingBootstrapPlaceholder: false,
+                isDatasourceEmpty: true,
+                hasCommittedRealContent: false
+            ),
+            "content that wins the skeleton race must still map its first frame"
+        )
+    }
+
+    func testEmptyDatasourceIsNotACommittedBootstrapPlaceholder() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.datasource = []
+
+        XCTAssertFalse(controller.hasCommittedBootstrapSkeletonRows)
+        XCTAssertFalse(controller.isShowingBootstrapPlaceholder)
+
+        controller.applyChatDatasource(
+            [makeDatasource(primary: "skeleton", isFakeMessage: true)],
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+
+        XCTAssertTrue(controller.hasCommittedBootstrapSkeletonRows)
+        XCTAssertTrue(controller.isShowingBootstrapPlaceholder)
+    }
+
+    func testForcedSkeletonMappingSurvivesOrdinaryMappingCancellation() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.datasource = []
+        controller.appliedBootstrapLoadingState = .blockingArchive
+        controller.showSkeletonObserver.accept(true)
+
+        controller.applyBootstrapLoadingState(.blockingArchive, forceRender: true)
+        _ = controller.beginDatasetMappingJobForTesting()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+
+        XCTAssertTrue(controller.hasCommittedBootstrapSkeletonRows)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+    }
+
+    func testLateSkeletonCannotApplyAfterRealDatasourceRowsAreInstalled() {
+        XCTAssertFalse(
+            ChatBootstrapMappedSkeletonApplyPolicy.shouldApply(
+                generationMatches: true,
+                conversationMatches: true,
+                loadingShowsSkeleton: true,
+                skeletonVisibilityRequested: true,
+                hasCommittedRealContent: false,
+                hasRealDatasourceRows: true,
+                hasCommittedSkeletonRows: false
+            )
+        )
+    }
+
+    func testPersistedInitialPageBypassesUnsyncedBootstrapAvailabilityExactlyOnce() {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ChatSkeletonLifecycleTests-scoped-refresh-\(name)"
+        )
+        defer {
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+        }
+
+        XCTAssertEqual(
+            ChatLocalFirstFrameAvailabilityPolicy.decision(
+                isSynced: false,
+                isInitialArchiveLoaded: false,
+                isInitialBootstrapInFlight: true,
+                allowsStaleLocalHistory: false,
+                allowsBootstrapFailureFallback: false,
+                hasTrustedPersistedBootstrapPage: true
+            ),
+            .prepareLocal
+        )
+
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        controller.beginInitialBootstrapTracking(queryId: "scoped-refresh", timeout: nil)
+
+        XCTAssertTrue(controller.refreshInitialBootstrapTimelineAfterPersistenceIfNeeded(
+            queryId: "scoped-refresh",
+            hasPersistedPageContent: true
+        ))
+        if case .blockedArchiveBootstrap = controller.initialLocalFirstFramePhase {
+            XCTFail("trusted post-persistence refresh must not re-enter the archive skeleton gate")
+        }
+        XCTAssertFalse(controller.refreshInitialBootstrapTimelineAfterPersistenceIfNeeded(
+            queryId: "scoped-refresh",
+            hasPersistedPageContent: true
+        ))
+
+        controller.performTerminalChatResourceTeardownForTesting()
+    }
+
+    func testReopenedCommittedPageStillGetsPresentationWatchdog() {
+        XCTAssertEqual(
+            ChatInitialBootstrapPresentationWatchdogPolicy.timeout(
+                hasCommittedPage: true,
+                remainingTransportTimeout: 0,
+                presentationTimeout: 45
+            ),
+            45
         )
     }
 
@@ -1144,6 +1324,53 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertEqual(controller.datasource.map(\.primary), ["saved-position-message"])
         XCTAssertTrue(controller.loadDatasourceObserver.value)
         XCTAssertTrue(controller.messagesCollectionView.isUserInteractionEnabled)
+    }
+
+    func testNonEmptyInitialBootstrapFinishesOnlyAfterDatasourceTransactionCommits() {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ChatSkeletonLifecycleTests-ui-commit-\(name)"
+        )
+        defer {
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+        }
+
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.beginInitialBootstrapTracking(queryId: "bootstrap-ui-commit", timeout: 60)
+
+        XCTAssertTrue(
+            controller.handleInitialBootstrapEndPageIfNeeded(
+                queryId: "bootstrap-ui-commit",
+                state: MessageArchivePageEndState(
+                    queryExhausted: false,
+                    archiveEnded: false,
+                    persistedMessageCount: 1
+                ),
+                count: 1,
+                persistedMessageCount: 1,
+                persistedRowsForQuery: 1,
+                visibleRowsForConversation: 1
+            )
+        )
+        XCTAssertEqual(controller.initialBootstrapQueryId, "bootstrap-ui-commit")
+        XCTAssertFalse(controller.hasCommittedRealContentInCurrentLifecycle)
+        XCTAssertNotNil(
+            controller.initialBootstrapTimeoutWorkItem,
+            "a persisted raw final must not disarm the presentation watchdog"
+        )
+
+        controller.applyChatDatasource(
+            [makeDatasource(primary: "bootstrap-committed-message")],
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+
+        XCTAssertTrue(controller.hasCommittedRealContentInCurrentLifecycle)
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertNil(controller.initialBootstrapTimeoutWorkItem)
     }
 
     func testDatasetReconfigurationCannotForgetEarlierCommittedContentWhilePlaceholderIsVisible() {

@@ -279,7 +279,14 @@ class XMPPUIActionManager: NSObject {
     var chatMarkers: ChatMarkersManager? = nil
     var deliveryManager: ReliableMessageDeliveryManager? = nil
     var messages: MessageManager? = nil
-    var mam: MessageArchiveManager? = nil
+    var mam: MessageArchiveManager? = nil {
+        didSet {
+            let finalizationQueue = queue
+            mam?.pendingArchiveFailureFinalizationDispatcher = { work in
+                finalizationQueue.async(execute: work)
+            }
+        }
+    }
     var preRoutedMamCompletionIQIds: Set<String> = []
     var vcardManager: VCardManager? = nil
     var presences: PresenceManager? = nil

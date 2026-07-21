@@ -2843,6 +2843,95 @@ enum ChatInteractiveRemoteArchiveTimeoutPolicy {
     static let timeout: TimeInterval = 45
 }
 
+/// Keeps the account's single MAM scheduler lane occupied until the query's
+/// persistence barrier reaches a terminal state. Completion may race with
+/// scheduler dequeue, so attaching after a terminal signal must finish
+/// immediately and every path remains exactly-once.
+final class ChatInteractiveRemoteArchiveSchedulerLease {
+    private let lock = NSLock()
+    private let createdAt = Date()
+    private var schedulerFinish: (() -> Void)?
+    private var isTerminal = false
+
+    func attach(_ finish: @escaping () -> Void) {
+        let shouldFinishImmediately: Bool
+        lock.lock()
+        if isTerminal {
+            shouldFinishImmediately = true
+        } else if schedulerFinish == nil {
+            schedulerFinish = finish
+            shouldFinishImmediately = false
+        } else {
+            shouldFinishImmediately = false
+        }
+        lock.unlock()
+
+        ChatArchiveDebugTrace.log("interactiveMamSchedulerLeaseAttached", [
+            ("terminalBeforeAttach", shouldFinishImmediately),
+            ("ageMs", ChatArchiveDebugTrace.milliseconds(since: createdAt))
+        ])
+
+        if shouldFinishImmediately {
+            finish()
+        }
+    }
+
+    func complete() {
+        let finish: (() -> Void)?
+        lock.lock()
+        guard !isTerminal else {
+            lock.unlock()
+            return
+        }
+        isTerminal = true
+        finish = schedulerFinish
+        schedulerFinish = nil
+        lock.unlock()
+
+        ChatArchiveDebugTrace.log("interactiveMamSchedulerLeaseCompleted", [
+            ("hadSchedulerFinish", finish != nil),
+            ("ageMs", ChatArchiveDebugTrace.milliseconds(since: createdAt))
+        ])
+
+        finish?()
+    }
+}
+
+/// Enforces the terminal ordering for an interactive archive request. A
+/// partial query batch must reach its persistence terminal before MAM query
+/// state is removed, and the shared scheduler lane is released last.
+enum ChatInteractiveRemoteArchiveTerminalCleanup {
+    private final class CompletionGate {
+        private let lock = NSLock()
+        private var didComplete = false
+
+        func run(_ completion: () -> Void) {
+            lock.lock()
+            guard !didComplete else {
+                lock.unlock()
+                return
+            }
+            didComplete = true
+            lock.unlock()
+            completion()
+        }
+    }
+
+    static func perform(
+        flushPersistence: (@escaping () -> Void) -> Void,
+        cancelPendingRequest: @escaping () -> Void,
+        completeSchedulerLease: @escaping () -> Void
+    ) {
+        let gate = CompletionGate()
+        flushPersistence {
+            gate.run {
+                cancelPendingRequest()
+                completeSchedulerLease()
+            }
+        }
+    }
+}
+
 struct ChatInteractiveRemoteArchiveDispatchRequest {
     let owner: String
     let queryId: String
@@ -2852,8 +2941,9 @@ struct ChatInteractiveRemoteArchiveDispatchRequest {
     let priority: AccountXMPPTaskScheduler.Priority
     let resource: AccountXMPPTaskScheduler.Resource
     let deduplicationKey: String
+    let schedulerLease: ChatInteractiveRemoteArchiveSchedulerLease
     let shouldDispatch: () -> Bool
-    let send: (_ account: Account, _ stream: XMPPStream, _ finish: @escaping () -> Void) -> String?
+    let send: (_ account: Account, _ stream: XMPPStream) -> String?
     let transportStarted: (_ sentQueryId: String, _ streamKind: MessageArchiveEndPageEvent.StreamKind, _ resource: String?) -> Void
     let dispatchUnavailable: (_ reason: String) -> Void
 }
@@ -2864,6 +2954,7 @@ protocol ChatInteractiveRemoteArchiveRequestDispatching: AnyObject {
 
 final class AccountSchedulerChatInteractiveRemoteArchiveRequestDispatcher: ChatInteractiveRemoteArchiveRequestDispatching {
     func enqueue(_ request: ChatInteractiveRemoteArchiveDispatchRequest) {
+        let enqueuedAt = Date()
         ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestEnqueued", [
             ("owner", request.owner),
             ("queryId", request.queryId),
@@ -2884,8 +2975,12 @@ final class AccountSchedulerChatInteractiveRemoteArchiveRequestDispatcher: ChatI
             priority: request.priority,
             resource: request.resource,
             deduplicationKey: request.deduplicationKey,
-            requiresAuthenticatedStream: true
+            requiresAuthenticatedStream: true,
+            unavailable: {
+                request.dispatchUnavailable("streamNotReady")
+            }
         ) { account, stream, finish in
+            request.schedulerLease.attach(finish)
             ChatArchiveDebugTrace.log("interactiveRemoteArchiveRequestDequeued", [
                 ("owner", request.owner),
                 ("queryId", request.queryId),
@@ -2893,16 +2988,17 @@ final class AccountSchedulerChatInteractiveRemoteArchiveRequestDispatcher: ChatI
                 ("cursor", request.cursorId ?? "-"),
                 ("schedulerPriority", "\(request.priority)"),
                 ("schedulerResource", "\(request.resource)"),
-                ("resource", stream.myJID?.resource ?? "-")
+                ("resource", stream.myJID?.resource ?? "-"),
+                ("schedulerWaitMs", ChatArchiveDebugTrace.milliseconds(since: enqueuedAt))
             ])
 
             guard request.shouldDispatch() else {
-                finish()
+                request.schedulerLease.complete()
                 return
             }
 
-            guard let sentQueryId = request.send(account, stream, finish) else {
-                finish()
+            guard let sentQueryId = request.send(account, stream) else {
+                request.schedulerLease.complete()
                 return
             }
 
@@ -3687,6 +3783,7 @@ enum ChatShortContentRemotePagingSuppressionPolicy {
         hasRealMessages: Bool,
         hasLocalOlderAvailable: Bool,
         hasLocalNewerAvailable: Bool,
+        hasRemoteOlderAvailable: Bool = false,
         contentHeight: CGFloat,
         visibleHeight: CGFloat,
         tolerance: CGFloat = 8
@@ -3694,6 +3791,7 @@ enum ChatShortContentRemotePagingSuppressionPolicy {
         guard hasRealMessages,
               !hasLocalOlderAvailable,
               !hasLocalNewerAvailable,
+              !hasRemoteOlderAvailable,
               contentHeight > 0,
               visibleHeight > 0 else {
             return false
@@ -3805,12 +3903,18 @@ enum ChatInitialBootstrapCompletionPolicy {
         didConfirmEmpty: Bool,
         isMessagePipelineIdle: Bool,
         isArchivePagePersisted: Bool = false,
+        hasCommittedContent: Bool = false,
         requiresObserverSettle: Bool,
         didObservePostIdleTick: Bool
     ) -> Bool {
         guard didReceiveEndPage,
-              isMessagePipelineIdle || isArchivePagePersisted,
-              hasMessages || didConfirmEmpty else {
+              isMessagePipelineIdle || isArchivePagePersisted else {
+            return false
+        }
+
+        // Query-scoped persistence is not presentation. A non-empty page
+        // remains under the watchdog until its datasource transaction commits.
+        guard didConfirmEmpty || (hasMessages && hasCommittedContent) else {
             return false
         }
 
@@ -4000,8 +4104,6 @@ final class ChatRemoteHistoryQueryCoordinator {
         case .awaitingFinal:
             descriptor = entry.descriptor
             persistenceBarrier = entry.persistenceBarrier
-            entry.scheduledTimeout?.workItem.cancel()
-            entry.scheduledTimeout = nil
             entry.state = .persisting(token)
             entriesByQueryId[queryId] = entry
             lock.unlock()
@@ -4311,8 +4413,14 @@ final class ChatRemoteHistoryQueryCoordinator {
         lock.lock()
         guard var entry = entriesByQueryId[queryId],
               entry.descriptor.generation == generation,
-              case .awaitingFinal = entry.state,
               entry.scheduledTimeout?.token == token else {
+            lock.unlock()
+            return false
+        }
+        switch entry.state {
+        case .awaitingFinal, .persisting, .ready:
+            break
+        case .terminal:
             lock.unlock()
             return false
         }
@@ -4445,9 +4553,16 @@ final class ChatRemoteHistoryFlushSingleFlight<Key: Hashable, Value> {
 enum ChatRemoteHistoryCompletionCoordinator {
     private final class PersistenceSource {
         weak var manager: MessageManager?
+        let failurePreparationToken: MessageArchiveRequestFailurePreparationDispatcher.Token
+        var isTerminalFlushInFlight = false
+        var terminalCompletions: [() -> Void] = []
 
-        init(_ manager: MessageManager) {
+        init(
+            _ manager: MessageManager,
+            failurePreparationToken: MessageArchiveRequestFailurePreparationDispatcher.Token
+        ) {
             self.manager = manager
+            self.failurePreparationToken = failurePreparationToken
         }
     }
 
@@ -4478,14 +4593,47 @@ enum ChatRemoteHistoryCompletionCoordinator {
             return
         }
 
+        let preparationToken = MessageArchiveRequestFailurePreparationDispatcher.register(
+            owner: owner,
+            queryId: queryId
+        ) { _, completion in
+            unregisterPersistenceSource(
+                owner: owner,
+                queryId: queryId,
+                completion: completion
+            )
+        }
         let sourceKey = persistenceSourceKey(owner: owner, queryId: queryId)
+        let newSource = PersistenceSource(
+            manager,
+            failurePreparationToken: preparationToken
+        )
         persistenceSourcesLock.lock()
-        let hadRegisteredSource = persistenceSourcesByKey[sourceKey]?.manager != nil
-        persistenceSourcesByKey[sourceKey] = PersistenceSource(manager)
+        let currentSource = persistenceSourcesByKey[sourceKey]
+        let shouldInstallSource = currentSource?.isTerminalFlushInFlight != true
+        let replacedSource = shouldInstallSource
+            ? persistenceSourcesByKey.updateValue(newSource, forKey: sourceKey)
+            : nil
         persistenceSourcesLock.unlock()
+        guard shouldInstallSource else {
+            MessageArchiveRequestFailurePreparationDispatcher.unregister(preparationToken)
+            ChatArchiveDebugTrace.log("remoteCompletionSourceRegisterRejected", [
+                ("owner", owner),
+                ("queryId", queryId),
+                ("reason", "terminalFlushInFlight")
+            ])
+            return
+        }
+        if let replacedSource {
+            MessageArchiveRequestFailurePreparationDispatcher.unregister(
+                replacedSource.failurePreparationToken
+            )
+        }
+        let hadRegisteredSource = replacedSource?.manager != nil
         if !hadRegisteredSource {
             persistenceFlushes.invalidateCompleted(key: sourceKey)
         }
+        manager.beginArchiveQueryBatch(queryId: queryId)
         ChatArchiveDebugTrace.log("remoteCompletionSourceRegister", [
             ("owner", owner),
             ("queryId", queryId),
@@ -4493,21 +4641,92 @@ enum ChatRemoteHistoryCompletionCoordinator {
         ])
     }
 
-    static func unregisterPersistenceSource(owner: String, queryId: String) {
+    static func unregisterPersistenceSource(
+        owner: String,
+        queryId: String,
+        completion: (() -> Void)? = nil
+    ) {
         guard owner.isNotEmpty,
               queryId.isNotEmpty else {
+            completion?()
             return
         }
 
+        let sourceKey = persistenceSourceKey(owner: owner, queryId: queryId)
         persistenceSourcesLock.lock()
-        let source = persistenceSourcesByKey.removeValue(forKey: persistenceSourceKey(owner: owner, queryId: queryId))?.manager
+        let persistenceSource = persistenceSourcesByKey[sourceKey]
+        if let completion {
+            persistenceSource?.terminalCompletions.append(completion)
+        }
+        let shouldStartTerminalFlush = persistenceSource?.isTerminalFlushInFlight == false
+        if shouldStartTerminalFlush {
+            persistenceSource?.isTerminalFlushInFlight = true
+        }
         persistenceSourcesLock.unlock()
+
         ChatArchiveDebugTrace.log("remoteCompletionSourceUnregister", [
             ("owner", owner),
             ("queryId", queryId),
-            ("manager", source.map { ObjectIdentifier($0).hashValue } ?? 0)
+            ("manager", persistenceSource?.manager.map { ObjectIdentifier($0).hashValue } ?? 0),
+            ("startedTerminalFlush", shouldStartTerminalFlush),
+            ("joinedTerminalFlush", persistenceSource != nil && !shouldStartTerminalFlush)
         ])
-        source?.clearArchivePersistenceSummaryWithoutWaiting(forQueryId: queryId)
+        guard let persistenceSource else {
+            completion?()
+            return
+        }
+        guard shouldStartTerminalFlush else {
+            return
+        }
+        guard let source = persistenceSource.manager else {
+            completePersistenceSourceUnregister(
+                persistenceSource,
+                sourceKey: sourceKey,
+                owner: owner,
+                queryId: queryId,
+                manager: nil
+            )
+            return
+        }
+        source.finishArchiveQueryBatchAsync(queryId: queryId) { _ in
+            completePersistenceSourceUnregister(
+                persistenceSource,
+                sourceKey: sourceKey,
+                owner: owner,
+                queryId: queryId,
+                manager: source
+            )
+        }
+    }
+
+    private static func completePersistenceSourceUnregister(
+        _ persistenceSource: PersistenceSource,
+        sourceKey: String,
+        owner: String,
+        queryId: String,
+        manager: MessageManager?
+    ) {
+        manager?.clearArchivePersistenceSummary(forQueryId: queryId)
+        MessageArchiveRequestFailurePreparationDispatcher.unregister(
+            persistenceSource.failurePreparationToken
+        )
+
+        persistenceSourcesLock.lock()
+        if let registeredSource = persistenceSourcesByKey[sourceKey],
+           registeredSource === persistenceSource {
+            persistenceSourcesByKey.removeValue(forKey: sourceKey)
+        }
+        let completions = persistenceSource.terminalCompletions
+        persistenceSource.terminalCompletions.removeAll()
+        persistenceSourcesLock.unlock()
+
+        ChatArchiveDebugTrace.log("remoteCompletionSourceUnregisterTerminal", [
+            ("owner", owner),
+            ("queryId", queryId),
+            ("manager", manager.map { ObjectIdentifier($0).hashValue } ?? 0),
+            ("completionCount", completions.count)
+        ])
+        completions.forEach { $0() }
     }
 
     private static func registeredPersistenceSource(owner: String, queryId: String) -> MessageManager? {
@@ -4518,12 +4737,18 @@ enum ChatRemoteHistoryCompletionCoordinator {
 
         persistenceSourcesLock.lock()
         let key = persistenceSourceKey(owner: owner, queryId: queryId)
-        let manager = persistenceSourcesByKey[key]?.manager
-        if manager == nil {
-            persistenceSourcesByKey.removeValue(forKey: key)
-        }
+        let persistenceSource = persistenceSourcesByKey[key]
+        let manager = persistenceSource?.manager
+        let isTerminalFlushInFlight = persistenceSource?.isTerminalFlushInFlight == true
         persistenceSourcesLock.unlock()
-        return manager
+        if manager == nil,
+           persistenceSource != nil {
+            unregisterPersistenceSource(
+                owner: owner,
+                queryId: queryId
+            )
+        }
+        return isTerminalFlushInFlight ? nil : manager
     }
 
     static func hasPendingMessages(owner: String, queryId: String) -> Bool {
@@ -4563,7 +4788,7 @@ enum ChatRemoteHistoryCompletionCoordinator {
             ("fallbackManager", fallbackSource.map { ObjectIdentifier($0).hashValue } ?? 0)
         ])
         let sourceFlushStartedAt = Date()
-        let sourceSummary = source?.storeMessagesNowSummary(forQueryId: queryId) ?? MessageManager.ArchivePersistenceSummary()
+        let sourceSummary = source?.finishArchiveQueryBatchSummary(queryId: queryId) ?? MessageManager.ArchivePersistenceSummary()
         ChatArchiveDebugTrace.log("remoteCompletionSourceFlushDone", [
             ("owner", owner),
             ("queryId", queryId),
@@ -4578,7 +4803,7 @@ enum ChatRemoteHistoryCompletionCoordinator {
         let shouldFlushFallback = fallbackSource != nil && source !== fallbackSource
         let fallbackFlushStartedAt = Date()
         let fallbackSummary = shouldFlushFallback
-            ? fallbackSource?.storeMessagesNowSummary(forQueryId: queryId) ?? MessageManager.ArchivePersistenceSummary()
+            ? fallbackSource?.finishArchiveQueryBatchSummary(queryId: queryId) ?? MessageManager.ArchivePersistenceSummary()
             : MessageManager.ArchivePersistenceSummary()
         ChatArchiveDebugTrace.log("remoteCompletionFallbackFlushDone", [
             ("owner", owner),
@@ -5541,7 +5766,11 @@ enum ChatHistoryPagingPolicy {
         let hasLocalOlderPage = currentPageMinIndex > 0 || hasLocalOlderAvailable
         let hasLocalNewerPage = currentPageMaxIndex < totalCount || hasLocalNewerAvailable
         let allowsRemoteBoundaryPaging = !suppressRemoteBoundaryPaging && !boundaryContext.isEntireRealRangeVisible
-        let hasOlderAvailable = hasLocalOlderPage || (allowsRemoteBoundaryPaging && hasRemoteOlderAvailable)
+        // `hasRemoteOlderAvailable` is already an authoritative, single-flight
+        // availability bit: it becomes false while a remote page is active and
+        // after archive end. A short resident page must therefore be allowed to
+        // fetch its next server page even when every local row is visible.
+        let hasOlderAvailable = hasLocalOlderPage || hasRemoteOlderAvailable
         let hasNewerAvailable = hasLocalNewerPage || (allowsRemoteBoundaryPaging && hasRemoteNewerAvailable)
 
         let olderVisible = hasOlderAvailable && (minVisibleSection.flatMap { visibleSection in
@@ -5962,9 +6191,17 @@ enum ChatBootstrapStateApplicationPolicy {
     static func decision(
         previous: ChatBootstrapLoadingState?,
         next: ChatBootstrapLoadingState,
-        hasCommittedContent: Bool = false
+        hasCommittedContent: Bool = false,
+        forceRender: Bool = false,
+        hasCommittedSkeletonRows: Bool = false
     ) -> ChatBootstrapStateApplicationDecision {
         if previous == next {
+            if next.showsSkeleton,
+               forceRender,
+               !hasCommittedContent,
+               !hasCommittedSkeletonRows {
+                return .apply
+            }
             return .noOp
         }
         if next.showsSkeleton,
@@ -5972,6 +6209,26 @@ enum ChatBootstrapStateApplicationPolicy {
             return .noOp
         }
         return .apply
+    }
+}
+
+enum ChatBootstrapMappedSkeletonApplyPolicy {
+    static func shouldApply(
+        generationMatches: Bool,
+        conversationMatches: Bool,
+        loadingShowsSkeleton: Bool,
+        skeletonVisibilityRequested: Bool,
+        hasCommittedRealContent: Bool,
+        hasRealDatasourceRows: Bool,
+        hasCommittedSkeletonRows: Bool
+    ) -> Bool {
+        generationMatches &&
+        conversationMatches &&
+        loadingShowsSkeleton &&
+        skeletonVisibilityRequested &&
+        !hasCommittedRealContent &&
+        !hasRealDatasourceRows &&
+        !hasCommittedSkeletonRows
     }
 }
 
@@ -6107,8 +6364,12 @@ enum ChatLocalFirstFrameAvailabilityPolicy {
         isInitialBootstrapInFlight: Bool,
         allowsStaleLocalHistory: Bool,
         allowsBootstrapFailureFallback: Bool,
+        hasTrustedPersistedBootstrapPage: Bool = false,
         hasLocalAnchorRequest: Bool = false
     ) -> ChatLocalFirstFrameAvailabilityDecision {
+        if hasTrustedPersistedBootstrapPage {
+            return .prepareLocal
+        }
         if hasLocalAnchorRequest {
             return .prepareLocal
         }
@@ -6427,9 +6688,27 @@ enum ChatSavedPositionFirstFramePolicy {
 enum ChatBootstrapContentRenderPolicy {
     static func shouldReloadInitialWindow(
         forceRender: Bool,
-        isShowingBootstrapPlaceholder: Bool
+        isShowingBootstrapPlaceholder: Bool,
+        isDatasourceEmpty: Bool = false,
+        hasCommittedRealContent: Bool = false
     ) -> Bool {
-        forceRender || isShowingBootstrapPlaceholder
+        forceRender ||
+        isShowingBootstrapPlaceholder ||
+        (isDatasourceEmpty && !hasCommittedRealContent)
+    }
+}
+
+enum ChatStackedFirstFrameReadinessPolicy {
+    static func isReady(
+        hasCommittedRealRows: Bool,
+        hasCommittedSkeletonRows: Bool,
+        hasCommittedEmptyState: Bool,
+        showsDeterministicFailureFallback: Bool
+    ) -> Bool {
+        hasCommittedRealRows ||
+        hasCommittedSkeletonRows ||
+        hasCommittedEmptyState ||
+        showsDeterministicFailureFallback
     }
 }
 
@@ -8247,6 +8526,8 @@ extension ChatViewController {
     ) {
         var datasourceApplySignpost = ChatPerformanceSignposts.begin(.datasourceApply)
         let applyStartedAt = Date()
+        let applyConversationKey = self.chatTimelineConversationKey
+        let initialBootstrapQueryIdAtApplyStart = self.initialBootstrapQueryId
         let modeDescription: String
         switch mode {
         case .fullReload(let keepOffset):
@@ -8294,7 +8575,10 @@ extension ChatViewController {
         let containsOnlyFakeMessages = !items.isEmpty && items.allSatisfy(\.isFakeMessage)
         let containsRealMessages = items.contains { !$0.isFakeMessage }
         if containsRealMessages {
-            self.hasCommittedRealContentInCurrentLifecycle = true
+            // A real frame owns presentation as soon as its transaction starts.
+            // Cancelling the independent skeleton generation here closes the
+            // interval before the real transaction's committed marker is set.
+            self.cancelBootstrapSkeletonMappingJobs()
         }
         let wasNearBottom = self.isNearBottom()
         let isResidentAtLiveTail = self.virtualTimelineState.isResidentAtLiveTail
@@ -8638,6 +8922,25 @@ extension ChatViewController {
             if transactionCommitted, !containsOnlyFakeMessages {
                 self.hasCommittedTimelinePresentationInCurrentLifecycle = true
             }
+            if transactionCommitted, containsOnlyFakeMessages {
+                self.hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle = true
+                ChatArchiveDebugTrace.log("bootstrapSkeletonCommitted", [
+                    ("rowCount", items.count),
+                    ("snapshotCount", self.datasourceSnapshot.items.count)
+                ])
+            } else if transactionCommitted {
+                self.hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle = false
+            }
+            let didCommitCurrentConversationContent = transactionCommitted &&
+                containsRealMessages &&
+                applyConversationKey == self.chatTimelineConversationKey &&
+                self.datasourceSnapshot.items.map(\.primary) == newSnapshot.items.map(\.primary)
+            if didCommitCurrentConversationContent {
+                self.hasCommittedRealContentInCurrentLifecycle = true
+            }
+            if transactionCommitted {
+                self.resolvePendingBootstrapFirstFrameReadinessCompletionsIfPossible()
+            }
             let completionMs = ChatArchiveDebugTrace.milliseconds(since: completionStartedAt)
             self.handleChatDatasourceAuxiliaryRefreshAfterApply(
                 containsRealMessages: containsRealMessages,
@@ -8712,6 +9015,11 @@ extension ChatViewController {
                 ("outgoingAutoScroll", "\(outgoingAutoScrollDecision)")
             ])
             datasourceApplySignpost.end()
+            if didCommitCurrentConversationContent,
+               let initialBootstrapQueryIdAtApplyStart,
+               self.initialBootstrapQueryId == initialBootstrapQueryIdAtApplyStart {
+                _ = self.completeInitialBootstrapIfNeeded()
+            }
         }
 
         let runWithoutAnimation: (@escaping () -> Void) -> Void = { updates in
@@ -9388,6 +9696,9 @@ extension ChatViewController {
     ) {
         self.cancelInitialBootstrapLocalHistoryFallback()
         self.cancelInitialBootstrapTimeout()
+        if self.initialBootstrapQueryId != queryId {
+            self.initialBootstrapScopedRefreshQueryId = nil
+        }
         self.initialBootstrapQueryId = queryId
         self.isInitialBootstrapInFlight = true
         self.didReceiveInitialBootstrapEndPage = false
@@ -9426,6 +9737,7 @@ extension ChatViewController {
         self.initialBootstrapPersistedMessageCount = nil
         self.initialBootstrapPersistedRowsForQuery = nil
         self.initialBootstrapVisibleRowsForConversation = nil
+        self.initialBootstrapScopedRefreshQueryId = nil
         self.didEnterInitialBootstrapObserverSettlePhase = false
         self.didObserveInitialBootstrapPostIdleTick = false
     }
@@ -9458,13 +9770,22 @@ extension ChatViewController {
                 event: event,
                 publishEvent: true
             )
-            if !didRecord,
-               coordinator.cachedEndPageEvent(key: key, queryId: queryId) == nil,
-               !(coordinator.isActive(key: key, queryId: queryId) &&
-                    MessageArchiveEndPageDispatcher.hasAcceptedSynchronousDelivery(
-                        owner: self.owner,
-                        queryId: queryId
-                    )) {
+            let hasCommittedPage = coordinator.cachedCommittedPage(
+                key: key,
+                queryId: queryId
+            ) != nil
+            let finalDeliveryBeingAccepted = coordinator.isActive(
+                key: key,
+                queryId: queryId
+            ) && MessageArchiveEndPageDispatcher.hasAcceptedSynchronousDelivery(
+                owner: self.owner,
+                queryId: queryId
+            )
+            let shouldHandleTimeout = hasCommittedPage || (
+                coordinator.cachedEndPageEvent(key: key, queryId: queryId) == nil &&
+                !finalDeliveryBeingAccepted
+            )
+            if !didRecord, shouldHandleTimeout {
                 self.handleInitialBootstrapRemoteArchiveFailure(
                     queryId: queryId,
                     reason: .timeout,
@@ -9507,6 +9828,8 @@ extension ChatViewController {
         let persistedRowsForQuery = self.initialBootstrapPersistedRowsForQuery ?? 0
         let hasMessages = visibleRowsForLatestPage > 0 || persistedRowsForQuery > 0
         let didConfirmEmpty = self.initialBootstrapResultCount == 0
+        let hasCommittedContent = self.hasCommittedRealContentInCurrentLifecycle &&
+            self.datasource.contains { !$0.isFakeMessage }
         // `didReceiveInitialBootstrapEndPage` is set only after the async
         // query-scoped persistence barrier has completed. Do not synchronously
         // poll MessageManager's queue from the main-thread completion path.
@@ -9533,6 +9856,7 @@ extension ChatViewController {
             didConfirmEmpty: didConfirmEmpty,
             isMessagePipelineIdle: isMessagePipelineIdle,
             isArchivePagePersisted: isArchivePagePersisted,
+            hasCommittedContent: hasCommittedContent,
             requiresObserverSettle: requiresObserverSettle,
             didObservePostIdleTick: self.didObserveInitialBootstrapPostIdleTick
         ) else {
@@ -9674,7 +9998,11 @@ extension ChatViewController {
                 event: event,
                 publishEvent: true
             )
-            let finalOwnsActiveAttempt = !didRecordFailure && (
+            let hasCommittedPage = coordinator.cachedCommittedPage(
+                key: self.initialBootstrapRequestKey,
+                queryId: queryId
+            ) != nil
+            let finalOwnsActiveAttempt = !didRecordFailure && !hasCommittedPage && (
                 coordinator.cachedEndPageEvent(
                     key: self.initialBootstrapRequestKey,
                     queryId: queryId
@@ -9750,7 +10078,34 @@ extension ChatViewController {
         self.initialBootstrapPersistedMessageCount = persistedMessageCount
         self.initialBootstrapPersistedRowsForQuery = persistedRowsForQuery
         self.initialBootstrapVisibleRowsForConversation = visibleRowsForConversation
+        _ = self.refreshInitialBootstrapTimelineAfterPersistenceIfNeeded(
+            queryId: queryId,
+            hasPersistedPageContent: count > 0 ||
+                persistedRowsForQuery > 0 ||
+                visibleRowsForConversation > 0
+        )
         _ = self.completeInitialBootstrapIfNeeded()
+        return true
+    }
+
+    /// Performs exactly one presentation refresh for a persisted initial page.
+    /// It deliberately bypasses the general observer-pressure gate: the
+    /// bootstrap watchdog needs a chance to observe the page's committed frame.
+    @discardableResult
+    internal func refreshInitialBootstrapTimelineAfterPersistenceIfNeeded(
+        queryId: String,
+        hasPersistedPageContent: Bool
+    ) -> Bool {
+        guard queryId == self.initialBootstrapQueryId,
+              hasPersistedPageContent,
+              self.initialBootstrapScopedRefreshQueryId != queryId else {
+            return false
+        }
+        self.initialBootstrapScopedRefreshQueryId = queryId
+        _ = self.reloadInitialWindowAfterBootstrapIfNeeded(
+            force: true,
+            hasTrustedPersistedBootstrapPage: true
+        )
         return true
     }
 
@@ -10806,8 +11161,14 @@ extension ChatViewController {
         self.activeHistoryBoundaryPlaceholder = direction == .older ? .top : .bottom
     }
 
+    internal var hasCommittedBootstrapSkeletonRows: Bool {
+        self.hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle &&
+        !self.datasource.isEmpty &&
+        self.datasource.allSatisfy(\.isFakeMessage)
+    }
+
     internal var isShowingBootstrapPlaceholder: Bool {
-        self.datasource.isEmpty || self.datasource.allSatisfy(\.isFakeMessage)
+        self.hasCommittedBootstrapSkeletonRows
     }
 
     internal var shouldAnimateInitialHistoryAppearance: Bool {
@@ -10990,10 +11351,15 @@ extension ChatViewController {
     }
 
     @discardableResult
-    internal func reloadInitialWindowAfterBootstrapIfNeeded(force: Bool = false) -> Bool {
+    internal func reloadInitialWindowAfterBootstrapIfNeeded(
+        force: Bool = false,
+        hasTrustedPersistedBootstrapPage: Bool = false
+    ) -> Bool {
         guard ChatBootstrapContentRenderPolicy.shouldReloadInitialWindow(
             forceRender: force,
-            isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
+            isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
+            isDatasourceEmpty: self.datasource.isEmpty,
+            hasCommittedRealContent: self.hasCommittedRealContentInCurrentLifecycle
         ) else { return false }
 
         do {
@@ -11008,13 +11374,15 @@ extension ChatViewController {
             )
             return self.prepareInitialLocalFirstFrame(
                 chatInstance: chatInstance,
-                performPendingOpenMessageRequest: false
+                performPendingOpenMessageRequest: false,
+                hasTrustedPersistedBootstrapPage: hasTrustedPersistedBootstrapPage
             )
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             return self.prepareInitialLocalFirstFrame(
                 chatInstance: nil,
-                performPendingOpenMessageRequest: false
+                performPendingOpenMessageRequest: false,
+                hasTrustedPersistedBootstrapPage: hasTrustedPersistedBootstrapPage
             )
         }
     }
@@ -11023,10 +11391,17 @@ extension ChatViewController {
     internal func prepareInitialLocalFirstFrame(
         chatInstance: LastChatsStorageItem?,
         performPendingOpenMessageRequest: Bool,
+        hasTrustedPersistedBootstrapPage: Bool = false,
         completion: (() -> Void)? = nil
     ) -> Bool {
         guard let session = self.timelineSession else {
-            completion?()
+            if let completion {
+                self.initialLocalFirstFrameCompletions.append(completion)
+            }
+            self.initialLocalFirstFrameShouldPerformPendingRequest =
+                self.initialLocalFirstFrameShouldPerformPendingRequest || performPendingOpenMessageRequest
+            self.applyBootstrapViewState(.skeleton, forceRender: true)
+            self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
             return false
         }
 
@@ -11052,25 +11427,29 @@ extension ChatViewController {
             isInitialBootstrapInFlight: self.isInitialBootstrapInFlight,
             allowsStaleLocalHistory: self.allowsStaleLocalHistoryDuringInitialBootstrap,
             allowsBootstrapFailureFallback: self.allowsBootstrapFailureFallback,
+            hasTrustedPersistedBootstrapPage: hasTrustedPersistedBootstrapPage,
             hasLocalAnchorRequest: hasLocalAnchorRequest
         )
 
         guard availability == .prepareLocal else {
             self.initialLocalFirstFramePhase = .blockedArchiveBootstrap(descriptor)
             self.applyBootstrapViewState(.skeleton, forceRender: true)
-            self.finishInitialLocalFirstFramePreparation()
+            self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
             return true
         }
 
         switch self.initialLocalFirstFramePhase {
-        case .preparing(let current) where current == descriptor:
+        case .preparing(let current)
+            where current == descriptor && !hasTrustedPersistedBootstrapPage:
             return true
-        case .committed(let current) where current == descriptor:
-            self.finishInitialLocalFirstFramePreparation()
+        case .committed(let current)
+            where current == descriptor && !hasTrustedPersistedBootstrapPage:
+            self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
             return true
-        case .blockedMissingTarget(let current) where current == descriptor:
+        case .blockedMissingTarget(let current)
+            where current == descriptor && !hasTrustedPersistedBootstrapPage:
             self.applyBootstrapViewState(.skeleton, forceRender: true)
-            self.finishInitialLocalFirstFramePreparation()
+            self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
             return true
         default:
             break
@@ -11080,6 +11459,7 @@ extension ChatViewController {
         let mappingJob = self.beginDatasetMappingJob()
         let mappingGeneration = mappingJob.generation
         let mappingToken = mappingJob.token
+        self.initialLocalFirstFrameMappingToken = mappingToken
         let expectedSessionGeneration = session.snapshot.generation
         self.initialLocalFirstFramePhase = .preparing(descriptor)
         session.updateArchiveState(self.loadChatArchiveStateSnapshot())
@@ -11098,12 +11478,10 @@ extension ChatViewController {
                     requestGeneration: mappingGeneration,
                     currentGeneration: self.datasetMappingGeneration
                   ) else {
-                if case .preparing = self.initialLocalFirstFramePhase {
-                    self.initialLocalFirstFramePhase = .idle
-                    if !mappingToken.isCancelled {
-                        self.retryInitialLocalFirstFramePreparation()
-                    }
-                }
+                self.resolveSupersededInitialLocalFirstFramePreparation(
+                    descriptor: descriptor,
+                    mappingToken: mappingToken
+                )
                 return
             }
             self.handlePreparedInitialLocalFirstFrame(
@@ -11136,7 +11514,7 @@ extension ChatViewController {
         case .blocked(.targetMissing):
             self.initialLocalFirstFramePhase = .blockedMissingTarget(descriptor)
             self.applyBootstrapViewState(.skeleton, forceRender: true)
-            self.finishInitialLocalFirstFramePreparation()
+            self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
         case .prepared(let preparedFrame):
             guard self.shouldCommitPreparedSavedFirstFrame(
                 descriptor: descriptor,
@@ -11144,7 +11522,7 @@ extension ChatViewController {
             ) else {
                 self.initialLocalFirstFramePhase = .blockedMissingTarget(descriptor)
                 self.applyBootstrapViewState(.skeleton, forceRender: true)
-                self.finishInitialLocalFirstFramePreparation()
+                self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
                 return
             }
             var mappingContext = self.captureDatasourceMappingContext()
@@ -11173,10 +11551,10 @@ extension ChatViewController {
                       !mappingResult.wasCancelled,
                       !mapped.mappedOnMainThread,
                       let committedSnapshot = session.commitPreparedInitialFrame(preparedFrame) else {
-                    self?.initialLocalFirstFramePhase = .idle
-                    if !mappingToken.isCancelled {
-                        self?.retryInitialLocalFirstFramePreparation()
-                    }
+                    self?.resolveSupersededInitialLocalFirstFramePreparation(
+                        descriptor: descriptor,
+                        mappingToken: mappingToken
+                    )
                     return
                 }
                 self.commitInitialLocalFirstFrame(
@@ -11186,6 +11564,26 @@ extension ChatViewController {
                     mappingResult: mappingResult
                 )
             }
+        }
+    }
+
+    private func resolveSupersededInitialLocalFirstFramePreparation(
+        descriptor: ChatLocalFirstFrameDescriptor,
+        mappingToken: ChatDatasetMappingCancellationToken
+    ) {
+        guard self.initialLocalFirstFrameMappingToken === mappingToken,
+              self.initialLocalFirstFramePhase == .preparing(descriptor) else {
+            return
+        }
+        self.initialLocalFirstFrameMappingToken = nil
+        self.initialLocalFirstFramePhase = .idle
+        if mappingToken.isCancelled {
+            if !self.finishInitialLocalFirstFramePreparationIfPresentationIsReady(),
+               !self.didRunNavigationDisappearanceCleanup {
+                self.retryInitialLocalFirstFramePreparation()
+            }
+        } else {
+            self.retryInitialLocalFirstFramePreparation()
         }
     }
 
@@ -11348,7 +11746,9 @@ extension ChatViewController {
 
     private func retryInitialLocalFirstFramePreparation() {
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             self.loadInitialDatasource(
                 performPendingOpenMessageRequest: self.initialLocalFirstFrameShouldPerformPendingRequest
             )
@@ -11378,6 +11778,60 @@ extension ChatViewController {
         }
     }
 
+    @discardableResult
+    private func finishInitialLocalFirstFramePreparationIfPresentationIsReady() -> Bool {
+        guard self.isCommittedStackedNavigationFirstFrameReady else {
+            return false
+        }
+        self.finishInitialLocalFirstFramePreparation()
+        return true
+    }
+
+    private func finishInitialLocalFirstFramePreparationWhenPresentationIsReady() {
+        if self.finishInitialLocalFirstFramePreparationIfPresentationIsReady() {
+            return
+        }
+        self.whenBootstrapFirstFramePresentationIsReady { [weak self] in
+            self?.finishInitialLocalFirstFramePreparation()
+        }
+    }
+
+    internal var isCommittedStackedNavigationFirstFrameReady: Bool {
+        let hasCommittedRealRows = self.hasCommittedRealContentInCurrentLifecycle &&
+            self.datasource.contains { !$0.isFakeMessage }
+        let hasCommittedEmptyState = self.hasCommittedTimelinePresentationInCurrentLifecycle &&
+            self.datasource.isEmpty &&
+            self.appliedBootstrapLoadingState?.viewState == .empty
+        let showsDeterministicFailureFallback = self.appliedBootstrapLoadingState?.showsRetry == true &&
+            !self.bootstrapFailureView.isHidden
+        return ChatStackedFirstFrameReadinessPolicy.isReady(
+            hasCommittedRealRows: hasCommittedRealRows,
+            hasCommittedSkeletonRows: self.hasCommittedBootstrapSkeletonRows,
+            hasCommittedEmptyState: hasCommittedEmptyState,
+            showsDeterministicFailureFallback: showsDeterministicFailureFallback
+        )
+    }
+
+    internal func whenBootstrapFirstFramePresentationIsReady(
+        _ completion: @escaping () -> Void
+    ) {
+        if self.isCommittedStackedNavigationFirstFrameReady {
+            completion()
+            return
+        }
+        self.pendingBootstrapFirstFrameReadinessCompletions.append(completion)
+    }
+
+    internal func resolvePendingBootstrapFirstFrameReadinessCompletionsIfPossible() {
+        guard self.isCommittedStackedNavigationFirstFrameReady,
+              self.pendingBootstrapFirstFrameReadinessCompletions.isNotEmpty else {
+            return
+        }
+        let completions = self.pendingBootstrapFirstFrameReadinessCompletions
+        self.pendingBootstrapFirstFrameReadinessCompletions.removeAll(keepingCapacity: false)
+        completions.forEach { $0() }
+    }
+
     internal func applyBootstrapViewState(_ state: ChatBootstrapViewState, forceRender: Bool = false) {
         let loadingState: ChatBootstrapLoadingState
         switch state {
@@ -11399,7 +11853,9 @@ extension ChatViewController {
         guard ChatBootstrapStateApplicationPolicy.decision(
             previous: appliedBootstrapLoadingState,
             next: state,
-            hasCommittedContent: hasCommittedRealContentInCurrentLifecycle
+            hasCommittedContent: hasCommittedRealContentInCurrentLifecycle,
+            forceRender: forceRender,
+            hasCommittedSkeletonRows: hasCommittedBootstrapSkeletonRows
         ) == .apply else {
             return
         }
@@ -11419,11 +11875,12 @@ extension ChatViewController {
                 isDatasourceEmpty: self.datasource.isEmpty,
                 isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
             ) {
-                let mappingJob = self.beginDatasetMappingJob()
+                let mappingJob = self.beginBootstrapSkeletonMappingJob()
                 let generation = mappingJob.generation
                 let cancellationToken = mappingJob.token
                 let mappingContext = self.captureDatasourceMappingContext()
                 let animated = self.shouldAnimateInitialHistoryAppearance
+                let conversationKey = self.chatTimelineConversationKey
                 self.datasetMappingQueue.async { [weak self] in
                     guard let self, !cancellationToken.isCancelled else { return }
                     let mappingResult = self.mapDataset(
@@ -11435,9 +11892,14 @@ extension ChatViewController {
                         guard let self,
                               !mappingResult.wasCancelled,
                               !cancellationToken.isCancelled,
-                              ChatDatasourceApplyGenerationPolicy.shouldApply(
-                                requestGeneration: generation,
-                                currentGeneration: self.datasetMappingGeneration
+                              ChatBootstrapMappedSkeletonApplyPolicy.shouldApply(
+                                generationMatches: generation == self.bootstrapSkeletonMappingGeneration,
+                                conversationMatches: conversationKey == self.chatTimelineConversationKey,
+                                loadingShowsSkeleton: self.appliedBootstrapLoadingState?.showsSkeleton == true,
+                                skeletonVisibilityRequested: self.showSkeletonObserver.value,
+                                hasCommittedRealContent: self.hasCommittedRealContentInCurrentLifecycle,
+                                hasRealDatasourceRows: self.datasource.contains { !$0.isFakeMessage },
+                                hasCommittedSkeletonRows: self.hasCommittedBootstrapSkeletonRows
                               ) else { return }
                         self.applyChatDatasource(
                             mappingResult.datasource,
@@ -11449,6 +11911,7 @@ extension ChatViewController {
                 }
             }
         case .content, .empty:
+            self.cancelBootstrapSkeletonMappingJobs()
             if state.showsRetry {
                 self.setSkeletonVisible(false)
                 self.setShouldShowInitialMessage(false)
@@ -11457,6 +11920,11 @@ extension ChatViewController {
                 self.timelineInteractionState.unlock()
             }
             self.reloadInitialWindowAfterBootstrapIfNeeded(force: forceRender)
+        }
+        if state.showsRetry {
+            self.performOnMain { [weak self] in
+                self?.resolvePendingBootstrapFirstFrameReadinessCompletionsIfPossible()
+            }
         }
     }
     
@@ -11513,9 +11981,27 @@ extension ChatViewController {
         beginDatasetMappingJob().token
     }
 
+    internal final func beginBootstrapSkeletonMappingJob() -> (
+        generation: Int,
+        token: ChatDatasetMappingCancellationToken
+    ) {
+        self.bootstrapSkeletonMappingGeneration += 1
+        let generation = self.bootstrapSkeletonMappingGeneration
+        return (
+            generation,
+            self.bootstrapSkeletonMappingJobCoordinator.begin(generation: generation)
+        )
+    }
+
+    internal final func cancelBootstrapSkeletonMappingJobs() {
+        self.bootstrapSkeletonMappingGeneration += 1
+        self.bootstrapSkeletonMappingJobCoordinator.cancelAll()
+    }
+
     internal final func cancelDatasetMappingJobs() {
         self.datasetMappingGeneration += 1
         self.datasetMappingJobCoordinator.cancelAll()
+        self.cancelBootstrapSkeletonMappingJobs()
     }
 
     internal final func mapDataset(
@@ -12222,7 +12708,9 @@ extension ChatViewController {
             self.recordChatOpenTimingInitialDatasourceLoadFailed(error)
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             self.applyBootstrapViewState(.skeleton, forceRender: true)
-            completion?()
+            if let completion {
+                self.whenBootstrapFirstFramePresentationIsReady(completion)
+            }
         }
     }
 
@@ -13349,8 +13837,10 @@ extension ChatViewController {
                         ("direction", refetchDirection),
                         ("newOldest", self.virtualTimelineState.oldest?.archivedId ?? "-"),
                         ("newNewest", self.virtualTimelineState.newest?.archivedId ?? "-"),
+                        ("oldestChanged", previousOldestArchivedId != nextVirtualState.oldest?.archivedId),
+                        ("newestChanged", previousNewestArchivedId != nextVirtualState.newest?.archivedId),
                         ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count),
-                        ("datasourceCount", self.datasource.count)
+                        ("datasourceCount", mappedDatasource.count)
                     ])
                     DDLogDebug(
                         "ChatViewController.remoteHistoryApply queryId=\(queryId) direction=\(refetchDirection) items=\(frozenItems.count) oldOldest=\(previousOldestArchivedId ?? "-") newOldest=\(nextVirtualState.oldest?.archivedId ?? "-") oldNewest=\(previousNewestArchivedId ?? "-") newNewest=\(nextVirtualState.newest?.archivedId ?? "-") queueWaitMs=\(queueWaitMs) mapMs=\(mapDurationMs)"
@@ -13418,15 +13908,17 @@ extension ChatViewController {
         ])
     }
 
+    @discardableResult
     private func armRemoteInteractiveHistoryRequest(
         direction: ChatHistoryPageDirection,
         decision: ChatHistoryPagingLoadDecision,
         queryId: String,
+        schedulerLease: ChatInteractiveRemoteArchiveSchedulerLease,
         localItemCount: Int,
         localOlderCandidateCount: Int? = nil,
         pageSize: Int? = nil,
         shortLocalRemainderRemoteFirst: Bool = false
-    ) {
+    ) -> Bool {
         self.logInteractiveHistoryPagingPlan(
             direction: direction,
             plan: .remote(decision),
@@ -13439,8 +13931,9 @@ extension ChatViewController {
         guard let context = self.interactiveHistoryPageLoadContext,
               context.queryId == queryId else {
             assertionFailure("Remote MAM request must have a typed context before arming")
+            schedulerLease.complete()
             self.timelineInteractionState.unlock()
-            return
+            return false
         }
         self.remoteHistoryQueryCoordinator.cancelAll(reason: .superseded)
         let descriptor = ChatRemoteHistoryQueryDescriptor(
@@ -13456,9 +13949,20 @@ extension ChatViewController {
         let didRegister = self.remoteHistoryQueryCoordinator.register(
             descriptor,
             persistenceCleanup: {
-                ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
-                    owner: owner,
-                    queryId: queryId
+                ChatInteractiveRemoteArchiveTerminalCleanup.perform(
+                    flushPersistence: { completion in
+                        ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+                            owner: owner,
+                            queryId: queryId,
+                            completion: completion
+                        )
+                    },
+                    cancelPendingRequest: {
+                        _ = AccountManager.shared.find(for: owner)?
+                            .mam
+                            .cancelPendingArchiveRequest(queryId: queryId)
+                    },
+                    completeSchedulerLease: schedulerLease.complete
                 )
             }
         ) { page, completion in
@@ -13481,10 +13985,12 @@ extension ChatViewController {
         }
         guard didRegister else {
             assertionFailure("Duplicate remote MAM query registration: \(queryId)")
+            schedulerLease.complete()
             self.timelineInteractionState.unlock()
-            return
+            return false
         }
         self.timelineInteractionState.locked = true
+        return true
     }
 
     private func beginVisibleRemoteHistoryLoading(
@@ -13521,6 +14027,7 @@ extension ChatViewController {
         queryId: String,
         direction: ChatHistoryPageDirection,
         decision: ChatHistoryPagingLoadDecision,
+        schedulerLease: ChatInteractiveRemoteArchiveSchedulerLease,
         cursorId: String?,
         pageSize: Int,
         currentWindow: ChatDatasetWindow,
@@ -13528,7 +14035,7 @@ extension ChatViewController {
         timelineOldestCursorId: String? = nil,
         boundedOldestCursorId: String? = nil,
         persistedCursorId: String? = nil,
-        send: @escaping (_ stream: XMPPStream, _ mam: MessageArchiveManager, _ finish: @escaping () -> Void) -> String
+        send: @escaping (_ stream: XMPPStream, _ mam: MessageArchiveManager) -> String
     ) {
         let request = ChatInteractiveRemoteArchiveDispatchRequest(
             owner: self.owner,
@@ -13539,15 +14046,16 @@ extension ChatViewController {
             priority: .interactive,
             resource: .mamArchive,
             deduplicationKey: "chat.interactive-history.\(queryId)",
+            schedulerLease: schedulerLease,
             shouldDispatch: { [weak self] in
                 self?.shouldDispatchInteractiveRemoteArchiveRequestOnMain(queryId: queryId) ?? false
             },
-            send: { [weak self] account, stream, finish in
+            send: { [weak self] account, stream in
                 guard let self else {
                     return nil
                 }
                 self.registerRemoteHistoryPersistenceSource(account.messages, queryId: queryId)
-                return send(stream, account.mam, finish)
+                return send(stream, account.mam)
             },
             transportStarted: { [weak self] sentQueryId, streamKind, resource in
                 DispatchQueue.main.async {
@@ -13715,18 +14223,23 @@ extension ChatViewController {
                 expectedWindowMaxIndex: requestedWindow.maxIndex,
                 coverageUpdateKind: .pageOlder(cursorArchiveId: archivedId)
             )
-            self.armRemoteInteractiveHistoryRequest(
+            let schedulerLease = ChatInteractiveRemoteArchiveSchedulerLease()
+            guard self.armRemoteInteractiveHistoryRequest(
                 direction: direction,
                 decision: .remoteOlderPage,
                 queryId: queryId,
+                schedulerLease: schedulerLease,
                 localItemCount: armedSnapshot.items.count,
                 localOlderCandidateCount: armedSnapshot.localOlderCandidateCount,
                 pageSize: armedSnapshot.pageSize,
                 shortLocalRemainderRemoteFirst: armedSnapshot.shortLocalRemainderRemoteFirst
-            )
+            ) else {
+                callback(nil)
+                return
+            }
             self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 
-            let requestRemoteHistory: (XMPPStream, MessageArchiveManager, @escaping () -> Void) -> String = { stream, mam, finish in
+            let requestRemoteHistory: (XMPPStream, MessageArchiveManager) -> String = { stream, mam in
                 mam.requestOlderHistoryPage(
                     stream,
                     for: self.jid,
@@ -13734,7 +14247,7 @@ extension ChatViewController {
                     messageId: archivedId,
                     pageSize: self.datasourcePageSize,
                     queryId: queryId,
-                    callback: finish,
+                    callback: nil,
                     requestCallbacks: requestCallbacks,
                     deferCoverageCommitUntilConsumerProof: true
                 )
@@ -13744,6 +14257,7 @@ extension ChatViewController {
                 queryId: queryId,
                 direction: direction,
                 decision: .remoteOlderPage,
+                schedulerLease: schedulerLease,
                 cursorId: archivedId,
                 pageSize: self.datasourcePageSize,
                 currentWindow: currentWindow,
@@ -13798,15 +14312,20 @@ extension ChatViewController {
                 expectedWindowMaxIndex: requestedWindow.maxIndex,
                 coverageUpdateKind: .pageNewer(cursorArchiveId: archivedId)
             )
-            self.armRemoteInteractiveHistoryRequest(
+            let schedulerLease = ChatInteractiveRemoteArchiveSchedulerLease()
+            guard self.armRemoteInteractiveHistoryRequest(
                 direction: direction,
                 decision: .remoteNewerPage,
                 queryId: queryId,
+                schedulerLease: schedulerLease,
                 localItemCount: armedSnapshot.items.count
-            )
+            ) else {
+                callback(nil)
+                return
+            }
             self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 
-            let requestRemoteHistory: (XMPPStream, MessageArchiveManager, @escaping () -> Void) -> String = { stream, mam, finish in
+            let requestRemoteHistory: (XMPPStream, MessageArchiveManager) -> String = { stream, mam in
                 mam.requestNewerHistoryPage(
                     stream,
                     for: self.jid,
@@ -13814,7 +14333,7 @@ extension ChatViewController {
                     messageId: archivedId,
                     pageSize: self.datasourcePageSize,
                     queryId: queryId,
-                    callback: finish,
+                    callback: nil,
                     requestCallbacks: requestCallbacks,
                     deferCoverageCommitUntilConsumerProof: true
                 )
@@ -13824,6 +14343,7 @@ extension ChatViewController {
                 queryId: queryId,
                 direction: direction,
                 decision: .remoteNewerPage,
+                schedulerLease: schedulerLease,
                 cursorId: archivedId,
                 pageSize: self.datasourcePageSize,
                 currentWindow: currentWindow,
@@ -13868,15 +14388,20 @@ extension ChatViewController {
                 expectedWindowMaxIndex: requestedWindow.maxIndex,
                 coverageUpdateKind: .gapRepairOlder(cursorArchiveId: archivedId)
             )
-            self.armRemoteInteractiveHistoryRequest(
+            let schedulerLease = ChatInteractiveRemoteArchiveSchedulerLease()
+            guard self.armRemoteInteractiveHistoryRequest(
                 direction: direction,
                 decision: .remoteGapRepairOlder(gap),
                 queryId: queryId,
+                schedulerLease: schedulerLease,
                 localItemCount: armedSnapshot.items.count
-            )
+            ) else {
+                callback(nil)
+                return
+            }
             self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 
-            let requestRemoteHistory: (XMPPStream, MessageArchiveManager, @escaping () -> Void) -> String = { stream, mam, finish in
+            let requestRemoteHistory: (XMPPStream, MessageArchiveManager) -> String = { stream, mam in
                 mam.getGapRepairHistory(
                     stream,
                     for: self.jid,
@@ -13885,7 +14410,7 @@ extension ChatViewController {
                     direction: .older,
                     pageSize: self.datasourcePageSize,
                     queryId: queryId,
-                    callback: finish,
+                    callback: nil,
                     requestCallbacks: requestCallbacks,
                     deferCoverageCommitUntilConsumerProof: true
                 )
@@ -13895,6 +14420,7 @@ extension ChatViewController {
                 queryId: queryId,
                 direction: direction,
                 decision: .remoteGapRepairOlder(gap),
+                schedulerLease: schedulerLease,
                 cursorId: archivedId,
                 pageSize: self.datasourcePageSize,
                 currentWindow: currentWindow,
@@ -13939,15 +14465,20 @@ extension ChatViewController {
                 expectedWindowMaxIndex: requestedWindow.maxIndex,
                 coverageUpdateKind: .gapRepairNewer(cursorArchiveId: archivedId)
             )
-            self.armRemoteInteractiveHistoryRequest(
+            let schedulerLease = ChatInteractiveRemoteArchiveSchedulerLease()
+            guard self.armRemoteInteractiveHistoryRequest(
                 direction: direction,
                 decision: .remoteGapRepairNewer(gap),
                 queryId: queryId,
+                schedulerLease: schedulerLease,
                 localItemCount: armedSnapshot.items.count
-            )
+            ) else {
+                callback(nil)
+                return
+            }
             self.scheduleInteractiveRemoteArchiveRequestStartWatchdog(queryId: queryId)
 
-            let requestRemoteHistory: (XMPPStream, MessageArchiveManager, @escaping () -> Void) -> String = { stream, mam, finish in
+            let requestRemoteHistory: (XMPPStream, MessageArchiveManager) -> String = { stream, mam in
                 mam.getGapRepairHistory(
                     stream,
                     for: self.jid,
@@ -13956,7 +14487,7 @@ extension ChatViewController {
                     direction: .newer,
                     pageSize: self.datasourcePageSize,
                     queryId: queryId,
-                    callback: finish,
+                    callback: nil,
                     requestCallbacks: requestCallbacks,
                     deferCoverageCommitUntilConsumerProof: true
                 )
@@ -13966,6 +14497,7 @@ extension ChatViewController {
                 queryId: queryId,
                 direction: direction,
                 decision: .remoteGapRepairNewer(gap),
+                schedulerLease: schedulerLease,
                 cursorId: archivedId,
                 pageSize: self.datasourcePageSize,
                 currentWindow: currentWindow,

@@ -1575,10 +1575,13 @@ class ChatViewController: MessagesViewController {
     var hasCompletedInitialHistoryViewAppearance: Bool = false
     var initialLatestOpenStabilizationState: ChatInitialLatestOpenStabilizationState = .inactive
     var initialLocalFirstFramePhase: ChatLocalFirstFramePhase = .idle
+    var initialLocalFirstFrameMappingToken: ChatDatasetMappingCancellationToken? = nil
     var initialLocalFirstFrameCompletions: [() -> Void] = []
+    var pendingBootstrapFirstFrameReadinessCompletions: [() -> Void] = []
     var initialLocalFirstFrameShouldPerformPendingRequest: Bool = false
     var initialFirstContentApplyCount: Int = 0
     var hasCommittedRealContentInCurrentLifecycle: Bool = false
+    var hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle: Bool = false
     var hasCommittedTimelinePresentationInCurrentLifecycle: Bool = false
     var pendingArchiveObserverRefresh: Bool = false
     var archiveObserverRefreshWorkItem: DispatchWorkItem? = nil
@@ -1752,6 +1755,11 @@ class ChatViewController: MessagesViewController {
     var initialBootstrapPersistedMessageCount: Int? = nil
     var initialBootstrapPersistedRowsForQuery: Int? = nil
     var initialBootstrapVisibleRowsForConversation: Int? = nil
+    /// The initial archive page owns one direct timeline refresh after its
+    /// query-scoped persistence barrier. This intentionally bypasses the
+    /// general Realm-observer pressure gate that remains active during
+    /// bootstrap.
+    var initialBootstrapScopedRefreshQueryId: String? = nil
     var didEnterInitialBootstrapObserverSettlePhase: Bool = false
     var didObserveInitialBootstrapPostIdleTick: Bool = false
     var initialBootstrapTimeoutWorkItem: DispatchWorkItem? = nil
@@ -2563,6 +2571,9 @@ class ChatViewController: MessagesViewController {
     internal let datasetMappingJobCoordinator = ChatDatasetMappingJobCoordinator(
         cancellationCheckInterval: 16
     )
+    internal let bootstrapSkeletonMappingJobCoordinator = ChatDatasetMappingJobCoordinator(
+        cancellationCheckInterval: 16
+    )
     internal let remoteHistoryApplyQueue: DispatchQueue = {
         let queue = DispatchQueue(
             label: "com.xabber.chat.remote-history.apply",
@@ -2574,6 +2585,7 @@ class ChatViewController: MessagesViewController {
         return queue
     }()
     internal var datasetMappingGeneration: Int = 0
+    internal var bootstrapSkeletonMappingGeneration: Int = 0
     internal var layoutPreparationGeneration: Int = 0
     
     let sectionsDateFormatter: DateFormatter = {
@@ -4132,10 +4144,13 @@ class ChatViewController: MessagesViewController {
         self.retainedMessageAnchor = nil
         self.clearPendingLocalHistoryPagingPreparation()
         self.initialLocalFirstFramePhase = .idle
+        self.initialLocalFirstFrameMappingToken = nil
         self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)
+        self.pendingBootstrapFirstFrameReadinessCompletions.removeAll(keepingCapacity: false)
         self.initialLocalFirstFrameShouldPerformPendingRequest = false
         self.initialFirstContentApplyCount = 0
         self.hasCommittedRealContentInCurrentLifecycle = preservesCommittedRealContent
+        self.hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle = false
         self.hasCommittedTimelinePresentationInCurrentLifecycle =
             preservesCommittedTimelinePresentation
         let store = RealmChatTimelineSessionStore(
@@ -5440,6 +5455,11 @@ class ChatViewController: MessagesViewController {
         self.timelineSession?.cancelLocalPagePreparations()
         self.clearPendingLocalHistoryPagingPreparation()
         self.cancelDatasetMappingJobs()
+        self.initialLocalFirstFrameMappingToken = nil
+        self.initialLocalFirstFramePhase = .idle
+        self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)
+        self.pendingBootstrapFirstFrameReadinessCompletions.removeAll(keepingCapacity: false)
+        self.initialLocalFirstFrameShouldPerformPendingRequest = false
         self.scrollWorkScheduler.cancel()
         self.collectionPrefetchCoordinator.cancelAll()
 
@@ -5462,6 +5482,7 @@ class ChatViewController: MessagesViewController {
         self.cancelInitialBootstrapLocalHistoryFallback()
         self.initialBootstrapQueryId = nil
         self.isInitialBootstrapInFlight = false
+        self.initialBootstrapScopedRefreshQueryId = nil
         self.interactiveHistoryCompletionRetryWorkItem?.cancel()
         self.interactiveHistoryCompletionRetryWorkItem = nil
         self.interactiveHistoryPageLoadContext = nil
@@ -5534,7 +5555,8 @@ class ChatViewController: MessagesViewController {
             : 0
         return ChatLifecycleResourceSnapshot(
             timelinePreparations: self.timelineSession?.activePreparationCount ?? 0,
-            mappingJobs: self.datasetMappingJobCoordinator.ownedJobCount,
+            mappingJobs: self.datasetMappingJobCoordinator.ownedJobCount +
+                self.bootstrapSkeletonMappingJobCoordinator.ownedJobCount,
             scheduledScrollRequests: self.scrollWorkScheduler.pendingRequestCount,
             prefetchResources: self.collectionPrefetchCoordinator.activeResourceCount,
             anchorTransactions: anchorSnapshot.activeToken == nil ? 0 : 1,

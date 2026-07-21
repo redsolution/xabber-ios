@@ -8363,6 +8363,18 @@ private final class RecordingIdleScheduleMessageArchiveManager: MessageArchiveMa
 }
 
 final class AccountXMPPTaskSchedulerTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
+    }
+
+    override func tearDown() {
+        MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
+        super.tearDown()
+    }
+
     func testResetStreamResetsMessageArchiveManagerStateAndCompletesPendingMamCallback() {
         let account = Account(
             jid: "reset-stream-mam@example.com",
@@ -8371,14 +8383,21 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
         let manager = ResetTrackingMessageArchiveManager(withOwner: account.jid)
         let stream = CapturingXMPPStream()
         let callbackCompleted = expectation(description: "pending MAM callback completed before scheduler reset")
+        let failurePublished = expectation(description: "pending MAM failure published before reset")
         callbackCompleted.assertForOverFulfill = true
+        let queryId = "MAM next history: reset-stream"
         account.mam = manager
+        MessageArchiveRequestFailureDispatcher.register(owner: account.jid, queryId: queryId) { event in
+            XCTAssertEqual(event.streamKind, .primary)
+            XCTAssertEqual(event.reason, .uiActionDisconnect)
+            failurePublished.fulfill()
+        }
         _ = manager.requestOlderHistoryPage(
             stream,
             for: "romeo@example.com",
             conversationType: .regular,
             messageId: "500",
-            queryId: "MAM next history: reset-stream",
+            queryId: queryId,
             callback: { callbackCompleted.fulfill() }
         )
 
@@ -8386,9 +8405,143 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
 
         account.resetStream()
 
-        wait(for: [callbackCompleted], timeout: 1.0)
+        wait(for: [callbackCompleted, failurePublished], timeout: 1.0)
+        waitForAccountQueueToDrain(account)
         XCTAssertEqual(manager.didResetStateCallCount, 1)
         XCTAssertTrue(manager.callbacksQueue.isEmpty)
+    }
+
+    func testPrimaryDisconnectRotatesSchedulerBeforeArchivePersistenceTerminal() {
+        let account = Account(
+            jid: "primary-disconnect-persistence@example.com",
+            queue: DispatchQueue(label: "AccountXMPPTaskSchedulerTests.primary-disconnect-persistence")
+        )
+        let manager = ResetTrackingMessageArchiveManager(withOwner: account.jid)
+        let stream = CapturingXMPPStream()
+        let queryId = "MAM next history: primary-disconnect-persistence"
+        let reset = expectation(description: "scheduler reset before persistence terminal")
+        let persistenceStarted = expectation(description: "archive persistence started")
+        let failurePublished = expectation(description: "archive failure published")
+        var finishPersistence: (() -> Void)?
+
+        account.mam = manager
+        account.xmppStream = stream
+        account.pendingDisconnectContext.set(cause: .intentionalShutdown, reconnectAlreadyScheduled: false)
+        account.xmppTaskScheduler.resetObserverForTests = {
+            reset.fulfill()
+        }
+        MessageArchiveRequestFailurePreparationDispatcher.register(
+            owner: account.jid,
+            queryId: queryId
+        ) { _, completion in
+            persistenceStarted.fulfill()
+            finishPersistence = completion
+        }
+        MessageArchiveRequestFailureDispatcher.register(
+            owner: account.jid,
+            queryId: queryId,
+            delivery: .synchronous
+        ) { _ in
+            XCTAssertFalse(manager.queryIds.contains(queryId))
+            failurePublished.fulfill()
+        }
+        manager.requestOlderHistoryPage(
+            stream,
+            for: "romeo@example.com",
+            conversationType: .regular,
+            messageId: "500",
+            queryId: queryId,
+            deferCoverageCommitUntilConsumerProof: true
+        )
+
+        account.xmppStreamDidDisconnect(stream, withError: nil)
+
+        wait(for: [reset, persistenceStarted], timeout: 1)
+        XCTAssertTrue(manager.queryIds.contains(queryId))
+        XCTAssertTrue(manager.callbacksQueue.contains { $0.elementId == queryId })
+
+        finishPersistence?()
+        wait(for: [failurePublished], timeout: 1)
+    }
+
+    func testResetStreamPreservesMamLeaseWhilePersistenceFinishes() {
+        assertArchivePersistenceOrderingDuringAccountReset(
+            label: "reset-stream-persistence",
+            invokeReset: { $0.resetStream() }
+        )
+    }
+
+    func testResetModulesPreservesMamLeaseWhilePersistenceFinishes() {
+        assertArchivePersistenceOrderingDuringAccountReset(
+            label: "reset-modules-persistence",
+            invokeReset: { $0.resetModules() }
+        )
+    }
+
+    private func assertArchivePersistenceOrderingDuringAccountReset(
+        label: String,
+        invokeReset: (Account) -> Void
+    ) {
+        let account = Account(
+            jid: "\(label)@example.com",
+            queue: DispatchQueue(label: "AccountXMPPTaskSchedulerTests.\(label)")
+        )
+        let manager = ResetTrackingMessageArchiveManager(withOwner: account.jid)
+        let stream = CapturingXMPPStream()
+        let queryId = "MAM next history: \(label)"
+        let reset = expectation(description: "scheduler generation rotated")
+        let persistenceStarted = expectation(description: "archive persistence started")
+        let failurePublished = expectation(description: "archive failure published")
+        var finishPersistence: (() -> Void)?
+
+        account.mam = manager
+        MessageArchiveRequestFailurePreparationDispatcher.register(
+            owner: account.jid,
+            queryId: queryId
+        ) { _, completion in
+            persistenceStarted.fulfill()
+            finishPersistence = completion
+        }
+        MessageArchiveRequestFailureDispatcher.register(
+            owner: account.jid,
+            queryId: queryId,
+            delivery: .synchronous
+        ) { _ in
+            XCTAssertFalse(manager.queryIds.contains(queryId))
+            failurePublished.fulfill()
+        }
+        account.xmppTaskScheduler.resetObserverForTests = {
+            reset.fulfill()
+        }
+        manager.requestOlderHistoryPage(
+            stream,
+            for: "romeo@example.com",
+            conversationType: .regular,
+            messageId: "500",
+            queryId: queryId,
+            deferCoverageCommitUntilConsumerProof: true
+        )
+
+        invokeReset(account)
+
+        wait(for: [reset, persistenceStarted], timeout: 1)
+        XCTAssertTrue(manager.queryIds.contains(queryId))
+        XCTAssertTrue(manager.callbacksQueue.contains { $0.elementId == queryId })
+        XCTAssertEqual(manager.didResetStateCallCount, 0)
+
+        finishPersistence?()
+        wait(for: [failurePublished], timeout: 1)
+        waitForAccountQueueToDrain(account)
+
+        XCTAssertEqual(manager.didResetStateCallCount, 1)
+    }
+
+    private func waitForAccountQueueToDrain(_ account: Account) {
+        let drained = expectation(description: "account lifecycle queue drained")
+        account.action { _, _ in
+            drained.fulfill()
+        }
+        wait(for: [drained], timeout: 1)
     }
 
     func testRunsQueuedTasksByPriority() {
@@ -8503,6 +8656,245 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
         scheduler.reset()
         finishFirst?()
         wait(for: [pendingDidNotStart], timeout: 0.1)
+    }
+
+    func testResetReleasesRunningNonMamLaneForNewGeneration() {
+        let scheduler = AccountXMPPTaskScheduler(configuration: .test(defaultCooldown: 0))
+        let oldVCardStarted = expectation(description: "old vCard task started")
+        let newVCardStarted = expectation(description: "new generation vCard task started")
+        var finishOldVCard: (() -> Void)?
+
+        scheduler.enqueue(
+            priority: .background,
+            resource: .vcard,
+            deduplicationKey: "same-vcard"
+        ) { finish in
+            finishOldVCard = finish
+            oldVCardStarted.fulfill()
+        }
+        wait(for: [oldVCardStarted], timeout: 1)
+
+        scheduler.reset()
+        scheduler.enqueue(
+            priority: .foreground,
+            resource: .vcard,
+            deduplicationKey: "same-vcard"
+        ) { finish in
+            newVCardStarted.fulfill()
+            finish()
+        }
+
+        wait(for: [newVCardStarted], timeout: 1)
+        finishOldVCard?()
+    }
+
+    func testResetPreservesRunningMamLeaseUntilTerminalWithoutReleasingReplacement() {
+        let scheduler = AccountXMPPTaskScheduler(configuration: .test(defaultCooldown: 0))
+        let oldStarted = expectation(description: "old task started")
+        let replacementDidNotStartBeforeOldTerminal = expectation(
+            description: "post-reset task waits for old MAM persistence terminal"
+        )
+        replacementDidNotStartBeforeOldTerminal.isInverted = true
+        let replacementStarted = expectation(description: "post-reset task started")
+        let queuedDidNotStartFromRepeatedOldCompletion = expectation(
+            description: "repeated old completion cannot release replacement MAM lane"
+        )
+        queuedDidNotStartFromRepeatedOldCompletion.isInverted = true
+        let queuedStartedAfterReplacement = expectation(
+            description: "queued task starts after current MAM completion"
+        )
+        var finishOld: (() -> Void)?
+        var finishReplacement: (() -> Void)?
+        var isCheckingEarlyReplacement = true
+        var isCheckingRepeatedOldCompletion = true
+
+        scheduler.enqueue(
+            priority: .interactive,
+            resource: .mamArchive,
+            deduplicationKey: "shared-mam-key"
+        ) { finish in
+            finishOld = finish
+            oldStarted.fulfill()
+        }
+        wait(for: [oldStarted], timeout: 1)
+
+        scheduler.reset()
+        scheduler.enqueue(
+            priority: .interactive,
+            resource: .mamArchive,
+            deduplicationKey: "shared-mam-key"
+        ) { finish in
+            if isCheckingEarlyReplacement {
+                replacementDidNotStartBeforeOldTerminal.fulfill()
+            }
+            finishReplacement = finish
+            replacementStarted.fulfill()
+        }
+
+        wait(for: [replacementDidNotStartBeforeOldTerminal], timeout: 0.1)
+        isCheckingEarlyReplacement = false
+        finishOld?()
+        wait(for: [replacementStarted], timeout: 1)
+
+        scheduler.enqueue(
+            priority: .interactive,
+            resource: .mamArchive,
+            deduplicationKey: "queued-after-reset"
+        ) { finish in
+            if isCheckingRepeatedOldCompletion {
+                queuedDidNotStartFromRepeatedOldCompletion.fulfill()
+            }
+            queuedStartedAfterReplacement.fulfill()
+            finish()
+        }
+
+        finishOld?()
+        wait(for: [queuedDidNotStartFromRepeatedOldCompletion], timeout: 0.1)
+        isCheckingRepeatedOldCompletion = false
+        finishReplacement?()
+        wait(for: [queuedStartedAfterReplacement], timeout: 1)
+    }
+
+    func testDelayedOldPersistenceCannotResetOrDropNewGenerationMamWork() {
+        let owner = "generation-safe-reset-\(UUID().uuidString)@example.com"
+        let account = Account(
+            jid: owner,
+            queue: DispatchQueue(label: "AccountXMPPTaskSchedulerTests.generation-safe-reset")
+        )
+        let manager = ResetTrackingMessageArchiveManager(withOwner: owner)
+        let oldStream = CapturingXMPPStream()
+        let newStream = CapturingXMPPStream()
+        let oldQueryId = "MAM next history: old-generation"
+        let newQueryId = "MAM next history: new-generation"
+        let sharedDeduplicationKey = "interactive-mam.\(owner).romeo@example.com"
+        let oldLeaseStarted = expectation(description: "old MAM lease started")
+        let schedulerReset = expectation(description: "scheduler generation rotated")
+        let persistenceStarted = expectation(description: "old persistence started")
+        let newTaskDidNotStartBeforeOldTerminal = expectation(
+            description: "new generation waits for old MAM persistence terminal"
+        )
+        newTaskDidNotStartBeforeOldTerminal.isInverted = true
+        let newTaskStarted = expectation(description: "new generation MAM task survived")
+        let oldFailurePublished = expectation(description: "old failure published")
+        var finishOldLease: (() -> Void)?
+        var finishPersistence: (() -> Void)?
+        var isCheckingEarlyStart = true
+
+        account.mam = manager
+        account.xmppTaskScheduler.resetObserverForTests = {
+            schedulerReset.fulfill()
+        }
+        account.xmppTaskScheduler.enqueue(
+            priority: .interactive,
+            resource: .mamArchive,
+            deduplicationKey: sharedDeduplicationKey
+        ) { finish in
+            finishOldLease = finish
+            oldLeaseStarted.fulfill()
+        }
+        wait(for: [oldLeaseStarted], timeout: 1)
+
+        MessageArchiveRequestFailurePreparationDispatcher.register(
+            owner: owner,
+            queryId: oldQueryId
+        ) { _, completion in
+            persistenceStarted.fulfill()
+            finishPersistence = completion
+        }
+        MessageArchiveRequestFailureDispatcher.register(
+            owner: owner,
+            queryId: oldQueryId,
+            delivery: .synchronous
+        ) { _ in
+            oldFailurePublished.fulfill()
+            finishOldLease?()
+        }
+        manager.requestOlderHistoryPage(
+            oldStream,
+            for: "romeo@example.com",
+            conversationType: .regular,
+            messageId: "500",
+            queryId: oldQueryId,
+            deferCoverageCommitUntilConsumerProof: true
+        )
+
+        account.resetModules()
+        wait(for: [schedulerReset, persistenceStarted], timeout: 1)
+
+        manager.requestOlderHistoryPage(
+            newStream,
+            for: "romeo@example.com",
+            conversationType: .regular,
+            messageId: "400",
+            queryId: newQueryId,
+            deferCoverageCommitUntilConsumerProof: true
+        )
+        account.xmppTaskScheduler.enqueue(
+            priority: .interactive,
+            resource: .mamArchive,
+            deduplicationKey: sharedDeduplicationKey
+        ) { finish in
+            if isCheckingEarlyStart {
+                newTaskDidNotStartBeforeOldTerminal.fulfill()
+            }
+            newTaskStarted.fulfill()
+            finish()
+        }
+
+        wait(for: [newTaskDidNotStartBeforeOldTerminal], timeout: 0.1)
+        XCTAssertTrue(manager.queryIds.contains(oldQueryId))
+        XCTAssertTrue(manager.queryIds.contains(newQueryId))
+
+        isCheckingEarlyStart = false
+        finishPersistence?()
+        wait(for: [oldFailurePublished, newTaskStarted], timeout: 1)
+        waitForAccountQueueToDrain(account)
+
+        XCTAssertFalse(manager.queryIds.contains(oldQueryId))
+        XCTAssertTrue(manager.queryIds.contains(newQueryId))
+        XCTAssertEqual(manager.didResetStateCallCount, 0)
+    }
+
+    func testPrimaryStreamDisconnectPublishesPendingMamFailureBeforeReset() {
+        let owner = "primary-disconnect-mam-\(UUID().uuidString)@example.com"
+        let account = Account(
+            jid: owner,
+            queue: DispatchQueue(label: "AccountXMPPTaskSchedulerTests.primary-disconnect")
+        )
+        let stream = CapturingXMPPStream()
+        let manager = MessageArchiveManager(withOwner: owner)
+        let queryId = "MAM next history: primary-disconnect"
+        let failurePublished = expectation(description: "primary disconnect publishes typed MAM failure")
+        var receivedEvent: MessageArchiveRequestFailureEvent?
+
+        account.xmppStream = stream
+        account.mam = manager
+        account.pendingDisconnectContext.set(
+            cause: .backgroundSuspension,
+            reconnectAlreadyScheduled: false
+        )
+        MessageArchiveRequestFailureDispatcher.register(owner: owner, queryId: queryId) { event in
+            receivedEvent = event
+            failurePublished.fulfill()
+        }
+        manager.requestOlderHistoryPage(
+            stream,
+            for: "romeo@example.com",
+            conversationType: .regular,
+            messageId: "500",
+            queryId: queryId,
+            requestCallbacks: .none,
+            deferCoverageCommitUntilConsumerProof: true
+        )
+
+        account.xmppStreamDidDisconnect(stream, withError: nil)
+
+        wait(for: [failurePublished], timeout: 1)
+        XCTAssertEqual(receivedEvent?.queryId, queryId)
+        XCTAssertEqual(receivedEvent?.streamKind, .primary)
+        XCTAssertEqual(receivedEvent?.reason, .uiActionDisconnect)
+        XCTAssertFalse(manager.queryIds.contains(queryId))
+        XCTAssertFalse(manager.callbacksQueue.contains { $0.elementId == queryId })
     }
 
     func testDeduplicatedPendingTaskIsPromotedToHigherPriority() {
@@ -13744,6 +14136,7 @@ final class ChatBootstrapStateTests: XCTestCase {
                 didConfirmEmpty: false,
                 isMessagePipelineIdle: false,
                 isArchivePagePersisted: true,
+                hasCommittedContent: true,
                 requiresObserverSettle: false,
                 didObservePostIdleTick: false
             )
@@ -13758,7 +14151,23 @@ final class ChatBootstrapStateTests: XCTestCase {
                 didConfirmEmpty: false,
                 isMessagePipelineIdle: true,
                 isArchivePagePersisted: true,
+                hasCommittedContent: true,
                 requiresObserverSettle: true,
+                didObservePostIdleTick: false
+            )
+        )
+    }
+
+    func testInitialBootstrapCompletionWaitsForNonEmptyDatasourceCommit() {
+        XCTAssertFalse(
+            ChatInitialBootstrapCompletionPolicy.shouldFinish(
+                didReceiveEndPage: true,
+                hasMessages: true,
+                didConfirmEmpty: false,
+                isMessagePipelineIdle: true,
+                isArchivePagePersisted: true,
+                hasCommittedContent: false,
+                requiresObserverSettle: false,
                 didObservePostIdleTick: false
             )
         )
@@ -18223,6 +18632,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
     override func setUp() {
         super.setUp()
         MessageArchiveEndPageDispatcher.resetForTests()
+        MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
         MessageArchiveRequestFailureDispatcher.resetForTests()
         Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "MessageArchiveQueryCallbackTests-\(name)")
         let realm = try! WRealm.safe()
@@ -18233,6 +18643,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
 
     override func tearDown() {
         MessageArchiveEndPageDispatcher.resetForTests()
+        MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
         MessageArchiveRequestFailureDispatcher.resetForTests()
         super.tearDown()
     }
@@ -18425,6 +18836,241 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         XCTAssertEqual(receivedEvent?.pendingQueryCount, 1)
         XCTAssertFalse(manager.queryIds.contains(queryId))
         XCTAssertFalse(manager.callbacksQueue.contains { $0.elementId == queryId })
+    }
+
+    func testPendingArchiveFailureWaitsForPersistenceTerminalBeforeQueryRemovalAndPublication() {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = CapturingXMPPStream()
+        let queryId = "MAM next history: acknowledged-failure-cleanup"
+        let completed = expectation(description: "failure lifecycle completed")
+        var finishPersistence: (() -> Void)?
+        var events: [String] = []
+
+        MessageArchiveRequestFailurePreparationDispatcher.register(
+            owner: owner,
+            queryId: queryId
+        ) { _, completion in
+            events.append("persistence-start")
+            finishPersistence = {
+                events.append("persistence-terminal")
+                completion()
+            }
+        }
+        MessageArchiveRequestFailureDispatcher.register(
+            owner: owner,
+            queryId: queryId,
+            delivery: .synchronous
+        ) { _ in
+            XCTAssertFalse(manager.queryIds.contains(queryId))
+            XCTAssertFalse(manager.callbacksQueue.contains { $0.elementId == queryId })
+            events.append("failure-published")
+        }
+        manager.requestOlderHistoryPage(
+            stream,
+            for: "romeo@example.com",
+            conversationType: .regular,
+            messageId: "500",
+            queryId: queryId,
+            requestCallbacks: .none,
+            deferCoverageCommitUntilConsumerProof: true
+        )
+
+        _ = manager.publishPendingArchiveRequestFailures(
+            streamKind: .primary,
+            reason: .uiActionDisconnect,
+            errorDescription: "socket closed",
+            completion: {
+                events.append("terminal-completion")
+                completed.fulfill()
+            }
+        )
+
+        XCTAssertTrue(manager.queryIds.contains(queryId))
+        XCTAssertTrue(manager.callbacksQueue.contains { $0.elementId == queryId })
+        XCTAssertTrue(manager.shouldPersistArchiveQueryId(queryId))
+        XCTAssertEqual(events, ["persistence-start"])
+
+        finishPersistence?()
+        wait(for: [completed], timeout: 1)
+
+        XCTAssertEqual(
+            events,
+            [
+                "persistence-start",
+                "persistence-terminal",
+                "failure-published",
+                "terminal-completion",
+            ]
+        )
+    }
+
+    func testPersistenceAcknowledgementFinalizesPendingFailureOnlyOnConfiguredOwnerQueue() {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = CapturingXMPPStream()
+        let queryId = "MAM next history: owner-queue-failure-finalization"
+        let ownerQueue = DispatchQueue(label: "MessageArchiveQueryCallbackTests.owner-queue")
+        let messageQueue = DispatchQueue(label: "MessageArchiveQueryCallbackTests.message-queue")
+        let ownerQueueKey = DispatchSpecificKey<String>()
+        let messageQueueKey = DispatchSpecificKey<String>()
+        let ownerQueueBlocked = expectation(description: "owner queue blocked")
+        let finalizationDispatched = expectation(description: "finalization dispatched from message queue")
+        let persistenceAcknowledgementReturned = expectation(description: "persistence acknowledgement returned")
+        let failurePublished = expectation(description: "failure published on owner queue")
+        let lifecycleCompleted = expectation(description: "failure lifecycle completed on owner queue")
+        let allowOwnerQueue = DispatchSemaphore(value: 0)
+        let stateLock = NSLock()
+        var finishPersistence: (() -> Void)?
+        var didPublishFailure = false
+
+        ownerQueue.setSpecific(key: ownerQueueKey, value: "owner")
+        messageQueue.setSpecific(key: messageQueueKey, value: "message")
+        ownerQueue.async {
+            ownerQueueBlocked.fulfill()
+            XCTAssertEqual(allowOwnerQueue.wait(timeout: .now() + 5), .success)
+        }
+        wait(for: [ownerQueueBlocked], timeout: 1)
+
+        manager.pendingArchiveFailureFinalizationDispatcher = { work in
+            XCTAssertEqual(DispatchQueue.getSpecific(key: messageQueueKey), "message")
+            finalizationDispatched.fulfill()
+            ownerQueue.async(execute: work)
+        }
+        MessageArchiveRequestFailurePreparationDispatcher.register(
+            owner: owner,
+            queryId: queryId
+        ) { _, completion in
+            finishPersistence = completion
+        }
+        MessageArchiveRequestFailureDispatcher.register(
+            owner: owner,
+            queryId: queryId,
+            delivery: .synchronous
+        ) { _ in
+            XCTAssertEqual(DispatchQueue.getSpecific(key: ownerQueueKey), "owner")
+            stateLock.lock()
+            didPublishFailure = true
+            stateLock.unlock()
+            failurePublished.fulfill()
+        }
+        manager.requestOlderHistoryPage(
+            stream,
+            for: "romeo@example.com",
+            conversationType: .regular,
+            messageId: "500",
+            queryId: queryId,
+            requestCallbacks: .none,
+            deferCoverageCommitUntilConsumerProof: true
+        )
+
+        _ = manager.publishPendingArchiveRequestFailures(
+            streamKind: .primary,
+            reason: .uiActionDisconnect,
+            errorDescription: "socket closed",
+            completion: {
+                XCTAssertEqual(DispatchQueue.getSpecific(key: ownerQueueKey), "owner")
+                lifecycleCompleted.fulfill()
+            }
+        )
+        let persistenceCompletion = finishPersistence
+        XCTAssertNotNil(persistenceCompletion)
+        messageQueue.async {
+            persistenceCompletion?()
+            persistenceAcknowledgementReturned.fulfill()
+        }
+
+        wait(
+            for: [finalizationDispatched, persistenceAcknowledgementReturned],
+            timeout: 1
+        )
+        stateLock.lock()
+        let publishedBeforeOwnerQueueRan = didPublishFailure
+        stateLock.unlock()
+        XCTAssertFalse(publishedBeforeOwnerQueueRan)
+        XCTAssertTrue(manager.queryIds.contains(queryId))
+        XCTAssertTrue(manager.callbacksQueue.contains { $0.elementId == queryId })
+
+        allowOwnerQueue.signal()
+        wait(for: [failurePublished, lifecycleCompleted], timeout: 1)
+
+        XCTAssertFalse(manager.queryIds.contains(queryId))
+        XCTAssertFalse(manager.callbacksQueue.contains { $0.elementId == queryId })
+    }
+
+    func testPendingArchiveFailureCompletionFiresOnceWhenThereAreNoPendingRequests() {
+        let manager = MessageArchiveManager(withOwner: owner)
+        var completionCount = 0
+
+        let events = manager.publishPendingArchiveRequestFailures(
+            streamKind: .primary,
+            reason: .uiActionDisconnect,
+            errorDescription: nil,
+            completion: { completionCount += 1 }
+        )
+
+        XCTAssertTrue(events.isEmpty)
+        XCTAssertEqual(completionCount, 1)
+    }
+
+    func testDuplicatePendingArchiveFailureJoinsOnePreparationAndCompletesBothCallersOnce() {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = CapturingXMPPStream()
+        let queryId = "MAM next history: joined-failure-preparation"
+        var finishPersistence: (() -> Void)?
+        var preparationCount = 0
+        var publicationCount = 0
+        var firstCompletionCount = 0
+        var secondCompletionCount = 0
+
+        MessageArchiveRequestFailurePreparationDispatcher.register(
+            owner: owner,
+            queryId: queryId
+        ) { _, completion in
+            preparationCount += 1
+            finishPersistence = completion
+        }
+        MessageArchiveRequestFailureDispatcher.register(
+            owner: owner,
+            queryId: queryId,
+            delivery: .synchronous
+        ) { _ in
+            publicationCount += 1
+        }
+        manager.requestOlderHistoryPage(
+            stream,
+            for: "romeo@example.com",
+            conversationType: .regular,
+            messageId: "500",
+            queryId: queryId,
+            requestCallbacks: .none,
+            deferCoverageCommitUntilConsumerProof: true
+        )
+
+        _ = manager.publishPendingArchiveRequestFailures(
+            streamKind: .primary,
+            reason: .uiActionDisconnect,
+            errorDescription: nil,
+            completion: { firstCompletionCount += 1 }
+        )
+        _ = manager.publishPendingArchiveRequestFailures(
+            streamKind: .primary,
+            reason: .uiActionDisconnect,
+            errorDescription: nil,
+            completion: { secondCompletionCount += 1 }
+        )
+
+        XCTAssertEqual(preparationCount, 1)
+        XCTAssertEqual(publicationCount, 0)
+        XCTAssertEqual(firstCompletionCount, 0)
+        XCTAssertEqual(secondCompletionCount, 0)
+        XCTAssertTrue(manager.queryIds.contains(queryId))
+
+        finishPersistence?()
+        finishPersistence?()
+
+        XCTAssertEqual(publicationCount, 1)
+        XCTAssertEqual(firstCompletionCount, 1)
+        XCTAssertEqual(secondCompletionCount, 1)
+        XCTAssertFalse(manager.queryIds.contains(queryId))
     }
 
     func testPendingArchiveRequestFailureWithoutHandlerDropsAndRemovesUIActionMamQuery() {
@@ -18984,6 +19630,62 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         XCTAssertNotNil(manager.xmppStream(stream, willReceive: iq))
         XCTAssertTrue(manager.xmppStream(stream, didReceive: iq))
         wait(for: [callbackExpectation], timeout: 1.0)
+    }
+
+    func testUIActionFinalDoesNotPersistAnotherActiveArchiveQueryBatch() throws {
+        let manager = XMPPUIActionManager()
+        let stream = XMPPStream()
+        let messageManager = MessageManager(withOwner: owner, activeStream: false)
+        let completedQueryId = "MAM next history: completed-ui-action-query"
+        let heldQueryId = "MAM snapshot: independently-held-query"
+
+        stream.myJID = XMPPJID(string: owner, resource: "xabber-ios-test_ui_upgrade_task")
+        manager.stream = stream
+        manager.currentJid = owner
+        manager.mam = nil
+        manager.messages = messageManager
+        messageManager.archiveQueryIdPersistenceResolver = { $0 == heldQueryId }
+        messageManager.beginArchiveQueryBatch(queryId: heldQueryId)
+        defer {
+            _ = messageManager.finishArchiveQueryBatchSummary(queryId: heldQueryId)
+        }
+
+        messageManager.receiveArchived(try makeMessage(xml: """
+        <message to='\(owner)' from='\(owner)'>
+          <result xmlns='urn:xmpp:mam:2' queryid='\(heldQueryId)' id='archive-held-1'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message xmlns='jabber:client' from='romeo@example.com' to='\(owner)' type='chat' id='held-message-1'>
+                <archived xmlns='urn:xmpp:mam:tmp' by='\(owner)' id='archive-held-1'/>
+                <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='archive-held-1'/>
+                <origin-id xmlns='urn:xmpp:sid:0' id='held-message-1'/>
+                <body>held</body>
+              </message>
+              <delay xmlns='urn:xmpp:delay' from='example.com' stamp='2026-07-21T10:00:00Z'/>
+            </forwarded>
+          </result>
+        </message>
+        """))
+
+        let iq = try makeIQ(xml: """
+        <iq type='result' id='\(completedQueryId)'>
+          <fin xmlns='urn:xmpp:mam:2' complete='false' queryid='\(completedQueryId)'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <count>0</count>
+            </set>
+          </fin>
+        </iq>
+        """)
+
+        XCTAssertNotNil(manager.xmppStream(stream, willReceive: iq))
+        XCTAssertTrue(messageManager.isArchiveQueryBatchActive(queryId: heldQueryId))
+        XCTAssertTrue(messageManager.hasPendingMessages(forQueryId: heldQueryId))
+        XCTAssertEqual(
+            messageManager.performMessageQueueSync {
+                messageManager.queuedMessages.filter { $0.queryId == heldQueryId }.count
+            },
+            1
+        )
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 0)
     }
 
     func testUIActionDisconnectPublishesPendingMamFailure() {
@@ -19662,6 +20364,50 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         XCTAssertEqual(queuedTask(manager, queryId: queryId)?.max, 64)
     }
 
+    func testOlderHistoryCompletionReportsRequestedBeforeCursor() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = XMPPStream()
+        let queryId = "MAM next history: typed-request-cursor"
+        let requestedCursor = "server-archive-500"
+        var receivedState: MessageArchivePageEndState?
+        let callbackExpectation = expectation(description: "older page typed cursor")
+
+        manager.requestOlderHistoryPage(
+            stream,
+            for: "romeo@example.com",
+            conversationType: .regular,
+            messageId: requestedCursor,
+            pageSize: 64,
+            queryId: queryId,
+            requestCallbacks: .init(
+                onMessage: nil,
+                onEndPage: { _, state, _, _, _ in
+                    receivedState = state
+                    callbackExpectation.fulfill()
+                }
+            ),
+            deferCoverageCommitUntilConsumerProof: true
+        )
+
+        XCTAssertEqual(queuedTask(manager, queryId: queryId)?.messageId, requestedCursor)
+
+        let iq = try makeIQ(xml: """
+        <iq type='result' id='\(queryId)'>
+          <fin xmlns='urn:xmpp:mam:2' complete='false' queryid='\(queryId)'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <count>64</count>
+              <first>server-archive-499</first>
+              <last>server-archive-436</last>
+            </set>
+          </fin>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(stream, withIQ: iq))
+        wait(for: [callbackExpectation], timeout: 1.0)
+        XCTAssertEqual(receivedState?.requestCursorId, requestedCursor)
+    }
+
     func testGetPrevHistoryUsesInjectedPageSize() {
         let manager = MessageArchiveManager(withOwner: owner)
         let queryId = manager.requestNewerHistoryPage(
@@ -20026,7 +20772,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         XCTAssertFalse(try fullArchiveLoaded())
     }
 
-    func testConsumerManagedOlderPageDoesNotPersistArchiveEndOrTransportCursor() throws {
+    func testConsumerManagedOlderPageReportsRequestCursorWithoutPersistingArchiveEndOrResponseCursor() throws {
         let manager = MessageArchiveManager(withOwner: owner)
         let stream = XMPPStream()
         try insertLastChat(fullArchiveLoaded: false, lastLoadedMessageHistoryId: "persisted-oldest")
@@ -20068,7 +20814,12 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         wait(for: [callbackExpectation], timeout: 1.0)
         XCTAssertEqual(
             receivedState,
-            .init(queryExhausted: true, archiveEnded: true, persistedMessageCount: 0, requestCursorId: nil)
+            .init(
+                queryExhausted: true,
+                archiveEnded: true,
+                persistedMessageCount: 0,
+                requestCursorId: "requested-oldest"
+            )
         )
         XCTAssertFalse(try fullArchiveLoaded())
         XCTAssertEqual(try persistedHistoryCursorId(), "persisted-oldest")
@@ -21367,8 +22118,8 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
         )
     }
 
-    func testRemoteOlderDoesNotTriggerWhenEveryResidentMessageIsVisible() {
-        XCTAssertNil(
+    func testRemoteOlderTriggersWhenEveryResidentMessageIsVisible() {
+        XCTAssertEqual(
             ChatHistoryPagingPolicy.triggerDirection(
                 isUserScrolling: true,
                 canLoadDatasource: true,
@@ -21382,12 +22133,13 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 currentPageMaxIndex: 2,
                 totalCount: 2,
                 hasRemoteOlderAvailable: true
-            )
+            ),
+            .older
         )
     }
 
-    func testShortContentFallbackDoesNotRequestRemoteOlderWhenEveryResidentMessageIsVisible() {
-        XCTAssertNil(
+    func testShortContentFallbackRequestsRemoteOlderWhenEveryResidentMessageIsVisible() {
+        XCTAssertEqual(
             ChatHistoryPagingPolicy.fallbackDirectionForShortContentDrag(
                 canLoadDatasource: true,
                 gestureTranslationY: 52,
@@ -21400,12 +22152,13 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 currentPageMaxIndex: 2,
                 totalCount: 2,
                 hasRemoteOlderAvailable: true
-            )
+            ),
+            .older
         )
     }
 
-    func testShortContentSuppressionIgnoresRemoteOlderOnlyBoundary() {
-        XCTAssertNil(
+    func testShortContentSuppressionAllowsAuthoritativeRemoteOlderBoundary() {
+        XCTAssertEqual(
             ChatHistoryPagingPolicy.triggerDirection(
                 isUserScrolling: true,
                 canLoadDatasource: true,
@@ -21420,7 +22173,8 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 totalCount: 2,
                 hasRemoteOlderAvailable: true,
                 suppressRemoteBoundaryPaging: true
-            )
+            ),
+            .older
         )
     }
 
@@ -21488,8 +22242,8 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
         )
     }
 
-    func testShortContentFallbackSuppressionIgnoresRemoteOlderOnlyBoundary() {
-        XCTAssertNil(
+    func testShortContentFallbackSuppressionAllowsAuthoritativeRemoteOlderBoundary() {
+        XCTAssertEqual(
             ChatHistoryPagingPolicy.fallbackDirectionForShortContentDrag(
                 canLoadDatasource: true,
                 gestureTranslationY: 52,
@@ -21503,6 +22257,20 @@ final class ChatHistoryPagingPolicyTests: XCTestCase {
                 totalCount: 2,
                 hasRemoteOlderAvailable: true,
                 suppressRemoteBoundaryPaging: true
+            ),
+            .older
+        )
+    }
+
+    func testShortContentGeometryDoesNotSuppressAuthoritativeRemoteOlderPage() {
+        XCTAssertFalse(
+            ChatShortContentRemotePagingSuppressionPolicy.shouldSuppressRemoteBoundaryPaging(
+                hasRealMessages: true,
+                hasLocalOlderAvailable: false,
+                hasLocalNewerAvailable: false,
+                hasRemoteOlderAvailable: true,
+                contentHeight: 120,
+                visibleHeight: 400
             )
         )
     }
@@ -26689,14 +27457,28 @@ final class ChatRemoteHistoryApplyPolicyTests: XCTestCase {
 }
 
 final class MessageManagerQueueSynchronizationTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+    private var realmAnchor: Realm!
 
     override func setUp() {
         super.setUp()
+        MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "MessageManagerQueueSynchronizationTests-\(name)")
-        let realm = try! WRealm.safe()
-        try! realm.write {
-            realm.deleteAll()
+        realmAnchor = try! WRealm.safe()
+        try! realmAnchor.write {
+            realmAnchor.deleteAll()
         }
+    }
+
+    override func tearDown() {
+        MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
+        realmAnchor = nil
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        super.tearDown()
     }
 
     private func makeElement(xml: String) throws -> DDXMLElement {
@@ -26865,6 +27647,334 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(summary.updatedExisting, 0)
         XCTAssertEqual(summary.failed, 0)
         XCTAssertEqual(summary.visibleRows(owner: "owner@example.com", jid: "romeo@example.com", conversationType: .regular), 1)
+    }
+
+    func testRegisteredArchiveBatchDoesNotAutoDrainBeforeFinalFlush() throws {
+        let queryId = "held-until-final"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.beginArchiveQueryBatch(queryId: queryId)
+
+        for index in 1...81 {
+            manager.receiveArchived(try makeArchivedMessage(index: index, queryId: queryId))
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+
+        XCTAssertTrue(manager.isArchiveQueryBatchActive(queryId: queryId))
+        XCTAssertEqual(
+            manager.performMessageQueueSync {
+                manager.queuedMessages.filter { $0.queryId == queryId }.count
+            },
+            81
+        )
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 0)
+
+        let summary = manager.finishArchiveQueryBatchSummary(queryId: queryId)
+
+        XCTAssertEqual(summary.persistedRows, 81)
+        XCTAssertEqual(manager.messagePersistenceChunkSizes, [81])
+        XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 81)
+    }
+
+    func testSameArchivedStanzaHasIndependentPersistenceTerminalForEachActiveQuery() throws {
+        let firstQueryId = "bootstrap-query"
+        let secondQueryId = "snapshot-query"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.archiveQueryIdPersistenceResolver = { queryId in
+            queryId == firstQueryId || queryId == secondQueryId
+        }
+        manager.beginArchiveQueryBatch(queryId: firstQueryId)
+        manager.beginArchiveQueryBatch(queryId: secondQueryId)
+
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: firstQueryId))
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: secondQueryId))
+
+        XCTAssertEqual(manager.performMessageQueueSync { manager.queuedMessages.count }, 2)
+        XCTAssertTrue(manager.hasPendingMessages(forQueryId: firstQueryId))
+        XCTAssertTrue(manager.hasPendingMessages(forQueryId: secondQueryId))
+
+        let firstSummary = manager.finishArchiveQueryBatchSummary(queryId: firstQueryId)
+
+        XCTAssertEqual(firstSummary.received, 1)
+        XCTAssertEqual(firstSummary.queued, 1)
+        XCTAssertEqual(firstSummary.savedNew, 1)
+        XCTAssertEqual(firstSummary.updatedExisting, 0)
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: firstQueryId))
+        XCTAssertTrue(manager.isArchiveQueryBatchActive(queryId: secondQueryId))
+        XCTAssertTrue(manager.hasPendingMessages(forQueryId: secondQueryId))
+        XCTAssertEqual(
+            manager.performMessageQueueSync {
+                manager.queuedMessages.filter { $0.queryId == secondQueryId }.count
+            },
+            1
+        )
+
+        let secondSummary = manager.finishArchiveQueryBatchSummary(queryId: secondQueryId)
+
+        XCTAssertEqual(secondSummary.received, 1)
+        XCTAssertEqual(secondSummary.queued, 1)
+        XCTAssertEqual(secondSummary.savedNew, 0)
+        XCTAssertEqual(secondSummary.updatedExisting, 1)
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: secondQueryId))
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 1)
+
+        let stored = try XCTUnwrap(
+            WRealm.safe()
+                .objects(MessageStorageItem.self)
+                .filter("messageId == %@", "message-1")
+                .first
+        )
+        XCTAssertTrue(stored.queryIds?.contains(firstQueryId) == true)
+        XCTAssertTrue(stored.queryIds?.contains(secondQueryId) == true)
+    }
+
+    func testArchiveBatchFlushesOnlyMatchingQueryAndKeepsLiveDrainEligible() throws {
+        let queryId = "held-query"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.beginArchiveQueryBatch(queryId: queryId)
+
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryId))
+        manager.enqueue(MessageManager.MessageQueueItem(
+            try makeMessage(index: 2),
+            messageId: "message-2",
+            archivedFrom: "romeo@example.com",
+            isRead: false,
+            date: Date(timeIntervalSince1970: 2),
+            state: .deliver,
+            queryId: nil
+        ))
+
+        XCTAssertTrue(
+            waitUntil {
+                let pending = manager.performMessageQueueSync { manager.queuedMessages }
+                return pending.count == 1 && pending.first?.queryId == queryId
+            }
+        )
+        XCTAssertTrue(manager.hasPendingMessages(forQueryId: queryId))
+
+        let summary = manager.finishArchiveQueryBatchSummary(queryId: queryId)
+
+        XCTAssertEqual(summary.persistedRows, 1)
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 2)
+    }
+
+    func testArchiveBatchFailureCleanupPersistsPartialPageAsynchronously() throws {
+        let queryId = "partial-page"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.beginArchiveQueryBatch(queryId: queryId)
+        for index in 1...5 {
+            manager.receiveArchived(try makeArchivedMessage(index: index, queryId: queryId))
+        }
+
+        let flushed = expectation(description: "partial batch flushed")
+        manager.finishArchiveQueryBatchAsync(queryId: queryId) { summary in
+            XCTAssertEqual(summary.persistedRows, 5)
+            flushed.fulfill()
+        }
+
+        wait(for: [flushed], timeout: 2)
+        XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 5)
+    }
+
+    func testDisconnectFailurePersistsRegisteredPartialBatchBeforeMamQueryRemovalAndPublication() throws {
+        let owner = "owner@example.com"
+        let queryId = "disconnect-registered-partial-page"
+        let messages = MessageManager(withOwner: owner, activeStream: false)
+        let mam = MessageArchiveManager(withOwner: owner)
+        let stream = CapturingXMPPStream()
+        let persistenceStarted = expectation(description: "query persistence started")
+        let failurePublished = expectation(description: "failure published after persistence")
+        let lifecycleCompleted = expectation(description: "disconnect lifecycle completed")
+        let allowPersistence = DispatchSemaphore(value: 0)
+        let persistenceStateLock = NSLock()
+        var batchWasActiveWhenPersistenceStarted = false
+
+        messages.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        ChatRemoteHistoryCompletionCoordinator.registerPersistenceSource(
+            messages,
+            owner: owner,
+            queryId: queryId
+        )
+        messages.archiveBatchSaveFailureInjector = {
+            let isBatchActive = messages.isArchiveQueryBatchActive(queryId: queryId)
+            persistenceStateLock.lock()
+            batchWasActiveWhenPersistenceStarted = isBatchActive
+            persistenceStateLock.unlock()
+            persistenceStarted.fulfill()
+            XCTAssertEqual(allowPersistence.wait(timeout: .now() + 2), .success)
+        }
+        messages.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryId))
+        mam.requestOlderHistoryPage(
+            stream,
+            for: "romeo@example.com",
+            conversationType: .regular,
+            messageId: "500",
+            queryId: queryId,
+            requestCallbacks: .none,
+            deferCoverageCommitUntilConsumerProof: true
+        )
+        MessageArchiveRequestFailureDispatcher.register(
+            owner: owner,
+            queryId: queryId,
+            delivery: .synchronous
+        ) { _ in
+            XCTAssertFalse(mam.queryIds.contains(queryId))
+            XCTAssertFalse(mam.callbacksQueue.contains { $0.elementId == queryId })
+            XCTAssertFalse(messages.isArchiveQueryBatchActive(queryId: queryId))
+            XCTAssertEqual(try? WRealm.safe().objects(MessageStorageItem.self).count, 1)
+            failurePublished.fulfill()
+        }
+
+        _ = mam.publishPendingArchiveRequestFailures(
+            streamKind: .primary,
+            reason: .uiActionDisconnect,
+            errorDescription: "socket closed",
+            completion: lifecycleCompleted.fulfill
+        )
+
+        wait(for: [persistenceStarted], timeout: 1)
+        XCTAssertTrue(mam.queryIds.contains(queryId))
+        XCTAssertTrue(mam.callbacksQueue.contains { $0.elementId == queryId })
+        persistenceStateLock.lock()
+        let observedActiveBatch = batchWasActiveWhenPersistenceStarted
+        persistenceStateLock.unlock()
+        XCTAssertTrue(observedActiveBatch)
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 0)
+
+        allowPersistence.signal()
+        wait(for: [failurePublished, lifecycleCompleted], timeout: 2)
+    }
+
+    func testFailurePreparationJoinsAlreadyRunningPersistenceSourceUnregisterBeforeMamFinalization() throws {
+        let owner = "owner-in-flight-unregister@example.com"
+        let queryId = "disconnect-joins-in-flight-persistence-source-unregister"
+        let messages = MessageManager(withOwner: owner, activeStream: false)
+        let mam = MessageArchiveManager(withOwner: owner)
+        let stream = CapturingXMPPStream()
+        let persistenceStarted = expectation(description: "query persistence started")
+        let firstUnregisterCompleted = expectation(description: "first unregister completed after persistence")
+        let joinedUnregisterCompleted = expectation(description: "joined unregister completed after persistence")
+        let failurePublished = expectation(description: "MAM failure published after persistence")
+        let lifecycleCompleted = expectation(description: "disconnect lifecycle completed")
+        let allowPersistence = DispatchSemaphore(value: 0)
+        let stateLock = NSLock()
+        var didCompleteFirstUnregister = false
+        var didCompleteJoinedUnregister = false
+        var didPublishFailure = false
+
+        firstUnregisterCompleted.assertForOverFulfill = true
+        joinedUnregisterCompleted.assertForOverFulfill = true
+        failurePublished.assertForOverFulfill = true
+        lifecycleCompleted.assertForOverFulfill = true
+
+        messages.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        ChatRemoteHistoryCompletionCoordinator.registerPersistenceSource(
+            messages,
+            owner: owner,
+            queryId: queryId
+        )
+        messages.archiveBatchSaveFailureInjector = {
+            persistenceStarted.fulfill()
+            XCTAssertEqual(allowPersistence.wait(timeout: .now() + 2), .success)
+        }
+        messages.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryId))
+        mam.requestOlderHistoryPage(
+            stream,
+            for: "romeo@example.com",
+            conversationType: .regular,
+            messageId: "500",
+            queryId: queryId,
+            requestCallbacks: .none,
+            deferCoverageCommitUntilConsumerProof: true
+        )
+        MessageArchiveRequestFailureDispatcher.register(
+            owner: owner,
+            queryId: queryId,
+            delivery: .synchronous
+        ) { _ in
+            stateLock.lock()
+            didPublishFailure = true
+            stateLock.unlock()
+            failurePublished.fulfill()
+        }
+
+        ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+            owner: owner,
+            queryId: queryId
+        ) {
+            stateLock.lock()
+            didCompleteFirstUnregister = true
+            stateLock.unlock()
+            firstUnregisterCompleted.fulfill()
+        }
+        wait(for: [persistenceStarted], timeout: 1)
+
+        _ = mam.publishPendingArchiveRequestFailures(
+            streamKind: .primary,
+            reason: .uiActionDisconnect,
+            errorDescription: "socket closed",
+            completion: lifecycleCompleted.fulfill
+        )
+        ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+            owner: owner,
+            queryId: queryId
+        ) {
+            stateLock.lock()
+            didCompleteJoinedUnregister = true
+            stateLock.unlock()
+            joinedUnregisterCompleted.fulfill()
+        }
+
+        stateLock.lock()
+        let completedBeforePersistenceTerminal = didCompleteFirstUnregister
+        let joinedBeforePersistenceTerminal = didCompleteJoinedUnregister
+        let publishedBeforePersistenceTerminal = didPublishFailure
+        stateLock.unlock()
+        XCTAssertFalse(completedBeforePersistenceTerminal)
+        XCTAssertFalse(joinedBeforePersistenceTerminal)
+        XCTAssertFalse(publishedBeforePersistenceTerminal)
+        XCTAssertTrue(mam.queryIds.contains(queryId))
+        XCTAssertTrue(mam.callbacksQueue.contains { $0.elementId == queryId })
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 0)
+
+        allowPersistence.signal()
+        wait(
+            for: [
+                firstUnregisterCompleted,
+                joinedUnregisterCompleted,
+                failurePublished,
+                lifecycleCompleted,
+            ],
+            timeout: 2
+        )
+
+        XCTAssertFalse(mam.queryIds.contains(queryId))
+        XCTAssertFalse(mam.callbacksQueue.contains { $0.elementId == queryId })
+        XCTAssertFalse(messages.isArchiveQueryBatchActive(queryId: queryId))
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 1)
+    }
+
+    func testReceiverLifecycleFlushesPartialArchiveBatchesAndClearsRegistrations() throws {
+        let queryId = "disconnect-partial-page"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.beginArchiveQueryBatch(queryId: queryId)
+        for index in 1...7 {
+            manager.receiveArchived(try makeArchivedMessage(index: index, queryId: queryId))
+        }
+
+        manager.unsubscribeReceiver()
+
+        XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 7)
     }
 
     func testArchivePersistenceSummaryCountsDuplicateExistingRows() throws {

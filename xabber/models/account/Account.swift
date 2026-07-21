@@ -93,6 +93,7 @@ final class AccountXMPPTaskScheduler {
 
     private struct ScheduledTask {
         let id: Int
+        let generation: UInt64
         let priority: Priority
         let resource: Resource
         let deduplicationKey: String?
@@ -105,12 +106,16 @@ final class AccountXMPPTaskScheduler {
     private let queue = DispatchQueue(label: "com.xabber.account-xmpp-task-scheduler")
     private var pendingTasks: [ScheduledTask] = []
     private var runningCountByResource: [Resource: Int] = [:]
+    private var runningTasksByID: [Int: ScheduledTask] = [:]
     private var delayedResources: Set<Resource> = []
-    private var runningDeduplicationKeys: Set<String> = []
     private var nextTaskID: Int = 0
     private var nextOrder: Int = 0
+    private var generation: UInt64 = 0
     private var isPaused: Bool
     private let bootstrapGate: () -> Bool
+    #if DEBUG
+    internal var resetObserverForTests: (() -> Void)?
+    #endif
 
     init(
         account: Account? = nil,
@@ -132,7 +137,10 @@ final class AccountXMPPTaskScheduler {
     ) {
         queue.async {
             if let deduplicationKey {
-                if self.runningDeduplicationKeys.contains(deduplicationKey) {
+                if self.runningTasksByID.values.contains(where: {
+                    $0.generation == self.generation &&
+                        $0.deduplicationKey == deduplicationKey
+                }) {
                     return
                 }
                 if let index = self.pendingTasks.firstIndex(where: { $0.deduplicationKey == deduplicationKey }) {
@@ -142,6 +150,7 @@ final class AccountXMPPTaskScheduler {
                     let existing = self.pendingTasks[index]
                     self.pendingTasks[index] = ScheduledTask(
                         id: existing.id,
+                        generation: existing.generation,
                         priority: priority,
                         resource: resource,
                         deduplicationKey: deduplicationKey,
@@ -155,6 +164,7 @@ final class AccountXMPPTaskScheduler {
 
             let task = ScheduledTask(
                 id: self.nextTaskID,
+                generation: self.generation,
                 priority: priority,
                 resource: resource,
                 deduplicationKey: deduplicationKey,
@@ -173,15 +183,18 @@ final class AccountXMPPTaskScheduler {
         resource: Resource,
         deduplicationKey: String?,
         requiresAuthenticatedStream: Bool = true,
+        unavailable: (() -> Void)? = nil,
         work: @escaping (Account, XMPPStream, @escaping () -> Void) -> Void
     ) {
         enqueue(priority: priority, resource: resource, deduplicationKey: deduplicationKey) { [weak self] finish in
             guard let self, let account = self.account else {
+                unavailable?()
                 finish()
                 return
             }
             account.action { user, stream in
                 guard !requiresAuthenticatedStream || user.sendReadiness.snapshot.canFlushApplicationStanzas else {
+                    unavailable?()
                     finish()
                     return
                 }
@@ -205,10 +218,24 @@ final class AccountXMPPTaskScheduler {
 
     func reset() {
         queue.async {
+            self.generation &+= 1
             self.pendingTasks.removeAll()
-            self.runningCountByResource.removeAll()
-            self.runningDeduplicationKeys.removeAll()
             self.delayedResources.removeAll()
+
+            // A running MAM task owns query-scoped persistence after raw <fin>
+            // or disconnect. Keep only that lane occupied until its terminal
+            // callback; other stream-bound work cannot reliably complete after
+            // disconnect and must not deadlock the next session.
+            self.runningTasksByID = self.runningTasksByID.filter {
+                $0.value.resource == .mamArchive
+            }
+            self.runningCountByResource.removeAll()
+            self.runningTasksByID.values.forEach {
+                self.runningCountByResource[$0.resource, default: 0] += 1
+            }
+            #if DEBUG
+            self.resetObserverForTests?()
+            #endif
         }
     }
 
@@ -219,10 +246,8 @@ final class AccountXMPPTaskScheduler {
 
         while let index = nextRunnableTaskIndexLocked() {
             let task = pendingTasks.remove(at: index)
+            runningTasksByID[task.id] = task
             runningCountByResource[task.resource, default: 0] += 1
-            if let deduplicationKey = task.deduplicationKey {
-                runningDeduplicationKeys.insert(deduplicationKey)
-            }
 
             let completion = makeCompletion(for: task)
             task.work(completion)
@@ -265,18 +290,23 @@ final class AccountXMPPTaskScheduler {
 
     private func complete(_ task: ScheduledTask) {
         queue.async {
+            guard let runningTask = self.runningTasksByID.removeValue(forKey: task.id),
+                  runningTask.generation == task.generation else {
+                return
+            }
             self.runningCountByResource[task.resource] = max(self.runningCountByResource[task.resource, default: 1] - 1, 0)
             if self.runningCountByResource[task.resource] == 0 {
                 self.runningCountByResource.removeValue(forKey: task.resource)
             }
-            if let deduplicationKey = task.deduplicationKey {
-                self.runningDeduplicationKeys.remove(deduplicationKey)
-            }
 
             let cooldown = self.configuration.cooldown(for: task.resource)
             if cooldown > 0 {
+                let generation = self.generation
                 self.delayedResources.insert(task.resource)
                 self.queue.asyncAfter(deadline: .now() + cooldown) {
+                    guard generation == self.generation else {
+                        return
+                    }
                     self.delayedResources.remove(task.resource)
                     self.drainLocked()
                 }
@@ -3128,7 +3158,14 @@ final class Account: NSObject {
     var presences: PresenceManager
     var messages: MessageManager
     var roster: RosterManager
-    var mam: MessageArchiveManager
+    var mam: MessageArchiveManager {
+        didSet {
+            let finalizationQueue = queue
+            mam.pendingArchiveFailureFinalizationDispatcher = { work in
+                finalizationQueue.async(execute: work)
+            }
+        }
+    }
     var carbons: CarbonsManager
     var lastChats: LastChats
     var csi: ClientStateIndicateManager
@@ -3263,6 +3300,10 @@ final class Account: NSObject {
         self.abuse = XMPPAbuseManager(withOwner: self.jid)
         // start init NSObject
         super.init()
+        let mamFinalizationQueue = self.queue
+        self.mam.pendingArchiveFailureFinalizationDispatcher = { work in
+            mamFinalizationQueue.async(execute: work)
+        }
         self.sendReadiness.onReadinessChanged = { [weak self] snapshot in
             guard let self else { return }
             self.logConnectionDiagnostics(
@@ -3651,8 +3692,20 @@ final class Account: NSObject {
     
     func resetStream() {
         self.logConnectionDiagnostics(event: "reset_stream_requested")
-        self.mam.didResetState()
-        self.xmppTaskScheduler.reset()
+        let mam = self.mam
+        let scheduler = self.xmppTaskScheduler
+        let archiveRequestGeneration = mam.archiveRequestGenerationSnapshot()
+        scheduler.reset()
+        _ = mam.publishPendingArchiveRequestFailures(
+            streamKind: .primary,
+            reason: .uiActionDisconnect,
+            errorDescription: "primary stream reset",
+            completion: {
+                _ = mam.didResetState(
+                    ifArchiveRequestGenerationMatches: archiveRequestGeneration
+                )
+            }
+        )
         self.cancelDelayedConnectTimer()
         self.connectionGate.reset()
         self.sendReadiness.markDisconnected(cause: self.pendingDisconnectContext.cause ?? .accidentalSocket)
@@ -4625,8 +4678,20 @@ final class Account: NSObject {
     func resetModules() {
 //        self.statusMessage.accept("Waiting for network")
         self.statusMessage.accept("Offline")
-        self.mam.didResetState()
-        self.xmppTaskScheduler.reset()
+        let mam = self.mam
+        let scheduler = self.xmppTaskScheduler
+        let archiveRequestGeneration = mam.archiveRequestGenerationSnapshot()
+        scheduler.reset()
+        _ = mam.publishPendingArchiveRequestFailures(
+            streamKind: .primary,
+            reason: .uiActionDisconnect,
+            errorDescription: "primary modules reset",
+            completion: {
+                _ = mam.didResetState(
+                    ifArchiveRequestGenerationMatches: archiveRequestGeneration
+                )
+            }
+        )
         self.presences.didResetState()
         self.msgDeleteManager.clearSession()
         self.devices.clearSession()

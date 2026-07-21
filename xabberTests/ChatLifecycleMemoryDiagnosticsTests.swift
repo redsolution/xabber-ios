@@ -83,6 +83,26 @@ final class ChatLifecycleMemoryDiagnosticsTests: XCTestCase {
         ].forEach { XCTAssertFalse(output.contains($0), "leaked: \($0)") }
     }
 
+    func testArchiveTraceSampleRateCanBeMadeDeterministicForManualAcceptance() {
+        XCTAssertEqual(
+            ChatArchiveDebugTrace.resolvedSampleEvery(environment: [
+                ChatArchiveDebugTrace.sampleEveryEnvironmentKey: "1"
+            ]),
+            1
+        )
+        XCTAssertEqual(
+            ChatArchiveDebugTrace.resolvedSampleEvery(environment: [
+                ChatArchiveDebugTrace.sampleEveryEnvironmentKey: "0"
+            ]),
+            ChatArchiveDebugTrace.productionSampleEvery
+        )
+        XCTAssertEqual(
+            ChatArchiveDebugTrace.resolvedSampleEvery(environment: [:]),
+            ChatArchiveDebugTrace.productionSampleEvery
+        )
+    }
+
+
     func testTwentyCyclePlateauAcceptsTenPercentAndRejectsGrowthBeyondBudget() {
         let stable = ChatMemoryPlateauDiagnostics.evaluate(
             samples: [100, 112, 108, 105, 104, 103, 104, 105, 104, 105, 104, 104, 105, 104, 105, 105, 104, 105, 104, 105],

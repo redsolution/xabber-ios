@@ -318,7 +318,7 @@ final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
         )
     }
 
-    func testCoordinatorOwnsTimeoutAndFinalCancelsItBeforePersistenceDelivery() {
+    func testCoordinatorWatchdogRemainsArmedUntilPersistenceDelivery() {
         let coordinator = ChatRemoteHistoryQueryCoordinator(callbackQueue: .main)
         let descriptor = makeDescriptor(
             queryId: "mam-owned-timeout",
@@ -326,11 +326,15 @@ final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
             direction: .newer,
             cursor: "700"
         )
-        let committed = expectation(description: "committed")
-        let timeout = expectation(description: "timeout must be cancelled")
-        timeout.isInverted = true
+        let barrierStarted = expectation(description: "persistence barrier started")
+        let timeout = expectation(description: "watchdog fires while persistence is stalled")
+        let committed = expectation(description: "late persistence must not commit")
+        committed.isInverted = true
+        let releaseBarrier = DispatchSemaphore(value: 0)
 
         XCTAssertTrue(coordinator.register(descriptor) { _, completion in
+            barrierStarted.fulfill()
+            XCTAssertEqual(releaseBarrier.wait(timeout: .now() + 2), .success)
             completion(.success(self.completionResult(persistedRows: 1)))
         })
         XCTAssertTrue(coordinator.scheduleTimeout(
@@ -355,35 +359,18 @@ final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
             },
             .accepted
         )
-        XCTAssertFalse(coordinator.hasScheduledTimeout(queryId: descriptor.queryId))
-
-        wait(for: [committed, timeout], timeout: 0.2)
-        XCTAssertEqual(coordinator.terminalReason(queryId: descriptor.queryId), .completed)
-
-        let timedOutCoordinator = ChatRemoteHistoryQueryCoordinator(callbackQueue: .main)
-        let timedOutDescriptor = makeDescriptor(
-            queryId: "mam-owned-timeout-fired",
-            generation: 22,
-            direction: .older,
-            cursor: "600"
+        XCTAssertTrue(
+            coordinator.hasScheduledTimeout(queryId: descriptor.queryId),
+            "raw <fin> only starts persistence and must not disarm the watchdog"
         )
-        let fired = expectation(description: "owned timeout fired")
-        XCTAssertTrue(timedOutCoordinator.register(timedOutDescriptor) { _, _ in
-            XCTFail("Timed out request must not persist")
-        })
-        XCTAssertTrue(timedOutCoordinator.scheduleTimeout(
-            queryId: timedOutDescriptor.queryId,
-            generation: timedOutDescriptor.generation,
-            after: 0.01,
-            terminalReason: .timeout
-        ) {
-            fired.fulfill()
-        })
-        wait(for: [fired], timeout: 1)
+
+        wait(for: [barrierStarted, timeout], timeout: 1)
         XCTAssertEqual(
-            timedOutCoordinator.terminalReason(queryId: timedOutDescriptor.queryId),
+            coordinator.terminalReason(queryId: descriptor.queryId),
             .timeout
         )
+        releaseBarrier.signal()
+        wait(for: [committed], timeout: 0.2)
     }
 
     func testPersistenceErrorIsDeliveredOnceWithoutCommittedPage() {
@@ -457,6 +444,287 @@ final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
         XCTAssertFalse(sources.contains { $0.contains("getNextHistory(") })
         XCTAssertTrue(sources.contains { $0.contains("requestOlderHistoryPage(") })
         XCTAssertTrue(sources.contains { $0.contains("requestNewerHistoryPage(") })
+    }
+
+    func testBackgroundContextPrefetchUsesExplicitDetachedPersistenceQueries() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "xabber/controllers/chats/chat/extension/ChatViewController+SearchBar.swift"
+            ),
+            encoding: .utf8
+        )
+        let methodStart = try XCTUnwrap(source.range(
+            of: "private func startBackgroundContextPrefetchIfNeeded("
+        ))
+        let methodEnd = try XCTUnwrap(source.range(
+            of: "private func revealLocalContentForSavedPositionIfNeeded(",
+            range: methodStart.upperBound..<source.endIndex
+        ))
+        let methodSource = String(source[methodStart.lowerBound..<methodEnd.lowerBound])
+
+        XCTAssertTrue(methodSource.contains("ChatDetachedRemoteHistoryPersistenceTransaction("))
+        XCTAssertTrue(methodSource.contains("queryIds: queryIds"))
+        XCTAssertTrue(methodSource.contains("detachedPersistenceTransaction: persistenceTransaction"))
+        XCTAssertTrue(methodSource.contains("requestCallbacks: persistenceTransaction.requestCallbacks"))
+        XCTAssertFalse(
+            methodSource.contains("queryId: nil"),
+            "background context MAM must register an explicit query-scoped persistence batch before send"
+        )
+    }
+
+    func testDetachedPersistenceTerminalRunsOnlyAfterFlushAndUnregisterAndDedupesLateFinal() {
+        let queryId = "MAM next history: detached-order"
+        var events: [String] = []
+        var finishFlush: (() -> Void)?
+        var finishUnregister: (() -> Void)?
+        let transaction = ChatDetachedRemoteHistoryPersistenceTransaction(
+            owner: "owner@example.com",
+            jid: "chat@example.com",
+            conversationType: .regular,
+            queryIds: [queryId],
+            terminal: { events.append("terminal:\($0)") },
+            flush: { receivedQueryId, _, completion in
+                events.append("flush:\(receivedQueryId)")
+                finishFlush = completion
+            },
+            unregister: { receivedQueryId, completion in
+                events.append("unregister:\(receivedQueryId)")
+                finishUnregister = completion
+            }
+        )
+        let state = MessageArchivePageEndState(
+            queryExhausted: false,
+            archiveEnded: false,
+            persistedMessageCount: 0
+        )
+
+        transaction.requestCallbacks.onEndPage?(queryId, state, "first", "last", 81)
+        transaction.requestCallbacks.onEndPage?(queryId, state, "first", "last", 81)
+        XCTAssertEqual(events, ["flush:\(queryId)"])
+
+        finishFlush?()
+        XCTAssertEqual(events, ["flush:\(queryId)", "unregister:\(queryId)"])
+
+        finishUnregister?()
+        XCTAssertEqual(
+            events,
+            ["flush:\(queryId)", "unregister:\(queryId)", "terminal:\(queryId)"]
+        )
+
+        transaction.requestCallbacks.onEndPage?(queryId, state, "first", "last", 81)
+        XCTAssertEqual(
+            events,
+            ["flush:\(queryId)", "unregister:\(queryId)", "terminal:\(queryId)"],
+            "a final delivered after controller teardown or terminal completion must be inert"
+        )
+    }
+
+    func testInteractiveOlderPageDoesNotReleaseMamSchedulerOnRawFinal() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift"
+            ),
+            encoding: .utf8
+        )
+        let olderPageStart = try XCTUnwrap(
+            source.range(of: "case .remote(.remoteOlderPage):")
+        )
+        let newerPageStart = try XCTUnwrap(
+            source.range(
+                of: "case .remote(.remoteNewerPage):",
+                range: olderPageStart.upperBound..<source.endIndex
+            )
+        )
+        let olderPageSource = String(
+            source[olderPageStart.lowerBound..<newerPageStart.lowerBound]
+        )
+
+        XCTAssertTrue(
+            olderPageSource.contains("deferCoverageCommitUntilConsumerProof: true"),
+            "interactive older paging must keep query-scoped consumer persistence ownership"
+        )
+        XCTAssertFalse(
+            olderPageSource.contains("callback: finish"),
+            "raw MAM final must not release the shared .mamArchive scheduler lease before query persistence terminates"
+        )
+    }
+
+    func testMamSchedulerLeaseReleasesExactlyOnceAfterPersistenceTerminal() {
+        let coordinator = ChatRemoteHistoryQueryCoordinator(callbackQueue: .main)
+        let descriptor = makeDescriptor(
+            queryId: "mam-scheduler-persistence-terminal",
+            generation: 41,
+            direction: .older,
+            cursor: "900"
+        )
+        let lease = ChatInteractiveRemoteArchiveSchedulerLease()
+        let barrierStarted = expectation(description: "persistence barrier started")
+        let leaseReleased = expectation(description: "scheduler lease released")
+        let committed = expectation(description: "committed page delivered")
+        let releaseBarrier = DispatchSemaphore(value: 0)
+        let countLock = NSLock()
+        var releaseCount = 0
+
+        lease.attach {
+            countLock.lock()
+            releaseCount += 1
+            countLock.unlock()
+            leaseReleased.fulfill()
+        }
+        XCTAssertTrue(coordinator.register(
+            descriptor,
+            persistenceCleanup: lease.complete
+        ) { _, completion in
+            barrierStarted.fulfill()
+            XCTAssertEqual(releaseBarrier.wait(timeout: .now() + 2), .success)
+            completion(.success(self.completionResult(persistedRows: 81)))
+        })
+
+        XCTAssertEqual(
+            coordinator.receiveFinal(
+                queryId: descriptor.queryId,
+                generation: descriptor.generation,
+                page: makeFinalPage()
+            ) { result in
+                guard case .success = result else {
+                    return XCTFail("Expected a persisted committed page")
+                }
+                committed.fulfill()
+            },
+            .accepted
+        )
+
+        wait(for: [barrierStarted], timeout: 2)
+        countLock.lock()
+        XCTAssertEqual(releaseCount, 0, "raw final must not release the scheduler lane")
+        countLock.unlock()
+
+        releaseBarrier.signal()
+        wait(for: [leaseReleased, committed], timeout: 2)
+        lease.complete()
+        coordinator.remove(queryId: descriptor.queryId)
+        countLock.lock()
+        XCTAssertEqual(releaseCount, 1)
+        countLock.unlock()
+    }
+
+    func testTerminalCleanupFlushesPartialBatchBeforeCancellingQueryAndReleasingMamLane() {
+        let lease = ChatInteractiveRemoteArchiveSchedulerLease()
+        var events: [String] = []
+        var finishPersistence: (() -> Void)?
+
+        lease.attach {
+            events.append("scheduler-release")
+        }
+
+        ChatInteractiveRemoteArchiveTerminalCleanup.perform(
+            flushPersistence: { completion in
+                events.append("persistence-flush-start")
+                finishPersistence = completion
+            },
+            cancelPendingRequest: {
+                events.append("query-cancel")
+            },
+            completeSchedulerLease: lease.complete
+        )
+
+        XCTAssertEqual(events, ["persistence-flush-start"])
+
+        finishPersistence?()
+        finishPersistence?()
+        lease.complete()
+
+        XCTAssertEqual(
+            events,
+            ["persistence-flush-start", "query-cancel", "scheduler-release"],
+            "timeout/disconnect teardown must persist the partial page before removing transport state and releasing .mamArchive"
+        )
+    }
+
+    func testMamSchedulerLeaseHandlesTerminalBeforeSchedulerDequeue() {
+        let lease = ChatInteractiveRemoteArchiveSchedulerLease()
+        lease.complete()
+
+        var releaseCount = 0
+        lease.attach {
+            releaseCount += 1
+        }
+        lease.complete()
+
+        XCTAssertEqual(releaseCount, 1)
+    }
+
+    func testUnavailableSendReadinessDispatchesFailureAndReleasesMamLane() {
+        let owner = "interactive-mam-not-ready-\(UUID().uuidString)@example.com"
+        let account = Account(
+            jid: owner,
+            queue: DispatchQueue(label: "ChatRemoteMAMPersistenceCoordinatorTests.\(UUID().uuidString)")
+        )
+        AccountManager.shared.users.append(account)
+        defer {
+            account.xmppTaskScheduler.reset()
+            AccountManager.shared.users.removeAll { $0.jid == owner }
+        }
+
+        XCTAssertFalse(account.sendReadiness.snapshot.canFlushApplicationStanzas)
+
+        let unavailable = expectation(description: "not-ready request reports dispatch unavailable")
+        let mamLaneReleased = expectation(description: "not-ready request releases MAM lane")
+        let stateLock = NSLock()
+        var didAttemptSend = false
+        var unavailableReason: String?
+
+        let request = ChatInteractiveRemoteArchiveDispatchRequest(
+            owner: owner,
+            queryId: "interactive-not-ready",
+            direction: .older,
+            cursorId: "archive-cursor",
+            pageSize: 250,
+            priority: .interactive,
+            resource: .mamArchive,
+            deduplicationKey: "interactive-not-ready",
+            schedulerLease: ChatInteractiveRemoteArchiveSchedulerLease(),
+            shouldDispatch: { true },
+            send: { _, _ in
+                stateLock.lock()
+                didAttemptSend = true
+                stateLock.unlock()
+                return nil
+            },
+            transportStarted: { _, _, _ in
+                XCTFail("transport cannot start while application stanzas are not send-ready")
+            },
+            dispatchUnavailable: { reason in
+                stateLock.lock()
+                unavailableReason = reason
+                stateLock.unlock()
+                unavailable.fulfill()
+            }
+        )
+
+        AccountSchedulerChatInteractiveRemoteArchiveRequestDispatcher().enqueue(request)
+        account.xmppTaskScheduler.enqueue(
+            priority: .interactive,
+            resource: .mamArchive,
+            deduplicationKey: "after-interactive-not-ready"
+        ) { finish in
+            mamLaneReleased.fulfill()
+            finish()
+        }
+
+        wait(for: [unavailable, mamLaneReleased], timeout: 1)
+        stateLock.lock()
+        let attemptedSend = didAttemptSend
+        let reason = unavailableReason
+        stateLock.unlock()
+        XCTAssertFalse(attemptedSend)
+        XCTAssertFalse(reason?.isEmpty ?? true)
     }
 
     private func makeDescriptor(
