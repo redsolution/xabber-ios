@@ -3692,6 +3692,8 @@ final class Account: NSObject {
     
     func resetStream() {
         self.logConnectionDiagnostics(event: "reset_stream_requested")
+        self.disco.cancelCloudDiscoveryForDisconnect()
+        self.cloudStorage.markAvailabilityRetryableFailure(stage: .disconnected)
         let mam = self.mam
         let scheduler = self.xmppTaskScheduler
         let archiveRequestGeneration = mam.archiveRequestGenerationSnapshot()

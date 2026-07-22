@@ -11,6 +11,7 @@
 		7C2000043200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2000033200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift */; };
 		7C2000063200000000ABC001 /* LastChatsNavigationSingleFlightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2000053200000000ABC001 /* LastChatsNavigationSingleFlightTests.swift */; };
 		7C2000083200000000ABC001 /* SignInServerFeaturesRenderGateLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2000073200000000ABC001 /* SignInServerFeaturesRenderGateLifecycleTests.swift */; };
+		7C2200023200000000ABC001 /* ServerDiscoCapabilityMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2200013200000000ABC001 /* ServerDiscoCapabilityMergeTests.swift */; };
 		07941069B60A1AB982322937 /* Pods_xabber_push_extension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 661E3EF7E6C886F73C357131 /* Pods_xabber_push_extension.framework */; };
 		0FBECCA69A94E385D67A5669 /* Pods_xabberTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 58D918EA4C5D9244619D4BEE /* Pods_xabberTests.framework */; };
 		1634567A60A2EE60EC34BE0D /* NotifyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 163457817B9EDAF9D7FB6FF8 /* NotifyManager.swift */; };
@@ -1019,6 +1020,7 @@
 		7C2000033200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFirstAccountBootstrapRegressionTests.swift; sourceTree = "<group>"; };
 		7C2000053200000000ABC001 /* LastChatsNavigationSingleFlightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsNavigationSingleFlightTests.swift; sourceTree = "<group>"; };
 		7C2000073200000000ABC001 /* SignInServerFeaturesRenderGateLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInServerFeaturesRenderGateLifecycleTests.swift; sourceTree = "<group>"; };
+		7C2200013200000000ABC001 /* ServerDiscoCapabilityMergeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerDiscoCapabilityMergeTests.swift; sourceTree = "<group>"; };
 		13FA59D6BD2F4739A7ACFD3D /* Pods-xabber.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-xabber.debug.xcconfig"; path = "Target Support Files/Pods-xabber/Pods-xabber.debug.xcconfig"; sourceTree = "<group>"; };
 		163452C65A63992FE656E475 /* AccountManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AccountManager.swift; sourceTree = "<group>"; };
 		163457817B9EDAF9D7FB6FF8 /* NotifyManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NotifyManager.swift; sourceTree = "<group>"; };
@@ -4132,6 +4134,7 @@
 				7C2000033200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift */,
 				7C2000053200000000ABC001 /* LastChatsNavigationSingleFlightTests.swift */,
 				7C2000073200000000ABC001 /* SignInServerFeaturesRenderGateLifecycleTests.swift */,
+				7C2200013200000000ABC001 /* ServerDiscoCapabilityMergeTests.swift */,
 					4E1000032F66000000ABC001 /* FloatingBottomBarViewTests.swift */,
 					4E1200012F66100000ABC001 /* RootBottomBarInsetPolicyTests.swift */,
 					4E1300012F66200000ABC001 /* RootBottomBarIntegrationTests.swift */,
@@ -6341,6 +6344,7 @@
 				7C2000043200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift in Sources */,
 				7C2000063200000000ABC001 /* LastChatsNavigationSingleFlightTests.swift in Sources */,
 				7C2000083200000000ABC001 /* SignInServerFeaturesRenderGateLifecycleTests.swift in Sources */,
+				7C2200023200000000ABC001 /* ServerDiscoCapabilityMergeTests.swift in Sources */,
 					66AE4E8024E189EF00FF11DC /* XabberXMPPTests.swift in Sources */,
 					66B48FDA26F858EC0088D6A4 /* Base64Extras.swift in Sources */,
 					66AE4E7824E12F7C00FF11DC /* xabberTests.swift in Sources */,

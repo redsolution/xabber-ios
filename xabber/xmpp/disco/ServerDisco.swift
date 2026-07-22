@@ -39,12 +39,36 @@ class ServerDiscoManager: AbstractXMPPManager {
 
     private struct ActiveCloudDiscoveryQuery {
         let elementID: String
+        let deadline: DispatchTime
+        var onboardingCapabilityGeneration: UInt64?
         var phase: CloudDiscoveryRegistrationPhase
         var timeoutWorkItem: DispatchWorkItem?
     }
 
+    private enum AccountOwnerCapabilityResult {
+        case pending
+        case resolved([String])
+        case failed
+    }
+
+    private struct AccountOwnerCapabilityDiscovery {
+        let generation: UInt64
+        var elementID: String?
+        var result: AccountOwnerCapabilityResult
+        var pendingRootCapabilities: [String]?
+        var graceWorkItem: DispatchWorkItem?
+        var isTerminal: Bool
+    }
+
+    private struct AccountOwnerCapabilityResolution {
+        let wasTracked: Bool
+        let capabilitiesToPublish: [String]?
+        let graceWorkItemToCancel: DispatchWorkItem?
+    }
+
     static let clientName: String = CommonConfigManager.shared.config.app_name
     static var cloudDiscoveryTimeoutInterval: TimeInterval = 6
+    static let defaultAccountOwnerCapabilityGraceInterval: TimeInterval = 0.1
     static let retryableServerCapabilitiesMarker = "__retryable_server_capabilities__"
     static var cloudDiscoveryWillRegisterQueryTestingHandler: ((ServerDiscoManager, String) -> Void)?
     static var cloudDiscoveryDidRegisterQueryTestingHandler: ((ServerDiscoManager) -> Void)?
@@ -54,6 +78,10 @@ class ServerDiscoManager: AbstractXMPPManager {
     var features: SynchronizedArray<String> = SynchronizedArray<String>()
     private let cloudDiscoveryLock = NSRecursiveLock()
     private var activeCloudDiscoveryQuery: ActiveCloudDiscoveryQuery?
+    private var accountOwnerCapabilityGeneration: UInt64 = 0
+    private var accountOwnerCapabilityDiscovery: AccountOwnerCapabilityDiscovery?
+
+    var accountOwnerCapabilityGraceInterval = ServerDiscoManager.defaultAccountOwnerCapabilityGraceInterval
 
     var activeCloudDiscoveryQueryIDForTesting: String? {
         cloudDiscoveryLock.lock()
@@ -73,9 +101,12 @@ class ServerDiscoManager: AbstractXMPPManager {
     deinit {
         cloudDiscoveryLock.lock()
         let timeoutWorkItem = activeCloudDiscoveryQuery?.timeoutWorkItem
+        let graceWorkItem = accountOwnerCapabilityDiscovery?.graceWorkItem
         activeCloudDiscoveryQuery = nil
+        accountOwnerCapabilityDiscovery = nil
         cloudDiscoveryLock.unlock()
         timeoutWorkItem?.cancel()
+        graceWorkItem?.cancel()
     }
 
     open func register(_ module: AbstractXMPPManager) {
@@ -87,13 +118,14 @@ class ServerDiscoManager: AbstractXMPPManager {
     }
 
     open func configure(_ xmppStream: XMPPStream) {
+        let startedCapabilityDiscovery = self.requestFeatures(xmppStream)
         self.requestServerFeatures(xmppStream)
-        if !self.loadFeatures() {
-            self.requestFeatures(xmppStream)
-            self.requestItems(xmppStream)
-        } else {
+        let hasCachedFeatures = self.loadFeatures()
+        if hasCachedFeatures {
             self.hasCachedFeatures = true
 //            AccountManager.shared.changeNewUserState(for: owner, to: .capsReceived([]))
+        } else if startedCapabilityDiscovery {
+            self.requestItems(xmppStream)
         }
     }
 
@@ -115,13 +147,36 @@ class ServerDiscoManager: AbstractXMPPManager {
 //            .base64EncodedString()
     }
 
-    func requestFeatures(_ xmppStream: XMPPStream) {
+    @discardableResult
+    func requestFeatures(_ xmppStream: XMPPStream) -> Bool {
         let elementId = xmppStream.generateUUID
+        cloudDiscoveryLock.lock()
+        if let discovery = accountOwnerCapabilityDiscovery,
+           !discovery.isTerminal {
+            activeCloudDiscoveryQuery?.onboardingCapabilityGeneration = discovery.generation
+            cloudDiscoveryLock.unlock()
+            return false
+        }
+        let previousGraceWorkItem = accountOwnerCapabilityDiscovery?.graceWorkItem
+        accountOwnerCapabilityGeneration &+= 1
+        let generation = accountOwnerCapabilityGeneration
+        accountOwnerCapabilityDiscovery = AccountOwnerCapabilityDiscovery(
+            generation: generation,
+            elementID: elementId,
+            result: .pending,
+            pendingRootCapabilities: nil,
+            graceWorkItem: nil,
+            isTerminal: false
+        )
+        activeCloudDiscoveryQuery?.onboardingCapabilityGeneration = generation
+        cloudDiscoveryLock.unlock()
+        previousGraceWorkItem?.cancel()
+
         xmppStream.send(XMPPIQ(iqType: .get,
                                to: xmppStream.myJID?.bareJID,
                                elementID: elementId,
                                child: DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")))
-        self.queryIds.insert(elementId)
+        return true
     }
 
     func requestServerFeatures(_ xmppStream: XMPPStream) {
@@ -131,8 +186,21 @@ class ServerDiscoManager: AbstractXMPPManager {
             cloudDiscoveryLock.unlock()
             return
         }
+        if let discovery = accountOwnerCapabilityDiscovery,
+           !discovery.isTerminal,
+           discovery.pendingRootCapabilities != nil {
+            cloudDiscoveryLock.unlock()
+            return
+        }
+        let timeoutInterval = Self.cloudDiscoveryTimeoutInterval
+        let deadline = DispatchTime.now() + timeoutInterval
+        let onboardingCapabilityGeneration = accountOwnerCapabilityDiscovery.flatMap { discovery in
+            discovery.isTerminal ? nil : discovery.generation
+        }
         activeCloudDiscoveryQuery = ActiveCloudDiscoveryQuery(
             elementID: elementId,
+            deadline: deadline,
+            onboardingCapabilityGeneration: onboardingCapabilityGeneration,
             phase: .reserved,
             timeoutWorkItem: nil
         )
@@ -157,7 +225,7 @@ class ServerDiscoManager: AbstractXMPPManager {
         let timeoutWorkItem = makeCloudDiscoveryTimeoutWorkItem(for: elementId)
         activeCloudDiscoveryQuery?.timeoutWorkItem = timeoutWorkItem
         DispatchQueue.global(qos: .utility).asyncAfter(
-            deadline: .now() + Self.cloudDiscoveryTimeoutInterval,
+            deadline: deadline,
             execute: timeoutWorkItem
         )
         xmppStream.send(XMPPIQ(iqType: .get,
@@ -169,14 +237,23 @@ class ServerDiscoManager: AbstractXMPPManager {
 
     @discardableResult
     func cancelCloudDiscoveryForDisconnect() -> Bool {
-        guard consumeActiveCloudDiscovery(
+        let activeCloudDiscovery = consumeActiveCloudDiscovery(
             elementID: nil,
             terminal: .disconnect,
             requiresRegisteredQuery: false
-        ) != nil else {
+        )
+        let capabilityResolution = terminateAccountOwnerCapabilityDiscovery(
+            generation: nil,
+            useCurrentGeneration: true
+        )
+        capabilityResolution.graceWorkItemToCancel?.cancel()
+
+        guard activeCloudDiscovery != nil || capabilityResolution.wasTracked else {
             return false
         }
-        completeRetryableServerCapabilitiesOnboarding()
+        completeServerCapabilitiesOnboarding(
+            capabilityResolution.capabilitiesToPublish ?? [Self.retryableServerCapabilitiesMarker]
+        )
         return true
     }
 
@@ -210,16 +287,31 @@ class ServerDiscoManager: AbstractXMPPManager {
 
     private func readFeatureError(withIQ iq: XMPPIQ) -> Bool {
         guard iq.iqType == .error,
-              let elementID = iq.elementID,
-              consumeActiveCloudDiscovery(
-                elementID: elementID,
-                terminal: .error,
-                requiresRegisteredQuery: true
-              ) != nil else {
+              let elementID = iq.elementID else {
+            return false
+        }
+
+        if let generation = claimAccountOwnerCapabilityQuery(elementID: elementID) {
+            let resolution = resolveAccountOwnerCapabilities(
+                generation: generation,
+                result: .failed
+            )
+            resolution.graceWorkItemToCancel?.cancel()
+            if let capabilities = resolution.capabilitiesToPublish {
+                completeServerCapabilitiesOnboarding(capabilities)
+            }
+            return true
+        }
+
+        guard let activeDiscovery = consumeActiveCloudDiscovery(
+            elementID: elementID,
+            terminal: .error,
+            requiresRegisteredQuery: true
+        ) else {
             return false
         }
         AccountManager.shared.find(for: owner)?.cloudStorage.markAvailabilityRetryableFailure(stage: .discovery)
-        completeRetryableServerCapabilitiesOnboarding()
+        completeRetryableServerCapabilitiesOnboarding(for: activeDiscovery)
         return true
     }
 //    <iq xmlns="jabber:client" lang="ru" to="igor.boldin@redsolution.com/xabber-ios-BF9ED1E2" from="notify.redsolution.com" type="result" id="DA41EFEC-DB97-42F1-BAA1-31DB09E0A438">
@@ -239,20 +331,31 @@ class ServerDiscoManager: AbstractXMPPManager {
                            xmlns: "http://jabber.org/protocol/disco#items") else {
                 return false
         }
-        let isServerFeatureResponse: Bool
+        let activeServerDiscovery: ActiveCloudDiscoveryQuery?
+        let accountOwnerCapabilityGeneration: UInt64?
         if query.xmlns() == "http://jabber.org/protocol/disco#info" {
-            isServerFeatureResponse = consumeActiveCloudDiscovery(
+            activeServerDiscovery = consumeActiveCloudDiscovery(
                 elementID: elementId,
                 terminal: .response,
                 requiresRegisteredQuery: true
-            ) != nil
+            )
+            if activeServerDiscovery == nil {
+                accountOwnerCapabilityGeneration = claimAccountOwnerCapabilityQuery(
+                    elementID: elementId
+                )
+            } else {
+                accountOwnerCapabilityGeneration = nil
+            }
         } else {
-            isServerFeatureResponse = false
+            activeServerDiscovery = nil
+            accountOwnerCapabilityGeneration = nil
         }
-        guard isServerFeatureResponse || queryIds.contains(elementId) else {
+        let isServerFeatureResponse = activeServerDiscovery != nil
+        let isAccountOwnerFeatureResponse = accountOwnerCapabilityGeneration != nil
+        guard isServerFeatureResponse || isAccountOwnerFeatureResponse || queryIds.contains(elementId) else {
             return false
         }
-        if !isServerFeatureResponse {
+        if !isServerFeatureResponse && !isAccountOwnerFeatureResponse {
             queryIds.remove(elementId)
         }
 
@@ -271,28 +374,28 @@ class ServerDiscoManager: AbstractXMPPManager {
                     endpoint: discoveredGalleryEndpoint
                 )
             }
-            if parseClientIdentity(iq: iq) {
-                return true
-            }
-            if let jid = iq.from?.bare {
-                switch true {
-                    case getNotificationServiceNode(query, jid: jid): return true
-                    case getFavoritesServiceNode(query, jid: jid): return true
-                    default: break
-                }
-            }
-
-            if let identity = query.element(forName: "identity") {
-                let type = identity.attributeStringValue(forName: "type")
-                let category = identity.attributeStringValue(forName: "category")
-                let name = identity.attributeStringValue(forName: "name")
-
-                if category == "client" {
-                    return true
-                } else if type == "file" && category == "store" {
-                    self.parseHTTPSettings(query, node: iq.from?.full ?? "")
+            if !isServerFeatureResponse && !isAccountOwnerFeatureResponse {
+                if parseClientIdentity(iq: iq) {
                     return true
                 }
+                if let jid = iq.from?.bare {
+                    switch true {
+                        case getNotificationServiceNode(query, jid: jid): return true
+                        case getFavoritesServiceNode(query, jid: jid): return true
+                        default: break
+                    }
+                }
+
+                if let identity = query.element(forName: "identity") {
+                    let type = identity.attributeStringValue(forName: "type")
+                    let category = identity.attributeStringValue(forName: "category")
+
+                    if category == "client" {
+                        return true
+                    } else if type == "file" && category == "store" {
+                        self.parseHTTPSettings(query, node: iq.from?.full ?? "")
+                        return true
+                    }
 //                else if type == "server" && category == "conference" && name == "Groupchat Service" {
 //                    SettingManager.shared.saveItem(for: owner,
 //                                                       scope: .globalIndex,
@@ -304,6 +407,7 @@ class ServerDiscoManager: AbstractXMPPManager {
 //                                                       value: query.attributeStringValue(forName: "node") ?? "")
 //                    return true
 //                }
+                }
             }
 
             let features = query.elements(forName: "feature")
@@ -368,10 +472,22 @@ class ServerDiscoManager: AbstractXMPPManager {
                     }
                 }
             }
-            if isServerFeatureResponse {
-                AccountManager.shared.changeNewUserState(for: owner, to: .capsReceived(caps))
+            if let activeServerDiscovery {
                 parseReliableMessageDeliverySettings(query.elements(forName: "feature"))
                 parseMessagesDeleteRewriteSettings(query.elements(forName: "feature"))
+                completeRootServerCapabilities(
+                    caps,
+                    activeDiscovery: activeServerDiscovery
+                )
+            } else if let accountOwnerCapabilityGeneration {
+                let resolution = resolveAccountOwnerCapabilities(
+                    generation: accountOwnerCapabilityGeneration,
+                    result: .resolved(accountOwnerPushCapabilities(from: caps))
+                )
+                resolution.graceWorkItemToCancel?.cancel()
+                if let capabilities = resolution.capabilitiesToPublish {
+                    completeServerCapabilitiesOnboarding(capabilities)
+                }
             }
             return true
         case "http://jabber.org/protocol/disco#items":
@@ -464,13 +580,13 @@ class ServerDiscoManager: AbstractXMPPManager {
     }
 
     private func cloudDiscoveryDidTimeout(elementID: String) {
-        guard consumeActiveCloudDiscovery(
+        guard let activeDiscovery = consumeActiveCloudDiscovery(
             elementID: elementID,
             terminal: .timeout,
             requiresRegisteredQuery: true
-        ) != nil else { return }
+        ) else { return }
         AccountManager.shared.find(for: owner)?.cloudStorage.markAvailabilityRetryableFailure(stage: .discovery)
-        completeRetryableServerCapabilitiesOnboarding()
+        completeRetryableServerCapabilitiesOnboarding(for: activeDiscovery)
     }
 
     @discardableResult
@@ -494,11 +610,248 @@ class ServerDiscoManager: AbstractXMPPManager {
         return activeQuery
     }
 
-    private func completeRetryableServerCapabilitiesOnboarding() {
+    private func claimAccountOwnerCapabilityQuery(elementID: String) -> UInt64? {
+        cloudDiscoveryLock.lock()
+        guard var discovery = accountOwnerCapabilityDiscovery,
+              !discovery.isTerminal,
+              discovery.elementID == elementID else {
+            cloudDiscoveryLock.unlock()
+            return nil
+        }
+        discovery.elementID = nil
+        accountOwnerCapabilityDiscovery = discovery
+        cloudDiscoveryLock.unlock()
+        return discovery.generation
+    }
+
+    private func resolveAccountOwnerCapabilities(
+        generation: UInt64,
+        result: AccountOwnerCapabilityResult
+    ) -> AccountOwnerCapabilityResolution {
+        cloudDiscoveryLock.lock()
+        guard var discovery = accountOwnerCapabilityDiscovery,
+              discovery.generation == generation,
+              !discovery.isTerminal else {
+            cloudDiscoveryLock.unlock()
+            return AccountOwnerCapabilityResolution(
+                wasTracked: false,
+                capabilitiesToPublish: nil,
+                graceWorkItemToCancel: nil
+            )
+        }
+
+        discovery.result = result
+        var capabilitiesToPublish: [String]?
+        var graceWorkItemToCancel: DispatchWorkItem?
+        if let rootCapabilities = discovery.pendingRootCapabilities {
+            capabilitiesToPublish = capabilities(
+                rootCapabilities,
+                mergedWith: result
+            )
+            discovery.pendingRootCapabilities = nil
+            graceWorkItemToCancel = discovery.graceWorkItem
+            discovery.graceWorkItem = nil
+            discovery.isTerminal = true
+        }
+        accountOwnerCapabilityDiscovery = discovery
+        cloudDiscoveryLock.unlock()
+
+        return AccountOwnerCapabilityResolution(
+            wasTracked: true,
+            capabilitiesToPublish: capabilitiesToPublish,
+            graceWorkItemToCancel: graceWorkItemToCancel
+        )
+    }
+
+    private func completeRootServerCapabilities(
+        _ capabilities: [String],
+        activeDiscovery: ActiveCloudDiscoveryQuery
+    ) {
+        let rootCapabilities = rootScopedCapabilities(from: capabilities)
+        guard let generation = activeDiscovery.onboardingCapabilityGeneration else {
+            completeServerCapabilitiesOnboarding(rootCapabilities)
+            return
+        }
+
+        let remainingCloudDiscoveryInterval = remainingInterval(until: activeDiscovery.deadline)
+        let graceInterval = min(
+            max(accountOwnerCapabilityGraceInterval, 0),
+            remainingCloudDiscoveryInterval
+        )
+        var capabilitiesToPublish: [String]?
+        var graceWorkItemToSchedule: DispatchWorkItem?
+        var graceWorkItemToCancel: DispatchWorkItem?
+
+        cloudDiscoveryLock.lock()
+        guard var discovery = accountOwnerCapabilityDiscovery,
+              discovery.generation == generation,
+              !discovery.isTerminal else {
+            cloudDiscoveryLock.unlock()
+            return
+        }
+
+        switch discovery.result {
+        case .resolved(_), .failed:
+            capabilitiesToPublish = self.capabilities(
+                rootCapabilities,
+                mergedWith: discovery.result
+            )
+            discovery.elementID = nil
+            discovery.isTerminal = true
+        case .pending where graceInterval <= 0:
+            capabilitiesToPublish = capabilitiesWithRetryableMarker(rootCapabilities)
+            discovery.elementID = nil
+            discovery.result = .failed
+            discovery.isTerminal = true
+        case .pending:
+            graceWorkItemToCancel = discovery.graceWorkItem
+            let workItem = makeAccountOwnerCapabilityGraceWorkItem(generation: generation)
+            discovery.pendingRootCapabilities = rootCapabilities
+            discovery.graceWorkItem = workItem
+            graceWorkItemToSchedule = workItem
+        }
+        accountOwnerCapabilityDiscovery = discovery
+        cloudDiscoveryLock.unlock()
+
+        graceWorkItemToCancel?.cancel()
+        if let graceWorkItemToSchedule {
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(
+                deadline: .now() + graceInterval,
+                execute: graceWorkItemToSchedule
+            )
+        }
+        if let capabilitiesToPublish {
+            completeServerCapabilitiesOnboarding(capabilitiesToPublish)
+        }
+    }
+
+    private func makeAccountOwnerCapabilityGraceWorkItem(generation: UInt64) -> DispatchWorkItem {
+        DispatchWorkItem { [weak self] in
+            self?.accountOwnerCapabilityGraceDidExpire(generation: generation)
+        }
+    }
+
+    private func accountOwnerCapabilityGraceDidExpire(generation: UInt64) {
+        cloudDiscoveryLock.lock()
+        guard var discovery = accountOwnerCapabilityDiscovery,
+              discovery.generation == generation,
+              !discovery.isTerminal,
+              case .pending = discovery.result,
+              let rootCapabilities = discovery.pendingRootCapabilities else {
+            cloudDiscoveryLock.unlock()
+            return
+        }
+        discovery.elementID = nil
+        discovery.result = .failed
+        discovery.pendingRootCapabilities = nil
+        discovery.graceWorkItem = nil
+        discovery.isTerminal = true
+        accountOwnerCapabilityDiscovery = discovery
+        cloudDiscoveryLock.unlock()
+
+        completeServerCapabilitiesOnboarding(
+            capabilitiesWithRetryableMarker(rootCapabilities)
+        )
+    }
+
+    private func terminateAccountOwnerCapabilityDiscovery(
+        generation: UInt64?,
+        useCurrentGeneration: Bool
+    ) -> AccountOwnerCapabilityResolution {
+        cloudDiscoveryLock.lock()
+        guard var discovery = accountOwnerCapabilityDiscovery,
+              !discovery.isTerminal,
+              useCurrentGeneration || generation == discovery.generation else {
+            cloudDiscoveryLock.unlock()
+            return AccountOwnerCapabilityResolution(
+                wasTracked: false,
+                capabilitiesToPublish: nil,
+                graceWorkItemToCancel: nil
+            )
+        }
+        let rootCapabilities = discovery.pendingRootCapabilities ?? []
+        let graceWorkItemToCancel = discovery.graceWorkItem
+        discovery.elementID = nil
+        discovery.result = .failed
+        discovery.pendingRootCapabilities = nil
+        discovery.graceWorkItem = nil
+        discovery.isTerminal = true
+        accountOwnerCapabilityDiscovery = discovery
+        cloudDiscoveryLock.unlock()
+
+        return AccountOwnerCapabilityResolution(
+            wasTracked: true,
+            capabilitiesToPublish: capabilitiesWithRetryableMarker(rootCapabilities),
+            graceWorkItemToCancel: graceWorkItemToCancel
+        )
+    }
+
+    private func completeRetryableServerCapabilitiesOnboarding(
+        for activeDiscovery: ActiveCloudDiscoveryQuery
+    ) {
+        guard let generation = activeDiscovery.onboardingCapabilityGeneration else {
+            completeServerCapabilitiesOnboarding([Self.retryableServerCapabilitiesMarker])
+            return
+        }
+        let resolution = terminateAccountOwnerCapabilityDiscovery(
+            generation: generation,
+            useCurrentGeneration: false
+        )
+        resolution.graceWorkItemToCancel?.cancel()
+        guard resolution.wasTracked,
+              let capabilities = resolution.capabilitiesToPublish else {
+            return
+        }
+        completeServerCapabilitiesOnboarding(capabilities)
+    }
+
+    private func completeServerCapabilitiesOnboarding(_ capabilities: [String]) {
         AccountManager.shared.changeNewUserState(
             for: owner,
-            to: .capsReceived([Self.retryableServerCapabilitiesMarker])
+            to: .capsReceived(capabilities)
         )
+    }
+
+    private func accountOwnerPushCapabilities(from capabilities: [String]) -> [String] {
+        ["push", "xpush"].filter(capabilities.contains)
+    }
+
+    private func rootScopedCapabilities(from capabilities: [String]) -> [String] {
+        capabilities.filter { $0 != "push" && $0 != "xpush" }
+    }
+
+    private func capabilities(
+        _ rootCapabilities: [String],
+        mergedWith accountOwnerResult: AccountOwnerCapabilityResult
+    ) -> [String] {
+        switch accountOwnerResult {
+        case .resolved(let accountOwnerCapabilities):
+            var mergedCapabilities = rootScopedCapabilities(from: rootCapabilities)
+            accountOwnerPushCapabilities(from: accountOwnerCapabilities).forEach { capability in
+                if !mergedCapabilities.contains(capability) {
+                    mergedCapabilities.append(capability)
+                }
+            }
+            return mergedCapabilities
+        case .failed:
+            return capabilitiesWithRetryableMarker(rootCapabilities)
+        case .pending:
+            return rootScopedCapabilities(from: rootCapabilities)
+        }
+    }
+
+    private func capabilitiesWithRetryableMarker(_ rootCapabilities: [String]) -> [String] {
+        var capabilities = rootScopedCapabilities(from: rootCapabilities)
+        if !capabilities.contains(Self.retryableServerCapabilitiesMarker) {
+            capabilities.append(Self.retryableServerCapabilitiesMarker)
+        }
+        return capabilities
+    }
+
+    private func remainingInterval(until deadline: DispatchTime) -> TimeInterval {
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard deadline.uptimeNanoseconds > now else { return 0 }
+        return TimeInterval(deadline.uptimeNanoseconds - now) / 1_000_000_000
     }
 
     private func getNotificationServiceNode(_ query: DDXMLElement, jid: String) -> Bool {
