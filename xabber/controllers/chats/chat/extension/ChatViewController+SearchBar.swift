@@ -1001,6 +1001,15 @@ enum ChatAnchorLoadingPresentationPolicy {
     }
 }
 
+enum ChatAnchorBootstrapTransitionPolicy {
+    static func usesBootstrapLoading(
+        isShowingBootstrapPlaceholder: Bool,
+        wouldOtherwiseBlockForAnchor: Bool
+    ) -> Bool {
+        isShowingBootstrapPlaceholder || wouldOtherwiseBlockForAnchor
+    }
+}
+
 struct ChatAnchorDatasourceApplyPlan {
     let mode: ChatDatasourceApplyMode
     let invalidateLayout: Bool
@@ -3757,12 +3766,16 @@ extension ChatViewController {
             ? self.hasLocalAnchorForBootstrap(request)
             : false
 
-        return ChatInitialAnchorBootstrapPolicy.shouldBlockBootstrap(
+        let wouldOtherwiseBlockForAnchor = ChatInitialAnchorBootstrapPolicy.shouldBlockBootstrap(
             source: request.source,
             isSynced: self.currentChatIsSyncedForAnchorBootstrap(),
             messageCount: self.localHistoryMessageCountForBootstrap(),
             hasLocalAnchor: hasLocalAnchor,
             isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
+        )
+        return ChatAnchorBootstrapTransitionPolicy.usesBootstrapLoading(
+            isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
+            wouldOtherwiseBlockForAnchor: wouldOtherwiseBlockForAnchor
         )
     }
 

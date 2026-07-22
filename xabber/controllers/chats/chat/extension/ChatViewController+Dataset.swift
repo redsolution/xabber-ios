@@ -6438,6 +6438,38 @@ enum ChatLocalFirstFrameAvailabilityPolicy {
     }
 }
 
+enum ChatInitialLocalFirstFrameSupersessionPolicy {
+    static func shouldRetry(
+        mappingWasCancelled: Bool,
+        hasTerminalNonSkeletonPresentation: Bool,
+        didRunDisappearanceCleanup: Bool
+    ) -> Bool {
+        mappingWasCancelled &&
+            !hasTerminalNonSkeletonPresentation &&
+            !didRunDisappearanceCleanup
+    }
+}
+
+enum ChatPreparedInitialFrameCommitPolicy {
+    /// A real local frame (including a resolved anchor) may atomically replace
+    /// skeleton. An empty preparation is valid only after the live reducer has
+    /// durable proof that the timeline no longer needs to remain blocked.
+    static func shouldCommit(
+        hasMappedRealRows: Bool,
+        liveLoadingState: ChatBootstrapLoadingState
+    ) -> Bool {
+        guard !hasMappedRealRows else {
+            return true
+        }
+        switch liveLoadingState {
+        case .empty, .failure(fallback: .empty):
+            return true
+        case .blockingArchive, .blockingTarget, .content, .failure(fallback: .content):
+            return false
+        }
+    }
+}
+
 enum ChatInitialLatestOpenStabilizationState: Equatable {
     case inactive
     case active
@@ -9837,7 +9869,10 @@ extension ChatViewController {
         self.cancelInitialBootstrapTimeout()
         self.detachInitialBootstrapReadinessObservation()
         if let initialBootstrapQueryId {
-            _ = ChatInitialBootstrapRequestCoordinator.shared.complete(
+            // Controller completion acknowledges presentation only. The
+            // account-scoped committed receipt remains available to a late
+            // reopen (especially for a durably confirmed empty page).
+            _ = ChatInitialBootstrapRequestCoordinator.shared.acknowledgeCommittedReceipt(
                 key: self.initialBootstrapRequestKey,
                 queryId: initialBootstrapQueryId
             )
@@ -11516,13 +11551,28 @@ extension ChatViewController {
         }
     }
 
-    private func archiveReadinessForBootstrap(
+    internal func archiveReadinessForBootstrap(
         localMessageCount: Int,
         chatInstance: LastChatsStorageItem?
     ) -> ConversationArchiveReadiness? {
         if let readiness = ChatInitialBootstrapRequestCoordinator.shared.readiness(
             for: self.initialBootstrapRequestKey
         ) {
+            if readiness.phase == .committed,
+               !self.committedArchiveReceiptMatchesCurrentBoundary(readiness) {
+                // A committed receipt belongs to the snapshot it proved. Do
+                // not let legacy readiness flags publish an empty timeline
+                // while a newer Realm boundary awaits another transaction.
+                // Existing local rows may remain visible; zero rows reduce to
+                // blocking skeleton until requestInitialBootstrapArchive
+                // invalidates this receipt and acquires fresh work.
+                return ConversationArchiveReadiness(
+                    phase: .queued,
+                    hasDurableCoverage: false,
+                    confirmsEmptyConversation: false,
+                    persistedVisibleRowCount: 0
+                )
+            }
             return readiness
         }
 
@@ -11541,6 +11591,31 @@ extension ChatViewController {
             confirmsEmptyConversation: false,
             persistedVisibleRowCount: 0
         )
+    }
+
+    internal func committedArchiveReceiptMatchesCurrentBoundary(
+        _ readiness: ConversationArchiveReadiness
+    ) -> Bool {
+        guard readiness.phase == .committed,
+              let committedFingerprint = readiness.boundaryFingerprint else {
+            // Non-snapshot conversation types and legacy/unit sources do not
+            // carry a fingerprint; their durable readiness remains reusable.
+            return true
+        }
+        return MessageArchiveManager.currentConversationArchiveBoundaryFingerprint(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType
+        ) == committedFingerprint
+    }
+
+    internal func shouldInvalidateCommittedArchiveReceipt(
+        _ readiness: ConversationArchiveReadiness,
+        requiresArchiveConfirmation: Bool
+    ) -> Bool {
+        requiresArchiveConfirmation &&
+            readiness.phase == .committed &&
+            !self.committedArchiveReceiptMatchesCurrentBoundary(readiness)
     }
 
     private func hasKnownRemoteArchiveBoundaryForBootstrap(
@@ -11821,9 +11896,29 @@ extension ChatViewController {
                       ),
                       let mappingResult = mapped.value,
                       !mappingResult.wasCancelled,
-                      !mapped.mappedOnMainThread,
-                      let committedSnapshot = session.commitPreparedInitialFrame(preparedFrame) else {
+                      !mapped.mappedOnMainThread else {
                     self?.resolveSupersededInitialLocalFirstFramePreparation(
+                        descriptor: descriptor,
+                        mappingToken: mappingToken
+                    )
+                    return
+                }
+                let liveLoadingState = self.currentBootstrapLoadingState()
+                let hasMappedRealRows = mappingResult.datasource.contains { !$0.isFakeMessage }
+                guard ChatPreparedInitialFrameCommitPolicy.shouldCommit(
+                    hasMappedRealRows: hasMappedRealRows,
+                    liveLoadingState: liveLoadingState
+                ) else {
+                    session.cancelInitialFramePreparations()
+                    mappingToken.cancel()
+                    self.initialLocalFirstFrameMappingToken = nil
+                    self.initialLocalFirstFramePhase = .blockedArchiveBootstrap(descriptor)
+                    self.applyBootstrapLoadingState(liveLoadingState, forceRender: true)
+                    self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
+                    return
+                }
+                guard let committedSnapshot = session.commitPreparedInitialFrame(preparedFrame) else {
+                    self.resolveSupersededInitialLocalFirstFramePreparation(
                         descriptor: descriptor,
                         mappingToken: mappingToken
                     )
@@ -11853,9 +11948,22 @@ extension ChatViewController {
             return
         }
         if mappingToken.isCancelled {
-            if !self.finishInitialLocalFirstFramePreparationIfPresentationIsReady(),
-               !self.didRunNavigationDisappearanceCleanup {
+            let hasTerminalNonSkeletonPresentation =
+                self.hasCommittedTerminalNonSkeletonBootstrapPresentation
+            let shouldRetry = ChatInitialLocalFirstFrameSupersessionPolicy.shouldRetry(
+                mappingWasCancelled: true,
+                hasTerminalNonSkeletonPresentation: hasTerminalNonSkeletonPresentation,
+                didRunDisappearanceCleanup: self.didRunNavigationDisappearanceCleanup
+            )
+            ChatArchiveDebugTrace.log("chatInitialLocalFirstFrameSuperseded", [
+                ("mappingGeneration", self.datasetMappingGeneration),
+                ("hasTerminalNonSkeletonPresentation", hasTerminalNonSkeletonPresentation),
+                ("retry", shouldRetry)
+            ])
+            if shouldRetry {
                 self.retryInitialLocalFirstFramePreparation()
+            } else if hasTerminalNonSkeletonPresentation {
+                self.finishInitialLocalFirstFramePreparation()
             }
         } else {
             self.retryInitialLocalFirstFramePreparation()
@@ -12089,6 +12197,21 @@ extension ChatViewController {
             hasCommittedEmptyState: hasCommittedEmptyState,
             showsDeterministicFailureFallback: showsDeterministicFailureFallback
         )
+    }
+
+    /// Skeleton rows are a valid receipt for releasing an animated push, but
+    /// they are never terminal proof for an in-flight content preparation.
+    private var hasCommittedTerminalNonSkeletonBootstrapPresentation: Bool {
+        let hasCommittedRealRows = self.hasCommittedRealContentInCurrentLifecycle &&
+            self.datasource.contains { !$0.isFakeMessage }
+        let hasCommittedEmptyState = self.hasCommittedTimelinePresentationInCurrentLifecycle &&
+            self.datasource.isEmpty &&
+            self.appliedBootstrapLoadingState?.viewState == .empty
+        let showsDeterministicFailureFallback = self.appliedBootstrapLoadingState?.showsRetry == true &&
+            !self.bootstrapFailureView.isHidden
+        return hasCommittedRealRows ||
+            hasCommittedEmptyState ||
+            showsDeterministicFailureFallback
     }
 
     internal func whenBootstrapFirstFramePresentationIsReady(

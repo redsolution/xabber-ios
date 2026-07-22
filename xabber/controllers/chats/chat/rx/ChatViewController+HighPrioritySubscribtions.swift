@@ -75,6 +75,13 @@ struct ChatInitialBootstrapRequestKey: Hashable {
     var schedulerDeduplicationKey: String {
         "conversation.archive.\(owner).\(jid).\(conversationTypeRawValue)"
     }
+
+    /// The conversation key deduplicates observers through the archive lease.
+    /// The query suffix keeps a replacement lease from being swallowed by a
+    /// stale scheduler closure that belongs to an expired query.
+    func schedulerDeduplicationKey(queryId: String) -> String {
+        "\(schedulerDeduplicationKey).query.\(queryId)"
+    }
 }
 
 /// Persistence-aware lifecycle for one conversation archive transaction.
@@ -99,6 +106,21 @@ struct ConversationArchiveReadiness: Equatable {
     let hasDurableCoverage: Bool
     let confirmsEmptyConversation: Bool
     let persistedVisibleRowCount: Int
+    let boundaryFingerprint: MessageArchiveManager.ConversationArchiveBoundaryFingerprint?
+
+    init(
+        phase: ConversationArchiveLoadPhase,
+        hasDurableCoverage: Bool,
+        confirmsEmptyConversation: Bool,
+        persistedVisibleRowCount: Int,
+        boundaryFingerprint: MessageArchiveManager.ConversationArchiveBoundaryFingerprint? = nil
+    ) {
+        self.phase = phase
+        self.hasDurableCoverage = hasDurableCoverage
+        self.confirmsEmptyConversation = confirmsEmptyConversation
+        self.persistedVisibleRowCount = persistedVisibleRowCount
+        self.boundaryFingerprint = boundaryFingerprint
+    }
 
     var isTerminal: Bool {
         phase == .committed || phase == .failed
@@ -125,6 +147,17 @@ final class ChatInitialBootstrapRequestCoordinator {
     struct CommittedPage: Equatable {
         let event: MessageArchiveEndPageEvent
         let completion: ChatRemoteHistoryCompletionResult
+        let boundaryFingerprint: MessageArchiveManager.ConversationArchiveBoundaryFingerprint?
+
+        init(
+            event: MessageArchiveEndPageEvent,
+            completion: ChatRemoteHistoryCompletionResult,
+            boundaryFingerprint: MessageArchiveManager.ConversationArchiveBoundaryFingerprint? = nil
+        ) {
+            self.event = event
+            self.completion = completion
+            self.boundaryFingerprint = boundaryFingerprint
+        }
     }
 
     enum Acquisition {
@@ -337,15 +370,15 @@ final class ChatInitialBootstrapRequestCoordinator {
     @discardableResult
     func promote(key: ChatInitialBootstrapRequestKey) -> Bool {
         lock.lock()
-        let exists = attemptsByKey[key] != nil
+        let queryId = attemptsByKey[key]?.lease.queryId
         lock.unlock()
-        if exists {
+        if let queryId {
             AccountManager.shared.find(for: key.owner)?.xmppTaskScheduler.promotePendingTask(
-                deduplicationKey: key.schedulerDeduplicationKey,
+                deduplicationKey: key.schedulerDeduplicationKey(queryId: queryId),
                 to: .interactive
             )
         }
-        return exists
+        return queryId != nil
     }
 
     /// Controller teardown detaches presentation only. The account-scoped
@@ -408,6 +441,15 @@ final class ChatInitialBootstrapRequestCoordinator {
         return page
     }
 
+    func committedLease(for key: ChatInitialBootstrapRequestKey) -> Lease? {
+        lock.lock()
+        let lease = attemptsByKey[key]?.phase == .committed
+            ? attemptsByKey[key]?.lease
+            : nil
+        lock.unlock()
+        return lease
+    }
+
     func attachSchedulerCompletion(
         key: ChatInitialBootstrapRequestKey,
         queryId: String,
@@ -440,6 +482,7 @@ final class ChatInitialBootstrapRequestCoordinator {
         var observers: [StartObserver] = []
         var shouldCancelLateTransport = false
         var shouldRegisterPersistenceSource = false
+        var shouldCompleteWithoutBootstrapTransport = false
         var purpose = ConversationArchiveLoadPurpose.interactiveBootstrap
         lock.lock()
         if var attempt = attemptsByKey[key],
@@ -448,21 +491,27 @@ final class ChatInitialBootstrapRequestCoordinator {
             // A very fast raw terminal may be delivered synchronously while
             // the request-start call is still unwinding. Never regress that
             // persistence lease back to transport.
-            if attempt.phase == .queued || attempt.phase == .transport {
+            let acceptsStartResources = attempt.phase == .queued || attempt.phase == .transport
+            if acceptsStartResources {
                 attempt.phase = .transport
+                attempt.messages = messages
+                attempt.archiveManager = archiveManager ?? attempt.archiveManager
+                attempt.cancelTransport = cancelTransport
+                if case .bootstrapStarted = result,
+                   messages != nil,
+                   !attempt.didRegisterPersistenceSource {
+                    attempt.didRegisterPersistenceSource = true
+                    shouldRegisterPersistenceSource = true
+                }
+                if case .gapRepairOnly = result {
+                    shouldCompleteWithoutBootstrapTransport = true
+                } else if case .noop = result {
+                    shouldCompleteWithoutBootstrapTransport = true
+                }
             }
             attempt.startResult = result
-            attempt.messages = messages
-            attempt.archiveManager = archiveManager ?? attempt.archiveManager
-            attempt.cancelTransport = cancelTransport
             observers = attempt.observers
             attempt.observers.removeAll()
-            if case .bootstrapStarted = result,
-               messages != nil,
-               !attempt.didRegisterPersistenceSource {
-                attempt.didRegisterPersistenceSource = true
-                shouldRegisterPersistenceSource = true
-            }
             attemptsByKey[key] = attempt
         } else {
             let identity = AttemptIdentity(key: key, queryId: queryId)
@@ -507,11 +556,13 @@ final class ChatInitialBootstrapRequestCoordinator {
         case .bootstrapStarted:
             break
         case .gapRepairOnly, .noop:
-            _ = complete(
-                key: key,
-                queryId: queryId,
-                unregisterPersistenceSource: true
-            )
+            if shouldCompleteWithoutBootstrapTransport {
+                _ = complete(
+                    key: key,
+                    queryId: queryId,
+                    unregisterPersistenceSource: true
+                )
+            }
         }
     }
 
@@ -581,6 +632,97 @@ final class ChatInitialBootstrapRequestCoordinator {
             unregisterPersistenceSource: unregisterPersistenceSource
         )
         return cleanup != nil
+    }
+
+    /// Releases the transport/persistence owners after a durable commit while
+    /// retaining a bounded, lightweight receipt for a chat that opens later.
+    /// Both the snapshot pump and a consuming controller may acknowledge the
+    /// same receipt, so this operation is deliberately idempotent.
+    @discardableResult
+    func acknowledgeCommittedReceipt(
+        key: ChatInitialBootstrapRequestKey,
+        queryId: String
+    ) -> Bool {
+        var cleanup: Cleanup?
+        var shouldUnregisterPersistenceSource = false
+        var didMatch = false
+        var didRemoveNonDurableReceipt = false
+        lock.lock()
+        if var attempt = attemptsByKey[key],
+           attempt.lease.queryId == queryId,
+           attempt.phase == .committed,
+           attempt.committedPage != nil {
+            didMatch = true
+            shouldUnregisterPersistenceSource = attempt.didRegisterPersistenceSource
+            cleanup = makeCleanup(
+                key: key,
+                attempt: attempt,
+                includesTransportCancellation: false
+            )
+            if attempt.hasDurableCoverage {
+                attempt.messages = nil
+                attempt.archiveManager = nil
+                attempt.cancelTransport = nil
+                attempt.timeoutWorkItem = nil
+                attempt.endDispatcherToken = nil
+                attempt.failureDispatcherToken = nil
+                attempt.failurePreparationToken = nil
+                attempt.schedulerCompletion = nil
+                attempt.didRegisterPersistenceSource = false
+                attempt.observers.removeAll(keepingCapacity: false)
+                attemptsByKey[key] = attempt
+            } else {
+                // A terminal page that did not cover the current snapshot is
+                // not a reusable receipt. Removing it lets the single
+                // interactive follow-up acquire a fresh query immediately.
+                attemptsByKey.removeValue(forKey: key)
+                finalReceivedOrder.removeAll { $0 == key }
+                didRemoveNonDurableReceipt = true
+            }
+        }
+        lock.unlock()
+
+        if didRemoveNonDurableReceipt {
+            notifyReadinessObservers(key: key)
+        }
+        performCleanup(
+            cleanup,
+            unregisterPersistenceSource: shouldUnregisterPersistenceSource
+        )
+        return didMatch
+    }
+
+    /// A new synchronization boundary may replace only a previously committed
+    /// receipt. Active queued/transport/persistence work always keeps ownership.
+    @discardableResult
+    func invalidateCommittedReceipt(
+        key: ChatInitialBootstrapRequestKey,
+        queryId: String? = nil
+    ) -> Bool {
+        let cleanup: Cleanup?
+        lock.lock()
+        if let attempt = attemptsByKey[key],
+           attempt.phase == .committed,
+           attempt.committedPage != nil,
+           queryId == nil || attempt.lease.queryId == queryId {
+            attemptsByKey.removeValue(forKey: key)
+            finalReceivedOrder.removeAll { $0 == key }
+            cleanup = makeCleanup(
+                key: key,
+                attempt: attempt,
+                includesTransportCancellation: false
+            )
+        } else {
+            cleanup = nil
+        }
+        lock.unlock()
+
+        guard let cleanup else {
+            return false
+        }
+        notifyReadinessObservers(key: key)
+        performCleanup(cleanup, unregisterPersistenceSource: true)
+        return true
     }
 
     @discardableResult
@@ -707,6 +849,66 @@ final class ChatInitialBootstrapRequestCoordinator {
         )
     }
 
+    func recordCommittedPageForTesting(
+        key: ChatInitialBootstrapRequestKey,
+        queryId: String,
+        hasDurableCoverage: Bool,
+        boundaryFingerprint: MessageArchiveManager.ConversationArchiveBoundaryFingerprint? = nil,
+        resultCount: Int = 0
+    ) {
+        let normalizedResultCount = max(0, resultCount)
+        let state = MessageArchivePageEndState(
+            queryExhausted: true,
+            archiveEnded: true,
+            persistedMessageCount: normalizedResultCount
+        )
+        let event = MessageArchiveEndPageEvent(
+            owner: key.owner,
+            queryId: queryId,
+            state: state,
+            first: normalizedResultCount > 0 ? "archive-1" : "",
+            last: normalizedResultCount > 0 ? "archive-\(normalizedResultCount)" : "",
+            count: normalizedResultCount,
+            streamKind: .primary,
+            source: .localCallback
+        )
+        recordCommittedPage(
+            key: key,
+            queryId: queryId,
+            page: CommittedPage(
+                event: event,
+                completion: ChatRemoteHistoryCompletionResult(
+                    state: state,
+                    flushedMessageCount: 0,
+                    persistenceSummary: MessageManager.ArchivePersistenceSummary()
+                ),
+                boundaryFingerprint: boundaryFingerprint
+            ),
+            hasDurableCoverage: hasDurableCoverage
+        )
+    }
+
+    func hasRetainedResourcesForTesting(
+        key: ChatInitialBootstrapRequestKey,
+        queryId: String
+    ) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let attempt = attemptsByKey[key],
+              attempt.lease.queryId == queryId else {
+            return false
+        }
+        return attempt.messages != nil ||
+            attempt.archiveManager != nil ||
+            attempt.cancelTransport != nil ||
+            attempt.timeoutWorkItem != nil ||
+            attempt.endDispatcherToken != nil ||
+            attempt.failureDispatcherToken != nil ||
+            attempt.failurePreparationToken != nil ||
+            attempt.schedulerCompletion != nil ||
+            attempt.didRegisterPersistenceSource
+    }
+
     func resetForTests() {
         let cleanups: [Cleanup]
         lock.lock()
@@ -722,6 +924,40 @@ final class ChatInitialBootstrapRequestCoordinator {
         readinessObserversByKey.removeAll()
         persistenceCommitClaimObserver = nil
         lock.unlock()
+        cleanups.forEach {
+            performCleanup($0, unregisterPersistenceSource: true)
+        }
+    }
+
+    /// Account deletion ends the scope that makes a retained receipt valid.
+    /// Purge both lightweight receipts and active work so re-adding the same
+    /// JID cannot join archive proof from the previous account session.
+    func purge(owner: String) {
+        guard owner.isNotEmpty else { return }
+        let cleanups: [Cleanup]
+        let readinessObservers: [ReadinessObserver]
+        lock.lock()
+        let attemptKeys = attemptsByKey.keys.filter { $0.owner == owner }
+        cleanups = attemptKeys.compactMap { key in
+            attemptsByKey.removeValue(forKey: key).map {
+                makeCleanup(key: key, attempt: $0, includesTransportCancellation: true)
+            }
+        }
+        let terminalKeys = terminalFailuresByKey.keys.filter { $0.owner == owner }
+        terminalKeys.forEach { terminalFailuresByKey.removeValue(forKey: $0) }
+        terminalFailureOrder.removeAll { $0.owner == owner }
+        finalReceivedOrder.removeAll { $0.owner == owner }
+        readinessObservers = readinessObserversByKey
+            .filter { $0.key.owner == owner }
+            .flatMap { $0.value.values }
+        readinessObserversByKey = readinessObserversByKey.filter { $0.key.owner != owner }
+        cancelledTransportIdentities = cancelledTransportIdentities.filter {
+            $0.key.owner != owner
+        }
+        cancelledTransportIdentityOrder.removeAll { $0.key.owner == owner }
+        lock.unlock()
+
+        readinessObservers.forEach { $0(nil) }
         cleanups.forEach {
             performCleanup($0, unregisterPersistenceSource: true)
         }
@@ -790,7 +1026,6 @@ final class ChatInitialBootstrapRequestCoordinator {
     ) {
         var messages: MessageManager?
         var archiveManager: MessageArchiveManager?
-        var evictedCleanup: Cleanup?
         var timeoutWorkItem: DispatchWorkItem?
         var failureToken: MessageArchiveRequestFailureDispatcher.Token?
         var failurePreparationToken: MessageArchiveRequestFailurePreparationDispatcher.Token?
@@ -817,18 +1052,6 @@ final class ChatInitialBootstrapRequestCoordinator {
             attempt.hasWireTerminal = true
             attempt.endDispatcherToken = nil
             attemptsByKey[key] = attempt
-            finalReceivedOrder.removeAll { $0 == key }
-            finalReceivedOrder.append(key)
-            if finalReceivedOrder.count > Self.finalReceivedAttemptLimit {
-                let evictedKey = finalReceivedOrder.removeFirst()
-                if let evictedAttempt = attemptsByKey.removeValue(forKey: evictedKey) {
-                    evictedCleanup = makeCleanup(
-                        key: evictedKey,
-                        attempt: evictedAttempt,
-                        includesTransportCancellation: false
-                    )
-                }
-            }
             didRecord = true
         }
         lock.unlock()
@@ -851,7 +1074,6 @@ final class ChatInitialBootstrapRequestCoordinator {
             ("resultCount", event.count),
             ("hasPersistenceSource", messages != nil)
         ])
-        performCleanup(evictedCleanup, unregisterPersistenceSource: true)
         guard didRecord else {
             return
         }
@@ -875,20 +1097,31 @@ final class ChatInitialBootstrapRequestCoordinator {
                 queryId: event.queryId,
                 persistenceSummary: completion.persistenceSummary
             ) ?? .missingDescriptor
+            let boundaryFingerprint = archiveManager?.consumeCommittedArchiveBoundaryFingerprint(
+                queryId: event.queryId
+            )
             switch commitResult {
             case .committed:
                 let hasDurableCoverage = hasPersistenceConfirmedReadiness(for: key)
                 recordCommittedPage(
                     key: key,
                     queryId: event.queryId,
-                    page: CommittedPage(event: event, completion: completion),
+                    page: CommittedPage(
+                        event: event,
+                        completion: completion,
+                        boundaryFingerprint: boundaryFingerprint
+                    ),
                     hasDurableCoverage: hasDurableCoverage
                 )
             case .committedNeedsFollowUpRepair:
                 recordCommittedPage(
                     key: key,
                     queryId: event.queryId,
-                    page: CommittedPage(event: event, completion: completion),
+                    page: CommittedPage(
+                        event: event,
+                        completion: completion,
+                        boundaryFingerprint: boundaryFingerprint
+                    ),
                     hasDurableCoverage: false
                 )
             case .missingDescriptor where archiveManager == nil:
@@ -936,20 +1169,31 @@ final class ChatInitialBootstrapRequestCoordinator {
                 queryId: event.queryId,
                 persistenceSummary: completion.persistenceSummary
             ) ?? .missingDescriptor
+            let boundaryFingerprint = archiveManager?.consumeCommittedArchiveBoundaryFingerprint(
+                queryId: event.queryId
+            )
             switch commitResult {
             case .committed:
                 let hasDurableCoverage = self.hasPersistenceConfirmedReadiness(for: key)
                 self.recordCommittedPage(
                     key: key,
                     queryId: event.queryId,
-                    page: CommittedPage(event: event, completion: completion),
+                    page: CommittedPage(
+                        event: event,
+                        completion: completion,
+                        boundaryFingerprint: boundaryFingerprint
+                    ),
                     hasDurableCoverage: hasDurableCoverage
                 )
             case .committedNeedsFollowUpRepair:
                 self.recordCommittedPage(
                     key: key,
                     queryId: event.queryId,
-                    page: CommittedPage(event: event, completion: completion),
+                    page: CommittedPage(
+                        event: event,
+                        completion: completion,
+                        boundaryFingerprint: boundaryFingerprint
+                    ),
                     hasDurableCoverage: false
                 )
             case .missingDescriptor where archiveManager == nil:
@@ -1144,8 +1388,8 @@ final class ChatInitialBootstrapRequestCoordinator {
         page: CommittedPage,
         hasDurableCoverage: Bool = true
     ) {
-        var timeoutWorkItem: DispatchWorkItem?
-        var failureToken: MessageArchiveRequestFailureDispatcher.Token?
+        var committedCleanup: Cleanup?
+        var evictedCleanup: Cleanup?
         var didRecord = false
         var purpose = ConversationArchiveLoadPurpose.interactiveBootstrap
         lock.lock()
@@ -1153,27 +1397,54 @@ final class ChatInitialBootstrapRequestCoordinator {
            attempt.lease.queryId == queryId,
            attempt.committedPage == nil {
             purpose = attempt.lease.purpose
+            committedCleanup = makeCleanup(
+                key: key,
+                attempt: attempt,
+                includesTransportCancellation: false
+            )
             attempt.committedPage = page
             attempt.phase = .committed
             attempt.hasDurableCoverage = hasDurableCoverage
             attempt.confirmsEmptyConversation = hasDurableCoverage && page.event.count == 0
-            timeoutWorkItem = attempt.timeoutWorkItem
-            failureToken = attempt.failureDispatcherToken
+            attempt.messages = nil
+            attempt.archiveManager = nil
+            attempt.cancelTransport = nil
             attempt.timeoutWorkItem = nil
+            attempt.endDispatcherToken = nil
             attempt.failureDispatcherToken = nil
+            attempt.failurePreparationToken = nil
+            attempt.schedulerCompletion = nil
+            attempt.didRegisterPersistenceSource = false
+            attempt.observers.removeAll(keepingCapacity: false)
             attemptsByKey[key] = attempt
+            finalReceivedOrder.removeAll { $0 == key }
+            finalReceivedOrder.append(key)
+            while finalReceivedOrder.count > Self.finalReceivedAttemptLimit {
+                let evictedKey = finalReceivedOrder.removeFirst()
+                guard let evictedAttempt = attemptsByKey[evictedKey],
+                      evictedAttempt.phase == .committed else {
+                    continue
+                }
+                attemptsByKey.removeValue(forKey: evictedKey)
+                evictedCleanup = makeCleanup(
+                    key: evictedKey,
+                    attempt: evictedAttempt,
+                    includesTransportCancellation: false
+                )
+            }
             didRecord = true
         }
         lock.unlock()
-        notifyReadinessObservers(key: key)
 
         guard didRecord else {
             return
         }
-        timeoutWorkItem?.cancel()
-        if let failureToken {
-            MessageArchiveRequestFailureDispatcher.unregister(failureToken)
-        }
+        // A committed receipt is deliberately lightweight and survives its
+        // controller. Release query managers/registrations before publishing
+        // terminal readiness so teardown cannot strand them until reopen.
+        performCleanup(committedCleanup, unregisterPersistenceSource: true)
+        performCleanup(evictedCleanup, unregisterPersistenceSource: true)
+        notifyReadinessObservers(key: key)
         ChatArchiveDebugTrace.log("archiveLoadCommit", [
             ("purpose", purpose.rawValue),
             ("phase", ConversationArchiveLoadPhase.committed.rawValue),
@@ -1268,7 +1539,8 @@ final class ChatInitialBootstrapRequestCoordinator {
             phase: attempt.phase,
             hasDurableCoverage: attempt.hasDurableCoverage,
             confirmsEmptyConversation: attempt.confirmsEmptyConversation,
-            persistedVisibleRowCount: visibleRows
+            persistedVisibleRowCount: visibleRows,
+            boundaryFingerprint: attempt.committedPage?.boundaryFingerprint
         )
     }
 
@@ -1970,12 +2242,38 @@ extension ChatViewController {
     internal func requestInitialBootstrapArchive(showFailureIfUnavailable: Bool = false) {
         let coordinator = ChatInitialBootstrapRequestCoordinator.shared
         let key = self.initialBootstrapRequestKey
+        let requiresArchiveConfirmation = self.currentBootstrapRequiresArchiveConfirmation()
+        if let committedReadiness = coordinator.readiness(for: key),
+           self.shouldInvalidateCommittedArchiveReceipt(
+               committedReadiness,
+               requiresArchiveConfirmation: requiresArchiveConfirmation
+           ),
+           let committedLease = coordinator.committedLease(for: key),
+           let latestReadiness = coordinator.readiness(for: key),
+           self.shouldInvalidateCommittedArchiveReceipt(
+               latestReadiness,
+               requiresArchiveConfirmation: self.currentBootstrapRequiresArchiveConfirmation()
+           ) {
+            // A retained receipt proves the snapshot it committed. If Realm
+            // now requires archive confirmation again, a newer snapshot has
+            // invalidated that proof and this open must acquire fresh work.
+            _ = coordinator.invalidateCommittedReceipt(
+                key: key,
+                queryId: committedLease.queryId
+            )
+        }
+        // Realm/snapshot state can change while a retained receipt is being
+        // checked. Make the acquire decision from a fresh boundary read.
+        let requiresArchiveConfirmationNow = self.currentBootstrapRequiresArchiveConfirmation()
         let activeReadiness = coordinator.readiness(for: key)
         let hasUncommittedLease = activeReadiness.map {
             $0.phase == .queued || $0.phase == .transport || $0.phase == .persistence
         } ?? false
-        guard self.currentBootstrapRequiresArchiveConfirmation() || hasUncommittedLease else {
-            coordinator.discardConfirmedAttempt(key: key)
+        guard requiresArchiveConfirmationNow || hasUncommittedLease else {
+            // Never discard an account-scoped lease here: one may have been
+            // installed after the readiness read, and active work always wins
+            // over legacy Realm flags. A later readiness/Realm notification
+            // will join it or request the newly required boundary.
             coordinator.clearTerminal(key: key)
             self.performOnMain {
                 self.hasAttemptedInitialBootstrapBoundaryFollowUp = false
@@ -2118,7 +2416,7 @@ extension ChatViewController {
             account.xmppTaskScheduler.enqueueAccountTask(
                 priority: .interactive,
                 resource: .mamArchive,
-                deduplicationKey: key.schedulerDeduplicationKey,
+                deduplicationKey: key.schedulerDeduplicationKey(queryId: lease.queryId),
                 requiresAuthenticatedStream: true
             ) { user, stream, finish in
                 guard coordinator.isActive(key: key, queryId: lease.queryId) else {
@@ -2254,6 +2552,20 @@ extension ChatViewController {
         }
         if shouldShowSkeleton {
             self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
+            if !self.isInitialBootstrapInFlight {
+                // The snapshot boundary may have appeared after the initial
+                // navigation decision. Re-enter the account single-flight on
+                // the next main turn; it will either join or acquire exactly
+                // one archive transaction.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          !self.isInitialBootstrapInFlight,
+                          self.currentBootstrapLoadingState().showsSkeleton else {
+                        return
+                    }
+                    self.requestInitialBootstrapArchive()
+                }
+            }
         }
         _ = self.completeInitialBootstrapIfNeeded()
         self.rebuildUnreadMentionItems()

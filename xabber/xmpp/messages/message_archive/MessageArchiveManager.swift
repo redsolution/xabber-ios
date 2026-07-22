@@ -919,6 +919,62 @@ struct RegularIdleBackfillTriggerState: Equatable {
     }
 }
 
+struct SnapshotRepairFollowUpBudgetDecision: Equatable {
+    let shouldSchedule: Bool
+    let didExhaust: Bool
+    let nextConsumedCount: Int
+}
+
+enum SnapshotRepairFollowUpBudgetPolicy {
+    static func decision(
+        requiresFollowUp: Bool,
+        currentConsumedCount: Int,
+        consumesBudget: Bool,
+        maximumConsumedCount: Int = 1
+    ) -> SnapshotRepairFollowUpBudgetDecision {
+        let current = max(0, currentConsumedCount)
+        let maximum = max(0, maximumConsumedCount)
+        let shouldSchedule = requiresFollowUp && (!consumesBudget || current < maximum)
+        return SnapshotRepairFollowUpBudgetDecision(
+            shouldSchedule: shouldSchedule,
+            didExhaust: requiresFollowUp && consumesBudget && !shouldSchedule,
+            nextConsumedCount: shouldSchedule && consumesBudget ? current + 1 : current
+        )
+    }
+}
+
+enum SnapshotRepairTerminalReceiptBudgetPolicy {
+    /// Only a durable receipt for a demonstrably older boundary is free
+    /// reconciliation. A failed or nondurable terminal represents a real
+    /// attempt for the current boundary and must consume the single retry.
+    static func consumesFollowUpBudget(
+        readiness: ConversationArchiveReadiness?,
+        currentBoundaryFingerprint: MessageArchiveManager.ConversationArchiveBoundaryFingerprint?
+    ) -> Bool {
+        guard let readiness,
+              readiness.phase == .committed,
+              readiness.hasDurableCoverage,
+              let provenBoundary = readiness.boundaryFingerprint,
+              let currentBoundaryFingerprint,
+              provenBoundary != currentBoundaryFingerprint else {
+            return true
+        }
+        return false
+    }
+}
+
+enum SnapshotRepairRetriggerPolicy {
+    /// A queued target will read the latest Realm boundary when it starts. An
+    /// active target, however, may already have proved an older snapshot, so a
+    /// new trigger must survive until the current generation finishes.
+    static func shouldMarkDirty(
+        isAlreadyScheduled: Bool,
+        isActiveTarget: Bool
+    ) -> Bool {
+        isAlreadyScheduled && isActiveTarget
+    }
+}
+
 class MessageArchiveManager: AbstractXMPPManager {
 
     enum HistoryCursorPolicy {
@@ -1575,11 +1631,14 @@ class MessageArchiveManager: AbstractXMPPManager {
     private let deferredArchiveCommitLock = NSLock()
     private var deferredArchiveCommitsByQueryId: [String: DeferredArchiveCommitDescriptor] = [:]
     private var deferredArchiveCommitOrder: [String] = []
+    private var committedArchiveBoundaryFingerprintsByQueryId: [String: ConversationArchiveBoundaryFingerprint] = [:]
+    private var committedArchiveBoundaryFingerprintOrder: [String] = []
     private let maximumDeferredArchiveCommitCount = 128
     private let snapshotRepairPumpLock = NSLock()
     private var pendingSnapshotRepairTargets: [SnapshotRepairTarget] = []
     private var scheduledSnapshotRepairTargets: Set<SnapshotRepairTarget> = []
     private var activeSnapshotRepairTarget: SnapshotRepairTarget?
+    private var dirtySnapshotRepairTargets: Set<SnapshotRepairTarget> = []
     private var snapshotRepairPriorityByTarget: [SnapshotRepairTarget: AccountXMPPTaskScheduler.Priority] = [:]
     private var snapshotRepairFollowUpCountByTarget: [SnapshotRepairTarget: Int] = [:]
     private var snapshotRepairEnqueuedAtByTarget: [SnapshotRepairTarget: Date] = [:]
@@ -3496,6 +3555,8 @@ class MessageArchiveManager: AbstractXMPPManager {
             count: count
         )
         deferredArchiveCommitLock.lock()
+        committedArchiveBoundaryFingerprintsByQueryId.removeValue(forKey: queryId)
+        committedArchiveBoundaryFingerprintOrder.removeAll { $0 == queryId }
         if deferredArchiveCommitsByQueryId[queryId] == nil {
             deferredArchiveCommitOrder.append(queryId)
         }
@@ -3532,6 +3593,8 @@ class MessageArchiveManager: AbstractXMPPManager {
         if removedDescriptor != nil {
             deferredArchiveCommitOrder.removeAll { $0 == queryId }
         }
+        committedArchiveBoundaryFingerprintsByQueryId.removeValue(forKey: queryId)
+        committedArchiveBoundaryFingerprintOrder.removeAll { $0 == queryId }
         deferredArchiveCommitLock.unlock()
         if let removedDescriptor {
             ChatArchiveDebugTrace.log(deferredArchiveTraceEvent(
@@ -3617,6 +3680,11 @@ class MessageArchiveManager: AbstractXMPPManager {
             return .rejected(rejection)
         }
 
+        storeCommittedArchiveBoundaryFingerprint(
+            applyResult.committedFingerprint,
+            queryId: queryId
+        )
+
         if applyResult.boundaryChanged || conversationRequiresFollowUpRepair(task: descriptor.task) {
             ChatArchiveDebugTrace.log(deferredArchiveTraceEvent(
                 purpose: descriptor.task.purpose,
@@ -3638,6 +3706,44 @@ class MessageArchiveManager: AbstractXMPPManager {
             ("failedRows", persistenceSummary.failed)
         ])
         return .committed
+    }
+
+    /// Returns the exact conversation boundary produced by the Realm write
+    /// that committed this query. Reading Realm again after the transaction
+    /// would race a newer snapshot and could incorrectly claim that the older
+    /// page proved that newer boundary.
+    internal func consumeCommittedArchiveBoundaryFingerprint(
+        queryId: String
+    ) -> ConversationArchiveBoundaryFingerprint? {
+        guard queryId.isNotEmpty else { return nil }
+        deferredArchiveCommitLock.lock()
+        let fingerprint = committedArchiveBoundaryFingerprintsByQueryId.removeValue(
+            forKey: queryId
+        )
+        if fingerprint != nil {
+            committedArchiveBoundaryFingerprintOrder.removeAll { $0 == queryId }
+        }
+        deferredArchiveCommitLock.unlock()
+        return fingerprint
+    }
+
+    private func storeCommittedArchiveBoundaryFingerprint(
+        _ fingerprint: ConversationArchiveBoundaryFingerprint?,
+        queryId: String
+    ) {
+        guard queryId.isNotEmpty else { return }
+        deferredArchiveCommitLock.lock()
+        committedArchiveBoundaryFingerprintsByQueryId.removeValue(forKey: queryId)
+        committedArchiveBoundaryFingerprintOrder.removeAll { $0 == queryId }
+        if let fingerprint {
+            committedArchiveBoundaryFingerprintsByQueryId[queryId] = fingerprint
+            committedArchiveBoundaryFingerprintOrder.append(queryId)
+        }
+        while committedArchiveBoundaryFingerprintOrder.count > maximumDeferredArchiveCommitCount {
+            let expiredQueryId = committedArchiveBoundaryFingerprintOrder.removeFirst()
+            committedArchiveBoundaryFingerprintsByQueryId.removeValue(forKey: expiredQueryId)
+        }
+        deferredArchiveCommitLock.unlock()
     }
 
     private func conversationRequiresFollowUpRepair(task: MAMRequestItem) -> Bool {
@@ -3795,13 +3901,30 @@ class MessageArchiveManager: AbstractXMPPManager {
             return nil
         }
 
+        return Self.currentConversationArchiveBoundaryFingerprint(
+            owner: self.owner,
+            jid: jid,
+            conversationType: conversationType
+        )
+    }
+
+    static func currentConversationArchiveBoundaryFingerprint(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> ConversationArchiveBoundaryFingerprint? {
+        guard conversationType.supportsSnapshotArchiveRepair,
+              owner.isNotEmpty,
+              jid.isNotEmpty else {
+            return nil
+        }
         do {
             let realm = try WRealm.safe()
             let chat = realm.object(
                 ofType: LastChatsStorageItem.self,
                 forPrimaryKey: LastChatsStorageItem.genPrimary(
                     jid: jid,
-                    owner: self.owner,
+                    owner: owner,
                     conversationType: conversationType
                 )
             )
@@ -3809,7 +3932,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 ofType: RegularChatArchiveSyncStateStorageItem.self,
                 forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
                     jid: jid,
-                    owner: self.owner,
+                    owner: owner,
                     conversationType: conversationType
                 )
             )
@@ -3830,10 +3953,14 @@ class MessageArchiveManager: AbstractXMPPManager {
         first: String,
         last: String,
         count: Int
-    ) -> (didApply: Bool, boundaryChanged: Bool) {
+    ) -> (
+        didApply: Bool,
+        boundaryChanged: Bool,
+        committedFingerprint: ConversationArchiveBoundaryFingerprint?
+    ) {
         guard let jid = task.jid,
               jid.isNotEmpty else {
-            return (false, false)
+            return (false, false, nil)
         }
 
         do {
@@ -3844,6 +3971,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 conversationType: task.conversationType
             )
             var boundaryChanged = false
+            var committedFingerprint: ConversationArchiveBoundaryFingerprint?
             try realm.write {
                 let chat = realm.object(
                     ofType: LastChatsStorageItem.self,
@@ -3927,11 +4055,15 @@ class MessageArchiveManager: AbstractXMPPManager {
                         }
                     }
                 }
+                committedFingerprint = Self.conversationArchiveBoundaryFingerprint(
+                    chat: chat,
+                    archiveState: archiveState
+                )
             }
-            return (true, boundaryChanged)
+            return (true, boundaryChanged, committedFingerprint)
         } catch {
             DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-            return (false, false)
+            return (false, false, nil)
         }
     }
 
@@ -4992,10 +5124,20 @@ class MessageArchiveManager: AbstractXMPPManager {
         snapshotRepairPumpLock.lock()
         targets.forEach { target in
             guard target.conversationType.supportsSnapshotArchiveRepair,
-                  seen.insert(target).inserted,
-                  scheduledSnapshotRepairTargets.insert(target).inserted else {
+                  seen.insert(target).inserted else {
                 return
             }
+            let isAlreadyScheduled = scheduledSnapshotRepairTargets.contains(target)
+            if isAlreadyScheduled {
+                if SnapshotRepairRetriggerPolicy.shouldMarkDirty(
+                    isAlreadyScheduled: true,
+                    isActiveTarget: activeSnapshotRepairTarget == target
+                ) {
+                    dirtySnapshotRepairTargets.insert(target)
+                }
+                return
+            }
+            scheduledSnapshotRepairTargets.insert(target)
             let hasPredecessor = activeSnapshotRepairTarget != nil ||
                 pendingSnapshotRepairTargets.isNotEmpty
             pendingSnapshotRepairTargets.append(target)
@@ -5068,6 +5210,19 @@ class MessageArchiveManager: AbstractXMPPManager {
         snapshotRepairPumpLock.lock()
         let enqueuedAt = snapshotRepairEnqueuedAtByTarget[target] ?? Date()
         snapshotRepairPumpLock.unlock()
+        let readinessBeforeAcquisition = coordinator.readiness(for: key)
+        let currentBoundaryFingerprint = Self.currentConversationArchiveBoundaryFingerprint(
+            owner: self.owner,
+            jid: target.jid,
+            conversationType: target.conversationType
+        )
+        let freeReconciliationQueryIdBeforeAcquisition =
+            SnapshotRepairTerminalReceiptBudgetPolicy.consumesFollowUpBudget(
+                readiness: readinessBeforeAcquisition,
+                currentBoundaryFingerprint: currentBoundaryFingerprint
+            )
+            ? nil
+            : coordinator.committedLease(for: key)?.queryId
 
         let acquisition = coordinator.acquireOrJoin(
             key: key,
@@ -5079,13 +5234,23 @@ class MessageArchiveManager: AbstractXMPPManager {
         )
 
         let lease: ChatInitialBootstrapRequestCoordinator.Lease
+        let joinedTerminalReceiptAtAcquisition: Bool
         switch acquisition {
         case .terminal:
             coordinator.clearTerminal(key: key)
-            finishSnapshotRepairPump(target, requiresFollowUpRepair: true)
+            finishSnapshotRepairPump(
+                target,
+                requiresFollowUpRepair: true,
+                consumesFollowUpBudget: true
+            )
             return
-        case .start(let acquiredLease), .joined(let acquiredLease):
+        case .start(let acquiredLease):
             lease = acquiredLease
+            joinedTerminalReceiptAtAcquisition = false
+        case .joined(let acquiredLease):
+            lease = acquiredLease
+            joinedTerminalReceiptAtAcquisition =
+                freeReconciliationQueryIdBeforeAcquisition == acquiredLease.queryId
         }
 
         let observationLock = NSLock()
@@ -5115,20 +5280,44 @@ class MessageArchiveManager: AbstractXMPPManager {
             }
             DispatchQueue.main.async {
                 guard let self else { return }
+                // Re-check Realm after joining a terminal receipt. This closes
+                // the interval where another query may commit the target after
+                // the pump's initial satisfaction check but before acquire.
+                let boundaryMatches = readiness.boundaryFingerprint.map {
+                    Self.currentConversationArchiveBoundaryFingerprint(
+                        owner: self.owner,
+                        jid: target.jid,
+                        conversationType: target.conversationType
+                    ) == $0
+                } ?? true
+                let satisfiesCurrentSnapshot = readiness.phase == .committed &&
+                    readiness.hasDurableCoverage &&
+                    boundaryMatches &&
+                    self.isSnapshotArchiveRepairSatisfied(target)
                 let requiresFollowUpRepair = readiness.phase == .failed ||
-                    !readiness.hasDurableCoverage
+                    !satisfiesCurrentSnapshot
                 if readiness.phase == .committed {
-                    _ = coordinator.complete(
-                        key: key,
-                        queryId: lease.queryId,
-                        unregisterPersistenceSource: true
-                    )
+                    if satisfiesCurrentSnapshot {
+                        _ = coordinator.acknowledgeCommittedReceipt(
+                            key: key,
+                            queryId: lease.queryId
+                        )
+                    } else {
+                        _ = coordinator.invalidateCommittedReceipt(
+                            key: key,
+                            queryId: lease.queryId
+                        )
+                    }
                 } else {
                     coordinator.clearTerminal(key: key)
                 }
                 self.finishSnapshotRepairPump(
                     target,
-                    requiresFollowUpRepair: requiresFollowUpRepair
+                    requiresFollowUpRepair: requiresFollowUpRepair,
+                    // Joining already terminal proof is only reconciliation;
+                    // joining queued/transport/persistence work is a real
+                    // attempt and consumes the same budget as starting it.
+                    consumesFollowUpBudget: !joinedTerminalReceiptAtAcquisition
                 )
             }
         }
@@ -5168,7 +5357,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         account.xmppTaskScheduler.enqueueAccountTask(
             priority: priority,
             resource: .mamArchive,
-            deduplicationKey: key.schedulerDeduplicationKey,
+            deduplicationKey: key.schedulerDeduplicationKey(queryId: lease.queryId),
             requiresAuthenticatedStream: true,
             unavailable: startFailure
         ) { [weak self] user, stream, finish in
@@ -5194,6 +5383,10 @@ class MessageArchiveManager: AbstractXMPPManager {
                 messages: user.messages,
                 archiveManager: user.mam
             )
+            guard coordinator.isActive(key: key, queryId: lease.queryId) else {
+                finish()
+                return
+            }
             let startedQueryId = user.mam.startSnapshotArchiveRepair(
                 stream,
                 target: target,
@@ -5239,7 +5432,8 @@ class MessageArchiveManager: AbstractXMPPManager {
 
     private func finishSnapshotRepairPump(
         _ target: SnapshotRepairTarget,
-        requiresFollowUpRepair: Bool = false
+        requiresFollowUpRepair: Bool = false,
+        consumesFollowUpBudget: Bool = true
     ) {
         snapshotRepairPumpLock.lock()
         guard activeSnapshotRepairTarget == target else {
@@ -5248,16 +5442,37 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
 
         let currentFollowUpCount = snapshotRepairFollowUpCountByTarget[target] ?? 0
-        let shouldScheduleFollowUp = requiresFollowUpRepair && currentFollowUpCount < 1
-        let didExhaustFollowUp = requiresFollowUpRepair && !shouldScheduleFollowUp
+        let hasNewSnapshotGeneration = dirtySnapshotRepairTargets.remove(target) != nil
+        let budgetDecision: SnapshotRepairFollowUpBudgetDecision
+        if hasNewSnapshotGeneration {
+            // This is a new synchronization snapshot, not a retry of the old
+            // one. Preserve it independently of the previous retry budget;
+            // enqueue will cheaply re-check Realm before using the wire.
+            budgetDecision = SnapshotRepairFollowUpBudgetDecision(
+                shouldSchedule: true,
+                didExhaust: false,
+                nextConsumedCount: 0
+            )
+        } else {
+            budgetDecision = SnapshotRepairFollowUpBudgetPolicy.decision(
+                requiresFollowUp: requiresFollowUpRepair,
+                currentConsumedCount: currentFollowUpCount,
+                consumesBudget: consumesFollowUpBudget
+            )
+        }
+        let shouldScheduleFollowUp = budgetDecision.shouldSchedule
+        let didExhaustFollowUp = budgetDecision.didExhaust
         activeSnapshotRepairTarget = nil
         if shouldScheduleFollowUp {
-            snapshotRepairFollowUpCountByTarget[target] = currentFollowUpCount + 1
-            snapshotRepairPriorityByTarget[target] = .interactive
+            snapshotRepairFollowUpCountByTarget[target] = budgetDecision.nextConsumedCount
+            snapshotRepairPriorityByTarget[target] = hasNewSnapshotGeneration
+                ? .background
+                : .interactive
             snapshotRepairEnqueuedAtByTarget[target] = Date()
             pendingSnapshotRepairTargets.insert(target, at: 0)
         } else {
             scheduledSnapshotRepairTargets.remove(target)
+            dirtySnapshotRepairTargets.remove(target)
             snapshotRepairPriorityByTarget.removeValue(forKey: target)
             snapshotRepairFollowUpCountByTarget.removeValue(forKey: target)
             snapshotRepairEnqueuedAtByTarget.removeValue(forKey: target)
@@ -5279,11 +5494,16 @@ class MessageArchiveManager: AbstractXMPPManager {
         if shouldScheduleFollowUp {
             snapshotRepairEnqueueObserver?(
                 target,
-                .interactive,
+                hasNewSnapshotGeneration ? .background : .interactive,
                 target.deduplicationKey(owner: self.owner)
             )
-            ChatArchiveDebugTrace.log("mamSnapshotRepairFollowUpEnqueued", [
-                ("attempt", currentFollowUpCount + 1)
+            ChatArchiveDebugTrace.log(
+                hasNewSnapshotGeneration
+                    ? "mamSnapshotRepairRetriggerEnqueued"
+                    : "mamSnapshotRepairFollowUpEnqueued",
+                [
+                ("attempt", budgetDecision.nextConsumedCount),
+                ("consumedBudget", hasNewSnapshotGeneration ? false : consumesFollowUpBudget)
             ])
         } else if didExhaustFollowUp {
             ChatArchiveDebugTrace.log("mamSnapshotRepairFollowUpFailed", [

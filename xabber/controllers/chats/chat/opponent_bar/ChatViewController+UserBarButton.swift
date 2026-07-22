@@ -350,8 +350,9 @@ enum ChatNavigationAvatarItemFactory {
         target: AnyObject?,
         action: Selector
     ) -> UIBarButtonItem {
+        let resolvedImage = image ?? fallbackImage()
         let item = UIBarButtonItem(
-            image: image?.withRenderingMode(.alwaysOriginal),
+            image: resolvedImage.withRenderingMode(.alwaysOriginal),
             style: .plain,
             target: target,
             action: action
@@ -359,6 +360,21 @@ enum ChatNavigationAvatarItemFactory {
         item.accessibilityIdentifier = accessibilityIdentifier
         item.accessibilityLabel = "Chat info".localizeString(id: "chat_info", arguments: [])
         return item
+    }
+
+    static func fallbackImage() -> UIImage {
+        let icon = UIImage(systemName: "person.fill")?.withTintColor(
+            .secondaryLabel,
+            renderingMode: .alwaysOriginal
+        )
+        return renderAvatarImage(
+            image: icon,
+            backgroundColor: .tertiarySystemFill,
+            iconTintColor: nil,
+            prefersSquareMask: AccountMasksManager.shared.load() == "square"
+        ) ?? UIGraphicsImageRenderer(
+            size: CGSize(width: imageSize, height: imageSize)
+        ).image { _ in }
     }
 
     static func avatarImage(from image: UIImage?) -> UIImage? {
@@ -553,7 +569,8 @@ extension ChatViewController {
         guard !inSearchMode.value else {
             return
         }
-        navigationAvatarItem?.image = image?.withRenderingMode(.alwaysOriginal)
+        navigationAvatarItem?.image = (image ?? ChatNavigationAvatarItemFactory.fallbackImage())
+            .withRenderingMode(.alwaysOriginal)
     }
 
     private func currentNavigationAvatarURL() -> String? {

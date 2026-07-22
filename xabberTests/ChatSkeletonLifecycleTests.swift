@@ -159,7 +159,7 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         controller.performTerminalChatResourceTeardownForTesting()
     }
 
-    func testArchiveConfirmedChatDoesNotReserveOrEnterBootstrapTracking() throws {
+    func testArchiveConfirmedChatDoesNotEnterTrackingAndRetainsCommittedReceipt() throws {
         let previousConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "ChatSkeletonLifecycleTests-confirmed-\(name)"
@@ -219,20 +219,21 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
 
         XCTAssertNil(controller.initialBootstrapQueryId)
         XCTAssertFalse(controller.isInitialBootstrapInFlight)
-        XCTAssertFalse(ChatInitialBootstrapRequestCoordinator.shared.isActive(
+        XCTAssertTrue(ChatInitialBootstrapRequestCoordinator.shared.isActive(
             key: key,
             queryId: existingLease.queryId
-        ))
+        ), "durable account-scoped proof must remain available to a later open")
         XCTAssertEqual(cancellationCount, 0)
         let probe = ChatInitialBootstrapRequestCoordinator.shared.acquire(
             key: key,
             proposedQueryId: "bootstrap-confirmed-probe",
             timeout: 45
         ) { _, _, _ in }
-        guard case .start(let probeLease) = probe else {
-            return XCTFail("confirmed local archive must not reserve a bootstrap lease")
+        guard case .joined(let probeLease) = probe else {
+            return XCTFail("confirmed local archive must reuse the committed receipt")
         }
-        XCTAssertTrue(ChatInitialBootstrapRequestCoordinator.shared.complete(
+        XCTAssertEqual(probeLease.queryId, existingLease.queryId)
+        XCTAssertTrue(ChatInitialBootstrapRequestCoordinator.shared.invalidateCommittedReceipt(
             key: key,
             queryId: probeLease.queryId
         ))
@@ -667,7 +668,7 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         MessageArchiveEndPageDispatcher.unregister(dummyEndToken)
     }
 
-    func testCachedFinalKeepsMessageManagerAliveUntilReopenConsumesIt() {
+    func testCachedFinalReleasesMessageManagerAndKeepsLightweightReceiptForReopen() {
         let coordinator = ChatInitialBootstrapRequestCoordinator(
             automaticallySchedulesTimeouts: false
         )
@@ -684,16 +685,6 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         guard case .start(let lease) = first else {
             return XCTFail("first acquire must own transport start")
         }
-        let baselineManager = ChatSkeletonWeakBox<MessageManager>()
-        autoreleasepool {
-            let manager = makeNonRetainingMessageManager(owner: key.owner)
-            baselineManager.value = manager
-        }
-        XCTAssertNil(
-            baselineManager.value,
-            "the fixture itself must not retain MessageManager"
-        )
-
         let releasedManager = ChatSkeletonWeakBox<MessageManager>()
         autoreleasepool {
             let manager = makeNonRetainingMessageManager(owner: key.owner)
@@ -721,7 +712,6 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
             source: .unroutedFinalIQ
         )
         XCTAssertTrue(MessageArchiveEndPageDispatcher.publish(finalEvent))
-        XCTAssertNotNil(releasedManager.value)
         let persistenceDeadline = Date().addingTimeInterval(2)
         while coordinator.cachedCommittedPage(key: key, queryId: lease.queryId) == nil,
               Date() < persistenceDeadline {
@@ -730,6 +720,15 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertNotNil(
             coordinator.cachedCommittedPage(key: key, queryId: lease.queryId),
             "reopen cache must be published only after the query persistence barrier"
+        )
+        let releaseDeadline = Date().addingTimeInterval(2)
+        while releasedManager.value != nil,
+              Date() < releaseDeadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertNil(
+            releasedManager.value,
+            "terminal commit must release the heavy MessageManager owner"
         )
 
         var reopenedManager: MessageManager?
@@ -744,12 +743,9 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
             return XCTFail("reopen must join the final-received attempt")
         }
         XCTAssertEqual(reopenedLease.queryId, lease.queryId)
-        XCTAssertTrue(reopenedManager === releasedManager.value)
+        XCTAssertNil(reopenedManager)
 
         XCTAssertTrue(coordinator.complete(key: key, queryId: lease.queryId))
-        reopenedManager = nil
-        autoreleasepool {}
-        XCTAssertNil(releasedManager.value)
     }
 
     func testRemoteHistoryPersistenceFlushIsSingleFlightAndMemoizedForLateConsumer() {

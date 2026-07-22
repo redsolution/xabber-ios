@@ -1082,6 +1082,7 @@ public class AccountManager: NSObject {
     }
 
     private func performPreRealmAccountDeletionCleanup(jid: String, hard: Bool) {
+        ChatInitialBootstrapRequestCoordinator.shared.purge(owner: jid)
         if XMPPUIActionManager.shared.currentJid == jid {
             XMPPUIActionManager.shared.close(
                 soft: AccountDeletionUIActionClosePolicy.closeSoftFlag(hard: hard),
