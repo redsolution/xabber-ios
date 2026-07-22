@@ -5922,6 +5922,26 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 return
             }
 
+            if self.initialBootstrapQueryId == queryId {
+                let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+                if let page = coordinator.cachedCommittedPage(
+                    key: self.initialBootstrapRequestKey,
+                    queryId: queryId
+                ) {
+                    self.consumeInitialBootstrapCommittedPage(page)
+                } else {
+                    ChatArchiveDebugTrace.log("initialBootstrapRawFinalAwaitingCommit", [
+                        ("queryId", queryId),
+                        ("phase", coordinator.readiness(for: self.initialBootstrapRequestKey)?.phase.rawValue ?? "none")
+                    ])
+                }
+                // The account-scoped coordinator owns both the query flush
+                // and deferred MAM coverage commit. Starting a second UI
+                // flush here can reveal empty/content before readiness is
+                // durable, so raw `<fin>` never completes initial bootstrap.
+                return
+            }
+
             let finalPage = ChatRemoteHistoryFinalPage(
                 state: state,
                 first: first,
@@ -6113,9 +6133,11 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                   self.initialBootstrapQueryId == page.event.queryId else {
                 return
             }
-            _ = self.markRemoteHistoryEndPageCompletionIfNeeded(
+            guard self.markRemoteHistoryEndPageCompletionIfNeeded(
                 queryId: page.event.queryId
-            )
+            ) else {
+                return
+            }
             self.handleCommittedRemoteHistoryFinal(
                 queryId: page.event.queryId,
                 originalState: page.event.state,

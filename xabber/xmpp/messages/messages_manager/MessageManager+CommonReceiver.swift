@@ -272,9 +272,15 @@ extension MessageManager {
                 return
             }
 
-            let results = self.drainQueuedMessages()
+            let drainLimit = min(max(1, self.messagePersistenceChunkSize), 100)
+            let results = self.drainQueuedMessages(maxCount: drainLimit)
             self.adjustInFlightMessageCounts(for: results, delta: 1)
             self.isQueuedMessagesDrainScheduled = false
+            ChatArchiveDebugTrace.log("messageOrdinaryDrainStart", [
+                ("drainCount", results.count),
+                ("drainLimit", drainLimit),
+                ("queuedRemaining", self.queuedMessages.count)
+            ])
             self.processQueue(results, callback: { values in
                 if let batch = values {
                     _ = self.save(batch)
@@ -289,9 +295,18 @@ extension MessageManager {
         }
     }
 
-    internal func drainQueuedMessages() -> Set<MessageQueueItem> {
+    internal func drainQueuedMessages(maxCount: Int) -> Set<MessageQueueItem> {
         self.performMessageQueueSync {
-            let snapshot = Set(self.queuedMessages.filter(self.isEligibleForOrdinaryDrain))
+            let boundedCount = min(max(1, maxCount), 100)
+            let eligibleMessages = self.queuedMessages
+                .filter(self.isEligibleForOrdinaryDrain)
+                .sorted { lhs, rhs in
+                    if lhs.date != rhs.date {
+                        return lhs.date < rhs.date
+                    }
+                    return (lhs.messageId ?? "") < (rhs.messageId ?? "")
+                }
+            let snapshot = Set(eligibleMessages.prefix(boundedCount))
             self.adjustQueuedMessageCounts(for: snapshot, delta: -1)
             self.queuedMessages.subtract(snapshot)
             self.publishQueuedMessagesSnapshot()

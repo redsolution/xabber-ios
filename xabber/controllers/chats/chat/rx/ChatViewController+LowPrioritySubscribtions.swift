@@ -408,9 +408,8 @@ extension ChatViewController {
                     self.xabberInputView.showSelectionPanel()
                     self.navigationItem.titleView = self.selectionCountLabel
                 } else {
-                    self.navigationItem.setHidesBackButton(false, animated: shouldAnimate)
                     self.xabberInputView.hideSelectionPanel()
-                    self.configureNavbar()
+                    self.restoreNormalNavbarAfterSelectionIfNeeded()
                 }
             })
             .disposed(by: bag)
@@ -736,5 +735,33 @@ extension ChatViewController {
                 }
                 
             }.disposed(by: self.bag)
+    }
+}
+
+extension ChatViewController {
+    /// Selection owns the leading navigation item while it is active. Give
+    /// the whole normal-mode restoration back to UIKit only after an active
+    /// push/pop transition has completed; changing just the left item later
+    /// still lets title/right mutations disturb the native Back transition.
+    @discardableResult
+    internal func restoreNormalNavbarAfterSelectionIfNeeded() -> Bool {
+        let restore = { [weak self] in
+            guard let self,
+                  !self.isInSelectionMode.value else {
+                return
+            }
+            let shouldAnimate = ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+                requestedAnimated: true,
+                isTransitionActive: self.isNavigationTransitionActive,
+                isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
+            )
+            self.navigationItem.setHidesBackButton(false, animated: shouldAnimate)
+            self.configureNavbar()
+        }
+        if self.deferUntilNavigationTransitionCompletesIfNeeded(restore) {
+            return true
+        }
+        restore()
+        return false
     }
 }

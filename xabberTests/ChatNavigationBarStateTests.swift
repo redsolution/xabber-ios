@@ -182,6 +182,110 @@ final class ChatNavigationBarStateTests: XCTestCase {
         }
     }
 
+    func testRepeatedNormalChatNavbarConfigurationPreservesLeftItemAndRightAvatarIdentity() {
+        let rootViewController = UIViewController()
+        let viewController = ChatViewController()
+        let navigationController = UINavigationController(rootViewController: rootViewController)
+        navigationController.pushViewController(viewController, animated: false)
+        viewController.loadViewIfNeeded()
+
+        let systemOwnedLeftItemProxy = makeBarButtonItem(identifier: "system-back-proxy")
+        viewController.navigationItem.leftBarButtonItem = systemOwnedLeftItemProxy
+
+        viewController.configureNavbar()
+        let firstAvatarItem = viewController.navigationItem.rightBarButtonItem
+        XCTAssertTrue(
+            viewController.navigationItem.leftBarButtonItem === systemOwnedLeftItemProxy,
+            "normal chat setup must not clear UIKit-owned left navigation state"
+        )
+
+        viewController.configureNavbar()
+
+        XCTAssertTrue(viewController.navigationItem.leftBarButtonItem === systemOwnedLeftItemProxy)
+        XCTAssertTrue(
+            viewController.navigationItem.rightBarButtonItem === firstAvatarItem,
+            "repeated lifecycle callbacks must not replace an unchanged avatar item during push"
+        )
+        XCTAssertFalse(viewController.navigationItem.hidesBackButton)
+        XCTAssertTrue(navigationController.popViewController(animated: false) === viewController)
+    }
+
+    func testAnimatedPushKeepsNativeBackControlTouchableAndPerformsPop() throws {
+        let rootViewController = UIViewController()
+        rootViewController.title = "Chats"
+        let navigationController = UINavigationController(rootViewController: rootViewController)
+        let window = TraitWindow(horizontalSizeClass: .compact)
+        window.rootViewController = navigationController
+        window.makeKeyAndVisible()
+        retainedTraitWindows.append(window)
+        navigationController.view.frame = window.bounds
+        navigationController.view.layoutIfNeeded()
+
+        let viewController = ChatViewController()
+        navigationController.pushViewController(viewController, animated: true)
+        viewController.configureNavbar()
+        viewController.configureNavbar()
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        navigationController.view.layoutIfNeeded()
+        navigationController.navigationBar.layoutIfNeeded()
+
+        XCTAssertTrue(navigationController.topViewController === viewController)
+        XCTAssertFalse(viewController.navigationItem.hidesBackButton)
+
+        let navigationBar = navigationController.navigationBar
+        let backControl = try XCTUnwrap(
+            descendantControls(in: navigationBar).first(where: { control in
+                guard !control.isHidden,
+                      control.alpha > 0.01,
+                      control.isUserInteractionEnabled else {
+                    return false
+                }
+                let frame = control.convert(control.bounds, to: navigationBar)
+                return frame.minX < 88 && frame.maxX > 0 && frame.height >= 40
+            }),
+            "animated push must expose UIKit's native leading Back control"
+        )
+        XCTAssertGreaterThanOrEqual(backControl.bounds.width, 44)
+        XCTAssertGreaterThanOrEqual(backControl.bounds.height, 44)
+
+        backControl.sendActions(for: .touchUpInside)
+        let popped = expectation(description: "native Back performed pop")
+        DispatchQueue.main.async {
+            popped.fulfill()
+        }
+        wait(for: [popped], timeout: 1)
+        XCTAssertTrue(navigationController.topViewController === rootViewController)
+    }
+
+    func testSelectionNavbarRestorationDefersEveryItemUntilTransitionCompletes() {
+        let viewController = ChatViewController()
+        let navigationController = UINavigationController(rootViewController: viewController)
+        viewController.loadViewIfNeeded()
+        viewController.configureNavbar()
+
+        viewController.navigationItem.leftBarButtonItem = viewController.deleteSelectionBarButton
+        viewController.navigationItem.rightBarButtonItem = viewController.cancelSelectionBarButton
+        viewController.navigationItem.titleView = viewController.selectionCountLabel
+        viewController.navigationItem.setHidesBackButton(true, animated: false)
+        viewController.isNavigationTransitionActive = true
+
+        XCTAssertTrue(viewController.restoreNormalNavbarAfterSelectionIfNeeded())
+        XCTAssertTrue(viewController.navigationItem.leftBarButtonItem === viewController.deleteSelectionBarButton)
+        XCTAssertTrue(viewController.navigationItem.rightBarButtonItem === viewController.cancelSelectionBarButton)
+        XCTAssertTrue(viewController.navigationItem.titleView === viewController.selectionCountLabel)
+        XCTAssertTrue(viewController.navigationItem.hidesBackButton)
+
+        viewController.isNavigationTransitionActive = false
+        viewController.flushPendingNavigationTransitionWork()
+
+        XCTAssertNil(viewController.navigationItem.leftBarButtonItem)
+        XCTAssertFalse(viewController.navigationItem.rightBarButtonItem === viewController.cancelSelectionBarButton)
+        XCTAssertTrue(viewController.navigationItem.titleView === viewController.titleButton)
+        XCTAssertFalse(viewController.navigationItem.hidesBackButton)
+        _ = navigationController
+    }
+
     func testSplitDetailNavigationControllerFactoryUsesPlainNativeNavigationControllerForChat() throws {
         withInterfaceType(.split) {
             let splitViewController = UISplitViewController(style: .tripleColumn)
@@ -319,6 +423,11 @@ final class ChatNavigationBarStateTests: XCTestCase {
         XCTAssertTrue(viewController.extendedLayoutIncludesOpaqueBars, file: file, line: line)
         XCTAssertTrue(viewController.edgesForExtendedLayout.contains(.top), file: file, line: line)
         XCTAssertTrue(viewController.edgesForExtendedLayout.contains(.bottom), file: file, line: line)
+    }
+
+    private func descendantControls(in view: UIView) -> [UIControl] {
+        let directControls = view.subviews.compactMap { $0 as? UIControl }
+        return directControls + view.subviews.flatMap(descendantControls(in:))
     }
 
     private func withInterfaceType(

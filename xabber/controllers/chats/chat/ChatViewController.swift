@@ -1583,6 +1583,9 @@ class ChatViewController: MessagesViewController {
     var hasCommittedRealContentInCurrentLifecycle: Bool = false
     var hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle: Bool = false
     var hasCommittedTimelinePresentationInCurrentLifecycle: Bool = false
+    /// True only while UIKit owns an asynchronous structural batch update.
+    /// Navigation fallback must never start a nested reload in this interval.
+    var isChatDatasourceStructuralTransactionActive: Bool = false
     var pendingArchiveObserverRefresh: Bool = false
     var archiveObserverRefreshWorkItem: DispatchWorkItem? = nil
     var activeChatHistoryLoadActivityKeys: Set<ChatHistoryLoadActivityKey> = []
@@ -1607,6 +1610,8 @@ class ChatViewController: MessagesViewController {
     internal var navigationAvatarRequestKey: String? = nil
     internal var navigationAvatarGeneration = UUID()
     internal var navigationAvatarItem: UIBarButtonItem? = nil
+    private var navigationTitleWidthConstraint: NSLayoutConstraint? = nil
+    private var navigationTitleHeightConstraint: NSLayoutConstraint? = nil
 
 // Pin message bar
     internal var pinnedMessageId: BehaviorRelay<String?> = BehaviorRelay(value: nil)
@@ -1750,6 +1755,8 @@ class ChatViewController: MessagesViewController {
     }()
     var initialBootstrapQueryId: String? = nil
     var isInitialBootstrapInFlight: Bool = false
+    var initialBootstrapReadinessObservationToken: ChatInitialBootstrapRequestCoordinator.ObservationToken? = nil
+    var initialBootstrapReadinessObservationKey: ChatInitialBootstrapRequestKey? = nil
     var didReceiveInitialBootstrapEndPage: Bool = false
     var initialBootstrapPageEndState: MessageArchivePageEndState? = nil
     var initialBootstrapResultCount: Int? = nil
@@ -1767,6 +1774,11 @@ class ChatViewController: MessagesViewController {
     var initialBootstrapLocalHistoryFallbackWorkItem: DispatchWorkItem? = nil
     var allowsStaleLocalHistoryDuringInitialBootstrap: Bool = false
     var allowsBootstrapFailureFallback: Bool = false
+    /// A persistence-confirmed page may still miss a synchronization boundary
+    /// that advanced while its transport was in flight. Allow one interactive
+    /// repair in the current controller lifecycle, then surface retry instead
+    /// of keeping an unbounded skeleton loop alive.
+    var hasAttemptedInitialBootstrapBoundaryFollowUp: Bool = false
     var appliedBootstrapLoadingState: ChatBootstrapLoadingState?
     var lastBootstrapAtomicRevealPlan: ChatBootstrapAtomicRevealPlan?
     var hasConfirmedArchiveEndThisSession: Bool = false
@@ -4253,15 +4265,20 @@ class ChatViewController: MessagesViewController {
     }
 
     private func setupNavigationBar() {
-        NavigationBarItemOwnership.clear(self.navigationItem, animated: false)
         NativeSectionNavigationBarPolicy.apply(to: self)
         edgesForExtendedLayout = [.top, .bottom]
         extendedLayoutIncludesOpaqueBars = true
 
-        navigationItem.largeTitleDisplayMode = .never
-        navigationItem.backButtonDisplayMode = .minimal
-        navigationItem.setHidesBackButton(false, animated: false)
-        navigationItem.leftItemsSupplementBackButton = true
+        if navigationItem.largeTitleDisplayMode != .never {
+            navigationItem.largeTitleDisplayMode = .never
+        }
+        if navigationItem.backButtonDisplayMode != .minimal {
+            navigationItem.backButtonDisplayMode = .minimal
+        }
+        if !navigationItem.leftItemsSupplementBackButton {
+            navigationItem.leftItemsSupplementBackButton = true
+        }
+        releaseSelectionLeadingNavigationItemIfNeeded()
 
         setupNavigationTitleView()
         setupNavigationAvatarItem()
@@ -4286,6 +4303,19 @@ class ChatViewController: MessagesViewController {
                 titleStack.bottomAnchor.constraint(lessThanOrEqualTo: titleButton.bottomAnchor),
                 titleStack.centerYAnchor.constraint(equalTo: titleButton.centerYAnchor)
             ])
+
+            titleButton.removeTarget(self, action: #selector(onTitleButtonTouchUp(_:)), for: .touchUpInside)
+            titleButton.addTarget(self, action: #selector(onTitleButtonTouchUp(_:)), for: .touchUpInside)
+        }
+
+        if navigationTitleWidthConstraint == nil {
+            titleButton.translatesAutoresizingMaskIntoConstraints = false
+            let widthConstraint = titleButton.widthAnchor.constraint(equalToConstant: 140)
+            widthConstraint.priority = UILayoutPriority(999)
+            let heightConstraint = titleButton.heightAnchor.constraint(equalToConstant: 42)
+            NSLayoutConstraint.activate([widthConstraint, heightConstraint])
+            navigationTitleWidthConstraint = widthConstraint
+            navigationTitleHeightConstraint = heightConstraint
         }
 
         titleStack.isUserInteractionEnabled = false
@@ -4294,35 +4324,66 @@ class ChatViewController: MessagesViewController {
         statusLabel.textAlignment = .center
         titleButton.contentHorizontalAlignment = .center
         titleButton.contentVerticalAlignment = .center
-        
-        titleButton.removeTarget(self, action: #selector(onTitleButtonTouchUp(_:)), for: .touchUpInside)
-        titleButton.addTarget(self, action: #selector(onTitleButtonTouchUp(_:)), for: .touchUpInside)
-        navigationItem.titleView = titleButton
+
+        if navigationItem.titleView !== titleButton {
+            navigationItem.titleView = titleButton
+        }
     }
 
     private func setupNavigationAvatarItem() {
-        invalidateNavigationAvatarItem()
-
-        let item = ChatNavigationAvatarItemFactory.makeItem(
-            image: currentNavigationAvatarPlaceholderImage(),
-            target: self,
-            action: #selector(showInfo)
-        )
-        navigationAvatarItem = item
-        NavigationBarItemOwnership.set(.item(item), on: navigationItem, side: .right, animated: false)
-        startNavigationAvatarObservation()
+        if navigationAvatarItem == nil {
+            let item = ChatNavigationAvatarItemFactory.makeItem(
+                image: currentNavigationAvatarPlaceholderImage(),
+                target: self,
+                action: #selector(showInfo)
+            )
+            navigationAvatarItem = item
+            startNavigationAvatarObservation()
+        }
+        if let navigationAvatarItem {
+            NavigationBarItemOwnership.setIfChanged(
+                .item(navigationAvatarItem),
+                on: navigationItem,
+                side: .right,
+                animated: false
+            )
+        }
         refreshNavigationAvatarImage()
     }
 
+    private func releaseSelectionLeadingNavigationItemIfNeeded() {
+        guard !self.isInSelectionMode.value else { return }
+        let ownsCurrentLeadingItem = navigationItem.leftBarButtonItem === deleteSelectionBarButton ||
+            (navigationItem.leftBarButtonItems?.contains { $0 === deleteSelectionBarButton } ?? false)
+        guard ownsCurrentLeadingItem else { return }
+        let release = { [weak self] in
+            guard let self else { return }
+            let stillOwnsLeadingItem = self.navigationItem.leftBarButtonItem === self.deleteSelectionBarButton ||
+                (self.navigationItem.leftBarButtonItems?.contains { $0 === self.deleteSelectionBarButton } ?? false)
+            guard stillOwnsLeadingItem else { return }
+            NavigationBarItemOwnership.setIfChanged(
+                .none,
+                on: self.navigationItem,
+                side: .left,
+                animated: false
+            )
+        }
+        if self.deferUntilNavigationTransitionCompletesIfNeeded(release) {
+            return
+        }
+        release()
+    }
+
     private func updateNavbarTitleWidth() {
-        guard navigationItem.titleView === titleButton else { return }
+        guard navigationItem.titleView === titleButton,
+              let navigationTitleWidthConstraint else { return }
         let navBarWidth = navigationController?.navigationBar.bounds.width ?? view.bounds.width
         let leftReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
         let rightReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
         let sideReserve = max(leftReserved, rightReserved)
-        let targetFrame = CGRect(x: 0, y: 0, width: max(140, navBarWidth - sideReserve * 2), height: 42)
-        if !titleButton.frame.isApproximatelyEqual(to: targetFrame) {
-            titleButton.frame = targetFrame
+        let targetWidth = max(140, navBarWidth - sideReserve * 2)
+        if abs(navigationTitleWidthConstraint.constant - targetWidth) > 0.5 {
+            navigationTitleWidthConstraint.constant = targetWidth
         }
     }
 
@@ -4836,6 +4897,7 @@ class ChatViewController: MessagesViewController {
         self.endAllChatHistoryLoadActivities(reason: "unsubscribe")
         self.bag = DisposeBag()
         self.cancelInitialBootstrapLocalHistoryFallback()
+        self.detachInitialBootstrapReadinessObservation()
         self.clearRemoteHistoryEndPageDispatchers()
         self.remoteHistoryQueryCoordinator.cancelAll(reason: .cancelled)
         self.stopChatArchiveMainStallProbe(reason: "unsubscribe")
@@ -5481,6 +5543,7 @@ class ChatViewController: MessagesViewController {
 
         self.cancelInitialBootstrapTimeout()
         self.cancelInitialBootstrapLocalHistoryFallback()
+        self.detachInitialBootstrapReadinessObservation()
         self.initialBootstrapQueryId = nil
         self.isInitialBootstrapInFlight = false
         self.initialBootstrapScopedRefreshQueryId = nil
@@ -5981,15 +6044,34 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
         }
         let hadCommittedFirstFrame = self.isCommittedStackedNavigationFirstFrameReady
         if !hadCommittedFirstFrame {
-            // Preserve a deterministic loading surface while the already-started
-            // local first-frame work continues after the push.
-            self.applyBootstrapViewState(.skeleton, forceRender: true)
+            // A real datasource can be installed while its collection update
+            // completion is still pending. Seal those prepared rows first;
+            // the skeleton must never overwrite already available content.
+            _ = self.commitPreparedRealDatasourceAsFirstFrameSynchronouslyIfNeeded()
         }
+        if !self.isCommittedStackedNavigationFirstFrameReady {
+            // The presentation handle completes immediately after this callback
+            // returns. Commit the bounded skeleton transaction synchronously so
+            // UIKit can never push a destination with an empty first frame.
+            self.applyBootstrapViewState(
+                .skeleton,
+                forceRender: true,
+                synchronousSkeletonCommit: true
+            )
+        }
+        let hasCommittedFirstFrame = self.isCommittedStackedNavigationFirstFrameReady
+        assert(
+            hasCommittedFirstFrame,
+            "Stacked chat fallback must commit a deterministic first frame before presentation"
+        )
         self.isPreparingStackedNavigationPresentation = false
         DDLogDebug(
             "LAST_CHATS_NAVIGATION event=destinationPreparationFallback " +
             "hasPendingOpenMessageRequest=\(self.pendingOpenMessageRequest != nil) " +
-            "hadCommittedFirstFrame=\(hadCommittedFirstFrame)"
+            "hadCommittedFirstFrame=\(hadCommittedFirstFrame) " +
+            "hasCommittedFirstFrame=\(hasCommittedFirstFrame) " +
+            "realRowCount=\(self.datasource.lazy.filter { !$0.isFakeMessage }.count) " +
+            "skeletonRowCount=\(self.datasource.lazy.filter(\.isFakeMessage).count)"
         )
     }
 }

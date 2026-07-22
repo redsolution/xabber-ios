@@ -203,6 +203,36 @@ final class AccountXMPPTaskScheduler {
         }
     }
 
+    /// Raises the priority of an already queued logical transaction without
+    /// replacing its captured work. Running transactions are already on the
+    /// wire and therefore need no promotion.
+    func promotePendingTask(
+        deduplicationKey: String,
+        to priority: Priority
+    ) {
+        guard deduplicationKey.isNotEmpty else { return }
+        queue.async {
+            guard let index = self.pendingTasks.firstIndex(where: {
+                $0.generation == self.generation &&
+                    $0.deduplicationKey == deduplicationKey
+            }),
+                  priority > self.pendingTasks[index].priority else {
+                return
+            }
+            let existing = self.pendingTasks[index]
+            self.pendingTasks[index] = ScheduledTask(
+                id: existing.id,
+                generation: existing.generation,
+                priority: priority,
+                resource: existing.resource,
+                deduplicationKey: existing.deduplicationKey,
+                order: existing.order,
+                work: existing.work
+            )
+            self.drainLocked()
+        }
+    }
+
     func resume() {
         queue.async {
             self.isPaused = false

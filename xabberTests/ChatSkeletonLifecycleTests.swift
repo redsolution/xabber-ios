@@ -1145,6 +1145,81 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         controller.performTerminalChatResourceTeardownForTesting()
     }
 
+    func testStackedNavigationTimeoutReturnsOnlyAfterSkeletonRowsCommit() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        controller.datasource = []
+        controller.appliedBootstrapLoadingState = .blockingArchive
+        controller.showSkeletonObserver.accept(true)
+        controller.isPreparingStackedNavigationPresentation = true
+
+        controller.stackedNavigationPresentationPreparationDidTimeOut()
+
+        XCTAssertFalse(controller.isPreparingStackedNavigationPresentation)
+        XCTAssertEqual(controller.datasource.count, 30)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertTrue(controller.hasCommittedBootstrapSkeletonRows)
+        XCTAssertTrue(controller.isCommittedStackedNavigationFirstFrameReady)
+        XCTAssertEqual(
+            controller.messagesCollectionView.numberOfSections,
+            controller.datasource.count,
+            "navigation fallback may finish only after the collection transaction commits"
+        )
+
+        controller.performTerminalChatResourceTeardownForTesting()
+    }
+
+    func testStackedNavigationTimeoutSealsPreparedRealRowsWithoutReplacingThemWithSkeleton() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        controller.datasource = [makeDatasource(primary: "prepared-real-message")]
+        controller.appliedBootstrapLoadingState = .blockingArchive
+        controller.showSkeletonObserver.accept(true)
+        controller.isPreparingStackedNavigationPresentation = true
+
+        controller.stackedNavigationPresentationPreparationDidTimeOut()
+
+        XCTAssertFalse(controller.isPreparingStackedNavigationPresentation)
+        XCTAssertEqual(controller.datasource.map(\.primary), ["prepared-real-message"])
+        XCTAssertTrue(controller.datasource.allSatisfy { !$0.isFakeMessage })
+        XCTAssertTrue(controller.hasCommittedRealContentInCurrentLifecycle)
+        XCTAssertFalse(controller.hasCommittedBootstrapSkeletonRows)
+        XCTAssertTrue(controller.isCommittedStackedNavigationFirstFrameReady)
+        XCTAssertEqual(controller.messagesCollectionView.numberOfSections, 1)
+
+        controller.performTerminalChatResourceTeardownForTesting()
+    }
+
+    func testFirstFrameTargetedDiffCommitsSynchronouslyWithoutLeavingBatchUpdateInFlight() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        controller.applyChatDatasource(
+            [makeDatasource(primary: "existing-real-message")],
+            mode: .fullReload(),
+            animated: false
+        )
+        controller.hasCommittedRealContentInCurrentLifecycle = false
+        controller.isPreparingStackedNavigationPresentation = true
+
+        controller.applyChatDatasource(
+            [
+                makeDatasource(primary: "existing-real-message"),
+                makeDatasource(primary: "prepared-real-message")
+            ],
+            mode: .targetedDiff,
+            animated: true
+        )
+
+        XCTAssertFalse(controller.isChatDatasourceStructuralTransactionActive)
+        XCTAssertTrue(controller.hasCommittedRealContentInCurrentLifecycle)
+        XCTAssertEqual(controller.messagesCollectionView.numberOfSections, 2)
+
+        controller.performTerminalChatResourceTeardownForTesting()
+    }
+
     func testContentTransitionReloadsWhenSkeletonHasNotCommittedAnyRows() {
         XCTAssertTrue(
             ChatBootstrapContentRenderPolicy.shouldReloadInitialWindow(
@@ -1371,6 +1446,154 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertNil(controller.initialBootstrapQueryId)
         XCTAssertFalse(controller.isInitialBootstrapInFlight)
         XCTAssertNil(controller.initialBootstrapTimeoutWorkItem)
+    }
+
+    func testRawInitialBootstrapFinalCannotCompleteUIBeforeCoordinatorCommit() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        controller.applyBootstrapLoadingState(
+            .blockingArchive,
+            forceRender: true,
+            synchronousSkeletonCommit: true
+        )
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        let queryId = "bootstrap-coordinator-commit-gate"
+        let acquisition = coordinator.acquire(
+            key: key,
+            proposedQueryId: queryId,
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let lease) = acquisition else {
+            controller.performTerminalChatResourceTeardownForTesting()
+            return XCTFail("test setup must own the bootstrap lease")
+        }
+
+        let manager = makeNonRetainingMessageManager(owner: key.owner)
+        coordinator.resolveStart(
+            key: key,
+            queryId: lease.queryId,
+            result: .bootstrapStarted(queryId: lease.queryId),
+            messages: manager,
+            cancelTransport: {}
+        )
+        controller.beginInitialBootstrapTracking(queryId: lease.queryId, timeout: nil)
+        controller.registerRemoteHistoryEndPageDispatcher(queryId: lease.queryId)
+
+        let coordinatorClaimedCommit = expectation(
+            description: "coordinator owns the persistence terminal"
+        )
+        let allowCoordinatorCommit = DispatchSemaphore(value: 0)
+        coordinator.persistenceCommitClaimObserver = { claimedQueryId in
+            guard claimedQueryId == lease.queryId else { return }
+            coordinatorClaimedCommit.fulfill()
+            allowCoordinatorCommit.wait()
+        }
+
+        let final = MessageArchiveEndPageEvent(
+            owner: key.owner,
+            queryId: lease.queryId,
+            state: MessageArchivePageEndState(
+                queryExhausted: true,
+                archiveEnded: true,
+                persistedMessageCount: 0
+            ),
+            first: "",
+            last: "",
+            count: 0,
+            streamKind: .primary,
+            source: .unroutedFinalIQ
+        )
+        XCTAssertTrue(MessageArchiveEndPageDispatcher.publish(final))
+        wait(for: [coordinatorClaimedCommit], timeout: 2)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .persistence)
+        XCTAssertEqual(controller.initialBootstrapQueryId, lease.queryId)
+        XCTAssertTrue(controller.isInitialBootstrapInFlight)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+
+        let coordinatorCommitted = expectation(description: "coordinator committed page")
+        let observation = coordinator.observe(key: key) { readiness in
+            if readiness?.phase == .committed {
+                coordinatorCommitted.fulfill()
+            }
+        }
+        allowCoordinatorCommit.signal()
+        wait(for: [coordinatorCommitted], timeout: 2)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+
+        coordinator.detach(key: key, observation: observation)
+        controller.performTerminalChatResourceTeardownForTesting()
+        manager.unsubscribeReceiver()
+    }
+
+    func testSnapshotObserverCompletionCannotRemoveCommittedPageBeforeJoinedUIConsumesIt() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        controller.applyBootstrapLoadingState(
+            .blockingArchive,
+            forceRender: true,
+            synchronousSkeletonCommit: true
+        )
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        let queryId = "snapshot-joined-ui-commit-race"
+        let acquisition = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: queryId,
+            timeout: 45,
+            purpose: .snapshotRepair,
+            observer: { _, _, _ in }
+        )
+        guard case .start(let lease) = acquisition else {
+            controller.performTerminalChatResourceTeardownForTesting()
+            return XCTFail("snapshot repair must own the shared conversation lease")
+        }
+
+        var snapshotObserverSawCommit = false
+        let snapshotObservation = coordinator.observe(key: key) { readiness in
+            if readiness?.phase == .committed {
+                snapshotObserverSawCommit = true
+            }
+        }
+        controller.beginInitialBootstrapTracking(queryId: lease.queryId, timeout: nil)
+
+        let final = MessageArchiveEndPageEvent(
+            owner: key.owner,
+            queryId: lease.queryId,
+            state: MessageArchivePageEndState(
+                queryExhausted: true,
+                archiveEnded: true,
+                persistedMessageCount: 0
+            ),
+            first: "",
+            last: "",
+            count: 0,
+            streamKind: .primary,
+            source: .unroutedFinalIQ
+        )
+        XCTAssertTrue(MessageArchiveEndPageDispatcher.publish(final))
+        XCTAssertTrue(snapshotObserverSawCommit)
+
+        // Model the snapshot pump's already-enqueued terminal block winning the
+        // main-queue race before the joined controller processes its observer hop.
+        XCTAssertTrue(coordinator.complete(key: key, queryId: lease.queryId))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+
+        coordinator.detach(key: key, observation: snapshotObservation)
+        controller.performTerminalChatResourceTeardownForTesting()
     }
 
     func testDatasetReconfigurationCannotForgetEarlierCommittedContentWhilePlaceholderIsVisible() {

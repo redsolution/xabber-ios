@@ -522,7 +522,7 @@ final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
         )
     }
 
-    func testInteractiveOlderPageDoesNotReleaseMamSchedulerOnRawFinal() throws {
+    func testInteractiveOlderPageReleasesMamSchedulerOnRawFinalBeforePersistence() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -541,21 +541,33 @@ final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
                 range: olderPageStart.upperBound..<source.endIndex
             )
         )
+        let requestArmStart = try XCTUnwrap(
+            source.range(of: "private func armRemoteInteractiveHistoryRequest(")
+        )
+        let requestArmEnd = try XCTUnwrap(
+            source.range(
+                of: "private func beginVisibleRemoteHistoryLoading(",
+                range: requestArmStart.upperBound..<source.endIndex
+            )
+        )
         let olderPageSource = String(
             source[olderPageStart.lowerBound..<newerPageStart.lowerBound]
+        )
+        let requestArmSource = String(
+            source[requestArmStart.lowerBound..<requestArmEnd.lowerBound]
         )
 
         XCTAssertTrue(
             olderPageSource.contains("deferCoverageCommitUntilConsumerProof: true"),
             "interactive older paging must keep query-scoped consumer persistence ownership"
         )
-        XCTAssertFalse(
-            olderPageSource.contains("callback: finish"),
-            "raw MAM final must not release the shared .mamArchive scheduler lease before query persistence terminates"
+        XCTAssertTrue(
+            requestArmSource.contains("wireTerminal: schedulerLease.complete"),
+            "the shared interactive request arm must release the transport-only .mamArchive lease on raw final"
         )
     }
 
-    func testMamSchedulerLeaseReleasesExactlyOnceAfterPersistenceTerminal() {
+    func testMamSchedulerLeaseReleasesExactlyOnceAtWireTerminalBeforePersistence() {
         let coordinator = ChatRemoteHistoryQueryCoordinator(callbackQueue: .main)
         let descriptor = makeDescriptor(
             queryId: "mam-scheduler-persistence-terminal",
@@ -579,6 +591,7 @@ final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
         }
         XCTAssertTrue(coordinator.register(
             descriptor,
+            wireTerminal: lease.complete,
             persistenceCleanup: lease.complete
         ) { _, completion in
             barrierStarted.fulfill()
@@ -600,13 +613,13 @@ final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
             .accepted
         )
 
-        wait(for: [barrierStarted], timeout: 2)
+        wait(for: [leaseReleased, barrierStarted], timeout: 2)
         countLock.lock()
-        XCTAssertEqual(releaseCount, 0, "raw final must not release the scheduler lane")
+        XCTAssertEqual(releaseCount, 1, "raw final must release the scheduler lane before Realm persistence")
         countLock.unlock()
 
         releaseBarrier.signal()
-        wait(for: [leaseReleased, committed], timeout: 2)
+        wait(for: [committed], timeout: 2)
         lease.complete()
         coordinator.remove(queryId: descriptor.queryId)
         countLock.lock()

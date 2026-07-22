@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		7C2000023200000000ABC001 /* CloudStorageAvailabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2000013200000000ABC001 /* CloudStorageAvailabilityTests.swift */; };
 		7C2000043200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2000033200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift */; };
+		7C2300023200000000ABC001 /* ChatFirstLoginChatOpenRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2300013200000000ABC001 /* ChatFirstLoginChatOpenRegressionTests.swift */; };
 		7C2000063200000000ABC001 /* LastChatsNavigationSingleFlightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2000053200000000ABC001 /* LastChatsNavigationSingleFlightTests.swift */; };
 		7C2000083200000000ABC001 /* SignInServerFeaturesRenderGateLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2000073200000000ABC001 /* SignInServerFeaturesRenderGateLifecycleTests.swift */; };
 		7C2200023200000000ABC001 /* ServerDiscoCapabilityMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2200013200000000ABC001 /* ServerDiscoCapabilityMergeTests.swift */; };
@@ -1018,6 +1019,7 @@
 /* Begin PBXFileReference section */
 		7C2000013200000000ABC001 /* CloudStorageAvailabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStorageAvailabilityTests.swift; sourceTree = "<group>"; };
 		7C2000033200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFirstAccountBootstrapRegressionTests.swift; sourceTree = "<group>"; };
+		7C2300013200000000ABC001 /* ChatFirstLoginChatOpenRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFirstLoginChatOpenRegressionTests.swift; sourceTree = "<group>"; };
 		7C2000053200000000ABC001 /* LastChatsNavigationSingleFlightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsNavigationSingleFlightTests.swift; sourceTree = "<group>"; };
 		7C2000073200000000ABC001 /* SignInServerFeaturesRenderGateLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInServerFeaturesRenderGateLifecycleTests.swift; sourceTree = "<group>"; };
 		7C2200013200000000ABC001 /* ServerDiscoCapabilityMergeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerDiscoCapabilityMergeTests.swift; sourceTree = "<group>"; };
@@ -4132,6 +4134,7 @@
 			children = (
 				7C2000013200000000ABC001 /* CloudStorageAvailabilityTests.swift */,
 				7C2000033200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift */,
+				7C2300013200000000ABC001 /* ChatFirstLoginChatOpenRegressionTests.swift */,
 				7C2000053200000000ABC001 /* LastChatsNavigationSingleFlightTests.swift */,
 				7C2000073200000000ABC001 /* SignInServerFeaturesRenderGateLifecycleTests.swift */,
 				7C2200013200000000ABC001 /* ServerDiscoCapabilityMergeTests.swift */,
@@ -6342,6 +6345,7 @@
 			files = (
 				7C2000023200000000ABC001 /* CloudStorageAvailabilityTests.swift in Sources */,
 				7C2000043200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift in Sources */,
+				7C2300023200000000ABC001 /* ChatFirstLoginChatOpenRegressionTests.swift in Sources */,
 				7C2000063200000000ABC001 /* LastChatsNavigationSingleFlightTests.swift in Sources */,
 				7C2000083200000000ABC001 /* SignInServerFeaturesRenderGateLifecycleTests.swift in Sources */,
 				7C2200023200000000ABC001 /* ServerDiscoCapabilityMergeTests.swift in Sources */,
