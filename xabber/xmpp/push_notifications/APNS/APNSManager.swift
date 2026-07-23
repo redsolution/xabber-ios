@@ -27,7 +27,7 @@ import RealmSwift
 class APNSManager: NSObject {
     
     struct NodeData: Codable {
-        let action: String
+        let action: String?
         let node: String?
         let jid: String?
         let result: String?

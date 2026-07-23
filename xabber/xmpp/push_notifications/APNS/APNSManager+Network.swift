@@ -37,6 +37,13 @@ extension APNSManager {
             return false
         }
         
+        guard let voipToken = self.voipToken,
+              let deviceToken = self.deviceToken,
+              deviceToken.isNotEmpty else {
+            completion?(false)
+            return false
+        }
+        
         print("SEND REGJID REQUEST FOR \(jid)")
         
         let url: String = APNSManager.apiUrl(for: "jid/endpoints/")
@@ -47,9 +54,10 @@ extension APNSManager {
         ]
         
         let params: [String: String] = [
-            "target": target,
-            "endpoint_key": endpointKey,
-            "provider": voip ? "apns.voip" : "apns",
+            "jid": jid,
+            "provider": "apns",
+            "endpoint_key": deviceToken,
+            "call_endpoint_key": voipToken
         ]
         print(params, "REGJIDPARAMS")
 //        let retrier = RequestRetrier()
@@ -57,30 +65,20 @@ extension APNSManager {
          */
 //        self.sendDeleteRequest(jid: jid, voip: voip) {
             AF.request(url, method: .post, parameters: params, encoding: JSONEncoding.default, headers: HTTPHeaders(headers)).responseData { response in
+                print("PUSH RESPONSE", response.debugDescription, response)
                 switch response.result {
                     case .success(let data):
                         guard let json = try? JSONDecoder().decode(NodeData.self, from: data) else {
                             completion?(false)
                             return
                         }
-                        switch json.action{
-                            case "regjid":
-                                if !voip {
-                                    do {
-                                        try self.register(json, completionHandler: nil)
-                                        completion?(true)
-                                    } catch {
-                                        completion?(false)
-                                    }
-                                } else {
-                                    completion?(true)
-                                }
-                                break
-                            default:
-                                completion?(false)
-                                break
+                        print("PUSH RESPONSE JSON", json)
+                        do {
+                            try self.register(json, completionHandler: nil)
+                            completion?(true)
+                        } catch {
+                            completion?(false)
                         }
-                        
                         break
                     case .failure(let error):
                         print(error.localizedDescription)

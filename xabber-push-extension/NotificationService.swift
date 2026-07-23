@@ -266,7 +266,7 @@ class NotificationService: UNNotificationServiceExtension {
             return nil
         }
         
-        guard let target = payload["target"] as? String,
+        guard let target = payload["node"] as? String,
               let defaults  = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             return [:]
         }
@@ -348,9 +348,9 @@ class NotificationService: UNNotificationServiceExtension {
             return
         }
         
-        guard let node = bestAttemptContent.userInfo["target"] as? String else {
+        guard let node = bestAttemptContent.userInfo["node"] as? String else {
             bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-            bestAttemptContent.body = "bad node: \(request.content.userInfo["target"] as? String ?? "")"
+            bestAttemptContent.body = "bad node: \(request.content.userInfo["node"] as? String ?? "")"
             completeContent(bestAttemptContent)
             return
         }
